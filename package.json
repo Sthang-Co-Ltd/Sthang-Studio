@@ -1,0 +1,24 @@
+{
+  "name": "sthang-studio",
+  "private": true,
+  "version": "0.7.10",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/verify-brand-assets.mjs && node scripts/build.mjs",
+    "typecheck": "node scripts/verify-brand-assets.mjs && node scripts/typecheck.mjs",
+    "start": "node apps/server/dist/index.js",
+    "verify:brand": "node scripts/verify-brand-assets.mjs"
+  },
+  "allowScripts": {
+    "@google/genai": true,
+    "esbuild": true,
+    "protobufjs": true
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
