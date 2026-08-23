@@ -1,0 +1,25 @@
+{
+  "name": "@kcs/web",
+  "version": "0.7.10",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../node_modules/vite/bin/vite.js --host 127.0.0.1",
+    "build": "node ../../node_modules/typescript/bin/tsc -b && node ../../node_modules/vite/bin/vite.js build",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -b --pretty false",
+    "preview": "node ../../node_modules/vite/bin/vite.js preview"
+  },
+  "dependencies": {
+    "@kcs/shared": "0.7.10",
+    "lucide-react": "^0.542.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.4"
+  }
+}

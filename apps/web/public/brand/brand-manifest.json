@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "brand": "Sthang Studio",
+  "status": "approved-source-of-truth",
+  "instruction": "Use these exact SVG files. Do not redraw, approximate, trace, or replace them with generated artwork.",
+  "marks": {
+    "primaryOnDark": {
+      "file": "sthang-studio-mark.svg",
+      "surface": "dark",
+      "sha256": "55733ee54ec47264c86ba1f247e42a98b0b204063eaa1d1480ace7b738021f3c"
+    },
+    "primaryOnLight": {
+      "file": "sthang-studio-mark-ink.svg",
+      "surface": "light",
+      "sha256": "e9349efc87e489ddec8bfaecd292bebe5aaa87aa344c45c11c5d5a13f5fd4927"
+    },
+    "monochromeOnDark": {
+      "file": "sthang-studio-mark-mono.svg",
+      "surface": "dark-or-single-colour",
+      "sha256": "eb8f9a48ffeaf2a02174a4706116ef967ab28c666b47978c238cc8543f1dd85f"
+    }
+  }
+}
