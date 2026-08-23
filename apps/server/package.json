@@ -1,0 +1,28 @@
+{
+  "name": "@kcs/server",
+  "version": "0.7.10",
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../node_modules/tsx/dist/cli.mjs watch src/index.ts",
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@google/genai": "2.17.1",
+    "@kcs/shared": "0.7.10",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "nanoid": "^5.1.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

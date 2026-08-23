@@ -1,0 +1,10 @@
+# Explicit KFA runtime dependencies tested on Windows/Python 3.12.
+sosap==0.4.3
+khmercut==0.2.0
+khmernormalizer==0.0.4
+onnxruntime>=1.20
+librosa>=0.10
+scipy>=1.10
+tqdm>=4.66
+requests>=2.31
+appdirs>=1.4.4

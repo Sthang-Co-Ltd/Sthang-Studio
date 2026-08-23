@@ -35,11 +35,10 @@ export function HomeSetupChecklist({ llmConfigured, timingConfigured, projectCou
       <button className={timingConfigured ? 'done' : 'current'} onClick={onOpenDoctor}><i>{timingConfigured ? <Check size={15}/> : <TimerReset size={15}/>}</i><span><b>2. Verify Khmer timing</b><small>{timingConfigured ? 'Timing is ready' : 'Open System check for the exact setup step.'}</small></span><ChevronRight size={15}/></button>
       <div className={projectCount > 0 ? 'done' : 'current'}><i>{projectCount > 0 ? <Check size={15}/> : <UploadCloud size={15}/>}</i><span><b>3. Add a video</b><small>{projectCount > 0 ? `${projectCount} project${projectCount === 1 ? '' : 's'} available` : 'Upload below creates your first project.'}</small></span></div>
     </div>
-    <div className="first-run-footer"><span>Advanced tools stay out of the way until a project needs them.</span></div>
   </section>;
 }
 
-interface QuickGuideProps {
+interface GuideProps {
   open: boolean;
   project: CaptionProject | null;
   llmConfigured: boolean;
@@ -48,19 +47,34 @@ interface QuickGuideProps {
   onClose(): void;
   onConnect(): void;
   onOpenDoctor(): void;
-  onContext(): void;
   onGenerate(): void;
   onReview(): void;
+  onContext(): void;
   onExport(): void;
 }
 
-export function QuickGuide({ open, project, llmConfigured, timingConfigured, issueCount, onClose, onConnect, onOpenDoctor, onContext, onGenerate, onReview, onExport }: QuickGuideProps) {
+export function NewUserGuide({
+  open,
+  project,
+  llmConfigured,
+  timingConfigured,
+  issueCount,
+  onClose,
+  onConnect,
+  onOpenDoctor,
+  onGenerate,
+  onReview,
+  onContext,
+  onExport,
+}: GuideProps) {
   if (!open) return null;
   const hasCaptions = Boolean(project?.captions.length);
-  return <aside className="guide-sheet" aria-label="Quick guide">
-    <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong><small>The simple path from video to CapCut.</small></span></div><button onClick={onClose} aria-label="Close guide"><X size={16}/></button></header>
-    {!project ? <div className="guide-empty"><UploadCloud size={28}/><strong>Start with a video</strong><span>Upload a media file on the home screen. Studio creates a project and keeps everything else optional.</span></div> : <>
+  return <aside className="new-user-guide" aria-label="Sthang Studio guide">
+    <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong><small>What to do next—without learning every advanced control first.</small></span></div><button onClick={onClose} aria-label="Close guide"><X size={16}/></button></header>
+
+    {!project ? <div className="guide-empty"><UploadCloud size={28}/><strong>Create a project first</strong><span>Drop a video or audio file on the home screen. Sthang Studio keeps the media local and prepares it for captions.</span></div> : <>
       <section className="guide-workflow">
+        <h3>Your first caption workflow</h3>
         <button className={llmConfigured ? 'done' : 'next'} onClick={onConnect}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected and ready.' : 'Required to generate caption text.'}</small></span></button>
         <button className={timingConfigured ? 'done' : 'next'} onClick={onOpenDoctor}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>Khmer timing</b><small>{timingConfigured ? 'Timing is ready for accurate review.' : 'Open System check for setup help.'}</small></span><ChevronRight size={14}/></button>
         <button onClick={onContext}><i>3</i><span><b>Add accuracy context <em>optional</em></b><small>Protect names, brands, versions, and mixed Khmer-English terms.</small></span><ChevronRight size={14}/></button>
