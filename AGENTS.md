@@ -18,6 +18,21 @@ npm run verify:brand
 
 A newly supplied owner-approved logo set may replace them only when `brand-manifest.json`, derived icon assets, and this guidance are updated together.
 
+## Public repository and release invariants
+
+Sthang Studio source code and documentation are published under the repository's software license, while Sthang names and brand assets remain governed separately by `TRADEMARKS.md`.
+
+Preserve these public-release rules:
+
+- Never commit API keys, credentials, private source media, local projects, history, caches, proposals, jobs, exports, downloaded model weights, or local virtual environments.
+- Run `npm run check:public` before a public-release PR or visibility change. The check scans tracked files and Git history for common secret patterns and forbidden runtime paths.
+- Run `npm run typecheck` and `npm run build`; both preserve the existing byte-for-byte brand verification.
+- Keep `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md` accurate when data flow, hosted services, direct dependencies, downloaded models, or redistributed binaries change.
+- Do not add telemetry, analytics, a new hosted service, or a new category of cloud data transfer without an explicit product decision and corresponding privacy documentation.
+- Do not vendor third-party model weights, FFmpeg binaries, or other large/runtime-downloaded artifacts without a separate license and distribution review.
+- Public user downloads should come from deliberate GitHub Release assets (and the Sthang website), not from an arbitrary development branch or a locally generated ZIP.
+- Treat `main` as the accepted baseline; normal work belongs on short-lived branches and pull requests.
+
 ## UX and interaction invariants
 
 Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md`, `DESIGN.md`, and `UX-AUDIT.md` before changing the frontend.

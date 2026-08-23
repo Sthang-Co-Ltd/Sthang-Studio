@@ -1,0 +1,7 @@
+# Default maintainer review
+* @SweepCoon
+
+# Sthang-owned identity assets require owner review
+/apps/web/public/brand/ @SweepCoon
+/BRAND.md @SweepCoon
+/TRADEMARKS.md @SweepCoon
