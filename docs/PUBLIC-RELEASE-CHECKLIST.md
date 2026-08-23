@@ -11,9 +11,12 @@ publicly.
 - [x] Public-facing README added.
 - [x] Privacy/data-flow documentation added.
 - [x] Security reporting policy added.
-- [x] Contribution guide and PR/issue templates added.
+- [x] Contribution guide, community code of conduct, support guide, and PR/issue
+      templates added.
 - [x] Third-party dependency/model notice added.
 - [x] Git ignore rules hardened for credentials and runtime/private data.
+- [x] Cross-platform Git line-ending rules added.
+- [x] Dependabot update configuration added for npm and local Python requirements.
 - [x] CI added for public-readiness scanning, typecheck, build, brand verification,
       and Python worker syntax.
 - [x] Public-readiness script scans the current tree and full Git history for
@@ -26,16 +29,21 @@ publicly.
 
 Owner/admin actions:
 
-- [ ] Confirm the public-readiness PR is merged and CI is green on `main`.
+- [ ] Confirm the public-readiness PR is merged and the repository checks are in
+      an understood/acceptable state.
 - [ ] Run a final secret scan locally on the full repository clone.
 - [ ] In GitHub repository Settings, change visibility from **Private** to
       **Public** only after the preceding checks are complete.
 - [ ] Enable branch protection/rules for `main` and require the CI validation
-      check before merge.
-- [ ] Enable GitHub private vulnerability reporting / Security Advisories if it
-      is not already enabled.
+      check before merge once the hosted runners are available.
+- [ ] Enable Dependabot alerts/security updates and GitHub private vulnerability
+      reporting / Security Advisories if they are not already enabled.
+- [ ] Consider enabling public code scanning/CodeQL after the repository is
+      public.
 - [ ] Review repository Discussions/Issues settings and enable only the public
       community surfaces Sthang intends to maintain.
+- [ ] Add a repository social-preview image and useful repository topics after
+      the public product page/visuals are ready.
 
 ## First public distribution
 
@@ -78,6 +86,6 @@ Before a future packaged installer vendors any third-party binary or model,
 perform a separate license review for the exact artifact/build and update
 `THIRD_PARTY_NOTICES.md`.
 
-A clean CI run verifies repository structure and source/build integrity; it does
+A clean repository check verifies structure and source/build integrity; it does
 not replace the clean-Windows installation and real Khmer caption workflow tests
 above.

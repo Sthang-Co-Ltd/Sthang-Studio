@@ -20,6 +20,7 @@ function forbiddenTrackedPath(file) {
 
   if (base === '.env') return true;
   if (base.startsWith('.env.') && base !== '.env.example') return true;
+  if (/^(?:credentials.*|service-account.*)\.json$/i.test(base)) return true;
   if (segments.includes('node_modules') || segments.includes('.venv') || segments.includes('__pycache__')) return true;
   if (segments.includes('dist')) return true;
   if (/\.(?:pyc|pyo|pem|p12|pfx)$/i.test(base)) return true;
@@ -46,6 +47,7 @@ const secretPatterns = [
   ['Google API key', /AIza[0-9A-Za-z_-]{30,}/g],
   ['GitHub token', /\bgh[pousr]_[A-Za-z0-9]{30,}\b/g],
   ['GitHub fine-grained token', /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g],
+  ['npm token', /\bnpm_[A-Za-z0-9]{30,}\b/g],
   ['AWS access key', /\bAKIA[0-9A-Z]{16}\b/g],
   ['Slack token', /\bxox[baprs]-[0-9A-Za-z-]{20,}\b/g],
   ['private key block', /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g],

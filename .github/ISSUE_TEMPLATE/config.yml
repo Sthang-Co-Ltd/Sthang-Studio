@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://sthang.com/
-    about: Please follow SECURITY.md and use a private reporting channel. Do not publish vulnerability details or credentials in an issue.
+    url: https://github.com/Sthang-Co-Ltd/Sthang-Studio/security/policy
+    about: Follow SECURITY.md and use a private reporting channel. Do not publish vulnerability details or credentials in an issue.

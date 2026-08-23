@@ -26,9 +26,11 @@ dependencies.
 | Component | Use | Upstream license |
 |---|---|---|
 | KFA (`kfa`) | Khmer forced alignment | Apache-2.0 |
+| NumPy | Numerical runtime dependency | BSD-3-Clause |
 | `sosap` | KFA dependency | MIT |
 | `khmercut` | Khmer word segmentation | Apache-2.0 |
 | `khmernormalizer` | Khmer text normalization | MIT |
+| `chardet` | Encoding detection required by KFA | LGPL-2.1-or-later for the pinned 5.x line |
 | ONNX Runtime | Local model inference | MIT |
 | librosa | Audio loading/processing | ISC |
 | SciPy | Numerical/audio dependency | BSD-style |
@@ -36,7 +38,6 @@ dependencies.
 | Requests | HTTP dependency | Apache-2.0 |
 | appdirs | Local cache paths | MIT |
 | faster-whisper | Local timing fallback | MIT |
-| chardet (when installed by/for KFA) | Encoding detection | version-dependent; KFA-era 5.x is LGPL-2.1+ |
 
 ## FFmpeg
 
