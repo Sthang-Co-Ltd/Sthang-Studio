@@ -2,6 +2,18 @@
   "name": "sthang-studio",
   "private": true,
   "version": "0.7.10",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sthang-Co-Ltd/Sthang-Studio.git"
+  },
+  "homepage": "https://sthang.com",
+  "bugs": {
+    "url": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -11,7 +23,9 @@
     "build": "node scripts/verify-brand-assets.mjs && node scripts/build.mjs",
     "typecheck": "node scripts/verify-brand-assets.mjs && node scripts/typecheck.mjs",
     "start": "node apps/server/dist/index.js",
-    "verify:brand": "node scripts/verify-brand-assets.mjs"
+    "verify:brand": "node scripts/verify-brand-assets.mjs",
+    "check:public": "node scripts/public-readiness-check.mjs",
+    "ci": "npm run check:public && npm run typecheck && npm run build"
   },
   "allowScripts": {
     "@google/genai": true,

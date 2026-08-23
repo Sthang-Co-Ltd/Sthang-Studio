@@ -1,21 +1,43 @@
 node_modules/
 dist/
+
+# Local environment and secrets
 .env
+.env.*
+!.env.example
 apps/*/.env
+apps/*/.env.*
+!apps/*/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# Runtime media and exports
 uploads/*
 !uploads/.gitkeep
 exports/*
 !exports/.gitkeep
-data/projects.json
-data/working/
-*.log
-.DS_Store
 
-.venv/
-__pycache__/
-*.pyc
+# Local project/runtime state
+data/projects.json
 data/profile.json
+data/jobs.json
+data/working/
 data/cache/
 data/history/
 data/proposals/
-data/jobs.json
+
+# Python/runtime caches
+.venv/
+__pycache__/
+*.py[cod]
+
+# Logs and OS/editor noise
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

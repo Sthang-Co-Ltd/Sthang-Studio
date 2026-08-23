@@ -1,7 +1,11 @@
-# Explicit KFA runtime dependencies tested on Windows/Python 3.12.
+# Explicit KFA runtime dependencies for the Windows/Python 3.12 setup.
+# KFA 0.2.0 is installed with --no-deps, so its runtime requirements must stay
+# explicit here. khmercut publishes 0.0.x/0.1.x releases; do not pin 0.2.0.
+numpy>=1.26,<2.0
 sosap==0.4.3
-khmercut==0.2.0
+khmercut>=0.0.2,<0.2.0
 khmernormalizer==0.0.4
+chardet>=5.2,<6
 onnxruntime>=1.20
 librosa>=0.10
 scipy>=1.10

@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a focused improvement to the Sthang Studio workflow
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sthang Studio prioritizes accurate Khmer captions, precise timing, fast review, low-friction editing, and reliable CapCut-compatible SRT export. Please describe the workflow problem first rather than only the proposed control or technology.
+
+  - type: textarea
+    id: friction
+    attributes:
+      label: What workflow friction are you experiencing?
+      description: What are you trying to accomplish, and what currently slows you down or feels unclear?
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What outcome would improve it?
+      description: Describe the simplest useful behavior from the user's point of view.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Example or context
+      description: Optional. Use non-private sample text/media descriptions only.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've tried
+      description: Optional. Mention workarounds or existing Studio features that almost solve it.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy check
+      options:
+        - label: I did not include API keys, private media, or private project data.
+          required: true
