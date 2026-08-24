@@ -3,8 +3,14 @@ setlocal
 cd /d "%~dp0"
 title Sthang Studio - Local Timing Setup
 
+REM Force UTF-8 mode for legacy Python package setup scripts on Windows and
+REM prefer wheels whenever they are available. This avoids locale-dependent
+REM source-build failures on clean PCs.
+set "PYTHONUTF8=1"
+set "PIP_PREFER_BINARY=1"
+
 echo.
-echo === Sthang Studio local timing setup v0.7.10 ===
+echo === Sthang Studio local timing setup ===
 echo Primary: KFA Khmer Forced Aligner ^(local CPU / ONNX^)
 echo Fallback: faster-whisper ^(local CPU/GPU^)
 echo Google Cloud Speech-to-Text is NOT configured or called.
@@ -51,7 +57,7 @@ if errorlevel 1 goto :python_error
 
 echo.
 echo Checking whether the working local timing environment is already ready...
-".venv\Scripts\python.exe" -c "import importlib.util, os; base=os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'); model=os.path.join(base,'kfa','wav2vec2-km-base-1500.onnx'); assert all(importlib.util.find_spec(x) for x in ['kfa','faster_whisper','onnxruntime','khmernormalizer']); assert os.path.exists(model); print('KFA + Whisper timing environment already READY')" >nul 2>nul
+".venv\Scripts\python.exe" -c "import importlib.util, os; base=os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'); model=os.path.join(base,'kfa','wav2vec2-km-base-1500.onnx'); assert all(importlib.util.find_spec(x) for x in ['kfa','khmercut','faster_whisper','onnxruntime','khmernormalizer']); assert os.path.exists(model); print('KFA + Whisper timing environment already READY')" >nul 2>nul
 if not errorlevel 1 goto :already_ready
 
 echo.
@@ -64,20 +70,20 @@ echo.
 echo Installing KFA Khmer forced-aligner dependencies...
 ".venv\Scripts\python.exe" -m pip install --upgrade setuptools wheel
 if errorlevel 1 goto :pip_error
-".venv\Scripts\python.exe" -m pip install -r "local-timing\requirements-kfa.txt"
+".venv\Scripts\python.exe" -m pip install --prefer-binary -r "local-timing\requirements-kfa.txt"
 if errorlevel 1 (
   set KFA_OK=0
   echo.
   echo WARNING: KFA dependency installation did not complete on this Python environment.
 ) else (
   echo Installing KFA 0.2.0 itself without legacy dependency resolution...
-  ".venv\Scripts\python.exe" -m pip install --no-deps "kfa==0.2.0"
+  ".venv\Scripts\python.exe" -m pip install --prefer-binary --no-deps "kfa==0.2.0"
   if errorlevel 1 set KFA_OK=0
 )
 
 echo.
 echo Installing local Whisper fallback...
-".venv\Scripts\python.exe" -m pip install -r "local-timing\requirements-whisper.txt"
+".venv\Scripts\python.exe" -m pip install --prefer-binary -r "local-timing\requirements-whisper.txt"
 if errorlevel 1 goto :pip_error
 
 echo.
@@ -89,7 +95,7 @@ if "%KFA_OK%"=="1" (
   echo.
   echo Verifying KFA and preloading its Khmer ONNX model...
   echo The first setup may download about 360 MB once.
-  ".venv\Scripts\python.exe" -c "import kfa, khmernormalizer; print('KFA package and Khmer model cache: READY')"
+  ".venv\Scripts\python.exe" -c "import kfa, khmercut, khmernormalizer; from khmercut import tokenize; assert callable(tokenize); print('KFA package, Khmer tokenizer, and model cache: READY')"
   if errorlevel 1 set KFA_OK=0
 )
 
