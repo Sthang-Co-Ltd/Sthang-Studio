@@ -44,7 +44,7 @@
 - Added persistent **Auto-play next** preference; when enabled, the next review item starts with the existing pre-roll and can continue using the optional current-item loop.
 - Renamed generic **Next** to **Skip** so moving forward without approval is explicit.
 - Renamed **Preview regeneration** to the simpler **Improve…** entry point beside the approval decision.
-- Added one-step **Undo** for accidental approval.
+- Added one-step **Undo** for the most recent review approval.
 - Added review shortcuts: `Enter`/`A` approve and advance, `R` replay, and `S` skip.
 - Kept sequential auto-advance strictly inside Review mode; free timeline editing remains stationary.
 
