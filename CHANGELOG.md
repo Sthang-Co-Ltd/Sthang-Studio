@@ -10,6 +10,7 @@
 - Expanded `brand-manifest.json` and brand verification to protect the Studio marks and STHANG wordmarks together, and updated `BRAND.md`, `DESIGN.md`, `AGENTS.md`, the public brand README, README, and trademark guidance.
 - Fixed fresh-install TypeScript validation for the replace-media upload route by narrowing Express/Multer route parameters to a single non-empty project id before store lookup.
 - Hardened clean Windows installation by using the committed npm lockfile, preferring binary Python packages, forcing UTF-8 mode for legacy setup scripts, and pinning KFA's `khmercut` dependency to the wheel-backed 0.0.2 release instead of the source-only 0.1.0 package that failed under the Windows code page.
+- Aligned the wheel-backed Khmer tokenizer dependencies for Python 3.12 and treated KFA 0.2.0's stale `sosap==0.0.1` wheel metadata as one explicit compatibility exception while still failing every other dependency-check error and functionally verifying the newer Windows `sosap` wheel through KFA import/model preload.
 - Removed stale hard-coded version labels from Windows setup/launcher banners and routed incomplete-install recovery back through `INSTALL-NEW-PC.bat`.
 - No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
 
@@ -43,7 +44,7 @@
 - Added persistent **Auto-play next** preference; when enabled, the next review item starts with the existing pre-roll and can continue using the optional current-item loop.
 - Renamed generic **Next** to **Skip** so moving forward without approval is explicit.
 - Renamed **Preview regeneration** to the simpler **Improve…** entry point beside the approval decision.
-- Added one-step **Undo** for the most recent review approval.
+- Added one-step **Undo** for accidental approval.
 - Added review shortcuts: `Enter`/`A` approve and advance, `R` replay, and `S` skip.
 - Kept sequential auto-advance strictly inside Review mode; free timeline editing remains stationary.
 
