@@ -17,6 +17,10 @@
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 
+# Approved source brand SVGs are byte-for-byte protected. Do not let
+# core.autocrlf or platform checkout rules rewrite their line endings.
+apps/web/public/brand/*.svg -text
+
 # Derived brand assets are binary.
 *.png binary
 *.ico binary
