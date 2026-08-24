@@ -16,7 +16,7 @@ python-crfsuite==0.9.9
 khmernormalizer==0.0.4
 chardet>=5.2,<6
 onnxruntime>=1.20
-librosa>=0.10
+librosa>=1.0.0
 scipy>=1.10
 tqdm==4.65.0
 requests>=2.31
