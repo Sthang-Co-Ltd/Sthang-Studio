@@ -35,6 +35,9 @@ data/proposals/
 __pycache__/
 *.py[cod]
 
+# TypeScript build caches
+*.tsbuildinfo
+
 # Logs and OS/editor noise
 *.log
 .DS_Store
