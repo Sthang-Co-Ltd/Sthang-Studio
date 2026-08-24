@@ -8,6 +8,7 @@
 - Removed the old boxed treatment around the Studio mark and tuned hero/compact proportions so the new mark reads cleanly in the home launcher and project header.
 - Regenerated the browser favicon, 512px application icon, and Windows shortcut icon from the new primary mark.
 - Expanded `brand-manifest.json` and brand verification to protect the Studio marks and STHANG wordmarks together, and updated `BRAND.md`, `DESIGN.md`, `AGENTS.md`, the public brand README, README, and trademark guidance.
+- Fixed fresh-install TypeScript validation for the replace-media upload route by narrowing Express/Multer route parameters to a single non-empty project id before store lookup.
 - No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
 
 ## 0.7.10 — Focus Loop & Clear Copy
@@ -68,7 +69,7 @@
 - Reduced the persistent project header to Review, Tools, Save, and Export SRT. Guide, Correct, History, Jobs, Corrections, Replace, and Settings now live in a labeled Tools menu with plain-language descriptions and status counts.
 - Added progressive disclosure beneath the video: only one of Review, Fine timing, Accuracy, Caption style, or Details renders at a time. The default workspace returns focus to video evidence and caption editing.
 - Simplified caption rows so Approve remains visible while locks, nudges, split, merge, and delete move into an explicit per-caption menu.
-- Replaced multiple alarming risk chips on unselected rows with one calm Review suggested summary; detailed reasons remain visible on selection.
+- Replaced multiple alarming risk chips on unselected rows with one calm Review suggested summary; detailed reasons appear when the caption is selected.
 - Added a global focus-visible system, larger operational type, more ergonomic targets, persistent responsive labels, and reduced-motion handling.
 - Fixed overlapping busy/job/error/notice messages with a single ordered toast stack and dismissible notices/errors.
 - Moved recent projects and setup warnings into normal page flow to prevent them covering upload content.
