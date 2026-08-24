@@ -3,8 +3,9 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
 Write-Host ""
-Write-Host "=== Sthang Studio v0.7.10 - New PC Installer ===" -ForegroundColor Cyan
-Write-Host "This installs/checks Node.js LTS, Python 3.12 and FFmpeg, then sets up the app." -ForegroundColor DarkGray
+Write-Host "=== Sthang Studio - New PC Installer ===" -ForegroundColor Cyan
+Write-Host "This checks Node.js LTS, Python 3.12 and FFmpeg, then sets up the app and local caption timing." -ForegroundColor DarkGray
+Write-Host "The first timing setup may download a Khmer alignment model (roughly a few hundred MB)." -ForegroundColor DarkGray
 
 function Refresh-Path {
   $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -18,7 +19,7 @@ function Ensure-WingetPackage([string]$Command, [string]$PackageId, [string]$Lab
     return
   }
   if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-    throw "$Label is missing and WinGet is unavailable. Install $Label manually, then run setup-windows.bat."
+    throw "$Label is missing and WinGet is unavailable. Install $Label manually, then run INSTALL-NEW-PC.bat again."
   }
   Write-Host "Installing $Label..." -ForegroundColor Yellow
   winget install --id $PackageId -e --accept-package-agreements --accept-source-agreements
@@ -32,13 +33,13 @@ Ensure-WingetPackage 'py' 'Python.Python.3.12' 'Python 3.12' { try { py -3.12 --
 Ensure-WingetPackage 'ffmpeg' 'Gyan.FFmpeg' 'FFmpeg' { [bool](Get-Command ffmpeg -ErrorAction SilentlyContinue) }
 
 Write-Host ""
-Write-Host "Running application setup..." -ForegroundColor Cyan
+Write-Host "Running Sthang Studio setup..." -ForegroundColor Cyan
 $env:KCS_NONINTERACTIVE = '1'
 cmd /c "`"$Root\setup-windows.bat`""
-if ($LASTEXITCODE -ne 0) { throw 'Sthang Studio setup did not finish.' }
+if ($LASTEXITCODE -ne 0) { throw 'Sthang Studio setup did not finish. Fix the error above, then run INSTALL-NEW-PC.bat again.' }
 
 Write-Host ""
-Write-Host "Gemini setup now happens inside the app: Settings > AI connection." -ForegroundColor Cyan
+Write-Host "AI setup happens inside the app: Settings > AI connection." -ForegroundColor Cyan
 
 try {
   & (Join-Path $Root 'scripts\ensure-shortcut.ps1')

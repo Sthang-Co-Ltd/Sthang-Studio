@@ -31,7 +31,9 @@ Sthang Studio source code and documentation are published under the repository's
 Preserve these public-release rules:
 
 - Never commit API keys, credentials, private source media, local projects, history, caches, proposals, jobs, exports, downloaded model weights, or local virtual environments.
-- Keep `package-lock.json` committed and synchronized with the workspace manifests. CI must use `npm ci` so public/release validation installs the reviewed dependency graph instead of resolving a new one.
+- Keep `package-lock.json` committed and synchronized with the workspace manifests. CI and the Windows public setup must use `npm ci` so release validation and user installs use the reviewed dependency graph instead of resolving a new one.
+- Keep the Windows local-timing setup wheel-first and clean-PC friendly. The supported KFA tokenizer stack is intentionally pinned to `khmercut==0.0.2`, `python-crfsuite==0.9.9`, and `tqdm==4.65.0`; do not move the public installer to a source-only or differently constrained tokenizer stack without a successful clean Windows/Python 3.12 installation test.
+- KFA 0.2.0's published wheel metadata still declares `sosap==0.0.1`, but that legacy release has no Windows/Python 3.12 wheel. The public installer intentionally uses the compatible `sosap==0.4.3` Windows wheel. Dependency validation may ignore only this exact metadata mismatch, and only while the functional KFA/sosap import and model preload checks pass; every other `pip check` error remains fatal.
 - Run `npm run check:public` before a public-release PR or visibility change. The check scans tracked files and Git history for common secret patterns and forbidden runtime paths.
 - Run `npm run typecheck` and `npm run build`; both preserve protected brand-source verification, allowing only CRLF/LF normalization for SVG hashing.
 - Keep `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md` accurate when data flow, hosted services, direct dependencies, downloaded models, or redistributed binaries change.

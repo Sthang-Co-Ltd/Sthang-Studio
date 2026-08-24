@@ -7,21 +7,21 @@ REM Keep the desktop branding in sync after upgrades.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\ensure-shortcut.ps1" >nul 2>nul
 
 echo.
-echo === Sthang Studio v0.7.10 ===
+echo === Sthang Studio ===
 echo Captions workspace: fast review, precise timing and CapCut SRT.
 echo Project folder: "%CD%"
 echo.
 
 where node >nul 2>nul || (
   echo ERROR: Node.js was not found.
-  echo Run setup-windows.bat after installing Node.js.
+  echo Run INSTALL-NEW-PC.bat to finish setup.
   pause
   exit /b 1
 )
 
 if not exist "node_modules" (
-  echo ERROR: Node dependencies are not installed yet.
-  echo Run setup-windows.bat first.
+  echo ERROR: Sthang Studio setup is not finished.
+  echo Run INSTALL-NEW-PC.bat, then launch Sthang Studio again.
   pause
   exit /b 1
 )
@@ -32,8 +32,8 @@ if not exist "apps\server\.env" (
 )
 
 if not exist ".venv\Scripts\python.exe" (
-  echo ERROR: Local timing engine is not installed.
-  echo Run setup-local-timing-windows.bat first.
+  echo ERROR: Local caption timing is not installed yet.
+  echo Run INSTALL-NEW-PC.bat to finish setup, then launch Sthang Studio again.
   pause
   exit /b 1
 )

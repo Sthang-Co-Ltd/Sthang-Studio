@@ -1,14 +1,23 @@
 # Explicit KFA runtime dependencies for the Windows/Python 3.12 setup.
 # KFA 0.2.0 is installed with --no-deps, so its runtime requirements must stay
-# explicit here. khmercut publishes 0.0.x/0.1.x releases; do not pin 0.2.0.
+# explicit here.
+#
+# Keep khmercut on 0.0.2 for the public Windows installer. PyPI's 0.1.0 release
+# is source-only and its legacy setup step can fail on Windows while reading
+# UTF-8 package metadata with the system code page. 0.0.2 ships a universal
+# wheel and provides the tokenize() API used by KFA.
+#
+# khmercut 0.0.2 requires python-crfsuite 0.9.9 and tqdm 4.65.0 exactly. Keep
+# those pins aligned so pip can resolve the wheel-backed stack on Python 3.12.
 numpy>=1.26,<2.0
 sosap==0.4.3
-khmercut>=0.0.2,<0.2.0
+khmercut==0.0.2
+python-crfsuite==0.9.9
 khmernormalizer==0.0.4
 chardet>=5.2,<6
 onnxruntime>=1.20
 librosa>=0.10
 scipy>=1.10
-tqdm>=4.66
+tqdm==4.65.0
 requests>=2.31
 appdirs>=1.4.4
