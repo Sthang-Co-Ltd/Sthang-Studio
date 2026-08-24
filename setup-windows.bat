@@ -4,7 +4,7 @@ cd /d "%~dp0"
 title Sthang Studio Setup
 
 echo.
-echo === Sthang Studio setup v0.7.10 ===
+echo === Sthang Studio setup ===
 where node >nul 2>nul || (echo ERROR: Node.js is not installed. Install Node.js, then run this again.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)
 where npm >nul 2>nul || (echo ERROR: npm was not found.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)
 if not exist "apps\server\.env" copy ".env.example" "apps\server\.env" >nul
@@ -26,9 +26,9 @@ where ffprobe >nul 2>nul || (
 )
 
 echo.
-echo Installing Node dependencies...
-call npm install
-if errorlevel 1 (echo ERROR: npm install failed.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)
+echo Installing reviewed Node dependencies...
+call npm ci --no-audit --no-fund
+if errorlevel 1 (echo ERROR: npm ci failed.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)
 
 echo.
 echo Building shared caption package...
@@ -43,7 +43,7 @@ if errorlevel 1 (echo ERROR: application typecheck failed.& if not "%KCS_NONINTE
 
 echo.
 echo Core app setup complete.
-echo Now setting up the FREE local timing engine...
+echo Now setting up local caption timing...
 call "setup-local-timing-windows.bat"
 if errorlevel 1 (
   echo.
