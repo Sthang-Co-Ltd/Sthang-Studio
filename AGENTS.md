@@ -31,6 +31,7 @@ Sthang Studio source code and documentation are published under the repository's
 Preserve these public-release rules:
 
 - Never commit API keys, credentials, private source media, local projects, history, caches, proposals, jobs, exports, downloaded model weights, or local virtual environments.
+- Keep `package-lock.json` committed and synchronized with the workspace manifests. CI must use `npm ci` so public/release validation installs the reviewed dependency graph instead of resolving a new one.
 - Run `npm run check:public` before a public-release PR or visibility change. The check scans tracked files and Git history for common secret patterns and forbidden runtime paths.
 - Run `npm run typecheck` and `npm run build`; both preserve protected brand-source verification, allowing only CRLF/LF normalization for SVG hashing.
 - Keep `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md` accurate when data flow, hosted services, direct dependencies, downloaded models, or redistributed binaries change.
