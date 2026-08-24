@@ -15,7 +15,7 @@ khmercut==0.0.2
 python-crfsuite==0.9.9
 khmernormalizer==0.0.4
 chardet>=5.2,<6
-onnxruntime>=1.20
+onnxruntime>=1.29.0
 librosa>=0.10
 scipy>=1.10
 tqdm==4.65.0
