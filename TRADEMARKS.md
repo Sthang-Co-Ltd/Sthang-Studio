@@ -6,8 +6,9 @@ icons, product identity, or other Sthang brand assets as trademarks or source
 identifiers.
 
 The owner-approved Studio artwork in `apps/web/public/brand/` remains controlled
-brand material. In particular, the three source SVG marks are governed by
-`BRAND.md`, `AGENTS.md`, and `brand-manifest.json`.
+brand material. In particular, the protected source SVG marks and in-house
+STHANG wordmarks are governed by `BRAND.md`, `AGENTS.md`, and
+`brand-manifest.json`.
 
 ## Permitted uses
 

@@ -1,23 +1,33 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "brand": "Sthang Studio",
   "status": "approved-source-of-truth",
-  "instruction": "Use these exact SVG files. Do not redraw, approximate, trace, or replace them with generated artwork.",
-  "marks": {
+  "instruction": "Use these exact transparent source assets. Do not redraw, approximate, trace, recolour, regenerate, or re-typeset them.",
+  "assets": {
     "primaryOnDark": {
       "file": "sthang-studio-mark.svg",
       "surface": "dark",
-      "sha256": "55733ee54ec47264c86ba1f247e42a98b0b204063eaa1d1480ace7b738021f3c"
+      "sha256": "b427b9a8dfce0552addc1eb3274d4e82a8d0cbb34bc5cdaab905221e4e82058d"
     },
     "primaryOnLight": {
       "file": "sthang-studio-mark-ink.svg",
       "surface": "light",
-      "sha256": "e9349efc87e489ddec8bfaecd292bebe5aaa87aa344c45c11c5d5a13f5fd4927"
+      "sha256": "b12883d526dbace1de2ba1b69e297b36157a2bcc9ad2da4982df0ecb11ff6126"
     },
     "monochromeOnDark": {
       "file": "sthang-studio-mark-mono.svg",
       "surface": "dark-or-single-colour",
-      "sha256": "eb8f9a48ffeaf2a02174a4706116ef967ab28c666b47978c238cc8543f1dd85f"
+      "sha256": "37724a24f5ed2e6041428bd55ba48534c1420d3c1aa41ec2ec168ef69dc74a7f"
+    },
+    "wordmarkOnDark": {
+      "file": "sthang-wordmark.svg",
+      "surface": "dark",
+      "sha256": "26d0f6f1ac7e1f9e73e4377fdaa7c94155b1af2e40af54653723041de55c678f"
+    },
+    "wordmarkOnLight": {
+      "file": "sthang-wordmark-ink.svg",
+      "surface": "light",
+      "sha256": "bbefca304fbed585b1026411384678ff03b929f0edf1290c3c106b913a383900"
     }
   }
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.11 — Studio Identity Refresh
+
+- Replaced the previous approved Studio mark with the owner-selected interlocking ribbon-S identity and preserved the white/lime dark-surface, dark/lime light-surface, and monochrome variants on transparent backgrounds.
+- Converted the supplied in-house STHANG wordmark geometry into protected transparent SVG variants for dark and light surfaces so the app never re-typesets the parent wordmark with a substitute font.
+- Updated `StudioBrand` to choose both the Studio mark and STHANG wordmark by surface, with a forward-slanted lime divider and a smaller, lighter, widely tracked `STUDIO` descriptor.
+- Removed the old boxed treatment around the Studio mark and tuned hero/compact proportions so the new mark reads cleanly in the home launcher and project header.
+- Regenerated the browser favicon, 512px application icon, and Windows shortcut icon from the new primary mark.
+- Expanded `brand-manifest.json` and brand verification to protect the Studio marks and STHANG wordmarks together, and updated `BRAND.md`, `DESIGN.md`, `AGENTS.md`, the public brand README, README, and trademark guidance.
+- No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
+
 ## 0.7.10 — Focus Loop & Clear Copy
 
 - Split Review playback into a full **context pass** followed by a tight **focus pass** around the selected caption.

@@ -124,7 +124,7 @@ python -m py_compile local-timing/worker.py
 ```
 
 Pull requests are expected to pass the repository CI on both Windows and Linux.
-The build/typecheck flow also verifies the owner-approved Studio SVG assets
+The build/typecheck flow also verifies the owner-approved Studio brand assets
 byte-for-byte.
 
 ## Repository workflow
