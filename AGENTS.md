@@ -14,7 +14,7 @@ All source logo/wordmark assets have transparent backgrounds. Never redraw, trac
 
 The preferred product lockup is the ribbon-S mark followed by the in-house STHANG wordmark, a forward-slanted Studio-lime divider, and a restrained widely-tracked `STUDIO` descriptor. `STUDIO` must accompany rather than visually compete with STHANG.
 
-The approved source SVGs are intentionally marked `-text` in `.gitattributes`. Preserve that rule so Git/Windows line-ending conversion cannot rewrite their bytes and create false brand-verification failures.
+The approved source SVGs are intentionally marked `-text` in `.gitattributes`. Preserve that rule so Git/Windows line-ending conversion does not rewrite their repository bytes. The verifier additionally canonicalizes CRLF to LF for SVG hashing so an older Windows checkout cannot create a false failure; all other content changes must still fail verification.
 
 Before delivering a build, run:
 
@@ -32,7 +32,7 @@ Preserve these public-release rules:
 
 - Never commit API keys, credentials, private source media, local projects, history, caches, proposals, jobs, exports, downloaded model weights, or local virtual environments.
 - Run `npm run check:public` before a public-release PR or visibility change. The check scans tracked files and Git history for common secret patterns and forbidden runtime paths.
-- Run `npm run typecheck` and `npm run build`; both preserve the existing byte-for-byte brand verification.
+- Run `npm run typecheck` and `npm run build`; both preserve protected brand-source verification, allowing only CRLF/LF normalization for SVG hashing.
 - Keep `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md` accurate when data flow, hosted services, direct dependencies, downloaded models, or redistributed binaries change.
 - Do not add telemetry, analytics, a new hosted service, or a new category of cloud data transfer without an explicit product decision and corresponding privacy documentation.
 - Do not vendor third-party model weights, FFmpeg binaries, or other large/runtime-downloaded artifacts without a separate license and distribution review.

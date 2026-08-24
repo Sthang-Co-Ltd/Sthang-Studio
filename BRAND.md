@@ -25,7 +25,7 @@ All source assets have transparent backgrounds.
 
 **Do not redraw, trace, approximate, simplify, recolour, re-typeset, or regenerate these source assets.** In particular, do not replace the STHANG wordmark with ordinary text or a substitute font. A replacement is allowed only when the owner explicitly approves a new source set.
 
-`apps/web/public/brand/brand-manifest.json` records intended roles and SHA-256 fingerprints. `npm run verify:brand`, `npm run typecheck`, and `npm run build` verify that the protected source assets remain byte-for-byte intact.
+`apps/web/public/brand/brand-manifest.json` records intended roles and SHA-256 fingerprints. `npm run verify:brand`, `npm run typecheck`, and `npm run build` verify the protected source content. For SVGs, the verifier canonicalizes CRLF to LF before hashing so Windows line-ending conversion cannot create a false failure; every other content change still fails verification.
 
 ## Runtime use
 
