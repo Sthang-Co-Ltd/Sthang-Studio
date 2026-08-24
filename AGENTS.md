@@ -14,6 +14,8 @@ All source logo/wordmark assets have transparent backgrounds. Never redraw, trac
 
 The preferred product lockup is the ribbon-S mark followed by the in-house STHANG wordmark, a forward-slanted Studio-lime divider, and a restrained widely-tracked `STUDIO` descriptor. `STUDIO` must accompany rather than visually compete with STHANG.
 
+The approved source SVGs are intentionally marked `-text` in `.gitattributes`. Preserve that rule so Git/Windows line-ending conversion cannot rewrite their bytes and create false brand-verification failures.
+
 Before delivering a build, run:
 
 ```text
