@@ -57,7 +57,7 @@ if errorlevel 1 goto :python_error
 
 echo.
 echo Checking whether the working local timing environment is already ready...
-".venv\Scripts\python.exe" -c "import importlib.util, os; base=os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'); model=os.path.join(base,'kfa','wav2vec2-km-base-1500.onnx'); assert all(importlib.util.find_spec(x) for x in ['kfa','khmercut','faster_whisper','onnxruntime','khmernormalizer']); assert os.path.exists(model); print('KFA + Whisper timing environment already READY')" >nul 2>nul
+".venv\Scripts\python.exe" -c "import importlib.util, os; from importlib.metadata import version; base=os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'); model=os.path.join(base,'kfa','wav2vec2-km-base-1500.onnx'); assert all(importlib.util.find_spec(x) for x in ['kfa','khmercut','faster_whisper','onnxruntime','khmernormalizer']); assert version('khmercut')=='0.0.2'; assert version('python-crfsuite')=='0.9.9'; assert version('tqdm')=='4.65.0'; assert os.path.exists(model); print('KFA + Whisper timing environment already READY')" >nul 2>nul
 if not errorlevel 1 goto :already_ready
 
 echo.
@@ -90,12 +90,14 @@ echo.
 echo Checking local timing environment...
 ".venv\Scripts\python.exe" -c "import importlib.util; assert importlib.util.find_spec('faster_whisper'); import onnxruntime; print('ONNX Runtime: OK'); print('Whisper fallback: OK')"
 if errorlevel 1 goto :pip_error
+".venv\Scripts\python.exe" -m pip check
+if errorlevel 1 goto :pip_error
 
 if "%KFA_OK%"=="1" (
   echo.
   echo Verifying KFA and preloading its Khmer ONNX model...
   echo The first setup may download about 360 MB once.
-  ".venv\Scripts\python.exe" -c "import kfa, khmercut, khmernormalizer; from khmercut import tokenize; assert callable(tokenize); print('KFA package, Khmer tokenizer, and model cache: READY')"
+  ".venv\Scripts\python.exe" -c "from importlib.metadata import version; import kfa, khmercut, khmernormalizer; from khmercut import tokenize; assert version('khmercut')=='0.0.2'; assert version('python-crfsuite')=='0.9.9'; assert version('tqdm')=='4.65.0'; assert callable(tokenize); print('KFA package, Khmer tokenizer, and model cache: READY')"
   if errorlevel 1 set KFA_OK=0
 )
 
@@ -137,7 +139,7 @@ exit /b 1
 
 :pip_error
 echo.
-echo ERROR: The local Whisper fallback failed to install, so timing cannot run yet.
+echo ERROR: Local timing dependency setup failed.
 echo Copy the error above and send it to ChatGPT.
 if not "%KCS_NONINTERACTIVE%"=="1" pause
 exit /b 1
