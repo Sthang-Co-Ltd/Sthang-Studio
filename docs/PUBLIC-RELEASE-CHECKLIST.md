@@ -21,9 +21,12 @@ publicly.
       and Python worker syntax.
 - [x] Public-readiness script scans the current tree and full Git history for
       common secret patterns and forbidden runtime paths.
-- [x] Broken public-install `khmercut==0.2.0` pin replaced with a range matching
-      published `khmercut` releases; KFA's direct runtime requirements are kept
-      explicit because KFA itself is installed with `--no-deps`.
+- [x] Windows KFA setup uses the wheel-backed `khmercut==0.0.2` release and
+      wheel-first/UTF-8 pip settings. PyPI's newer `khmercut` 0.1.0 release is
+      source-only and hit a Windows code-page metadata decode failure during the
+      clean Python 3.12 install test; KFA 0.2.0 uses the `tokenize()` API already
+      provided by the wheel-backed release.
+- [x] Public Node setup uses the committed lockfile through `npm ci`.
 
 ## Before changing repository visibility to Public
 
