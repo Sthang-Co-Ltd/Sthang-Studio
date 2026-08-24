@@ -69,7 +69,7 @@
 - Reduced the persistent project header to Review, Tools, Save, and Export SRT. Guide, Correct, History, Jobs, Corrections, Replace, and Settings now live in a labeled Tools menu with plain-language descriptions and status counts.
 - Added progressive disclosure beneath the video: only one of Review, Fine timing, Accuracy, Caption style, or Details renders at a time. The default workspace returns focus to video evidence and caption editing.
 - Simplified caption rows so Approve remains visible while locks, nudges, split, merge, and delete move into an explicit per-caption menu.
-- Replaced multiple alarming risk chips on unselected rows with one calm Review suggested summary; detailed reasons appear when the caption is selected.
+- Replaced multiple alarming risk chips on unselected rows with one calm Review suggested summary; detailed reasons remain visible on selection.
 - Added a global focus-visible system, larger operational type, more ergonomic targets, persistent responsive labels, and reduced-motion handling.
 - Fixed overlapping busy/job/error/notice messages with a single ordered toast stack and dismissible notices/errors.
 - Moved recent projects and setup warnings into normal page flow to prevent them covering upload content.
