@@ -32,7 +32,7 @@ Preserve these public-release rules:
 
 - Never commit API keys, credentials, private source media, local projects, history, caches, proposals, jobs, exports, downloaded model weights, or local virtual environments.
 - Keep `package-lock.json` committed and synchronized with the workspace manifests. CI and the Windows public setup must use `npm ci` so release validation and user installs use the reviewed dependency graph instead of resolving a new one.
-- Keep the Windows local-timing setup wheel-first and clean-PC friendly. `khmercut==0.0.2` is intentionally pinned because it ships a universal wheel with the `tokenize()` API KFA 0.2.0 uses; do not move the public installer to a source-only `khmercut` release without a successful clean Windows/Python 3.12 installation test.
+- Keep the Windows local-timing setup wheel-first and clean-PC friendly. The supported KFA tokenizer stack is intentionally pinned to `khmercut==0.0.2`, `python-crfsuite==0.9.9`, and `tqdm==4.65.0`; do not move the public installer to a source-only or differently constrained tokenizer stack without a successful clean Windows/Python 3.12 installation test.
 - Run `npm run check:public` before a public-release PR or visibility change. The check scans tracked files and Git history for common secret patterns and forbidden runtime paths.
 - Run `npm run typecheck` and `npm run build`; both preserve protected brand-source verification, allowing only CRLF/LF normalization for SVG hashing.
 - Keep `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md` accurate when data flow, hosted services, direct dependencies, downloaded models, or redistributed binaries change.
