@@ -31,12 +31,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Public-readiness guard
         run: npm run check:public
 
-      - name: Install Node dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install locked Node dependencies
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck
         run: npm run typecheck
