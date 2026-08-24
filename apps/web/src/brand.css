@@ -1,0 +1,150 @@
+/* Approved Sthang Studio identity refresh.
+   This file intentionally overrides the older brand-only rules in styles.css
+   without touching the editor/layout system. */
+
+.studio-brand.studio-brand-hero .studio-symbol-wrap{
+  width:82px;
+  height:92px;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+
+.studio-brand.studio-brand-compact .studio-symbol-wrap{
+  width:29px;
+  height:33px;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+
+.studio-brand .studio-symbol{
+  object-fit:contain;
+  object-position:center;
+}
+
+.studio-brand .studio-family-lockup{
+  align-items:flex-end;
+}
+
+.studio-brand .sthang-wordmark{
+  object-fit:contain;
+  object-position:left center;
+}
+
+.studio-brand .studio-lockup-divider{
+  width:2px;
+  background:#d7ff4f;
+  transform:skewX(-14deg);
+}
+
+.studio-brand .studio-product-name{
+  font-weight:500;
+  letter-spacing:.34em;
+}
+
+.studio-brand-surface-dark{
+  color:#f4f6f8;
+}
+
+.studio-brand-surface-dark .studio-product-name{
+  color:#f4f6f8;
+}
+
+.studio-brand-surface-light{
+  color:#15181c;
+}
+
+.studio-brand-surface-light .studio-product-name{
+  color:#15181c;
+}
+
+.studio-brand.studio-brand-hero{
+  gap:14px;
+}
+
+.studio-brand.studio-brand-hero .studio-brand-copy{
+  gap:10px;
+}
+
+.studio-brand.studio-brand-hero .sthang-wordmark{
+  width:min(310px,61vw);
+  height:auto;
+}
+
+.studio-brand.studio-brand-hero .studio-lockup-divider{
+  height:31px;
+  margin:0 15px 4px 15px;
+}
+
+.studio-brand.studio-brand-hero .studio-product-name{
+  font-size:13px;
+  margin-bottom:5px;
+}
+
+.studio-brand.studio-brand-compact{
+  gap:10px;
+  min-width:188px;
+}
+
+.studio-brand.studio-brand-compact .sthang-wordmark{
+  width:88px;
+  height:auto;
+}
+
+.studio-brand.studio-brand-compact .studio-lockup-divider{
+  height:12px;
+  margin:0 6px 1px 6px;
+}
+
+.studio-brand.studio-brand-compact .studio-product-name{
+  font-size:7px;
+  letter-spacing:.3em;
+  margin-bottom:1px;
+}
+
+@media(max-width:900px){
+  .studio-brand.studio-brand-hero .studio-symbol-wrap{
+    width:72px;
+    height:81px;
+  }
+
+  .studio-brand.studio-brand-hero .sthang-wordmark{
+    width:min(255px,60vw);
+  }
+
+  .studio-brand.studio-brand-hero .studio-lockup-divider{
+    height:26px;
+    margin:0 11px 4px 11px;
+  }
+
+  .studio-brand.studio-brand-hero .studio-product-name{
+    font-size:11px;
+  }
+}
+
+@media(max-width:520px){
+  .studio-brand.studio-brand-hero .studio-symbol-wrap{
+    width:64px;
+    height:72px;
+  }
+
+  .studio-brand.studio-brand-hero .sthang-wordmark{
+    width:min(205px,52vw);
+  }
+
+  .studio-brand.studio-brand-hero .studio-lockup-divider{
+    height:22px;
+    margin:0 8px 3px 8px;
+  }
+
+  .studio-brand.studio-brand-hero .studio-product-name{
+    font-size:9px;
+    letter-spacing:.27em;
+    margin-bottom:3px;
+  }
+}

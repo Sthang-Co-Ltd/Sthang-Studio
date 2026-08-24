@@ -1,4 +1,9 @@
-import { studioMarkForSurface, type StudioMarkSurface } from '../brand';
+import {
+  sthangWordmarkForSurface,
+  studioMarkForSurface,
+  type StudioMarkSurface,
+} from '../brand';
+import '../brand.css';
 
 interface StudioMarkProps {
   surface?: StudioMarkSurface;
@@ -33,13 +38,19 @@ export function StudioBrand({
   moduleDescriptor = 'Khmer-first workspace',
   markSurface = 'dark',
 }: StudioBrandProps) {
-  return <div className={`studio-brand studio-brand-${variant}`}>
+  const surfaceClass = markSurface === 'light' ? 'studio-brand-surface-light' : 'studio-brand-surface-dark';
+  return <div className={`studio-brand studio-brand-${variant} ${surfaceClass}`}>
     <div className="studio-symbol-wrap" aria-hidden="true">
       <StudioMark surface={markSurface}/>
     </div>
     <div className="studio-brand-copy">
       <div className="studio-family-lockup">
-        <img className="sthang-wordmark" src="/brand/sthang-wordmark.png" alt="Sthang" draggable={false}/>
+        <img
+          className="sthang-wordmark"
+          src={sthangWordmarkForSurface(markSurface)}
+          alt="Sthang"
+          draggable={false}
+        />
         <span className="studio-lockup-divider" aria-hidden="true"/>
         <span className="studio-product-name">STUDIO</span>
       </div>

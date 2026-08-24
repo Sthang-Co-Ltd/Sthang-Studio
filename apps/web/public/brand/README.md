@@ -1,30 +1,35 @@
 # Sthang Studio approved brand assets
 
-## Permanent source artwork
+## Protected source artwork
 
-These three owner-supplied SVGs are the approved source-of-truth. Do not redraw, trace, approximate, recolour, or replace them with generated artwork.
+These owner-approved assets are the source of truth. They all use transparent backgrounds.
 
-- `sthang-studio-mark.svg` — white + lime primary mark for dark interfaces.
-- `sthang-studio-mark-ink.svg` — dark ink + lime mark for white/light surfaces.
-- `sthang-studio-mark-mono.svg` — white monochrome mark for one-colour dark use.
+- `sthang-studio-mark.svg` — white + lime ribbon-S primary mark for dark interfaces.
+- `sthang-studio-mark-ink.svg` — dark ink + lime ribbon-S mark for white/light surfaces.
+- `sthang-studio-mark-mono.svg` — white monochrome ribbon-S mark for one-colour dark use.
+- `sthang-wordmark.svg` — approved white in-house STHANG wordmark for dark surfaces.
+- `sthang-wordmark-ink.svg` — approved dark in-house STHANG wordmark for light surfaces.
 
-Their intended use and SHA-256 fingerprints are recorded in `brand-manifest.json`. Run `npm run verify:brand` from the project root to confirm they are unchanged.
+Do not redraw, trace, approximate, recolour, regenerate, or re-typeset these assets. Their intended use and SHA-256 fingerprints are recorded in `brand-manifest.json`. Run `npm run verify:brand` from the project root to confirm they are unchanged.
 
-## Other files
+## Derived icons
 
-- `sthang-wordmark.png` — supplied/cropped parent STHANG wordmark.
-- `favicon.svg` — dark rounded browser icon derived from the approved primary mark.
-- `sthang-studio-icon.png` — 512px raster app icon derived from the approved primary mark.
-- `sthang-studio.ico` — multi-resolution Windows shortcut icon derived from the approved primary mark.
+- `favicon.svg` — browser icon derived from the approved primary mark.
+- `sthang-studio-icon.png` — 512px application icon derived from the approved primary mark.
+- `sthang-studio.ico` — Windows shortcut icon derived from the approved primary mark.
+
+The browser/desktop icons use a dark tile for reliable visibility. The mark and wordmark source assets themselves remain transparent.
 
 ## Runtime rule
 
-Use the `StudioMark` component rather than hard-coding paths or using CSS filters:
+Use `StudioMark`/`StudioBrand` rather than hard-coding paths or applying CSS filters:
 
 ```tsx
 <StudioMark surface="dark" />
 <StudioMark surface="light" />
 <StudioMark surface="mono" />
 ```
+
+`StudioBrand` must use the in-house STHANG wordmark, followed by the lime slanted divider and restrained `STUDIO` descriptor. Never re-typeset STHANG with a substitute font.
 
 The ACO falcon/eagle remains exclusive to Sthang ACO.

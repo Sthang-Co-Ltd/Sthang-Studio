@@ -113,7 +113,7 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
 
   return {
     generatedAt: new Date().toISOString(),
-    engineVersion: '0.7.10',
+    engineVersion: '0.7.11',
     overall,
     checks,
     environment: {

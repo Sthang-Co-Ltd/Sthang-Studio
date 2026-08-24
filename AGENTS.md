@@ -2,13 +2,17 @@
 
 ## Approved logo assets
 
-The following owner-supplied SVGs are permanent source-of-truth assets:
+The following owner-approved assets are permanent source-of-truth artwork:
 
-- `apps/web/public/brand/sthang-studio-mark.svg` — dark surfaces;
-- `apps/web/public/brand/sthang-studio-mark-ink.svg` — light surfaces;
-- `apps/web/public/brand/sthang-studio-mark-mono.svg` — monochrome use.
+- `apps/web/public/brand/sthang-studio-mark.svg` — white/lime ribbon-S mark for dark surfaces;
+- `apps/web/public/brand/sthang-studio-mark-ink.svg` — dark/lime ribbon-S mark for light surfaces;
+- `apps/web/public/brand/sthang-studio-mark-mono.svg` — monochrome mark;
+- `apps/web/public/brand/sthang-wordmark.svg` — approved white in-house STHANG wordmark;
+- `apps/web/public/brand/sthang-wordmark-ink.svg` — approved dark in-house STHANG wordmark.
 
-Never redraw, trace, approximate, simplify, recolour, or replace these marks with generated artwork. Do not use image generation to recreate them. Use the existing `StudioMark` component and select the correct surface variant.
+All source logo/wordmark assets have transparent backgrounds. Never redraw, trace, approximate, simplify, recolour, regenerate, or re-typeset them. Never replace the in-house STHANG wordmark with ordinary text or a substitute font. Use the existing `StudioMark`/`StudioBrand` components and select the correct surface variant.
+
+The preferred product lockup is the ribbon-S mark followed by the in-house STHANG wordmark, a forward-slanted Studio-lime divider, and a restrained widely-tracked `STUDIO` descriptor. `STUDIO` must accompany rather than visually compete with STHANG.
 
 Before delivering a build, run:
 
@@ -16,7 +20,7 @@ Before delivering a build, run:
 npm run verify:brand
 ```
 
-A newly supplied owner-approved logo set may replace them only when `brand-manifest.json`, derived icon assets, and this guidance are updated together.
+A newly owner-approved identity set may replace these files only when `brand-manifest.json`, derived icon assets, `BRAND.md`, and this guidance are updated together.
 
 ## Public repository and release invariants
 

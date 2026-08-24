@@ -9,7 +9,9 @@
 - Dark, precise, restrained.
 - Studio lime `#D7FF4F` is the active/product accent.
 - Sthang orange is reserved for parent-brand references.
-- Approved Studio logos are immutable and governed by `BRAND.md`, `AGENTS.md`, and `brand-manifest.json`.
+- Approved Studio logos and in-house STHANG wordmarks are immutable and governed by `BRAND.md`, `AGENTS.md`, and `brand-manifest.json`.
+- The approved ribbon-S mark and STHANG wordmark source assets have transparent backgrounds; use the correct dark/light surface variant rather than adding a baked background or CSS filter.
+- In product lockups, the in-house STHANG wordmark is dominant. Pair it with a forward-slanted lime divider and a smaller, lighter, widely tracked `STUDIO` descriptor; never re-typeset STHANG with a substitute font.
 - Angular geometry may appear in branding; operational UI uses calm, readable rectangles with 9–14px radii.
 
 ## Hierarchy

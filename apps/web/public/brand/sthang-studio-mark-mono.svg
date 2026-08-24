@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sthang Studio monochrome mark">
-  <path fill="#F4F6F8" fill-rule="evenodd" d="M120 80L13 199L64 251L147 251L190 208L383 207L446 144L383 80Z M344 136L313 167L209 188L240 207L207 207L207 188L119 167L146 136Z"/>
-  <path fill="#F4F6F8" fill-rule="evenodd" d="M360 260L317 303L124 304L61 367L124 431L387 431L498 320L439 260Z M240 304L209 323L368 344L337 375L147 375L178 344L207 323L207 304Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 493 552" role="img" aria-label="Sthang Studio mark">
+  <title>Sthang Studio mark</title>
+  <path fill="#F4F6F8" d="M 491 2 L 299 0 L 292 3 L 10 244 L 0 261 L 3 279 L 68 350 L 81 359 L 237 359 L 241 354 L 97 354 L 93 351 L 93 346 L 491 6 Z"/>
+  <path fill="#F4F6F8" d="M 443 217 L 427 208 L 261 208 L 256 213 L 379 214 L 383 219 L 374 230 L 296 299 L 293 315 L 55 530 L 39 545 L 39 549 L 218 551 L 228 547 L 435 360 L 444 349 L 449 333 L 449 232 Z"/>
+  <path fill="#F4F6F8" d="M 139 307 L 143 309 L 269 309 L 273 313 L 273 332 L 285 321 L 285 303 L 281 299 L 156 299 L 154 294 Z"/>
 </svg>

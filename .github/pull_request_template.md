@@ -20,7 +20,7 @@
 - [ ] Caption timing/synchronization is not unintentionally changed
 - [ ] Locks, correction memory, history, Review/Review Focus, and non-destructive flows are preserved where relevant
 - [ ] SRT export behavior is unchanged unless this PR explicitly intends to change it
-- [ ] No approved Sthang Studio source SVG was modified or recreated
+- [ ] Protected Sthang Studio brand assets are unchanged unless this is an explicitly owner-approved identity replacement
 
 ## Public-repository hygiene
 
