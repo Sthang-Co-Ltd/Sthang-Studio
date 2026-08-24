@@ -88,7 +88,7 @@
 
 .studio-brand.studio-brand-compact{
   gap:10px;
-  min-width:188px;
+  min-width:205px;
 }
 
 .studio-brand.studio-brand-compact .sthang-wordmark{
@@ -97,13 +97,13 @@
 }
 
 .studio-brand.studio-brand-compact .studio-lockup-divider{
-  height:12px;
-  margin:0 6px 1px 6px;
+  height:14px;
+  margin:0 6px 2px 6px;
 }
 
 .studio-brand.studio-brand-compact .studio-product-name{
-  font-size:7px;
-  letter-spacing:.3em;
+  font-size:10px;
+  letter-spacing:.26em;
   margin-bottom:1px;
 }
 
@@ -134,7 +134,7 @@
   }
 
   .studio-brand.studio-brand-hero .sthang-wordmark{
-    width:min(205px,52vw);
+    width:min(180px,50vw);
   }
 
   .studio-brand.studio-brand-hero .studio-lockup-divider{
@@ -143,7 +143,7 @@
   }
 
   .studio-brand.studio-brand-hero .studio-product-name{
-    font-size:9px;
+    font-size:10px;
     letter-spacing:.27em;
     margin-bottom:3px;
   }
