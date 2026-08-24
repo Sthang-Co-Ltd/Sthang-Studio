@@ -82,7 +82,10 @@ router.post('/', upload.single('media'), async (req, res) => {
 
 router.post('/:id/replace-media', upload.single('media'), async (req, res) => {
   try {
-    const project = await store.get(req.params.id);
+    const rawProjectId = req.params.id;
+    const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId;
+    if (!projectId) return res.status(400).json({ error: 'Project id is required.' });
+    const project = await store.get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (!req.file) return res.status(400).json({ error: 'Choose a replacement video or audio file.' });
     if (jobStore.hasActiveForProject(project.id)) {

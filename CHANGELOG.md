@@ -8,6 +8,7 @@
 - Removed the old boxed treatment around the Studio mark and tuned hero/compact proportions so the new mark reads cleanly in the home launcher and project header.
 - Regenerated the browser favicon, 512px application icon, and Windows shortcut icon from the new primary mark.
 - Expanded `brand-manifest.json` and brand verification to protect the Studio marks and STHANG wordmarks together, and updated `BRAND.md`, `DESIGN.md`, `AGENTS.md`, the public brand README, README, and trademark guidance.
+- Fixed fresh-install TypeScript validation for the replace-media upload route by narrowing Express/Multer route parameters to a single non-empty project id before store lookup.
 - No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
 
 ## 0.7.10 — Focus Loop & Clear Copy
