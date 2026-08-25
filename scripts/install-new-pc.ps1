@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 
 Write-Host ""
 Write-Host "=== Sthang Studio - New PC Installer ===" -ForegroundColor Cyan
-Write-Host "This checks Node.js, Python and FFmpeg, then sets up the app and local caption timing." -ForegroundColor DarkGray
+Write-Host "This checks Node.js, Python, FFmpeg and required Windows runtime support, then sets up the app and local caption timing." -ForegroundColor DarkGray
 Write-Host "The first timing setup may download a Khmer alignment model (roughly a few hundred MB)." -ForegroundColor DarkGray
 
 function Refresh-Path {
@@ -108,6 +108,21 @@ function Test-Python312 {
 
 function Test-FFmpeg {
   return [bool](Get-Command ffmpeg -ErrorAction SilentlyContinue) -and [bool](Get-Command ffprobe -ErrorAction SilentlyContinue)
+}
+
+function Test-VCRuntime {
+  $registryPaths = @(
+    'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'
+  )
+
+  foreach ($path in $registryPaths) {
+    try {
+      $runtime = Get-ItemProperty -Path $path -ErrorAction Stop
+      if ($runtime.Installed -eq 1) { return $true }
+    } catch { }
+  }
+  return $false
 }
 
 function Try-WingetPackage([string]$PackageId, [string]$Label, [scriptblock]$Verifier) {
@@ -244,6 +259,28 @@ function Install-FFmpegFallback {
   Write-Host "[OK] FFmpeg + ffprobe ready (direct per-user setup)." -ForegroundColor Green
 }
 
+function Install-VCRuntimeFallback {
+  $installer = Join-Path $TempRoot 'vc_redist.x64.exe'
+  Download-File 'https://aka.ms/vs/17/release/vc_redist.x64.exe' $installer 'Microsoft Visual C++ runtime'
+
+  $signature = Get-AuthenticodeSignature -FilePath $installer
+  if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') {
+    throw "Microsoft Visual C++ runtime download could not be verified."
+  }
+
+  Write-Host "Installing required Windows runtime support..." -ForegroundColor Yellow
+  $runtimeProcess = Start-Process -FilePath $installer -ArgumentList '/install /quiet /norestart' -Wait -PassThru
+  $runtimeExit = $runtimeProcess.ExitCode
+  if ($runtimeExit -notin @(0, 1638, 3010)) {
+    throw "Microsoft Visual C++ runtime setup failed with exit code $runtimeExit."
+  }
+
+  if (-not (Test-VCRuntime)) {
+    throw "Microsoft Visual C++ runtime setup finished but the runtime was not detected. Restart Windows, then run INSTALL-NEW-PC.bat again."
+  }
+  Write-Host "[OK] Required Windows runtime support ready." -ForegroundColor Green
+}
+
 function Ensure-Node {
   if (Test-Node) {
     Write-Host "[OK] Node.js already available." -ForegroundColor Green
@@ -271,6 +308,15 @@ function Ensure-FFmpeg {
   Install-FFmpegFallback
 }
 
+function Ensure-VCRuntime {
+  if (Test-VCRuntime) {
+    Write-Host "[OK] Required Windows runtime support already available." -ForegroundColor Green
+    return
+  }
+  if (Try-WingetPackage 'Microsoft.VCRedist.2015+.x64' 'Microsoft Visual C++ runtime' { Test-VCRuntime }) { return }
+  Install-VCRuntimeFallback
+}
+
 try {
   if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
     throw "The current Sthang Studio Windows installer supports x64 Windows only. Detected architecture: $($env:PROCESSOR_ARCHITECTURE)."
@@ -283,6 +329,7 @@ try {
   Ensure-Node
   Ensure-Python
   Ensure-FFmpeg
+  Ensure-VCRuntime
 
   Write-Host ""
   Write-Host "Running Sthang Studio setup..." -ForegroundColor Cyan
