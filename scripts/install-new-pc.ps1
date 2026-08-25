@@ -152,10 +152,13 @@ function Install-PythonFallback {
 
     if (Test-Path $target) { Remove-Item $target -Recurse -Force }
     Write-Host "Installing Python $version for this Windows user..." -ForegroundColor Yellow
+    $pythonLog = Join-Path $TempRoot "python-$version-install.log"
     $pythonArgs = @(
       '/quiet',
+      "/log `"$pythonLog`"",
       'InstallAllUsers=0',
-      "TargetDir=$target",
+      'InstallLauncherAllUsers=0',
+      "TargetDir=`"$target`"",
       'PrependPath=0',
       'Include_launcher=0',
       'Include_test=0',
@@ -168,16 +171,28 @@ function Install-PythonFallback {
       'Include_lib=1',
       'Include_tools=1'
     )
-    & $installer @pythonArgs
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $pythonExe)) {
-      throw "Python $version direct setup failed with exit code $LASTEXITCODE."
+    $pythonProcess = Start-Process -FilePath $installer -ArgumentList ($pythonArgs -join ' ') -Wait -PassThru
+    $pythonExit = $pythonProcess.ExitCode
+    if ($pythonExit -ne 0) {
+      throw "Python $version direct setup failed with exit code $pythonExit. Installer log: $pythonLog"
+    }
+
+    if (-not (Test-Path $pythonExe)) {
+      $defaultPythonExe = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
+      if (Test-Path $defaultPythonExe) {
+        $pythonExe = $defaultPythonExe
+        $target = Split-Path -Parent $pythonExe
+      } else {
+        throw "Python $version installer reported success but python.exe was not found. Installer log: $pythonLog"
+      }
     }
   }
 
   Add-UserPath $target
   $scripts = Join-Path $target 'Scripts'
   if (Test-Path $scripts) { Add-UserPath $scripts }
-  if (-not (Test-Python312)) { throw "Python 3.12 direct setup did not finish correctly." }
+  & $pythonExe -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" *> $null
+  if ($LASTEXITCODE -ne 0) { throw "Python 3.12 direct setup did not finish correctly." }
   Write-Host "[OK] Python 3.12 ready (direct per-user setup)." -ForegroundColor Green
 }
 
