@@ -167,6 +167,7 @@ function Install-PythonFallback {
 
     if (Test-Path $target) { Remove-Item $target -Recurse -Force }
     Write-Host "Installing Python $version for this Windows user..." -ForegroundColor Yellow
+    Write-Host "This can take several minutes in Windows Sandbox. Keep this window open." -ForegroundColor DarkGray
     $pythonLog = Join-Path $TempRoot "python-$version-install.log"
     $pythonArgs = @(
       '/quiet',
@@ -212,9 +213,11 @@ function Install-PythonFallback {
 }
 
 function Install-FFmpegFallback {
-  $archive = Join-Path $TempRoot 'ffmpeg-release-essentials.zip'
-  $checksum = Join-Path $TempRoot 'ffmpeg-release-essentials.zip.sha256'
+  $version = '8.1.2'
+  $archiveName = "ffmpeg-$version-essentials_build.zip"
+  $archive = Join-Path $TempRoot $archiveName
   $target = Join-Path $ToolsRoot 'ffmpeg'
+  $expectedSha256 = 'db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec'
   $ffmpegExe = $null
 
   if (Test-Path $target) {
@@ -222,12 +225,10 @@ function Install-FFmpegFallback {
   }
 
   if (-not $ffmpegExe) {
-    Download-File 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' $archive 'FFmpeg essentials build'
-    Download-File 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256' $checksum 'FFmpeg checksum'
+    Download-File "https://github.com/GyanD/codexffmpeg/releases/download/$version/$archiveName" $archive "FFmpeg $version essentials build"
 
-    $expected = ((Get-Content $checksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-    if (-not $expected -or $actual -ne $expected) { throw "FFmpeg download checksum did not match. Delete the installer download and try again." }
+    if ($actual -ne $expectedSha256) { throw "FFmpeg download checksum did not match. Delete the installer download and try again." }
 
     if (Test-Path $target) { Remove-Item $target -Recurse -Force }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
