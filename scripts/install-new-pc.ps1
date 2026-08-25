@@ -99,8 +99,9 @@ function Try-WingetPackage([string]$PackageId, [string]$Label, [scriptblock]$Ver
   if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return $false }
 
   Write-Host "Installing $Label with WinGet..." -ForegroundColor Yellow
-  winget install --id $PackageId -e --accept-package-agreements --accept-source-agreements
-  if ($LASTEXITCODE -eq 0) {
+  winget install --id $PackageId -e --accept-package-agreements --accept-source-agreements | Out-Host
+  $wingetExit = $LASTEXITCODE
+  if ($wingetExit -eq 0) {
     Refresh-Path
     if (& $Verifier) {
       Write-Host "[OK] $Label installed with WinGet." -ForegroundColor Green
