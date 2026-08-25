@@ -55,14 +55,29 @@ function Add-UserPath([string]$PathToAdd) {
 
 function Download-File([string]$Url, [string]$Destination, [string]$Label) {
   Write-Host "Downloading $Label..." -ForegroundColor Yellow
+  if (Test-Path $Destination) { Remove-Item $Destination -Force -ErrorAction SilentlyContinue }
+
   try {
-    Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+      Write-Host "Download progress:" -ForegroundColor DarkGray
+      & $curl.Source --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 1800 --output $Destination $Url
+      $curlExit = $LASTEXITCODE
+      if ($curlExit -ne 0) { throw "download command exited with code $curlExit" }
+    } else {
+      Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -TimeoutSec 1800
+    }
   } catch {
-    throw "Could not download $Label. Check your internet connection and run INSTALL-NEW-PC.bat again. ($Url)"
+    if (Test-Path $Destination) { Remove-Item $Destination -Force -ErrorAction SilentlyContinue }
+    throw "Could not download $Label within 30 minutes. Check your internet connection and run INSTALL-NEW-PC.bat again. ($Url)"
   }
+
   if (-not (Test-Path $Destination) -or (Get-Item $Destination).Length -le 0) {
     throw "$Label download was empty or incomplete. Run INSTALL-NEW-PC.bat again."
   }
+
+  $sizeMb = [math]::Round((Get-Item $Destination).Length / 1MB, 1)
+  Write-Host "[OK] $Label downloaded ($sizeMb MB)." -ForegroundColor Green
 }
 
 function Test-Node {
