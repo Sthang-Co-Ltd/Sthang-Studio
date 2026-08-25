@@ -31,7 +31,7 @@ Do not use Sthang branding in a way that is confusing as to origin,
 affiliation, sponsorship, or endorsement.
 
 For permission beyond these terms, use the contact information published on
-https://sthang.com/.
+https://sthang.app/.
 
 This notice concerns brand and trademark use only. Software rights are described
 in `LICENSE`; third-party components remain subject to their own licenses.

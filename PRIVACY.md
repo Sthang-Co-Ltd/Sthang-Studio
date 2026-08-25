@@ -4,15 +4,15 @@ Sthang Studio is designed as a local-first desktop-style workspace served from
 your own computer. Caption wording currently uses Google's Gemini service;
 caption timing and project editing are handled locally.
 
-This document describes the behavior of the open-source application itself. It
+This document describes the behavior of the application itself. It
 is not a substitute for the privacy terms of third-party services you choose to
 use.
 
 ## What stays on your computer
 
-The application runs its frontend and local API on loopback (`127.0.0.1`). The
-following are stored/processed locally by Sthang Studio unless you explicitly
-export or otherwise share them:
+The application runs its frontend and local API on loopback (`127.0.0.1`).
+Projects, source media, timing data, caches, and exports persist locally on your
+computer unless you explicitly export or otherwise share them:
 
 - imported source media and normalized working audio;
 - caption projects and edits;
@@ -26,18 +26,18 @@ from Git by `.gitignore`.
 
 ## What is sent to Gemini
 
-When you generate or regenerate AI caption wording, Sthang Studio uploads the
-normalized WAV audio needed for that operation to the Gemini API. The request
-may also include user-provided topic context, protected vocabulary, accuracy
-hints, and accepted/proposed wording that is relevant to the transcription
-pass.
+When you generate or regenerate AI caption wording, Sthang Studio sends the
+normalized WAV audio needed for that operation, plus relevant topic context,
+protected vocabulary, accuracy hints, and accepted or proposed wording, directly
+to Google using your Gemini API key. The request includes only the details that
+are relevant to the requested transcription pass.
 
 The application requests `store: false` for Gemini transcription interactions.
 Google's own Gemini Developer API terms, data handling, retention, quotas, and
 privacy policies still apply to that service.
 
-Sthang Studio does not use Gemini for final local timing alignment. Timing is
-performed on-device after the transcript is returned.
+Sthang Studio does not use Gemini for final local timing alignment. Timing and
+project editing remain on-device after the transcript is returned.
 
 ## API keys
 
@@ -59,7 +59,7 @@ their upstream distribution and license terms.
 
 ## Telemetry
 
-The open-source application does not include a separate Sthang analytics or
+The application does not include a separate Sthang analytics or
 telemetry service. Network access is used for configured Gemini requests,
 package/model installation or download, and any links the user chooses to open.
 

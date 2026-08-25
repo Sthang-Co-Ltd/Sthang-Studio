@@ -7,7 +7,7 @@ credential, or report that contains private media/project data.
 
 Prefer GitHub's private vulnerability reporting / Security Advisory flow when it
 is enabled for this repository. If that option is not available, contact Sthang
-using the private contact method published on https://sthang.com/ and include
+using the private contact method published on https://sthang.app/ and include
 `Sthang-Co-Ltd/Sthang-Studio` in the subject or first line.
 
 A useful report includes:

@@ -4,11 +4,15 @@ This checklist separates repository work that can be automated from owner/admin
 settings that must be reviewed deliberately before Sthang Studio is announced
 publicly.
 
+Current status: the repository remains private and the first public release is
+pending owner approval. Until those gates are complete, this checklist is
+planning-only; do not advertise a public source or download path.
+
 ## Repository readiness
 
 - [x] Software license added.
 - [x] Sthang trademark/brand terms separated from the software license.
-- [x] Public-facing README added.
+- [x] README and public-facing documentation draft added.
 - [x] Privacy/data-flow documentation added.
 - [x] Security reporting policy added.
 - [x] Contribution guide, community code of conduct, support guide, and PR/issue
@@ -69,11 +73,11 @@ Owner/admin actions:
 Recommended public flow:
 
 ```text
-sthang.com → Sthang Studio product page → Download for Windows → latest GitHub Release asset
-                                         ↘ View source on GitHub
+https://sthang.app/ → Sthang Studio product page → Download for Windows → latest GitHub Release asset
+                                                     ↘ View source on GitHub
 ```
 
-- [ ] Keep Sthang.com as the product-facing front door.
+- [ ] Keep https://sthang.app/ as the product-facing front door.
 - [ ] Make **Download for Windows** the primary action for non-technical users.
 - [ ] Point that action to the latest reviewed GitHub Release asset rather than
       the source-code ZIP.

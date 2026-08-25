@@ -2,8 +2,8 @@
 
 **Accurate Khmer captions, ready for CapCut.**
 
-Sthang Studio is a Windows-first, open-source caption workspace for Cambodian
-Khmer creators. It combines AI-assisted Khmer transcription with local timing,
+Sthang Studio is a Windows-first caption workspace for Cambodian Khmer creators.
+It combines AI-assisted Khmer transcription with local timing,
 fast review tools, correction memory, and CapCut-compatible SRT export.
 
 The product is designed around one practical workflow:
@@ -27,18 +27,23 @@ available without crowding the main editing flow.
 - Local projects, history, caches, proposals, and exports.
 - Windows-protected in-app storage for a Gemini API key.
 
-## Download and install
+## Distribution status
 
-### Recommended for public users
+The Sthang Studio repository is currently private, and its first public release
+is pending owner approval. There is no supported public download at this time.
+Package version `0.7.11` is an internal development version, not a public
+release. Do not use a development checkout or source archive as a release
+artifact.
 
-Use the latest packaged build from the repository's **Releases** page when a
-release asset is available. Sthang's website should link ordinary users to that
-release rather than to GitHub's automatic source-code ZIP.
+## Authorized contributor development setup
+
+The following setup is for authorized contributors with repository access. It
+is development guidance, not a public download or release path.
 
 ### Install from source on Windows
 
-1. Download/clone this repository into a stable folder. Do not run it directly
-   from a temporary ZIP-preview location.
+1. Clone or otherwise check out this repository into a stable folder. Do not run
+   it directly from a temporary ZIP-preview location.
 2. Double-click `INSTALL-NEW-PC.bat`.
 3. The installer checks/installs Node.js LTS, Python 3.12, and FFmpeg through
    WinGet, then installs Sthang Studio's dependencies and local timing tools.
@@ -149,9 +154,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 
 ## License and brand
 
-Source code and documentation are available under the
-[MIT License](LICENSE), except where a file or third-party component states
-otherwise.
+The software is licensed under the [MIT License](LICENSE), except where a file
+or third-party component states otherwise.
 
 The **Sthang**, **Sthang Studio**, wordmarks, approved Studio marks, icons, and
 other Sthang identity assets are not granted for unrestricted trademark use by
@@ -161,13 +165,13 @@ Third-party libraries, downloaded models, hosted APIs, and external tools such
 as FFmpeg remain subject to their own terms. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-## Independence
+## Product relationship
 
-Sthang Studio is an independent Sthang product. CapCut is a third-party product;
-Google/Gemini is a third-party service. Their names are used only to describe
-compatibility or configured integrations and do not imply sponsorship or
-endorsement.
+Sthang Studio is a Sthang product. Captions is its current Khmer-first
+workspace. CapCut is a third-party product; Google/Gemini is a third-party
+service. Their names are used only to describe compatibility or configured
+integrations and do not imply sponsorship or endorsement.
 
 ---
 
-**Sthang Studio** is developed by Sthang. Product information: https://sthang.com/
+**Sthang Studio** is developed by Sthang. Product information: https://sthang.app/

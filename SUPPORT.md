@@ -14,4 +14,4 @@ Security vulnerabilities must **not** be reported in a public issue. Follow
 `SECURITY.md` instead.
 
 General product information and Sthang contact options are available at
-https://sthang.com/.
+https://sthang.app/.
