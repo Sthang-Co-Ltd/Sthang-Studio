@@ -117,17 +117,41 @@ function urlReady(url, timeoutMs = 30000) {
   });
 }
 
+function openWindowsBrowser(url) {
+  console.log(`Sthang Studio is ready. Opening ${url} in your default browser...`);
+  const escapedUrl = url.replaceAll("'", "''");
+  const command = `Start-Process -FilePath '${escapedUrl}'`;
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command', command,
+  ], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+
+  if (result.status === 0) return;
+
+  // Explorer also delegates http(s) URLs to the registered Windows browser and
+  // provides a second path for minimal Windows images such as Windows Sandbox.
+  const fallback = spawn('explorer.exe', [url], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  fallback.on('error', () => {
+    console.warn(`Could not open a browser automatically. Open ${url} in Microsoft Edge or your preferred browser.`);
+  });
+  fallback.unref();
+}
+
 if (process.platform === 'win32' && process.env.KCS_OPEN_BROWSER !== 'false') {
   void Promise.all([
     urlReady('http://127.0.0.1:8787/api/health'),
     urlReady('http://127.0.0.1:5188/'),
   ]).then(([backendReady, webReady]) => {
     if (!backendReady || !webReady || stopping) return;
-    const opener = spawn('cmd.exe', ['/d', '/s', '/c', 'start', '', 'http://localhost:5188'], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    opener.unref();
+    openWindowsBrowser('http://127.0.0.1:5188/');
   });
 }
