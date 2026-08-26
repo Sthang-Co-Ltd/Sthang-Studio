@@ -38,7 +38,7 @@ Owner/admin actions:
 
 - [ ] Confirm the public-readiness PR is merged and the repository checks are in
       an understood/acceptable state.
-- [ ] Run a final secret scan locally on the full repository clone.
+- [x] Run a final secret scan locally on the full repository clone.
 - [ ] In GitHub repository Settings, change visibility from **Private** to
       **Public** only after the preceding checks are complete.
 - [ ] Enable branch protection/rules for `main` and require the CI validation
@@ -54,14 +54,28 @@ Owner/admin actions:
 
 ## First public distribution
 
-- [ ] Test installation from a clean Windows user/machine, not from the
+- [x] Test installation from a clean Windows user/machine, not from the
       maintainer's existing development folder.
-- [ ] Confirm WinGet setup, Node installation, Python 3.12, FFmpeg, KFA setup,
-      and local Whisper fallback behavior.
-- [ ] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
-      secret is written to tracked files.
-- [ ] Run a representative Khmer clip through upload → generate → review →
+- [x] Confirm clean-machine Node.js, Python 3.12, FFmpeg, Microsoft Visual C++
+      runtime, KFA setup/model preload, ONNX Runtime import, and local Whisper
+      fallback readiness. The no-WinGet fallback is the validated clean-Sandbox
+      path; WinGet remains preferred when available.
+- [x] Confirm the desktop shortcut opens Studio automatically on normal Windows
+      after both local services are healthy and respects the registered default
+      browser without assuming Chrome. On the maintainer Windows machine this
+      correctly opens Chrome. Windows Sandbox lacks a normal `http://` browser
+      association, so Sandbox auto-opening is not a release requirement; the
+      launcher must avoid the broken protocol dialog and print the local URL for
+      manual opening instead.
+- [x] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
+      secret is written to tracked files. Clean-Sandbox testing confirmed the
+      saved key remains recognized after restart while the browser receives only
+      the masked value.
+- [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
+- [x] Run `npm run check:public`, `npm run typecheck`, and `npm run build` locally
+      on the PR branch. All passed on Windows; hosted GitHub Actions could not run
+      because the account's monthly Actions allowance was exhausted.
 - [ ] Create a deliberate Git tag/release for the accepted public version.
 - [ ] Attach a reviewed release archive/installer to GitHub Releases. Do not tell
       ordinary users to download an arbitrary branch snapshot.
@@ -87,11 +101,12 @@ https://sthang.app/ → Sthang Studio product page → Download for Windows → 
 
 ## Licensing follow-up
 
-The repository does not redistribute KFA/Whisper model weights or FFmpeg
-binaries. Their upstream terms remain applicable when downloaded/installed.
-Before a future packaged installer vendors any third-party binary or model,
-perform a separate license review for the exact artifact/build and update
-`THIRD_PARTY_NOTICES.md`.
+The repository does not commit or redistribute KFA/Whisper model weights or
+FFmpeg binaries. The clean Windows installer downloads the reviewed FFmpeg build
+at setup time, and model weights are downloaded at runtime; their upstream terms
+remain applicable. Before a future packaged installer vendors any third-party
+binary or model inside a release asset, perform a separate license review for
+the exact artifact/build and update `THIRD_PARTY_NOTICES.md`.
 
 A clean repository check verifies structure and source/build integrity; it does
 not replace the clean-Windows installation and real Khmer caption workflow tests

@@ -48,8 +48,8 @@ let stopping = false;
 function terminateChildTree(child) {
   if (!child?.pid || child.killed) return;
   if (process.platform === 'win32') {
-    // Node --watch and Vite can spawn descendants. Kill the whole tree so closing
-    // the launcher never leaves a stale server holding ports 8787/5188.
+    // Node and Vite can spawn descendants. Kill the whole tree so closing the
+    // launcher never leaves a stale server holding ports 8787/5188.
     spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
       stdio: 'ignore',
       windowsHide: true,
@@ -84,9 +84,7 @@ process.on('SIGTERM', () => shutdown(0));
 
 console.log('Starting backend on http://localhost:8787');
 // This is an end-user runtime, not a source-code development session.
-// Node's --watch mode can restart the backend when Windows/indexing/sync tools
-// touch watched files. A restart during a long transcription drops the HTTP
-// connection (ECONNRESET/ECONNREFUSED), so keep the backend stable.
+// Keep the backend stable during long transcription jobs.
 launch('server', ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
 console.log('Starting web app on http://localhost:5188');
 launch('web', [vite, '--host', '127.0.0.1'], path.join(root, 'apps', 'web'));
@@ -117,17 +115,50 @@ function urlReady(url, timeoutMs = 30000) {
   });
 }
 
+function windowsUserHttpChoiceAvailable() {
+  const result = spawnSync('reg.exe', [
+    'query',
+    'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice',
+    '/v',
+    'ProgId',
+  ], {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return result.status === 0 && /\bProgId\b\s+REG_SZ\s+\S+/i.test(result.stdout || '');
+}
+
+function openWindowsBrowser(url) {
+  if (!windowsUserHttpChoiceAvailable()) {
+    console.warn(`Sthang Studio is ready. Windows has no registered browser for web links. Open ${url} manually.`);
+    return;
+  }
+
+  console.log(`Sthang Studio is ready. Opening ${url} in your default browser...`);
+  const escapedUrl = url.replaceAll("'", "''");
+  const command = `Start-Process -FilePath '${escapedUrl}'`;
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command', command,
+  ], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+
+  if (result.status !== 0) {
+    console.warn(`Could not open a browser automatically. Open ${url} in your preferred browser.`);
+  }
+}
+
 if (process.platform === 'win32' && process.env.KCS_OPEN_BROWSER !== 'false') {
   void Promise.all([
     urlReady('http://127.0.0.1:8787/api/health'),
     urlReady('http://127.0.0.1:5188/'),
   ]).then(([backendReady, webReady]) => {
     if (!backendReady || !webReady || stopping) return;
-    const opener = spawn('cmd.exe', ['/d', '/s', '/c', 'start', '', 'http://localhost:5188'], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    opener.unref();
+    openWindowsBrowser('http://127.0.0.1:5188/');
   });
 }
