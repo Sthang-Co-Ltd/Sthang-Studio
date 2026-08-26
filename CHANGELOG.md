@@ -3,6 +3,7 @@
 ## 0.7.13 — Public Beta Candidate
 
 - Fixed bare `npm ci` in clean release checkouts so the locked development toolchain required by typecheck and build validation is installed.
+- Made release checksum generation independent of PowerShell module auto-loading so npm-invoked Windows packaging remains reliable across mixed PowerShell installations.
 
 ## 0.7.12 — Public Beta Candidate
 

@@ -138,7 +138,15 @@ try {
     $Archive.Dispose()
   }
 
-  $Hash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  $ArtifactStream = [IO.File]::OpenRead($ArtifactPath)
+  try {
+    $HashBytes = $Hasher.ComputeHash($ArtifactStream)
+    $Hash = [BitConverter]::ToString($HashBytes).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $ArtifactStream.Dispose()
+    $Hasher.Dispose()
+  }
   $ChecksumPath = "$ArtifactPath.sha256"
   Set-Content -LiteralPath $ChecksumPath -Value "$Hash  $ArtifactName" -Encoding ASCII
 
