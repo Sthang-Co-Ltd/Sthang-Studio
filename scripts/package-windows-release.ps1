@@ -87,7 +87,16 @@ try {
   $ArtifactPath = Join-Path $OutputDir $ArtifactName
   if (Test-Path -LiteralPath $ArtifactPath) { Remove-Item -LiteralPath $ArtifactPath -Force }
 
-  Compress-Archive -LiteralPath $PackageFolder -DestinationPath $ArtifactPath -CompressionLevel Optimal
+  # Compress-Archive can skip files carrying the Windows Hidden attribute. Use
+  # .NET ZipFile directly so the release payload is complete (including dotfiles
+  # such as .env.example) and so the outer Sthang Studio folder is preserved.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::CreateFromDirectory(
+    $PackageFolder,
+    $ArtifactPath,
+    [IO.Compression.CompressionLevel]::Optimal,
+    $true
+  )
 
   $Hash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
   $ChecksumPath = "$ArtifactPath.sha256"
