@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.13 — Public Beta Candidate
+
+- Fixed bare `npm ci` in clean release checkouts so the locked development toolchain required by typecheck and build validation is installed.
+
 ## 0.7.12 — Public Beta Candidate
 
 - Fixed the clean-clone release validation path so `npm ci` followed by `npm run typecheck` emits shared declarations before the downstream server and web checks.

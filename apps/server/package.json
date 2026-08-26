@@ -1,6 +1,6 @@
 {
   "name": "@kcs/server",
-  "version": "0.7.12",
+  "version": "0.7.13",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "2.17.1",
-    "@kcs/shared": "0.7.12",
+    "@kcs/shared": "0.7.13",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",

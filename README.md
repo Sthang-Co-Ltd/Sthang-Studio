@@ -32,7 +32,7 @@ available without crowding the main editing flow.
 Sthang Studio is being prepared for a public beta. The repository remains
 private, and owner approval is still required before changing its visibility or
 publishing the first public release. There is no supported public download at
-this time. Package version `0.7.12` is the public-beta release candidate, not a
+this time. Package version `0.7.13` is the public-beta release candidate, not a
 published release.
 
 When public distribution begins, ordinary Windows users should download the
@@ -126,12 +126,15 @@ behavior are also documented in [`PRODUCT.md`](PRODUCT.md),
 Typical setup:
 
 ```text
-npm install
+npm ci
 npm run check:public
 npm run typecheck
 npm run build
 npm run dev
 ```
+
+The repository-scoped `.npmrc` keeps the locked development toolchain included
+when `npm ci` runs for validation or a packaged installation.
 
 For the full Windows local-timing environment:
 

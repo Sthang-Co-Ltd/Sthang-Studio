@@ -4,7 +4,7 @@ This checklist separates repository work that can be automated from owner/admin
 settings that must be reviewed deliberately before Sthang Studio is announced
 publicly.
 
-Current status: version 0.7.12 is the public-beta release candidate. The
+Current status: version 0.7.13 is the public-beta release candidate. The
 repository remains private and no public source or download has been published.
 Owner/admin visibility and release gates below are still required before public
 announcement; until then, do not advertise a public source or download path.
@@ -31,7 +31,9 @@ announcement; until then, do not advertise a public source or download path.
       source-only and hit a Windows code-page metadata decode failure during the
       clean Python 3.12 install test; KFA 0.2.0 uses the `tokenize()` API already
       provided by the wheel-backed release.
-- [x] Public Node setup uses the committed lockfile through `npm ci`.
+- [x] Public Node setup uses the committed lockfile through bare `npm ci`, with
+      the repository-scoped `.npmrc` keeping the locked development toolchain
+      available for validation and packaged installation.
 - [x] Curated Windows release packaging keeps the ordinary-user download separate
       from the repository source ZIP and installs into a stable per-user app
       location without exposing developer files at the extracted top level.
