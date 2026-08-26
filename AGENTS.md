@@ -41,7 +41,7 @@ Preserve these public-release rules:
 - Do not vendor third-party model weights, FFmpeg binaries, or other large/runtime-downloaded artifacts without a separate license and distribution review.
 - Public user downloads should come from deliberate GitHub Release assets (and the Sthang website), not from an arbitrary development branch or a locally generated ZIP.
 - Treat `main` as the accepted baseline; normal work belongs on short-lived branches and pull requests.
-- The Windows desktop shortcut/launcher must open Sthang Studio in the user's registered default browser after both local services are healthy. Never assume Chrome is installed; Microsoft Edge-only clean machines and Windows Sandbox must work. Preserve a simple manual local URL fallback in launcher output if automatic opening fails.
+- The Windows desktop shortcut/launcher must open Sthang Studio after both local services are healthy. Respect the user's registered default browser when Windows has a usable `http://` association; never assume Chrome is installed. Minimal environments such as Windows Sandbox can include Microsoft Edge without registering an HTTP handler, so preserve a direct Edge fallback plus a simple manual local-URL fallback when automatic opening is impossible.
 
 ## UX and interaction invariants
 
