@@ -63,7 +63,8 @@ Owner/admin actions:
 - [ ] Confirm the fresh desktop shortcut opens Studio automatically in the
       registered default Windows browser after both local services are healthy.
       Do not assume Chrome is installed; Microsoft Edge-only clean machines and
-      Windows Sandbox must work.
+      Windows Sandbox must work. The launcher fix should be tested from a branch
+      build that uses Windows `Start-Process` with an Explorer fallback.
 - [ ] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
       secret is written to tracked files.
 - [x] Run a representative Khmer clip through upload → generate → review →
