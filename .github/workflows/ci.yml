@@ -45,6 +45,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Package Windows release candidate
+        if: runner.os == 'Windows'
+        run: npm run package:windows -- -SkipValidation
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
