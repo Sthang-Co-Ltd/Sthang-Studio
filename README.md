@@ -45,9 +45,13 @@ is development guidance, not a public download or release path.
 1. Clone or otherwise check out this repository into a stable folder. Do not run
    it directly from a temporary ZIP-preview location.
 2. Double-click `INSTALL-NEW-PC.bat`.
-3. The installer checks/installs Node.js LTS, Python 3.12, and FFmpeg through
-   WinGet, then installs Sthang Studio's dependencies and local timing tools.
+3. The installer checks/installs Node.js LTS, Python 3.12, FFmpeg, and the
+   Microsoft Visual C++ runtime needed by local timing. WinGet is preferred when
+   available; clean x64 Windows machines can use the reviewed direct per-user
+   fallback instead.
 4. Launch **Sthang Studio** from the desktop shortcut or run `run-windows.bat`.
+   After the local services are healthy, Studio opens in the registered default
+   Windows browser. Chrome is not required; Microsoft Edge is supported.
 5. Open **Settings → AI connection** and add your own Gemini API key.
 6. Upload media, generate captions, review the uncertain parts, and export SRT.
 
@@ -57,8 +61,8 @@ is needed.
 
 ### Requirements
 
-- Windows 10/11 64-bit recommended.
-- WinGet recommended for the one-click installer.
+- Windows 10/11 x64.
+- WinGet recommended but not required for the one-click installer.
 - Internet access for initial dependency/model setup and Gemini transcription.
 - A Gemini Developer API key for AI caption wording.
 - Enough local disk space for Python/Node dependencies, media, caches, and
