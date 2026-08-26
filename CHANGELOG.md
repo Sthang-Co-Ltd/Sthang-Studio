@@ -12,7 +12,7 @@
 - Hardened clean Windows installation by using the committed npm lockfile, preferring binary Python packages, forcing UTF-8 mode for legacy setup scripts, and pinning KFA's `khmercut` dependency to the wheel-backed 0.0.2 release instead of the source-only 0.1.0 package that failed under the Windows code page.
 - Aligned the wheel-backed Khmer tokenizer dependencies for Python 3.12 and treated KFA 0.2.0's stale `sosap==0.0.1` wheel metadata as one explicit compatibility exception while still failing every other dependency-check error and functionally verifying the newer Windows `sosap` wheel through KFA import/model preload.
 - Added a no-WinGet prerequisite fallback for clean Windows installs, including direct per-user Node.js/Python setup, a pinned FFmpeg 8.1.2 GitHub Release download with SHA-256 verification, visible download progress/timeouts, and clearer recovery messages.
-- Made the Windows launcher wait for both local services, respect the registered default browser when Windows has a usable `http://` association, and directly launch installed Microsoft Edge on minimal Windows images such as Sandbox where Edge exists but the HTTP protocol is unregistered; Chrome is never assumed.
+- Made the Windows launcher wait for both local services, respect the registered default browser when Windows has a usable `http://` association, and print the local Studio URL when no browser association is available; Chrome is never assumed.
 - Removed stale hard-coded version labels from Windows setup/launcher banners and routed incomplete-install recovery back through `INSTALL-NEW-PC.bat`.
 - No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
 
@@ -134,7 +134,7 @@
 - Updated transcription and cache signatures to resolve the active in-app model settings at job time.
 - Guarded full and selected regeneration with a direct route to AI setup when no key is connected.
 - Bound Vite and the API to loopback only, tightened allowed browser origins, and disabled caching on AI-settings responses.
-- Removed the launcher’s hard dependency on a pre-existing `.env`; it creates an optional placeholder file automatically.
+- Removed the launcher's hard dependency on a pre-existing `.env`; it creates an optional placeholder file automatically.
 - Reworked scrollbars across the editor, caption list, settings, review, corrections, history, and jobs panels with slimmer rounded thumbs, transparent tracks, hidden buttons, and low-contrast resting states.
 - No changes to Gemini/KFA caption quality, local timing, project/profile formats, correction memory, or SRT output.
 
@@ -257,3 +257,23 @@
 - Dynamic, Word, Phrase, and Line regrouping without timing drift.
 - Editable timeline, manual split/merge/nudge, video preview, and UTF-8 SRT export.
 - No automatic paid Google Cloud timing fallback.
+
+## 0.4.0 — Context-aware vocabulary
+
+- Added project topic context, protected vocabulary, explicit aliases, global glossary, proper-noun preservation, caption rhythm refinements, active-row follow, and context-aware regeneration.
+
+## 0.3.1 — Gemini resilience
+
+- Added transient retry/backoff and Gemini fallback-model handling.
+
+## 0.3.0 — Local Khmer alignment
+
+- Added KFA local forced alignment and local faster-whisper fallback.
+
+## 0.2.0 — Hybrid timing experiment
+
+- Separated transcription wording from dedicated timing anchors.
+
+## 0.1.x — Initial MVP
+
+- Added upload, Gemini transcription, editable captions, grouping modes, project history, and SRT export.
