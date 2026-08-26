@@ -93,11 +93,12 @@ https://sthang.app/ → Sthang Studio product page → Download for Windows → 
 
 ## Licensing follow-up
 
-The repository does not redistribute KFA/Whisper model weights or FFmpeg
-binaries. Their upstream terms remain applicable when downloaded/installed.
-Before a future packaged installer vendors any third-party binary or model,
-perform a separate license review for the exact artifact/build and update
-`THIRD_PARTY_NOTICES.md`.
+The repository does not commit or redistribute KFA/Whisper model weights or
+FFmpeg binaries. The clean Windows installer downloads the reviewed FFmpeg build
+at setup time, and model weights are downloaded at runtime; their upstream terms
+remain applicable. Before a future packaged installer vendors any third-party
+binary or model inside a release asset, perform a separate license review for
+the exact artifact/build and update `THIRD_PARTY_NOTICES.md`.
 
 A clean repository check verifies structure and source/build integrity; it does
 not replace the clean-Windows installation and real Khmer caption workflow tests
