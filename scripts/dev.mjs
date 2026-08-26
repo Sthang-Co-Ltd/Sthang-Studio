@@ -1,5 +1,4 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
@@ -49,6 +48,8 @@ let stopping = false;
 function terminateChildTree(child) {
   if (!child?.pid || child.killed) return;
   if (process.platform === 'win32') {
+    // Node and Vite can spawn descendants. Kill the whole tree so closing the
+    // launcher never leaves a stale server holding ports 8787/5188.
     spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
       stdio: 'ignore',
       windowsHide: true,
@@ -82,6 +83,8 @@ process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
 console.log('Starting backend on http://localhost:8787');
+// This is an end-user runtime, not a source-code development session.
+// Keep the backend stable during long transcription jobs.
 launch('server', ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
 console.log('Starting web app on http://localhost:5188');
 launch('web', [vite, '--host', '127.0.0.1'], path.join(root, 'apps', 'web'));
@@ -126,58 +129,28 @@ function windowsUserHttpChoiceAvailable() {
   return result.status === 0 && /\bProgId\b\s+REG_SZ\s+\S+/i.test(result.stdout || '');
 }
 
-function installedEdgePath() {
-  const candidates = [
-    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-  ].filter(Boolean);
-  return candidates.find((candidate) => existsSync(candidate)) || '';
-}
-
-function launchDetached(executable, args) {
-  try {
-    const child = spawn(executable, args, {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    child.on('error', () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function openWindowsBrowser(url) {
-  console.log(`Sthang Studio is ready. Opening ${url} in your browser...`);
-
-  // Respect the user's selected browser only when Windows has an explicit
-  // per-user HTTP choice. Windows Sandbox can expose an HKCR http class while
-  // still having no usable URL association, which makes Start-Process show the
-  // "We can't open this 'http' link" dialog and return success.
-  if (windowsUserHttpChoiceAvailable()) {
-    const escapedUrl = url.replaceAll("'", "''");
-    const command = `Start-Process -FilePath '${escapedUrl}'`;
-    const result = spawnSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy', 'Bypass',
-      '-Command', command,
-    ], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    if (result.status === 0) return;
+  if (!windowsUserHttpChoiceAvailable()) {
+    console.warn(`Sthang Studio is ready. Windows has no registered browser for web links. Open ${url} manually.`);
+    return;
   }
 
-  // Minimal Windows images such as Sandbox include Edge even when no HTTP
-  // association exists. Launch Edge directly only for this fallback path.
-  const edge = installedEdgePath();
-  if (edge && launchDetached(edge, [url])) return;
+  console.log(`Sthang Studio is ready. Opening ${url} in your default browser...`);
+  const escapedUrl = url.replaceAll("'", "''");
+  const command = `Start-Process -FilePath '${escapedUrl}'`;
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command', command,
+  ], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
 
-  console.warn(`Could not open a browser automatically. Open ${url} in Microsoft Edge or your preferred browser.`);
+  if (result.status !== 0) {
+    console.warn(`Could not open a browser automatically. Open ${url} in your preferred browser.`);
+  }
 }
 
 if (process.platform === 'win32' && process.env.KCS_OPEN_BROWSER !== 'false') {
