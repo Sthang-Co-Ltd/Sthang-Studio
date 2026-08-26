@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.12 — Public Beta Candidate
+
+- Fixed the clean-clone release validation path so `npm ci` followed by `npm run typecheck` emits shared declarations before the downstream server and web checks.
+
 ## 0.7.11 — Studio Identity Refresh
 
 - Replaced the previous approved Studio mark with the owner-selected interlocking ribbon-S identity and preserved the white/lime dark-surface, dark/lime light-surface, and monochrome variants on transparent backgrounds.

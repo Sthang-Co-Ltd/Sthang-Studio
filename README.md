@@ -29,10 +29,11 @@ available without crowding the main editing flow.
 
 ## Distribution status
 
-The Sthang Studio repository is currently private, and its first public release
-is pending owner approval. There is no supported public download at this time.
-Package version `0.7.11` is an internal development version, not a public
-release.
+Sthang Studio is being prepared for a public beta. The repository remains
+private, and owner approval is still required before changing its visibility or
+publishing the first public release. There is no supported public download at
+this time. Package version `0.7.12` is the public-beta release candidate, not a
+published release.
 
 When public distribution begins, ordinary Windows users should download the
 curated **Sthang Studio for Windows** ZIP attached to a GitHub Release (or linked

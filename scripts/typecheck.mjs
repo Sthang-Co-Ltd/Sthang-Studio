@@ -5,7 +5,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const node=process.execPath;
 const tsc=path.join(root,'node_modules','typescript','bin','tsc');
 for (const args of [
-  [tsc,'-p',path.join(root,'packages','shared','tsconfig.json'),'--noEmit'],
+  [tsc,'-p',path.join(root,'packages','shared','tsconfig.json'),'--emitDeclarationOnly'],
   [tsc,'-p',path.join(root,'apps','server','tsconfig.json'),'--noEmit'],
   [tsc,'-b',path.join(root,'apps','web','tsconfig.json'),'--pretty','false'],
 ]) {

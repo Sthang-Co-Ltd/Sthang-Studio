@@ -4,9 +4,10 @@ This checklist separates repository work that can be automated from owner/admin
 settings that must be reviewed deliberately before Sthang Studio is announced
 publicly.
 
-Current status: the repository remains private and the first public release is
-pending owner approval. Until those gates are complete, this checklist is
-planning-only; do not advertise a public source or download path.
+Current status: version 0.7.12 is the public-beta release candidate. The
+repository remains private and no public source or download has been published.
+Owner/admin visibility and release gates below are still required before public
+announcement; until then, do not advertise a public source or download path.
 
 ## Repository readiness
 
