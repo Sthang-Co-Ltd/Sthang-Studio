@@ -49,8 +49,6 @@ let stopping = false;
 function terminateChildTree(child) {
   if (!child?.pid || child.killed) return;
   if (process.platform === 'win32') {
-    // Node --watch and Vite can spawn descendants. Kill the whole tree so closing
-    // the launcher never leaves a stale server holding ports 8787/5188.
     spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
       stdio: 'ignore',
       windowsHide: true,
@@ -84,10 +82,6 @@ process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
 console.log('Starting backend on http://localhost:8787');
-// This is an end-user runtime, not a source-code development session.
-// Node's --watch mode can restart the backend when Windows/indexing/sync tools
-// touch watched files. A restart during a long transcription drops the HTTP
-// connection (ECONNRESET/ECONNREFUSED), so keep the backend stable.
 launch('server', ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
 console.log('Starting web app on http://localhost:5188');
 launch('web', [vite, '--host', '127.0.0.1'], path.join(root, 'apps', 'web'));
@@ -118,22 +112,18 @@ function urlReady(url, timeoutMs = 30000) {
   });
 }
 
-function windowsHttpHandlerAvailable() {
-  const options = { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] };
-  const userChoice = spawnSync('reg.exe', [
+function windowsUserHttpChoiceAvailable() {
+  const result = spawnSync('reg.exe', [
     'query',
     'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice',
     '/v',
     'ProgId',
-  ], options);
-  if (userChoice.status === 0 && /\bProgId\b\s+REG_SZ\s+\S+/i.test(userChoice.stdout || '')) return true;
-
-  const classHandler = spawnSync('reg.exe', [
-    'query',
-    'HKCR\\http\\shell\\open\\command',
-    '/ve',
-  ], options);
-  return classHandler.status === 0 && /REG_SZ\s+.+\.exe/i.test(classHandler.stdout || '');
+  ], {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return result.status === 0 && /\bProgId\b\s+REG_SZ\s+\S+/i.test(result.stdout || '');
 }
 
 function installedEdgePath() {
@@ -163,11 +153,11 @@ function launchDetached(executable, args) {
 function openWindowsBrowser(url) {
   console.log(`Sthang Studio is ready. Opening ${url} in your browser...`);
 
-  // Normal Windows installations should respect the user's registered default
-  // browser. Minimal images such as Windows Sandbox can ship Edge without an
-  // http:// protocol association; invoking Start-Process there shows a system
-  // "We can't open this 'http' link" dialog even though Edge itself is usable.
-  if (windowsHttpHandlerAvailable()) {
+  // Respect the user's selected browser only when Windows has an explicit
+  // per-user HTTP choice. Windows Sandbox can expose an HKCR http class while
+  // still having no usable URL association, which makes Start-Process show the
+  // "We can't open this 'http' link" dialog and return success.
+  if (windowsUserHttpChoiceAvailable()) {
     const escapedUrl = url.replaceAll("'", "''");
     const command = `Start-Process -FilePath '${escapedUrl}'`;
     const result = spawnSync('powershell.exe', [
@@ -182,9 +172,8 @@ function openWindowsBrowser(url) {
     if (result.status === 0) return;
   }
 
-  // Edge is part of supported Windows 10/11 installations and is also present
-  // in Windows Sandbox. Launch it directly only when Windows has no usable URL
-  // association (or the registered-browser launch failed); never assume Chrome.
+  // Minimal Windows images such as Sandbox include Edge even when no HTTP
+  // association exists. Launch Edge directly only for this fallback path.
   const edge = installedEdgePath();
   if (edge && launchDetached(edge, [url])) return;
 
