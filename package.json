@@ -25,6 +25,7 @@
     "start": "node apps/server/dist/index.js",
     "verify:brand": "node scripts/verify-brand-assets.mjs",
     "check:public": "node scripts/public-readiness-check.mjs",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "ci": "npm run check:public && npm run typecheck && npm run build"
   },
   "allowScripts": {
