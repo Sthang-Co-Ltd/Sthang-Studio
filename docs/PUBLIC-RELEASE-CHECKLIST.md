@@ -54,13 +54,19 @@ Owner/admin actions:
 
 ## First public distribution
 
-- [ ] Test installation from a clean Windows user/machine, not from the
+- [x] Test installation from a clean Windows user/machine, not from the
       maintainer's existing development folder.
-- [ ] Confirm WinGet setup, Node installation, Python 3.12, FFmpeg, KFA setup,
-      and local Whisper fallback behavior.
+- [x] Confirm clean-machine Node.js, Python 3.12, FFmpeg, Microsoft Visual C++
+      runtime, KFA setup/model preload, ONNX Runtime import, and local Whisper
+      fallback readiness. The no-WinGet fallback is the validated clean-Sandbox
+      path; WinGet remains preferred when available.
+- [ ] Confirm the fresh desktop shortcut opens Studio automatically in the
+      registered default Windows browser after both local services are healthy.
+      Do not assume Chrome is installed; Microsoft Edge-only clean machines and
+      Windows Sandbox must work.
 - [ ] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
       secret is written to tracked files.
-- [ ] Run a representative Khmer clip through upload → generate → review →
+- [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
 - [ ] Create a deliberate Git tag/release for the accepted public version.
 - [ ] Attach a reviewed release archive/installer to GitHub Releases. Do not tell
