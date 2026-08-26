@@ -4,6 +4,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$InstallRoot = $null
+$ServerEnv = $null
+$ServerEnvBackup = $null
+$HadServerEnv = $false
 
 function Copy-SourceTree([string]$Source, [string]$Destination) {
   New-Item -ItemType Directory -Path $Destination -Force | Out-Null
@@ -19,6 +23,14 @@ try {
   }
 
   $InstallRoot = Join-Path $env:LOCALAPPDATA 'Sthang Studio\app'
+  if ([string]::Equals(
+      $SourceRoot.TrimEnd('\'),
+      $InstallRoot.TrimEnd('\'),
+      [StringComparison]::OrdinalIgnoreCase
+    )) {
+    throw 'Run this installer from the extracted release package, not from the installed Sthang Studio app folder.'
+  }
+
   $ServerEnv = Join-Path $InstallRoot 'apps\server\.env'
   $ServerEnvBackup = Join-Path ([IO.Path]::GetTempPath()) ('Sthang-Studio-env-' + [Guid]::NewGuid().ToString('N') + '.tmp')
   $HadServerEnv = Test-Path -LiteralPath $ServerEnv
@@ -33,7 +45,8 @@ try {
 
   # Refresh only packaged application source. Runtime/user state intentionally
   # remains untouched: data, uploads, exports, node_modules and .venv all live
-  # outside these source directories. Preserve the optional advanced .env file.
+  # outside these source directories. The optional advanced .env file is backed
+  # up separately and restored even if source refresh fails partway through.
   foreach ($name in @('apps', 'packages', 'local-timing', 'scripts')) {
     $path = Join-Path $InstallRoot $name
     if (Test-Path -LiteralPath $path) {
@@ -71,7 +84,13 @@ try {
   Write-Host $_.Exception.Message -ForegroundColor Yellow
   exit 1
 } finally {
-  if ($ServerEnvBackup -and (Test-Path -LiteralPath $ServerEnvBackup)) {
+  if ($HadServerEnv -and $ServerEnvBackup -and (Test-Path -LiteralPath $ServerEnvBackup)) {
+    if ($ServerEnv) {
+      try {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $ServerEnv) -Force | Out-Null
+        Copy-Item -LiteralPath $ServerEnvBackup -Destination $ServerEnv -Force
+      } catch { }
+    }
     Remove-Item -LiteralPath $ServerEnvBackup -Force -ErrorAction SilentlyContinue
   }
 }
