@@ -51,7 +51,9 @@ is development guidance, not a public download or release path.
    fallback instead.
 4. Launch **Sthang Studio** from the desktop shortcut or run `run-windows.bat`.
    After the local services are healthy, Studio opens in the registered default
-   Windows browser. Chrome is not required; Microsoft Edge is supported.
+   Windows browser. Chrome is not required; Microsoft Edge is supported. If a
+   browser cannot be opened automatically, the launcher prints the local Studio
+   address so it can be opened manually.
 5. Open **Settings → AI connection** and add your own Gemini API key.
 6. Upload media, generate captions, review the uncertain parts, and export SRT.
 
