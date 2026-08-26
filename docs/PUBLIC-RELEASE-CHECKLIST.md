@@ -31,6 +31,9 @@ planning-only; do not advertise a public source or download path.
       clean Python 3.12 install test; KFA 0.2.0 uses the `tokenize()` API already
       provided by the wheel-backed release.
 - [x] Public Node setup uses the committed lockfile through `npm ci`.
+- [x] Curated Windows release packaging keeps the ordinary-user download separate
+      from the repository source ZIP and installs into a stable per-user app
+      location without exposing developer files at the extracted top level.
 
 ## Before changing repository visibility to Public
 
@@ -76,9 +79,16 @@ Owner/admin actions:
 - [x] Run `npm run check:public`, `npm run typecheck`, and `npm run build` locally
       on the PR branch. All passed on Windows; hosted GitHub Actions could not run
       because the account's monthly Actions allowance was exhausted.
+- [ ] Run `npm run package:windows` from the accepted release commit and inspect
+      the resulting archive. Its extracted top level should contain only
+      `Install Sthang Studio.bat`, `Read Me.txt`, and `Sthang Studio Files`.
+- [ ] Install once from that curated ZIP into `%LOCALAPPDATA%\Sthang Studio\app`,
+      confirm the desktop shortcut works, then delete the extracted setup folder
+      and confirm Studio still launches and existing local state remains intact.
 - [ ] Create a deliberate Git tag/release for the accepted public version.
-- [ ] Attach a reviewed release archive/installer to GitHub Releases. Do not tell
-      ordinary users to download an arbitrary branch snapshot.
+- [ ] Attach the reviewed curated Windows ZIP and its `.sha256` file to GitHub
+      Releases. Do not tell ordinary users to download the repository source ZIP
+      or an arbitrary branch snapshot.
 - [ ] Include release notes, Windows requirements, Gemini-key requirement,
       local model download expectations, privacy link, and checksum(s).
 
