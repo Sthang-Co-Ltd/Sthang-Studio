@@ -126,15 +126,15 @@ behavior are also documented in [`PRODUCT.md`](PRODUCT.md),
 Typical setup:
 
 ```text
-npm ci
+npm ci --include=dev
 npm run check:public
 npm run typecheck
 npm run build
 npm run dev
 ```
 
-The repository-scoped `.npmrc` keeps the locked development toolchain included
-when `npm ci` runs for validation or a packaged installation.
+The explicit `--include=dev` flag keeps the locked build and typecheck toolchain
+available even when the local npm configuration would otherwise omit it.
 
 For the full Windows local-timing environment:
 

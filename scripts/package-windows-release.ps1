@@ -53,7 +53,6 @@ try {
     'local-timing',
     'scripts',
     '.env.example',
-    '.npmrc',
     'package.json',
     'package-lock.json',
     'INSTALL-NEW-PC.bat',
@@ -124,7 +123,6 @@ try {
 
     $RequiredEntries = @(
       'Sthang Studio Files/.env.example',
-      'Sthang Studio Files/.npmrc',
       'Sthang Studio Files/INSTALL-NEW-PC.bat',
       'Sthang Studio Files/package-lock.json',
       'Sthang Studio Files/scripts/install-release-package.ps1'

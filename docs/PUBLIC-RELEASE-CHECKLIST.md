@@ -31,9 +31,9 @@ announcement; until then, do not advertise a public source or download path.
       source-only and hit a Windows code-page metadata decode failure during the
       clean Python 3.12 install test; KFA 0.2.0 uses the `tokenize()` API already
       provided by the wheel-backed release.
-- [x] Public Node setup uses the committed lockfile through bare `npm ci`, with
-      the repository-scoped `.npmrc` keeping the locked development toolchain
-      available for validation and packaged installation.
+- [x] Public Node setup uses the committed lockfile through
+      `npm ci --include=dev`, keeping the locked build and typecheck toolchain
+      available even when the local npm configuration would omit it.
 - [x] Curated Windows release packaging keeps the ordinary-user download separate
       from the repository source ZIP and installs into a stable per-user app
       location without exposing developer files at the extracted top level.

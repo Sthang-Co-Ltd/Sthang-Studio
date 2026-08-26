@@ -27,7 +27,7 @@ where ffprobe >nul 2>nul || (
 
 echo.
 echo Installing reviewed Node dependencies...
-call npm ci --no-audit --no-fund
+call npm ci --include=dev --no-audit --no-fund
 if errorlevel 1 (echo ERROR: npm ci failed.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)
 
 echo.
