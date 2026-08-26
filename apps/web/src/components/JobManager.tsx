@@ -42,10 +42,15 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
     : activeJobs.length
       ? 'Work is queued and will start automatically.'
       : 'Recent processing jobs and saved checkpoints.';
+  const headerIcon = runningJobs.length
+    ? <LoaderCircle className="spin" size={18}/>
+    : activeJobs.length
+      ? <Clock3 size={18}/>
+      : <CheckCircle2 size={18}/>;
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-head"><div>{activeJobs.length ? <LoaderCircle className="spin" size={18}/> : <CheckCircle2 size={18}/>}<div><strong>Processing queue</strong><span>{queueSummary}</span></div></div><button onClick={onClose}><X size={17}/></button></div>
+      <div className="modal-head"><div>{headerIcon}<div><strong>Processing queue</strong><span>{queueSummary}</span></div></div><button onClick={onClose}><X size={17}/></button></div>
       <div className="history-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
       <div className="job-list">
         {jobs.map((job) => <article key={job.id} className={`job-${job.status}`}>
