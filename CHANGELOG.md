@@ -12,6 +12,7 @@
 - Hardened clean Windows installation by using the committed npm lockfile, preferring binary Python packages, forcing UTF-8 mode for legacy setup scripts, and pinning KFA's `khmercut` dependency to the wheel-backed 0.0.2 release instead of the source-only 0.1.0 package that failed under the Windows code page.
 - Aligned the wheel-backed Khmer tokenizer dependencies for Python 3.12 and treated KFA 0.2.0's stale `sosap==0.0.1` wheel metadata as one explicit compatibility exception while still failing every other dependency-check error and functionally verifying the newer Windows `sosap` wheel through KFA import/model preload.
 - Added a no-WinGet prerequisite fallback for clean Windows installs, including direct per-user Node.js/Python setup, a pinned FFmpeg 8.1.2 GitHub Release download with SHA-256 verification, visible download progress/timeouts, and clearer recovery messages.
+- Made the Windows launcher open Sthang Studio through the registered default browser after both local services are healthy instead of relying on a brittle `cmd start` path; Microsoft Edge-only clean Windows/Sandbox environments are explicitly supported, with a fallback URL if automatic opening fails.
 - Removed stale hard-coded version labels from Windows setup/launcher banners and routed incomplete-install recovery back through `INSTALL-NEW-PC.bat`.
 - No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
 
