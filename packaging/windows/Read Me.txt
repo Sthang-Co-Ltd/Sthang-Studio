@@ -1,0 +1,23 @@
+STHANG STUDIO FOR WINDOWS
+Version {{VERSION}}
+
+Accurate Khmer captions, ready for CapCut.
+
+INSTALL
+1. Extract the entire downloaded ZIP.
+2. Double-click "Install Sthang Studio.bat".
+3. Keep the setup window open while Studio prepares the required Windows tools and Khmer timing resources.
+4. When setup finishes, launch Sthang Studio from the desktop shortcut.
+5. In Studio, open Settings > AI connection and add your Gemini API key.
+
+After installation completes, you can delete this extracted setup folder. Sthang Studio is installed into your Windows user profile and keeps its own app files there.
+
+REQUIREMENTS
+- Windows 10 or 11, x64
+- Internet access during initial setup and AI transcription
+- A Gemini Developer API key for AI caption wording
+- Enough free disk space for local timing resources and your media
+
+The "Sthang Studio Files" folder is used automatically by setup. You do not need to open or edit anything inside it.
+
+Privacy, license, and third-party notices are included with the installed application and are also available in the Sthang Studio source repository.
