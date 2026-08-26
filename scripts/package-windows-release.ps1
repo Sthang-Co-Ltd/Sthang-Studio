@@ -98,6 +98,44 @@ try {
     $true
   )
 
+  # Verify the archive shape before it can be treated as a release candidate.
+  # This protects the calm first impression and catches accidental payload loss.
+  $Archive = [IO.Compression.ZipFile]::OpenRead($ArtifactPath)
+  try {
+    $ArchiveRoot = "Sthang Studio $Version/"
+    $RelativeEntries = @(
+      $Archive.Entries |
+        ForEach-Object { $_.FullName.Replace('\', '/') } |
+        Where-Object { $_.StartsWith($ArchiveRoot, [StringComparison]::Ordinal) } |
+        ForEach-Object { $_.Substring($ArchiveRoot.Length) }
+    )
+
+    $TopLevel = @(
+      $RelativeEntries |
+        Where-Object { $_ } |
+        ForEach-Object { ($_ -split '/')[0] } |
+        Sort-Object -Unique
+    )
+    $ExpectedTopLevel = @('Install Sthang Studio.bat', 'Read Me.txt', 'Sthang Studio Files')
+    if (($TopLevel -join '|') -ne ($ExpectedTopLevel -join '|')) {
+      throw "Release ZIP top level is not the expected three-item layout. Found: $($TopLevel -join ', ')"
+    }
+
+    $RequiredEntries = @(
+      'Sthang Studio Files/.env.example',
+      'Sthang Studio Files/INSTALL-NEW-PC.bat',
+      'Sthang Studio Files/package-lock.json',
+      'Sthang Studio Files/scripts/install-release-package.ps1'
+    )
+    foreach ($RequiredEntry in $RequiredEntries) {
+      if ($RelativeEntries -notcontains $RequiredEntry) {
+        throw "Release ZIP is missing required payload entry: $RequiredEntry"
+      }
+    }
+  } finally {
+    $Archive.Dispose()
+  }
+
   $Hash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
   $ChecksumPath = "$ArtifactPath.sha256"
   Set-Content -LiteralPath $ChecksumPath -Value "$Hash  $ArtifactName" -Encoding ASCII
