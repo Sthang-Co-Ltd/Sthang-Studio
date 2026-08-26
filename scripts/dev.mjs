@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
@@ -117,33 +118,77 @@ function urlReady(url, timeoutMs = 30000) {
   });
 }
 
+function windowsHttpHandlerAvailable() {
+  const options = { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] };
+  const userChoice = spawnSync('reg.exe', [
+    'query',
+    'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice',
+    '/v',
+    'ProgId',
+  ], options);
+  if (userChoice.status === 0 && /\bProgId\b\s+REG_SZ\s+\S+/i.test(userChoice.stdout || '')) return true;
+
+  const classHandler = spawnSync('reg.exe', [
+    'query',
+    'HKCR\\http\\shell\\open\\command',
+    '/ve',
+  ], options);
+  return classHandler.status === 0 && /REG_SZ\s+.+\.exe/i.test(classHandler.stdout || '');
+}
+
+function installedEdgePath() {
+  const candidates = [
+    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate)) || '';
+}
+
+function launchDetached(executable, args) {
+  try {
+    const child = spawn(executable, args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.on('error', () => {});
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function openWindowsBrowser(url) {
-  console.log(`Sthang Studio is ready. Opening ${url} in your default browser...`);
-  const escapedUrl = url.replaceAll("'", "''");
-  const command = `Start-Process -FilePath '${escapedUrl}'`;
-  const result = spawnSync('powershell.exe', [
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy', 'Bypass',
-    '-Command', command,
-  ], {
-    stdio: 'ignore',
-    windowsHide: true,
-  });
+  console.log(`Sthang Studio is ready. Opening ${url} in your browser...`);
 
-  if (result.status === 0) return;
+  // Normal Windows installations should respect the user's registered default
+  // browser. Minimal images such as Windows Sandbox can ship Edge without an
+  // http:// protocol association; invoking Start-Process there shows a system
+  // "We can't open this 'http' link" dialog even though Edge itself is usable.
+  if (windowsHttpHandlerAvailable()) {
+    const escapedUrl = url.replaceAll("'", "''");
+    const command = `Start-Process -FilePath '${escapedUrl}'`;
+    const result = spawnSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy', 'Bypass',
+      '-Command', command,
+    ], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    if (result.status === 0) return;
+  }
 
-  // Explorer also delegates http(s) URLs to the registered Windows browser and
-  // provides a second path for minimal Windows images such as Windows Sandbox.
-  const fallback = spawn('explorer.exe', [url], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  fallback.on('error', () => {
-    console.warn(`Could not open a browser automatically. Open ${url} in Microsoft Edge or your preferred browser.`);
-  });
-  fallback.unref();
+  // Edge is part of supported Windows 10/11 installations and is also present
+  // in Windows Sandbox. Launch it directly only when Windows has no usable URL
+  // association (or the registered-browser launch failed); never assume Chrome.
+  const edge = installedEdgePath();
+  if (edge && launchDetached(edge, [url])) return;
+
+  console.warn(`Could not open a browser automatically. Open ${url} in Microsoft Edge or your preferred browser.`);
 }
 
 if (process.platform === 'win32' && process.env.KCS_OPEN_BROWSER !== 'false') {
