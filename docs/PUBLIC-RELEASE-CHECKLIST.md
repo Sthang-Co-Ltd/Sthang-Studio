@@ -60,13 +60,16 @@ Owner/admin actions:
       runtime, KFA setup/model preload, ONNX Runtime import, and local Whisper
       fallback readiness. The no-WinGet fallback is the validated clean-Sandbox
       path; WinGet remains preferred when available.
-- [ ] Confirm the fresh desktop shortcut opens Studio automatically in the
-      registered default Windows browser after both local services are healthy.
-      Do not assume Chrome is installed; Microsoft Edge-only clean machines and
-      Windows Sandbox must work. The launcher fix should be tested from a branch
-      build that uses Windows `Start-Process` with an Explorer fallback.
-- [ ] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
-      secret is written to tracked files.
+- [ ] Confirm the fresh desktop shortcut opens Studio automatically after both
+      local services are healthy. Normal Windows must respect the registered
+      default browser; Microsoft Edge-only clean machines must work without any
+      Chrome dependency. Windows Sandbox may include Edge without registering an
+      `http://` handler, so the final branch build must also validate the direct
+      Edge fallback discovered during clean-Sandbox testing.
+- [x] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
+      secret is written to tracked files. Clean-Sandbox testing confirmed the
+      saved key remains recognized after restart while the browser receives only
+      the masked value.
 - [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
 - [ ] Create a deliberate Git tag/release for the accepted public version.
