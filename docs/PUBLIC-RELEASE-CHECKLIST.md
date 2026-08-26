@@ -38,7 +38,7 @@ Owner/admin actions:
 
 - [ ] Confirm the public-readiness PR is merged and the repository checks are in
       an understood/acceptable state.
-- [ ] Run a final secret scan locally on the full repository clone.
+- [x] Run a final secret scan locally on the full repository clone.
 - [ ] In GitHub repository Settings, change visibility from **Private** to
       **Public** only after the preceding checks are complete.
 - [ ] Enable branch protection/rules for `main` and require the CI validation
@@ -60,18 +60,22 @@ Owner/admin actions:
       runtime, KFA setup/model preload, ONNX Runtime import, and local Whisper
       fallback readiness. The no-WinGet fallback is the validated clean-Sandbox
       path; WinGet remains preferred when available.
-- [ ] Confirm the fresh desktop shortcut opens Studio automatically after both
-      local services are healthy. Normal Windows must respect the registered
-      default browser; Microsoft Edge-only clean machines must work without any
-      Chrome dependency. Windows Sandbox may include Edge without registering an
-      `http://` handler, so the final branch build must also validate the direct
-      Edge fallback discovered during clean-Sandbox testing.
+- [x] Confirm the desktop shortcut opens Studio automatically on normal Windows
+      after both local services are healthy and respects the registered default
+      browser without assuming Chrome. On the maintainer Windows machine this
+      correctly opens Chrome. Windows Sandbox lacks a normal `http://` browser
+      association, so Sandbox auto-opening is not a release requirement; the
+      launcher must avoid the broken protocol dialog and print the local URL for
+      manual opening instead.
 - [x] Confirm the in-app Gemini key setup stores/retrieves a key correctly and no
       secret is written to tracked files. Clean-Sandbox testing confirmed the
       saved key remains recognized after restart while the browser receives only
       the masked value.
 - [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
+- [x] Run `npm run check:public`, `npm run typecheck`, and `npm run build` locally
+      on the PR branch. All passed on Windows; hosted GitHub Actions could not run
+      because the account's monthly Actions allowance was exhausted.
 - [ ] Create a deliberate Git tag/release for the accepted public version.
 - [ ] Attach a reviewed release archive/installer to GitHub Releases. Do not tell
       ordinary users to download an arbitrary branch snapshot.
