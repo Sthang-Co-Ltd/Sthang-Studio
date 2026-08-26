@@ -29,16 +29,11 @@ available without crowding the main editing flow.
 
 ## Distribution status
 
-Sthang Studio is being prepared for a public beta. The repository remains
-private, and owner approval is still required before changing its visibility or
-publishing the first public release. There is no supported public download at
-this time. Package version `0.7.13` is the public-beta release candidate, not a
-published release.
-
-When public distribution begins, ordinary Windows users should download the
-curated **Sthang Studio for Windows** ZIP attached to a GitHub Release (or linked
-from the Sthang website). GitHub's **Code → Download ZIP** is the source tree for
-developers and is intentionally not the end-user installer.
+Sthang Studio `0.7.13` is available as a public beta. Windows users should
+download the curated **Sthang Studio for Windows** ZIP from the
+[0.7.13 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.13).
+GitHub's **Code → Download ZIP** is the source tree for developers and is
+intentionally not the end-user installer.
 
 The Windows release package keeps the first-run folder simple: **Install Sthang
 Studio.bat**, **Read Me.txt**, and one **Sthang Studio Files** folder. Setup copies
@@ -46,10 +41,10 @@ the application into `%LOCALAPPDATA%\Sthang Studio\app`, so the downloaded setup
 folder can be deleted after installation while projects and local app state stay
 in the stable installed location.
 
-## Authorized contributor development setup
+## Contributor development setup
 
-The following setup is for authorized contributors with repository access. It
-is development guidance, not a public download or release path.
+The following setup is for contributors building from source. It is development
+guidance, not the end-user download or release path.
 
 ### Install from source on Windows
 

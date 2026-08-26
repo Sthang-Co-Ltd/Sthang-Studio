@@ -4,10 +4,9 @@ This checklist separates repository work that can be automated from owner/admin
 settings that must be reviewed deliberately before Sthang Studio is announced
 publicly.
 
-Current status: version 0.7.13 is the public-beta release candidate. The
-repository remains private and no public source or download has been published.
-Owner/admin visibility and release gates below are still required before public
-announcement; until then, do not advertise a public source or download path.
+Current status: the repository is public and version 0.7.13 is the published
+public Beta release. The curated Windows ZIP and checksum are available from the
+GitHub Release; website publication remains a separate gate.
 
 ## Repository readiness
 
@@ -42,10 +41,10 @@ announcement; until then, do not advertise a public source or download path.
 
 Owner/admin actions:
 
-- [ ] Confirm the public-readiness PR is merged and the repository checks are in
-      an understood/acceptable state.
+- [x] Confirm the accepted public-readiness changes are on `main` and the local
+      checks are in an understood/acceptable state.
 - [x] Run a final secret scan locally on the full repository clone.
-- [ ] In GitHub repository Settings, change visibility from **Private** to
+- [x] In GitHub repository Settings, change visibility from **Private** to
       **Public** only after the preceding checks are complete.
 - [ ] Enable branch protection/rules for `main` and require the CI validation
       check before merge once the hosted runners are available.
@@ -82,17 +81,17 @@ Owner/admin actions:
 - [x] Run `npm run check:public`, `npm run typecheck`, and `npm run build` locally
       on the PR branch. All passed on Windows; hosted GitHub Actions could not run
       because the account's monthly Actions allowance was exhausted.
-- [ ] Run `npm run package:windows` from the accepted release commit and inspect
+- [x] Run `npm run package:windows` from the accepted release commit and inspect
       the resulting archive. Its extracted top level should contain only
       `Install Sthang Studio.bat`, `Read Me.txt`, and `Sthang Studio Files`.
 - [ ] Install once from that curated ZIP into `%LOCALAPPDATA%\Sthang Studio\app`,
       confirm the desktop shortcut works, then delete the extracted setup folder
       and confirm Studio still launches and existing local state remains intact.
-- [ ] Create a deliberate Git tag/release for the accepted public version.
-- [ ] Attach the reviewed curated Windows ZIP and its `.sha256` file to GitHub
+- [x] Create a deliberate Git tag/release for the accepted public version.
+- [x] Attach the reviewed curated Windows ZIP and its `.sha256` file to GitHub
       Releases. Do not tell ordinary users to download the repository source ZIP
       or an arbitrary branch snapshot.
-- [ ] Include release notes, Windows requirements, Gemini-key requirement,
+- [x] Include release notes, Windows requirements, Gemini-key requirement,
       local model download expectations, privacy link, and checksum(s).
 
 ## Sthang website
