@@ -32,8 +32,18 @@ available without crowding the main editing flow.
 The Sthang Studio repository is currently private, and its first public release
 is pending owner approval. There is no supported public download at this time.
 Package version `0.7.11` is an internal development version, not a public
-release. Do not use a development checkout or source archive as a release
-artifact.
+release.
+
+When public distribution begins, ordinary Windows users should download the
+curated **Sthang Studio for Windows** ZIP attached to a GitHub Release (or linked
+from the Sthang website). GitHub's **Code → Download ZIP** is the source tree for
+developers and is intentionally not the end-user installer.
+
+The Windows release package keeps the first-run folder simple: **Install Sthang
+Studio.bat**, **Read Me.txt**, and one **Sthang Studio Files** folder. Setup copies
+the application into `%LOCALAPPDATA%\Sthang Studio\app`, so the downloaded setup
+folder can be deleted after installation while projects and local app state stay
+in the stable installed location.
 
 ## Authorized contributor development setup
 
@@ -133,6 +143,20 @@ The Python worker can be syntax-checked without downloading models:
 ```text
 python -m py_compile local-timing/worker.py
 ```
+
+### Build the curated Windows release ZIP
+
+On a clean Windows checkout, run:
+
+```text
+npm run package:windows
+```
+
+The packager reruns public-readiness, typecheck, and production build checks,
+requires a clean tracked working tree, packages only the runtime/public-install
+payload, and writes the ZIP plus SHA-256 file to ignored `release-artifacts/`.
+The resulting archive is the candidate GitHub Release asset; the repository
+source ZIP is not.
 
 Pull requests are expected to pass the repository CI on both Windows and Linux.
 The build/typecheck flow also verifies the owner-approved Studio brand assets
