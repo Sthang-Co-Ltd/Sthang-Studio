@@ -26,18 +26,38 @@ from Git by `.gitignore`.
 
 ## What is sent to Gemini
 
-When you generate or regenerate AI caption wording, Sthang Studio sends the
-normalized WAV audio needed for that operation, plus relevant topic context,
-protected vocabulary, accuracy hints, and accepted or proposed wording, directly
-to Google using your Gemini API key. The request includes only the details that
-are relevant to the requested transcription pass.
+When you generate or regenerate AI caption wording, Sthang Studio uploads the
+normalized WAV audio needed for that operation to Google using your Gemini API
+key. Relevant protected vocabulary is sent with the dedicated speech-recognition
+request. Topic context, accuracy hints, accepted wording, or proposed wording are
+sent only on general-model passes where those details are relevant.
 
-Sthang Studio requests `store: false` for Gemini transcription interactions.
-This opts out of the Interactions API's default state storage, but it does not
-control files uploaded through the separate Gemini Files API.
+The normal acoustic wording pass uses Gemini's dedicated transcription model in
+verbatim mode with Khmer/English language guidance and a focused custom
+vocabulary list when available. Studio intentionally does not request Gemini
+word-level timestamps for this primary pass; final caption timing remains a
+separate local operation.
 
-Studio uploads the normalized WAV through the Gemini Files API and does not
-explicitly delete that remote file after processing. Google currently documents
+General Gemini listening is used selectively rather than on every acoustic pass:
+
+- a normal full generation may run a second context-aware listen when the user
+  supplied explicit topic/context information;
+- alternative and contextual regeneration passes use the general model;
+- Deep Verify compares a dedicated acoustic transcription candidate with an
+  independently prompted context-aware general-model candidate;
+- if the dedicated transcription endpoint is unavailable or rejected, Studio
+  falls back to the established general-model transcription path so the project
+  is not blocked by that preview capability.
+
+Sthang Studio requests `store: false` for Gemini transcription and general-model
+Interactions API calls. This opts out of the Interactions API's default state
+storage, but it does not control files uploaded through the separate Gemini Files
+API.
+
+Studio uploads normalized WAV audio through the Gemini Files API and does not
+explicitly delete that remote file after processing. The same uploaded file URI
+may be reused for more than one listening pass within an operation so Studio does
+not needlessly upload the same normalized audio again. Google currently documents
 that Files API uploads are stored under provider control for up to 48 hours and
 that Files API storage is independent of interaction zero-data-retention
 controls. As a result, `store: false` does not make Studio's current Gemini flow
