@@ -1,0 +1,225 @@
+{
+  "$schema": "https://sthang.app/schemas/product-manifest.schema.json",
+  "schemaVersion": 1,
+  "kind": "sthang-product-manifest",
+  "productId": "studio",
+  "source": {
+    "repository": "Sthang-Co-Ltd/Sthang-Studio",
+    "visibilityClaim": "public",
+    "defaultBranchClaim": "main"
+  },
+  "change": {
+    "id": "studio-public-beta-v0-7-14",
+    "userVisible": true,
+    "documentationImpact": {
+      "status": "required",
+      "summary": "Publish the 0.7.14 Beta download, checksum, installation guidance, and complete Gemini Files API retention disclosure."
+    },
+    "releaseImpact": "version"
+  },
+  "proposal": {
+    "displayName": "Sthang Studio",
+    "parentBrand": "Sthang",
+    "lifecycle": "preview",
+    "publicVisibilityRequest": {
+      "status": "approved",
+      "basis": "Approved public repository and independently verified v0.7.14 prerelease evidence for the Studio beta"
+    },
+    "source": {
+      "visibility": "public",
+      "repository": "Sthang-Co-Ltd/Sthang-Studio",
+      "normalization": "Public repository visibility and source access are independently verified against the governed repository"
+    },
+    "distribution": {
+      "model": "public-github-release",
+      "availability": "available",
+      "downloadAuthority": "github-releases",
+      "primaryAction": {
+        "label": "Download for Windows",
+        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.7.14/Sthang-Studio-Windows-v0.7.14.zip"
+      },
+      "sourceAction": {
+        "label": "View source on GitHub",
+        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio"
+      }
+    },
+    "updates": {
+      "model": "manual-github-release",
+      "automaticPublication": false
+    },
+    "release": {
+      "sourceVersion": "0.7.14",
+      "publicVersion": "0.7.14",
+      "publicVersionStatus": "verified",
+      "channel": "preview"
+    },
+    "routes": {
+      "website": "/studio/",
+      "legacyWebsite": [],
+      "docs": "/studio/"
+    },
+    "brand": {
+      "assetSet": "studio",
+      "accent": "#D7FF4F"
+    },
+    "publicSummary": "Sthang Studio helps Khmer creators turn video and audio into timed captions, review the wording, and export UTF-8 SRT files for CapCut.",
+    "publicClaims": [
+      "Khmer-first caption editing in the Captions workspace",
+      "Public source and a reviewed Beta download on GitHub",
+      "Timing, editing, projects, history, and exports remain local"
+    ],
+    "dataProcessing": {
+      "providers": [
+        {
+          "id": "google-gemini",
+          "purpose": "AI caption wording",
+          "triggers": [
+            "generate",
+            "regenerate"
+          ],
+          "dataSent": [
+            "normalized WAV audio",
+            "relevant context",
+            "requested wording"
+          ],
+          "staysLocal": [
+            "timing",
+            "editing",
+            "projects",
+            "history",
+            "exports"
+          ],
+          "credentialOwner": "user",
+          "keyStorage": [
+            "Windows user-protected in-app storage",
+            "Advanced GEMINI_API_KEY environment or .env fallback"
+          ],
+          "interactionStore": false,
+          "fileApiUpload": true,
+          "fileDeleteCalledByApp": false,
+          "remoteFileRetention": "provider-controlled-up-to-48-hours",
+          "privacyUrl": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/blob/main/PRIVACY.md"
+        }
+      ]
+    }
+  },
+  "evidence": {
+    "release": {
+      "mode": "github-release",
+      "tag": "v0.7.14",
+      "expectedDraft": false,
+      "expectedPrerelease": true,
+      "assetName": "Sthang-Studio-Windows-v0.7.14.zip",
+      "checksumAssetName": "Sthang-Studio-Windows-v0.7.14.zip.sha256",
+      "notesRequiredTerms": [
+        "Sthang Studio 0.7.14",
+        "Public Beta",
+        "Windows 10 or 11 x64",
+        "Gemini Developer API key",
+        "Files API",
+        "48 hours",
+        "SHA-256"
+      ],
+      "notesForbiddenTerms": [
+        "private repository",
+        "release candidate",
+        "not publicly available",
+        "no public download"
+      ],
+      "package": {
+        "entrypoint": "Sthang Studio 0.7.14/Install Sthang Studio.bat",
+        "requiredPaths": [
+          "Sthang Studio 0.7.14/Install Sthang Studio.bat",
+          "Sthang Studio 0.7.14/Read Me.txt",
+          "Sthang Studio 0.7.14/Sthang Studio Files/.env.example",
+          "Sthang Studio 0.7.14/Sthang Studio Files/.sthang/product-manifest.json",
+          "Sthang Studio 0.7.14/Sthang Studio Files/INSTALL-NEW-PC.bat",
+          "Sthang Studio 0.7.14/Sthang Studio Files/README.md",
+          "Sthang Studio 0.7.14/Sthang Studio Files/PRIVACY.md",
+          "Sthang Studio 0.7.14/Sthang Studio Files/package-lock.json",
+          "Sthang Studio 0.7.14/Sthang Studio Files/scripts/install-release-package.ps1"
+        ],
+        "truth": {
+          "paths": [
+            "Sthang Studio 0.7.14/Read Me.txt",
+            "Sthang Studio 0.7.14/Sthang Studio Files/README.md",
+            "Sthang Studio 0.7.14/Sthang Studio Files/PRIVACY.md"
+          ],
+          "requiredTerms": [
+            "public Beta",
+            "v0.7.14",
+            "Gemini Files API",
+            "store: false",
+            "48 hours"
+          ],
+          "forbiddenTerms": [
+            "private repository",
+            "release candidate",
+            "not publicly available"
+          ]
+        }
+      }
+    },
+    "installation": {
+      "paths": [
+        "README.md",
+        "packaging/windows/Read Me.txt",
+        "docs/PUBLIC-RELEASE-CHECKLIST.md"
+      ],
+      "requiredTerms": [
+        "Install Sthang Studio.bat",
+        "%LOCALAPPDATA%\\Sthang Studio\\app",
+        "delete this extracted setup folder",
+        "Windows 10 or 11",
+        "Gemini API key"
+      ],
+      "forbiddenTerms": [
+        "Download ZIP is the installer",
+        "Chrome is required"
+      ]
+    },
+    "dataProcessing": {
+      "paths": [
+        "PRIVACY.md",
+        "README.md",
+        "apps/server/src/services/gemini.ts"
+      ],
+      "requiredTerms": [
+        "Files API",
+        "48 hours",
+        "store: false",
+        "ai.files.upload"
+      ],
+      "forbiddenTerms": [
+        "Sthang Studio is fully offline",
+        "Studio deletes the remote file",
+        "remote audio is deleted immediately"
+      ]
+    },
+    "identity": {
+      "manifestPath": "apps/web/public/brand/brand-manifest.json",
+      "assets": [
+        {
+          "role": "mark-on-dark",
+          "path": "apps/web/public/brand/sthang-studio-mark.svg"
+        },
+        {
+          "role": "mark-on-light",
+          "path": "apps/web/public/brand/sthang-studio-mark-ink.svg"
+        },
+        {
+          "role": "mark-monochrome",
+          "path": "apps/web/public/brand/sthang-studio-mark-mono.svg"
+        },
+        {
+          "role": "wordmark-on-dark",
+          "path": "apps/web/public/brand/sthang-wordmark.svg"
+        },
+        {
+          "role": "wordmark-on-light",
+          "path": "apps/web/public/brand/sthang-wordmark-ink.svg"
+        }
+      ]
+    }
+  }
+}

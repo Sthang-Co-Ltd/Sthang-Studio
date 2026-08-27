@@ -36,7 +36,7 @@ app.get('/api/health', async (_req, res) => {
     const llm = await publicLlmSettings();
     res.json({
       ok: true,
-      engineVersion: '0.7.13',
+      engineVersion: '0.7.14',
       geminiModel: llm.model,
       geminiFallbackModel: llm.fallbackModel || null,
       geminiMaxRetries: config.geminiMaxRetries,
@@ -84,7 +84,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 app.listen(config.port, '127.0.0.1', () => {
   void resolveGeminiSettings().then((llm) => {
-    console.log(`Sthang Studio API v0.7.13 -> http://localhost:${config.port}`);
+    console.log(`Sthang Studio API v0.7.14 -> http://localhost:${config.port}`);
     console.log(`Gemini: ${llm.configured ? `configured via ${llm.keySource}` : 'not configured — open Settings → AI connection'}`);
     console.log(`Gemini text model: ${llm.model}`);
     console.log(`Gemini resilience: ${config.geminiMaxRetries} retries/model · fallback ${llm.fallbackModel || 'disabled'}`);

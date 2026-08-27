@@ -15,6 +15,18 @@ function Invoke-Checked([string]$Label, [scriptblock]$Command) {
   }
 }
 
+function Assert-Matches([string]$Label, [string]$Content, [string]$Pattern) {
+  if ($Content -notmatch $Pattern) {
+    throw "$Label is missing required public release truth: $Pattern"
+  }
+}
+
+function Assert-DoesNotMatch([string]$Label, [string]$Content, [string]$Pattern) {
+  if ($Content -match $Pattern) {
+    throw "$Label contains stale public release wording: $Pattern"
+  }
+}
+
 $Package = Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
 $Version = [string]$Package.version
 if (-not $Version) { throw 'package.json does not contain a release version.' }
@@ -52,6 +64,7 @@ try {
     'packages',
     'local-timing',
     'scripts',
+    '.sthang',
     '.env.example',
     'package.json',
     'package-lock.json',
@@ -82,6 +95,30 @@ try {
   Copy-Item -LiteralPath $InstallerTemplate -Destination (Join-Path $PackageFolder 'Install Sthang Studio.bat') -Force
   $Readme = (Get-Content -LiteralPath $ReadmeTemplate -Raw).Replace('{{VERSION}}', $Version)
   Set-Content -LiteralPath (Join-Path $PackageFolder 'Read Me.txt') -Value $Readme -Encoding UTF8
+
+  $NestedReadme = Get-Content -LiteralPath (Join-Path $FilesFolder 'README.md') -Raw
+  $NestedPrivacy = Get-Content -LiteralPath (Join-Path $FilesFolder 'PRIVACY.md') -Raw
+  $VersionPattern = [Regex]::Escape($Version)
+  $ReleaseTruth = @(
+    @('public Beta', '(?i)public Beta'),
+    @('Gemini Files API', '(?i)Gemini Files API'),
+    @('no explicit remote-file deletion', '(?i)does not\s+explicitly\s+delete\s+(that\s+)?remote\s+file'),
+    @('provider retention', '(?i)up to 48 hours')
+  )
+  foreach ($Truth in $ReleaseTruth) {
+    Assert-Matches "Packaged README ($($Truth[0]))" $NestedReadme $Truth[1]
+  }
+  Assert-Matches 'Packaged README version' $NestedReadme "(?i)releases/tag/v$VersionPattern\b"
+  Assert-Matches 'Packaged privacy interaction storage' $NestedPrivacy '(?i)`store: false`'
+  Assert-Matches 'Packaged privacy Files API' $NestedPrivacy '(?i)Gemini Files API'
+  Assert-Matches 'Packaged privacy remote-file deletion' $NestedPrivacy '(?i)does not\s+explicitly\s+delete\s+(that\s+)?remote\s+file'
+  Assert-Matches 'Packaged privacy retention' $NestedPrivacy '(?i)up to 48 hours'
+  Assert-Matches 'Top-level Read Me Files API' $Readme '(?i)Gemini Files API'
+  Assert-Matches 'Top-level Read Me remote-file deletion' $Readme '(?i)does not\s+explicitly\s+delete\s+(that\s+)?remote\s+file'
+  Assert-Matches 'Top-level Read Me retention' $Readme '(?i)up to 48 hours'
+  foreach ($Content in @($NestedReadme, $NestedPrivacy, $Readme)) {
+    Assert-DoesNotMatch 'Packaged public documentation' $Content '(?i)\b(repository is private|private repository|repository remains private|no public download|not (yet )?available (to|for) (the )?public|release[- ]candidate)\b'
+  }
 
   $ArtifactName = "Sthang-Studio-Windows-v$Version.zip"
   $ArtifactPath = Join-Path $OutputDir $ArtifactName
@@ -123,6 +160,7 @@ try {
 
     $RequiredEntries = @(
       'Sthang Studio Files/.env.example',
+      'Sthang Studio Files/.sthang/product-manifest.json',
       'Sthang Studio Files/INSTALL-NEW-PC.bat',
       'Sthang Studio Files/package-lock.json',
       'Sthang Studio Files/scripts/install-release-package.ps1'

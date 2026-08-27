@@ -3,7 +3,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const root = process.cwd();
-const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
+const currentFiles = execFileSync(
+  'git',
+  ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+  { cwd: root, encoding: 'utf8' },
+)
   .split('\0')
   .filter(Boolean);
 
@@ -13,7 +17,7 @@ function normalized(file) {
   return file.replaceAll('\\', '/');
 }
 
-function forbiddenTrackedPath(file) {
+function forbiddenPublicPath(file) {
   const p = normalized(file);
   const base = path.posix.basename(p);
   const segments = p.split('/');
@@ -39,8 +43,8 @@ function forbiddenTrackedPath(file) {
     || (p.startsWith('exports/') && p !== 'exports/.gitkeep');
 }
 
-for (const file of tracked) {
-  if (forbiddenTrackedPath(file)) errors.push(`forbidden tracked path: ${file}`);
+for (const file of currentFiles) {
+  if (forbiddenPublicPath(file)) errors.push(`forbidden public path: ${file}`);
 }
 
 const secretPatterns = [
@@ -64,7 +68,80 @@ function scan(label, text) {
   }
 }
 
-for (const file of tracked) {
+function readText(relativePath) {
+  try {
+    return fs.readFileSync(path.join(root, relativePath), 'utf8');
+  } catch (error) {
+    errors.push(`unable to read ${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
+    return '';
+  }
+}
+
+function requireText(relativePath, text, checks) {
+  for (const [label, pattern] of checks) {
+    pattern.lastIndex = 0;
+    if (!pattern.test(text)) errors.push(`${relativePath} is missing required public truth: ${label}`);
+  }
+}
+
+const rootPackage = JSON.parse(readText('package.json'));
+const publicVersion = rootPackage.version;
+const readme = readText('README.md');
+const privacy = readText('PRIVACY.md');
+const packageReadme = readText('packaging/windows/Read Me.txt');
+const geminiRuntime = readText('apps/server/src/services/gemini.ts');
+
+for (const [relativePath, text] of [
+  ['README.md', readme],
+  ['PRIVACY.md', privacy],
+  ['packaging/windows/Read Me.txt', packageReadme],
+]) {
+  for (const [label, pattern] of [
+    ['private repository claim', /\b(?:repository is private|private repository|repository remains private)\b/i],
+    ['no-public-download claim', /\b(?:no public download|not (?:yet )?available (?:to|for) (?:the )?public)\b/i],
+    ['release-candidate claim', /\brelease[- ]candidate\b/i],
+  ]) {
+    pattern.lastIndex = 0;
+    if (pattern.test(text)) errors.push(`${relativePath} contains stale ${label}`);
+  }
+}
+
+requireText('README.md', readme, [
+  ['current public Beta version', new RegExp(`\\b${publicVersion.replaceAll('.', '\\.') }\\b`)],
+  ['matching GitHub Release tag', new RegExp(`/releases/tag/v${publicVersion.replaceAll('.', '\\.') }\\b`)],
+  ['interaction store control', /`store: false`/i],
+  ['Gemini Files API upload', /Gemini Files API/i],
+  ['no explicit remote-file deletion', /does not\s+explicitly\s+delete\s+(?:that\s+)?remote\s+file/i],
+  ['provider retention of up to 48 hours', /up to 48 hours/i],
+]);
+
+requireText('PRIVACY.md', privacy, [
+  ['interaction store control', /`store: false`/i],
+  ['Gemini Files API upload', /Gemini Files API/i],
+  ['no explicit remote-file deletion', /does not\s+explicitly\s+delete\s+(?:that\s+)?remote\s+file/i],
+  ['provider retention of up to 48 hours', /up to 48 hours/i],
+  ['Files API independence from interaction retention', /independent\s+of\s+interaction\s+zero-data-retention\s+controls/i],
+  ['not a zero-data-footprint workflow', /does not make Studio's current Gemini flow\s+a zero-data-footprint workflow/i],
+]);
+
+requireText('packaging/windows/Read Me.txt', packageReadme, [
+  ['interaction store control', /store:false/i],
+  ['Gemini Files API upload', /Gemini Files API/i],
+  ['no explicit remote-file deletion', /does not\s+explicitly\s+delete\s+(?:that\s+)?remote\s+file/i],
+  ['provider retention of up to 48 hours', /up to 48 hours/i],
+]);
+
+if (!/ai\.files\.upload\s*\(/.test(geminiRuntime)) {
+  errors.push('Gemini runtime no longer matches the disclosed Files API upload behavior');
+}
+if (/ai\.files\.delete\s*\(/.test(geminiRuntime)) {
+  errors.push('Gemini runtime now deletes Files API uploads; update the disclosure and product manifest before release');
+}
+if (!/store:\s*false\b/.test(geminiRuntime)) {
+  errors.push('Gemini runtime no longer matches the disclosed store:false interaction behavior');
+}
+
+for (const file of currentFiles) {
   const full = path.join(root, file);
   let stat;
   try {
@@ -97,4 +174,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`Public-readiness check passed (${tracked.length} tracked files; current tree + Git history scanned).`);
+console.log(`Public-readiness check passed (${currentFiles.length} current files; current tree + Git history scanned).`);

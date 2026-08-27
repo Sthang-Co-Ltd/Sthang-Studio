@@ -32,9 +32,19 @@ protected vocabulary, accuracy hints, and accepted or proposed wording, directly
 to Google using your Gemini API key. The request includes only the details that
 are relevant to the requested transcription pass.
 
-The application requests `store: false` for Gemini transcription interactions.
-Google's own Gemini Developer API terms, data handling, retention, quotas, and
-privacy policies still apply to that service.
+Sthang Studio requests `store: false` for Gemini transcription interactions.
+This opts out of the Interactions API's default state storage, but it does not
+control files uploaded through the separate Gemini Files API.
+
+Studio uploads the normalized WAV through the Gemini Files API and does not
+explicitly delete that remote file after processing. Google currently documents
+that Files API uploads are stored under provider control for up to 48 hours and
+that Files API storage is independent of interaction zero-data-retention
+controls. As a result, `store: false` does not make Studio's current Gemini flow
+a zero-data-footprint workflow. See Google's
+[Files API guide](https://ai.google.dev/gemini-api/docs/files) and
+[zero-data-retention guidance](https://ai.google.dev/gemini-api/docs/zdr).
+Google's Gemini Developer API terms, quotas, and privacy policies also apply.
 
 Sthang Studio does not use Gemini for final local timing alignment. Timing and
 project editing remain on-device after the transcript is returned.

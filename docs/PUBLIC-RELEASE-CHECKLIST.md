@@ -4,9 +4,10 @@ This checklist separates repository work that can be automated from owner/admin
 settings that must be reviewed deliberately before Sthang Studio is announced
 publicly.
 
-Current status: the repository is public and version 0.7.13 is the published
-public Beta release. The curated Windows ZIP and checksum are available from the
-GitHub Release; website publication remains a separate gate.
+The repository and its existing Beta release are public. Version `0.7.14` is the
+next release declaration. Its tag, curated ZIP, checksum, and GitHub Release do
+not exist until the unchecked release gates below are completed from an accepted
+clean commit.
 
 ## Repository readiness
 
@@ -36,6 +37,10 @@ GitHub Release; website publication remains a separate gate.
 - [x] Curated Windows release packaging keeps the ordinary-user download separate
       from the repository source ZIP and installs into a stable per-user app
       location without exposing developer files at the extracted top level.
+- [x] Release checks reject stale private/release-candidate wording in the
+      packaged README and require the current Files API retention disclosure.
+- [x] The product-owned `.sthang/product-manifest.json` declares public Beta
+      identity and release intent without self-referential commits or hashes.
 
 ## Before changing repository visibility to Public
 
@@ -57,7 +62,7 @@ Owner/admin actions:
 - [ ] Add a repository social-preview image and useful repository topics after
       the public product page/visuals are ready.
 
-## First public distribution
+## Version 0.7.14 public distribution
 
 - [x] Test installation from a clean Windows user/machine, not from the
       maintainer's existing development folder.
@@ -78,21 +83,34 @@ Owner/admin actions:
       the masked value.
 - [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
-- [x] Run `npm run check:public`, `npm run typecheck`, and `npm run build` locally
-      on the PR branch. All passed on Windows; hosted GitHub Actions could not run
-      because the account's monthly Actions allowance was exhausted.
-- [x] Run `npm run package:windows` from the accepted release commit and inspect
-      the resulting archive. Its extracted top level should contain only
+- [ ] Run `npm run check:public`, `npm run verify:brand`, `npm run typecheck`, and
+      `npm run build` from the accepted `0.7.14` release commit. Hosted GitHub
+      Actions may remain unavailable while the account's monthly allowance is
+      exhausted; record local evidence instead of reporting hosted checks as run.
+- [ ] Run `npm run package:windows` from the accepted `0.7.14` release commit and
+      inspect the resulting archive. Its extracted top level should contain only
       `Install Sthang Studio.bat`, `Read Me.txt`, and `Sthang Studio Files`.
 - [ ] Install once from that curated ZIP into `%LOCALAPPDATA%\Sthang Studio\app`,
       confirm the desktop shortcut works, then delete the extracted setup folder
       and confirm Studio still launches and existing local state remains intact.
-- [x] Create a deliberate Git tag/release for the accepted public version.
-- [x] Attach the reviewed curated Windows ZIP and its `.sha256` file to GitHub
-      Releases. Do not tell ordinary users to download the repository source ZIP
-      or an arbitrary branch snapshot.
-- [x] Include release notes, Windows requirements, Gemini-key requirement,
-      local model download expectations, privacy link, and checksum(s).
+- [ ] Create the deliberate `v0.7.14` tag and prerelease from the accepted commit.
+- [ ] Attach `Sthang-Studio-Windows-v0.7.14.zip` and
+      `Sthang-Studio-Windows-v0.7.14.zip.sha256` to GitHub Releases. Verify the
+      uploaded bytes against the local SHA-256 before announcing them. Do not
+      tell ordinary users to download the repository source ZIP or an arbitrary
+      branch snapshot.
+- [ ] Include release notes, Windows requirements, Gemini-key requirement, local
+      model download expectations, privacy links, and the verified checksum.
+- [ ] Confirm the release notes explain that `store: false` does not control the
+      Files API upload, Studio does not explicitly delete the remote WAV, and
+      Google currently documents storage for up to 48 hours.
+- [ ] Reconcile the accepted `0.7.14` release through the approval-gated
+      product-to-HQ and HQ-to-Distribution workflow before changing website
+      version or download claims.
+
+The existing public Beta launch attached its reviewed curated Windows ZIP and
+checksum to GitHub Releases. The gates above apply again to `0.7.14`; prior
+release evidence does not satisfy them automatically.
 
 ## Sthang website
 
@@ -103,13 +121,13 @@ https://sthang.app/ → Sthang Studio product page → Download for Windows → 
                                                      ↘ View source on GitHub
 ```
 
-- [ ] Keep https://sthang.app/ as the product-facing front door.
-- [ ] Make **Download for Windows** the primary action for non-technical users.
-- [ ] Point that action to the latest reviewed GitHub Release asset rather than
+- [x] Keep https://sthang.app/ as the product-facing front door.
+- [x] Make **Download for Windows** the primary action for non-technical users.
+- [x] Point that action to the latest reviewed GitHub Release asset rather than
       the source-code ZIP.
-- [ ] Provide a secondary **View source on GitHub** action for developers and
+- [x] Provide a secondary **View source on GitHub** action for developers and
       contributors.
-- [ ] Link to privacy, license/brand terms, and system requirements.
+- [x] Link to privacy, license/brand terms, and system requirements.
 
 ## Licensing follow-up
 

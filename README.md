@@ -29,9 +29,10 @@ available without crowding the main editing flow.
 
 ## Distribution status
 
-Sthang Studio `0.7.13` is available as a public beta. Windows users should
-download the curated **Sthang Studio for Windows** ZIP from the
-[0.7.13 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.13).
+Sthang Studio is available as a public Beta. Windows users should download the
+curated **Sthang Studio for Windows** ZIP from GitHub Releases. For this `0.7.14`
+source, use the matching
+[0.7.14 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.14).
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -99,9 +100,15 @@ caption wording.
 - relevant topic context, protected vocabulary, accuracy hints, and accepted or
   proposed wording when those are part of the requested pass.
 
-The application requests `store: false` for Gemini transcription interactions.
-Google's own service terms, quotas, retention, and data-handling rules still
-apply. See [`PRIVACY.md`](PRIVACY.md) for the full application data-flow summary.
+Sthang Studio requests `store: false` for Gemini transcription interactions,
+which opts out of the Interactions API's default state storage. The normalized
+WAV is uploaded separately through the Gemini Files API. Studio does not
+explicitly delete that remote file after processing. Google currently documents
+that Files API uploads are stored for up to 48 hours and that Files API storage
+is independent of interaction storage controls. See Google's
+[Files API guide](https://ai.google.dev/gemini-api/docs/files),
+[zero-data-retention guidance](https://ai.google.dev/gemini-api/docs/zdr), and
+[`PRIVACY.md`](PRIVACY.md) for the full data-flow summary.
 
 ## API-key handling
 

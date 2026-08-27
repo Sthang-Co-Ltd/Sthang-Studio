@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.7.13 — Public Beta Candidate
+## 0.7.14 — Public Beta disclosure repair
+
+- Synchronized the workspace package versions and public runtime identity at
+  `0.7.14`.
+- Corrected the source and packaged release guidance so public Beta users are
+  directed to the matching curated GitHub Release instead of stale private or
+  pre-release-status wording.
+- Clarified that Studio requests `store: false` for Gemini interactions while
+  uploading normalized WAV audio through the separate Files API, does not
+  explicitly delete that remote file, and relies on Google's currently
+  documented retention of up to 48 hours.
+- Added a product-owned Sthang intake manifest plus fail-closed checks for
+  release identity, package truth, manifest structure, and Gemini disclosure.
+- No caption transcription, Khmer handling, timing, Review, project,
+  correction-memory, regeneration, installer, or SRT export behavior changed.
+
+## 0.7.13 — Public Beta
 
 - Made Windows setup and hosted validation explicitly include the locked development toolchain when running `npm ci`, including npm environments that otherwise omit development dependencies.
 - Made release checksum generation independent of PowerShell module auto-loading so npm-invoked Windows packaging remains reliable across mixed PowerShell installations.

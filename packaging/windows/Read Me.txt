@@ -18,6 +18,12 @@ REQUIREMENTS
 - A Gemini Developer API key for AI caption wording
 - Enough free disk space for local timing resources and your media
 
+PRIVACY
+When you generate or regenerate AI wording, Studio sends normalized WAV audio and relevant context or wording to Gemini using your API key.
+Studio requests store:false for the interaction, uploads the WAV through the Gemini Files API, and does not explicitly delete that remote file.
+Google currently documents that Files API uploads are stored for up to 48 hours.
+See PRIVACY.md inside "Sthang Studio Files" and https://ai.google.dev/gemini-api/docs/files.
+
 The "Sthang Studio Files" folder is used automatically by setup. You do not need to open or edit anything inside it.
 
 Privacy, license, and third-party notices are included with the installed application and are also available in the Sthang Studio source repository.

@@ -1,7 +1,7 @@
 {
   "name": "sthang-studio",
   "private": true,
-  "version": "0.7.13",
+  "version": "0.7.14",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -24,7 +24,8 @@
     "typecheck": "node scripts/verify-brand-assets.mjs && node scripts/typecheck.mjs",
     "start": "node apps/server/dist/index.js",
     "verify:brand": "node scripts/verify-brand-assets.mjs",
-    "check:public": "node scripts/public-readiness-check.mjs",
+    "verify:manifest": "node scripts/verify-product-manifest.mjs",
+    "check:public": "node scripts/verify-product-manifest.mjs && node scripts/public-readiness-check.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "ci": "npm run check:public && npm run typecheck && npm run build"
   },
