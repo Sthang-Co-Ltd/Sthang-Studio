@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
 import { resolveGeminiSettings } from './llm-settings.js';
+import { transcribeWithDedicatedGemini } from './gemini-transcribe.js';
 import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
 
 const schema = {
@@ -87,6 +88,7 @@ function buildPrompt(
 
   return parts.join('\n');
 }
+
 type HeaderLike = { get?: (name: string) => string | null } | Record<string, unknown>;
 type ErrorShape = {
   status?: number;
@@ -391,6 +393,23 @@ async function runModel(
   return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias };
 }
 
+function shouldUseDedicatedTranscription(guidance: GeminiTranscriptionGuidance | undefined) {
+  if (!config.geminiDedicatedTranscriptionEnabled) return false;
+  const variant = guidance?.variant || 'standard';
+  // Alternative/contextual passes intentionally use the general model so Deep
+  // Verify receives independent evidence instead of two variants of one ASR.
+  return variant === 'standard' || variant === 'acoustic';
+}
+
+function shouldContextuallyRefineFullPass(
+  context: TranscriptionContext | undefined,
+  guidance: GeminiTranscriptionGuidance | undefined,
+) {
+  return config.geminiContextualRefinementEnabled
+    && guidance == null
+    && Boolean(context?.description?.trim());
+}
+
 export async function transcribeTextWithGemini(
   audioPath: string,
   context?: TranscriptionContext,
@@ -406,7 +425,13 @@ export async function transcribeTextWithGemini(
   if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
   const uploaded = { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType };
 
-  const finish = (raw: Pick<TranscriptResult, 'language' | 'fullText'>, model: string, fallbackUsed: boolean, attempts: number, nativeVocabularyBias: boolean): GeminiTranscript => {
+  const finish = (
+    raw: Pick<TranscriptResult, 'language' | 'fullText'>,
+    model: string,
+    fallbackUsed: boolean,
+    attempts: number,
+    nativeVocabularyBias: boolean,
+  ): GeminiTranscript => {
     const alignmentText = raw.fullText;
     const canonicalized = canonicalizeVocabularyAliases(raw.fullText, entries);
     if (canonicalized.replacements) console.log(`[Gemini] Applied ${canonicalized.replacements} user-owned vocabulary alias replacement(s) after transcription.`);
@@ -422,9 +447,49 @@ export async function transcribeTextWithGemini(
     };
   };
 
+  let dedicatedFallbackUsed = false;
+  if (shouldUseDedicatedTranscription(guidance)) {
+    try {
+      const dedicated = await transcribeWithDedicatedGemini(llm.apiKey, uploaded, entries);
+      const acoustic = finish(
+        dedicated,
+        dedicated.model,
+        false,
+        dedicated.attempts,
+        dedicated.nativeVocabularyBias,
+      );
+
+      if (shouldContextuallyRefineFullPass(context, guidance)) {
+        const contextualPrompt = buildPrompt(context, entries, {
+          variant: 'contextual',
+          acceptedBaselineText: acoustic.fullText,
+          passNumber: 1,
+        });
+        try {
+          console.log(`[Gemini] ${llm.model}: checking the dedicated acoustic transcript against supplied topic context.`);
+          const contextual = await runModel(ai, llm.apiKey, llm.model, uploaded, contextualPrompt, entries);
+          return finish(
+            contextual.transcript,
+            `${dedicated.model} → ${llm.model} contextual`,
+            false,
+            dedicated.attempts + contextual.attempts,
+            dedicated.nativeVocabularyBias || contextual.nativeVocabularyBias,
+          );
+        } catch (error) {
+          console.warn(`[Gemini] Contextual refinement failed; preserving the dedicated acoustic transcript. ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      return acoustic;
+    } catch (error) {
+      dedicatedFallbackUsed = true;
+      console.warn(`[Gemini Transcribe] Dedicated acoustic pass failed; falling back to the established general-model transcription path. ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   try {
     const primary = await runModel(ai, llm.apiKey, llm.model, uploaded, prompt, entries);
-    return finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
+    return finish(primary.transcript, llm.model, dedicatedFallbackUsed, primary.attempts, primary.nativeVocabularyBias);
   } catch (primaryError) {
     const fallback = llm.fallbackModel.trim();
     if (!fallback || fallback === llm.model || !transientGeminiError(primaryError)) throw primaryError;

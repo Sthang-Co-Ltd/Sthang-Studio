@@ -26,7 +26,20 @@ export function mediaFingerprint(project: CaptionProject) {
 }
 
 export function stageSignature(value: unknown) {
-  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32);
+  // Project processing historically supplies `primaryModel` only for the text
+  // stage. Fold the dedicated-ASR architecture into that signature here so old
+  // general-model transcript caches cannot silently bypass a newly selected
+  // transcription path. Timing signatures remain unchanged and continue to be
+  // driven by their alignment text/model inputs.
+  const signedValue = value && typeof value === 'object' && !Array.isArray(value) && 'primaryModel' in value
+    ? {
+        ...(value as Record<string, unknown>),
+        dedicatedTranscriptionEnabled: config.geminiDedicatedTranscriptionEnabled,
+        transcribeModel: config.geminiTranscribeModel,
+        contextualRefinementEnabled: config.geminiContextualRefinementEnabled,
+      }
+    : value;
+  return crypto.createHash('sha256').update(JSON.stringify(signedValue)).digest('hex').slice(0, 32);
 }
 
 export function projectCacheDir(projectId: string) {

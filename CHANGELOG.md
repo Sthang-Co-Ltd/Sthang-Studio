@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Dedicated Speech Transcription Architecture
+
+- Added Gemini 3.5 Transcribe as the default dedicated acoustic wording pass, using verbatim mode, `km-KH` + `en-US` language guidance, and a focused custom-vocabulary list capped at the provider-recommended practical range.
+- Kept general Gemini as separate evidence instead of the default acoustic engine: explicit topic context can trigger one contextual refinement pass, alternative/contextual regeneration continues to use the general model, and the established general-model path remains a compatibility fallback if the dedicated endpoint is unavailable or rejected.
+- Diversified Deep Verify so its strict acoustic candidate now comes from the dedicated transcription model while its context-aware candidate remains an independently prompted general-model listen.
+- Preserved KFA as the local Khmer timing authority with local faster-whisper fallback. The dedicated Gemini request intentionally does not enable word timestamps because Google documents an accuracy tradeoff when they are requested.
+- Added transcription-architecture fields to the text-stage cache signature so existing general-model transcript caches cannot silently bypass the new path; timing caches remain independently keyed by their existing timing inputs.
+- Added environment kill switches/model overrides for the dedicated ASR and optional context refinement without adding new ordinary-user UI controls.
+- Updated product, privacy, and agent guidance for the specialized-ASR + contextual-reasoning + local-timing separation.
+- No caption locks, correction memory, project history, Review behavior, segmentation, timing editing, or CapCut SRT export behavior changed.
+
 ## 0.7.14 — Public Beta disclosure repair
 
 - Synchronized the workspace package versions and public runtime identity at
