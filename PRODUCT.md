@@ -30,11 +30,12 @@ Everything else is secondary and should appear progressively, at the moment it b
 
 1. **Evidence stays visible.** Audio/video remains playable during any decision about text or timing.
 2. **Safe by default.** Regeneration proposes; it never silently destroys reviewed work.
-3. **Local where practical.** KFA/Whisper timing stays local and paid cloud timing remains a last resort.
-4. **Plain language.** Casual users should not need to understand `.env`, forced alignment, CPS, tokens, providers, model names, or timing infrastructure to succeed. Keep implementation names out of routine tooltips and primary workflow copy; disclose them only where setup or diagnostics genuinely require them.
-5. **Power without intimidation.** Advanced controls remain available, but one focused tool is shown at a time.
-6. **Errors explain recovery.** Messages name what failed and the exact next action.
-7. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text.
+3. **Specialize by job.** The normal acoustic wording pass uses dedicated verbatim speech recognition. General language-model listening is reserved for contextual or alternative evidence and compatibility fallback instead of replacing the specialized ASR by default.
+4. **Local timing authority.** KFA/Whisper timing stays local and independent of cloud word timestamps. Cloud transcript timing may be evaluated as secondary evidence in the future, but it must not silently replace the established local timing path.
+5. **Plain language.** Casual users should not need to understand `.env`, forced alignment, CPS, tokens, providers, model names, or timing infrastructure to succeed. Keep implementation names out of routine tooltips and primary workflow copy; disclose them only where setup or diagnostics genuinely require them.
+6. **Power without intimidation.** Advanced controls remain available, but one focused tool is shown at a time.
+7. **Errors explain recovery.** Messages name what failed and the exact next action.
+8. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text.
 
 ## Success measures
 
@@ -43,3 +44,4 @@ Everything else is secondary and should appear progressively, at the moment it b
 - Number of captions reviewed versus total captions.
 - Repeat terminology errors after a correction rule is approved.
 - Regeneration proposals accepted without losing locked work.
+- Khmer character error rate, protected-name accuracy, and number/version accuracy when evaluating transcription-engine changes.
