@@ -4,10 +4,9 @@ This checklist separates repository work that can be automated from owner/admin
 settings that must be reviewed deliberately before Sthang Studio is announced
 publicly.
 
-The repository and its existing Beta release are public. Version `0.7.14` is the
-next release declaration. Its tag, curated ZIP, checksum, and GitHub Release do
-not exist until the unchecked release gates below are completed from an accepted
-clean commit.
+The repository and the `v0.7.14` Beta release are public. Its exact tag, curated
+Windows ZIP, checksum, and release notes were verified on 2026-08-27. Website/HQ
+synchronization remains separately approval-gated.
 
 ## Repository readiness
 
@@ -93,24 +92,23 @@ Owner/admin actions:
 - [x] Install once from that curated ZIP into `%LOCALAPPDATA%\Sthang Studio\app`,
       confirm the desktop shortcut works, then delete the extracted setup folder
       and confirm Studio still launches and existing local state remains intact.
-- [ ] Create the deliberate `v0.7.14` tag and prerelease from the accepted commit.
-- [ ] Attach `Sthang-Studio-Windows-v0.7.14.zip` and
+- [x] Create the deliberate `v0.7.14` tag and prerelease from the accepted commit.
+- [x] Attach `Sthang-Studio-Windows-v0.7.14.zip` and
       `Sthang-Studio-Windows-v0.7.14.zip.sha256` to GitHub Releases. Verify the
       uploaded bytes against the local SHA-256 before announcing them. Do not
       tell ordinary users to download the repository source ZIP or an arbitrary
       branch snapshot.
-- [ ] Include release notes, Windows requirements, Gemini-key requirement, local
+- [x] Include release notes, Windows requirements, Gemini-key requirement, local
       model download expectations, privacy links, and the verified checksum.
-- [ ] Confirm the release notes explain that `store: false` does not control the
+- [x] Confirm the release notes explain that `store: false` does not control the
       Files API upload, Studio does not explicitly delete the remote WAV, and
       Google currently documents storage for up to 48 hours.
 - [ ] Reconcile the accepted `0.7.14` release through the approval-gated
       product-to-HQ and HQ-to-Distribution workflow before changing website
       version or download claims.
 
-The existing public Beta launch attached its reviewed curated Windows ZIP and
-checksum to GitHub Releases. The gates above apply again to `0.7.14`; prior
-release evidence does not satisfy them automatically.
+The 0.7.14 publication checks used fresh evidence for this release, not the prior
+Beta's release assets.
 
 ### Local verification record, 2026-08-27
 
@@ -136,10 +134,13 @@ This retest used no real Gemini key or private media. The earlier owner-verified
 Gemini and full Khmer-to-CapCut workflow checks are carried forward because this
 release does not change those behaviors; they were not repeated in this run.
 
-This verification record is excluded from the curated payload. Before publishing,
-verify that the release tag's packaged source paths still match the tested
-payload. The remaining unchecked publication and synchronization gates still
-require completion.
+The release tag resolves to `dfea9961106c6ebf5eb44d3edb7e6ffa208082a4`.
+This verification record is excluded from the curated payload. All 102 entries
+from a new package of that release commit matched the tested payload byte for
+byte. The exact tested ZIP, rather than a recompressed copy, was published.
+GitHub's asset digest, the downloaded ZIP, and the downloaded checksum agree.
+The release is non-draft and marked prerelease. The unchecked HQ/website
+synchronization gate still requires separate approval.
 
 ## Sthang website
 
