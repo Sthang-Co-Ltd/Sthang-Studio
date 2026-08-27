@@ -3,8 +3,9 @@
 **Accurate Khmer captions, ready for CapCut.**
 
 Sthang Studio is a Windows-first caption workspace for Cambodian Khmer creators.
-It combines AI-assisted Khmer transcription with local timing,
-fast review tools, correction memory, and CapCut-compatible SRT export.
+It combines dedicated AI speech transcription, selective contextual verification,
+local timing, fast review tools, correction memory, and CapCut-compatible SRT
+export.
 
 The product is designed around one practical workflow:
 
@@ -18,10 +19,14 @@ available without crowding the main editing flow.
 ## Highlights
 
 - Khmer-first transcription and text handling.
+- Dedicated verbatim speech recognition for the normal acoustic wording pass.
+- General Gemini listening reserved for useful contextual/alternative evidence and compatibility fallback.
+- Focused protected-vocabulary bias for names, brands, model numbers, and user-owned terminology.
 - Local caption timing with a Khmer forced aligner and local Whisper fallback.
 - Sequential Review with context on first listen and tight replay while editing.
 - Caption approval, text/timing locks, correction memory, and project history.
 - Non-destructive Current/Proposed regeneration review.
+- Deep Verify with independent dedicated-acoustic and context-aware candidates plus advisory local alignment evidence.
 - Precision waveform timing for difficult captions.
 - UTF-8 SRT export designed for CapCut workflows.
 - Local projects, history, caches, proposals, and exports.
@@ -73,7 +78,7 @@ is needed.
 - Windows 10/11 x64.
 - WinGet recommended but not required for the one-click installer.
 - Internet access for initial dependency/model setup and Gemini transcription.
-- A Gemini Developer API key for AI caption wording.
+- A Gemini Developer API key for cloud speech transcription and any contextual verification passes.
 - Enough local disk space for Python/Node dependencies, media, caches, and
   downloaded timing models.
 
@@ -97,15 +102,26 @@ caption wording.
 **Sent to Gemini when you generate/regenerate AI wording:**
 
 - the normalized WAV audio needed for the transcription operation;
-- relevant topic context, protected vocabulary, accuracy hints, and accepted or
-  proposed wording when those are part of the requested pass.
+- focused protected vocabulary for the dedicated speech-recognition pass;
+- relevant topic context, accuracy hints, accepted wording, or proposed wording
+  when a requested contextual/general-model pass needs that evidence.
 
-Sthang Studio requests `store: false` for Gemini transcription interactions,
-which opts out of the Interactions API's default state storage. The normalized
-WAV is uploaded separately through the Gemini Files API. Studio does not
-explicitly delete that remote file after processing. Google currently documents
-that Files API uploads are stored for up to 48 hours and that Files API storage
-is independent of interaction storage controls. See Google's
+The normal acoustic pass uses `gemini-3.5-transcribe` in verbatim mode with
+Khmer/English language guidance. Studio intentionally does **not** request its
+word-level timestamps for the primary pass; final caption timing stays on-device
+through KFA with local faster-whisper fallback. When explicit topic context is
+provided, a normal full generation may make one additional context-aware general
+Gemini listen. Alternative/contextual regeneration and one side of Deep Verify
+also use the general model. If the dedicated transcription endpoint is
+unavailable or rejected, Studio falls back to the established general-model
+transcription path.
+
+Sthang Studio requests `store: false` for Gemini Interactions API calls. The
+normalized WAV is uploaded separately through the Gemini Files API and may be
+reused across listening passes within an operation. Studio does not explicitly
+delete that remote file after processing. Google currently documents that Files
+API uploads are stored for up to 48 hours and that Files API storage is
+independent of interaction storage controls. See Google's
 [Files API guide](https://ai.google.dev/gemini-api/docs/files),
 [zero-data-retention guidance](https://ai.google.dev/gemini-api/docs/zdr), and
 [`PRIVACY.md`](PRIVACY.md) for the full data-flow summary.
