@@ -83,14 +83,14 @@ Owner/admin actions:
       the masked value.
 - [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
-- [ ] Run `npm run check:public`, `npm run verify:brand`, `npm run typecheck`, and
+- [x] Run `npm run check:public`, `npm run verify:brand`, `npm run typecheck`, and
       `npm run build` from the accepted `0.7.14` release commit. Hosted GitHub
       Actions may remain unavailable while the account's monthly allowance is
       exhausted; record local evidence instead of reporting hosted checks as run.
-- [ ] Run `npm run package:windows` from the accepted `0.7.14` release commit and
+- [x] Run `npm run package:windows` from the accepted `0.7.14` release commit and
       inspect the resulting archive. Its extracted top level should contain only
       `Install Sthang Studio.bat`, `Read Me.txt`, and `Sthang Studio Files`.
-- [ ] Install once from that curated ZIP into `%LOCALAPPDATA%\Sthang Studio\app`,
+- [x] Install once from that curated ZIP into `%LOCALAPPDATA%\Sthang Studio\app`,
       confirm the desktop shortcut works, then delete the extracted setup folder
       and confirm Studio still launches and existing local state remains intact.
 - [ ] Create the deliberate `v0.7.14` tag and prerelease from the accepted commit.
@@ -111,6 +111,35 @@ Owner/admin actions:
 The existing public Beta launch attached its reviewed curated Windows ZIP and
 checksum to GitHub Releases. The gates above apply again to `0.7.14`; prior
 release evidence does not satisfy them automatically.
+
+### Local verification record, 2026-08-27
+
+The checked 0.7.14 packaging gates used source commit
+`babff6c60b41defc3c936901b5ac4396e0c5b0f5` and the curated ZIP with SHA-256
+`e72f240911fb8256375d9728b4ae035eb91701b67386394288c84f0305800a2c`.
+All 102 archive entries passed package inspection. The public-readiness,
+protected-brand, typecheck, and build checks passed locally; no hosted runner was
+used.
+
+A fresh Windows Sandbox completed prerequisite installation, app installation,
+and shortcut creation. After the extracted setup folder was deleted, the
+installed API reported `0.7.14`, the web service was healthy, and its rendered
+setup screen was inspected. Reinstalling the same ZIP preserved synthetic local
+data, upload/export markers, and a placeholder environment file. The second
+extracted setup folder was also deleted.
+
+The first automated launch failed in a long-running test process that retained
+the pre-install environment. The successful retest refreshed the registered
+Windows PATH and captured the launcher output. No product defect reproduced and
+no product change was needed.
+This retest used no real Gemini key or private media. The earlier owner-verified
+Gemini and full Khmer-to-CapCut workflow checks are carried forward because this
+release does not change those behaviors; they were not repeated in this run.
+
+This verification record is excluded from the curated payload. Before publishing,
+verify that the release tag's packaged source paths still match the tested
+payload. The remaining unchecked publication and synchronization gates still
+require completion.
 
 ## Sthang website
 
