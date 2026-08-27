@@ -27,13 +27,21 @@ export const config = {
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),
   geminiRetryMaxMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_RETRY_MAX_MS || 60000))),
-  // Best-effort use of the current Interactions API ASR custom_vocabulary feature.
-  // If an older SDK/backend rejects it, gemini.ts falls back to prompt-based protection automatically.
+  // Dedicated ASR is the default acoustic text pass. General Gemini remains the
+  // contextual/alternative listener and the compatibility fallback.
+  geminiDedicatedTranscriptionEnabled: envBool('GEMINI_DEDICATED_TRANSCRIPTION_ENABLED', true),
+  geminiTranscribeModel: process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.5-transcribe',
+  // For a normal full generation, topic description is the signal that a second
+  // context-aware listen can add value beyond the dedicated acoustic transcript.
+  geminiContextualRefinementEnabled: envBool('GEMINI_CONTEXTUAL_REFINEMENT_ENABLED', true),
+  // Best-effort use of the Interactions API ASR custom_vocabulary feature on the
+  // general-model compatibility/context path. If rejected, gemini.ts degrades to
+  // prompt-based vocabulary protection automatically.
   geminiNativeVocabularyBias: envBool('GEMINI_NATIVE_VOCABULARY_BIAS', true),
 
-  // v0.7 timing remains local-only by default. KFA directly force-aligns Gemini's
-  // Khmer transcript; faster-whisper is a LOCAL fallback. No cloud timing adapter
-  // is invoked automatically.
+  // v0.7 timing remains local-only by default. KFA directly force-aligns the
+  // selected transcript; faster-whisper is a LOCAL fallback. Gemini Transcribe
+  // word timestamps are intentionally not the primary timing source.
   localTimingPython: process.env.LOCAL_TIMING_PYTHON || defaultVenvPython,
   localKfaEnabled: envBool('LOCAL_KFA_ENABLED', true),
   localWhisperFallbackEnabled: envBool('LOCAL_WHISPER_FALLBACK_ENABLED', true),
