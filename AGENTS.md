@@ -45,6 +45,19 @@ Preserve these public-release rules:
 - Treat `main` as the accepted baseline; normal work belongs on short-lived branches and pull requests.
 - The Windows desktop shortcut/launcher must wait until both local services are healthy before opening Studio. Respect the user's registered default browser and never assume Chrome is installed. If Windows has no usable web-link association, do not show a broken protocol dialog; print the local Studio URL clearly so the user can open it manually. Windows Sandbox auto-opening is not a release requirement because Sandbox can omit normal browser associations even when Edge is present.
 
+## Transcription and timing architecture invariant
+
+Preserve the separation between acoustic recognition, contextual reasoning, and timing:
+
+- The normal acoustic wording pass uses the dedicated Gemini transcription model in **verbatim** mode with Khmer/English language guidance and focused protected vocabulary.
+- Do not enable Smart transcription for caption wording. Sthang Studio must preserve what was actually spoken rather than silently cleaning, rewriting, or resolving speech.
+- Do not enable Gemini word timestamps on the primary transcript merely because they are available. Google documents an accuracy tradeoff when word timestamps are requested, and Studio's established local timing pipeline remains the authority.
+- KFA remains the Khmer-specific local timing primary; faster-whisper remains the local fallback. A future cloud-timestamp experiment must be secondary/non-destructive evidence unless an explicit product decision changes this invariant.
+- General Gemini listening remains valuable for supplied topic context, alternative takes, contextual verification, and compatibility fallback. Do not turn every acoustic pass back into a general-model pass by default.
+- Deep Verify should preserve model diversity: compare a dedicated acoustic candidate with an independently prompted contextual/general-model candidate, then use local alignment evidence only as advisory ranking—not semantic proof.
+- If the dedicated transcription endpoint is unavailable, rejected, or temporarily incompatible, preserve a graceful fallback to the established general-model transcription path so users are not blocked by a preview capability.
+- Custom vocabulary sent to dedicated ASR should stay focused; prefer the most relevant terms and keep the practical list near the provider's recommended range rather than blindly sending all possible vocabulary.
+
 ## UX and interaction invariants
 
 Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md`, `DESIGN.md`, and `UX-AUDIT.md` before changing the frontend.
