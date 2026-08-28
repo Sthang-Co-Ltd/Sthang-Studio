@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
@@ -121,7 +122,7 @@ export interface GeminiTranscript {
 
 interface PreparedGeminiAudio {
   ai: GoogleGenAI;
-  llm: ResolvedGeminiSettings;
+  apiKey: string;
   uploaded: { uri: string; mimeType: string };
 }
 
@@ -415,9 +416,11 @@ async function runModel(
   return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias };
 }
 
-async function preparedGeminiAudio(audioPath: string): Promise<PreparedGeminiAudio> {
+async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSettings): Promise<PreparedGeminiAudio> {
+  if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
   const stat = await fs.stat(audioPath);
-  const cacheKey = `${audioPath}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+  const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
+  const cacheKey = `${audioPath}:${stat.size}:${Math.round(stat.mtimeMs)}:${keyFingerprint}`;
   const now = Date.now();
   for (const [key, entry] of preparedUploads) {
     if (entry.expiresAt <= now) preparedUploads.delete(key);
@@ -426,14 +429,12 @@ async function preparedGeminiAudio(audioPath: string): Promise<PreparedGeminiAud
   if (cached) return cached.promise;
 
   const promise = (async () => {
-    const llm = await resolveGeminiSettings();
-    if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
     const ai = new GoogleGenAI({ apiKey: llm.apiKey });
     const uploadedFile = await ai.files.upload({ file: audioPath, config: { mimeType: 'audio/wav' } });
     if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
     return {
       ai,
-      llm,
+      apiKey: llm.apiKey,
       uploaded: { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType },
     };
   })();
@@ -455,8 +456,9 @@ export async function transcribeTextWithGemini(
   context?: TranscriptionContext,
   guidance?: GeminiTranscriptionGuidance,
 ): Promise<GeminiTranscript> {
-  const prepared = await preparedGeminiAudio(audioPath);
-  const { llm, ai, uploaded } = prepared;
+  const llm = await resolveGeminiSettings();
+  const prepared = await preparedGeminiAudio(audioPath, llm);
+  const { ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);
   const prompt = buildPrompt(context, entries, guidance);
 
@@ -477,14 +479,14 @@ export async function transcribeTextWithGemini(
   };
 
   try {
-    const primary = await runModel(ai, llm.apiKey, llm.model, uploaded, prompt, entries);
+    const primary = await runModel(ai, prepared.apiKey, llm.model, uploaded, prompt, entries);
     return finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
   } catch (primaryError) {
     const fallback = llm.fallbackModel.trim();
     if (!fallback || fallback === llm.model || !transientGeminiError(primaryError)) throw primaryError;
     console.warn(`[Gemini] ${llm.model} remained unavailable after automatic retries. Falling back to ${fallback}.`);
     try {
-      const secondary = await runModel(ai, llm.apiKey, fallback, uploaded, prompt, entries);
+      const secondary = await runModel(ai, prepared.apiKey, fallback, uploaded, prompt, entries);
       return finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias);
     } catch (fallbackError) {
       if (transientGeminiError(fallbackError)) {
