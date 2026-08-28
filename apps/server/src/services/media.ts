@@ -159,12 +159,12 @@ async function trimRangeCache(rangeCacheDir: string, keepPath: string) {
       const filePath = path.join(rangeCacheDir, name);
       try {
         const stat = await fs.stat(filePath);
-        return { filePath, size: stat.size, mtimeMs: stat.mtimeMs };
+        return { filePath, size: stat.size, atimeMs: stat.atimeMs };
       } catch {
         return null;
       }
-    }))).filter((entry): entry is { filePath: string; size: number; mtimeMs: number } => Boolean(entry));
-    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    }))).filter((entry): entry is { filePath: string; size: number; atimeMs: number } => Boolean(entry));
+    entries.sort((a, b) => b.atimeMs - a.atimeMs);
     let keptBytes = 0;
     let keptFiles = 0;
     for (const entry of entries) {
@@ -212,8 +212,10 @@ export async function makeAudioChunk(sourceWav: string, outputPath: string, star
 
   const cachedDuration = await waveDurationMs(cachedPath);
   if (cachedDuration && Math.abs(cachedDuration - normalizedDuration) <= 250) {
-    const now = new Date();
-    await fs.utimes(cachedPath, now, now).catch(() => {});
+    // LRU bookkeeping must not mutate mtime: hard-linked working copies use
+    // mtime as part of their immutable audio identity for timing/upload caches.
+    const cachedStat = await fs.stat(cachedPath).catch(() => null);
+    if (cachedStat) await fs.utimes(cachedPath, new Date(), cachedStat.mtime).catch(() => {});
     await linkOrCopy(cachedPath, outputPath);
     return { outputPath, durationMs: cachedDuration, cacheHit: true, directSource: false };
   }
