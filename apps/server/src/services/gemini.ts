@@ -1,7 +1,8 @@
+import fs from 'node:fs/promises';
 import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
-import { resolveGeminiSettings } from './llm-settings.js';
+import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settings.js';
 import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
 
 const schema = {
@@ -87,6 +88,7 @@ function buildPrompt(
 
   return parts.join('\n');
 }
+
 type HeaderLike = { get?: (name: string) => string | null } | Record<string, unknown>;
 type ErrorShape = {
   status?: number;
@@ -116,6 +118,16 @@ export interface GeminiTranscript {
   nativeVocabularyBias: boolean;
   vocabularyTerms: string[];
 }
+
+interface PreparedGeminiAudio {
+  ai: GoogleGenAI;
+  llm: ResolvedGeminiSettings;
+  uploaded: { uri: string; mimeType: string };
+}
+
+const uploadCacheTtlMs = 30 * 60 * 1000;
+const maxPreparedUploads = 16;
+const preparedUploads = new Map<string, { expiresAt: number; promise: Promise<PreparedGeminiAudio> }>();
 
 export class GeminiUnavailableError extends Error {
   readonly statusCode = 503;
@@ -216,6 +228,14 @@ function outputTextFromRestInteraction(payload: unknown): string {
   return chunks.join('');
 }
 
+function thinkingGenerationConfig(model: string) {
+  // Keep arbitrary legacy/custom model IDs compatible. Thinking-level control is
+  // applied only to Gemini generations documented to support it.
+  return /^gemini-(?:3(?:\.|-|$)|2\.5(?:-|$))/i.test(model)
+    ? { thinking_level: config.geminiTranscriptionThinkingLevel }
+    : undefined;
+}
+
 async function makeNativeVocabularyInteraction(
   apiKey: string,
   model: string,
@@ -223,6 +243,7 @@ async function makeNativeVocabularyInteraction(
   prompt: string,
   hints: string[],
 ): Promise<InteractionResult> {
+  const generationConfig = thinkingGenerationConfig(model);
   const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
     method: 'POST',
     headers: {
@@ -238,6 +259,7 @@ async function makeNativeVocabularyInteraction(
         { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
       ],
       response_format: { type: 'text', mime_type: 'application/json', schema },
+      ...(generationConfig ? { generation_config: generationConfig } : {}),
       transcription_config: {
         custom_vocabulary: hints,
         language_codes: ['km-KH', 'en-US'],
@@ -274,6 +296,7 @@ async function makePromptOnlyInteraction(
   uploaded: { uri: string; mimeType: string },
   prompt: string,
 ): Promise<InteractionResult> {
+  const generationConfig = thinkingGenerationConfig(model);
   const interaction = await ai.interactions.create({
     model,
     store: false,
@@ -283,6 +306,7 @@ async function makePromptOnlyInteraction(
       { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
     ],
     response_format: { type: 'text', mime_type: 'application/json', schema },
+    ...(generationConfig ? { generation_config: generationConfig } : {}),
   } as never);
   return { outputText: interaction.output_text || '', nativeVocabularyBias: false };
 }
@@ -391,20 +415,50 @@ async function runModel(
   return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias };
 }
 
+async function preparedGeminiAudio(audioPath: string): Promise<PreparedGeminiAudio> {
+  const stat = await fs.stat(audioPath);
+  const cacheKey = `${audioPath}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+  const now = Date.now();
+  for (const [key, entry] of preparedUploads) {
+    if (entry.expiresAt <= now) preparedUploads.delete(key);
+  }
+  const cached = preparedUploads.get(cacheKey);
+  if (cached) return cached.promise;
+
+  const promise = (async () => {
+    const llm = await resolveGeminiSettings();
+    if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
+    const ai = new GoogleGenAI({ apiKey: llm.apiKey });
+    const uploadedFile = await ai.files.upload({ file: audioPath, config: { mimeType: 'audio/wav' } });
+    if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
+    return {
+      ai,
+      llm,
+      uploaded: { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType },
+    };
+  })();
+
+  preparedUploads.set(cacheKey, { expiresAt: now + uploadCacheTtlMs, promise });
+  while (preparedUploads.size > maxPreparedUploads) {
+    const oldest = preparedUploads.keys().next().value as string | undefined;
+    if (!oldest) break;
+    preparedUploads.delete(oldest);
+  }
+  promise.catch(() => {
+    if (preparedUploads.get(cacheKey)?.promise === promise) preparedUploads.delete(cacheKey);
+  });
+  return promise;
+}
+
 export async function transcribeTextWithGemini(
   audioPath: string,
   context?: TranscriptionContext,
   guidance?: GeminiTranscriptionGuidance,
 ): Promise<GeminiTranscript> {
-  const llm = await resolveGeminiSettings();
-  if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
-  const ai = new GoogleGenAI({ apiKey: llm.apiKey });
+  const prepared = await preparedGeminiAudio(audioPath);
+  const { llm, ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);
   const prompt = buildPrompt(context, entries, guidance);
-
-  const uploadedFile = await ai.files.upload({ file: audioPath, config: { mimeType: 'audio/wav' } });
-  if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
-  const uploaded = { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType };
 
   const finish = (raw: Pick<TranscriptResult, 'language' | 'fullText'>, model: string, fallbackUsed: boolean, attempts: number, nativeVocabularyBias: boolean): GeminiTranscript => {
     const alignmentText = raw.fullText;
