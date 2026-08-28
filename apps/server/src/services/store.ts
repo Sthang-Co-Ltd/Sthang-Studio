@@ -11,6 +11,7 @@ const legacyBackup = path.join(path.dirname(config.dataFile), 'projects.legacy-v
 const projects = new Map<string, CaptionProject>();
 let order: string[] = [];
 let initializePromise: Promise<void> | null = null;
+let orderWriteQueue: Promise<void> = Promise.resolve();
 const writeQueues = new Map<string, Promise<void>>();
 
 function safeId(id: string) {
@@ -25,7 +26,7 @@ function projectFile(id: string) {
 
 async function atomicWrite(filePath: string, value: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const temp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const temp = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   try {
     await fs.writeFile(temp, value, 'utf8');
     await fs.rename(temp, filePath);
@@ -42,8 +43,11 @@ async function readJson<T>(filePath: string): Promise<T | null> {
   }
 }
 
-async function persistOrder() {
-  await atomicWrite(orderFile, `${JSON.stringify(order)}\n`);
+function persistOrder() {
+  const snapshot = `${JSON.stringify(order)}\n`;
+  const task = orderWriteQueue.then(() => atomicWrite(orderFile, snapshot));
+  orderWriteQueue = task.then(() => undefined, () => undefined);
+  return task;
 }
 
 async function initialize() {
@@ -146,9 +150,7 @@ export const store = {
     if (pending) await pending;
     projects.delete(id);
     order = order.filter((projectId) => projectId !== id);
-    await Promise.all([
-      fs.rm(projectFile(id), { force: true }),
-      persistOrder(),
-    ]);
+    await fs.rm(projectFile(id), { force: true });
+    await persistOrder();
   },
 };
