@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
 import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settings.js';
+import { prepareTimingLocally } from './local-timing.js';
 import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
 import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
@@ -321,11 +322,6 @@ async function makeInteraction(
   hints: string[],
   enableNativeBias: boolean,
 ): Promise<InteractionResult> {
-  // @google/genai 2.17.1 does not yet type/serialize the documented
-  // transcription_config field consistently, so when vocabulary bias is enabled
-  // we call the official Interactions REST endpoint directly. Uploads still use
-  // the official SDK. If the endpoint rejects the feature, the caller degrades
-  // to prompt-only protection instead of failing the clip.
   if (enableNativeBias && hints.length) {
     return makeNativeVocabularyInteraction(apiKey, model, uploaded, prompt, hints);
   }
@@ -486,6 +482,11 @@ export async function transcribeTextWithGemini(
   if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
 
   const run = currentProcessingRun();
+  // Overlap transcript-independent local acoustic inference with the cloud listen.
+  // The helper is fail-open; the later timing stage still retries normally if this
+  // speculative preparation cannot be completed.
+  if (run) void prepareTimingLocally(audioPath, run.projectId);
+
   const checkpointSignature = run
     ? await geminiCheckpointSignature(audioPath, context, guidance, llm)
     : '';
