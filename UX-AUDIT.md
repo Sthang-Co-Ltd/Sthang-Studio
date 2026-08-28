@@ -1,4 +1,9 @@
-# Sthang Studio v0.7.5 frontend audit
+# Historical Sthang Studio frontend audits
+
+This file records the v0.7.5 audit and v0.7.10 follow-up. Its scores, findings,
+and remaining validation targets belong to those passes, not the current
+release. Retain them as design history; use `PRODUCT.md`, `DESIGN.md`, and
+`AGENTS.md` for maintained product and interaction rules.
 
 ## Scope and method
 

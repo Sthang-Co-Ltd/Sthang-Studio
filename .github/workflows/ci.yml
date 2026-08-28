@@ -33,6 +33,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Public-readiness regression tests
+        run: npm run test:public
+
       - name: Public-readiness guard
         run: npm run check:public
 

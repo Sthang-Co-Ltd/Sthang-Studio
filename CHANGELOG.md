@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Repository maintenance
+
+- Reject forbidden paths in locally available Git history, including deleted
+  files, binary media paths, renamed files, and merge changes. Require a complete
+  clone and avoid printing Git output when a history scan fails.
+- Add isolated public-readiness regression tests to the contributor and CI flow.
+- Align contributor setup with locked dependency installation, document commit
+  email privacy, and distinguish historical audit/release records from current
+  requirements and maintainer-only portfolio coordination.
+- No product runtime, installer, release version, branding, or data-processing
+  behavior changed.
+
 ## 0.7.14 — Public Beta disclosure repair
 
 - Synchronized the workspace package versions and public runtime identity at

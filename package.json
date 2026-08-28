@@ -26,8 +26,9 @@
     "verify:brand": "node scripts/verify-brand-assets.mjs",
     "verify:manifest": "node scripts/verify-product-manifest.mjs",
     "check:public": "node scripts/verify-product-manifest.mjs && node scripts/public-readiness-check.mjs",
+    "test:public": "node --test tests/public-readiness.test.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
-    "ci": "npm run check:public && npm run typecheck && npm run build"
+    "ci": "npm run test:public && npm run check:public && npm run typecheck && npm run build"
   },
   "allowScripts": {
     "@google/genai": true,
