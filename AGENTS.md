@@ -45,6 +45,25 @@ Preserve these public-release rules:
 - Treat `main` as the accepted baseline; normal work belongs on short-lived branches and pull requests.
 - The Windows desktop shortcut/launcher must wait until both local services are healthy before opening Studio. Respect the user's registered default browser and never assume Chrome is installed. If Windows has no usable web-link association, do not show a broken protocol dialog; print the local Studio URL clearly so the user can open it manually. Windows Sandbox auto-opening is not a release requirement because Sandbox can omit normal browser associations even when Edge is present.
 
+## Processing performance and cache invariants
+
+Studio may aggressively reuse **deterministic prerequisite work**, but never turn a request for fresh AI evidence into a stale cached answer.
+
+Preserve these rules:
+
+- Normalized project audio, selected-range PCM WAVs, transcript-independent KFA acoustic emissions, exact transcript+timing results, decoded waveform/spectrum data, and completed stages of the **same persisted processing job** may be cached and reused when their media/configuration signatures still match.
+- A user-requested **Alternative take**, fresh Deep Verify, or other new AI listen must remain a new model request. Only resuming the same persisted job ID may reuse that job's completed Gemini candidate checkpoint.
+- Project/range/timing caches must be bounded, project-scoped where they contain project-derived data, and removed through the existing project/media invalidation path. Do not create orphaned global copies of source-derived audio or timing evidence.
+- The persistent local timing worker is an optimization, not a new single point of failure. Preserve the one-shot Python worker/CLI recovery path for setup, diagnostics, and daemon-transport failure.
+- Keep KFA as the local Khmer timing authority. Cached KFA emissions must be produced by the same acoustic computation as the pinned KFA path; cache reuse may change **when** inference runs, never the scoring/alignment math.
+- Keep faster-whisper lazy: load/reuse it only after KFA genuinely needs the fallback. Do not preload the large fallback model merely for perceived responsiveness.
+- Local prewarming after media upload/replacement may normalize audio and warm the local timing runtime, but must not upload audio to Gemini before the user explicitly requests generation/regeneration.
+- Reuse one Gemini Files API upload for repeated listens over the same immutable audio/key when practical; never let upload reuse pin stale model/settings. Current model/context/guidance still participate in the actual request/checkpoint signature.
+- Keep cache writes atomic and fail-open. An optional cache/checkpoint write or cleanup failure must not make caption generation fail.
+- Preserve safe media replacement/deletion: in-flight normalization must be serialized per project so old media can never overwrite a replacement cache after invalidation.
+- Keep project and history persistence non-destructive. Per-project storage/history migration must preserve legacy data until the new representation is known-good; do not silently discard old `projects.json` or history files during migration.
+- Measure before claiming speedups. Job stage timings are diagnostic evidence; never state percentage improvements without a real benchmark on representative Windows/Khmer media.
+
 ## UX and interaction invariants
 
 Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md`, `DESIGN.md`, and `UX-AUDIT.md` before changing the frontend.
