@@ -43,54 +43,82 @@ async function readJson<T>(filePath: string): Promise<T | null> {
   }
 }
 
-function persistOrder() {
-  const snapshot = `${JSON.stringify(order)}\n`;
-  const task = orderWriteQueue.then(() => atomicWrite(orderFile, snapshot));
+function uniqueIds(values: string[]) {
+  const seen = new Set<string>();
+  return values.filter((id) => {
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function queueOrderUpdate(transform: (current: string[]) => string[]) {
+  const task = orderWriteQueue.then(async () => {
+    const next = uniqueIds(transform(order)).filter((id) => projects.has(id));
+    await atomicWrite(orderFile, `${JSON.stringify(next)}\n`);
+    order = next;
+  });
   orderWriteQueue = task.then(() => undefined, () => undefined);
   return task;
+}
+
+async function loadProjectFiles() {
+  const names = await fs.readdir(projectDir).catch(() => [] as string[]);
+  const projectNames = names.filter((name) => name.endsWith('.json') && name !== 'order.json');
+  for (const name of projectNames) {
+    const project = await readJson<CaptionProject>(path.join(projectDir, name));
+    if (project?.id) projects.set(project.id, project);
+  }
+}
+
+function newestMissingIds() {
+  return [...projects.values()]
+    .filter((project) => !order.includes(project.id))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .map((project) => project.id);
 }
 
 async function initialize() {
   await fs.mkdir(projectDir, { recursive: true });
   const markerExists = await fs.stat(migrationMarker).then(() => true).catch(() => false);
-  const names = await fs.readdir(projectDir).catch(() => [] as string[]);
-  const projectNames = names.filter((name) => name.endsWith('.json') && name !== 'order.json');
+  await loadProjectFiles();
 
-  if (!markerExists && projectNames.length === 0) {
+  const storedOrder = await readJson<string[]>(orderFile);
+  order = Array.isArray(storedOrder)
+    ? uniqueIds(storedOrder).filter((id) => projects.has(id))
+    : [];
+
+  if (!markerExists) {
+    // A previous launch may have stopped halfway through migration. Always
+    // reconcile the legacy file against any already-written per-project files;
+    // only write the marker after every project and the order index are durable.
     const legacy = await readJson<CaptionProject[]>(config.dataFile);
+    const legacyIds: string[] = [];
     if (Array.isArray(legacy) && legacy.length) {
       await fs.copyFile(config.dataFile, legacyBackup, 1).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'EEXIST') console.warn('[project store] Could not create legacy backup:', error.message);
       });
       for (const project of legacy) {
         if (!project?.id) continue;
-        projects.set(project.id, structuredClone(project));
-        order.push(project.id);
-        await atomicWrite(projectFile(project.id), `${JSON.stringify(project)}\n`);
+        legacyIds.push(project.id);
+        if (projects.has(project.id)) continue;
+        const stored = structuredClone(project);
+        await atomicWrite(projectFile(project.id), `${JSON.stringify(stored)}\n`);
+        projects.set(project.id, stored);
       }
-      await persistOrder();
-      console.log(`[project store] Migrated ${projects.size} project(s) to per-project storage; legacy source preserved.`);
     }
-    await fs.writeFile(migrationMarker, 'Sthang Studio per-project storage v1\n', 'utf8');
-  } else {
-    for (const name of projectNames) {
-      const project = await readJson<CaptionProject>(path.join(projectDir, name));
-      if (project?.id) projects.set(project.id, project);
+
+    const remaining = newestMissingIds().filter((id) => !legacyIds.includes(id));
+    await queueOrderUpdate((current) => [...current, ...legacyIds, ...remaining]);
+    await atomicWrite(migrationMarker, 'Sthang Studio per-project storage v1\n');
+    if (legacyIds.length) {
+      console.log(`[project store] Migrated/reconciled ${projects.size} project(s) to per-project storage; legacy source preserved.`);
     }
-    const storedOrder = await readJson<string[]>(orderFile);
-    order = Array.isArray(storedOrder)
-      ? storedOrder.filter((id) => projects.has(id))
-      : [];
-    const missing = [...projects.values()]
-      .filter((project) => !order.includes(project.id))
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .map((project) => project.id);
-    if (missing.length) {
-      order.push(...missing);
-      await persistOrder();
-    }
-    if (!markerExists) await fs.writeFile(migrationMarker, 'Sthang Studio per-project storage v1\n', 'utf8');
+    return;
   }
+
+  const missing = newestMissingIds();
+  if (missing.length) await queueOrderUpdate((current) => [...current, ...missing]);
 }
 
 async function ensureInitialized() {
@@ -133,12 +161,14 @@ export const store = {
       || previous.media.filename !== project.media.filename
       || previous.media.size !== project.media.size;
     const stored = structuredClone(project);
+
+    // Publish a project in memory only after its own atomic file is durable.
+    // Per-project write queues keep concurrent autosaves in the same order on disk.
+    await queueProjectWrite(stored);
     projects.set(project.id, stored);
     if (isNew) {
-      order.unshift(project.id);
-      await persistOrder();
+      await queueOrderUpdate((current) => [project.id, ...current.filter((id) => id !== project.id)]);
     }
-    await queueProjectWrite(stored);
     if (mediaChanged) scheduleProjectMediaPrewarm(stored);
     return structuredClone(stored);
   },
@@ -148,9 +178,8 @@ export const store = {
     cancelScheduledProjectPrewarm(id);
     const pending = writeQueues.get(id);
     if (pending) await pending;
-    projects.delete(id);
-    order = order.filter((projectId) => projectId !== id);
     await fs.rm(projectFile(id), { force: true });
-    await persistOrder();
+    projects.delete(id);
+    await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
   },
 };
