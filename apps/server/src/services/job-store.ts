@@ -5,6 +5,8 @@ import type { ProcessingJob, ProcessingJobType, RegenerationRefinementInput, Tra
 import { config } from '../config.js';
 import { store } from './store.js';
 import { createRangeRegenerationProposal, refineRegenerationProposal, transcribeProject } from './project-processing.js';
+import { withProcessingRun } from './run-context.js';
+import { removeRunCheckpoints } from './run-checkpoints.js';
 
 interface JobPayload {
   transcriptionContext?: TranscriptionContext;
@@ -139,6 +141,65 @@ async function report(id: string, stage: string, progress: number, message: stri
   });
 }
 
+async function executeJobOperation(job: StoredJob) {
+  if (job.type === 'transcribe') {
+    const result = await transcribeProject(job.projectId, job.payload.transcriptionContext, job.payload.force, (stage, progress, message) => report(job.id, stage, progress, message));
+    await patch(job.id, {
+      status: 'completed',
+      stage: 'complete',
+      progress: 100,
+      message: 'Full transcription and local timing completed.',
+      completedAt: new Date().toISOString(),
+      resultProjectId: result.id,
+      canResume: false,
+      performance: finishPerformance(job.id, 'complete'),
+    });
+    return;
+  }
+  if (job.type === 'regenerate-range') {
+    const proposal = await createRangeRegenerationProposal(
+      job.projectId,
+      Number(job.payload.startMs),
+      Number(job.payload.endMs),
+      job.payload.transcriptionContext,
+      (stage, progress, message) => report(job.id, stage, progress, message),
+    );
+    await patch(job.id, {
+      status: 'completed',
+      stage: 'complete',
+      progress: 100,
+      message: 'Regeneration preview is ready for live A/B review.',
+      completedAt: new Date().toISOString(),
+      proposalId: proposal.id,
+      canResume: false,
+      performance: finishPerformance(job.id, 'complete'),
+    });
+    return;
+  }
+  if (!job.payload.proposalId || !job.payload.strategy) throw new Error('Refinement job is missing its proposal or strategy.');
+  const proposal = await refineRegenerationProposal(
+    job.projectId,
+    job.payload.proposalId,
+    {
+      strategy: job.payload.strategy,
+      accuracyHint: job.payload.accuracyHint,
+      editedText: job.payload.editedText,
+      useProposalAsBaseline: job.payload.useProposalAsBaseline,
+    },
+    (stage, progress, message) => report(job.id, stage, progress, message),
+  );
+  await patch(job.id, {
+    status: 'completed',
+    stage: 'complete',
+    progress: 100,
+    message: `Refinement pass ${proposal.passNumber} is ready for live A/B review.`,
+    completedAt: new Date().toISOString(),
+    proposalId: proposal.id,
+    canResume: false,
+    performance: finishPerformance(job.id, 'complete'),
+  });
+}
+
 async function execute(job: StoredJob) {
   const performance = beginPerformance(job.id);
   await patch(job.id, {
@@ -153,60 +214,10 @@ async function execute(job: StoredJob) {
     performance,
   });
   try {
-    if (job.type === 'transcribe') {
-      const result = await transcribeProject(job.projectId, job.payload.transcriptionContext, job.payload.force, (stage, progress, message) => report(job.id, stage, progress, message));
-      await patch(job.id, {
-        status: 'completed',
-        stage: 'complete',
-        progress: 100,
-        message: 'Full transcription and local timing completed.',
-        completedAt: new Date().toISOString(),
-        resultProjectId: result.id,
-        canResume: false,
-        performance: finishPerformance(job.id, 'complete'),
-      });
-    } else if (job.type === 'regenerate-range') {
-      const proposal = await createRangeRegenerationProposal(
-        job.projectId,
-        Number(job.payload.startMs),
-        Number(job.payload.endMs),
-        job.payload.transcriptionContext,
-        (stage, progress, message) => report(job.id, stage, progress, message),
-      );
-      await patch(job.id, {
-        status: 'completed',
-        stage: 'complete',
-        progress: 100,
-        message: 'Regeneration preview is ready for live A/B review.',
-        completedAt: new Date().toISOString(),
-        proposalId: proposal.id,
-        canResume: false,
-        performance: finishPerformance(job.id, 'complete'),
-      });
-    } else {
-      if (!job.payload.proposalId || !job.payload.strategy) throw new Error('Refinement job is missing its proposal or strategy.');
-      const proposal = await refineRegenerationProposal(
-        job.projectId,
-        job.payload.proposalId,
-        {
-          strategy: job.payload.strategy,
-          accuracyHint: job.payload.accuracyHint,
-          editedText: job.payload.editedText,
-          useProposalAsBaseline: job.payload.useProposalAsBaseline,
-        },
-        (stage, progress, message) => report(job.id, stage, progress, message),
-      );
-      await patch(job.id, {
-        status: 'completed',
-        stage: 'complete',
-        progress: 100,
-        message: `Refinement pass ${proposal.passNumber} is ready for live A/B review.`,
-        completedAt: new Date().toISOString(),
-        proposalId: proposal.id,
-        canResume: false,
-        performance: finishPerformance(job.id, 'complete'),
-      });
-    }
+    await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
+    // Only successful jobs are cleaned. Failed/interrupted jobs retain their AI
+    // stage checkpoints so Resume can continue without repeating completed cloud work.
+    await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
     const terminalStage = cancelled ? 'cancelled' : 'failed';
@@ -219,6 +230,7 @@ async function execute(job: StoredJob) {
       canResume: !cancelled,
       performance: finishPerformance(job.id, terminalStage),
     });
+    if (cancelled) await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   }
 }
 
@@ -313,6 +325,7 @@ export const jobStore = {
     if (!job) throw new Error('Job not found');
     if (job.status === 'queued') {
       await patch(id, { status: 'cancelled', stage: 'cancelled', message: 'Job cancelled before it started.', completedAt: new Date().toISOString(), canResume: false });
+      await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
     } else if (job.status === 'running') {
       await patch(id, { cancelRequested: true, message: 'Cancellation requested. The current external stage may finish first.' });
     }
