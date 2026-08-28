@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import type { ProcessingJob } from '@kcs/shared';
 import { Ban, CheckCircle2, CircleAlert, Clock3, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
+import { JOBS_UPDATED_EVENT } from '../api';
 
 interface Props {
   open: boolean;
@@ -34,6 +36,12 @@ function icon(job: ProcessingJob) {
 }
 
 export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+  useEffect(() => {
+    const refresh = () => onRefresh();
+    window.addEventListener(JOBS_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(JOBS_UPDATED_EVENT, refresh);
+  }, [onRefresh]);
+
   if (!open) return null;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
   const runningJobs = activeJobs.filter((job) => job.status === 'running');
