@@ -51,6 +51,22 @@ function safeCacheNamespace(value: string | undefined) {
   return normalized || '_shared';
 }
 
+function inferCacheNamespace(workDir: string, explicit?: string) {
+  if (explicit) return safeCacheNamespace(explicit);
+  const relativeCache = path.relative(config.cacheDir, workDir);
+  if (relativeCache && !relativeCache.startsWith('..') && !path.isAbsolute(relativeCache)) {
+    const first = relativeCache.split(path.sep)[0];
+    if (first) return safeCacheNamespace(first);
+  }
+  const relativeWork = path.relative(config.workingDir, workDir);
+  if (relativeWork && !relativeWork.startsWith('..') && !path.isAbsolute(relativeWork)) {
+    const first = relativeWork.split(path.sep)[0];
+    const marker = first.lastIndexOf('-proposal-');
+    if (marker > 0) return safeCacheNamespace(first.slice(0, marker));
+  }
+  return '_shared';
+}
+
 function projectTimingCacheRoot(cacheNamespace?: string) {
   return path.join(config.cacheDir, safeCacheNamespace(cacheNamespace));
 }
@@ -147,9 +163,9 @@ async function readTimingResultCache(cachePath: string) {
 }
 
 async function writeTimingResultCache(cachePath: string, result: TimingResult) {
+  const temp = `${cachePath}.${process.pid}.${Date.now()}.tmp`;
   try {
     await fs.mkdir(path.dirname(cachePath), { recursive: true });
-    const temp = `${cachePath}.${process.pid}.${Date.now()}.tmp`;
     const envelope: TimingCacheEnvelope = {
       version: 1,
       createdAt: new Date().toISOString(),
@@ -160,6 +176,8 @@ async function writeTimingResultCache(cachePath: string, result: TimingResult) {
     await trimTimingResultCache(path.dirname(cachePath), cachePath);
   } catch (error) {
     console.warn(`[local timing] Could not persist timing-result cache: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await fs.rm(temp, { force: true }).catch(() => {});
   }
 }
 
@@ -392,7 +410,8 @@ export async function prepareTimingLocally(wavPath: string, cacheNamespace?: str
 }
 
 export async function alignTimingLocally(wavPath: string, workDir: string, geminiTranscript: string, cacheNamespace?: string): Promise<TimingResult> {
-  const cachePath = await timingCachePath(wavPath, geminiTranscript, cacheNamespace);
+  const namespace = inferCacheNamespace(workDir, cacheNamespace);
+  const cachePath = await timingCachePath(wavPath, geminiTranscript, namespace);
   const cached = await readTimingResultCache(cachePath);
   if (cached) {
     console.log('[local timing] Deterministic timing-result cache hit.');
@@ -401,12 +420,12 @@ export async function alignTimingLocally(wavPath: string, workDir: string, gemin
 
   let parsed: WorkerResult;
   try {
-    parsed = await requestWorker('align', { audio: wavPath, transcript: geminiTranscript }, cacheNamespace) as WorkerResult;
+    parsed = await requestWorker('align', { audio: wavPath, transcript: geminiTranscript }, namespace) as WorkerResult;
   } catch (error) {
     if (error instanceof LocalTimingWorkerTransportError) {
       console.warn(`[local timing] Persistent worker unavailable; using one-shot recovery path. ${error.message}`);
       try {
-        parsed = await alignTimingOneShot(wavPath, workDir, geminiTranscript, cacheNamespace);
+        parsed = await alignTimingOneShot(wavPath, workDir, geminiTranscript, namespace);
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         if (/ENOENT|could not start/i.test(message)) {
