@@ -1,7 +1,12 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
-import { resolveGeminiSettings } from './llm-settings.js';
+import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settings.js';
+import { prepareTimingLocally } from './local-timing.js';
+import { currentProcessingRun } from './run-context.js';
+import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
 import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
 
 const schema = {
@@ -87,6 +92,7 @@ function buildPrompt(
 
   return parts.join('\n');
 }
+
 type HeaderLike = { get?: (name: string) => string | null } | Record<string, unknown>;
 type ErrorShape = {
   status?: number;
@@ -116,6 +122,16 @@ export interface GeminiTranscript {
   nativeVocabularyBias: boolean;
   vocabularyTerms: string[];
 }
+
+interface PreparedGeminiAudio {
+  ai: GoogleGenAI;
+  apiKey: string;
+  uploaded: { uri: string; mimeType: string };
+}
+
+const uploadCacheTtlMs = 30 * 60 * 1000;
+const maxPreparedUploads = 16;
+const preparedUploads = new Map<string, { expiresAt: number; promise: Promise<PreparedGeminiAudio> }>();
 
 export class GeminiUnavailableError extends Error {
   readonly statusCode = 503;
@@ -216,6 +232,12 @@ function outputTextFromRestInteraction(payload: unknown): string {
   return chunks.join('');
 }
 
+function thinkingGenerationConfig(model: string) {
+  return /^gemini-(?:3(?:\.|-|$)|2\.5(?:-|$))/i.test(model)
+    ? { thinking_level: config.geminiTranscriptionThinkingLevel }
+    : undefined;
+}
+
 async function makeNativeVocabularyInteraction(
   apiKey: string,
   model: string,
@@ -223,6 +245,7 @@ async function makeNativeVocabularyInteraction(
   prompt: string,
   hints: string[],
 ): Promise<InteractionResult> {
+  const generationConfig = thinkingGenerationConfig(model);
   const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
     method: 'POST',
     headers: {
@@ -238,6 +261,7 @@ async function makeNativeVocabularyInteraction(
         { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
       ],
       response_format: { type: 'text', mime_type: 'application/json', schema },
+      ...(generationConfig ? { generation_config: generationConfig } : {}),
       transcription_config: {
         custom_vocabulary: hints,
         language_codes: ['km-KH', 'en-US'],
@@ -274,6 +298,7 @@ async function makePromptOnlyInteraction(
   uploaded: { uri: string; mimeType: string },
   prompt: string,
 ): Promise<InteractionResult> {
+  const generationConfig = thinkingGenerationConfig(model);
   const interaction = await ai.interactions.create({
     model,
     store: false,
@@ -283,6 +308,7 @@ async function makePromptOnlyInteraction(
       { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
     ],
     response_format: { type: 'text', mime_type: 'application/json', schema },
+    ...(generationConfig ? { generation_config: generationConfig } : {}),
   } as never);
   return { outputText: interaction.output_text || '', nativeVocabularyBias: false };
 }
@@ -296,11 +322,6 @@ async function makeInteraction(
   hints: string[],
   enableNativeBias: boolean,
 ): Promise<InteractionResult> {
-  // @google/genai 2.17.1 does not yet type/serialize the newly documented
-  // transcription_config field consistently, so when vocabulary bias is enabled
-  // we call the official Interactions REST endpoint directly. Uploads still use
-  // the official SDK. If the endpoint rejects the feature, the caller degrades
-  // to prompt-only protection instead of failing the clip.
   if (enableNativeBias && hints.length) {
     return makeNativeVocabularyInteraction(apiKey, model, uploaded, prompt, hints);
   }
@@ -380,8 +401,6 @@ async function runModel(
   try {
     transcript = parseTranscript(result.outputText, model);
   } catch (error) {
-    // Defensive compatibility path: if native ASR mode ever changes model output
-    // formatting, repeat once with prompt-only protection rather than failing a clip.
     if (!result.nativeVocabularyBias) throw error;
     console.warn('[Gemini] Native vocabulary response did not match the expected JSON schema. Retrying once with prompt-only protection.');
     const plain = await makeInteraction(ai, apiKey, model, uploaded, prompt, hints, false);
@@ -391,6 +410,76 @@ async function runModel(
   return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias };
 }
 
+function immutableAudioIdentity(audioPath: string, stat: Awaited<ReturnType<typeof fs.stat>>) {
+  const inode = Number(stat.ino || 0);
+  const device = Number(stat.dev || 0);
+  const mtime = Number(stat.mtimeMs).toFixed(3);
+  return inode
+    ? `inode:${device}:${inode}:${stat.size}:${mtime}`
+    : `path:${audioPath}:${stat.size}:${mtime}`;
+}
+
+async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSettings): Promise<PreparedGeminiAudio> {
+  if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
+  const stat = await fs.stat(audioPath);
+  const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
+  const cacheKey = `${immutableAudioIdentity(audioPath, stat)}:${keyFingerprint}`;
+  const now = Date.now();
+  for (const [key, entry] of preparedUploads) {
+    if (entry.expiresAt <= now) preparedUploads.delete(key);
+  }
+  const cached = preparedUploads.get(cacheKey);
+  if (cached) return cached.promise;
+
+  const promise = (async () => {
+    const ai = new GoogleGenAI({ apiKey: llm.apiKey });
+    const uploadedFile = await ai.files.upload({ file: audioPath, config: { mimeType: 'audio/wav' } });
+    if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
+    return {
+      ai,
+      apiKey: llm.apiKey,
+      uploaded: { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType },
+    };
+  })();
+
+  preparedUploads.set(cacheKey, { expiresAt: now + uploadCacheTtlMs, promise });
+  while (preparedUploads.size > maxPreparedUploads) {
+    const oldest = preparedUploads.keys().next().value as string | undefined;
+    if (!oldest) break;
+    preparedUploads.delete(oldest);
+  }
+  promise.catch(() => {
+    if (preparedUploads.get(cacheKey)?.promise === promise) preparedUploads.delete(cacheKey);
+  });
+  return promise;
+}
+
+async function geminiCheckpointSignature(
+  audioPath: string,
+  context: TranscriptionContext | undefined,
+  guidance: GeminiTranscriptionGuidance | undefined,
+  llm: ResolvedGeminiSettings,
+) {
+  const stat = await fs.stat(audioPath);
+  const audioIdentity = immutableAudioIdentity(audioPath, stat);
+  const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
+  return crypto.createHash('sha256').update(JSON.stringify({
+    version: 'gemini-job-stage-v1',
+    audioIdentity,
+    context,
+    guidance,
+    primaryModel: llm.model,
+    fallbackModel: llm.fallbackModel,
+    keyFingerprint,
+    nativeVocabularyBias: config.geminiNativeVocabularyBias,
+    thinkingLevel: config.geminiTranscriptionThinkingLevel,
+  })).digest('hex').slice(0, 32);
+}
+
+function geminiCheckpointStage(guidance: GeminiTranscriptionGuidance | undefined) {
+  return `gemini-${guidance?.variant || 'standard'}`;
+}
+
 export async function transcribeTextWithGemini(
   audioPath: string,
   context?: TranscriptionContext,
@@ -398,13 +487,29 @@ export async function transcribeTextWithGemini(
 ): Promise<GeminiTranscript> {
   const llm = await resolveGeminiSettings();
   if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
-  const ai = new GoogleGenAI({ apiKey: llm.apiKey });
+
+  const run = currentProcessingRun();
+  // Overlap transcript-independent local acoustic inference with the cloud listen.
+  // The helper is fail-open; the later timing stage still retries normally if this
+  // speculative preparation cannot be completed.
+  if (run) void prepareTimingLocally(audioPath, run.projectId);
+
+  const checkpointSignature = run
+    ? await geminiCheckpointSignature(audioPath, context, guidance, llm)
+    : '';
+  const checkpointStage = geminiCheckpointStage(guidance);
+  if (run) {
+    const cached = await readRunCheckpoint<GeminiTranscript>(run.projectId, run.runKey, checkpointStage, checkpointSignature);
+    if (cached) {
+      console.log(`[Gemini] Resumed ${checkpointStage} from the current job checkpoint.`);
+      return cached;
+    }
+  }
+
+  const prepared = await preparedGeminiAudio(audioPath, llm);
+  const { ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);
   const prompt = buildPrompt(context, entries, guidance);
-
-  const uploadedFile = await ai.files.upload({ file: audioPath, config: { mimeType: 'audio/wav' } });
-  if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
-  const uploaded = { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType };
 
   const finish = (raw: Pick<TranscriptResult, 'language' | 'fullText'>, model: string, fallbackUsed: boolean, attempts: number, nativeVocabularyBias: boolean): GeminiTranscript => {
     const alignmentText = raw.fullText;
@@ -422,16 +527,17 @@ export async function transcribeTextWithGemini(
     };
   };
 
+  let completed: GeminiTranscript;
   try {
-    const primary = await runModel(ai, llm.apiKey, llm.model, uploaded, prompt, entries);
-    return finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
+    const primary = await runModel(ai, prepared.apiKey, llm.model, uploaded, prompt, entries);
+    completed = finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
   } catch (primaryError) {
     const fallback = llm.fallbackModel.trim();
     if (!fallback || fallback === llm.model || !transientGeminiError(primaryError)) throw primaryError;
     console.warn(`[Gemini] ${llm.model} remained unavailable after automatic retries. Falling back to ${fallback}.`);
     try {
-      const secondary = await runModel(ai, llm.apiKey, fallback, uploaded, prompt, entries);
-      return finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias);
+      const secondary = await runModel(ai, prepared.apiKey, fallback, uploaded, prompt, entries);
+      completed = finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias);
     } catch (fallbackError) {
       if (transientGeminiError(fallbackError)) {
         throw new GeminiUnavailableError(
@@ -442,4 +548,9 @@ export async function transcribeTextWithGemini(
       throw fallbackError;
     }
   }
+
+  if (run) {
+    await writeRunCheckpoint(run.projectId, run.runKey, checkpointStage, checkpointSignature, completed);
+  }
+  return completed;
 }

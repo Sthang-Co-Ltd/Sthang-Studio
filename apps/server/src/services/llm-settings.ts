@@ -56,6 +56,8 @@ const settingsDir = process.platform === 'win32'
   : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'sthang-studio');
 const metadataFile = path.join(settingsDir, 'llm-settings.json');
 const secretFile = path.join(settingsDir, 'gemini-key.dpapi');
+const resolvedSettingsCacheTtlMs = 5 * 60 * 1000;
+let resolvedSettingsCache: { value: ResolvedGeminiSettings; expiresAt: number } | null = null;
 
 const encryptScript = [
   "$ErrorActionPreference='Stop'",
@@ -102,6 +104,10 @@ function normalizeModel(value: unknown, fallback: string, allowEmpty = false) {
 function maskKey(key: string) {
   const last = key.slice(-4);
   return `••••••••${last}`;
+}
+
+function invalidateResolvedSettingsCache() {
+  resolvedSettingsCache = null;
 }
 
 async function readMetadata(): Promise<StoredLlmMetadata> {
@@ -178,6 +184,9 @@ async function writeSecureKey(apiKey: string) {
 }
 
 export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
+  const cached = resolvedSettingsCache;
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.value };
+
   const metadata = await readMetadata();
   let secureKey: string | null = null;
   try {
@@ -187,7 +196,7 @@ export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
   }
   const environmentKey = validConfiguredKey(config.geminiApiKey) ? config.geminiApiKey.trim() : '';
   const apiKey = secureKey || environmentKey;
-  return {
+  const resolved: ResolvedGeminiSettings = {
     provider: 'gemini',
     configured: Boolean(apiKey),
     apiKey,
@@ -200,6 +209,8 @@ export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
       : 'Environment variable only on this platform',
     environmentFallbackAvailable: Boolean(environmentKey),
   };
+  resolvedSettingsCache = { value: resolved, expiresAt: Date.now() + resolvedSettingsCacheTtlMs };
+  return { ...resolved };
 }
 
 export async function publicLlmSettings(): Promise<PublicLlmSettings> {
@@ -238,6 +249,7 @@ export async function saveLlmSettings(input: { apiKey?: unknown; model?: unknown
     keyLast4,
     updatedAt: new Date().toISOString(),
   });
+  invalidateResolvedSettingsCache();
   return publicLlmSettings();
 }
 
@@ -245,6 +257,7 @@ export async function forgetSecureGeminiKey(): Promise<PublicLlmSettings> {
   if (process.platform === 'win32') await fs.rm(secretFile, { force: true });
   const metadata = await readMetadata();
   await writeMetadata({ ...metadata, keyLast4: undefined, updatedAt: new Date().toISOString() });
+  invalidateResolvedSettingsCache();
   return publicLlmSettings();
 }
 

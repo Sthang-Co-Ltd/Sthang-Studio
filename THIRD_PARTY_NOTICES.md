@@ -39,6 +39,13 @@ dependencies.
 | appdirs | Local cache paths | MIT |
 | faster-whisper | Local timing fallback | MIT |
 
+Studio's `local-timing/worker.py` adapts portions of KFA 0.2.0's Apache-2.0
+`forced_alignment.py` acoustic-emission and transcript-alignment flow so the
+transcript-independent ONNX emissions can be cached and reused. The adaptation
+keeps KFA's alignment math and KFA remains the timing authority; this repository
+does not relicense that adapted KFA-derived portion under more restrictive
+terms.
+
 ## FFmpeg
 
 Sthang Studio expects `ffmpeg`/`ffprobe` to be installed on the user's system and

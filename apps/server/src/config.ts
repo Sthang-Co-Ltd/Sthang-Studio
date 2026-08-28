@@ -18,6 +18,11 @@ function envBool(name: string, fallback: boolean) {
   return !['0', 'false', 'no', 'off'].includes(raw.toLowerCase());
 }
 
+function envThinkingLevel(name: string, fallback: 'low' | 'medium' | 'high') {
+  const raw = String(process.env[name] || '').trim().toLowerCase();
+  return ['low', 'medium', 'high'].includes(raw) ? raw as 'low' | 'medium' | 'high' : fallback;
+}
+
 export const config = {
   port: Number(process.env.PORT || 8787),
   webOrigin: process.env.WEB_ORIGIN || 'http://localhost:5188',
@@ -27,6 +32,9 @@ export const config = {
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),
   geminiRetryMaxMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_RETRY_MAX_MS || 60000))),
+  // Verbatim transcription is latency-sensitive and does not need agent-style reasoning.
+  // Gemini 3.7 Flash supports low/medium/high; low remains configurable for A/B testing.
+  geminiTranscriptionThinkingLevel: envThinkingLevel('GEMINI_TRANSCRIPTION_THINKING_LEVEL', 'low'),
   // Best-effort use of the current Interactions API ASR custom_vocabulary feature.
   // If an older SDK/backend rejects it, gemini.ts falls back to prompt-based protection automatically.
   geminiNativeVocabularyBias: envBool('GEMINI_NATIVE_VOCABULARY_BIAS', true),

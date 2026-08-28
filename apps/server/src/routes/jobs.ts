@@ -7,6 +7,33 @@ router.get('/', async (req, res) => {
   res.json(await jobStore.list(typeof req.query.projectId === 'string' ? req.query.projectId : undefined));
 });
 
+router.get('/events', (req, res) => {
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  let closed = false;
+  const send = (snapshot: Awaited<ReturnType<typeof jobStore.list>>) => {
+    if (closed || res.writableEnded) return;
+    res.write(`event: jobs\ndata: ${JSON.stringify(snapshot)}\n\n`);
+  };
+  const unsubscribe = jobStore.subscribe(send);
+  const heartbeat = setInterval(() => {
+    if (!closed && !res.writableEnded) res.write(': keepalive\n\n');
+  }, 20_000);
+
+  req.on('close', () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    if (!res.writableEnded) res.end();
+  });
+});
+
 router.get('/:id', async (req, res) => {
   const job = await jobStore.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
