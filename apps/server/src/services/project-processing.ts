@@ -244,6 +244,11 @@ interface ProposalCandidate {
   advisoryScore: number;
 }
 
+interface GeminiCandidateDraft {
+  label: string;
+  gemini: GeminiTranscript;
+}
+
 interface ProposalBuildOptions {
   strategy: RegenerationStrategy;
   parent?: StoredRegenerationProposal;
@@ -293,6 +298,38 @@ function candidateSummary(candidate: ProposalCandidate, selected: boolean): Rege
   };
 }
 
+async function transcribeGeminiCandidate(
+  chunkPath: string,
+  context: TranscriptionContext,
+  guidance: GeminiTranscriptionGuidance,
+  label: string,
+): Promise<GeminiCandidateDraft> {
+  return {
+    label,
+    gemini: await transcribeTextWithGemini(chunkPath, context, guidance),
+  };
+}
+
+async function alignGeminiCandidate(
+  draft: GeminiCandidateDraft,
+  chunkPath: string,
+  candidateDir: string,
+  chunkDuration: number,
+  context: TranscriptionContext,
+  acceptedBaselineText?: string,
+): Promise<ProposalCandidate> {
+  await fs.mkdir(candidateDir, { recursive: true });
+  const timing = await alignTimingLocally(chunkPath, candidateDir, draft.gemini.alignmentText);
+  const aligned = alignGeminiToTiming(draft.gemini.fullText, timing, chunkDuration, parseVocabulary(context.vocabulary));
+  return {
+    id: nanoid(8),
+    label: draft.label,
+    gemini: draft.gemini,
+    aligned,
+    advisoryScore: candidateAdvisoryScore(aligned, draft.gemini.fullText, acceptedBaselineText),
+  };
+}
+
 async function generateGeminiCandidate(
   chunkPath: string,
   candidateDir: string,
@@ -302,17 +339,8 @@ async function generateGeminiCandidate(
   label: string,
   acceptedBaselineText?: string,
 ): Promise<ProposalCandidate> {
-  await fs.mkdir(candidateDir, { recursive: true });
-  const gemini = await transcribeTextWithGemini(chunkPath, context, guidance);
-  const timing = await alignTimingLocally(chunkPath, candidateDir, gemini.alignmentText);
-  const aligned = alignGeminiToTiming(gemini.fullText, timing, chunkDuration, parseVocabulary(context.vocabulary));
-  return {
-    id: nanoid(8),
-    label,
-    gemini,
-    aligned,
-    advisoryScore: candidateAdvisoryScore(aligned, gemini.fullText, acceptedBaselineText),
-  };
+  const draft = await transcribeGeminiCandidate(chunkPath, context, guidance, label);
+  return alignGeminiCandidate(draft, chunkPath, candidateDir, chunkDuration, context, acceptedBaselineText);
 }
 
 async function generateManualCandidate(
@@ -408,37 +436,53 @@ async function buildRangeRegenerationProposal(
         project,
       ));
     } else if (options.strategy === 'deep-verify') {
+      await progress('transcription', 20, 'Deep verification: listening two ways in parallel…');
+      const specs: Array<{ guidance: GeminiTranscriptionGuidance; label: string }> = [
+        { guidance: { ...guidanceBase, variant: 'acoustic' }, label: 'Strict acoustic pass' },
+        { guidance: { ...guidanceBase, variant: 'contextual' }, label: 'Context-aware pass' },
+      ];
+      const settled = await Promise.allSettled(specs.map((spec) =>
+        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label)));
       const failures: string[] = [];
-      await progress('transcription', 20, 'Deep verification pass 1/2: strict acoustic listen…');
-      try {
-        candidates.push(await generateGeminiCandidate(
+      const drafts: GeminiCandidateDraft[] = [];
+      settled.forEach((result, index) => {
+        if (result.status === 'fulfilled') drafts.push(result.value);
+        else failures.push(`${specs[index].label}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      });
+      if (!drafts.length) throw new Error(`Both deep-verification passes failed. ${failures.join(' | ')}`);
+
+      await progress('alignment', 55, 'Comparing independent listens with local timing evidence…');
+      const groups = new Map<string, GeminiCandidateDraft[]>();
+      for (const draft of drafts) {
+        const key = normalizeForMatch(draft.gemini.fullText) || draft.gemini.fullText.trim();
+        const group = groups.get(key) || [];
+        group.push(draft);
+        groups.set(key, group);
+      }
+
+      let groupIndex = 0;
+      for (const group of groups.values()) {
+        const aligned = await alignGeminiCandidate(
+          group[0],
           chunkPath,
-          path.join(workDir, 'candidate-acoustic'),
+          path.join(workDir, `candidate-verify-${groupIndex}`),
           chunkDuration,
           context,
-          { ...guidanceBase, variant: 'acoustic' },
-          'Strict acoustic pass',
           acceptedBaselineText,
-        ));
-      } catch (error) {
-        failures.push(`Acoustic pass: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      await progress('transcription', 48, 'Deep verification pass 2/2: context-aware listen…');
-      try {
-        candidates.push(await generateGeminiCandidate(
-          chunkPath,
-          path.join(workDir, 'candidate-contextual'),
-          chunkDuration,
-          context,
-          { ...guidanceBase, variant: 'contextual' },
-          'Context-aware pass',
-          acceptedBaselineText,
-        ));
-      } catch (error) {
-        failures.push(`Context pass: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      if (!candidates.length) {
-        throw new Error(`Both deep-verification passes failed. ${failures.join(' | ')}`);
+        );
+        candidates.push(aligned);
+        // If both independent listens returned effectively the same wording, keep
+        // both evidence labels but do not run the local acoustic alignment twice.
+        for (const duplicate of group.slice(1)) {
+          candidates.push({
+            ...aligned,
+            id: nanoid(8),
+            label: duplicate.label,
+            gemini: duplicate.gemini,
+            advisoryScore: candidateAdvisoryScore(aligned.aligned, duplicate.gemini.fullText, acceptedBaselineText),
+          });
+        }
+        groupIndex += 1;
       }
     } else {
       await progress('transcription', 26, options.strategy === 'alternative'
