@@ -9,6 +9,10 @@ from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
 
+# Portions of the KFA acoustic-emission and transcript-alignment flow below are
+# adapted from KFA 0.2.0's Apache-2.0 forced_alignment.py implementation so
+# Studio can cache transcript-independent emissions without changing KFA's
+# alignment math. See THIRD_PARTY_NOTICES.md for attribution.
 
 KFA_MODEL_ID = "wav2vec2-km-base-1500"
 EMISSION_CACHE_VERSION = "kfa-emission-v1"
@@ -45,14 +49,15 @@ def audio_identity(audio_path: Path) -> str:
     stat = audio_path.stat()
     inode = int(getattr(stat, "st_ino", 0) or 0)
     device = int(getattr(stat, "st_dev", 0) or 0)
+    mtime_ns = int(getattr(stat, "st_mtime_ns", round(stat.st_mtime * 1_000_000_000)))
+    ctime_ns = int(getattr(stat, "st_ctime_ns", round(stat.st_ctime * 1_000_000_000)))
     # Studio's cached WAVs are immutable once created. Hard-linked working files
-    # retain the same inode, so this identity survives range-cache reuse without
-    # hashing the entire audio file. Fall back to path+mtime on filesystems that
-    # do not expose a meaningful inode.
+    # retain inode + generation timestamps, so this identity survives legitimate
+    # range-cache reuse while guarding against a filesystem reusing an old inode.
     if inode:
-        raw = f"inode:{device}:{inode}:{stat.st_size}"
+        raw = f"inode:{device}:{inode}:{stat.st_size}:{mtime_ns}:{ctime_ns}"
     else:
-        raw = f"path:{audio_path.resolve()}:{stat.st_size}:{int(stat.st_mtime_ns)}"
+        raw = f"path:{audio_path.resolve()}:{stat.st_size}:{mtime_ns}:{ctime_ns}"
     return hashlib.sha256(f"{EMISSION_CACHE_VERSION}:{KFA_MODEL_ID}:{raw}".encode("utf-8")).hexdigest()[:32]
 
 
