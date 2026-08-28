@@ -17,6 +17,8 @@ interface StageCacheEnvelope<T> {
   value: T;
 }
 
+const normalizedAudioInFlight = new Map<string, Promise<Awaited<ReturnType<typeof ensureNormalizedAudioInternal>>>>();
+
 export function mediaFingerprint(project: CaptionProject) {
   return crypto
     .createHash('sha256')
@@ -39,7 +41,6 @@ async function validatedWaveDuration(outputPath: string) {
     if (!stat.isFile() || stat.size < 44) return null;
     const fastDuration = await waveDurationMs(outputPath);
     if (fastDuration != null) return fastDuration >= 100 ? fastDuration : null;
-    // Retain ffprobe only as the compatibility path for unusual/RF64 WAVs.
     const durationMs = await probeDurationMs(outputPath);
     return Number.isFinite(durationMs) && durationMs >= 100 ? durationMs : null;
   } catch {
@@ -47,7 +48,7 @@ async function validatedWaveDuration(outputPath: string) {
   }
 }
 
-export async function ensureNormalizedAudio(project: CaptionProject, options: { force?: boolean } = {}) {
+async function ensureNormalizedAudioInternal(project: CaptionProject, options: { force?: boolean } = {}) {
   const dir = projectCacheDir(project.id);
   const outputPath = path.join(dir, 'normalized.wav');
   const metaPath = path.join(dir, 'audio-meta.json');
@@ -64,7 +65,6 @@ export async function ensureNormalizedAudio(project: CaptionProject, options: { 
   if (!options.force && sameMedia && meta && meta.durationMs > 0) {
     const verifiedDuration = await validatedWaveDuration(outputPath);
     if (verifiedDuration) {
-      // Keep metadata honest if the WAV header reports a slightly different duration.
       if (Math.abs(verifiedDuration - meta.durationMs) > 250) {
         meta.durationMs = verifiedDuration;
         await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
@@ -75,10 +75,8 @@ export async function ensureNormalizedAudio(project: CaptionProject, options: { 
   }
 
   if (!sameMedia) {
-    // A different source media invalidates every downstream stage/range cache.
     await fs.rm(dir, { recursive: true, force: true });
   } else {
-    // A corrupt waveform preview should not discard completed Gemini/KFA stages.
     await fs.mkdir(dir, { recursive: true });
     await Promise.all([
       fs.rm(outputPath, { force: true }),
@@ -88,8 +86,6 @@ export async function ensureNormalizedAudio(project: CaptionProject, options: { 
 
   await fs.mkdir(dir, { recursive: true });
   const normalized = await normalizeAudioFile(path.join(config.uploadDir, project.media.filename), outputPath);
-  // normalizeAudioFile already validates the generated PCM WAV. Avoid probing it a
-  // second time after a successful normalization pass.
   const verifiedDuration = normalized.durationMs;
   const nextMeta: AudioCacheMeta = {
     mediaFingerprint: fingerprint,
@@ -100,10 +96,29 @@ export async function ensureNormalizedAudio(project: CaptionProject, options: { 
   return { dir, outputPath, durationMs: verifiedDuration, fingerprint, cacheHit: false, cachedAt: nextMeta.cachedAt };
 }
 
+export async function ensureNormalizedAudio(project: CaptionProject, options: { force?: boolean } = {}) {
+  const key = `${project.id}:${mediaFingerprint(project)}`;
+  const existing = normalizedAudioInFlight.get(key);
+  if (existing) {
+    if (!options.force) return existing;
+    // A forced rebuild must not race a normal preparation already writing the same
+    // normalized.wav. Finish the current operation first, then rebuild deliberately.
+    await existing.catch(() => {});
+  }
+
+  const promise = ensureNormalizedAudioInternal(project, options);
+  normalizedAudioInFlight.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    if (normalizedAudioInFlight.get(key) === promise) normalizedAudioInFlight.delete(key);
+  }
+}
+
 export async function writeStageCache<T>(projectId: string, name: 'gemini' | 'timing', signature: string, value: T) {
   const dir = projectCacheDir(projectId);
   await fs.mkdir(dir, { recursive: true });
-  const envelope: StageCacheEnvelope<T> = { signature, createdAt: new Date().toISOString(), value };
+  const envelope: StageCacheEnvelope<T> = { signature, createdAt: new Date().toISOString(), value: value };
   await fs.writeFile(path.join(dir, `${name}-stage.json`), JSON.stringify(envelope, null, 2), 'utf8');
   return envelope;
 }
