@@ -24,6 +24,8 @@ exports/*
 
 # Local project/runtime state
 data/projects.json
+data/projects.legacy-v0.7.json
+data/projects/
 data/profile.json
 data/jobs.json
 data/working/
