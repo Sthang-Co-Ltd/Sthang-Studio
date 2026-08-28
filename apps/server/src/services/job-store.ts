@@ -18,13 +18,71 @@ interface JobPayload {
   useProposalAsBaseline?: boolean;
 }
 
+interface JobPerformance {
+  runStartedAt: string;
+  totalMs: number;
+  stageMs: Record<string, number>;
+}
+
 interface StoredJob extends ProcessingJob {
   payload: JobPayload;
   cancelRequested?: boolean;
+  /** Internal diagnostics returned in job JSON but intentionally not required by the UI contract. */
+  performance?: JobPerformance;
+}
+
+interface RuntimePerformanceState {
+  runStartedAt: string;
+  startedMs: number;
+  lastMs: number;
+  lastStage: string;
+  stageMs: Record<string, number>;
 }
 
 let jobs: StoredJob[] = [];
 let pumping = false;
+const performanceStates = new Map<string, RuntimePerformanceState>();
+
+function beginPerformance(id: string) {
+  const now = Date.now();
+  const state: RuntimePerformanceState = {
+    runStartedAt: new Date(now).toISOString(),
+    startedMs: now,
+    lastMs: now,
+    lastStage: 'starting',
+    stageMs: {},
+  };
+  performanceStates.set(id, state);
+  return performanceSnapshot(state, now);
+}
+
+function performanceSnapshot(state: RuntimePerformanceState, now = Date.now()): JobPerformance {
+  return {
+    runStartedAt: state.runStartedAt,
+    totalMs: Math.max(0, now - state.startedMs),
+    stageMs: { ...state.stageMs },
+  };
+}
+
+function advancePerformance(id: string, nextStage: string) {
+  const state = performanceStates.get(id);
+  if (!state) return undefined;
+  const now = Date.now();
+  const elapsed = Math.max(0, now - state.lastMs);
+  state.stageMs[state.lastStage] = (state.stageMs[state.lastStage] || 0) + elapsed;
+  state.lastMs = now;
+  state.lastStage = nextStage;
+  return performanceSnapshot(state, now);
+}
+
+function finishPerformance(id: string, terminalStage: string) {
+  const snapshot = advancePerformance(id, terminalStage);
+  const state = performanceStates.get(id);
+  if (!state) return snapshot;
+  const final = performanceSnapshot(state);
+  performanceStates.delete(id);
+  return final;
+}
 
 async function load() {
   try {
@@ -72,10 +130,17 @@ async function report(id: string, stage: string, progress: number, message: stri
   const job = jobs.find((item) => item.id === id);
   if (!job) return;
   if (job.cancelRequested) throw new Error('Job cancelled by user.');
-  await patch(id, { stage, progress: Math.max(0, Math.min(100, Math.round(progress))), message });
+  const performance = advancePerformance(id, stage);
+  await patch(id, {
+    stage,
+    progress: Math.max(0, Math.min(100, Math.round(progress))),
+    message,
+    ...(performance ? { performance } : {}),
+  });
 }
 
 async function execute(job: StoredJob) {
+  const performance = beginPerformance(job.id);
   await patch(job.id, {
     status: 'running',
     startedAt: new Date().toISOString(),
@@ -85,6 +150,7 @@ async function execute(job: StoredJob) {
     error: undefined,
     canResume: false,
     cancelRequested: false,
+    performance,
   });
   try {
     if (job.type === 'transcribe') {
@@ -97,6 +163,7 @@ async function execute(job: StoredJob) {
         completedAt: new Date().toISOString(),
         resultProjectId: result.id,
         canResume: false,
+        performance: finishPerformance(job.id, 'complete'),
       });
     } else if (job.type === 'regenerate-range') {
       const proposal = await createRangeRegenerationProposal(
@@ -114,6 +181,7 @@ async function execute(job: StoredJob) {
         completedAt: new Date().toISOString(),
         proposalId: proposal.id,
         canResume: false,
+        performance: finishPerformance(job.id, 'complete'),
       });
     } else {
       if (!job.payload.proposalId || !job.payload.strategy) throw new Error('Refinement job is missing its proposal or strategy.');
@@ -136,17 +204,20 @@ async function execute(job: StoredJob) {
         completedAt: new Date().toISOString(),
         proposalId: proposal.id,
         canResume: false,
+        performance: finishPerformance(job.id, 'complete'),
       });
     }
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
+    const terminalStage = cancelled ? 'cancelled' : 'failed';
     await patch(job.id, {
       status: cancelled ? 'cancelled' : 'failed',
-      stage: cancelled ? 'cancelled' : 'failed',
+      stage: terminalStage,
       message: cancelled ? 'Job cancelled.' : 'Processing failed. Saved checkpoints remain available for retry.',
       error: error instanceof Error ? error.message : 'Processing failed',
       completedAt: new Date().toISOString(),
       canResume: !cancelled,
+      performance: finishPerformance(job.id, terminalStage),
     });
   }
 }
@@ -231,6 +302,7 @@ export const jobStore = {
       completedAt: undefined,
       canResume: false,
       cancelRequested: false,
+      performance: undefined,
     });
     void pump();
     return (await this.get(id))!;
