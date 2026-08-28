@@ -13,6 +13,29 @@ import type {
   TranscriptionContext,
 } from '@kcs/shared';
 
+export const JOBS_UPDATED_EVENT = 'sthang:jobs-updated';
+let jobSnapshot: ProcessingJob[] | null = null;
+let jobEventSource: EventSource | null = null;
+let jobStreamOpen = false;
+
+function ensureJobEventStream() {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined' || jobEventSource) return;
+  const source = new EventSource('/api/jobs/events');
+  jobEventSource = source;
+  source.onopen = () => { jobStreamOpen = true; };
+  source.onerror = () => { jobStreamOpen = false; };
+  source.addEventListener('jobs', (event) => {
+    try {
+      const value = JSON.parse((event as MessageEvent<string>).data) as ProcessingJob[];
+      if (!Array.isArray(value)) return;
+      jobSnapshot = value;
+      jobStreamOpen = true;
+      window.dispatchEvent(new Event(JOBS_UPDATED_EVENT));
+    } catch {
+      // Keep the polling fallback if a malformed event ever arrives.
+    }
+  });
+}
 
 export type LlmKeySource = 'secure-store' | 'environment' | 'none';
 
@@ -86,6 +109,23 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return res.status === 204 ? undefined as T : res.json();
 }
 
+async function jobsRequest(projectId?: string) {
+  ensureJobEventStream();
+  if (jobStreamOpen && jobSnapshot) {
+    return projectId ? jobSnapshot.filter((job) => job.projectId === projectId) : jobSnapshot;
+  }
+  const result = await request<ProcessingJob[]>(`/api/jobs${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`);
+  if (!projectId) jobSnapshot = result;
+  return result;
+}
+
+async function jobMutation<T>(operation: () => Promise<T>) {
+  // Until the server's SSE mutation arrives, force any fallback refresh to ask the
+  // server rather than returning a snapshot from immediately before the mutation.
+  jobSnapshot = null;
+  return operation();
+}
+
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
   doctor: () => request<SystemDoctorReport>('/api/system/doctor'),
@@ -113,19 +153,19 @@ export const api = {
   transcribe: (id: string, transcriptionContext: TranscriptionContext, force = false) => request<CaptionProject>(`/api/projects/${id}/transcribe`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcriptionContext, force }),
   }),
-  startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, force = false) => request<ProcessingJob>('/api/jobs/transcribe', {
+  startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, force = false) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force }),
-  }),
-  startRegenerationJob: (projectId: string, startMs: number, endMs: number, transcriptionContext: TranscriptionContext) => request<ProcessingJob>('/api/jobs/regenerate-range', {
+  })),
+  startRegenerationJob: (projectId: string, startMs: number, endMs: number, transcriptionContext: TranscriptionContext) => jobMutation(() => request<ProcessingJob>('/api/jobs/regenerate-range', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, startMs, endMs, transcriptionContext }),
-  }),
-  startRefinementJob: (projectId: string, proposalId: string, input: RegenerationRefinementInput) => request<ProcessingJob>('/api/jobs/refine-proposal', {
+  })),
+  startRefinementJob: (projectId: string, proposalId: string, input: RegenerationRefinementInput) => jobMutation(() => request<ProcessingJob>('/api/jobs/refine-proposal', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, proposalId, ...input }),
-  }),
-  jobs: (projectId?: string) => request<ProcessingJob[]>(`/api/jobs${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
+  })),
+  jobs: jobsRequest,
   job: (id: string) => request<ProcessingJob>(`/api/jobs/${id}`),
-  resumeJob: (id: string) => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' }),
-  cancelJob: (id: string) => request<ProcessingJob>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
+  resumeJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' })),
+  cancelJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/cancel`, { method: 'POST' })),
   regenerationProposal: (projectId: string, proposalId: string) => request<RegenerationProposal>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}`),
   applyRegenerationProposal: (projectId: string, proposalId: string, mode: RegenerationApplyMode, editedText?: string) => request<CaptionProject>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}/apply`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, editedText }),
