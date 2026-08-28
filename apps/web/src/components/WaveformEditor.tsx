@@ -78,6 +78,61 @@ function computeSpectrum(samples: Float32Array, columns = 320, bands = 28) {
   return { values: result, columns, bands };
 }
 
+type Spectrum = ReturnType<typeof computeSpectrum>;
+interface WaveformMemoryEntry {
+  samples: Float32Array;
+  durationMs: number;
+  spectrum: Spectrum | null;
+  touchedAt: number;
+}
+
+const waveformMemory = new Map<string, WaveformMemoryEntry>();
+const maxWaveformMemoryEntries = 4;
+const maxWaveformMemoryBytes = 128 * 1024 * 1024;
+
+function waveformIdentity(projectId: string, tokens: TimedToken[]) {
+  const first = tokens[0];
+  const last = tokens.at(-1);
+  return [
+    projectId,
+    tokens.length,
+    first?.id || 'none',
+    first?.startMs ?? 0,
+    last?.id || 'none',
+    last?.endMs ?? 0,
+  ].join(':');
+}
+
+function trimWaveformMemory(keepKey: string) {
+  const entries = [...waveformMemory.entries()]
+    .sort((a, b) => b[1].touchedAt - a[1].touchedAt);
+  let keptBytes = 0;
+  let keptEntries = 0;
+  for (const [key, entry] of entries) {
+    const bytes = entry.samples.byteLength + (entry.spectrum?.values.byteLength || 0);
+    const isCurrent = key === keepKey;
+    const fits = keptEntries < maxWaveformMemoryEntries && keptBytes + bytes <= maxWaveformMemoryBytes;
+    if (isCurrent || fits) {
+      keptEntries += 1;
+      keptBytes += bytes;
+    } else {
+      waveformMemory.delete(key);
+    }
+  }
+}
+
+function rememberWaveform(key: string, entry: WaveformMemoryEntry) {
+  waveformMemory.set(key, { ...entry, touchedAt: Date.now() });
+  trimWaveformMemory(key);
+}
+
+function recalledWaveform(key: string) {
+  const entry = waveformMemory.get(key);
+  if (!entry) return null;
+  entry.touchedAt = Date.now();
+  return entry;
+}
+
 export function WaveformEditor({
   projectId,
   captions,
@@ -106,9 +161,10 @@ export function WaveformEditor({
   const [follow, setFollow] = useState(true);
   const [snap, setSnap] = useState<'word' | 'silence' | 'off'>('word');
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [spectrum, setSpectrum] = useState<ReturnType<typeof computeSpectrum> | null>(null);
+  const [spectrum, setSpectrum] = useState<Spectrum | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const memoryKey = useMemo(() => waveformIdentity(projectId, tokens), [projectId, tokens]);
   const viewDurationMs = durationMs ? durationMs / zoom : 1;
   const viewEndMs = viewStartMs + viewDurationMs;
 
@@ -132,6 +188,20 @@ export function WaveformEditor({
     setSpectrum(null);
     setDurationMs(0);
     samplesRef.current = null;
+
+    if (reloadKey === 0) {
+      const remembered = recalledWaveform(memoryKey);
+      if (remembered) {
+        samplesRef.current = remembered.samples;
+        setDurationMs(remembered.durationMs);
+        setSpectrum(remembered.spectrum);
+        setViewStartMs(0);
+        setLoading(false);
+        return () => { cancelled = true; };
+      }
+    } else {
+      waveformMemory.delete(memoryKey);
+    }
 
     const fetchAndDecode = async (forceRefresh: boolean) => {
       const query = new URLSearchParams({ cacheBust: String(Date.now()) });
@@ -158,8 +228,9 @@ export function WaveformEditor({
       try {
         let decoded: Awaited<ReturnType<typeof fetchAndDecode>>;
         try {
-          decoded = await fetchAndDecode(false);
+          decoded = await fetchAndDecode(reloadKey > 0);
         } catch (firstError) {
+          if (reloadKey > 0) throw firstError;
           console.warn('[waveform] Cached preview failed; rebuilding once.', firstError);
           decoded = await fetchAndDecode(true);
         }
@@ -168,8 +239,22 @@ export function WaveformEditor({
         setDurationMs(decoded.durationMs);
         setViewStartMs(0);
         setLoading(false);
+        rememberWaveform(memoryKey, {
+          samples: decoded.samples,
+          durationMs: decoded.durationMs,
+          spectrum: null,
+          touchedAt: Date.now(),
+        });
         window.setTimeout(() => {
-          if (!cancelled) setSpectrum(computeSpectrum(decoded.samples));
+          if (cancelled) return;
+          const computed = computeSpectrum(decoded.samples);
+          setSpectrum(computed);
+          rememberWaveform(memoryKey, {
+            samples: decoded.samples,
+            durationMs: decoded.durationMs,
+            spectrum: computed,
+            touchedAt: Date.now(),
+          });
         }, 50);
       } catch (reason) {
         if (!cancelled) {
@@ -181,7 +266,7 @@ export function WaveformEditor({
 
     void load();
     return () => { cancelled = true; };
-  }, [projectId, reloadKey]);
+  }, [projectId, memoryKey, reloadKey]);
 
   useEffect(() => {
     if (!follow || !durationMs) return;
