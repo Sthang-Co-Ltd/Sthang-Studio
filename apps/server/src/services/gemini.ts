@@ -4,6 +4,8 @@ import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
 import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settings.js';
+import { currentProcessingRun } from './run-context.js';
+import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
 import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
 
 const schema = {
@@ -230,8 +232,6 @@ function outputTextFromRestInteraction(payload: unknown): string {
 }
 
 function thinkingGenerationConfig(model: string) {
-  // Keep arbitrary legacy/custom model IDs compatible. Thinking-level control is
-  // applied only to Gemini generations documented to support it.
   return /^gemini-(?:3(?:\.|-|$)|2\.5(?:-|$))/i.test(model)
     ? { thinking_level: config.geminiTranscriptionThinkingLevel }
     : undefined;
@@ -321,7 +321,7 @@ async function makeInteraction(
   hints: string[],
   enableNativeBias: boolean,
 ): Promise<InteractionResult> {
-  // @google/genai 2.17.1 does not yet type/serialize the newly documented
+  // @google/genai 2.17.1 does not yet type/serialize the documented
   // transcription_config field consistently, so when vocabulary bias is enabled
   // we call the official Interactions REST endpoint directly. Uploads still use
   // the official SDK. If the endpoint rejects the feature, the caller degrades
@@ -405,8 +405,6 @@ async function runModel(
   try {
     transcript = parseTranscript(result.outputText, model);
   } catch (error) {
-    // Defensive compatibility path: if native ASR mode ever changes model output
-    // formatting, repeat once with prompt-only protection rather than failing a clip.
     if (!result.nativeVocabularyBias) throw error;
     console.warn('[Gemini] Native vocabulary response did not match the expected JSON schema. Retrying once with prompt-only protection.');
     const plain = await makeInteraction(ai, apiKey, model, uploaded, prompt, hints, false);
@@ -451,12 +449,55 @@ async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSetting
   return promise;
 }
 
+async function geminiCheckpointSignature(
+  audioPath: string,
+  context: TranscriptionContext | undefined,
+  guidance: GeminiTranscriptionGuidance | undefined,
+  llm: ResolvedGeminiSettings,
+) {
+  const stat = await fs.stat(audioPath);
+  const audioIdentity = Number(stat.ino || 0)
+    ? `inode:${Number(stat.dev || 0)}:${Number(stat.ino)}:${stat.size}`
+    : `path:${audioPath}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+  const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
+  return crypto.createHash('sha256').update(JSON.stringify({
+    version: 'gemini-job-stage-v1',
+    audioIdentity,
+    context,
+    guidance,
+    primaryModel: llm.model,
+    fallbackModel: llm.fallbackModel,
+    keyFingerprint,
+    nativeVocabularyBias: config.geminiNativeVocabularyBias,
+    thinkingLevel: config.geminiTranscriptionThinkingLevel,
+  })).digest('hex').slice(0, 32);
+}
+
+function geminiCheckpointStage(guidance: GeminiTranscriptionGuidance | undefined) {
+  return `gemini-${guidance?.variant || 'standard'}`;
+}
+
 export async function transcribeTextWithGemini(
   audioPath: string,
   context?: TranscriptionContext,
   guidance?: GeminiTranscriptionGuidance,
 ): Promise<GeminiTranscript> {
   const llm = await resolveGeminiSettings();
+  if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
+
+  const run = currentProcessingRun();
+  const checkpointSignature = run
+    ? await geminiCheckpointSignature(audioPath, context, guidance, llm)
+    : '';
+  const checkpointStage = geminiCheckpointStage(guidance);
+  if (run) {
+    const cached = await readRunCheckpoint<GeminiTranscript>(run.projectId, run.runKey, checkpointStage, checkpointSignature);
+    if (cached) {
+      console.log(`[Gemini] Resumed ${checkpointStage} from the current job checkpoint.`);
+      return cached;
+    }
+  }
+
   const prepared = await preparedGeminiAudio(audioPath, llm);
   const { ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);
@@ -478,16 +519,17 @@ export async function transcribeTextWithGemini(
     };
   };
 
+  let completed: GeminiTranscript;
   try {
     const primary = await runModel(ai, prepared.apiKey, llm.model, uploaded, prompt, entries);
-    return finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
+    completed = finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
   } catch (primaryError) {
     const fallback = llm.fallbackModel.trim();
     if (!fallback || fallback === llm.model || !transientGeminiError(primaryError)) throw primaryError;
     console.warn(`[Gemini] ${llm.model} remained unavailable after automatic retries. Falling back to ${fallback}.`);
     try {
       const secondary = await runModel(ai, prepared.apiKey, fallback, uploaded, prompt, entries);
-      return finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias);
+      completed = finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias);
     } catch (fallbackError) {
       if (transientGeminiError(fallbackError)) {
         throw new GeminiUnavailableError(
@@ -498,4 +540,9 @@ export async function transcribeTextWithGemini(
       throw fallbackError;
     }
   }
+
+  if (run) {
+    await writeRunCheckpoint(run.projectId, run.runKey, checkpointStage, checkpointSignature, completed);
+  }
+  return completed;
 }
