@@ -19,10 +19,14 @@ available without crowding the main editing flow.
 
 - Khmer-first transcription and text handling.
 - Local caption timing with a Khmer forced aligner and local Whisper fallback.
+- Warm/reusable local timing work so repeated regeneration does not reload the timing stack from scratch.
+- Reusable normalized/range audio, KFA acoustic evidence, and exact timing-result caches with safe media/project invalidation.
+- Faster Deep Verify through one reused audio upload, concurrent independent listens, and deduplicated identical timing work.
+- Resumable processing jobs can reuse completed AI stages from that same interrupted job when every signature still matches.
 - Sequential Review with context on first listen and tight replay while editing.
 - Caption approval, text/timing locks, correction memory, and project history.
 - Non-destructive Current/Proposed regeneration review.
-- Precision waveform timing for difficult captions.
+- Precision waveform timing for difficult captions, with browser-memory waveform reuse while Studio stays open.
 - UTF-8 SRT export designed for CapCut workflows.
 - Local projects, history, caches, proposals, and exports.
 - Windows-protected in-app storage for a Gemini API key.
@@ -91,14 +95,28 @@ caption wording.
 - the Sthang Studio frontend and API (`127.0.0.1`);
 - imported media, project state, history, correction memory, caches, proposals,
   jobs, and SRT exports;
+- normalized audio and bounded reusable selected-range PCM audio;
 - caption timing/alignment;
-- KFA processing and the faster-whisper timing fallback.
+- a persistent local KFA timing worker while Studio is open, with cached transcript-independent acoustic evidence;
+- deterministic exact-transcript timing caches and the faster-whisper timing fallback;
+- resumable same-job processing checkpoints;
+- decoded Fine Timing waveform/spectrum data in browser memory while the page remains open.
+
+Studio may begin **local-only** normalization and timing-runtime preparation shortly
+after new or replacement media is saved. It does not speculatively upload that
+media to Gemini before you choose Generate/Improve.
 
 **Sent to Gemini when you generate/regenerate AI wording:**
 
 - the normalized WAV audio needed for the transcription operation;
 - relevant topic context, protected vocabulary, accuracy hints, and accepted or
   proposed wording when those are part of the requested pass.
+
+Repeated listens over the same immutable audio range may reuse one short-lived
+Gemini Files API upload instead of uploading duplicate copies. A fresh
+Alternative/Deep Verify request is still a fresh model listen; only resuming the
+same persisted job may reuse a completed AI candidate when its full signature
+still matches.
 
 Sthang Studio requests `store: false` for Gemini transcription interactions,
 which opts out of the Interactions API's default state storage. The normalized
@@ -117,7 +135,28 @@ key using Windows user-protected storage under `%LOCALAPPDATA%\Sthang Studio`.
 The browser receives only a masked key. An `apps/server/.env` key remains
 supported as an advanced fallback and is excluded from Git.
 
+The server may keep the already-decrypted key/model settings in process memory
+briefly to avoid starting PowerShell/DPAPI for every AI pass. Save/Forget actions
+invalidate that memory immediately; the plaintext key is never written to an
+unencrypted cache.
+
 Never commit or publish a real API key.
+
+## Performance architecture
+
+Repeated caption work is optimized around a simple rule: **reuse deterministic
+prerequisites, never reuse a fresh AI opinion as though it were new.**
+
+Examples of safe reuse include normalized/range audio, KFA acoustic emissions,
+exact transcript+timing results, decoded waveform data, and completed stages of
+the same resumable job. New Alternative/Deep Verify jobs still ask Gemini again.
+The local timing daemon is an optimization only; Studio retains its one-shot
+Python timing path as a recovery route if the persistent worker transport fails.
+
+Projects and history are stored in atomic per-project files so an autosave no
+longer rewrites every project or dozens of full history snapshots. Existing
+legacy project/history JSON is preserved while the new representation is
+migrated.
 
 ## Development
 
