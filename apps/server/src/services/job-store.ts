@@ -41,9 +41,12 @@ interface RuntimePerformanceState {
   stageMs: Record<string, number>;
 }
 
+type JobSubscriber = (snapshot: ProcessingJob[]) => void;
+
 let jobs: StoredJob[] = [];
 let pumping = false;
 const performanceStates = new Map<string, RuntimePerformanceState>();
+const subscribers = new Set<JobSubscriber>();
 
 function beginPerformance(id: string) {
   const now = Date.now();
@@ -120,11 +123,31 @@ function publicJob(job: StoredJob): ProcessingJob {
   return value;
 }
 
+function publicSnapshot(projectId?: string) {
+  return jobs
+    .filter((job) => !projectId || job.projectId === projectId)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .map(publicJob);
+}
+
+function notifySubscribers() {
+  if (!subscribers.size) return;
+  const snapshot = publicSnapshot();
+  for (const subscriber of subscribers) {
+    try {
+      subscriber(snapshot);
+    } catch {
+      // A disconnected browser must never interfere with job processing.
+    }
+  }
+}
+
 async function patch(id: string, value: Partial<StoredJob>) {
   const index = jobs.findIndex((job) => job.id === id);
   if (index < 0) return null;
   jobs[index] = { ...jobs[index], ...value, updatedAt: new Date().toISOString() };
   await persist();
+  notifySubscribers();
   return jobs[index];
 }
 
@@ -215,8 +238,6 @@ async function execute(job: StoredJob) {
   });
   try {
     await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
-    // Only successful jobs are cleaned. Failed/interrupted jobs retain their AI
-    // stage checkpoints so Resume can continue without repeating completed cloud work.
     await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
@@ -256,17 +277,21 @@ export const jobStore = {
     return jobs.some((job) => job.projectId === projectId && ['queued', 'running'].includes(job.status));
   },
 
+  subscribe(subscriber: JobSubscriber) {
+    subscribers.add(subscriber);
+    subscriber(publicSnapshot());
+    return () => subscribers.delete(subscriber);
+  },
+
   async removeProject(projectId: string) {
     if (this.hasActiveForProject(projectId)) throw new Error('Wait for the active processing job to finish or cancel it before removing this project.');
     jobs = jobs.filter((job) => job.projectId !== projectId);
     await persist();
+    notifySubscribers();
   },
 
   async list(projectId?: string) {
-    return jobs
-      .filter((job) => !projectId || job.projectId === projectId)
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .map(publicJob);
+    return publicSnapshot(projectId);
   },
 
   async get(id: string) {
@@ -297,6 +322,7 @@ export const jobStore = {
     jobs.unshift(job);
     jobs = jobs.slice(0, 80);
     await persist();
+    notifySubscribers();
     void pump();
     return publicJob(job);
   },
