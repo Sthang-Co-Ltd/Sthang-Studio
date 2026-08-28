@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -23,6 +24,12 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
 }
 
+interface TimingCacheEnvelope {
+  version: 1;
+  createdAt: string;
+  result: TimingResult;
+}
+
 class LocalTimingWorkerTransportError extends Error {
   constructor(message: string) {
     super(message);
@@ -31,13 +38,32 @@ class LocalTimingWorkerTransportError extends Error {
 }
 
 const workerRequestTimeoutMs = 10 * 60 * 1000;
-const emissionCacheDir = path.join(config.cacheDir, '_timing-emissions');
+const localTimingResultCacheVersion = 'local-timing-result-v1';
+const maxTimingResultFiles = 256;
+const maxTimingResultBytes = 64 * 1024 * 1024;
 let workerProcess: ChildProcessWithoutNullStreams | null = null;
 let workerStdoutBuffer = '';
 let workerRequestCounter = 0;
 const pendingRequests = new Map<string, PendingRequest>();
 
-function timingOptions() {
+function safeCacheNamespace(value: string | undefined) {
+  const normalized = String(value || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+  return normalized || '_shared';
+}
+
+function projectTimingCacheRoot(cacheNamespace?: string) {
+  return path.join(config.cacheDir, safeCacheNamespace(cacheNamespace));
+}
+
+function emissionCacheDirFor(cacheNamespace?: string) {
+  return path.join(projectTimingCacheRoot(cacheNamespace), 'timing-emissions');
+}
+
+function timingResultCacheDirFor(cacheNamespace?: string) {
+  return path.join(projectTimingCacheRoot(cacheNamespace), 'timing-results');
+}
+
+function timingOptions(cacheNamespace?: string) {
   return {
     disableKfa: !config.localKfaEnabled,
     disableWhisperFallback: !config.localWhisperFallbackEnabled,
@@ -47,8 +73,94 @@ function timingOptions() {
     language: config.localWhisperLanguage,
     beamSize: config.localWhisperBeamSize,
     vadMinSilenceMs: config.localWhisperVadMinSilenceMs,
-    emissionCacheDir,
+    emissionCacheDir: emissionCacheDirFor(cacheNamespace),
   };
+}
+
+async function audioIdentity(wavPath: string) {
+  const stat = await fs.stat(wavPath);
+  const inode = Number(stat.ino || 0);
+  const device = Number(stat.dev || 0);
+  return inode
+    ? `inode:${device}:${inode}:${stat.size}`
+    : `path:${path.resolve(wavPath)}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+}
+
+async function timingCachePath(wavPath: string, transcript: string, cacheNamespace?: string) {
+  const identity = await audioIdentity(wavPath);
+  const signature = crypto.createHash('sha256').update(JSON.stringify({
+    version: localTimingResultCacheVersion,
+    identity,
+    transcript,
+    kfaEnabled: config.localKfaEnabled,
+    whisperFallbackEnabled: config.localWhisperFallbackEnabled,
+    whisperModel: config.localWhisperModel,
+    whisperDevice: config.localWhisperDevice,
+    whisperComputeType: config.localWhisperComputeType,
+    whisperLanguage: config.localWhisperLanguage,
+    whisperBeamSize: config.localWhisperBeamSize,
+    whisperVadMinSilenceMs: config.localWhisperVadMinSilenceMs,
+  })).digest('hex').slice(0, 32);
+  return path.join(timingResultCacheDirFor(cacheNamespace), `${signature}.json`);
+}
+
+async function trimTimingResultCache(directory: string, keepPath: string) {
+  try {
+    const names = (await fs.readdir(directory)).filter((name) => name.endsWith('.json'));
+    const entries = (await Promise.all(names.map(async (name) => {
+      const filePath = path.join(directory, name);
+      try {
+        const stat = await fs.stat(filePath);
+        return { filePath, size: stat.size, mtimeMs: stat.mtimeMs };
+      } catch {
+        return null;
+      }
+    }))).filter((entry): entry is { filePath: string; size: number; mtimeMs: number } => Boolean(entry));
+    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    let keptFiles = 0;
+    let keptBytes = 0;
+    for (const entry of entries) {
+      const isCurrent = entry.filePath === keepPath;
+      const fits = keptFiles < maxTimingResultFiles && keptBytes + entry.size <= maxTimingResultBytes;
+      if (isCurrent || fits) {
+        keptFiles += 1;
+        keptBytes += entry.size;
+      } else {
+        await fs.rm(entry.filePath, { force: true });
+      }
+    }
+  } catch {
+    // Timing-result caching is optional and must never block caption generation.
+  }
+}
+
+async function readTimingResultCache(cachePath: string) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(cachePath, 'utf8')) as TimingCacheEnvelope;
+    if (parsed?.version !== 1 || !parsed.result?.words?.length) return null;
+    const now = new Date();
+    await fs.utimes(cachePath, now, now).catch(() => {});
+    return parsed.result;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTimingResultCache(cachePath: string, result: TimingResult) {
+  try {
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    const temp = `${cachePath}.${process.pid}.${Date.now()}.tmp`;
+    const envelope: TimingCacheEnvelope = {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      result,
+    };
+    await fs.writeFile(temp, JSON.stringify(envelope), 'utf8');
+    await fs.rename(temp, cachePath);
+    await trimTimingResultCache(path.dirname(cachePath), cachePath);
+  } catch (error) {
+    console.warn(`[local timing] Could not persist timing-result cache: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function rejectPendingTransport(message: string) {
@@ -116,7 +228,7 @@ function ensureWorker() {
   return child;
 }
 
-function requestWorker(action: 'warm' | 'prepare' | 'align', payload: Record<string, unknown> = {}) {
+function requestWorker(action: 'warm' | 'prepare' | 'align', payload: Record<string, unknown> = {}, cacheNamespace?: string) {
   const child = ensureWorker();
   const id = `${process.pid}-${Date.now()}-${++workerRequestCounter}`;
   return new Promise<unknown>((resolve, reject) => {
@@ -130,7 +242,7 @@ function requestWorker(action: 'warm' | 'prepare' | 'align', payload: Record<str
     }, workerRequestTimeoutMs);
     pendingRequests.set(id, { resolve, reject, timer });
     try {
-      child.stdin.write(`${JSON.stringify({ id, action, ...payload, options: timingOptions() })}\n`);
+      child.stdin.write(`${JSON.stringify({ id, action, ...payload, options: timingOptions(cacheNamespace) })}\n`);
     } catch (error) {
       clearTimeout(timer);
       pendingRequests.delete(id);
@@ -187,8 +299,6 @@ function splitTimingWord(word: TimingWord): TimingWord[] {
 }
 
 function areDuplicate(a: TimingWord, b: TimingWord) {
-  // Repeated words spoken back-to-back are legitimate and must never be collapsed.
-  // Only dedupe near-identical anchors when their actual time ranges substantially overlap.
   const overlap = Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
   const shorter = Math.max(1, Math.min(a.endMs - a.startMs, b.endMs - b.startMs));
   if (overlap / shorter < 0.6) return false;
@@ -231,7 +341,7 @@ function normalizedTimingResult(parsed: WorkerResult): TimingResult {
   };
 }
 
-async function alignTimingOneShot(wavPath: string, workDir: string, geminiTranscript: string): Promise<WorkerResult> {
+async function alignTimingOneShot(wavPath: string, workDir: string, geminiTranscript: string, cacheNamespace?: string): Promise<WorkerResult> {
   await fs.mkdir(workDir, { recursive: true });
   const outputPath = path.join(workDir, 'local-timing.json');
   const transcriptPath = path.join(workDir, 'gemini-transcript.txt');
@@ -247,7 +357,7 @@ async function alignTimingOneShot(wavPath: string, workDir: string, geminiTransc
     '--language', config.localWhisperLanguage,
     '--beam-size', String(config.localWhisperBeamSize),
     '--vad-min-silence-ms', String(config.localWhisperVadMinSilenceMs),
-    '--emission-cache-dir', emissionCacheDir,
+    '--emission-cache-dir', emissionCacheDirFor(cacheNamespace),
   ];
   if (!config.localKfaEnabled) args.push('--disable-kfa');
   if (!config.localWhisperFallbackEnabled) args.push('--disable-whisper-fallback');
@@ -259,9 +369,9 @@ async function alignTimingOneShot(wavPath: string, workDir: string, geminiTransc
   }
 }
 
-export async function prewarmLocalTiming() {
+export async function prewarmLocalTiming(cacheNamespace?: string) {
   try {
-    await requestWorker('warm');
+    await requestWorker('warm', {}, cacheNamespace);
     return true;
   } catch (error) {
     console.warn(`[local timing] Persistent worker prewarm skipped: ${error instanceof Error ? error.message : String(error)}`);
@@ -270,10 +380,10 @@ export async function prewarmLocalTiming() {
 }
 
 /** Compute/cache transcript-independent KFA evidence while the cloud transcript is still running. */
-export async function prepareTimingLocally(wavPath: string) {
+export async function prepareTimingLocally(wavPath: string, cacheNamespace?: string) {
   if (!config.localKfaEnabled) return false;
   try {
-    await requestWorker('prepare', { audio: wavPath });
+    await requestWorker('prepare', { audio: wavPath }, cacheNamespace);
     return true;
   } catch (error) {
     console.warn(`[local timing] Acoustic precomputation skipped; normal alignment will retry. ${error instanceof Error ? error.message : String(error)}`);
@@ -281,15 +391,22 @@ export async function prepareTimingLocally(wavPath: string) {
   }
 }
 
-export async function alignTimingLocally(wavPath: string, workDir: string, geminiTranscript: string): Promise<TimingResult> {
+export async function alignTimingLocally(wavPath: string, workDir: string, geminiTranscript: string, cacheNamespace?: string): Promise<TimingResult> {
+  const cachePath = await timingCachePath(wavPath, geminiTranscript, cacheNamespace);
+  const cached = await readTimingResultCache(cachePath);
+  if (cached) {
+    console.log('[local timing] Deterministic timing-result cache hit.');
+    return cached;
+  }
+
   let parsed: WorkerResult;
   try {
-    parsed = await requestWorker('align', { audio: wavPath, transcript: geminiTranscript }) as WorkerResult;
+    parsed = await requestWorker('align', { audio: wavPath, transcript: geminiTranscript }, cacheNamespace) as WorkerResult;
   } catch (error) {
     if (error instanceof LocalTimingWorkerTransportError) {
       console.warn(`[local timing] Persistent worker unavailable; using one-shot recovery path. ${error.message}`);
       try {
-        parsed = await alignTimingOneShot(wavPath, workDir, geminiTranscript);
+        parsed = await alignTimingOneShot(wavPath, workDir, geminiTranscript, cacheNamespace);
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         if (/ENOENT|could not start/i.test(message)) {
@@ -302,5 +419,7 @@ export async function alignTimingLocally(wavPath: string, workDir: string, gemin
       throw new Error(`Local timing failed. No Google Cloud timing API was called. ${message}`);
     }
   }
-  return normalizedTimingResult(parsed);
+  const result = normalizedTimingResult(parsed);
+  await writeTimingResultCache(cachePath, result);
+  return result;
 }
