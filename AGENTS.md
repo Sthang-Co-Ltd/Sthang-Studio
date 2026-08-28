@@ -45,6 +45,17 @@ Preserve these public-release rules:
 - Treat `main` as the accepted baseline; normal work belongs on short-lived branches and pull requests.
 - The Windows desktop shortcut/launcher must wait until both local services are healthy before opening Studio. Respect the user's registered default browser and never assume Chrome is installed. If Windows has no usable web-link association, do not show a broken protocol dialog; print the local Studio URL clearly so the user can open it manually. Windows Sandbox auto-opening is not a release requirement because Sandbox can omit normal browser associations even when Edge is present.
 
+## Default public-impact assessment
+
+- For every task that changes product code, configuration, dependencies, documentation, or identity, assess public impact during planning and confirm it against the final diff before closeout. Do this without a separate website-update request. Read-only tasks remain read-only.
+- Check advertised features and limitations, user workflows, installation and compatibility, release/download/access claims, branding, and data-processing/privacy/security disclosures. A refactor or bug fix is not automatically free of public impact.
+- Include `Public impact: none`, `Public impact: required`, or `Public impact: uncertain` in the final handoff, with a brief reason and supporting files. For `required` or `uncertain`, name the known affected product evidence, HQ fields, website/docs routes or files, and the next approval or missing evidence. When required evidence or checkouts are unavailable, report `uncertain` rather than assume no impact.
+- Compare the change with [.sthang/product-manifest.json](.sthang/product-manifest.json) and its declared evidence, including `README.md`, `PRIVACY.md`, installation guidance, and identity assets where relevant. Prepare proposed follow-up without another reminder; update product-owned documentation, manifest, and evidence only where required and within the task's write scope. Use a new change ID for a new intake proposal. A `none` assessment alone does not require a manifest rewrite, intake plan, or release. Do not advertise unreleased work as available or treat a local build as a verified public release.
+- In authorized local checkouts, use the Phase 3 intake workflow in Sthang-HQ's `README.md`, then the Phase 2 synchronization workflow in Sthang-Distribution's `README.md`. HQ owns approved public representation; Distribution owns the `/studio/` website and documentation. If those checkouts or evidence are unavailable, report the missing input and proposed fields/files instead of guessing or silently dropping the follow-up.
+- Preparation does not authorize cross-repository writes. HQ intake and Distribution synchronization require their own exact plan-digest and approval-class decisions; commit/push, builds, releases, visibility/settings changes, and deployments require their applicable approval. Do not reuse old approvals, weaken validators, or change blocked policies merely to pass a proposal. Protected-artwork and privacy-decision rules above still apply.
+
+This is an agent closeout requirement, not a background watcher or an automatic publisher. Passing `verify:manifest` or `check:public` does not establish that semantic public impact was assessed.
+
 ## UX and interaction invariants
 
 Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md`, `DESIGN.md`, and `UX-AUDIT.md` before changing the frontend.
