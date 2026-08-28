@@ -410,11 +410,20 @@ async function runModel(
   return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias };
 }
 
+function immutableAudioIdentity(audioPath: string, stat: Awaited<ReturnType<typeof fs.stat>>) {
+  const inode = Number(stat.ino || 0);
+  const device = Number(stat.dev || 0);
+  const mtime = stat.mtimeMs.toFixed(3);
+  return inode
+    ? `inode:${device}:${inode}:${stat.size}:${mtime}`
+    : `path:${audioPath}:${stat.size}:${mtime}`;
+}
+
 async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSettings): Promise<PreparedGeminiAudio> {
   if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
   const stat = await fs.stat(audioPath);
   const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
-  const cacheKey = `${audioPath}:${stat.size}:${Math.round(stat.mtimeMs)}:${keyFingerprint}`;
+  const cacheKey = `${immutableAudioIdentity(audioPath, stat)}:${keyFingerprint}`;
   const now = Date.now();
   for (const [key, entry] of preparedUploads) {
     if (entry.expiresAt <= now) preparedUploads.delete(key);
@@ -452,9 +461,7 @@ async function geminiCheckpointSignature(
   llm: ResolvedGeminiSettings,
 ) {
   const stat = await fs.stat(audioPath);
-  const audioIdentity = Number(stat.ino || 0)
-    ? `inode:${Number(stat.dev || 0)}:${Number(stat.ino)}:${stat.size}`
-    : `path:${audioPath}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+  const audioIdentity = immutableAudioIdentity(audioPath, stat);
   const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
   return crypto.createHash('sha256').update(JSON.stringify({
     version: 'gemini-job-stage-v1',
