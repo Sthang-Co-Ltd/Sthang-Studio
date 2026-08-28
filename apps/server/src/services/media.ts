@@ -4,6 +4,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { config } from '../config.js';
 
+const maxRangeCacheFiles = 64;
+const maxRangeCacheBytes = 512 * 1024 * 1024;
+
 export function runCommand(command: string, args: string[], label: string, timeoutMs = 0): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { shell: false, windowsHide: true });
@@ -149,6 +152,36 @@ async function linkOrCopy(sourcePath: string, outputPath: string) {
   }
 }
 
+async function trimRangeCache(rangeCacheDir: string, keepPath: string) {
+  try {
+    const names = (await fs.readdir(rangeCacheDir)).filter((name) => name.endsWith('.wav'));
+    const entries = (await Promise.all(names.map(async (name) => {
+      const filePath = path.join(rangeCacheDir, name);
+      try {
+        const stat = await fs.stat(filePath);
+        return { filePath, size: stat.size, mtimeMs: stat.mtimeMs };
+      } catch {
+        return null;
+      }
+    }))).filter((entry): entry is { filePath: string; size: number; mtimeMs: number } => Boolean(entry));
+    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    let keptBytes = 0;
+    let keptFiles = 0;
+    for (const entry of entries) {
+      const isCurrent = entry.filePath === keepPath;
+      const fits = keptFiles < maxRangeCacheFiles && keptBytes + entry.size <= maxRangeCacheBytes;
+      if (isCurrent || fits) {
+        keptFiles += 1;
+        keptBytes += entry.size;
+      } else {
+        await fs.rm(entry.filePath, { force: true });
+      }
+    }
+  } catch {
+    // Range caching is an optimization. Cleanup failure must never block captions.
+  }
+}
+
 /**
  * Prepare a normalized range once and reuse it across regeneration/refinement jobs.
  * Cached range WAVs live beside normalized.wav, so media replacement invalidates
@@ -179,6 +212,8 @@ export async function makeAudioChunk(sourceWav: string, outputPath: string, star
 
   const cachedDuration = await waveDurationMs(cachedPath);
   if (cachedDuration && Math.abs(cachedDuration - normalizedDuration) <= 250) {
+    const now = new Date();
+    await fs.utimes(cachedPath, now, now).catch(() => {});
     await linkOrCopy(cachedPath, outputPath);
     return { outputPath, durationMs: cachedDuration, cacheHit: true, directSource: false };
   }
@@ -197,6 +232,7 @@ export async function makeAudioChunk(sourceWav: string, outputPath: string, star
     const actualDuration = await durationFastOrProbe(tempPath);
     if (!Number.isFinite(actualDuration) || actualDuration < 20) throw new Error('FFmpeg produced an empty timing chunk.');
     await fs.rename(tempPath, cachedPath);
+    await trimRangeCache(rangeCacheDir, cachedPath);
     await linkOrCopy(cachedPath, outputPath);
     return { outputPath, durationMs: actualDuration, cacheHit: false, directSource: false };
   } finally {
