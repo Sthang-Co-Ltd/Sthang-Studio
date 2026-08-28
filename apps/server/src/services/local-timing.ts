@@ -97,9 +97,10 @@ async function audioIdentity(wavPath: string) {
   const stat = await fs.stat(wavPath);
   const inode = Number(stat.ino || 0);
   const device = Number(stat.dev || 0);
+  const mtimeNs = stat.mtimeNs != null ? String(stat.mtimeNs) : String(Math.round(stat.mtimeMs * 1_000_000));
   return inode
-    ? `inode:${device}:${inode}:${stat.size}`
-    : `path:${path.resolve(wavPath)}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+    ? `inode:${device}:${inode}:${stat.size}:${mtimeNs}`
+    : `path:${path.resolve(wavPath)}:${stat.size}:${mtimeNs}`;
 }
 
 async function timingCachePath(wavPath: string, transcript: string, cacheNamespace?: string) {
