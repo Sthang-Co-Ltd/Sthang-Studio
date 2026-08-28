@@ -7,6 +7,7 @@ import system from './routes/system.js';
 import jobs from './routes/jobs.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
+import { prewarmLocalTiming } from './services/local-timing.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -89,6 +90,11 @@ app.listen(config.port, '127.0.0.1', () => {
     console.log(`Gemini text model: ${llm.model}`);
     console.log(`Gemini resilience: ${config.geminiMaxRetries} retries/model · fallback ${llm.fallbackModel || 'disabled'}`);
   }).catch((error) => console.warn('[AI settings] Startup status unavailable:', error instanceof Error ? error.message : error));
+  if (localTimingConfigured()) {
+    void prewarmLocalTiming().then((ready) => {
+      if (ready) console.log('Local timing worker: warm and ready');
+    });
+  }
   console.log('Correction memory: automatic edit capture + approval inbox');
   console.log('Stage cache: normalized audio + Gemini/timing stages');
   console.log('Professional review: waveform + locks + diff approval + history');
