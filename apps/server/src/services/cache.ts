@@ -17,7 +17,8 @@ interface StageCacheEnvelope<T> {
   value: T;
 }
 
-const normalizedAudioInFlight = new Map<string, Promise<Awaited<ReturnType<typeof ensureNormalizedAudioInternal>>>>();
+type NormalizedAudioResult = Awaited<ReturnType<typeof ensureNormalizedAudioInternal>>;
+const normalizedAudioInFlight = new Map<string, { fingerprint: string; promise: Promise<NormalizedAudioResult> }>();
 
 export function mediaFingerprint(project: CaptionProject) {
   return crypto
@@ -97,28 +98,28 @@ async function ensureNormalizedAudioInternal(project: CaptionProject, options: {
 }
 
 export async function ensureNormalizedAudio(project: CaptionProject, options: { force?: boolean } = {}) {
-  const key = `${project.id}:${mediaFingerprint(project)}`;
-  const existing = normalizedAudioInFlight.get(key);
+  const fingerprint = mediaFingerprint(project);
+  const existing = normalizedAudioInFlight.get(project.id);
   if (existing) {
-    if (!options.force) return existing;
-    // A forced rebuild must not race a normal preparation already writing the same
-    // normalized.wav. Finish the current operation first, then rebuild deliberately.
-    await existing.catch(() => {});
+    if (!options.force && existing.fingerprint === fingerprint) return existing.promise;
+    // Different replacement media and forced refreshes share the same output path.
+    // Serialize them so an older FFmpeg process can never overwrite a newer file.
+    await existing.promise.catch(() => {});
   }
 
   const promise = ensureNormalizedAudioInternal(project, options);
-  normalizedAudioInFlight.set(key, promise);
+  normalizedAudioInFlight.set(project.id, { fingerprint, promise });
   try {
     return await promise;
   } finally {
-    if (normalizedAudioInFlight.get(key) === promise) normalizedAudioInFlight.delete(key);
+    if (normalizedAudioInFlight.get(project.id)?.promise === promise) normalizedAudioInFlight.delete(project.id);
   }
 }
 
 export async function writeStageCache<T>(projectId: string, name: 'gemini' | 'timing', signature: string, value: T) {
   const dir = projectCacheDir(projectId);
   await fs.mkdir(dir, { recursive: true });
-  const envelope: StageCacheEnvelope<T> = { signature, createdAt: new Date().toISOString(), value: value };
+  const envelope: StageCacheEnvelope<T> = { signature, createdAt: new Date().toISOString(), value };
   await fs.writeFile(path.join(dir, `${name}-stage.json`), JSON.stringify(envelope, null, 2), 'utf8');
   return envelope;
 }
@@ -143,5 +144,7 @@ export async function cacheDuration(projectId: string) {
 }
 
 export async function invalidateProjectCache(projectId: string) {
+  const existing = normalizedAudioInFlight.get(projectId);
+  if (existing) await existing.promise.catch(() => {});
   await fs.rm(projectCacheDir(projectId), { recursive: true, force: true });
 }
