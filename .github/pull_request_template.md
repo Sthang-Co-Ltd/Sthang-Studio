@@ -8,6 +8,7 @@
 
 ## Validation
 
+- [ ] `npm run test:public`
 - [ ] `npm run check:public`
 - [ ] `npm run typecheck`
 - [ ] `npm run build`

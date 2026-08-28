@@ -155,17 +155,30 @@ for (const file of currentFiles) {
   scan(file, buffer.toString('utf8'));
 }
 
-// Scan textual Git history too. CI checks out full history so this catches a
-// credential that was committed and later deleted before a repository is made public.
 try {
-  const history = execFileSync(
-    'git',
-    ['log', '--all', '--format=', '--patch', '--no-ext-diff', '--'],
-    { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-  );
-  scan('Git history', history);
-} catch (error) {
-  errors.push(`unable to scan Git history: ${error instanceof Error ? error.message : String(error)}`);
+  const gitOptions = {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  };
+  const shallow = execFileSync('git', ['rev-parse', '--is-shallow-repository'], gitOptions).trim();
+  if (shallow !== 'false') {
+    errors.push('Git history scanning requires a full clone; shallow or indeterminate history is not accepted');
+  } else {
+    const historyArgs = [
+      'log', '--all', '--root', '-m', '--no-renames', '--format=',
+      '--no-ext-diff', '--no-textconv', '--no-color', '--no-show-signature',
+    ];
+    const historicalPaths = execFileSync('git', [...historyArgs, '--name-only', '-z', '--'], gitOptions);
+    for (const file of new Set(historicalPaths.split('\0').filter(Boolean))) {
+      if (forbiddenPublicPath(file)) errors.push(`forbidden public path in Git history: ${JSON.stringify(file)}`);
+    }
+    const history = execFileSync('git', [...historyArgs, '--patch', '--'], gitOptions);
+    scan('Git history', history);
+  }
+} catch {
+  errors.push('unable to scan Git history: Git failed or the history exceeded the scan buffer; no successful scan is claimed');
 }
 
 if (errors.length) {
@@ -174,4 +187,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`Public-readiness check passed (${currentFiles.length} current files; current tree + Git history scanned).`);
+console.log(`Public-readiness check passed (${currentFiles.length} current files; current tree + locally available Git refs/history scanned).`);

@@ -34,7 +34,7 @@ Preserve these public-release rules:
 - Keep `package-lock.json` committed and synchronized with the workspace manifests. CI and the Windows public setup must use `npm ci` so release validation and user installs use the reviewed dependency graph instead of resolving a new one.
 - Keep the Windows local-timing setup wheel-first and clean-PC friendly. The supported KFA tokenizer stack is intentionally pinned to `khmercut==0.0.2`, `python-crfsuite==0.9.9`, and `tqdm==4.65.0`; do not move the public installer to a source-only or differently constrained tokenizer stack without a successful clean Windows/Python 3.12 installation test.
 - KFA 0.2.0's published wheel metadata still declares `sosap==0.0.1`, but that legacy release has no Windows/Python 3.12 wheel. The public installer intentionally uses the compatible `sosap==0.4.3` Windows wheel. Dependency validation may ignore only this exact metadata mismatch, and only while the functional KFA/sosap import and model preload checks pass; every other `pip check` error remains fatal.
-- Run `npm run check:public` before a public-release PR or visibility change. The check scans tracked files and Git history for common secret patterns and forbidden runtime paths.
+- Run `npm run check:public` before a public-release PR or visibility change from a complete clone with relevant refs fetched. The check rejects forbidden paths in the current tree and locally available Git history, including deleted files and binary media paths, and scans textual content for common secret patterns. Shallow clones fail. It does not fetch remote refs or inspect GitHub comments, Actions logs, release assets, or arbitrary binary contents. Run `npm run test:public` when changing the guard; its fixtures use disposable repositories, not real private data.
 - Run `npm run typecheck` and `npm run build`; both preserve protected brand-source verification, allowing only CRLF/LF normalization for SVG hashing.
 - Keep `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md` accurate when data flow, hosted services, direct dependencies, downloaded models, or redistributed binaries change.
 - Do not add telemetry, analytics, a new hosted service, or a new category of cloud data transfer without an explicit product decision and corresponding privacy documentation.
@@ -51,6 +51,13 @@ Preserve these public-release rules:
 - Check advertised features and limitations, user workflows, installation and compatibility, release/download/access claims, branding, and data-processing/privacy/security disclosures. A refactor or bug fix is not automatically free of public impact.
 - Include `Public impact: none`, `Public impact: required`, or `Public impact: uncertain` in the final handoff, with a brief reason and supporting files. For `required` or `uncertain`, name the known affected product evidence, HQ fields, website/docs routes or files, and the next approval or missing evidence. When required evidence or checkouts are unavailable, report `uncertain` rather than assume no impact.
 - Compare the change with [.sthang/product-manifest.json](.sthang/product-manifest.json) and its declared evidence, including `README.md`, `PRIVACY.md`, installation guidance, and identity assets where relevant. Prepare proposed follow-up without another reminder; update product-owned documentation, manifest, and evidence only where required and within the task's write scope. Use a new change ID for a new intake proposal. A `none` assessment alone does not require a manifest rewrite, intake plan, or release. Do not advertise unreleased work as available or treat a local build as a verified public release.
+
+### Maintainer-only portfolio coordination
+
+External contributors report public impact in their pull request. Access to the
+private HQ and Distribution repositories is not a contribution requirement;
+authorized maintainers handle the following handoff.
+
 - In authorized local checkouts, use the Phase 3 intake workflow in Sthang-HQ's `README.md`, then the Phase 2 synchronization workflow in Sthang-Distribution's `README.md`. HQ owns approved public representation; Distribution owns the `/studio/` website and documentation. If those checkouts or evidence are unavailable, report the missing input and proposed fields/files instead of guessing or silently dropping the follow-up.
 - Preparation does not authorize cross-repository writes. HQ intake and Distribution synchronization require their own exact plan-digest and approval-class decisions; commit/push, builds, releases, visibility/settings changes, and deployments require their applicable approval. Do not reuse old approvals, weaken validators, or change blocked policies merely to pass a proposal. Protected-artwork and privacy-decision rules above still apply.
 
@@ -58,7 +65,7 @@ This is an agent closeout requirement, not a background watcher or an automatic 
 
 ## UX and interaction invariants
 
-Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md`, `DESIGN.md`, and `UX-AUDIT.md` before changing the frontend.
+Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md` and `DESIGN.md` before changing the frontend. Consult `UX-AUDIT.md` for historical findings; its scores and validation targets do not describe the current release.
 
 Preserve these rules:
 

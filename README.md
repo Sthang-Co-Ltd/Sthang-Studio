@@ -129,6 +129,7 @@ Typical setup:
 
 ```text
 npm ci --include=dev
+npm run test:public
 npm run check:public
 npm run typecheck
 npm run build
@@ -137,6 +138,12 @@ npm run dev
 
 The explicit `--include=dev` flag keeps the locked build and typecheck toolchain
 available even when the local npm configuration would otherwise omit it.
+
+The public-readiness guard requires a complete clone with relevant refs fetched;
+it does not fetch them itself. It checks current and historical forbidden paths
+and common secret patterns in text. The regression tests use disposable Git
+repositories. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for scope limits and commit
+email privacy.
 
 For the full Windows local-timing environment:
 
@@ -183,7 +190,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 - [`DESIGN.md`](DESIGN.md) — interface and interaction rules
 - [`BRAND.md`](BRAND.md) — approved Sthang Studio identity system
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
-- [`UX-AUDIT.md`](UX-AUDIT.md) — UX findings and validation targets
+- [`UX-AUDIT.md`](UX-AUDIT.md): historical UX findings and validation targets
 - [`PRIVACY.md`](PRIVACY.md) — local/cloud data flow and key handling
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — dependency/model notices
 - [`TRADEMARKS.md`](TRADEMARKS.md) — Sthang name and brand-asset terms
