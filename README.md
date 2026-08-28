@@ -19,14 +19,10 @@ available without crowding the main editing flow.
 
 - Khmer-first transcription and text handling.
 - Local caption timing with a Khmer forced aligner and local Whisper fallback.
-- Warm/reusable local timing work so repeated regeneration does not reload the timing stack from scratch.
-- Reusable normalized/range audio, KFA acoustic evidence, and exact timing-result caches with safe media/project invalidation.
-- Faster Deep Verify through one reused audio upload, concurrent independent listens, and deduplicated identical timing work.
-- Resumable processing jobs can reuse completed AI stages from that same interrupted job when every signature still matches.
 - Sequential Review with context on first listen and tight replay while editing.
 - Caption approval, text/timing locks, correction memory, and project history.
 - Non-destructive Current/Proposed regeneration review.
-- Precision waveform timing for difficult captions, with browser-memory waveform reuse while Studio stays open.
+- Precision waveform timing for difficult captions.
 - UTF-8 SRT export designed for CapCut workflows.
 - Local projects, history, caches, proposals, and exports.
 - Windows-protected in-app storage for a Gemini API key.
@@ -45,6 +41,21 @@ Studio.bat**, **Read Me.txt**, and one **Sthang Studio Files** folder. Setup cop
 the application into `%LOCALAPPDATA%\Sthang Studio\app`, so the downloaded setup
 folder can be deleted after installation while projects and local app state stay
 in the stable installed location.
+
+## Current source changes (unreleased)
+
+The current `main` source may be ahead of the verified `0.7.14` Beta release.
+Unreleased source currently includes performance-oriented pipeline work such as
+reusable normalized/range audio, warm local timing, transcript-independent KFA
+acoustic evidence caching, exact timing-result caching, resumable same-job AI
+checkpoints, concurrent Deep Verify listens, browser-memory waveform reuse, and
+per-project/history persistence that avoids rewriting unrelated projects.
+
+These optimizations are intended to reduce repeated work without changing the
+caption wording authority, local timing authority, Review decisions, caption
+locks, correction memory, or SRT output. They are **not** release evidence and
+should not be treated as part of the verified public Beta until a matching
+release is deliberately built and published.
 
 ## Contributor development setup
 
@@ -89,6 +100,10 @@ currently Windows-first.
 
 Sthang Studio is local-first, but it is **not fully offline** when generating AI
 caption wording.
+
+For current source builds, the local pipeline may include unreleased cache and
+prewarm behavior described below. The verified `0.7.14` public release remains
+defined by its matching release notes and package evidence.
 
 **Local on your computer:**
 
@@ -135,17 +150,18 @@ key using Windows user-protected storage under `%LOCALAPPDATA%\Sthang Studio`.
 The browser receives only a masked key. An `apps/server/.env` key remains
 supported as an advanced fallback and is excluded from Git.
 
-The server may keep the already-decrypted key/model settings in process memory
-briefly to avoid starting PowerShell/DPAPI for every AI pass. Save/Forget actions
-invalidate that memory immediately; the plaintext key is never written to an
-unencrypted cache.
+Current source builds may keep the already-decrypted key/model settings in
+process memory briefly to avoid starting PowerShell/DPAPI for every AI pass.
+Save/Forget actions invalidate that memory immediately; the plaintext key is
+never written to an unencrypted cache.
 
 Never commit or publish a real API key.
 
 ## Performance architecture
 
-Repeated caption work is optimized around a simple rule: **reuse deterministic
-prerequisites, never reuse a fresh AI opinion as though it were new.**
+Current unreleased source optimizes repeated caption work around a simple rule:
+**reuse deterministic prerequisites, never reuse a fresh AI opinion as though it
+were new.**
 
 Examples of safe reuse include normalized/range audio, KFA acoustic emissions,
 exact transcript+timing results, decoded waveform data, and completed stages of
@@ -168,6 +184,7 @@ Typical setup:
 
 ```text
 npm ci --include=dev
+npm run test:public
 npm run check:public
 npm run typecheck
 npm run build
@@ -176,6 +193,12 @@ npm run dev
 
 The explicit `--include=dev` flag keeps the locked build and typecheck toolchain
 available even when the local npm configuration would otherwise omit it.
+
+The public-readiness guard requires a complete clone with relevant refs fetched;
+it does not fetch them itself. It checks current and historical forbidden paths
+and common secret patterns in text. The regression tests use disposable Git
+repositories. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for scope limits and commit
+email privacy.
 
 For the full Windows local-timing environment:
 
@@ -222,7 +245,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 - [`DESIGN.md`](DESIGN.md) — interface and interaction rules
 - [`BRAND.md`](BRAND.md) — approved Sthang Studio identity system
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
-- [`UX-AUDIT.md`](UX-AUDIT.md) — UX findings and validation targets
+- [`UX-AUDIT.md`](UX-AUDIT.md): historical UX findings and validation targets
 - [`PRIVACY.md`](PRIVACY.md) — local/cloud data flow and key handling
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — dependency/model notices
 - [`TRADEMARKS.md`](TRADEMARKS.md) — Sthang name and brand-asset terms
