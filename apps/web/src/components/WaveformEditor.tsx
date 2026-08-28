@@ -103,16 +103,20 @@ function waveformIdentity(projectId: string, tokens: TimedToken[]) {
   ].join(':');
 }
 
+function entryBytes(entry: WaveformMemoryEntry) {
+  return entry.samples.byteLength + (entry.spectrum?.values.byteLength || 0);
+}
+
 function trimWaveformMemory(keepKey: string) {
   const entries = [...waveformMemory.entries()]
     .sort((a, b) => b[1].touchedAt - a[1].touchedAt);
   let keptBytes = 0;
   let keptEntries = 0;
   for (const [key, entry] of entries) {
-    const bytes = entry.samples.byteLength + (entry.spectrum?.values.byteLength || 0);
+    const bytes = entryBytes(entry);
     const isCurrent = key === keepKey;
     const fits = keptEntries < maxWaveformMemoryEntries && keptBytes + bytes <= maxWaveformMemoryBytes;
-    if (isCurrent || fits) {
+    if ((isCurrent && bytes <= maxWaveformMemoryBytes) || fits) {
       keptEntries += 1;
       keptBytes += bytes;
     } else {
@@ -122,6 +126,10 @@ function trimWaveformMemory(keepKey: string) {
 }
 
 function rememberWaveform(key: string, entry: WaveformMemoryEntry) {
+  if (entryBytes(entry) > maxWaveformMemoryBytes) {
+    waveformMemory.delete(key);
+    return;
+  }
   waveformMemory.set(key, { ...entry, touchedAt: Date.now() });
   trimWaveformMemory(key);
 }
@@ -265,7 +273,11 @@ export function WaveformEditor({
     };
 
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      const remembered = waveformMemory.get(memoryKey);
+      if (remembered && !remembered.spectrum) waveformMemory.delete(memoryKey);
+    };
   }, [projectId, memoryKey, reloadKey]);
 
   useEffect(() => {
@@ -315,7 +327,6 @@ export function WaveformEditor({
     ctx.fillStyle = '#090b0e';
     ctx.fillRect(0, 0, width, height);
 
-    // Time grid.
     const secondsVisible = viewDurationMs / 1000;
     const gridSeconds = secondsVisible > 90 ? 15 : secondsVisible > 40 ? 10 : secondsVisible > 16 ? 5 : secondsVisible > 7 ? 2 : 1;
     const firstGrid = Math.ceil(viewStartMs / 1000 / gridSeconds) * gridSeconds * 1000;
@@ -364,7 +375,6 @@ export function WaveformEditor({
       ctx.beginPath(); ctx.moveTo(0, middle + 0.5); ctx.lineTo(width, middle + 0.5); ctx.stroke();
     }
 
-    // Caption blocks and draggable edges.
     for (const caption of captions) {
       if (caption.endMs < viewStartMs || caption.startMs > viewEndMs) continue;
       const x1 = timeToX(caption.startMs);
@@ -377,7 +387,6 @@ export function WaveformEditor({
       ctx.strokeRect(x1 + 0.5, 126.5, Math.max(1, x2 - x1 - 1), 29);
     }
 
-    // Word anchors become readable as zoom increases.
     const showWords = viewDurationMs <= 28_000;
     for (const token of tokens) {
       if (token.endMs < viewStartMs || token.startMs > viewEndMs) continue;
