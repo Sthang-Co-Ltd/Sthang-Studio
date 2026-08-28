@@ -1,12 +1,18 @@
-# Public release checklist
+# Public release requirements and verification record
 
-This checklist separates repository work that can be automated from owner/admin
-settings that must be reviewed deliberately before Sthang Studio is announced
-publicly.
+This document separates maintained release requirements from dated installation
+and publication evidence. Historical checkmarks do not verify today's GitHub
+settings or authorize another release. Inspect current settings and repeat the
+relevant checks for each new release.
 
 The repository and the `v0.7.14` Beta release are public. Its exact tag, curated
 Windows ZIP, checksum, and release notes were verified on 2026-08-27. Website/HQ
 synchronization remains separately approval-gated.
+
+On 2026-08-28, the public [Studio page](https://sthang.app/studio/) advertised
+`v0.7.14` and linked to its Windows release asset. Maintainers record HQ intake
+and website synchronization approvals in their owning repositories; this public
+document does not duplicate a pending/completed synchronization ledger.
 
 ## Repository readiness
 
@@ -23,8 +29,14 @@ synchronization remains separately approval-gated.
 - [x] Dependabot update configuration added for npm and local Python requirements.
 - [x] CI added for public-readiness scanning, typecheck, build, brand verification,
       and Python worker syntax.
-- [x] Public-readiness script scans the current tree and full Git history for
-      common secret patterns and forbidden runtime paths.
+- [x] Public-readiness script checks current and historical forbidden paths,
+      including deleted files and binary media paths, and scans textual content
+      for common secret patterns. It requires a complete clone and covers only
+      locally available refs; it does not fetch GitHub state itself.
+- [x] `npm run test:public` covers historical-path failures, allowed scaffolding,
+      merge changes, other refs, and rejection of shallow clones in disposable
+      repositories. The guard does not inspect commit email metadata, arbitrary
+      binary contents, GitHub comments, Actions logs, or release assets.
 - [x] Windows KFA setup uses the wheel-backed `khmercut==0.0.2` release and
       wheel-first/UTF-8 pip settings. PyPI's newer `khmercut` 0.1.0 release is
       source-only and hit a Windows code-page metadata decode failure during the
@@ -41,27 +53,33 @@ synchronization remains separately approval-gated.
 - [x] The product-owned `.sthang/product-manifest.json` declares public Beta
       identity and release intent without self-referential commits or hashes.
 
-## Before changing repository visibility to Public
+## Historical public-source launch record
 
-Owner/admin actions:
+The initial public-source launch recorded these owner/admin actions:
 
 - [x] Confirm the accepted public-readiness changes are on `main` and the local
       checks are in an understood/acceptable state.
 - [x] Run a final secret scan locally on the full repository clone.
 - [x] In GitHub repository Settings, change visibility from **Private** to
       **Public** only after the preceding checks are complete.
-- [ ] Enable branch protection/rules for `main` and require the CI validation
-      check before merge once the hosted runners are available.
-- [ ] Enable Dependabot alerts/security updates and GitHub private vulnerability
-      reporting / Security Advisories if they are not already enabled.
-- [ ] Consider enabling public code scanning/CodeQL after the repository is
-      public.
-- [ ] Review repository Discussions/Issues settings and enable only the public
-      community surfaces Sthang intends to maintain.
-- [ ] Add a repository social-preview image and useful repository topics after
-      the public product page/visuals are ready.
 
-## Version 0.7.14 public distribution
+## Maintainer settings review
+
+Verify these directly in GitHub when preparing a release. This list is not a
+statement that a setting is currently enabled or disabled; changes require the
+appropriate owner/admin approval.
+
+- Review `main` branch protection/rules and required CI checks.
+- Review Dependabot alerts/security updates and private vulnerability reporting.
+- Consider public code scanning/CodeQL.
+- Keep only the Discussions/Issues surfaces Sthang intends to maintain.
+- Review the repository social-preview image and topics.
+
+## Historical version 0.7.14 distribution verification
+
+These checks record the 2026-08-27 publication. The detailed record below
+distinguishes checks run for that ZIP from earlier owner-verified workflows
+carried forward. Later documentation or tooling edits do not repeat these tests.
 
 - [x] Test installation from a clean Windows user/machine, not from the
       maintainer's existing development folder.
@@ -83,9 +101,8 @@ Owner/admin actions:
 - [x] Run a representative Khmer clip through upload → generate → review →
       export and confirm the exported SRT opens correctly in CapCut.
 - [x] Run `npm run check:public`, `npm run verify:brand`, `npm run typecheck`, and
-      `npm run build` from the accepted `0.7.14` release commit. Hosted GitHub
-      Actions may remain unavailable while the account's monthly allowance is
-      exhausted; record local evidence instead of reporting hosted checks as run.
+      `npm run build` from the accepted `0.7.14` release commit. The local
+      verification record below identifies the checks actually run.
 - [x] Run `npm run package:windows` from the accepted `0.7.14` release commit and
       inspect the resulting archive. Its extracted top level should contain only
       `Install Sthang Studio.bat`, `Read Me.txt`, and `Sthang Studio Files`.
@@ -103,9 +120,6 @@ Owner/admin actions:
 - [x] Confirm the release notes explain that `store: false` does not control the
       Files API upload, Studio does not explicitly delete the remote WAV, and
       Google currently documents storage for up to 48 hours.
-- [ ] Reconcile the accepted `0.7.14` release through the approval-gated
-      product-to-HQ and HQ-to-Distribution workflow before changing website
-      version or download claims.
 
 The 0.7.14 publication checks used fresh evidence for this release, not the prior
 Beta's release assets.
@@ -139,8 +153,10 @@ This verification record is excluded from the curated payload. All 102 entries
 from a new package of that release commit matched the tested payload byte for
 byte. The exact tested ZIP, rather than a recompressed copy, was published.
 GitHub's asset digest, the downloaded ZIP, and the downloaded checksum agree.
-The release is non-draft and marked prerelease. The unchecked HQ/website
-synchronization gate still requires separate approval.
+At publication, the release was non-draft and marked prerelease. This record
+describes the tested and published ZIP, not later source-only changes. Future
+website changes still require the maintainer coordination described in
+[`AGENTS.md`](../AGENTS.md) and the owning repositories.
 
 ## Sthang website
 
