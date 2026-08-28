@@ -102,6 +102,8 @@ export async function writeRunCheckpoint<T>(
     const now = new Date();
     await fs.utimes(directory, now, now).catch(() => {});
     await trimProjectCheckpoints(projectId, runKey);
+  } catch (error) {
+    console.warn(`[job checkpoint] Could not persist ${stageKey}: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     await fs.rm(temp, { force: true }).catch(() => {});
   }
