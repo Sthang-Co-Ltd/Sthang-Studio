@@ -28,6 +28,9 @@ function environment(overrides = {}) {
     GITHUB_RUN_ATTEMPT: '1',
     GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_REF: 'refs/heads/main',
+    GITHUB_ACTOR: 'release-owner',
+    GITHUB_ACTOR_ID: '12345',
+    GITHUB_TRIGGERING_ACTOR: 'release-owner',
     ...overrides,
   };
 }
@@ -86,7 +89,8 @@ async function createSigningFixture(root) {
     packageFile: path.join(root, 'package.zip'),
     unsignedFile: path.join(root, 'release.unsigned.json'),
     signedFile: path.join(root, 'release.json'),
-    receiptFile: path.join(root, 'receipt.json'),
+    attestationFile: path.join(root, 'broker-attestation.json'),
+    localReceiptFile: path.join(root, 'local-receipt.json'),
     trustFile: path.join(root, 'trust.json'),
   };
   await fs.writeFile(files.packageFile, packageBytes);
@@ -95,12 +99,17 @@ async function createSigningFixture(root) {
   return { privateKey, trust, packageBytes, unsignedManifest, files };
 }
 
-function createBrokerFetch({ privateKey, trust, mutateManifest = (value) => value }) {
-  const state = { prepareRequest: null, uploaded: Buffer.alloc(0) };
+function createBrokerFetch({
+  privateKey,
+  trust,
+  mutateManifest = (value) => value,
+  mutateAttestation = (value) => value,
+}) {
+  const state = { prepareRequest: null, uploaded: Buffer.alloc(0), prepareTokens: [], finalizeTokens: [] };
   const fetchImpl = async (url, init = {}) => {
     const href = String(url);
     if (href === 'https://signer.sthang.app/v1/studio/releases/prepare') {
-      assert.equal(init.headers.Authorization, 'Bearer test.oidc.token');
+      state.prepareTokens.push(init.headers.Authorization);
       state.prepareRequest = JSON.parse(init.body);
       return Response.json({
         schemaVersion: 1,
@@ -111,22 +120,43 @@ function createBrokerFetch({ privateKey, trust, mutateManifest = (value) => valu
         unsignedManifestSha256: state.prepareRequest.unsignedManifestSha256,
         packageSha256: state.prepareRequest.packageSha256,
         packageSizeBytes: state.prepareRequest.packageSizeBytes,
-        uploadUrl: 'https://uploads.sthang.app/studio/session/package.zip?token=opaque',
-        uploadHeaders: { 'content-type': 'application/zip', 'if-none-match': '*' },
+        uploadUrl: 'https://uploads.sthang.app/v1/studio/sessions/session_12345678901234567890/package?token=opaque',
+        uploadHeaders: {
+          'content-type': 'application/zip',
+          'if-none-match': '*',
+          'x-content-sha256': state.prepareRequest.packageSha256,
+        },
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       });
     }
     if (href.startsWith('https://uploads.sthang.app/')) {
       state.uploaded = await consumeBody(init.body);
-      return new Response('', { status: 200 });
+      return new Response('', { status: 201 });
     }
     if (href === 'https://signer.sthang.app/v1/studio/releases/finalize') {
+      state.finalizeTokens.push(init.headers.Authorization);
       const finalizeRequest = JSON.parse(init.body);
       assert.equal(finalizeRequest.packageSha256, sha256(state.uploaded));
       const manifestToSign = mutateManifest(structuredClone(state.prepareRequest.unsignedManifest));
       const signedManifest = signDocument(manifestToSign, privateKey, trust.keyId);
       const signedManifestBytes = Buffer.from(`${JSON.stringify(signedManifest, null, 2)}\n`, 'utf8');
       const manifestSha256 = sha256(signedManifestBytes);
+      const unsignedAttestation = mutateAttestation({
+        schemaVersion: 1,
+        product: 'sthang-studio',
+        platform: 'windows-x64',
+        channel: trust.channel,
+        operation: 'release-attestation',
+        sessionId: finalizeRequest.sessionId,
+        source: structuredClone(state.prepareRequest.source),
+        version: signedManifest.version,
+        unsignedManifestSha256: state.prepareRequest.unsignedManifestSha256,
+        manifestSha256,
+        packageSha256: signedManifest.package.sha256,
+        packageSizeBytes: signedManifest.package.sizeBytes,
+        verifiedAt: new Date().toISOString(),
+      });
+      const attestation = signDocument(unsignedAttestation, privateKey, trust.keyId);
       return Response.json({
         schemaVersion: 1,
         product: 'sthang-studio',
@@ -134,20 +164,10 @@ function createBrokerFetch({ privateKey, trust, mutateManifest = (value) => valu
         sessionId: finalizeRequest.sessionId,
         version: signedManifest.version,
         sourceCommit: state.prepareRequest.source.commit,
+        unsignedManifestSha256: state.prepareRequest.unsignedManifestSha256,
         signedManifestBase64: signedManifestBytes.toString('base64'),
         manifestSha256,
-        receipt: {
-          schemaVersion: 1,
-          product: 'sthang-studio',
-          platform: 'windows-x64',
-          channel: trust.channel,
-          keyId: trust.keyId,
-          version: signedManifest.version,
-          manifestSha256,
-          packageSha256: signedManifest.package.sha256,
-          packageSizeBytes: signedManifest.package.sizeBytes,
-          verifiedAt: new Date().toISOString(),
-        },
+        attestation,
       });
     }
     throw new Error(`Unexpected URL: ${href}`);
@@ -175,41 +195,34 @@ test('signing triggers allow guarded main workflows and organization release com
   assert.throws(() => authorizeSigningTrigger({}, environment({ GITHUB_REF: 'refs/heads/feature' })), /accepted main branch/);
 });
 
-test('signer and upload endpoints are narrowly constrained', () => {
+test('signer and upload endpoints are narrowly constrained and uploads are create-only', () => {
   assert.equal(validateSignerEndpoint('https://signer.sthang.app/v1/studio'), 'https://signer.sthang.app/v1/studio');
   assert.throws(() => validateSignerEndpoint('https://evil.example/v1/studio'), /not the approved endpoint/);
   assert.equal(
-    validateUploadUrl('https://uploads.sthang.app/studio/session/package.zip?token=opaque'),
-    'https://uploads.sthang.app/studio/session/package.zip?token=opaque',
+    validateUploadUrl('https://uploads.sthang.app/v1/studio/sessions/session/package?token=opaque'),
+    'https://uploads.sthang.app/v1/studio/sessions/session/package?token=opaque',
   );
-  assert.equal(
-    validateUploadUrl('https://account.r2.cloudflarestorage.com/bucket/key?X-Amz-Signature=opaque'),
-    'https://account.r2.cloudflarestorage.com/bucket/key?X-Amz-Signature=opaque',
-  );
+  assert.throws(() => validateUploadUrl('https://account.r2.cloudflarestorage.com/bucket/key?X-Amz-Signature=opaque'), /not allowed/);
   assert.throws(() => validateUploadUrl('https://example.com/package.zip'), /not allowed/);
 });
 
-test('source context pins the stable repository id, exact main workflow, and workflow SHA', () => {
+test('source context pins stable repository, actor, main workflow, workflow SHA, and environment', () => {
   const context = sourceContext(environment());
   assert.equal(context.repositoryId, '1343890712');
+  assert.equal(context.repositoryVisibility, 'public');
   assert.equal(context.commit, 'a'.repeat(40));
   assert.equal(context.workflowSha, context.commit);
   assert.equal(context.environment, 'studio-release-signing');
-  assert.throws(
-    () => sourceContext(environment({ GITHUB_REPOSITORY_ID: '999' })),
-    /signing identity is invalid/,
-  );
+  assert.equal(context.actorId, '12345');
+  assert.throws(() => sourceContext(environment({ GITHUB_REPOSITORY_ID: '999' })), /signing identity is invalid/);
   assert.throws(
     () => sourceContext(environment({ GITHUB_WORKFLOW_REF: 'Sthang-Co-Ltd/Sthang-Studio/.github/workflows/other.yml@refs/heads/main' })),
     /signing identity is invalid/,
   );
-  assert.throws(
-    () => sourceContext(environment({ GITHUB_WORKFLOW_SHA: 'b'.repeat(40) })),
-    /signing identity is invalid/,
-  );
+  assert.throws(() => sourceContext(environment({ GITHUB_WORKFLOW_SHA: 'b'.repeat(40) })), /signing identity is invalid/);
 });
 
-test('release signing uploads verified bytes and accepts a matching trusted response', async () => {
+test('release signing uploads verified bytes and accepts only matching signed provenance', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-signer-client-'));
   try {
     const fixture = await createSigningFixture(root);
@@ -218,7 +231,8 @@ test('release signing uploads verified bytes and accepts a matching trusted resp
       unsignedManifestFile: fixture.files.unsignedFile,
       packageFile: fixture.files.packageFile,
       signedManifestFile: fixture.files.signedFile,
-      receiptFile: fixture.files.receiptFile,
+      brokerAttestationFile: fixture.files.attestationFile,
+      localReceiptFile: fixture.files.localReceiptFile,
       trustRootFile: fixture.files.trustFile,
       signerUrl: 'https://signer.sthang.app/v1/studio',
       oidcToken: 'test.oidc.token',
@@ -227,9 +241,14 @@ test('release signing uploads verified bytes and accepts a matching trusted resp
     });
     assert.equal(result.version, '0.8.0');
     assert.deepEqual(broker.state.uploaded, fixture.packageBytes);
-    assert.equal(broker.state.prepareRequest.source.workflowSha, 'a'.repeat(40));
+    assert.equal(broker.state.prepareTokens[0], 'Bearer test.oidc.token');
+    assert.equal(broker.state.finalizeTokens[0], 'Bearer test.oidc.token');
+    assert.match(broker.state.prepareRequest.source.workflowFileSha256, /^[0-9a-f]{64}$/);
+    assert.match(broker.state.prepareRequest.source.signerClientSha256, /^[0-9a-f]{64}$/);
+    assert.match(broker.state.prepareRequest.source.updateProtocolSha256, /^[0-9a-f]{64}$/);
     assert.equal(JSON.parse(await fs.readFile(fixture.files.signedFile, 'utf8')).signature.keyId, fixture.trust.keyId);
-    assert.equal(JSON.parse(await fs.readFile(fixture.files.receiptFile, 'utf8')).packageSha256, sha256(fixture.packageBytes));
+    assert.equal(JSON.parse(await fs.readFile(fixture.files.attestationFile, 'utf8')).source.commit, 'a'.repeat(40));
+    assert.equal(JSON.parse(await fs.readFile(fixture.files.localReceiptFile, 'utf8')).packageSha256, sha256(fixture.packageBytes));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -251,7 +270,8 @@ test('a broker cannot change any reviewed unsigned manifest field', async () => 
         unsignedManifestFile: fixture.files.unsignedFile,
         packageFile: fixture.files.packageFile,
         signedManifestFile: fixture.files.signedFile,
-        receiptFile: fixture.files.receiptFile,
+        brokerAttestationFile: fixture.files.attestationFile,
+        localReceiptFile: fixture.files.localReceiptFile,
         trustRootFile: fixture.files.trustFile,
         signerUrl: 'https://signer.sthang.app/v1/studio',
         oidcToken: 'test.oidc.token',
@@ -261,7 +281,39 @@ test('a broker cannot change any reviewed unsigned manifest field', async () => 
       /changed the reviewed Studio release manifest/,
     );
     await assert.rejects(fs.access(fixture.files.signedFile));
-    await assert.rejects(fs.access(fixture.files.receiptFile));
+    await assert.rejects(fs.access(fixture.files.attestationFile));
+    await assert.rejects(fs.access(fixture.files.localReceiptFile));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a signed broker attestation cannot change source or release provenance', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-signer-attestation-'));
+  try {
+    const fixture = await createSigningFixture(root);
+    const broker = createBrokerFetch({
+      ...fixture,
+      mutateAttestation(value) {
+        value.source.commit = 'd'.repeat(40);
+        return value;
+      },
+    });
+    await assert.rejects(
+      runReleaseSigning({
+        unsignedManifestFile: fixture.files.unsignedFile,
+        packageFile: fixture.files.packageFile,
+        signedManifestFile: fixture.files.signedFile,
+        brokerAttestationFile: fixture.files.attestationFile,
+        localReceiptFile: fixture.files.localReceiptFile,
+        trustRootFile: fixture.files.trustFile,
+        signerUrl: 'https://signer.sthang.app/v1/studio',
+        oidcToken: 'test.oidc.token',
+        fetchImpl: broker.fetchImpl,
+        environment: environment(),
+      }),
+      /attestation did not match this release/,
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -295,7 +347,8 @@ test('unprovisioned trust fails before any signing-network request', async () =>
         unsignedManifestFile: unsignedFile,
         packageFile,
         signedManifestFile: path.join(root, 'signed.json'),
-        receiptFile: path.join(root, 'receipt.json'),
+        brokerAttestationFile: path.join(root, 'attestation.json'),
+        localReceiptFile: path.join(root, 'receipt.json'),
         trustRootFile: trustFile,
         signerUrl: 'https://signer.sthang.app/v1/studio',
         oidcToken: 'test.oidc.token',
@@ -310,12 +363,15 @@ test('unprovisioned trust fails before any signing-network request', async () =>
   }
 });
 
-test('the signing workflow contains no reusable signing secret and remains manually triggered', async () => {
+test('the signing workflow isolates OIDC from repository build code', async () => {
   const workflow = await fs.readFile(new URL('../.github/workflows/studio-ota-sign.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /id-token: write/);
-  assert.match(workflow, /environment: studio-release-signing/);
-  assert.match(workflow, /issue_comment:/);
-  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /jobs:\n  build:/);
+  assert.match(workflow, /\n  sign:\n    needs: build/);
+  assert.equal((workflow.match(/id-token: write/g) || []).length, 1);
+  assert.equal((workflow.match(/environment: studio-release-signing/g) || []).length, 1);
+  assert.match(workflow, /group: studio-ota-sign-\$\{\{ github\.repository \}\}/);
+  assert.match(workflow, /gh api .*collaborators.*permission/);
+  assert.match(workflow, /\$Permission -notin @\('admin', 'write'\)/);
   assert.match(workflow, /github\.event\.comment\.body == '\/studio-ota-sign'/);
   assert.match(workflow, /\["OWNER","MEMBER"\]/);
   assert.doesNotMatch(workflow, /COLLABORATOR/);
@@ -324,4 +380,12 @@ test('the signing workflow contains no reusable signing secret and remains manua
   assert.doesNotMatch(workflow, /\bpull_request:/);
   assert.doesNotMatch(workflow, /secrets\./);
   assert.doesNotMatch(workflow, /PRIVATE KEY/);
+
+  const signSection = workflow.split('\n  sign:\n')[1];
+  assert.ok(signSection, 'sign job is missing');
+  assert.doesNotMatch(signSection, /npm ci|npm run|package-ota-release|package-windows-release|setup-local-timing|python -m/);
+  assert.match(signSection, /git hash-object/);
+  assert.match(signSection, /actions\/download-artifact@[0-9a-f]{40}/);
+  assert.match(signSection, /--broker-attestation/);
+  assert.match(signSection, /--local-receipt/);
 });
