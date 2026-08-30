@@ -24,24 +24,42 @@ https://updates.sthang.app/studio/windows/latest.json
 
 The mutable pointer and immutable version manifest are both Ed25519-signed. Version manifests and package objects must live below `/v<version>/`, have no query string or redirect, and bind the exact package byte length, SHA-256, expanded-size ceiling, lockfile hash, Python requirement hashes, setup strategy, minimum broker version, and bounded release notes. A pointer is promotable only from a verification receipt produced after the versioned manifest signature and package bytes match.
 
-`npm run package:ota` creates an unsigned local candidate only. `scripts/update-release.mjs` signs, verifies, and creates a promotable pointer from an externally held key; it does not upload or deploy anything. The tooling refuses signing while the trust root is unprovisioned or when the external private key does not match the committed public key.
+`npm run package:ota` creates an unsigned local candidate only. `scripts/update-release.mjs` remains available for controlled offline signing and verification with an externally held key; it does not upload or deploy anything. Production automation uses the more restrictive brokered path below rather than giving a GitHub runner or agent the private key.
 
 ## Agent-safe signing invocation
 
 Production signing must not require the owner to paste a private key into ChatGPT,
-Codex, a shell session, or a GitHub issue. Studio therefore uses a brokered signing
+Codex, a shell session, or a GitHub issue. Studio therefore uses the brokered
 contract documented in [UPDATE-SIGNING-CUSTODY.md](UPDATE-SIGNING-CUSTODY.md).
 
-The private key remains behind a dedicated signing broker. The repository's
-manual `.github/workflows/studio-ota-sign.yml` job obtains a short-lived GitHub
-OIDC identity, uploads an already verified immutable package through a
-single-purpose broker session, and accepts only a signed manifest and matching
-receipt that verify against Studio's committed public key.
+After separately approved production setup:
 
-ChatGPT chat mode can request the workflow by adding the exact
-`/studio-ota-sign` command to an authorized open `release:` issue. Codex may use
-the same path or manual workflow dispatch. Neither agent receives a private key,
-Cloudflare API token, reusable signing token, or R2 credential.
+- ChatGPT chat mode can add the exact `/studio-ota-sign` command to an authorized
+  open `release:` issue;
+- Codex can use the same command or manual workflow dispatch;
+- GitHub provides short-lived OIDC identity;
+- neither agent receives a private key, Cloudflare API token, R2 credential, or
+  reusable signing bearer token.
+
+The signing workflow separates package creation from signing. Its build job has
+no OIDC permission and runs the full source validation. Its signing job has OIDC
+permission but executes only a hash-pinned signing client and protocol, uses
+pinned third-party actions, reads fixed artifact names, and never runs Studio
+product/build/setup code.
+
+The broker verifies exact GitHub repository, stable repository id, actor, event,
+`main` ref, source commit, workflow/environment/run claims, reviewed workflow
+bytes, signing-client/protocol hashes, immutable object creation, and package
+bytes. It returns:
+
+- the exact signed manifest;
+- a Studio-key-signed broker attestation binding session, complete source and run
+  provenance, canonical unsigned-manifest digest, signed-manifest digest, package
+  digest, package size, and verification time.
+
+The repository client rejects a response if the broker changes any reviewed
+manifest field or any attested provenance field. It derives a local release
+receipt only after both signatures and all package/manifest bindings pass.
 
 The workflow remains fail-closed until all of these separately approved settings
 exist:
@@ -49,10 +67,11 @@ exist:
 - a provisioned Studio public trust root;
 - the `studio-release-signing` GitHub environment restricted to `main`;
 - the non-secret `STHANG_STUDIO_SIGNER_URL` environment variable;
-- a deployed broker whose OIDC and workflow allowlist match the reviewed source;
+- a deployed broker whose OIDC and executable-workflow allowlists match the
+  reviewed source;
 - durable working and recovery custody for the Studio-specific private key.
 
-The workflow only prepares and retains a signed candidate. It does not publish a
+The workflow prepares and retains a signed candidate. It does not publish a
 GitHub Release, deploy infrastructure, or promote `latest.json`.
 
 ## Staging, activation, and rollback
@@ -78,12 +97,13 @@ The Windows-protected Gemini key already lives outside source versions. The adva
 Before OTA can be advertised or enabled:
 
 1. Approve production Ed25519 key generation and custody, then commit only the Studio public key and mark the trust root provisioned.
-2. Approve and deploy the `updates.sthang.app` serving layer and immutable R2 object policy. Do not allow overwriting versioned keys.
-3. Build a clean candidate, sign it externally, verify its exact bytes/manifest, upload immutable objects, and verify them again from the public endpoint.
-4. Run clean Windows installation and representative Khmer caption regression tests, plus same-version refusal, dependency-change upgrade, failed setup, interrupted download, interruption before/after pointer swap, failed health, rollback, state preservation, shortcut/default-browser, and manual GitHub recovery tests.
-5. Publish the matching deliberate GitHub Release and keep it available as the recovery/download path.
-6. Advance `latest.json` only from the matching verification receipt.
-7. Complete approved HQ intake and Distribution synchronization before updating public claims or website/docs.
+2. Approve and deploy the signing/upload broker, `updates.sthang.app` serving layer, and immutable R2 object policy. Do not allow overwriting versioned keys.
+3. Configure the restricted GitHub signing environment and non-secret signer URL, then allowlist exact reviewed workflow/client/protocol hashes in the broker.
+4. Build a clean candidate, sign it through the broker, independently verify its exact bytes, signatures, and signed attestation, upload immutable objects, and verify them again from the public endpoint.
+5. Run clean Windows installation and representative Khmer caption regression tests, plus same-version refusal, dependency-change upgrade, failed setup, interrupted download, interruption before/after pointer swap, failed health, rollback, state preservation, shortcut/default-browser, and manual GitHub recovery tests.
+6. Publish the matching deliberate GitHub Release and keep it available as the recovery/download path.
+7. Advance `latest.json` only from the matching signed attestation, local verification receipt, public object verification, and approved release evidence.
+8. Complete approved HQ intake and Distribution synchronization before updating public claims or website/docs.
 
 HQ's current product schema can represent `manual-github-release` and
 `private-signed-ota`, but not public anonymous signed OTA. A future rollout
