@@ -12,6 +12,7 @@ import {
   validateReleaseManifest,
   validateReleaseReceipt,
   validateTrustRoot,
+  verifySignedJson,
 } from './update-protocol.mjs';
 
 export const SIGNER_AUDIENCE = 'https://signer.sthang.app/studio-ota';
@@ -26,9 +27,9 @@ const SAFE_ASSOCIATIONS = new Set(['OWNER', 'MEMBER']);
 const SAFE_UPLOAD_HEADERS = new Set([
   'content-type',
   'if-none-match',
-  'x-amz-checksum-sha256',
-  'x-amz-content-sha256',
+  'x-content-sha256',
 ]);
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export class SignerClientError extends Error {
   constructor(message) {
@@ -68,6 +69,12 @@ function positiveInteger(value, label, max = Number.MAX_SAFE_INTEGER) {
   return value;
 }
 
+function digest(value, label) {
+  const result = text(value, label, 64).toLowerCase();
+  if (!HEX_64.test(result)) throw new SignerClientError(`${label} is invalid.`);
+  return result;
+}
+
 function strictBase64(value, label, maximumBytes) {
   const encoded = text(value, label, Math.ceil(maximumBytes * 4 / 3) + 8);
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
@@ -99,9 +106,9 @@ async function readJson(file, label) {
 }
 
 async function fileSha256(file) {
-  const digest = crypto.createHash('sha256');
-  for await (const chunk of fsSync.createReadStream(file)) digest.update(chunk);
-  return digest.digest('hex');
+  const hash = crypto.createHash('sha256');
+  for await (const chunk of fsSync.createReadStream(file)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 async function writeBytesAtomic(file, bytes) {
@@ -147,15 +154,14 @@ export function validateSignerEndpoint(raw) {
 export function validateUploadUrl(raw) {
   let url;
   try { url = new URL(raw); } catch { throw new SignerClientError('The signing upload URL is invalid.'); }
-  const allowedHost = url.hostname === 'uploads.sthang.app' || url.hostname.endsWith('.r2.cloudflarestorage.com');
   if (
     url.protocol !== 'https:'
-    || !allowedHost
+    || url.hostname !== 'uploads.sthang.app'
     || url.port
     || url.username
     || url.password
     || url.hash
-    || !url.pathname
+    || !url.pathname.startsWith('/v1/studio/sessions/')
     || /[\u0000-\u001f\u007f]/.test(url.toString())
   ) {
     throw new SignerClientError('The signing upload URL is not allowed.');
@@ -166,7 +172,7 @@ export function validateUploadUrl(raw) {
 function validateUploadHeaders(value) {
   const headers = object(value, 'Signing upload headers');
   const entries = Object.entries(headers);
-  if (entries.length > 8) throw new SignerClientError('The signing upload headers are invalid.');
+  if (entries.length > 4) throw new SignerClientError('The signing upload headers are invalid.');
   const result = {};
   for (const [rawName, rawValue] of entries) {
     const name = String(rawName).toLowerCase();
@@ -174,6 +180,9 @@ function validateUploadHeaders(value) {
       throw new SignerClientError('The signing upload headers are invalid.');
     }
     result[name] = rawValue;
+  }
+  if (result['if-none-match'] !== '*') {
+    throw new SignerClientError('The signing upload must be create-only.');
   }
   return result;
 }
@@ -211,6 +220,9 @@ export function sourceContext(environment = process.env) {
   const runId = text(environment.GITHUB_RUN_ID, 'GitHub run id', 40);
   const runAttempt = Number(environment.GITHUB_RUN_ATTEMPT);
   const eventName = text(environment.GITHUB_EVENT_NAME, 'GitHub event', 80);
+  const actor = text(environment.GITHUB_ACTOR, 'GitHub actor', 80);
+  const actorId = text(environment.GITHUB_ACTOR_ID, 'GitHub actor id', 40);
+  const triggeringActor = text(environment.GITHUB_TRIGGERING_ACTOR, 'GitHub triggering actor', 80);
   const expectedWorkflowRef = `${STUDIO_REPOSITORY}/${SIGNING_WORKFLOW_PATH}@refs/heads/main`;
   if (
     repository !== STUDIO_REPOSITORY
@@ -220,6 +232,7 @@ export function sourceContext(environment = process.env) {
     || !/^[0-9a-f]{40}$/.test(workflowSha)
     || workflowSha !== commit
     || !/^\d+$/.test(runId)
+    || !/^\d+$/.test(actorId)
     || !Number.isSafeInteger(runAttempt)
     || runAttempt < 1
     || !['workflow_dispatch', 'issue_comment'].includes(eventName)
@@ -230,6 +243,8 @@ export function sourceContext(environment = process.env) {
   return {
     repository,
     repositoryId,
+    repositoryVisibility: 'public',
+    ref: 'refs/heads/main',
     commit,
     workflowRef,
     workflowSha,
@@ -237,6 +252,18 @@ export function sourceContext(environment = process.env) {
     runId,
     runAttempt,
     eventName,
+    actor,
+    actorId,
+    triggeringActor,
+  };
+}
+
+async function sourceProvenance(environment) {
+  return {
+    ...sourceContext(environment),
+    workflowFileSha256: await fileSha256(path.join(ROOT, SIGNING_WORKFLOW_PATH)),
+    signerClientSha256: await fileSha256(fileURLToPath(import.meta.url)),
+    updateProtocolSha256: await fileSha256(path.join(ROOT, 'scripts', 'update-protocol.mjs')),
   };
 }
 
@@ -362,10 +389,39 @@ function validatePrepareResponse(value, request) {
   };
 }
 
+function validateBrokerAttestation(value, request, session, manifestSha256, trust) {
+  const item = exactKeys(value, 'Broker verification attestation', [
+    'schemaVersion', 'product', 'platform', 'channel', 'operation', 'sessionId',
+    'source', 'version', 'unsignedManifestSha256', 'manifestSha256',
+    'packageSha256', 'packageSizeBytes', 'verifiedAt', 'signature',
+  ]);
+  try { verifySignedJson(item, trust); }
+  catch { throw new SignerClientError('The broker verification attestation signature is invalid.'); }
+  const verifiedAt = text(item.verifiedAt, 'Broker verification time', 80);
+  if (
+    item.schemaVersion !== 1
+    || item.product !== 'sthang-studio'
+    || item.platform !== 'windows-x64'
+    || item.channel !== trust.channel
+    || item.operation !== 'release-attestation'
+    || item.sessionId !== session.sessionId
+    || canonicalJson(item.source) !== canonicalJson(request.source)
+    || item.version !== request.unsignedManifest.version
+    || digest(item.unsignedManifestSha256, 'Attested unsigned manifest hash') !== request.unsignedManifestSha256
+    || digest(item.manifestSha256, 'Attested signed manifest hash') !== manifestSha256
+    || digest(item.packageSha256, 'Attested package hash') !== request.packageSha256
+    || positiveInteger(item.packageSizeBytes, 'Attested package size', MAX_PACKAGE_BYTES) !== request.packageSizeBytes
+    || !Number.isFinite(Date.parse(verifiedAt))
+  ) {
+    throw new SignerClientError('The broker verification attestation did not match this release.');
+  }
+  return item;
+}
+
 function validateFinalizeResponse(value, request, session, trust) {
   const item = exactKeys(value, 'Signing finalization response', [
     'schemaVersion', 'product', 'operation', 'sessionId', 'version', 'sourceCommit',
-    'signedManifestBase64', 'manifestSha256', 'receipt',
+    'unsignedManifestSha256', 'signedManifestBase64', 'manifestSha256', 'attestation',
   ]);
   if (
     item.schemaVersion !== 1
@@ -374,13 +430,14 @@ function validateFinalizeResponse(value, request, session, trust) {
     || item.sessionId !== session.sessionId
     || item.version !== request.unsignedManifest.version
     || item.sourceCommit !== request.source.commit
+    || item.unsignedManifestSha256 !== request.unsignedManifestSha256
     || !HEX_64.test(String(item.manifestSha256 || ''))
   ) {
     throw new SignerClientError('The signing finalization response did not match this release.');
   }
   const signedManifestBytes = strictBase64(item.signedManifestBase64, 'Signed release manifest', MAX_JSON_BYTES);
   if (sha256(signedManifestBytes) !== item.manifestSha256) {
-    throw new SignerClientError('The signed release manifest bytes did not match the signing receipt.');
+    throw new SignerClientError('The signed release manifest bytes did not match the signing response.');
   }
   let signedManifestValue;
   try { signedManifestValue = JSON.parse(signedManifestBytes.toString('utf8').replace(/^\uFEFF/, '')); }
@@ -389,30 +446,34 @@ function validateFinalizeResponse(value, request, session, trust) {
   if (canonicalJson(unsignedDocument(signedManifest)) !== canonicalJson(request.unsignedManifest)) {
     throw new SignerClientError('The signing service changed the reviewed Studio release manifest.');
   }
-  if (
-    signedManifest.version !== request.unsignedManifest.version
-    || signedManifest.package.sha256 !== request.packageSha256
-    || signedManifest.package.sizeBytes !== request.packageSizeBytes
-  ) {
-    throw new SignerClientError('The signed release manifest changed the verified package identity.');
-  }
-  const receipt = validateReleaseReceipt(item.receipt, trust);
-  if (
-    receipt.version !== signedManifest.version
-    || receipt.manifestSha256 !== item.manifestSha256
-    || receipt.packageSha256 !== request.packageSha256
-    || receipt.packageSizeBytes !== request.packageSizeBytes
-  ) {
-    throw new SignerClientError('The signing receipt did not match the signed release.');
-  }
-  return { signedManifestBytes, signedManifest, receipt, manifestSha256: item.manifestSha256 };
+  const attestation = validateBrokerAttestation(item.attestation, request, session, item.manifestSha256, trust);
+  const localReceipt = validateReleaseReceipt({
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'windows-x64',
+    channel: trust.channel,
+    keyId: trust.keyId,
+    version: signedManifest.version,
+    manifestSha256: item.manifestSha256,
+    packageSha256: request.packageSha256,
+    packageSizeBytes: request.packageSizeBytes,
+    verifiedAt: attestation.verifiedAt,
+  }, trust);
+  return {
+    signedManifestBytes,
+    signedManifest,
+    attestation,
+    localReceipt,
+    manifestSha256: item.manifestSha256,
+  };
 }
 
 export async function runReleaseSigning({
   unsignedManifestFile,
   packageFile,
   signedManifestFile,
-  receiptFile,
+  brokerAttestationFile,
+  localReceiptFile,
   trustRootFile,
   signerUrl = process.env.STHANG_STUDIO_SIGNER_URL,
   oidcToken,
@@ -423,7 +484,7 @@ export async function runReleaseSigning({
   if (!trust.provisioned) {
     throw new SignerClientError('The Studio production update trust root is not provisioned.');
   }
-  const source = sourceContext(environment);
+  const source = await sourceProvenance(environment);
   const endpoint = validateSignerEndpoint(signerUrl);
   const unsignedManifestBytes = await fs.readFile(unsignedManifestFile);
   let unsignedManifestValue;
@@ -467,15 +528,17 @@ export async function runReleaseSigning({
   }, fetchImpl);
   const finalized = validateFinalizeResponse(finalizedValue, request, session, trust);
   await writeBytesAtomic(signedManifestFile, finalized.signedManifestBytes);
-  await writeJsonAtomic(receiptFile, finalized.receipt);
+  await writeJsonAtomic(brokerAttestationFile, finalized.attestation);
+  await writeJsonAtomic(localReceiptFile, finalized.localReceipt);
   return {
     version: finalized.signedManifest.version,
     sourceCommit: source.commit,
     manifestSha256: finalized.manifestSha256,
     packageSha256,
     packageSizeBytes: packageStat.size,
-    receiptFile,
     signedManifestFile,
+    brokerAttestationFile,
+    localReceiptFile,
   };
 }
 
@@ -499,7 +562,8 @@ async function cli() {
       unsignedManifestFile: path.resolve(flag('--manifest')),
       packageFile: path.resolve(flag('--package')),
       signedManifestFile: path.resolve(flag('--signed-manifest')),
-      receiptFile: path.resolve(flag('--receipt')),
+      brokerAttestationFile: path.resolve(flag('--broker-attestation')),
+      localReceiptFile: path.resolve(flag('--local-receipt')),
       trustRootFile: path.resolve(flag('--trust-root')),
     });
     console.log(`Studio release ${result.version} signed and independently verified.`);
