@@ -49,6 +49,10 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run test:update-powershell
 
+      - name: Ephemeral signed bootstrap integration
+        if: runner.os == 'Windows'
+        run: npm run test:update-bootstrap
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -62,6 +66,26 @@ jobs:
       - name: Package unsigned OTA candidate
         if: runner.os == 'Windows'
         run: npm run package:ota -- -SkipValidation
+
+      - name: Record unsigned bootstrap candidate evidence
+        if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npm run candidate:evidence
+
+      - name: Upload unsigned bootstrap candidates for maintainer testing
+        if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sthang-studio-unsigned-bootstrap-${{ github.sha }}
+          path: |
+            release-artifacts/Sthang-Studio-Windows-v*.zip
+            release-artifacts/Sthang-Studio-Windows-v*.zip.sha256
+            release-artifacts/Sthang-Studio-OTA-v*.zip
+            release-artifacts/Sthang-Studio-OTA-v*.zip.sha256
+            release-artifacts/Sthang-Studio-OTA-v*.release.unsigned.json
+            release-artifacts/bootstrap-candidate-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
