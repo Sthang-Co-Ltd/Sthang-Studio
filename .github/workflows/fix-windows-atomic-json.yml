@@ -1,0 +1,114 @@
+name: Apply Windows atomic-write fix
+
+on:
+  push:
+    branches:
+      - chatgpt/studio-ota-updater-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/studio-ota-updater-v2
+          fetch-depth: 0
+      - name: Patch and verify updater runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/update-runtime.mjs')
+          text = path.read_text(encoding='utf-8')
+          old = '''export async function writeJsonAtomic(file, value) {
+            await fs.mkdir(path.dirname(file), { recursive: true });
+            const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+            try {
+              await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+              await fs.rename(temp, file);
+            } catch (error) {
+              await fs.rm(temp, { force: true }).catch(() => {});
+              throw error;
+            }
+          }
+          '''
+          new = '''const atomicWriteQueues = new Map();
+          const WINDOWS_RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+          function wait(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+          }
+
+          async function renameAtomicWithRetry(temp, file) {
+            const maxAttempts = process.platform === 'win32' ? 12 : 1;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                await fs.rename(temp, file);
+                return;
+              } catch (error) {
+                const retryable = process.platform === 'win32'
+                  && WINDOWS_RENAME_RETRY_CODES.has(error?.code)
+                  && attempt < maxAttempts;
+                if (!retryable) throw error;
+                await wait(Math.min(250, 5 * (2 ** (attempt - 1))));
+              }
+            }
+          }
+
+          async function writeJsonAtomicUnlocked(file, value) {
+            await fs.mkdir(path.dirname(file), { recursive: true });
+            const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+            try {
+              const handle = await fs.open(temp, 'wx', 0o600);
+              try {
+                await handle.writeFile(`${JSON.stringify(value, null, 2)}\\n`, 'utf8');
+                await handle.sync();
+              } finally {
+                await handle.close();
+              }
+              await renameAtomicWithRetry(temp, file);
+            } catch (error) {
+              await fs.rm(temp, { force: true }).catch(() => {});
+              throw error;
+            }
+          }
+
+          export function writeJsonAtomic(file, value) {
+            const resolvedFile = path.resolve(file);
+            const key = process.platform === 'win32' ? resolvedFile.toLowerCase() : resolvedFile;
+            const previous = atomicWriteQueues.get(key) || Promise.resolve();
+            const operation = previous
+              .catch(() => {})
+              .then(() => writeJsonAtomicUnlocked(resolvedFile, value));
+            let tail;
+            tail = operation
+              .then(() => undefined, () => undefined)
+              .finally(() => {
+                if (atomicWriteQueues.get(key) === tail) atomicWriteQueues.delete(key);
+              });
+            atomicWriteQueues.set(key, tail);
+            return operation;
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('Expected writeJsonAtomic block was not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          rm .github/workflows/fix-windows-atomic-json.yml
+          node --check scripts/update-runtime.mjs
+          npm ci --include=dev --no-audit --no-fund
+          npm run test:updater
+          git diff --check
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/update-runtime.mjs .github/workflows/fix-windows-atomic-json.yml
+          git commit -m "fix(updater): serialize Windows atomic pointer writes"
+          git push origin HEAD:chatgpt/studio-ota-updater-v2
