@@ -9,7 +9,14 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $MarkerName = '.sthang-update-version.json'
 
 function Get-Sha256([string]$Path) {
-  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  $Stream = [IO.File]::OpenRead($Path)
+  try {
+    return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $Stream.Dispose()
+    $Hasher.Dispose()
+  }
 }
 
 function Write-JsonAtomic([string]$Path, $Value) {
