@@ -27,6 +27,19 @@
   unprovisioned; no production signing key, Cloudflare deployment, release,
   mutable pointer promotion, or public OTA claim is included.
 
+### Updater bootstrap validation — not release evidence
+
+- Added a Windows integration test that uses an ephemeral, runner-local Ed25519
+  key and synthetic immutable versions to exercise signed check/download/staging,
+  dependency preparation, stable-launcher activation, exact-version health,
+  state preservation, and interrupted-activation rollback.
+- Added exact candidate byte/hash evidence and seven-day GitHub Actions retention
+  for the ordinary Windows package and unsigned OTA candidate on accepted `main`
+  pushes. The evidence explicitly marks the artifacts unsigned, unpublished,
+  unpromoted, and unsuitable as release proof.
+- No production trust root, private key, endpoint, release version, upload,
+  Cloudflare object, mutable pointer, public download, or product workflow changed.
+
 ### Repository maintenance
 
 - Reject forbidden paths in locally available Git history, including deleted

@@ -44,6 +44,14 @@ Each immutable version owns its `node_modules` and `.venv`. This permits `packag
 
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
+## CI bootstrap evidence (not a release)
+
+Windows pull-request validation runs `npm run test:update-bootstrap`. The test creates an ephemeral Ed25519 pair only inside the runner's temporary directory, signs synthetic versioned metadata, stages a minimal dependency-changing package through the real update service, prepares it through the stable PowerShell broker, activates it through the stable launcher, validates the exact API/web version, preserves representative project/media/export/`.env`/protected-key markers, and exercises interrupted-activation recovery back to the prior version. The ephemeral private key and fixture installation are deleted before the runner completes.
+
+On pushes to `main`, Windows CI also records exact SHA-256 and byte-size evidence for the ordinary Windows ZIP and unsigned OTA candidate, then retains those files for seven days as a GitHub Actions artifact for maintainer testing. `bootstrap-candidate-evidence.json` explicitly records `signed: false`, `published: false`, `promoted: false`, and `releaseEvidence: false`. The artifact is not a GitHub Release, public download, production signature, hosting proof, clean-machine result, or authority to advance `latest.json`.
+
+This automation strengthens repeatable broker evidence but does not replace physical clean-Windows installation, real dependency/model preparation, power/process interruption tests, representative Khmer-to-CapCut regression, externally held production signing custody, or public endpoint verification.
+
 ## Production/release gates
 
 Before OTA can be advertised or enabled:
