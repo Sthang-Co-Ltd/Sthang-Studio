@@ -10,6 +10,17 @@ $Package = Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
 $Version = [string]$Package.version
 if ($Version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$') { throw 'package.json does not contain a valid release version.' }
 
+function Get-Sha256([string]$Path) {
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  $Stream = [IO.File]::OpenRead($Path)
+  try {
+    return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $Stream.Dispose()
+    $Hasher.Dispose()
+  }
+}
+
 if (-not $SkipValidation) {
   foreach ($Command in @('test:public','check:public','test:updater','typecheck','build')) {
     & npm.cmd run $Command
@@ -55,7 +66,7 @@ try {
   foreach ($File in Get-ChildItem (Join-Path $Source 'local-timing') -Filter 'requirements*.txt' | Sort-Object Name) {
     $Python += [ordered]@{
       path = 'local-timing/' + $File.Name
-      sha256 = (Get-FileHash $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      sha256 = Get-Sha256 $File.FullName
     }
   }
   if ($Python.Count -lt 1) { throw 'No Python dependency declarations were packaged.' }
@@ -79,14 +90,14 @@ try {
     releaseNotes = $Notes
     package = [ordered]@{
       url = "https://updates.sthang.app/studio/windows/v$Version/Sthang-Studio-OTA-v$Version.zip"
-      sha256 = (Get-FileHash $Artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+      sha256 = Get-Sha256 $Artifact
       sizeBytes = (Get-Item $Artifact).Length
       unpackedSizeBytes = [long](Get-ChildItem $Source -File -Recurse -Force | Measure-Object Length -Sum).Sum
     }
     compatibility = [ordered]@{ minBrokerVersion='1.0.0'; stateSchema=1; manualInstallerRequired=$false }
     setup = [ordered]@{
       strategy = 'npm-ci-and-local-timing'
-      packageLockSha256 = (Get-FileHash (Join-Path $Source 'package-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+      packageLockSha256 = Get-Sha256 (Join-Path $Source 'package-lock.json')
       pythonFiles = $Python
     }
   }
