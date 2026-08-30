@@ -42,6 +42,13 @@ jobs:
       - name: Install locked Node dependencies
         run: npm ci --include=dev --no-audit --no-fund
 
+      - name: Updater tests
+        run: npm run test:updater
+
+      - name: Windows updater broker tests
+        if: runner.os == 'Windows'
+        run: npm run test:update-powershell
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -51,6 +58,10 @@ jobs:
       - name: Package Windows release candidate
         if: runner.os == 'Windows'
         run: npm run package:windows -- -SkipValidation
+
+      - name: Package unsigned OTA candidate
+        if: runner.os == 'Windows'
+        run: npm run package:ota -- -SkipValidation
 
       - name: Set up Python
         uses: actions/setup-python@v5
