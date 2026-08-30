@@ -27,12 +27,12 @@ jobs:
           base64 -d /tmp/studio-ota.patch.gz.b64 | gzip -d > /tmp/studio-ota.patch
           printf '%s  %s\n' 'a8dbf012f035c513467d4a048817e24a3e2b035923559a5b02aa2d3e6f0e9dc1' '/tmp/studio-ota.patch' | sha256sum --check -
 
-      - name: Publish one clean implementation commit from accepted main
+      - name: Publish implementation branch from accepted main
         shell: bash
         env:
           TARGET_BRANCH: chatgpt/studio-ota-updater-v2
           BASE_COMMIT: e2bcdc1da9644de2f17b8466ae4bf3893ba8d943
-          EXPECTED_TREE: ebc503be223a1362ad1faddc61c98c4a339f360d
+          EXPECTED_TREE_WITHOUT_CI: 7e851c746f22851abc3402ec96c7e239a99fdbea
         run: |
           set -euo pipefail
           if git ls-remote --exit-code --heads origin "refs/heads/$TARGET_BRANCH" >/dev/null 2>&1; then
@@ -41,12 +41,17 @@ jobs:
           fi
           git checkout --detach "$BASE_COMMIT"
           git apply --index --whitespace=error-all /tmp/studio-ota.patch
+          # GitHub's Actions token cannot publish a commit that changes another
+          # workflow file. Restore CI here; the authenticated repository connector
+          # adds the already-reviewed CI change as the next commit.
+          git checkout "$BASE_COMMIT" -- .github/workflows/ci.yml
+          git add .github/workflows/ci.yml
           git diff --cached --check
           git config user.name 'SweepCoon'
           git config user.email '230290682+SweepCoon@users.noreply.github.com'
           git commit -m 'feat: add signed recoverable Studio updater'
-          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
-          test "$(git diff --name-only "$BASE_COMMIT"..HEAD | sed '/^$/d' | wc -l | tr -d ' ')" = '42'
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE_WITHOUT_CI"
+          test "$(git diff --name-only "$BASE_COMMIT"..HEAD | sed '/^$/d' | wc -l | tr -d ' ')" = '41'
           ! git ls-tree -r --name-only HEAD | grep -q '^.github/ota-publish/'
           ! git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/chatgpt-checkout.yml$'
           git status --short | test ! -s /dev/stdin
