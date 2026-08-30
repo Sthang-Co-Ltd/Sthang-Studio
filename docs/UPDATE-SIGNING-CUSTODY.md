@@ -33,7 +33,7 @@ initiated.
 
 - ChatGPT chat mode can comment exactly `/studio-ota-sign` on an open issue whose
   title starts with `release:`. The workflow accepts only comments created by a
-  repository owner, organization member, or collaborator.
+  repository owner or organization member.
 - Codex may use the same issue-comment path or GitHub's manual workflow dispatch
   path.
 - Both paths run the exact accepted `main` commit. The job fails if `main` moves
@@ -44,9 +44,11 @@ initiated.
 
 The workflow validates source, tests, builds the ordinary Windows recovery
 candidate and unsigned OTA candidate, obtains a short-lived GitHub OIDC token,
-invokes the broker, verifies the returned signature against Studio's committed
-public trust root, and retains review artifacts. It does not publish a GitHub
-Release, deploy a Worker, upload `latest.json`, or advertise the release.
+invokes the broker, verifies every returned manifest field and signature against
+Studio's committed public trust root, and retains review artifacts. Third-party
+GitHub actions in the signing workflow are pinned to reviewed full commit SHAs.
+The workflow does not publish a GitHub Release, deploy a Worker, upload
+`latest.json`, or advertise the release.
 
 ## Production private-key custody
 
@@ -95,8 +97,9 @@ Changing the workflow therefore requires a separate broker allowlist update; a
 repository write alone cannot silently expand signing authority.
 
 The broker must reject retries that reuse a completed signing session or would
-overwrite an immutable object. Run id, run attempt, source commit, version,
-manifest digest, package digest, and session id belong in its audit record.
+overwrite an immutable object. Run id, run attempt, source commit, workflow SHA,
+version, manifest digest, package digest, and session id belong in its audit
+record.
 
 ## Broker release protocol
 
@@ -106,10 +109,10 @@ single signing request.
 
 ### 1. Prepare
 
-The workflow sends the unsigned manifest, exact unsigned-manifest digest, package
-SHA-256, package size, source commit, and GitHub run identity with its OIDC token.
-The broker validates the manifest and returns a short-lived, single-object upload
-URL for the exact package identity.
+The workflow sends the normalized unsigned manifest, its canonical SHA-256,
+package SHA-256, package size, source commit, workflow SHA, and GitHub run
+identity with its OIDC token. The broker validates the manifest and returns a
+short-lived, single-object upload URL for the exact package identity.
 
 The URL may point only to `uploads.sthang.app` or the account's R2 S3 endpoint.
 The client does not print it. It permits only a small allowlist of upload headers.
@@ -117,7 +120,8 @@ The client does not print it. It permits only a small allowlist of upload header
 ### 2. Upload and finalize
 
 The workflow streams the already verified package to the short-lived URL, then
-asks the broker to finalize the same session.
+asks the broker to finalize the same session with a fresh OIDC identity if the
+first token was not explicitly supplied for a test.
 
 Before signing, the broker must read the uploaded R2 object itself and verify:
 
@@ -126,12 +130,14 @@ Before signing, the broker must read the uploaded R2 object itself and verify:
 - package byte count and SHA-256 match the unsigned manifest and request;
 - product, platform, channel, version, immutable URL, setup declarations,
   compatibility, and bounded release notes satisfy Studio's protocol;
-- source commit and GitHub OIDC identity still match the prepared session.
+- source commit, workflow SHA, and GitHub OIDC identity still match the prepared
+  session.
 
-The broker signs the canonical unsigned manifest, writes the signed manifest and
-verification receipt as immutable versioned objects, then returns the exact
-signed-manifest bytes and receipt. The repository client independently verifies
-the signature, package identity, and receipt before retaining any output.
+The broker signs the canonical unsigned manifest without changing any reviewed
+field, writes the signed manifest and verification receipt as immutable versioned
+objects, then returns the exact signed-manifest bytes and receipt. The repository
+client independently verifies the signature, every unsigned manifest field,
+package identity, and receipt before retaining any output.
 
 ## Latest-pointer signing
 
