@@ -1,0 +1,56 @@
+name: Apply module-independent broker hashing fix
+
+on:
+  push:
+    branches:
+      - chatgpt/studio-ota-updater-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/studio-ota-updater-v2
+          fetch-depth: 0
+      - name: Patch broker hash implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/prepare-studio-update.ps1')
+          text = path.read_text(encoding='utf-8')
+          old = """function Get-Sha256([string]$Path) {
+            return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          """
+          new = """function Get-Sha256([string]$Path) {
+            $Hasher = [Security.Cryptography.SHA256]::Create()
+            $Stream = [IO.File]::OpenRead($Path)
+            try {
+              return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace('-', '').ToLowerInvariant()
+            } finally {
+              $Stream.Dispose()
+              $Hasher.Dispose()
+            }
+          }
+          """
+          if text.count(old) != 1:
+              raise SystemExit('Expected Get-Sha256 block was not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          rm .github/workflows/fix-prepare-hashing.yml
+          git diff --check
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/prepare-studio-update.ps1 .github/workflows/fix-prepare-hashing.yml
+          git commit -m "fix(updater): make broker hashing module-independent"
+          git push origin HEAD:chatgpt/studio-ota-updater-v2
