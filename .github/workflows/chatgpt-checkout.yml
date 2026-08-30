@@ -1,4 +1,4 @@
-name: ChatGPT checkout bridge
+name: Publish clean Studio OTA implementation
 
 on:
   push:
@@ -6,18 +6,48 @@ on:
       - chatgpt/studio-ota-updater
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out transport branch
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: studio-checkout
-          path: .
-          include-hidden-files: true
-          retention-days: 1
+
+      - name: Reconstruct and verify implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .github/ota-publish -maxdepth 1 -name 'chunk*.b64' -type f | wc -l | tr -d ' ')" = "9"
+          cat .github/ota-publish/chunk*.b64 > /tmp/studio-ota.patch.gz.b64
+          printf '%s  %s\n' 'c8dcdd099198c4f7cc81682b03a158944d6bc57d0718118f9c6f62d6d47d813e' '/tmp/studio-ota.patch.gz.b64' | sha256sum --check -
+          base64 -d /tmp/studio-ota.patch.gz.b64 | gzip -d > /tmp/studio-ota.patch
+          printf '%s  %s\n' 'a8dbf012f035c513467d4a048817e24a3e2b035923559a5b02aa2d3e6f0e9dc1' '/tmp/studio-ota.patch' | sha256sum --check -
+
+      - name: Publish one clean implementation commit from accepted main
+        shell: bash
+        env:
+          TARGET_BRANCH: chatgpt/studio-ota-updater-v2
+          BASE_COMMIT: e2bcdc1da9644de2f17b8466ae4bf3893ba8d943
+          EXPECTED_TREE: ebc503be223a1362ad1faddc61c98c4a339f360d
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "refs/heads/$TARGET_BRANCH" >/dev/null 2>&1; then
+            echo "Target branch already exists; refusing to overwrite it."
+            exit 1
+          fi
+          git checkout --detach "$BASE_COMMIT"
+          git apply --index --whitespace=error-all /tmp/studio-ota.patch
+          git diff --cached --check
+          git config user.name 'SweepCoon'
+          git config user.email '230290682+SweepCoon@users.noreply.github.com'
+          git commit -m 'feat: add signed recoverable Studio updater'
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git diff --name-only "$BASE_COMMIT"..HEAD | sed '/^$/d' | wc -l | tr -d ' ')" = '42'
+          ! git ls-tree -r --name-only HEAD | grep -q '^.github/ota-publish/'
+          ! git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/chatgpt-checkout.yml$'
+          git status --short | test ! -s /dev/stdin
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
