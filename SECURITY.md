@@ -44,6 +44,19 @@ Do not place a production private key, Cloudflare credential, R2 credential, or
 release-signing secret in source, issues, Actions logs, release notes, or test
 fixtures.
 
+Production signing is designed around a dedicated external broker and short-lived
+GitHub Actions OIDC identities. The Studio workflow and its agents receive only a
+signed manifest and verification receipt. They must never receive the private
+key, a reusable signing bearer token, or an R2/Cloudflare credential. See
+`docs/UPDATE-SIGNING-CUSTODY.md` for the required workflow, broker, recovery-copy,
+rotation, and audit boundaries.
+
+Treat any way to make the broker sign arbitrary bytes, bypass its repository,
+workflow, environment, source-commit, immutable-object, or replay checks, or
+expose its private key through errors or logs as a critical update-supply-chain
+issue. A repository workflow change alone must not silently expand broker trust;
+the broker must maintain a reviewed workflow-byte or workflow-hash allowlist.
+
 Versioned update manifests and packages are intended to be immutable. Report any
 way to bypass signature/hash verification, redirect outside
 `updates.sthang.app`, traverse or overwrite local paths, replace runtime/user
