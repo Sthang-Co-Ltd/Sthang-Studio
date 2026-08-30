@@ -26,6 +26,35 @@ The mutable pointer and immutable version manifest are both Ed25519-signed. Vers
 
 `npm run package:ota` creates an unsigned local candidate only. `scripts/update-release.mjs` signs, verifies, and creates a promotable pointer from an externally held key; it does not upload or deploy anything. The tooling refuses signing while the trust root is unprovisioned or when the external private key does not match the committed public key.
 
+## Agent-safe signing invocation
+
+Production signing must not require the owner to paste a private key into ChatGPT,
+Codex, a shell session, or a GitHub issue. Studio therefore uses a brokered signing
+contract documented in [UPDATE-SIGNING-CUSTODY.md](UPDATE-SIGNING-CUSTODY.md).
+
+The private key remains behind a dedicated signing broker. The repository's
+manual `.github/workflows/studio-ota-sign.yml` job obtains a short-lived GitHub
+OIDC identity, uploads an already verified immutable package through a
+single-purpose broker session, and accepts only a signed manifest and matching
+receipt that verify against Studio's committed public key.
+
+ChatGPT chat mode can request the workflow by adding the exact
+`/studio-ota-sign` command to an authorized open `release:` issue. Codex may use
+the same path or manual workflow dispatch. Neither agent receives a private key,
+Cloudflare API token, reusable signing token, or R2 credential.
+
+The workflow remains fail-closed until all of these separately approved settings
+exist:
+
+- a provisioned Studio public trust root;
+- the `studio-release-signing` GitHub environment restricted to `main`;
+- the non-secret `STHANG_STUDIO_SIGNER_URL` environment variable;
+- a deployed broker whose OIDC and workflow allowlist match the reviewed source;
+- durable working and recovery custody for the Studio-specific private key.
+
+The workflow only prepares and retains a signed candidate. It does not publish a
+GitHub Release, deploy infrastructure, or promote `latest.json`.
+
 ## Staging, activation, and rollback
 
 The existing installation root remains `%LOCALAPPDATA%\Sthang Studio\app`. Runtime/user state remains at its existing stable paths. OTA packages are forbidden from containing `data`, `uploads`, `exports`, `node_modules`, `.venv`, `.env`, update state, version directories, or release artifacts.
