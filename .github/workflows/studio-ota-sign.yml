@@ -9,11 +9,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: studio-ota-sign-${{ github.run_id }}
+  group: studio-ota-sign-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
-  sign:
+  build:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'issue_comment' &&
@@ -25,28 +25,30 @@ jobs:
        contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))
     runs-on: windows-latest
     timeout-minutes: 90
-    environment: studio-release-signing
     permissions:
       contents: read
-      id-token: write
-      issues: write
+      issues: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
 
     steps:
+      - name: Require repository write permission
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_ACTOR: ${{ github.event.comment.user.login || github.actor }}
+        run: |
+          if (-not $env:REQUEST_ACTOR) { throw 'The Studio release requester is missing.' }
+          $Permission = (gh api "repos/$env:GITHUB_REPOSITORY/collaborators/$env:REQUEST_ACTOR/permission" --jq '.permission').Trim()
+          if ($LASTEXITCODE -ne 0 -or $Permission -notin @('admin', 'write')) {
+            throw 'Studio release signing requires repository write permission.'
+          }
+
       - name: Check out the exact accepted commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Authorize the release trigger
-        shell: pwsh
-        run: node scripts/update-signer-client.mjs authorize-trigger --event $env:GITHUB_EVENT_PATH
 
       - name: Require the current accepted main commit
         shell: pwsh
@@ -58,7 +60,13 @@ jobs:
             throw 'Main changed after this signing request. Start a new request from the new accepted commit.'
           }
           git diff --exit-code
-          if ($LASTEXITCODE -ne 0) { throw 'The signing checkout is not clean.' }
+          if ($LASTEXITCODE -ne 0) { throw 'The release checkout is not clean.' }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
 
       - name: Install the locked dependency graph
         run: npm ci --include=dev --no-audit --no-fund
@@ -79,28 +87,30 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { throw 'Production build failed.' }
 
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Check local timing worker syntax
+        run: python -m py_compile local-timing/worker.py
+
       - name: Resolve version and committed release notes
         id: release
         shell: pwsh
         run: |
-          $Version = (& node -p "require('./package.json').version").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $Version) { throw 'Could not read the Studio release version.' }
+          $Version = (& node -e "const v=require('./package.json').version; const r=/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/; if(typeof v!=='string'||!r.test(v)) process.exit(2); process.stdout.write(v);").Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $Version) { throw 'package.json does not contain a valid release version.' }
           $Notes = Join-Path $PWD "release-notes\v$Version.txt"
           if (-not (Test-Path -LiteralPath $Notes)) {
             throw "Commit bounded release notes at release-notes/v$Version.txt before requesting a signature."
           }
-          if (git tag --list "v$Version") {
-            throw "Tag v$Version already exists. Release signing is create-only."
-          }
+          $ExistingTag = (git tag --list "v$Version").Trim()
+          if ($ExistingTag) { throw "Tag v$Version already exists. Release signing is create-only." }
           "version=$Version" >> $env:GITHUB_OUTPUT
           "notes=$Notes" >> $env:GITHUB_OUTPUT
-          "ota_package=release-artifacts\Sthang-Studio-OTA-v$Version.zip" >> $env:GITHUB_OUTPUT
-          "unsigned_manifest=release-artifacts\Sthang-Studio-OTA-v$Version.release.unsigned.json" >> $env:GITHUB_OUTPUT
-          "signed_manifest=release-artifacts\Sthang-Studio-OTA-v$Version.release.json" >> $env:GITHUB_OUTPUT
-          "broker_receipt=release-artifacts\Sthang-Studio-OTA-v$Version.release.broker-receipt.json" >> $env:GITHUB_OUTPUT
-          "local_receipt=release-artifacts\Sthang-Studio-OTA-v$Version.release.local-receipt.json" >> $env:GITHUB_OUTPUT
 
-      - name: Package the manual recovery and unsigned OTA candidates
+      - name: Package unsigned candidates
         shell: pwsh
         run: |
           npm run package:windows -- -SkipValidation
@@ -108,43 +118,153 @@ jobs:
           npm run package:ota -- -SkipValidation -ReleaseNotesFile "${{ steps.release.outputs.notes }}"
           if ($LASTEXITCODE -ne 0) { throw 'Unsigned OTA packaging failed.' }
 
-      - name: Request the external Studio signature
+          $Version = '${{ steps.release.outputs.version }}'
+          $Input = Join-Path $PWD 'signing-input'
+          New-Item -ItemType Directory -Path $Input -Force | Out-Null
+          Copy-Item -LiteralPath "release-artifacts\Sthang-Studio-Windows-v$Version.zip" -Destination (Join-Path $Input 'manual-windows.zip')
+          Copy-Item -LiteralPath "release-artifacts\Sthang-Studio-Windows-v$Version.zip.sha256" -Destination (Join-Path $Input 'manual-windows.zip.sha256')
+          Copy-Item -LiteralPath "release-artifacts\Sthang-Studio-OTA-v$Version.zip" -Destination (Join-Path $Input 'package.zip')
+          Copy-Item -LiteralPath "release-artifacts\Sthang-Studio-OTA-v$Version.zip.sha256" -Destination (Join-Path $Input 'package.zip.sha256')
+          Copy-Item -LiteralPath "release-artifacts\Sthang-Studio-OTA-v$Version.release.unsigned.json" -Destination (Join-Path $Input 'release.unsigned.json')
+
+      - name: Re-check accepted main after packaging
+        shell: pwsh
+        run: |
+          git fetch --no-tags origin main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not refresh accepted main.' }
+          $Main = (git rev-parse origin/main).Trim()
+          if ($Main -ne $env:GITHUB_SHA) {
+            throw 'Main changed during release preparation. Start a new request from the new accepted commit.'
+          }
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Release packaging changed tracked source.' }
+
+      - name: Retain fixed unsigned inputs for the isolated signer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: studio-ota-unsigned-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 2
+          path: signing-input
+
+  sign:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: studio-release-signing
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      issues: write
+
+    steps:
+      - name: Check out only the reviewed signing client
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/workflows/studio-ota-sign.yml
+            config/update-trust-root.json
+            scripts/update-protocol.mjs
+            scripts/update-signer-client.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Verify the signer implementation before execution
+        shell: pwsh
+        run: |
+          $Expected = @{
+            'scripts/update-signer-client.mjs' = '26a98340312c85ff4f806c1a08d8bccdb24d581f'
+            'scripts/update-protocol.mjs' = '8f66f19d3cccc077f8492cceddb34191f3ad16fb'
+          }
+          foreach ($Entry in $Expected.GetEnumerator()) {
+            $Actual = (git hash-object -- $Entry.Key).Trim()
+            if ($LASTEXITCODE -ne 0 -or $Actual -ne $Entry.Value) {
+              throw "The reviewed Studio signing implementation changed: $($Entry.Key)"
+            }
+          }
+          $Unexpected = git status --porcelain --untracked-files=all
+          if ($LASTEXITCODE -ne 0 -or $Unexpected) { throw 'The isolated signing checkout is not clean.' }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Authorize the exact release trigger
+        shell: pwsh
+        run: node scripts/update-signer-client.mjs authorize-trigger --event $env:GITHUB_EVENT_PATH
+
+      - name: Download the fixed unsigned inputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: studio-ota-unsigned-${{ github.sha }}
+          path: signing-input
+
+      - name: Verify the isolated input boundary
+        shell: pwsh
+        run: |
+          $Expected = @(
+            'manual-windows.zip',
+            'manual-windows.zip.sha256',
+            'package.zip',
+            'package.zip.sha256',
+            'release.unsigned.json'
+          ) | Sort-Object
+          $Actual = Get-ChildItem -LiteralPath 'signing-input' -Recurse -File | ForEach-Object {
+            [IO.Path]::GetRelativePath((Resolve-Path 'signing-input').Path, $_.FullName).Replace('\', '/')
+          } | Sort-Object
+          if (Compare-Object $Expected $Actual) { throw 'The unsigned signing artifact contains unexpected files.' }
+
+      - name: Require accepted main immediately before signing
+        shell: pwsh
+        run: |
+          git fetch --no-tags origin main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not refresh accepted main.' }
+          $Main = (git rev-parse origin/main).Trim()
+          if ($Main -ne $env:GITHUB_SHA) {
+            throw 'Main changed before signing. Start a new request from the new accepted commit.'
+          }
+
+      - name: Request and independently verify the Studio signature
         shell: pwsh
         env:
           STHANG_STUDIO_SIGNER_URL: ${{ vars.STHANG_STUDIO_SIGNER_URL }}
         run: |
+          New-Item -ItemType Directory -Path 'signed-output' -Force | Out-Null
           node scripts/update-signer-client.mjs sign-release `
-            --manifest "${{ steps.release.outputs.unsigned_manifest }}" `
-            --package "${{ steps.release.outputs.ota_package }}" `
-            --signed-manifest "${{ steps.release.outputs.signed_manifest }}" `
-            --receipt "${{ steps.release.outputs.broker_receipt }}" `
-            --trust-root config/update-trust-root.json
+            --manifest 'signing-input\release.unsigned.json' `
+            --package 'signing-input\package.zip' `
+            --signed-manifest 'signed-output\release.json' `
+            --broker-attestation 'signed-output\broker-attestation.json' `
+            --local-receipt 'signed-output\local-receipt.json' `
+            --trust-root 'config\update-trust-root.json'
           if ($LASTEXITCODE -ne 0) { throw 'The external signing broker refused or failed the release.' }
 
-      - name: Independently verify the returned signature and package
+      - name: Re-check accepted main and assemble review evidence
         shell: pwsh
         run: |
-          node scripts/update-release.mjs verify-release `
-            --manifest "${{ steps.release.outputs.signed_manifest }}" `
-            --package "${{ steps.release.outputs.ota_package }}" `
-            --receipt "${{ steps.release.outputs.local_receipt }}"
-          if ($LASTEXITCODE -ne 0) { throw 'Independent signed-release verification failed.' }
+          git fetch --no-tags origin main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not refresh accepted main.' }
+          $Main = (git rev-parse origin/main).Trim()
+          if ($Main -ne $env:GITHUB_SHA) {
+            Remove-Item -LiteralPath 'signed-output' -Recurse -Force -ErrorAction SilentlyContinue
+            throw 'Main changed during signing. The returned candidate will not be retained.'
+          }
+          Copy-Item -LiteralPath 'signing-input\manual-windows.zip' -Destination 'signed-output\manual-windows.zip'
+          Copy-Item -LiteralPath 'signing-input\manual-windows.zip.sha256' -Destination 'signed-output\manual-windows.zip.sha256'
+          Copy-Item -LiteralPath 'signing-input\package.zip' -Destination 'signed-output\package.zip'
+          Copy-Item -LiteralPath 'signing-input\package.zip.sha256' -Destination 'signed-output\package.zip.sha256'
+          Copy-Item -LiteralPath 'signing-input\release.unsigned.json' -Destination 'signed-output\release.unsigned.json'
 
       - name: Retain the signed candidate as review evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Sthang-Studio-v${{ steps.release.outputs.version }}-signed-candidate
+          name: Sthang-Studio-v${{ needs.build.outputs.version }}-signed-candidate
           if-no-files-found: error
           retention-days: 14
-          path: |
-            release-artifacts/Sthang-Studio-Windows-v${{ steps.release.outputs.version }}.zip
-            release-artifacts/Sthang-Studio-Windows-v${{ steps.release.outputs.version }}.zip.sha256
-            release-artifacts/Sthang-Studio-OTA-v${{ steps.release.outputs.version }}.zip
-            release-artifacts/Sthang-Studio-OTA-v${{ steps.release.outputs.version }}.zip.sha256
-            release-artifacts/Sthang-Studio-OTA-v${{ steps.release.outputs.version }}.release.unsigned.json
-            release-artifacts/Sthang-Studio-OTA-v${{ steps.release.outputs.version }}.release.json
-            release-artifacts/Sthang-Studio-OTA-v${{ steps.release.outputs.version }}.release.broker-receipt.json
-            release-artifacts/Sthang-Studio-OTA-v${{ steps.release.outputs.version }}.release.local-receipt.json
+          path: signed-output
 
       - name: Report the candidate on its release issue
         if: github.event_name == 'issue_comment'
@@ -152,13 +272,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
           $Body = @"
           Signed Studio OTA candidate v$env:RELEASE_VERSION was prepared from commit `$env:GITHUB_SHA`.
 
           Workflow run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
 
-          The run retained the signed manifest, immutable-package candidate, broker receipt, independent local receipt, and GitHub manual-recovery candidate as review artifacts. Nothing was published, deployed, or promoted to `latest.json`.
+          The run retained the signed manifest, Studio-key-signed broker attestation, independent local receipt, immutable-package candidate, and GitHub manual-recovery candidate as review artifacts. Nothing was published, deployed, or promoted to `latest.json`.
           "@
           $Body | gh issue comment $env:ISSUE_NUMBER --body-file -
