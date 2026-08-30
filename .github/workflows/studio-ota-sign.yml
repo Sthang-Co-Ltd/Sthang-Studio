@@ -22,7 +22,7 @@ jobs:
        github.event.issue.state == 'open' &&
        startsWith(github.event.issue.title, 'release:') &&
        github.event.comment.body == '/studio-ota-sign' &&
-       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+       contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))
     runs-on: windows-latest
     timeout-minutes: 90
     environment: studio-release-signing
@@ -33,13 +33,13 @@ jobs:
 
     steps:
       - name: Check out the exact accepted commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -131,7 +131,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent signed-release verification failed.' }
 
       - name: Retain the signed candidate as review evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Sthang-Studio-v${{ steps.release.outputs.version }}-signed-candidate
           if-no-files-found: error
