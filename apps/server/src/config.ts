@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const rootDir = path.resolve(here, '../../..');
+export const stateRootDir = path.resolve(process.env.STHANG_STUDIO_STATE_ROOT || rootDir);
+const environmentFile = process.env.STHANG_STUDIO_ENV_FILE || path.join(stateRootDir, 'apps', 'server', '.env');
 
-dotenv.config({ path: path.join(rootDir, 'apps', 'server', '.env') });
+dotenv.config({ path: environmentFile });
 
 const defaultVenvPython = process.platform === 'win32'
   ? path.join(rootDir, '.venv', 'Scripts', 'python.exe')
@@ -55,16 +57,18 @@ export const config = {
   ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
   ffprobePath: process.env.FFPROBE_PATH || 'ffprobe',
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 500),
-  uploadDir: path.join(rootDir, 'uploads'),
-  workingDir: path.join(rootDir, 'data', 'working'),
-  exportDir: path.join(rootDir, 'exports'),
-  dataFile: path.join(rootDir, 'data', 'projects.json'),
-  profileFile: path.join(rootDir, 'data', 'profile.json'),
-  cacheDir: path.join(rootDir, 'data', 'cache'),
-  historyDir: path.join(rootDir, 'data', 'history'),
-  proposalDir: path.join(rootDir, 'data', 'proposals'),
-  jobsFile: path.join(rootDir, 'data', 'jobs.json'),
+  uploadDir: path.join(stateRootDir, 'uploads'),
+  workingDir: path.join(stateRootDir, 'data', 'working'),
+  exportDir: path.join(stateRootDir, 'exports'),
+  dataFile: path.join(stateRootDir, 'data', 'projects.json'),
+  profileFile: path.join(stateRootDir, 'data', 'profile.json'),
+  cacheDir: path.join(stateRootDir, 'data', 'cache'),
+  historyDir: path.join(stateRootDir, 'data', 'history'),
+  proposalDir: path.join(stateRootDir, 'data', 'proposals'),
+  jobsFile: path.join(stateRootDir, 'data', 'jobs.json'),
   localTimingWorker: path.join(rootDir, 'local-timing', 'worker.py'),
+  updateDir: path.join(stateRootDir, 'updates'),
+  versionsDir: path.join(stateRootDir, 'versions'),
   rangeContextPaddingMs: Math.max(250, Math.min(5000, Number(process.env.RANGE_CONTEXT_PADDING_MS || 1200))),
 };
 

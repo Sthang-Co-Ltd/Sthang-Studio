@@ -6,6 +6,7 @@ import {
   KeyRound,
   ListTodo,
   MoreHorizontal,
+  RefreshCw,
   Replace,
   Search,
   Settings2,
@@ -23,6 +24,7 @@ interface WorkspaceToolsMenuProps {
   onCorrections(): void;
   onReplace(): void;
   onSettings(): void;
+  onUpdates(): void;
 }
 
 export function WorkspaceToolsMenu({
@@ -37,6 +39,7 @@ export function WorkspaceToolsMenu({
   onCorrections,
   onReplace,
   onSettings,
+  onUpdates,
 }: WorkspaceToolsMenuProps) {
   const details = useRef<HTMLDetailsElement | null>(null);
   useEffect(() => {
@@ -81,6 +84,7 @@ export function WorkspaceToolsMenu({
         <span>Project and setup</span>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>Replace media</b><small>{replaceDisabled ? 'Wait for the active job to finish' : 'Use a newer CapCut export'}</small></span></button>
         <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Quick guide</b><small>See the simple first workflow</small></span></button>
+        <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>Check for updates</b><small>Review signed Studio releases</small></span></button>
         <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>Settings</b><small>{llmConfigured ? 'Connected · profile and system' : 'Connection setup required'}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>
       </div>
     </div>

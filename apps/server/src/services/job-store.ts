@@ -273,6 +273,10 @@ await load();
 queueMicrotask(() => { void pump(); });
 
 export const jobStore = {
+  hasAnyActive() {
+    return jobs.some((job) => ['queued', 'running'].includes(job.status));
+  },
+
   hasActiveForProject(projectId: string) {
     return jobs.some((job) => job.projectId === projectId && ['queued', 'running'].includes(job.status));
   },

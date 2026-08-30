@@ -35,6 +35,7 @@ import {
   LockKeyhole,
   Play,
   RotateCcw,
+  RefreshCw,
   Save,
   Settings2,
   ShieldCheck,
@@ -56,6 +57,7 @@ import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
 import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
+import { UpdatePanel } from './components/UpdatePanel';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
 import './styles.css';
@@ -156,6 +158,7 @@ export default function App() {
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showJobs, setShowJobs] = useState(false);
+  const [showUpdates, setShowUpdates] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<ProjectHistoryEntry[]>([]);
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
   const [proposal, setProposal] = useState<RegenerationProposal | null>(null);
@@ -600,8 +603,8 @@ export default function App() {
       if (event.key === 'Escape') {
         if (proposal) { setProposal(null); return; }
         if (showGuide) { setShowGuide(false); return; }
-        if (showCorrections || showProfile || showFindReplace || showHistory || showJobs) {
-          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); setShowHistory(false); setShowJobs(false); return;
+        if (showCorrections || showProfile || showFindReplace || showHistory || showJobs || showUpdates) {
+          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); setShowHistory(false); setShowJobs(false); setShowUpdates(false); return;
         }
         if (workspaceTool) { setWorkspaceTool(null); setReviewMode(false); return; }
         return;
@@ -1008,6 +1011,7 @@ export default function App() {
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={() => setShowHistory(false)} onRefresh={() => { if (project) void api.history(project.id).then(setHistoryEntries); }} onRestore={(id) => void restoreHistory(id)}/>
     <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
+    <UpdatePanel open={showUpdates} safety={{ dirty, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}
       project={project}
@@ -1042,6 +1046,7 @@ export default function App() {
       <button onClick={() => setShowGuide(true)} title="Open the beginner guide"><HelpCircle size={16}/>Guide</button>
       {activeJobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity<b>{activeJobs.length}</b></button>}
       {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
+      <button onClick={() => setShowUpdates(true)} title="Review signed Studio updates"><RefreshCw size={16}/>Check for updates</button>
       <button className={llmSettings?.configured ? '' : 'setup-needed'} title="Connection, profile, and system check" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
     </div>
     {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI once</strong><span>Paste your key in Settings. Studio saves it securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
@@ -1071,6 +1076,7 @@ export default function App() {
           onCorrections={() => setShowCorrections(true)}
           onReplace={() => replaceInput.current?.click()}
           onSettings={() => openSettings('ai')}
+          onUpdates={() => setShowUpdates(true)}
         />
         <button className="save-action" disabled={!dirty || !!busy} title={dirty ? 'Save changes' : 'All changes saved'} onClick={() => void saveDraft(false, 'manual-save', true)}><Save size={16}/><span>{dirty ? 'Save' : 'Saved'}</span></button>
         <button className={`primary ${draft.length ? '' : 'disabled'}`} title="Export for CapCut" disabled={!draft.length || !!busy} onClick={exportSrt}><Download size={16}/><span>Export SRT</span></button>

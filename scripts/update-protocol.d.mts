@@ -1,0 +1,24 @@
+export const UPDATE_HOST: string;
+export const UPDATE_BASE_PATH: string;
+export const LATEST_PATH: string;
+export const ED25519_SPKI_PREFIX: Buffer;
+export const HEX_64: RegExp;
+export const VERSION_PATTERN: RegExp;
+export const MAX_PACKAGE_BYTES: number;
+export const MAX_UNPACKED_BYTES: number;
+export class UpdateProtocolError extends Error {}
+export function exactVersion(value: unknown, label?: string): string;
+export function canonicalJson(value: unknown): string;
+export function sha256(value: string | Buffer | Uint8Array): string;
+export function unsignedDocument(value: Record<string, unknown>): Record<string, unknown>;
+export function compareVersions(left: string, right: string): number;
+export function sanitizeReleaseNotes(value: unknown): string;
+export function assertLatestEndpoint(raw: string): string;
+export function assertImmutableUpdateUrl(raw: string, version: string, label?: string): string;
+export function validateTrustRoot(value: unknown): Record<string, unknown>;
+export function verifySignedJson(value: Record<string, unknown>, trust: unknown): unknown;
+export function validateLatestPointer(value: unknown, trust: unknown, options?: { verifySignature?: boolean }): Record<string, unknown>;
+export function validateReleaseManifest(value: unknown, trust: unknown, options?: { verifySignature?: boolean }): Record<string, unknown>;
+export function validateReleaseReceipt(value: unknown, trust: unknown): Record<string, unknown>;
+export function publicKeyHexFromKey(key: import('node:crypto').KeyObject): string;
+export function signDocument(value: Record<string, unknown>, privateKey: import('node:crypto').KeyObject, keyId: string): Record<string, unknown>;

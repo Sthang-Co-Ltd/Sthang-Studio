@@ -111,13 +111,37 @@ layout into per-project atomic files to reduce repeated disk I/O. Existing proje
 data is preserved during migration; the legacy project source/history files are
 not silently discarded as part of the migration itself.
 
+## Update checks (unreleased source architecture)
+
+The current source contains a signed updater designed for the Sthang-controlled
+host `updates.sthang.app`, but its committed trust root is unprovisioned. In that
+state Studio fails closed and does not contact the update service.
+
+In a future separately approved and released build with a provisioned Studio
+public verification key, Studio may make one update-metadata request per browser
+session/startup and additional requests only when you choose **Check for
+updates**. The request uses the public update URL and ordinary HTTPS metadata
+such as the source IP address and request headers. Studio does not send projects,
+captions, media, exports, correction memory, history, the Gemini API key, a
+license, an enrollment record, D1/device credentials, or a Sthang analytics
+identifier to check for an update. The installed version is compared locally;
+the public package URL reveals the chosen public version only after you confirm a
+download.
+
+Studio downloads a signed update package only after explicit confirmation and
+installs it only after a second explicit confirmation. A failed update-service
+request is non-destructive and does not affect caption work on the installed
+version. See `docs/OTA-UPDATES.md` for the unreleased protocol and production
+gates.
+
 ## Telemetry
 
 The application does not include a separate Sthang analytics or
 telemetry service. Processing-stage timing measurements are stored only as local
 job diagnostics; they are not sent to Sthang or another analytics provider.
 Network access is used for configured Gemini requests, package/model installation
-or download, and any links the user chooses to open.
+or download, the separately disclosed update checks above when provisioned, and
+any links the user chooses to open.
 
 ## Deleting local data
 

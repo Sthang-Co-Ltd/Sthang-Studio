@@ -3,13 +3,13 @@ setlocal
 cd /d "%~dp0"
 title Sthang Studio
 
-REM Keep the desktop branding in sync after upgrades.
+REM Keep the desktop branding in sync after manual installs and signed updates.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\ensure-shortcut.ps1" >nul 2>nul
 
 echo.
 echo === Sthang Studio ===
 echo Captions workspace: fast review, precise timing and CapCut SRT.
-echo Project folder: "%CD%"
+echo Install folder: "%CD%"
 echo.
 
 where node >nul 2>nul || (
@@ -19,42 +19,27 @@ where node >nul 2>nul || (
   exit /b 1
 )
 
-if not exist "node_modules" (
-  echo ERROR: Sthang Studio setup is not finished.
-  echo Run INSTALL-NEW-PC.bat, then launch Sthang Studio again.
-  pause
-  exit /b 1
-)
-
-if not exist "apps\server\.env" (
-  echo Creating optional local settings file...
-  copy ".env.example" "apps\server\.env" >nul
-)
-
-if not exist ".venv\Scripts\python.exe" (
-  echo ERROR: Local caption timing is not installed yet.
-  echo Run INSTALL-NEW-PC.bat to finish setup, then launch Sthang Studio again.
+if not exist "scripts\launch-studio.ps1" (
+  echo ERROR: The Sthang Studio launcher is incomplete.
+  echo Run the current manual Windows installer to repair it.
   pause
   exit /b 1
 )
 
 echo AI connection: configure anytime inside Settings ^> AI connection.
-echo.
-echo Starting backend on http://localhost:8787
-echo Starting web app on http://localhost:5188
-echo Caption timing: local and ready after setup.
-echo IMPORTANT: Keep this window OPEN while using the app.
-echo.
-echo First caption generation may take longer while timing resources are prepared.
-echo This launcher avoids node_modules\.bin shims so paths containing ^& work.
+echo Starting local Studio services. Keep this window open while using the app.
 echo.
 
-node "scripts\dev.mjs"
-set EXITCODE=%errorlevel%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-studio.ps1"
+set "EXITCODE=%errorlevel%"
+
+REM Exit code 42 means the stable broker handed control to a verified new version.
+if "%EXITCODE%"=="42" exit /b 0
+
 echo.
 echo ============================================================
 echo Sthang Studio stopped. Exit code: %EXITCODE%
-echo If you did not intentionally stop it, copy the error above.
+echo If you did not intentionally stop it, copy the safe error above.
 echo ============================================================
 pause
 exit /b %EXITCODE%

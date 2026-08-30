@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-public-beta-v0-7-14",
+    "id": "studio-signed-updater-source-architecture",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Publish the 0.7.14 Beta download, checksum, installation guidance, and complete Gemini Files API retention disclosure."
+      "summary": "Document the unreleased signed Studio updater architecture, preserve the verified GitHub Release recovery path, and identify approval-gated production, HQ, and Distribution follow-up."
     },
     "releaseImpact": "version"
   },
@@ -164,14 +164,19 @@
       "paths": [
         "README.md",
         "packaging/windows/Read Me.txt",
-        "docs/PUBLIC-RELEASE-CHECKLIST.md"
+        "docs/PUBLIC-RELEASE-CHECKLIST.md",
+        "docs/OTA-UPDATES.md"
       ],
       "requiredTerms": [
         "Install Sthang Studio.bat",
         "%LOCALAPPDATA%\\Sthang Studio\\app",
         "delete this extracted setup folder",
         "Windows 10 or 11",
-        "Gemini API key"
+        "Gemini API key",
+        "updates.sthang.app",
+        "GitHub Release",
+        "explicit confirmation",
+        "rollback"
       ],
       "forbiddenTerms": [
         "Download ZIP is the installer",
@@ -182,13 +187,17 @@
       "paths": [
         "PRIVACY.md",
         "README.md",
-        "apps/server/src/services/gemini.ts"
+        "apps/server/src/services/gemini.ts",
+        "docs/OTA-UPDATES.md"
       ],
       "requiredTerms": [
         "Files API",
         "48 hours",
         "store: false",
-        "ai.files.upload"
+        "ai.files.upload",
+        "updates.sthang.app",
+        "ordinary HTTPS metadata",
+        "no license, authentication, D1 enrollment"
       ],
       "forbiddenTerms": [
         "Sthang Studio is fully offline",

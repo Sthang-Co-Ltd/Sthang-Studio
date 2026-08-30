@@ -57,6 +57,31 @@ locks, correction memory, or SRT output. They are **not** release evidence and
 should not be treated as part of the verified public Beta until a matching
 release is deliberately built and published.
 
+### Signed updates in source — not publicly enabled
+
+Current unreleased source also contains a Studio-native signed Windows updater
+designed around the existing `%LOCALAPPDATA%\Sthang Studio\app` installation.
+It checks at most once per browser session plus a manual **Check for updates**
+action, never polls continuously, and requires separate explicit confirmation
+before download and before installation.
+
+The proposed Sthang-controlled update origin is `updates.sthang.app`. Release
+metadata and immutable version packages are verified with a Studio-only Ed25519
+public trust root, staged before activation, prepared with version-local Node and
+Python dependencies, and health-checked after an atomic version switch. Failed
+or interrupted activation rolls back to the previous healthy version. Projects,
+media, captions, history, correction memory, jobs, exports, compatible caches,
+the `.env` fallback, and Windows-protected Gemini key storage remain in the
+stable state root.
+
+This source architecture is **not evidence that OTA updates are publicly
+available**. The committed trust-root slot is intentionally unprovisioned, no
+production private signing key exists in this repository, and no Cloudflare/R2
+service has been deployed by this change. The curated GitHub Release remains the
+public manual download and recovery path. See
+[`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and future release
+gates.
+
 ## Contributor development setup
 
 The following setup is for contributors building from source. It is development
@@ -186,6 +211,7 @@ Typical setup:
 npm ci --include=dev
 npm run test:public
 npm run check:public
+npm run test:updater
 npm run typecheck
 npm run build
 npm run dev
@@ -226,6 +252,12 @@ payload, and writes the ZIP plus SHA-256 file to ignored `release-artifacts/`.
 The resulting archive is the candidate GitHub Release asset; the repository
 source ZIP is not.
 
+On Windows, `npm run package:ota` creates an **unsigned, local-only** OTA
+candidate and protocol metadata under ignored `release-artifacts/`. It does not
+sign, upload, publish, deploy, or advance `latest.json`. See
+[`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) before using the separate release
+verification tooling.
+
 Pull requests are expected to pass the repository CI on both Windows and Linux.
 The build/typecheck flow also verifies the owner-approved Studio brand assets
 byte-for-byte.
@@ -247,6 +279,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
 - [`UX-AUDIT.md`](UX-AUDIT.md): historical UX findings and validation targets
 - [`PRIVACY.md`](PRIVACY.md) — local/cloud data flow and key handling
+- [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) — unreleased signed-update
+  protocol, rollback model, and production gates
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — dependency/model notices
 - [`TRADEMARKS.md`](TRADEMARKS.md) — Sthang name and brand-asset terms
 
