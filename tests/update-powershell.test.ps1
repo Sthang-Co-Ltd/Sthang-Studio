@@ -42,6 +42,12 @@ try {
 
   . (Join-Path $Root 'scripts\prepare-studio-update.ps1') -LibraryOnly
 
+  $HashFixture = Join-Path $TempRoot 'hash-fixture.bin'
+  [IO.File]::WriteAllBytes($HashFixture, [Text.Encoding]::ASCII.GetBytes('abc'))
+  Assert-True ((Get-Sha256 $HashFixture) -eq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'The broker SHA-256 implementation returned the wrong digest.'
+  $OtaPackager = Get-Content -LiteralPath (Join-Path $Root 'scripts\package-ota-release.ps1') -Raw
+  Assert-True ($OtaPackager -notmatch '\bGet-FileHash\b') 'The OTA packager must not depend on PowerShell module auto-loading for SHA-256.'
+
   $GoodZip = Join-Path $TempRoot 'good.zip'
   $GoodDest = Join-Path $TempRoot 'good'
   New-Item -ItemType Directory -Path $GoodDest -Force | Out-Null
