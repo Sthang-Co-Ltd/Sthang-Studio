@@ -72,6 +72,11 @@ function launch(name, args, cwd) {
   });
   child.on('exit', (code, signal) => {
     if (!stopping) {
+      if (name === 'server' && code === 42 && !signal) {
+        console.log('Studio is closing to apply a verified update.');
+        shutdown(42);
+        return;
+      }
       console.error(`[${name}] stopped unexpectedly${signal ? ` (${signal})` : ` with exit code ${code}`}.`);
       shutdown(code ?? 1);
     }

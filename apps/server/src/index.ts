@@ -5,6 +5,8 @@ import projects from './routes/projects.js';
 import profile from './routes/profile.js';
 import system from './routes/system.js';
 import jobs from './routes/jobs.js';
+import updates from './routes/updates.js';
+import { APP_VERSION } from './version.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
 import { prewarmLocalTiming } from './services/local-timing.js';
@@ -32,12 +34,13 @@ app.use('/api/projects', projects);
 app.use('/api/profile', profile);
 app.use('/api/system', system);
 app.use('/api/jobs', jobs);
+app.use('/api/updates', updates);
 app.get('/api/health', async (_req, res) => {
   try {
     const llm = await publicLlmSettings();
     res.json({
       ok: true,
-      engineVersion: '0.7.14',
+      engineVersion: APP_VERSION,
       geminiModel: llm.model,
       geminiFallbackModel: llm.fallbackModel || null,
       geminiMaxRetries: config.geminiMaxRetries,
@@ -60,6 +63,7 @@ app.get('/api/health', async (_req, res) => {
         inAppAiSettings: true,
         secureWindowsKeyStorage: true,
         minimalScrollbars: true,
+        signedUpdateArchitecture: true,
       },
       timing: {
         provider: 'local',
@@ -85,7 +89,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 app.listen(config.port, '127.0.0.1', () => {
   void resolveGeminiSettings().then((llm) => {
-    console.log(`Sthang Studio API v0.7.14 -> http://localhost:${config.port}`);
+    console.log(`Sthang Studio API v${APP_VERSION} -> http://localhost:${config.port}`);
     console.log(`Gemini: ${llm.configured ? `configured via ${llm.keySource}` : 'not configured — open Settings → AI connection'}`);
     console.log(`Gemini text model: ${llm.model}`);
     console.log(`Gemini resilience: ${config.geminiMaxRetries} retries/model · fallback ${llm.fallbackModel || 'disabled'}`);

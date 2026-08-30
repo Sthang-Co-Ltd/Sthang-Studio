@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "product": "sthang-studio",
+  "platform": "windows-x64",
+  "channel": "preview",
+  "endpoint": "https://updates.sthang.app/studio/windows/latest.json",
+  "keyId": "studio-updates-unprovisioned",
+  "publicKeyHex": "",
+  "provisioned": false,
+  "brokerVersion": "1.0.0"
+}

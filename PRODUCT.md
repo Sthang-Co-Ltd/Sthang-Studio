@@ -37,6 +37,10 @@ Everything else is secondary and should appear progressively, at the moment it b
 7. **Power without intimidation.** Advanced controls remain available, but one focused tool is shown at a time.
 8. **Errors explain recovery.** Messages name what failed and the exact next action.
 9. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text.
+10. **Updates never compete with caption work.** Check at most once per Studio
+    session plus an explicit manual action, require confirmation before download
+    and install, and block activation while editing, Review, regeneration, export,
+    or background processing is unsafe to interrupt.
 
 ## Success measures
 

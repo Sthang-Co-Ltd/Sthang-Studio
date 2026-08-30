@@ -64,6 +64,8 @@ try {
     'packages',
     'local-timing',
     'scripts',
+    'config',
+    'docs/OTA-UPDATES.md',
     '.sthang',
     '.env.example',
     'package.json',
@@ -161,9 +163,15 @@ try {
     $RequiredEntries = @(
       'Sthang Studio Files/.env.example',
       'Sthang Studio Files/.sthang/product-manifest.json',
+      'Sthang Studio Files/config/update-trust-root.json',
+      'Sthang Studio Files/docs/OTA-UPDATES.md',
       'Sthang Studio Files/INSTALL-NEW-PC.bat',
       'Sthang Studio Files/package-lock.json',
-      'Sthang Studio Files/scripts/install-release-package.ps1'
+      'Sthang Studio Files/scripts/install-release-package.ps1',
+      'Sthang Studio Files/scripts/launch-studio.ps1',
+      'Sthang Studio Files/scripts/prepare-studio-update.ps1',
+      'Sthang Studio Files/scripts/update-protocol.mjs',
+      'Sthang Studio Files/scripts/update-runtime.mjs'
     )
     foreach ($RequiredEntry in $RequiredEntries) {
       if ($RelativeEntries -notcontains $RequiredEntry) {

@@ -82,6 +82,45 @@ authorized maintainers handle the following handoff.
 
 This is an agent closeout requirement, not a background watcher or an automatic publisher. Passing `verify:manifest` or `check:public` does not establish that semantic public impact was assessed.
 
+## Signed Studio updater invariants
+
+The updater is Studio-native infrastructure around the existing Windows
+installation. Preserve all of these rules:
+
+- Keep `%LOCALAPPDATA%\\Sthang Studio\\app` as the stable installation and state
+  root. Do not migrate Studio to Tauri/Electron merely to gain an updater.
+- Studio updates are public and anonymous. Never add ACO licensing, D1
+  enrollment, device update credentials, per-user download tokens, or a Tauri
+  updater dependency.
+- Trust only Studio's own committed Ed25519 public verification key. Production
+  private signing material must remain outside the repository and requires
+  separate custody approval.
+- Versioned manifests and package objects are immutable. A mutable latest pointer
+  may advance only from an exact verification receipt after signature, manifest,
+  package size, and package hash checks pass.
+- Check no more than once per browser session/startup, plus an explicit manual
+  action. Never continuously poll, auto-download, or auto-install.
+- Re-fetch and verify the offered pointer and manifest immediately before install.
+  If either changed, stop and require the user to review the new offer.
+- Stage and fully verify before changing the active version. The legacy
+  delete-then-copy installer is a manual installation/recovery path, never the
+  OTA atomicity model.
+- Prepare reviewed Node and Python/local-timing dependencies in the new immutable
+  version before activation. Setup, build, or health failure must leave or restore
+  the previous active version.
+- Preserve projects, source media, captions, locks, history, correction memory,
+  jobs/checkpoints, proposals, exports, compatible caches, protected Gemini key
+  storage, and the `.env` fallback. OTA packages must not contain or replace
+  user/runtime state.
+- Keep the stable desktop shortcut and registered-default-browser behavior.
+  Validate the exact new API version and web service before discarding any
+  transaction marker; retain rollback and GitHub Release recovery material.
+- Release notes are bounded sanitized plain text. Browser-visible failures must
+  not expose raw hosting URLs, provider responses, secrets, or local paths.
+- Source implementation is not public-release evidence. Provisioning signing
+  custody, deploying `updates.sthang.app`/R2, promoting latest, publishing a
+  release, and HQ/Distribution synchronization remain separately approval-gated.
+
 ## UX and interaction invariants
 
 Sthang Studio is an **Operate** interface for a mixed beginner/power-user audience. Read `PRODUCT.md` and `DESIGN.md` before changing the frontend. Consult `UX-AUDIT.md` for historical findings; its scores and validation targets do not describe the current release.

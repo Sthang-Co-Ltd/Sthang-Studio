@@ -47,7 +47,7 @@ try {
   # remains untouched: data, uploads, exports, node_modules and .venv all live
   # outside these source directories. The optional advanced .env file is backed
   # up separately and restored even if source refresh fails partway through.
-  foreach ($name in @('apps', 'packages', 'local-timing', 'scripts')) {
+  foreach ($name in @('apps', 'packages', 'local-timing', 'scripts', 'config')) {
     $path = Join-Path $InstallRoot $name
     if (Test-Path -LiteralPath $path) {
       Remove-Item -LiteralPath $path -Recurse -Force
@@ -72,6 +72,20 @@ try {
   $ExitCode = $LASTEXITCODE
   if ($ExitCode -ne 0) {
     throw "Sthang Studio setup stopped with exit code $ExitCode."
+  }
+
+  # A deliberate manual install is also the recovery path. Only after the new
+  # root source and dependencies are known-good, clear OTA activation state so
+  # the desktop shortcut launches this manually installed version next time.
+  $UpdateRoot = Join-Path $InstallRoot 'updates'
+  foreach ($StateFile in @('active.json', 'transaction.json', 'pending-install.json', 'rollback.json', 'last-failure.json')) {
+    $StatePath = Join-Path $UpdateRoot $StateFile
+    if (Test-Path -LiteralPath $StatePath) {
+      Remove-Item -LiteralPath $StatePath -Force
+    }
+  }
+  if (Test-Path -LiteralPath (Join-Path $UpdateRoot 'active.json')) {
+    throw 'The manual installation finished, but the previous OTA activation pointer could not be cleared. Close Studio and run this installer again.'
   }
 
   Write-Host ''

@@ -12,6 +12,12 @@ INSTALL
 
 After installation completes, you can delete this extracted setup folder. Sthang Studio is installed into your Windows user profile and keeps its own app files there.
 
+UPDATES
+The verified public distribution and manual recovery path is the curated GitHub Release package.
+This source package may contain an unreleased signed-updater architecture for updates.sthang.app, but it is not evidence that OTA updates are publicly available.
+When a future signed updater is deliberately provisioned and released, Studio will check at most once per session plus a manual action and will require explicit confirmation before download and installation.
+Failed checks or rollback leave the installed version and local caption data usable.
+
 REQUIREMENTS
 - Windows 10 or 11, x64
 - Internet access during initial setup and AI transcription

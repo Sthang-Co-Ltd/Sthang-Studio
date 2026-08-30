@@ -90,6 +90,26 @@ export interface HealthResponse {
   };
 }
 
+
+export interface UpdateSafetySnapshot {
+  dirty: boolean;
+  textEditing: boolean;
+  reviewMode: boolean;
+  proposalOpen: boolean;
+  busy: boolean;
+  activeJobs: number;
+}
+
+export interface UpdateFailureNotice {
+  failedAt: string;
+  message: string;
+}
+
+export type UpdateStatus =
+  | { status: 'disabled'; currentVersion: string; message: string; lastFailure?: UpdateFailureNotice }
+  | { status: 'up-to-date'; currentVersion: string; lastFailure?: UpdateFailureNotice }
+  | { status: 'available'; currentVersion: string; offer: { version: string; publishedAt: string; releaseNotes: string; manifestDigest: string; downloaded: boolean }; lastFailure?: UpdateFailureNotice };
+
 export interface SaveCaptionsResponse {
   project: CaptionProject;
   correctionsCreated: number;
@@ -128,6 +148,9 @@ async function jobMutation<T>(operation: () => Promise<T>) {
 
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
+  updateStatus: () => request<UpdateStatus>('/api/updates'),
+  downloadUpdate: (manifestDigest: string, safety: UpdateSafetySnapshot) => request<{ version: string; downloaded: true }>('/api/updates/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manifestDigest, safety }) }),
+  installUpdate: (manifestDigest: string, safety: UpdateSafetySnapshot) => request<{ closing: true; version: string }>('/api/updates/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manifestDigest, safety }) }),
   doctor: () => request<SystemDoctorReport>('/api/system/doctor'),
   llmSettings: () => request<LlmSettingsStatus>('/api/system/llm-settings'),
   saveLlmSettings: (input: SaveLlmSettingsInput) => request<LlmSettingsStatus>('/api/system/llm-settings', {

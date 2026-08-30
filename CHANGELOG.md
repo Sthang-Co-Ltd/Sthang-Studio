@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Signed Studio updater architecture — not publicly enabled
+
+- Added a Studio-native signed Windows updater around the existing
+  `%LOCALAPPDATA%\\Sthang Studio\\app` installation instead of migrating the app
+  to Tauri or Electron.
+- Added a Studio-only Ed25519 trust root, signed mutable latest pointer, signed
+  immutable version manifests, byte/hash verification, bounded plain-text
+  release notes, and release tooling suitable for separately approved hosting
+  at `updates.sthang.app` and immutable Cloudflare R2 objects.
+- Added one non-blocking update check per browser session plus a manual **Check
+  for updates** action. Downloads and installs always require separate explicit
+  confirmation; Studio does not continuously poll, auto-download, or
+  auto-install.
+- Added staged package verification, safe ZIP extraction, isolated version-local
+  Node/Python dependency preparation, atomic active-version selection, exact
+  API/web health validation, startup recovery, and automatic rollback.
+- Kept projects, media, captions, locks, history, correction memory, processing
+  jobs/checkpoints, proposals, exports, compatible caches, the advanced `.env`
+  fallback, and Windows-protected Gemini key storage outside swappable source
+  versions.
+- Kept the curated GitHub Release package as the public manual download and
+  recovery path. The committed updater trust root remains deliberately
+  unprovisioned; no production signing key, Cloudflare deployment, release,
+  mutable pointer promotion, or public OTA claim is included.
+
 ### Repository maintenance
 
 - Reject forbidden paths in locally available Git history, including deleted

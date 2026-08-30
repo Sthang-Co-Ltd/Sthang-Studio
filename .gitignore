@@ -47,3 +47,8 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+
+# Signed updater runtime and prepared immutable versions
+updates/
+versions/
+.sthang-update-version.json

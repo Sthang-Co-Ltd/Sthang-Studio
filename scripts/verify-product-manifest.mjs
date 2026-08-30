@@ -89,8 +89,9 @@ const serverPackage = readJson('apps/server/package.json');
 const webPackage = readJson('apps/web/package.json');
 const sharedPackage = readJson('packages/shared/package.json');
 const lock = readJson('package-lock.json');
+const updateTrustRoot = readJson('config/update-trust-root.json');
 
-if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && lock) {
+if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && lock && updateTrustRoot) {
   const version = rootPackage.version;
   const tag = `v${version}`;
   const assetName = `Sthang-Studio-Windows-v${version}.zip`;
@@ -109,14 +110,16 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, `studio-public-beta-v${version.replaceAll('.', '-')}`, 'manifest.change.id');
+  equal(change.id, 'studio-signed-updater-source-architecture', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
-  if (typeof documentationImpact.summary !== 'string' || !documentationImpact.summary.trim()) {
-    errors.push('manifest.change.documentationImpact.summary must be a non-empty string');
-  }
+  equal(
+    documentationImpact.summary,
+    'Document the unreleased signed Studio updater architecture, preserve the verified GitHub Release recovery path, and identify approval-gated production, HQ, and Distribution follow-up.',
+    'manifest.change.documentationImpact.summary',
+  );
 
   const proposal = exactKeys(manifest.proposal, 'manifest.proposal', [
     'displayName',
@@ -302,7 +305,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   ]);
 
   const installation = exactKeys(evidence.installation, 'manifest.evidence.installation', ['paths', 'requiredTerms', 'forbiddenTerms']);
-  const installationPaths = ['README.md', 'packaging/windows/Read Me.txt', 'docs/PUBLIC-RELEASE-CHECKLIST.md'];
+  const installationPaths = ['README.md', 'packaging/windows/Read Me.txt', 'docs/PUBLIC-RELEASE-CHECKLIST.md', 'docs/OTA-UPDATES.md'];
   exactStringArray(installation.paths, 'manifest.evidence.installation.paths', installationPaths);
   exactStringArray(installation.requiredTerms, 'manifest.evidence.installation.requiredTerms', [
     'Install Sthang Studio.bat',
@@ -310,6 +313,10 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     'delete this extracted setup folder',
     'Windows 10 or 11',
     'Gemini API key',
+    'updates.sthang.app',
+    'GitHub Release',
+    'explicit confirmation',
+    'rollback',
   ]);
   exactStringArray(installation.forbiddenTerms, 'manifest.evidence.installation.forbiddenTerms', [
     'Download ZIP is the installer',
@@ -317,13 +324,16 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   ]);
 
   const evidenceDataProcessing = exactKeys(evidence.dataProcessing, 'manifest.evidence.dataProcessing', ['paths', 'requiredTerms', 'forbiddenTerms']);
-  const dataProcessingPaths = ['PRIVACY.md', 'README.md', 'apps/server/src/services/gemini.ts'];
+  const dataProcessingPaths = ['PRIVACY.md', 'README.md', 'apps/server/src/services/gemini.ts', 'docs/OTA-UPDATES.md'];
   exactStringArray(evidenceDataProcessing.paths, 'manifest.evidence.dataProcessing.paths', dataProcessingPaths);
   exactStringArray(evidenceDataProcessing.requiredTerms, 'manifest.evidence.dataProcessing.requiredTerms', [
     'Files API',
     '48 hours',
     'store: false',
     'ai.files.upload',
+    'updates.sthang.app',
+    'ordinary HTTPS metadata',
+    'no license, authentication, D1 enrollment',
   ]);
   exactStringArray(evidenceDataProcessing.forbiddenTerms, 'manifest.evidence.dataProcessing.forbiddenTerms', [
     'Sthang Studio is fully offline',
@@ -391,15 +401,45 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     ['package-lock apps/web @kcs/shared', lock.packages?.['apps/web']?.dependencies?.['@kcs/shared']],
   ]) equal(value, version, label);
 
-  const runtimeSurfaces = [
-    ['apps/server/src/index.ts', 2],
-    ['apps/server/src/services/doctor.ts', 1],
-  ];
-  for (const [relativePath, expectedCount] of runtimeSurfaces) {
-    const text = fs.readFileSync(path.join(root, relativePath), 'utf8');
-    const matches = text.match(new RegExp(version.replaceAll('.', '\\.'), 'g')) ?? [];
-    if (matches.length !== expectedCount) {
-      errors.push(`${relativePath} must contain runtime version ${version} exactly ${expectedCount} time(s); found ${matches.length}`);
+  const versionModule = fs.readFileSync(path.join(root, 'apps/server/src/version.ts'), 'utf8');
+  if (!versionModule.includes("path.join(rootDir, 'package.json')") || !versionModule.includes('export const APP_VERSION = readVersion()')) {
+    errors.push('apps/server/src/version.ts must derive APP_VERSION from the active version package.json');
+  }
+  const serverIndex = fs.readFileSync(path.join(root, 'apps/server/src/index.ts'), 'utf8');
+  if (!serverIndex.includes("import { APP_VERSION } from './version.js'") || !serverIndex.includes('engineVersion: APP_VERSION')) {
+    errors.push('apps/server/src/index.ts must expose the centralized APP_VERSION in health responses');
+  }
+  if (serverIndex.includes(`engineVersion: '${version}'`) || serverIndex.includes(`API v${version}`)) {
+    errors.push('apps/server/src/index.ts must not duplicate the package version as a hard-coded runtime literal');
+  }
+  const doctorText = fs.readFileSync(path.join(root, 'apps/server/src/services/doctor.ts'), 'utf8');
+  const doctorMatches = doctorText.match(new RegExp(version.replaceAll('.', '\\.'), 'g')) ?? [];
+  if (doctorMatches.length !== 1) {
+    errors.push(`apps/server/src/services/doctor.ts must contain runtime version ${version} exactly once; found ${doctorMatches.length}`);
+  }
+
+  const trust = exactKeys(updateTrustRoot, 'config/update-trust-root.json', [
+    'schemaVersion', 'product', 'platform', 'channel', 'endpoint', 'keyId', 'publicKeyHex', 'provisioned', 'brokerVersion',
+  ]);
+  equal(trust.schemaVersion, 1, 'update trust schemaVersion');
+  equal(trust.product, 'sthang-studio', 'update trust product');
+  equal(trust.platform, 'windows-x64', 'update trust platform');
+  equal(trust.channel, 'preview', 'update trust channel');
+  equal(trust.endpoint, 'https://updates.sthang.app/studio/windows/latest.json', 'update trust endpoint');
+  equal(trust.keyId, 'studio-updates-unprovisioned', 'update trust keyId');
+  equal(trust.publicKeyHex, '', 'update trust publicKeyHex');
+  equal(trust.provisioned, false, 'update trust provisioned');
+  equal(trust.brokerVersion, '1.0.0', 'update trust brokerVersion');
+
+  const otaDocs = fs.readFileSync(path.join(root, 'docs/OTA-UPDATES.md'), 'utf8');
+  for (const required of [
+    'not evidence that OTA updates are publicly available',
+    'no license, authentication, D1 enrollment',
+    'The committed trust root remains unprovisioned',
+    'GitHub Release',
+  ]) {
+    if (!otaDocs.toLowerCase().includes(required.toLowerCase())) {
+      errors.push(`docs/OTA-UPDATES.md must preserve unreleased updater truth: ${required}`);
     }
   }
 

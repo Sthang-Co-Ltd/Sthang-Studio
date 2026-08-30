@@ -31,6 +31,25 @@ Extra care is welcome around:
 - project/history/cache isolation;
 - command/process execution for FFmpeg and local timing;
 - dependency and model-download supply chain behavior.
+- signed update manifests, immutable package URLs, ZIP extraction, staged
+  dependency preparation, active-version pointers, health validation, and
+  rollback/recovery behavior.
+
+## Signed update trust
+
+The updater source uses a Studio-specific Ed25519 public trust root. The
+repository intentionally contains no production private signing key, and the
+current public-key slot remains unprovisioned until separate custody approval.
+Do not place a production private key, Cloudflare credential, R2 credential, or
+release-signing secret in source, issues, Actions logs, release notes, or test
+fixtures.
+
+Versioned update manifests and packages are intended to be immutable. Report any
+way to bypass signature/hash verification, redirect outside
+`updates.sthang.app`, traverse or overwrite local paths, replace runtime/user
+state, activate before dependency preparation succeeds, suppress rollback, or
+expose raw provider/path/secret details through the browser UI as a security
+issue using the private process above.
 
 ## Supported versions
 

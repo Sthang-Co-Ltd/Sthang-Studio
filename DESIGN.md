@@ -75,6 +75,12 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 ## Overlays and messages
 
 - Settings, history, jobs, and correction inbox use predictable side sheets.
+- Update availability and release notes use the same restrained side-sheet
+  language. The updater may surface a calm notice, but must never open itself or
+  cover active caption work automatically.
+- Keep **Check for updates** in secondary Home/Tools surfaces. Download and
+  install remain distinct labeled actions, and unsafe active work must be
+  explained before those actions can proceed.
 - Regeneration review stays docked beneath the video.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.

@@ -14,6 +14,43 @@ On 2026-08-28, the public [Studio page](https://sthang.app/studio/) advertised
 and website synchronization approvals in their owning repositories; this public
 document does not duplicate a pending/completed synchronization ledger.
 
+## Future signed updater release gates — not completed
+
+The source updater described in [`OTA-UPDATES.md`](OTA-UPDATES.md) is not a
+published feature and does not change the verified `v0.7.14` distribution record
+below. Before any release advertises or enables signed in-app updates:
+
+- [ ] Approve Studio-specific Ed25519 production-key generation and custody;
+      commit only the public verification key and verify that release tooling
+      fails closed without the external private key.
+- [ ] Approve and deploy `updates.sthang.app`, Cloudflare Worker/R2/DNS/cache
+      configuration, immutable version-object enforcement, and a mutable latest
+      pointer that can advance only from a matching verification receipt.
+- [ ] Build, sign, upload, download again, and independently verify the exact
+      version manifest and package bytes before pointer promotion.
+- [ ] Test upgrade from the current public Windows installation with changed
+      `package-lock.json`, Node dependencies, and Python/local-timing requirements.
+- [ ] Test dependency/setup failure before activation, interruption during
+      download/preparation, interruption before and after pointer replacement,
+      wrong-version/API/web health failure, automatic rollback, and subsequent
+      normal launch.
+- [ ] Confirm projects, media, captions, locks, history, correction memory,
+      jobs/checkpoints, proposals, exports, caches, the `.env` fallback, and
+      Windows-protected Gemini key storage are preserved.
+- [ ] Confirm the stable shortcut and registered default browser still work and
+      run a representative Khmer upload → generate → Review → CapCut SRT export
+      after the update.
+- [ ] Publish and retain the matching curated GitHub Release as the manual
+      download/recovery path.
+- [ ] Complete separately approved HQ intake and Distribution `/studio/`
+      synchronization using exact release/deployment evidence. The current HQ
+      schema supports only manual GitHub updates or private signed OTA, so public
+      anonymous signed OTA needs an approved schema/model extension rather than
+      being mislabeled as private.
+
+Until all applicable gates pass, the committed trust root must remain
+unprovisioned and public documentation must not claim OTA availability.
+
 ## Repository readiness
 
 - [x] Software license added.
