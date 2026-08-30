@@ -95,6 +95,7 @@ test('atomic JSON replacement never exposes partial JSON to readers', async () =
     const parsed = JSON.parse(await fs.readFile(file, 'utf8'));
     assert.equal(parsed.schemaVersion, 1);
     assert.match(parsed.version, /^0\.8\.\d+$/);
+    assert.deepEqual((await fs.readdir(path.dirname(file))).sort(), ['active.json']);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
