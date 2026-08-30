@@ -24,16 +24,62 @@ async function readRequiredJson(file, label) {
   catch { throw new Error(`${label} is invalid or missing.`); }
 }
 
-export async function writeJsonAtomic(file, value) {
+const atomicWriteQueues = new Map();
+const WINDOWS_RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function renameAtomicWithRetry(temp, file) {
+  const maxAttempts = process.platform === 'win32' ? 12 : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await fs.rename(temp, file);
+      return;
+    } catch (error) {
+      const retryable = process.platform === 'win32'
+        && WINDOWS_RENAME_RETRY_CODES.has(error?.code)
+        && attempt < maxAttempts;
+      if (!retryable) throw error;
+      await wait(Math.min(250, 5 * (2 ** (attempt - 1))));
+    }
+  }
+}
+
+async function writeJsonAtomicUnlocked(file, value) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
-    await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    await fs.rename(temp, file);
+    const handle = await fs.open(temp, 'wx', 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await renameAtomicWithRetry(temp, file);
   } catch (error) {
     await fs.rm(temp, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+export function writeJsonAtomic(file, value) {
+  const resolvedFile = path.resolve(file);
+  const key = process.platform === 'win32' ? resolvedFile.toLowerCase() : resolvedFile;
+  const previous = atomicWriteQueues.get(key) || Promise.resolve();
+  const operation = previous
+    .catch(() => {})
+    .then(() => writeJsonAtomicUnlocked(resolvedFile, value));
+  let tail;
+  tail = operation
+    .then(() => undefined, () => undefined)
+    .finally(() => {
+      if (atomicWriteQueues.get(key) === tail) atomicWriteQueues.delete(key);
+    });
+  atomicWriteQueues.set(key, tail);
+  return operation;
 }
 
 export async function sha256File(file) {
