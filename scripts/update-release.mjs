@@ -53,11 +53,18 @@ async function loadPrivateKey() {
   if (!file) {
     throw new Error('Provide the externally held private-key file. Production private keys must never be stored in this repository.');
   }
-  const resolved = path.resolve(file);
-  const relative = path.relative(root, resolved);
-  if (relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))) {
-    throw new Error('The production signing key must be held outside the Sthang Studio repository checkout.');
+  const [repositoryRoot, resolved] = await Promise.all([
+    fs.realpath(root),
+    fs.realpath(path.resolve(file)),
+  ]);
+  const relative = path.relative(repositoryRoot, resolved);
+  const insideRepository = relative === ''
+    || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  if (insideRepository) {
+    throw new Error('The production signing key must be held outside the Sthang Studio repository checkout, including through symlinks or junctions.');
   }
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) throw new Error('The externally held signing-key path must identify a regular file.');
   return crypto.createPrivateKey(await fs.readFile(resolved, 'utf8'));
 }
 
@@ -78,7 +85,6 @@ async function verifyPackage(manifest, packageFile) {
   if (packageSha256 !== manifest.package.sha256) throw new Error('Release package byte verification failed.');
   return { packageSha256, packageSizeBytes: stat.size };
 }
-
 
 async function verifyUnsigned() {
   const manifestFile = path.resolve(flag('--manifest'));
