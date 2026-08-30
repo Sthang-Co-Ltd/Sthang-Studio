@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import {
   HEX_64,
   MAX_PACKAGE_BYTES,
+  canonicalJson,
   sha256,
+  unsignedDocument,
   validateReleaseManifest,
   validateReleaseReceipt,
   validateTrustRoot,
@@ -17,8 +19,10 @@ export const SIGNER_HOST = 'signer.sthang.app';
 export const SIGNER_BASE_PATH = '/v1/studio';
 export const SIGNING_WORKFLOW_PATH = '.github/workflows/studio-ota-sign.yml';
 export const SIGNING_ENVIRONMENT = 'studio-release-signing';
+export const STUDIO_REPOSITORY = 'Sthang-Co-Ltd/Sthang-Studio';
+export const STUDIO_REPOSITORY_ID = '1343890712';
 const MAX_JSON_BYTES = 256 * 1024;
-const SAFE_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const SAFE_ASSOCIATIONS = new Set(['OWNER', 'MEMBER']);
 const SAFE_UPLOAD_HEADERS = new Set([
   'content-type',
   'if-none-match',
@@ -200,16 +204,21 @@ export function authorizeSigningTrigger(event, environment = process.env) {
 
 export function sourceContext(environment = process.env) {
   const repository = text(environment.GITHUB_REPOSITORY, 'GitHub repository', 200);
+  const repositoryId = text(environment.GITHUB_REPOSITORY_ID, 'GitHub repository id', 40);
   const commit = text(environment.GITHUB_SHA, 'GitHub commit', 40).toLowerCase();
   const workflowRef = text(environment.GITHUB_WORKFLOW_REF, 'GitHub workflow ref', 500);
+  const workflowSha = text(environment.GITHUB_WORKFLOW_SHA, 'GitHub workflow SHA', 40).toLowerCase();
   const runId = text(environment.GITHUB_RUN_ID, 'GitHub run id', 40);
   const runAttempt = Number(environment.GITHUB_RUN_ATTEMPT);
   const eventName = text(environment.GITHUB_EVENT_NAME, 'GitHub event', 80);
-  const expectedWorkflowRef = `${repository}/${SIGNING_WORKFLOW_PATH}@refs/heads/main`;
+  const expectedWorkflowRef = `${STUDIO_REPOSITORY}/${SIGNING_WORKFLOW_PATH}@refs/heads/main`;
   if (
-    repository !== 'Sthang-Co-Ltd/Sthang-Studio'
+    repository !== STUDIO_REPOSITORY
+    || repositoryId !== STUDIO_REPOSITORY_ID
     || !/^[0-9a-f]{40}$/.test(commit)
     || workflowRef !== expectedWorkflowRef
+    || !/^[0-9a-f]{40}$/.test(workflowSha)
+    || workflowSha !== commit
     || !/^\d+$/.test(runId)
     || !Number.isSafeInteger(runAttempt)
     || runAttempt < 1
@@ -220,11 +229,11 @@ export function sourceContext(environment = process.env) {
   }
   return {
     repository,
-    repositoryId: typeof environment.GITHUB_REPOSITORY_ID === 'string' && /^\d+$/.test(environment.GITHUB_REPOSITORY_ID)
-      ? environment.GITHUB_REPOSITORY_ID
-      : '',
+    repositoryId,
     commit,
     workflowRef,
+    workflowSha,
+    environment: SIGNING_ENVIRONMENT,
     runId,
     runAttempt,
     eventName,
@@ -377,6 +386,9 @@ function validateFinalizeResponse(value, request, session, trust) {
   try { signedManifestValue = JSON.parse(signedManifestBytes.toString('utf8').replace(/^\uFEFF/, '')); }
   catch { throw new SignerClientError('The signed release manifest is invalid.'); }
   const signedManifest = validateReleaseManifest(signedManifestValue, trust);
+  if (canonicalJson(unsignedDocument(signedManifest)) !== canonicalJson(request.unsignedManifest)) {
+    throw new SignerClientError('The signing service changed the reviewed Studio release manifest.');
+  }
   if (
     signedManifest.version !== request.unsignedManifest.version
     || signedManifest.package.sha256 !== request.packageSha256
@@ -433,15 +445,16 @@ export async function runReleaseSigning({
     operation: 'prepare-release',
     source,
     unsignedManifest,
-    unsignedManifestSha256: sha256(unsignedManifestBytes),
+    unsignedManifestSha256: sha256(Buffer.from(canonicalJson(unsignedManifest), 'utf8')),
     packageSha256,
     packageSizeBytes: packageStat.size,
   };
-  const token = oidcToken || await requestOidcToken(fetchImpl, environment);
-  const preparedValue = await postJson(`${endpoint}/releases/prepare`, token, request, fetchImpl);
+  const prepareToken = oidcToken || await requestOidcToken(fetchImpl, environment);
+  const preparedValue = await postJson(`${endpoint}/releases/prepare`, prepareToken, request, fetchImpl);
   const session = validatePrepareResponse(preparedValue, request);
   await uploadPackage(session.uploadUrl, session.uploadHeaders, packageFile, fetchImpl);
-  const finalizedValue = await postJson(`${endpoint}/releases/finalize`, token, {
+  const finalizeToken = oidcToken || await requestOidcToken(fetchImpl, environment);
+  const finalizedValue = await postJson(`${endpoint}/releases/finalize`, finalizeToken, {
     schemaVersion: 1,
     product: 'sthang-studio',
     operation: 'finalize-release',
