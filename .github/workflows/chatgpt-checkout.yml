@@ -1,0 +1,23 @@
+name: ChatGPT checkout bridge
+
+on:
+  push:
+    branches:
+      - chatgpt/studio-ota-updater
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-checkout
+          path: .
+          include-hidden-files: true
+          retention-days: 1
