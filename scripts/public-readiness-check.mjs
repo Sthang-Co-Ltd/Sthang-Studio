@@ -62,14 +62,28 @@ const secretPatterns = [
 ];
 const privateKeyEnvelopePattern = /-----BEGIN ((?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY)-----([\s\S]{1,16384}?)-----END \1-----/g;
 
+function plausiblePrivateKeyBody(body) {
+  const lines = body
+    .replace(/\\r\\n|\\n|\\r/g, '\n')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .map((line) => {
+      if (line === '+' || line === '-') return '';
+      return /^[+-]/.test(line) ? line.slice(1) : line;
+    })
+    .filter(Boolean)
+    .filter((line) => !/^Proc-Type:\s*4,ENCRYPTED$/i.test(line))
+    .filter((line) => !/^DEK-Info:\s*[A-Z0-9-]+,[0-9A-F]+$/i.test(line));
+  const payload = lines.join('');
+  return payload.length >= 40 && /^[A-Za-z0-9+/]+={0,2}$/.test(payload);
+}
+
 function containsPrivateKeyBlock(text) {
   privateKeyEnvelopePattern.lastIndex = 0;
   let match;
   while ((match = privateKeyEnvelopePattern.exec(text)) !== null) {
-    const body = match[2]
-      .replace(/\\r\\n|\\n|\\r/g, '')
-      .replace(/\s+/g, '');
-    if (body.length >= 40 && /^[A-Za-z0-9+/]+={0,2}$/.test(body)) return true;
+    if (plausiblePrivateKeyBody(match[2])) return true;
   }
   return false;
 }
