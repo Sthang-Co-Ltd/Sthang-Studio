@@ -40,6 +40,7 @@ function createFixture(t) {
   for (const relativePath of [
     '.gitignore',
     '.env.example',
+    '.sthang/product-manifest.json',
     'package.json',
     'README.md',
     'PRIVACY.md',
