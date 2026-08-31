@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Signed Studio updater architecture — not publicly enabled
+### Signed Studio updater architecture — bootstrap trust prepared, not publicly enabled
 
 - Added a Studio-native signed Windows updater around the existing
   `%LOCALAPPDATA%\\Sthang Studio\\app` installation instead of migrating the app
@@ -11,6 +11,12 @@
   immutable version manifests, byte/hash verification, bounded plain-text
   release notes, and release tooling suitable for separately approved hosting
   at `updates.sthang.app` and immutable Cloudflare R2 objects.
+- Prepared the unreleased `0.8.0` bootstrap source with the reviewed public
+  Ed25519 verification key. The matching private key remains outside the
+  repository behind the dedicated production signing-service custody boundary.
+- Deployed the runner-free production signer, private R2 staging path, and GitHub
+  issue-comment webhook separately from release publication. Provider-specific
+  credentials and private custody coordinates remain outside public source.
 - Added one non-blocking update check per browser session plus a manual **Check
   for updates** action. Downloads and installs always require separate explicit
   confirmation; Studio does not continuously poll, auto-download, or
@@ -22,10 +28,10 @@
   jobs/checkpoints, proposals, exports, compatible caches, the advanced `.env`
   fallback, and Windows-protected Gemini key storage outside swappable source
   versions.
-- Kept the curated GitHub Release package as the public manual download and
-  recovery path. The committed updater trust root remains deliberately
-  unprovisioned; no production signing key, Cloudflare deployment, release,
-  mutable pointer promotion, or public OTA claim is included.
+- Kept `v0.7.14` as the verified public Beta and the curated GitHub Release
+  package as the public manual download and recovery path. No `0.8.0` release,
+  mutable `latest.json` promotion, or public OTA availability claim is included
+  by this source preparation.
 
 ### Repository maintenance
 
@@ -79,7 +85,7 @@
 - Made the Windows launcher wait for both local services, respect the registered default browser when Windows has a usable `http://` association, and print the local Studio URL when no browser association is available; Chrome is never assumed.
 - Added a curated Windows Release packager that keeps the extracted first-run folder to `Install Sthang Studio.bat`, `Read Me.txt`, and one `Sthang Studio Files` folder; setup copies the app to `%LOCALAPPDATA%\Sthang Studio\app`, preserves user runtime state during source refresh, and emits a SHA-256 checksum alongside the release ZIP.
 - Removed stale hard-coded version labels from Windows setup/launcher banners and routed incomplete-install recovery back through `INSTALL-NEW-PC.bat`.
-- No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, or SRT export behavior changed.
+- No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, installer, or SRT export behavior changed.
 
 ## 0.7.10 — Focus Loop & Clear Copy
 
