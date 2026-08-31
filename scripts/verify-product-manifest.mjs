@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { deriveProductReleaseIdentity } from './product-release-identity.mjs';
 
 const root = process.cwd();
 const manifestPath = path.join(root, '.sthang', 'product-manifest.json');
@@ -93,10 +94,32 @@ const updateTrustRoot = readJson('config/update-trust-root.json');
 
 if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && lock && updateTrustRoot) {
   const version = rootPackage.version;
-  const tag = `v${version}`;
-  const assetName = `Sthang-Studio-Windows-v${version}.zip`;
-  const checksumName = `${assetName}.sha256`;
-  const releaseBase = `https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/${tag}`;
+  let releaseIdentity;
+  try {
+    releaseIdentity = deriveProductReleaseIdentity({
+      sourceVersion: version,
+      publicVersion: manifest?.proposal?.release?.publicVersion,
+    });
+  } catch (error) {
+    errors.push(`release identity is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    releaseIdentity = {
+      sourceVersion: String(version ?? ''),
+      publicVersion: String(manifest?.proposal?.release?.publicVersion ?? ''),
+      publicTag: `v${String(manifest?.proposal?.release?.publicVersion ?? '')}`,
+      publicAssetName: `Sthang-Studio-Windows-v${String(manifest?.proposal?.release?.publicVersion ?? '')}.zip`,
+      publicChecksumName: `Sthang-Studio-Windows-v${String(manifest?.proposal?.release?.publicVersion ?? '')}.zip.sha256`,
+      publicReleaseBase: `https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v${String(manifest?.proposal?.release?.publicVersion ?? '')}`,
+      publicArchiveRoot: `Sthang Studio ${String(manifest?.proposal?.release?.publicVersion ?? '')}`,
+    };
+  }
+  const {
+    publicVersion,
+    publicTag: tag,
+    publicAssetName: assetName,
+    publicChecksumName: checksumName,
+    publicReleaseBase: releaseBase,
+    publicArchiveRoot: archiveRoot,
+  } = releaseIdentity;
 
   exactKeys(manifest, 'manifest', ['$schema', 'schemaVersion', 'kind', 'productId', 'source', 'change', 'proposal', 'evidence']);
   equal(manifest.$schema, 'https://sthang.app/schemas/product-manifest.schema.json', 'manifest.$schema');
@@ -110,14 +133,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-signed-updater-source-architecture', 'manifest.change.id');
+  equal(change.id, 'studio-ota-bootstrap-v0-8-0', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Document the unreleased signed Studio updater architecture, preserve the verified GitHub Release recovery path, and identify approval-gated production, HQ, and Distribution follow-up.',
+    'Prepare the unreleased Studio 0.8.0 bootstrap trust release while preserving v0.7.14 as the verified public download until publication and keeping OTA promotion, HQ, and Distribution separately gated.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -143,7 +166,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(visibilityRequest.status, 'approved', 'manifest.proposal.publicVisibilityRequest.status');
   equal(
     visibilityRequest.basis,
-    'Approved public repository and independently verified v0.7.14 prerelease evidence for the Studio beta',
+    `Approved public repository and independently verified ${tag} prerelease evidence for the Studio beta`,
     'manifest.proposal.publicVisibilityRequest.basis',
   );
   const proposalSource = exactKeys(proposal.source, 'manifest.proposal.source', ['visibility', 'repository', 'normalization']);
@@ -187,7 +210,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     'channel',
   ]);
   equal(release.sourceVersion, version, 'manifest.proposal.release.sourceVersion');
-  equal(release.publicVersion, version, 'manifest.proposal.release.publicVersion');
+  equal(release.publicVersion, publicVersion, 'manifest.proposal.release.publicVersion');
   equal(release.publicVersionStatus, 'verified', 'manifest.proposal.release.publicVersionStatus');
   equal(release.channel, 'preview', 'manifest.proposal.release.channel');
 
@@ -204,7 +227,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
 
   const dataProcessing = exactKeys(proposal.dataProcessing, 'manifest.proposal.dataProcessing', ['providers']);
   if (!Array.isArray(dataProcessing.providers) || dataProcessing.providers.length !== 1) {
-    errors.push('manifest.proposal.dataProcessing.providers must contain exactly the Gemini declaration');
+    errors.push('manifest.proposal.dataProcessing.providers must contain exactly the currently governed Gemini declaration');
   } else {
     const provider = exactKeys(dataProcessing.providers[0], 'manifest.proposal.dataProcessing.providers[0]', [
       'id',
@@ -256,7 +279,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(releaseEvidence.assetName, assetName, 'manifest.evidence.release.assetName');
   equal(releaseEvidence.checksumAssetName, checksumName, 'manifest.evidence.release.checksumAssetName');
   exactStringArray(releaseEvidence.notesRequiredTerms, 'manifest.evidence.release.notesRequiredTerms', [
-    `Sthang Studio ${version}`,
+    `Sthang Studio ${publicVersion}`,
     'Public Beta',
     'Windows 10 or 11 x64',
     'Gemini Developer API key',
@@ -272,7 +295,6 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   ]);
 
   const releasePackage = exactKeys(releaseEvidence.package, 'manifest.evidence.release.package', ['entrypoint', 'requiredPaths', 'truth']);
-  const archiveRoot = `Sthang Studio ${version}`;
   equal(releasePackage.entrypoint, `${archiveRoot}/Install Sthang Studio.bat`, 'manifest.evidence.release.package.entrypoint');
   exactStringArray(releasePackage.requiredPaths, 'manifest.evidence.release.package.requiredPaths', [
     `${archiveRoot}/Install Sthang Studio.bat`,
@@ -426,20 +448,34 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(trust.platform, 'windows-x64', 'update trust platform');
   equal(trust.channel, 'preview', 'update trust channel');
   equal(trust.endpoint, 'https://updates.sthang.app/studio/windows/latest.json', 'update trust endpoint');
-  equal(trust.keyId, 'studio-updates-unprovisioned', 'update trust keyId');
-  equal(trust.publicKeyHex, '', 'update trust publicKeyHex');
-  equal(trust.provisioned, false, 'update trust provisioned');
+  equal(trust.keyId, 'studio-updates-ed25519-root-v1', 'update trust keyId');
+  equal(trust.publicKeyHex, '0e9ff5aaa1d9b3ea80887bd372d73fe83d5d7aaf51bfcfa09c3c07b1280cce5d', 'update trust publicKeyHex');
+  equal(trust.provisioned, true, 'update trust provisioned');
   equal(trust.brokerVersion, '1.0.0', 'update trust brokerVersion');
+
+  const releaseNotesPath = `release-notes/v${version}.txt`;
+  try {
+    const releaseNotes = fs.readFileSync(path.join(root, releaseNotesPath), 'utf8').replace(/\r\n?/g, '\n').trim();
+    const releaseNoteLines = releaseNotes.split('\n');
+    if (!releaseNotes || releaseNotes.length > 4000 || releaseNoteLines.length > 40 || releaseNoteLines.some((line) => line.length > 240)) {
+      errors.push(`${releaseNotesPath} must contain 1-4000 characters, no more than 40 lines, and no line over 240 characters`);
+    }
+    if (/[^\t\n\r\x20-\x7E]/.test(releaseNotes)) {
+      errors.push(`${releaseNotesPath} must remain bounded plain ASCII text for release metadata`);
+    }
+  } catch (error) {
+    errors.push(`${releaseNotesPath} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   const otaDocs = fs.readFileSync(path.join(root, 'docs/OTA-UPDATES.md'), 'utf8');
   for (const required of [
     'not evidence that OTA updates are publicly available',
     'no license, authentication, D1 enrollment',
-    'The committed trust root remains unprovisioned',
+    'public verification key is provisioned',
     'GitHub Release',
   ]) {
     if (!otaDocs.toLowerCase().includes(required.toLowerCase())) {
-      errors.push(`docs/OTA-UPDATES.md must preserve unreleased updater truth: ${required}`);
+      errors.push(`docs/OTA-UPDATES.md must preserve bootstrap updater truth: ${required}`);
     }
   }
 
