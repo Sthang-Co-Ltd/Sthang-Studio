@@ -55,18 +55,31 @@ const secretPatterns = [
   ['npm token', /\bnpm_[A-Za-z0-9]{30,}\b/g],
   ['AWS access key', /\bAKIA[0-9A-Z]{16}\b/g],
   ['Slack token', /\bxox[baprs]-[0-9A-Za-z-]{20,}\b/g],
-  ['private key block', /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g],
   [
     'credential assignment',
     /(?:GEMINI_API_KEY|GOOGLE_API_KEY|OPENAI_API_KEY|AWS_SECRET_ACCESS_KEY|R2_SECRET_ACCESS_KEY)\s*=\s*(?!your_|example|placeholder|<)[^\s#"']{16,}/g,
   ],
 ];
+const privateKeyEnvelopePattern = /-----BEGIN ((?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY)-----([\s\S]{1,16384}?)-----END \1-----/g;
+
+function containsPrivateKeyBlock(text) {
+  privateKeyEnvelopePattern.lastIndex = 0;
+  let match;
+  while ((match = privateKeyEnvelopePattern.exec(text)) !== null) {
+    const body = match[2]
+      .replace(/\\r\\n|\\n|\\r/g, '')
+      .replace(/\s+/g, '');
+    if (body.length >= 40 && /^[A-Za-z0-9+/]+={0,2}$/.test(body)) return true;
+  }
+  return false;
+}
 
 function scan(label, text) {
   for (const [kind, pattern] of secretPatterns) {
     pattern.lastIndex = 0;
     if (pattern.test(text)) errors.push(`${kind} pattern found in ${label}`);
   }
+  if (containsPrivateKeyBlock(text)) errors.push(`private key block pattern found in ${label}`);
 }
 
 function readText(relativePath) {
