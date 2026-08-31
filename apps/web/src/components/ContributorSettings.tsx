@@ -15,6 +15,12 @@ function consentLabel(consent: ConsentState) {
   return 'Not chosen';
 }
 
+function durationLabel(ms: number) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
 export function ContributorSettings({ profile, busy, onSave }: ContributorSettingsProps) {
   const [liveProfile, setLiveProfile] = useState(profile);
   const [status, setStatus] = useState<ContributionStatus | null>(null);
@@ -69,10 +75,12 @@ export function ContributorSettings({ profile, busy, onSave }: ContributorSettin
       <p className="privacy-fine">Studio does not contribute your full video, project name, filename, API key, topic context, correction memory, or unrelated captions through this program. Corrections made before you join are not collected retroactively.</p>
       {status && <div className="contributor-stats">
         <div><b>{status.verified}</b><span>verified corrections</span></div>
+        <div><b>{durationLabel(status.verifiedAudioMs)}</b><span>verified Khmer speech</span></div>
         <div><b>{status.submitted}</b><span>awaiting verification</span></div>
         <div><b>{status.queued}</b><span>queued locally</span></div>
       </div>}
       {status && !status.endpointConfigured && <div className="privacy-note">Contribution hosting is not configured in this build, so no correction audio can leave your computer even if you join.</div>}
+      {status?.lastError && <div className="privacy-note warning">{status.lastError}</div>}
       <div className="privacy-actions">
         <button className={contributionConsent === 'granted' ? 'primary' : ''} disabled={disabled} onClick={() => void savePrivacy('khmerContributionConsent', 'granted')}>Help improve Khmer captions</button>
         <button disabled={disabled} onClick={() => void savePrivacy('khmerContributionConsent', 'declined')}>Keep my work private</button>
@@ -82,9 +90,9 @@ export function ContributorSettings({ profile, busy, onSave }: ContributorSettin
     </section>
 
     <section className="privacy-card">
-      <div className="privacy-card-head"><BarChart3 size={19}/><div><strong>Anonymous product analytics</strong><span>{consentLabel(analyticsConsent)}</span></div></div>
+      <div className="privacy-card-head"><BarChart3 size={19}/><div><strong>Optional product analytics</strong><span>{consentLabel(analyticsConsent)}</span></div></div>
       <p>Optionally share a small allow-listed set of usage events so Sthang can measure whether Studio gets creators from launch to a successful caption export and which workflow stages need improvement.</p>
-      <p className="privacy-fine">Analytics never includes caption text, audio, filenames, project names, local paths, vocabulary/context text, exports, or your Gemini API key. This setting is independent from Khmer Caption Contributor.</p>
+      <p className="privacy-fine">When enabled, Studio creates a random analytics installation ID and sends only event names plus coarse technical buckets. Analytics never includes caption text, audio, filenames, project names, local paths, vocabulary/context text, exports, or your Gemini API key. It is independent from Khmer Caption Contributor.</p>
       <div className="privacy-actions">
         <button className={analyticsConsent === 'granted' ? 'primary' : ''} disabled={disabled} onClick={() => void savePrivacy('analyticsConsent', 'granted')}>Share product analytics</button>
         <button disabled={disabled} onClick={() => void savePrivacy('analyticsConsent', 'declined')}>Keep analytics off</button>
