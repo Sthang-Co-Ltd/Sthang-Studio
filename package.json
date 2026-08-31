@@ -27,7 +27,7 @@
     "verify:manifest": "node scripts/verify-product-manifest.mjs",
     "check:public": "node scripts/verify-product-manifest.mjs && node scripts/public-readiness-check.mjs",
     "test:public": "node --test tests/public-readiness.test.mjs",
-    "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs",
+    "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs tests/ota-signer-worker.test.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
     "update:release": "node scripts/update-release.mjs",
