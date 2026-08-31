@@ -39,21 +39,30 @@ Extra care is welcome around:
 
 ## Signed update trust
 
-The updater source uses a Studio-specific Ed25519 public trust root. The
-repository contains no production private signing key. The accepted source stays
-fail-closed until the approved public key is provisioned in an exact release
-source and the serving/release gates are complete. Do not place a production
-private key, recovery passphrase, Cloudflare credential, R2 credential, GitHub
-webhook secret, or release-signing secret in source, issues, Actions logs,
-release notes, or test fixtures.
+The updater uses a Studio-specific Ed25519 public trust root. The unreleased
+`0.8.0` bootstrap source provisions the reviewed **public** verification key so a
+later deliberately published bootstrap build can verify signed Studio updates.
+The repository contains no production private signing key and no private
+provider custody coordinates. Provisioning public trust does not establish that
+`0.8.0`, a signed update, or `latest.json` is publicly available.
+
+Do not place a production private key, recovery passphrase, Cloudflare
+credential, R2 credential, GitHub webhook secret, release-signing secret, or
+private account/store/secret identifier in source, issues, Actions logs, release
+notes, or test fixtures.
 
 Production signing is designed so ChatGPT and Codex never receive the private
-key. The runner-free Cloudflare signer under `infra/ota-signer/` receives only
-HMAC-verified GitHub issue-comment webhooks, reads the Studio key through a
-Cloudflare Secrets Store binding, and signs only a release manifest it derives
-after the staged package's full file set and every file byte match the exact
-accepted `main` source projection. It must never accept a generic arbitrary-byte
-or arbitrary-manifest signing operation.
+key. The separately deployed runner-free Cloudflare signer under
+`infra/ota-signer/` receives only HMAC-verified GitHub issue-comment webhooks,
+reads the Studio key through a Cloudflare Secrets Store binding, and signs only a
+release manifest it derives after the staged package's full file set and every
+file byte match the exact accepted `main` source projection. It must never accept
+a generic arbitrary-byte or arbitrary-manifest signing operation.
+
+The signer rechecks accepted `main` immediately before private-key use and again
+before immutable version-object writes. Staged packages remain private until a
+deliberate release flow verifies and publishes matching public objects. The
+signing command never promotes the mutable latest pointer.
 
 Versioned update manifests and packages are intended to be immutable. Report any
 way to bypass webhook authentication/replay checks, make the signer accept bytes
@@ -68,7 +77,8 @@ above.
 
 Security fixes target the latest accepted `main` branch and the most recent
 published release. Older development ZIPs and historical builds are not treated
-as supported releases.
+as supported releases. Until `0.8.0` is deliberately published, the verified
+public Beta remains `v0.7.14` even if `main` contains unreleased bootstrap source.
 
 ## Public bug reports
 
