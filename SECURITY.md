@@ -30,26 +30,39 @@ Extra care is welcome around:
 - API-key storage/redaction;
 - project/history/cache isolation;
 - command/process execution for FFmpeg and local timing;
-- dependency and model-download supply chain behavior.
+- dependency and model-download supply chain behavior;
 - signed update manifests, immutable package URLs, ZIP extraction, staged
   dependency preparation, active-version pointers, health validation, and
-  rollback/recovery behavior.
+  rollback/recovery behavior;
+- production signer webhook authentication, replay prevention, accepted-source
+  verification, archive parsing, Secrets Store isolation, and immutable R2 writes.
 
 ## Signed update trust
 
 The updater source uses a Studio-specific Ed25519 public trust root. The
-repository intentionally contains no production private signing key, and the
-current public-key slot remains unprovisioned until separate custody approval.
-Do not place a production private key, Cloudflare credential, R2 credential, or
-release-signing secret in source, issues, Actions logs, release notes, or test
-fixtures.
+repository contains no production private signing key. The accepted source stays
+fail-closed until the approved public key is provisioned in an exact release
+source and the serving/release gates are complete. Do not place a production
+private key, recovery passphrase, Cloudflare credential, R2 credential, GitHub
+webhook secret, or release-signing secret in source, issues, Actions logs,
+release notes, or test fixtures.
+
+Production signing is designed so ChatGPT and Codex never receive the private
+key. The runner-free Cloudflare signer under `infra/ota-signer/` receives only
+HMAC-verified GitHub issue-comment webhooks, reads the Studio key through a
+Cloudflare Secrets Store binding, and signs only a release manifest it derives
+after the staged package's full file set and every file byte match the exact
+accepted `main` source projection. It must never accept a generic arbitrary-byte
+or arbitrary-manifest signing operation.
 
 Versioned update manifests and packages are intended to be immutable. Report any
-way to bypass signature/hash verification, redirect outside
-`updates.sthang.app`, traverse or overwrite local paths, replace runtime/user
-state, activate before dependency preparation succeeds, suppress rollback, or
-expose raw provider/path/secret details through the browser UI as a security
-issue using the private process above.
+way to bypass webhook authentication/replay checks, make the signer accept bytes
+that do not match accepted source, bypass signature/hash verification, overwrite
+immutable R2 version objects, redirect outside `updates.sthang.app`, traverse or
+overwrite local paths, replace runtime/user state, activate before dependency
+preparation succeeds, suppress rollback, or expose raw provider/path/secret
+details through the browser UI as a security issue using the private process
+above.
 
 ## Supported versions
 
