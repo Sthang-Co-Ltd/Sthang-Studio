@@ -30,9 +30,10 @@ available without crowding the main editing flow.
 ## Distribution status
 
 Sthang Studio is available as a public Beta. Windows users should download the
-curated **Sthang Studio for Windows** ZIP from GitHub Releases. For this `0.7.14`
-source, use the matching
-[0.7.14 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.14).
+curated **Sthang Studio for Windows** ZIP from GitHub Releases. The currently
+verified public release remains
+[0.7.14 Beta](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.14),
+even while this source tree prepares the unreleased `0.8.0` bootstrap release.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -44,12 +45,16 @@ in the stable installed location.
 
 ## Current source changes (unreleased)
 
-The current `main` source may be ahead of the verified `0.7.14` Beta release.
-Unreleased source currently includes performance-oriented pipeline work such as
-reusable normalized/range audio, warm local timing, transcript-independent KFA
-acoustic evidence caching, exact timing-result caching, resumable same-job AI
-checkpoints, concurrent Deep Verify listens, browser-memory waveform reuse, and
-per-project/history persistence that avoids rewriting unrelated projects.
+The current source version is `0.8.0`, but that version is **not a published
+release yet**. The verified public Beta remains `v0.7.14` until a matching
+Windows package, release evidence, clean-Windows validation, and publication are
+completed deliberately.
+
+Unreleased source includes performance-oriented pipeline work such as reusable
+normalized/range audio, warm local timing, transcript-independent KFA acoustic
+evidence caching, exact timing-result caching, resumable same-job AI checkpoints,
+concurrent Deep Verify listens, browser-memory waveform reuse, and per-project/
+history persistence that avoids rewriting unrelated projects.
 
 These optimizations are intended to reduce repeated work without changing the
 caption wording authority, local timing authority, Review decisions, caption
@@ -57,30 +62,32 @@ locks, correction memory, or SRT output. They are **not** release evidence and
 should not be treated as part of the verified public Beta until a matching
 release is deliberately built and published.
 
-### Signed updates in source — not publicly enabled
+### Signed updates in source — bootstrap trust prepared, OTA not public
 
-Current unreleased source also contains a Studio-native signed Windows updater
+The unreleased `0.8.0` source contains a Studio-native signed Windows updater
 designed around the existing `%LOCALAPPDATA%\Sthang Studio\app` installation.
 It checks at most once per browser session plus a manual **Check for updates**
 action, never polls continuously, and requires separate explicit confirmation
 before download and before installation.
 
-The proposed Sthang-controlled update origin is `updates.sthang.app`. Release
-metadata and immutable version packages are verified with a Studio-only Ed25519
-public trust root, staged before activation, prepared with version-local Node and
-Python dependencies, and health-checked after an atomic version switch. Failed
-or interrupted activation rolls back to the previous healthy version. Projects,
+The planned public update origin is `updates.sthang.app`. Release metadata and
+immutable version packages are verified with a Studio-only Ed25519 public trust
+root, staged before activation, prepared with version-local Node and Python
+dependencies, and health-checked after an atomic version switch. Failed or
+interrupted activation rolls back to the previous healthy version. Projects,
 media, captions, history, correction memory, jobs, exports, compatible caches,
 the `.env` fallback, and Windows-protected Gemini key storage remain in the
 stable state root.
 
-This source architecture is **not evidence that OTA updates are publicly
-available**. The committed trust-root slot is intentionally unprovisioned, no
-production private signing key exists in this repository, and no Cloudflare/R2
-service has been deployed by this change. The curated GitHub Release remains the
-public manual download and recovery path. See
-[`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and future release
-gates.
+The `0.8.0` bootstrap source provisions only the public Studio verification key.
+The production private signing key remains outside the repository behind the
+separately deployed signing service. Signing infrastructure and private R2
+staging exist, but **no v0.8.0 release has been published and no public
+`latest.json` pointer has been promoted**. This source architecture is **not
+evidence that OTA updates are publicly available**. The curated GitHub Release
+remains the public manual download and recovery path. See
+[`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and remaining
+release gates.
 
 ## Contributor development setup
 
