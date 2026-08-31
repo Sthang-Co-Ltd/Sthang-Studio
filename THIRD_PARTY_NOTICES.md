@@ -21,6 +21,14 @@ dependencies.
 | Vite | Web development/build tooling | MIT |
 | TypeScript | Type checking/build tooling | Apache-2.0 |
 
+The unreleased v0.8 optional product-analytics implementation deliberately uses
+Node's built-in `fetch` against PostHog's ingestion API rather than adding the
+PostHog browser/runtime SDK. No new PostHog npm dependency, browser autocapture,
+or session-replay library is introduced by that source architecture.
+
+The unreleased Sthang contribution Worker uses Cloudflare's Worker/D1/R2 runtime
+APIs directly and likewise adds no application npm runtime dependency.
+
 ## Python / local timing
 
 | Component | Use | Upstream license |
@@ -67,12 +75,29 @@ Those files remain subject to the license and distribution terms published by
 the upstream package/model host. Do not vendor model weights into Sthang Studio
 without a separate license review and attribution update.
 
-## Service terms
+## Hosted-service terms
 
-Using Gemini also requires accepting the applicable Google Gemini Developer API
-terms and privacy/data-handling terms. The open-source license for Sthang Studio
-does not grant access to, or modify the terms of, third-party hosted services.
+Using Gemini requires accepting the applicable Google Gemini Developer API terms
+and privacy/data-handling terms. The open-source license for Sthang Studio does
+not grant access to, or modify the terms of, third-party hosted services.
 
-When adding or changing a dependency, update this notice when the change affects
-a direct runtime dependency, redistributed binary, downloaded model, or other
-material licensing obligation.
+The unreleased v0.8 source can optionally send an allow-listed set of product
+analytics events to PostHog after explicit user opt-in and production project
+configuration. PostHog's service/privacy terms apply to data processed by that
+service. Studio does not include the PostHog browser SDK, session replay, or
+autocapture in this architecture.
+
+The planned Khmer Caption Contributor service is Sthang-operated infrastructure
+implemented on Cloudflare Workers, private R2, and D1. Cloudflare's applicable
+service/data-processing terms govern Sthang's use of that infrastructure. The
+Contributor program's user-facing data contract, retention, and withdrawal rules
+are defined by Sthang Studio's `PRIVACY.md` and
+`docs/KHMER-CAPTION-CONTRIBUTOR.md`, not by the software license.
+
+Neither PostHog analytics nor the Contributor service is established as publicly
+enabled merely because the unreleased source contains integration code. Their
+production provisioning/release remains separately gated.
+
+When adding or changing a dependency or hosted service, update this notice when
+the change affects a direct runtime dependency, redistributed binary, downloaded
+model, or other material licensing/data-processing obligation.
