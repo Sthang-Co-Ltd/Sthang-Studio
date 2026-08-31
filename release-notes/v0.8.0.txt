@@ -1,0 +1,11 @@
+Sthang Studio 0.8.0 bootstrap release.
+
+This release adds the Studio-native signed updater trust needed for future public OTA updates while keeping GitHub Release as the manual download and recovery path.
+
+Update checks remain secondary to caption work: Studio checks at most once per session plus a manual Check for updates action, never continuously polls, never auto-downloads, and never auto-installs.
+
+Update installation stages and verifies immutable signed packages, prepares reviewed Node and Python dependencies before activation, and rolls back if activation or exact-version health checks fail.
+
+Projects, media, captions, locks, approvals, history, correction memory, processing jobs and checkpoints, proposals, exports, compatible caches, Gemini key storage, and the advanced .env fallback stay outside swappable source versions.
+
+This bootstrap release itself is distributed through the curated GitHub Release path. A later signed Studio version will exercise the first end-to-end OTA upgrade.
