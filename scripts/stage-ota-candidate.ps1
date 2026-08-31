@@ -6,6 +6,22 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
+$MaxPackageBytes = 8 * 1024 * 1024
+
+function Invoke-Wrangler([string[]]$Arguments) {
+  $Previous = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $Output = & npx.cmd wrangler @Arguments 2>&1
+    $ExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $Previous
+  }
+  [pscustomobject]@{
+    ExitCode = $ExitCode
+    Text = (($Output | ForEach-Object { "$_" }) -join "`r`n")
+  }
+}
 
 if ($BucketName -notmatch '^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$') { throw 'BucketName is invalid.' }
 foreach ($Command in @('git.exe','node.exe','npm.cmd','npx.cmd')) {
@@ -39,18 +55,29 @@ Write-Host 'Packaging the exact OTA candidate...' -ForegroundColor Cyan
 & npm.cmd run package:ota -- -SkipValidation -ReleaseNotesFile $Notes
 if ($LASTEXITCODE -ne 0) { throw 'OTA packaging failed.' }
 $Package = Join-Path $Root "release-artifacts\Sthang-Studio-OTA-v$Version.zip"
-if (-not (Test-Path -LiteralPath $Package)) { throw 'OTA package was not produced.' }
+if (-not (Test-Path -LiteralPath $Package -PathType Leaf)) { throw 'OTA package was not produced.' }
+$PackageLength = (Get-Item -LiteralPath $Package).Length
+if ($PackageLength -le 0 -or $PackageLength -gt $MaxPackageBytes) { throw 'OTA package exceeds the production signer staging limit.' }
+
+& git.exe fetch --no-tags origin main
+if ($LASTEXITCODE -ne 0) { throw 'Could not re-check accepted main before staging.' }
+$MainAfterBuild = (& git.exe rev-parse origin/main).Trim()
+if ($MainAfterBuild -ne $Head) { throw 'Accepted main changed during release preparation. Rebuild from the new main commit.' }
+$DirtyAfterBuild = (& git.exe status --porcelain --untracked-files=no) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $DirtyAfterBuild.Trim()) { throw 'Release preparation changed tracked source.' }
 
 $ObjectKey = "staging/$Head/package.zip"
 Write-Host "Staging exact package to private R2 object $ObjectKey..." -ForegroundColor Cyan
-& npx.cmd wrangler r2 object put "$BucketName/$ObjectKey" --file $Package --remote
-if ($LASTEXITCODE -ne 0) { throw 'R2 staging upload failed.' }
+$Upload = Invoke-Wrangler @('r2','object','put',"$BucketName/$ObjectKey",'--file',$Package,'--remote')
+Write-Host $Upload.Text
+if ($Upload.ExitCode -ne 0) { throw 'R2 staging upload failed.' }
 
 Write-Host ''
 Write-Host 'Studio OTA candidate staged.' -ForegroundColor Green
 Write-Host "Commit:  $Head"
 Write-Host "Version: $Version"
 Write-Host "R2 key:  $ObjectKey"
+Write-Host "Bytes:   $PackageLength"
 Write-Host ''
-Write-Host 'The signer still verifies every staged ZIP entry against the accepted GitHub source before signing.' -ForegroundColor DarkGray
+Write-Host 'The signer independently verifies the complete staged file set and bytes against accepted GitHub source before using the private key.' -ForegroundColor DarkGray
 Write-Host 'No release was signed, published, or promoted.' -ForegroundColor Yellow
