@@ -14,42 +14,84 @@ On 2026-08-28, the public [Studio page](https://sthang.app/studio/) advertised
 and website synchronization approvals in their owning repositories; this public
 document does not duplicate a pending/completed synchronization ledger.
 
-## Future signed updater release gates — not completed
+## Signed updater bootstrap release gates — not completed
 
 The source updater described in [`OTA-UPDATES.md`](OTA-UPDATES.md) is not a
 published feature and does not change the verified `v0.7.14` distribution record
-below. Before any release advertises or enables signed in-app updates:
+below. The unreleased `0.8.0` bootstrap source may provision the reviewed public
+verification key before publication so the resulting bootstrap build can trust a
+later signed release. That public trust value is not a private credential and is
+not release evidence.
 
-- [ ] Approve Studio-specific Ed25519 production-key generation and custody;
-      commit only the public verification key and verify that release tooling
-      fails closed without the external private key.
-- [ ] Approve and deploy `updates.sthang.app`, Cloudflare Worker/R2/DNS/cache
-      configuration, immutable version-object enforcement, and a mutable latest
-      pointer that can advance only from a matching verification receipt.
-- [ ] Build, sign, upload, download again, and independently verify the exact
-      version manifest and package bytes before pointer promotion.
-- [ ] Test upgrade from the current public Windows installation with changed
-      `package-lock.json`, Node dependencies, and Python/local-timing requirements.
+Setup already completed outside public release evidence:
+
+- [x] Studio-specific Ed25519 production signing custody exists outside the
+      repository; only the reviewed public verification identity is committed to
+      the bootstrap source.
+- [x] The runner-free signing Worker, private R2 staging bucket, signing-key
+      binding, and GitHub issue-comment webhook were deployed separately. No
+      private key, webhook secret, provider credential, or private custody
+      coordinate is committed here.
+
+Before the `0.8.0` bootstrap release can be published:
+
+- [ ] Accept the exact bootstrap release source on `main`, including synchronized
+      `0.8.0` package/workspace/lockfile identities, the provisioned public trust
+      root, bounded release notes, and unreleased/public-version evidence split.
+- [ ] From a complete clean Windows checkout of that exact commit, run the
+      repository-owned public-readiness, updater, Windows broker, typecheck,
+      build, and packaging checks without relying on an arbitrary development
+      folder.
+- [ ] Build the ordinary Windows GitHub Release candidate and the OTA candidate
+      from the same exact accepted commit.
+- [ ] Stage the OTA package to its private commit-bound R2 key, invoke the
+      production signer, and independently verify the signed manifest,
+      attestation, package size/hash, expanded-size bound, lockfile hash, Python
+      requirement hashes, setup strategy, broker compatibility, and state schema.
+- [ ] Verify immutable versioned R2 objects after upload and verify the public
+      `updates.sthang.app` serving route/cache behavior. Do not promote
+      `latest.json` yet.
+- [ ] Install the bootstrap candidate through the curated manual Windows package
+      on a clean Windows user/machine and confirm the stable desktop shortcut and
+      registered default browser behavior.
+- [ ] Confirm projects, media, captions, locks, approvals, history, correction
+      memory, jobs/checkpoints, proposals, exports, compatible caches, the
+      `.env` fallback, Windows-protected Gemini key files, and downloaded local
+      model state are preserved.
+- [ ] Publish and retain the matching curated GitHub Release ZIP/checksum only
+      after separate release/publication approval and verify the uploaded bytes
+      against the tested candidate.
+
+Before OTA can be advertised or enabled for a later signed release:
+
+- [ ] Build and sign a later version from its exact accepted `main` commit so the
+      installed bootstrap client has a genuinely newer signed offer to exercise.
+- [ ] Test upgrade with changed `package-lock.json`, Node dependencies, and
+      Python/local-timing requirements.
 - [ ] Test dependency/setup failure before activation, interruption during
       download/preparation, interruption before and after pointer replacement,
       wrong-version/API/web health failure, automatic rollback, and subsequent
       normal launch.
-- [ ] Confirm projects, media, captions, locks, history, correction memory,
-      jobs/checkpoints, proposals, exports, caches, the `.env` fallback, and
-      Windows-protected Gemini key storage are preserved.
-- [ ] Confirm the stable shortcut and registered default browser still work and
-      run a representative Khmer upload → generate → Review → CapCut SRT export
-      after the update.
-- [ ] Publish and retain the matching curated GitHub Release as the manual
-      download/recovery path.
+- [ ] Confirm installation is refused during unsaved/text editing, Review,
+      Current/Proposed comparison, another busy operation, and queued/running
+      caption jobs.
+- [ ] Confirm offline/update-host failure leaves the installed version usable.
+- [ ] Run a representative Khmer upload → generate → Review → edit/lock/history/
+      resume → UTF-8 CapCut SRT export after a successful OTA upgrade.
+- [ ] Advance the signed `latest.json` pointer only from matching verified
+      immutable-release, GitHub Release, and clean-Windows evidence.
+- [ ] Verify a real installed client offers the intended version once per
+      session/startup and through manual **Check for updates**, with explicit
+      confirmation for download and installation and no continuous polling.
 - [ ] Complete separately approved HQ intake and Distribution `/studio/`
       synchronization using exact release/deployment evidence. The current HQ
       schema supports only manual GitHub updates or private signed OTA, so public
       anonymous signed OTA needs an approved schema/model extension rather than
       being mislabeled as private.
 
-Until all applicable gates pass, the committed trust root must remain
-unprovisioned and public documentation must not claim OTA availability.
+Provisioning the public verification key in bootstrap source is expected and
+safe; public documentation must still not claim OTA availability until the
+release, signed-object, clean-Windows, latest-pointer, and governance gates pass.
 
 ## Repository readiness
 
