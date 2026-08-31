@@ -1,11 +1,19 @@
-Sthang Studio 0.8.0 bootstrap release.
+Sthang Studio 0.8.0 release notes candidate.
 
-This release adds the Studio-native signed updater trust needed for future public OTA updates while keeping GitHub Release as the manual download and recovery path.
+This source prepares two privacy-controlled improvement paths: Khmer Caption Contributor and optional product analytics. Both are off by default and require an explicit user choice.
 
-Update checks remain secondary to caption work: Studio checks at most once per session plus a manual Check for updates action, never continuously polls, never auto-downloads, and never auto-installs.
+Khmer Caption Contributor can submit only eligible post-consent corrections: a bounded short WAV around the corrected caption plus generated/corrected wording, timing, and model/version evidence. Full videos, project names, filenames, API keys, and unrelated captions are excluded.
 
-Update installation stages and verifies immutable signed packages, prepares reviewed Node and Python dependencies before activation, and rolls back if activation or exact-version health checks fail.
+Submitted corrections are not called verified until corpus quality review accepts them. Unverified submissions expire after 180 days. Contributors can stop future contribution and request contributor-wide deletion of stored corpus audio/text.
 
-Projects, media, captions, locks, approvals, history, correction memory, processing jobs and checkpoints, proposals, exports, compatible caches, Gemini key storage, and the advanced .env fallback stay outside swappable source versions.
+Optional product analytics uses a separate random installation id and a strict server-owned event/property allow-list. Studio does not include PostHog session replay or autocapture, and caption/media content is excluded from analytics.
 
-This bootstrap release itself is distributed through the curated GitHub Release path. A later signed Studio version will exercise the first end-to-end OTA upgrade.
+Both new cloud paths fail closed when their production configuration is absent, and service failure never blocks caption generation, Review, editing, saving, or SRT export.
+
+The Studio-native signed updater keeps GitHub Release as the manual download and recovery path. Update checks run at most once per session plus a manual Check for updates action; downloads and installs require separate confirmation.
+
+Update activation stages and verifies immutable signed packages, prepares reviewed Node and Python dependencies before switching versions, and rolls back if activation or exact-version health checks fail.
+
+Projects, source media, captions, locks, approvals, history, correction memory, processing jobs/checkpoints, proposals, exports, compatible caches, Gemini key storage, and the advanced .env fallback remain outside swappable source versions.
+
+Publishing 0.8.0 still requires the normal clean-Windows, privacy/service, signed-release, GitHub Release, and portfolio synchronization gates. This source file alone is not public release evidence.
