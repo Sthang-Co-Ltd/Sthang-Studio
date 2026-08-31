@@ -41,6 +41,51 @@ Everything else is secondary and should appear progressively, at the moment it b
     session plus an explicit manual action, require confirmation before download
     and install, and block activation while editing, Review, regeneration, export,
     or background processing is unsafe to interrupt.
+11. **Private unless a creator deliberately contributes.** Caption/audio contribution
+    is off by default. Khmer Caption Contributor is an explicit, reversible choice
+    that applies only to eligible corrections made after joining; declining never
+    reduces caption quality or removes local correction learning.
+12. **Verified means verified.** A contributed edit is only candidate evidence until
+    corpus QA accepts it. Studio must never inflate contributor progress by calling
+    a successful upload a verified correction.
+13. **Analytics cannot become content collection.** Optional product analytics is a
+    separate explicit choice and is limited to a server-owned event/property
+    allow-list. Caption text, media, filenames, project names, context, exports,
+    API keys, and Contributor identity never belong in analytics.
+14. **Cloud improvement paths fail open for creators.** Contribution/analytics
+    outages never block generation, Review, editing, saving, export, or local
+    correction memory. Studio remains useful when either service is absent.
+
+## Khmer Caption Contributor
+
+The long-term purpose of Khmer Caption Contributor is to turn high-quality,
+consented corrections from real creator workflows into evidence that can improve
+Khmer caption technology. The program should help Sthang identify recurring
+Khmer speech/transcription errors, build real-world evaluation sets, improve
+correction/vocabulary intelligence, compare future models, and eventually prepare
+verified training examples where that is justified.
+
+The program has exactly two caption-data states:
+
+```text
+Private (default) ↔ Khmer Caption Contributor (explicit opt-in)
+```
+
+Contributor onboarding belongs after Studio has already delivered value, such as
+a successful export, rather than before first use. The invitation may celebrate
+the collective goal of better Khmer caption technology, but it must not shame,
+penalize, or repeatedly pressure creators who keep their work private.
+
+An eligible contribution must trace back to generated wording, contain a material
+human correction made after consent, and reach an approval decision. Formatting-
+only edits and manually-authored starting captions are excluded. Only the bounded
+matching audio clip and the minimum correction/model/timing evidence needed for
+quality work may be contributed; the full project/video and unrelated context are
+not part of the corpus protocol.
+
+Contributor progress can recognize meaningful participation — for example,
+verified correction count and verified Khmer speech duration — without public
+leaderboards. Quantity incentives must never encourage fabricated/noisy edits.
 
 ## Success measures
 
@@ -52,3 +97,8 @@ Everything else is secondary and should appear progressively, at the moment it b
 - Warm selected-range regeneration time versus the first pass on the same range.
 - Deep Verify time with upload/emission reuse versus a cold run.
 - Resume time after interruption when completed processing checkpoints are available.
+- Human correction rate on a stable real-world Khmer evaluation set across Studio/model versions.
+- Number and duration of **verified** Khmer contribution samples, kept distinct from submitted candidates.
+- Percentage of Contributor uploads rejected as noisy/ambiguous evidence; quality should improve before volume is optimized.
+- Contributor withdrawal/deletion requests completed without affecting local projects.
+- Analytics funnel measures such as project creation → generation → review/approval → successful SRT export, without collecting caption content.
