@@ -21,8 +21,5 @@
       "store_id": "__STHANG_STUDIO_SECRETS_STORE_ID__",
       "secret_name": "STHANG_STUDIO_OTA_PRIVATE_KEY_V1"
     }
-  ],
-  "secrets": {
-    "required": ["STUDIO_GITHUB_WEBHOOK_SECRET"]
-  }
+  ]
 }
