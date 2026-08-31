@@ -92,16 +92,19 @@ export async function captureAnalytics(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
     try {
-      const response = await fetch(`${config.posthogHost}/capture/`, {
+      const response = await fetch(`${config.posthogHost}/i/v0/e/`, {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           api_key: config.posthogProjectKey,
+          distinct_id: distinctId,
           event,
           properties: {
-            distinct_id: distinctId,
             $process_person_profile: false,
+            // Keep server-side analytics personless and skip GeoIP enrichment.
+            // PostHog still receives ordinary HTTPS metadata such as the request IP.
+            $geoip_disable: true,
             ...sanitizedProperties(properties),
           },
         }),
