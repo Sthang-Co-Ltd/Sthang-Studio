@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-signed-updater-source-architecture",
+    "id": "studio-ota-bootstrap-v0-8-0",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Document the unreleased signed Studio updater architecture, preserve the verified GitHub Release recovery path, and identify approval-gated production, HQ, and Distribution follow-up."
+      "summary": "Prepare the unreleased Studio 0.8.0 bootstrap trust release while preserving v0.7.14 as the verified public download until publication and keeping OTA promotion, HQ, and Distribution separately gated."
     },
     "releaseImpact": "version"
   },
@@ -48,7 +48,7 @@
       "automaticPublication": false
     },
     "release": {
-      "sourceVersion": "0.7.14",
+      "sourceVersion": "0.8.0",
       "publicVersion": "0.7.14",
       "publicVersionStatus": "verified",
       "channel": "preview"
