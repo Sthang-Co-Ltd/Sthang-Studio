@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-ota-bootstrap-v0-8-0",
+    "id": "studio-khmer-contributor-analytics-v0-8-0",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Prepare the unreleased Studio 0.8.0 bootstrap trust release while preserving v0.7.14 as the verified public download until publication and keeping OTA promotion, HQ, and Distribution separately gated."
+      "summary": "Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 while preserving v0.7.14 as the verified public download and keeping service deployment, release, HQ, and Distribution separately gated."
     },
     "releaseImpact": "version"
   },
@@ -66,13 +66,14 @@
     "publicClaims": [
       "Khmer-first caption editing in the Captions workspace",
       "Public source and a reviewed Beta download on GitHub",
-      "Timing, editing, projects, history, and exports remain local"
+      "Timing, editing, projects, history, and exports remain local in the verified v0.7.14 Beta"
     ],
     "dataProcessing": {
       "providers": [
         {
           "id": "google-gemini",
           "purpose": "AI caption wording",
+          "availability": "current-configured-user-action",
           "triggers": [
             "generate",
             "regenerate"
@@ -99,6 +100,76 @@
           "fileDeleteCalledByApp": false,
           "remoteFileRetention": "provider-controlled-up-to-48-hours",
           "privacyUrl": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/blob/main/PRIVACY.md"
+        },
+        {
+          "id": "sthang-khmer-contribution",
+          "purpose": "Optional Khmer caption improvement corpus",
+          "availability": "unreleased-fail-closed-until-configured",
+          "triggers": [
+            "explicit Khmer Caption Contributor opt-in",
+            "eligible post-consent caption correction followed by approval"
+          ],
+          "dataSent": [
+            "random contributor id",
+            "bounded short WAV around corrected caption",
+            "generated caption wording",
+            "corrected caption wording",
+            "caption and clip timing",
+            "generated timing, model, and Studio version evidence",
+            "audio SHA-256"
+          ],
+          "staysLocal": [
+            "full source video",
+            "project title",
+            "source filename",
+            "local filesystem paths",
+            "unrelated captions",
+            "topic and context text",
+            "correction memory",
+            "SRT exports",
+            "Gemini API key",
+            "PostHog analytics id"
+          ],
+          "credentialOwner": "app-generated-pseudonymous",
+          "credentialStorage": "local withdrawal token; service stores only its SHA-256",
+          "remoteStorage": [
+            "private Cloudflare R2 audio",
+            "Cloudflare D1 correction metadata"
+          ],
+          "retention": "submitted-unverified-180-days; verified-until-withdrawal-or-program-retirement",
+          "deletion": "contributor-wide authenticated withdrawal deletes private audio and blanks contributed text",
+          "trainingPurpose": true,
+          "privacyUrl": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/blob/main/PRIVACY.md"
+        },
+        {
+          "id": "posthog-eu",
+          "purpose": "Optional product analytics",
+          "availability": "unreleased-fail-closed-until-configured",
+          "triggers": [
+            "explicit product analytics opt-in"
+          ],
+          "dataSent": [
+            "allow-listed event names",
+            "coarse workflow buckets",
+            "random analytics installation id",
+            "Studio and platform version"
+          ],
+          "staysLocal": [
+            "caption and transcript text",
+            "audio and video",
+            "filenames and project names",
+            "local paths",
+            "topic, vocabulary, and context text",
+            "correction memory",
+            "SRT contents",
+            "Gemini API key",
+            "Khmer Contributor id"
+          ],
+          "identity": "random installation id separate from Khmer Contributor identity",
+          "personProfiles": false,
+          "sessionReplay": false,
+          "autocapture": false,
+          "privacyUrl": "https://posthog.com/privacy"
         }
       ]
     }
@@ -187,7 +258,12 @@
       "paths": [
         "PRIVACY.md",
         "README.md",
+        "docs/KHMER-CAPTION-CONTRIBUTOR.md",
         "apps/server/src/services/gemini.ts",
+        "apps/server/src/services/analytics.ts",
+        "apps/server/src/services/contribution-store.ts",
+        "infra/contribution-worker/src/index.mjs",
+        "infra/contribution-worker/src/retention.mjs",
         "docs/OTA-UPDATES.md"
       ],
       "requiredTerms": [
@@ -197,12 +273,22 @@
         "ai.files.upload",
         "updates.sthang.app",
         "ordinary HTTPS metadata",
-        "no license, authentication, D1 enrollment"
+        "no license, authentication, D1 enrollment",
+        "contribute.sthang.app",
+        "explicit opt-in",
+        "private R2",
+        "180 days",
+        "PostHog",
+        "$process_person_profile",
+        "session replay",
+        "autocapture"
       ],
       "forbiddenTerms": [
         "Sthang Studio is fully offline",
         "Studio deletes the remote file",
-        "remote audio is deleted immediately"
+        "remote audio is deleted immediately",
+        "analytics is required",
+        "contribution is required"
       ]
     },
     "identity": {
