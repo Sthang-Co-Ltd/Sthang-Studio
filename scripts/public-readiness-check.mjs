@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { deriveProductReleaseIdentity } from './product-release-identity.mjs';
 
 const root = process.cwd();
 const currentFiles = execFileSync(
@@ -85,7 +86,16 @@ function requireText(relativePath, text, checks) {
 }
 
 const rootPackage = JSON.parse(readText('package.json'));
-const publicVersion = rootPackage.version;
+const productManifest = JSON.parse(readText('.sthang/product-manifest.json'));
+let publicVersion = '';
+try {
+  publicVersion = deriveProductReleaseIdentity({
+    sourceVersion: rootPackage.version,
+    publicVersion: productManifest?.proposal?.release?.publicVersion,
+  }).publicVersion;
+} catch (error) {
+  errors.push(`public release identity is invalid: ${error instanceof Error ? error.message : String(error)}`);
+}
 const readme = readText('README.md');
 const privacy = readText('PRIVACY.md');
 const packageReadme = readText('packaging/windows/Read Me.txt');
@@ -106,14 +116,19 @@ for (const [relativePath, text] of [
   }
 }
 
-requireText('README.md', readme, [
-  ['current public Beta version', new RegExp(`\\b${publicVersion.replaceAll('.', '\\.') }\\b`)],
-  ['matching GitHub Release tag', new RegExp(`/releases/tag/v${publicVersion.replaceAll('.', '\\.') }\\b`)],
+const readmeChecks = [
   ['interaction store control', /`store: false`/i],
   ['Gemini Files API upload', /Gemini Files API/i],
   ['no explicit remote-file deletion', /does not\s+explicitly\s+delete\s+(?:that\s+)?remote\s+file/i],
   ['provider retention of up to 48 hours', /up to 48 hours/i],
-]);
+];
+if (publicVersion) {
+  readmeChecks.unshift(
+    ['verified public Beta version', new RegExp(`\\b${publicVersion.replaceAll('.', '\\.') }\\b`)],
+    ['matching GitHub Release tag', new RegExp(`/releases/tag/v${publicVersion.replaceAll('.', '\\.') }\\b`)],
+  );
+}
+requireText('README.md', readme, readmeChecks);
 
 requireText('PRIVACY.md', privacy, [
   ['interaction store control', /`store: false`/i],
