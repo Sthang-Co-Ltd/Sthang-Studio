@@ -63,6 +63,43 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - Destructive and specialist actions live in an explicit per-row menu.
 - Risk indicators are calm summaries until the row is selected; selected rows reveal the detailed reasons.
 
+## Privacy and contribution UX
+
+Privacy choices belong in a labeled **Privacy** settings surface rather than being
+hidden inside AI configuration or generic profile controls.
+
+- Keep **Khmer Caption Contributor** and **product analytics** visually and
+  conceptually separate. One choice never implies consent to the other.
+- Both begin off/unset. Do not preselect, silently migrate, or infer consent from
+  profile import, ordinary editing, update checks, or Gemini use.
+- Contributor onboarding should appear only after Studio has already delivered
+  value, such as after a successful export, and only when contribution hosting is
+  actually configured. It must never block export or first use.
+- Dismissing a Contributor invitation is not consent and should only suppress that
+  invitation for the current session. A deliberate **Keep my work private** choice
+  may persist as declined.
+- Mission-oriented copy may celebrate improving Khmer caption technology, but it
+  must remain factual and non-coercive. Do not imply that refusing contribution is
+  disloyal, selfish, or harmful to Khmer people/creators.
+- Make the material data boundary visible near the decision: bounded matching
+  audio + generated/corrected text/timing evidence can be contributed; the full
+  video/project and unrelated caption data are not part of the contribution.
+- Keep **Request deletion** discoverable once remote contribution evidence exists.
+  Pending deletion must be described honestly instead of showing a false success.
+- Contributor recognition may show private progress such as verified correction
+  count and verified Khmer speech duration. Do not add public leaderboards or
+  quantity-first competition that encourages fabricated/noisy corrections.
+- Use the word **verified** only for samples whose remote corpus status is verified;
+  a queued or successfully uploaded sample is not verified.
+- Analytics copy must say that a random installation identifier is used; do not
+  describe pseudonymous analytics as anonymous if that would be technically
+  inaccurate.
+
+The post-export Contributor invitation is a small non-blocking card/toast-like
+surface. It must not obscure the video/caption editor, overlap the shared toast
+stack, or repeatedly reopen during the same session. The persistent Privacy
+settings surface remains the authoritative place to change choices later.
+
 ## Accessibility floor
 
 - Body text target: 13–15px; helper text target: 10–12px. Avoid 7–9px operational copy.
@@ -84,6 +121,9 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - Regeneration review stays docked beneath the video.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.
+- Optional analytics/contribution outages should not create alarming editor
+  errors. Keep local work safe and surface sync state only in the relevant privacy
+  surface when action is needed.
 
 ## Copy
 
@@ -93,10 +133,15 @@ Prefer:
 - “Caption style” over “caption rhythm” for first exposure.
 - “Review suggested” over multiple alarming chips on every row.
 - “Generate captions” over infrastructure-heavy descriptions in the primary path.
+- “Help make Khmer captions world-class” as mission-oriented Contributor framing,
+  followed by precise data disclosure.
+- “Verified corrections” only after corpus verification, not after upload.
 
-Technical details remain available in **Details** and diagnostics.
+Technical details remain available in **Details**, diagnostics, and privacy
+explanations where the provider/storage distinction is material to a user's
+choice.
 
-Tooltips should be brief, concrete, and action-oriented. Do not name KFA, Gemini, Whisper, model IDs, backend/runtime components, or fallback architecture in ordinary hover help or the primary workflow. Provider/model names are allowed where users genuinely need them to configure or diagnose the system.
+Tooltips should be brief, concrete, and action-oriented. Do not name KFA, Gemini, Whisper, model IDs, backend/runtime components, or fallback architecture in ordinary hover help or the primary workflow. Provider/model names are allowed where users genuinely need them to configure or diagnose the system, and hosted-service names may appear in Privacy when they are needed for informed data-flow disclosure.
 
 ## Browser surfaces
 
