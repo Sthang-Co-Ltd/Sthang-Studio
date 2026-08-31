@@ -14,9 +14,11 @@ After installation completes, you can delete this extracted setup folder. Sthang
 
 UPDATES
 The verified public distribution and manual recovery path is the curated GitHub Release package.
-This source package may contain an unreleased signed-updater architecture for updates.sthang.app, but it is not evidence that OTA updates are publicly available.
-When a future signed updater is deliberately provisioned and released, Studio will check at most once per session plus a manual action and will require explicit confirmation before download and installation.
-Failed checks or rollback leave the installed version and local caption data usable.
+The 0.8.0 bootstrap release source includes the Studio public verification trust needed to verify later signed updates from updates.sthang.app.
+That public key does not make an OTA release available by itself. A signed latest pointer and matching later release must pass separate verification and publication gates.
+Studio checks at most once per session plus a manual Check for updates action. It never continuously polls, never auto-downloads, and never auto-installs.
+Download and installation each require explicit confirmation. Packages are verified and staged before activation, and failed setup, health checks, or interruption use rollback so the previous installed version and local caption data remain usable.
+The curated GitHub Release remains the manual recovery path.
 
 REQUIREMENTS
 - Windows 10 or 11, x64
@@ -28,6 +30,7 @@ PRIVACY
 When you generate or regenerate AI wording, Studio sends normalized WAV audio and relevant context or wording to Gemini using your API key.
 Studio requests store:false for the interaction, uploads the WAV through the Gemini Files API, and does not explicitly delete that remote file.
 Google currently documents that Files API uploads are stored for up to 48 hours.
+Update checks disclose only the installed version/channel plus ordinary HTTPS metadata; they do not send projects, captions, media, Gemini keys, or device/license enrollment data.
 See PRIVACY.md inside "Sthang Studio Files" and https://ai.google.dev/gemini-api/docs/files.
 
 The "Sthang Studio Files" folder is used automatically by setup. You do not need to open or edit anything inside it.
