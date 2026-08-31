@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
 import { contributionStore } from '../services/contribution-store.js';
+import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
@@ -75,6 +76,7 @@ router.post('/', upload.single('media'), async (req, res) => {
       engineVersion: '0.7.10',
     };
     await store.upsert(project);
+    void captureAnalytics('project_created');
     res.status(201).json(project);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Upload failed' });
@@ -98,8 +100,6 @@ router.post('/:id/replace-media', upload.single('media'), async (req, res) => {
     await fs.rename(req.file.path, path.join(config.uploadDir, filename));
     await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true });
     await invalidateProjectCache(project.id);
-    // History/proposals contain timing tied to the old media and are unsafe to
-    // restore after a replacement file is installed.
     await historyStore.clear(project.id);
     await proposalStore.removeProject(project.id);
     project.media = {
@@ -266,6 +266,9 @@ router.put('/:id/captions', async (req, res) => {
   await contributionStore.captureApprovedCorrections(project, before, captions).catch((error) => {
     console.warn('[contribution] Local candidate capture failed without affecting caption save:', error instanceof Error ? error.message : error);
   });
+  const beforeById = new Map(before.map((caption) => [caption.id, caption]));
+  const approvedNow = captions.filter((caption) => caption.approved === true && beforeById.get(caption.id)?.approved !== true).length;
+  if (approvedNow > 0) void captureAnalytics('caption_approved', { approval_count_bucket: analyticsBuckets.approvals(approvedNow) });
   res.json({ project, correctionsCreated: corrections.created.length });
 });
 
@@ -349,6 +352,11 @@ router.get('/:id/export.srt', async (req, res) => {
   const project = await store.get(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const srt = toSrt(project.captions);
+  const durationMs = project.transcript?.timing?.audioDurationMs || 0;
+  void captureAnalytics('export_completed', {
+    caption_count_bucket: analyticsBuckets.captions(project.captions.length),
+    duration_bucket: analyticsBuckets.durationSeconds(durationMs / 1000),
+  });
   res.setHeader('Content-Type', 'application/x-subrip; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${project.title.replace(/[^a-zA-Z0-9_-]+/g, '_') || 'captions'}.srt"`);
   res.send(srt);
