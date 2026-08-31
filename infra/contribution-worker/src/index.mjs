@@ -4,6 +4,10 @@ const MAX_AUDIO_BYTES = 1_200_000;
 const MAX_TEXT = 1000;
 const ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
 const CANDIDATE_RE = /^[a-f0-9]{32}$/;
+const FORBIDDEN_PAYLOAD_FIELDS = [
+  'projectId', 'projectTitle', 'filename', 'originalName', 'filePath', 'path',
+  'context', 'transcriptionContext', 'apiKey', 'geminiApiKey', 'posthogId',
+];
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -49,7 +53,10 @@ function hasKhmer(value) {
 }
 
 export async function validateSubmission(raw) {
-  if (!raw || typeof raw !== 'object') throw new Error('body must be an object');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('body must be an object');
+  for (const key of FORBIDDEN_PAYLOAD_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) throw new Error(`forbidden contribution field: ${key}`);
+  }
   if (raw.schemaVersion !== 1) throw new Error('unsupported schemaVersion');
   const contributorId = String(raw.contributorId || '');
   const candidateId = String(raw.candidateId || '');
@@ -148,9 +155,10 @@ async function acceptContribution(request, env) {
   }
 
   const now = new Date().toISOString();
+  const since = new Date(Date.now() - 86_400_000).toISOString();
   const recent = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM samples WHERE contributor_id = ? AND created_at >= datetime('now', '-1 day')",
-  ).bind(sample.contributorId).first();
+    'SELECT COUNT(*) AS count FROM samples WHERE contributor_id = ? AND created_at >= ?',
+  ).bind(sample.contributorId, since).first();
   if (Number(recent?.count || 0) >= 500) return json({ error: 'Daily contribution limit reached' }, 429);
 
   const receiptId = crypto.randomUUID();
@@ -214,25 +222,33 @@ async function contributionStatus(request, env, contributorId) {
   });
 }
 
+async function deleteContributorObjects(env, contributorId) {
+  const prefix = `contributors/${contributorId}/`;
+  let cursor;
+  let removed = 0;
+  do {
+    const page = await env.CORPUS.list({ prefix, cursor, limit: 1000 });
+    const keys = page.objects.map((object) => object.key);
+    if (keys.length) {
+      await env.CORPUS.delete(keys);
+      removed += keys.length;
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return removed;
+}
+
 async function withdrawContributor(request, env, contributorId) {
   const auth = await requireContributor(env, request, contributorId);
   if (auth.error) return auth.error;
-  let removed = 0;
-  while (true) {
-    const rows = await env.DB.prepare(
-      "SELECT object_key FROM samples WHERE contributor_id = ? AND status != 'withdrawn' LIMIT 500",
-    ).bind(contributorId).all();
-    const keys = (rows.results || []).map((row) => row.object_key).filter(Boolean);
-    if (!keys.length) break;
-    await env.CORPUS.delete(keys);
-    removed += keys.length;
-    const now = new Date().toISOString();
-    await env.DB.prepare(
-      "UPDATE samples SET status = 'withdrawn', updated_at = ?, original_text = '', corrected_text = '', rejection_reason = NULL WHERE contributor_id = ? AND status != 'withdrawn'",
-    ).bind(now, contributorId).run();
-  }
+  const removed = await deleteContributorObjects(env, contributorId);
   const now = new Date().toISOString();
-  await env.DB.prepare('UPDATE contributors SET withdrawn_at = ?, last_seen_at = ? WHERE id = ?').bind(now, now, contributorId).run();
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE samples SET status = 'withdrawn', updated_at = ?, original_text = '', corrected_text = '', rejection_reason = NULL WHERE contributor_id = ?",
+    ).bind(now, contributorId),
+    env.DB.prepare('UPDATE contributors SET withdrawn_at = ?, last_seen_at = ? WHERE id = ?').bind(now, now, contributorId),
+  ]);
   return json({ withdrawn: true, removed });
 }
 
@@ -244,13 +260,21 @@ async function adminStatus(request, env, candidateId) {
   try { body = await readBoundedJson(request); } catch { return json({ error: 'Invalid status request' }, 400); }
   const status = String(body.status || '');
   if (!['verified', 'rejected'].includes(status)) return json({ error: 'Status must be verified or rejected' }, 400);
+  const sample = await env.DB.prepare('SELECT object_key FROM samples WHERE candidate_id = ?').bind(candidateId).first();
+  if (!sample) return json({ error: 'Sample not found' }, 404);
   const reason = status === 'rejected' ? compact(body.reason).slice(0, 160) : '';
   const now = new Date().toISOString();
   const result = await env.DB.prepare(
-    `UPDATE samples SET status = ?, updated_at = ?, verified_at = ?, rejected_at = ?, rejection_reason = ?
+    `UPDATE samples SET status = ?, updated_at = ?, verified_at = ?, rejected_at = ?, rejection_reason = ?,
+       original_text = CASE WHEN ? = 'rejected' THEN '' ELSE original_text END,
+       corrected_text = CASE WHEN ? = 'rejected' THEN '' ELSE corrected_text END
      WHERE candidate_id = ? AND status != 'withdrawn'`,
-  ).bind(status, now, status === 'verified' ? now : null, status === 'rejected' ? now : null, reason || null, candidateId).run();
-  if (!result.meta?.changes) return json({ error: 'Sample not found' }, 404);
+  ).bind(
+    status, now, status === 'verified' ? now : null, status === 'rejected' ? now : null, reason || null,
+    status, status, candidateId,
+  ).run();
+  if (!result.meta?.changes) return json({ error: 'Sample is already withdrawn' }, 409);
+  if (status === 'rejected' && sample.object_key) await env.CORPUS.delete(sample.object_key).catch(() => {});
   return json({ candidateId, status });
 }
 
