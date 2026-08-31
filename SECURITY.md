@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please do **not** open a public GitHub issue for a security vulnerability, leaked
-credential, or report that contains private media/project data.
+credential, or report that contains private media/project/contribution data.
 
 Prefer GitHub's private vulnerability reporting / Security Advisory flow when it
 is enabled for this repository. If that option is not available, contact Sthang
@@ -18,8 +18,10 @@ A useful report includes:
 - expected versus observed behavior;
 - likely impact, if known.
 
-Never send a real Gemini API key as part of a report. If a credential may have
-been exposed, revoke/rotate it first and report only a redacted value.
+Never send a real Gemini API key, Contributor withdrawal token, Cloudflare
+credential, or private corpus sample as part of a report. If a credential may
+have been exposed, revoke/rotate it where possible and report only a redacted
+value.
 
 ## Security-sensitive areas
 
@@ -31,11 +33,56 @@ Extra care is welcome around:
 - project/history/cache isolation;
 - command/process execution for FFmpeg and local timing;
 - dependency and model-download supply chain behavior;
+- optional analytics allow-list enforcement and consent checks;
+- Contributor consent boundaries, local queue isolation, short-audio extraction,
+  contributor-token handling, retry/withdrawal state, and corpus payload
+  minimization;
+- contribution Worker request bounds, pseudonymous authentication, D1/R2
+  isolation, idempotency, rejection/retention cleanup, and contributor-wide
+  deletion;
 - signed update manifests, immutable package URLs, ZIP extraction, staged
   dependency preparation, active-version pointers, health validation, and
   rollback/recovery behavior;
 - production signer webhook authentication, replay prevention, accepted-source
   verification, archive parsing, Secrets Store isolation, and immutable R2 writes.
+
+## Contributor and analytics trust boundaries
+
+The unreleased v0.8 source keeps Khmer Caption Contributor and optional product
+analytics **off unless the user explicitly enables each choice**. Both cloud
+paths also fail closed if their production configuration is missing.
+
+The local Contributor credential is a high-entropy pseudonymous withdrawal/upload
+token. Production corpus storage must persist only its SHA-256, never the raw
+token. The Contributor id/token must remain separate from the random PostHog
+analytics installation id. Report any path that links those identities without a
+new explicit product/privacy decision.
+
+The contribution client must never send a full video, project title, source
+filename, local path, unrelated caption text, topic/context text, correction
+memory, SRT contents, Gemini key, or PostHog id. The Sthang intake Worker also
+fails closed if private project/API fields appear in a contribution payload.
+Audio is bounded to the short correction range plus small context and is hash-
+checked before intake.
+
+Submitted corpus samples are not trusted training truth. Only the maintainer-
+controlled corpus QA path may mark them verified. Rejected sample audio is
+removed, unverified submitted samples are retention-bounded, and contributor-wide
+withdrawal deletes the Contributor's private R2 objects and blanks contributed
+text in D1. Report any way to bypass those states, access another Contributor's
+samples, overwrite another candidate id, avoid deletion/retention cleanup, or
+make the public app expose the corpus admin secret.
+
+The contribution admin token, D1/R2 identifiers that are private operational
+coordinates, production Cloudflare API tokens, and corpus samples must not be
+committed to the public repository or placed in public logs/issues. The public
+Worker template may contain only non-secret placeholder configuration.
+
+Optional product analytics is sent server-side through a fixed event/property
+allow-list. Studio does not include PostHog browser autocapture or session replay.
+Report any way for browser/project-supplied values to inject caption/media content,
+filenames, project names, paths, context/vocabulary, SRT contents, API keys, or
+Contributor ids into analytics.
 
 ## Signed update trust
 
@@ -78,9 +125,11 @@ above.
 Security fixes target the latest accepted `main` branch and the most recent
 published release. Older development ZIPs and historical builds are not treated
 as supported releases. Until `0.8.0` is deliberately published, the verified
-public Beta remains `v0.7.14` even if `main` contains unreleased bootstrap source.
+public Beta remains `v0.7.14` even if `main` contains unreleased bootstrap and
+Contributor/analytics source.
 
 ## Public bug reports
 
-Ordinary reproducible bugs that do not expose credentials, private media, or a
-security weakness should be filed through the normal GitHub issue template.
+Ordinary reproducible bugs that do not expose credentials, private media,
+contribution samples, or a security weakness should be filed through the normal
+GitHub issue template.
