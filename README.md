@@ -3,8 +3,8 @@
 **Accurate Khmer captions, ready for CapCut.**
 
 Sthang Studio is a Windows-first caption workspace for Cambodian Khmer creators.
-It combines AI-assisted Khmer transcription with local timing,
-fast review tools, correction memory, and CapCut-compatible SRT export.
+It combines AI-assisted Khmer transcription with local timing, fast review tools,
+correction memory, and CapCut-compatible SRT export.
 
 The product is designed around one practical workflow:
 
@@ -26,6 +26,9 @@ available without crowding the main editing flow.
 - UTF-8 SRT export designed for CapCut workflows.
 - Local projects, history, caches, proposals, and exports.
 - Windows-protected in-app storage for a Gemini API key.
+- Unreleased v0.8 source adds a default-private **Khmer Caption Contributor**
+  foundation and separate optional product analytics; both require explicit
+  consent and production service configuration before any new data leaves Studio.
 
 ## Distribution status
 
@@ -33,9 +36,9 @@ Sthang Studio is available as a public Beta. Windows users should download the
 curated **Sthang Studio for Windows** ZIP from GitHub Releases. The currently
 verified public release remains
 [0.7.14 Beta](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.14),
-even while this source tree prepares the unreleased `0.8.0` bootstrap release.
-GitHub's **Code → Download ZIP** is the source tree for developers and is
-intentionally not the end-user installer.
+even while this source tree prepares the unreleased `0.8.0` release. GitHub's
+**Code → Download ZIP** is the source tree for developers and is intentionally
+not the end-user installer.
 
 The Windows release package keeps the first-run folder simple: **Install Sthang
 Studio.bat**, **Read Me.txt**, and one **Sthang Studio Files** folder. Setup copies
@@ -56,11 +59,20 @@ evidence caching, exact timing-result caching, resumable same-job AI checkpoints
 concurrent Deep Verify listens, browser-memory waveform reuse, and per-project/
 history persistence that avoids rewriting unrelated projects.
 
-These optimizations are intended to reduce repeated work without changing the
-caption wording authority, local timing authority, Review decisions, caption
-locks, correction memory, or SRT output. They are **not** release evidence and
-should not be treated as part of the verified public Beta until a matching
-release is deliberately built and published.
+It also contains the source foundation for two new privacy-controlled features:
+
+- **Khmer Caption Contributor** — private by default. After explicit opt-in,
+  eligible corrections made after joining can queue a bounded short WAV plus the
+  generated/corrected wording and timing evidence for a separately governed
+  Sthang corpus service. Submitted samples are not called verified until corpus
+  QA promotes them.
+- **Optional product analytics** — separate explicit consent. Studio sends only
+  a server-owned allow-list of coarse workflow events/properties to a configured
+  PostHog project. No browser PostHog SDK, replay, or autocapture is included.
+
+Both new cloud paths fail closed when their production configuration is absent.
+The current source therefore does **not** establish that contribution hosting or
+PostHog analytics is publicly enabled.
 
 ### Signed updates in source — bootstrap trust prepared, OTA not public
 
@@ -79,7 +91,6 @@ media, captions, history, correction memory, jobs, exports, compatible caches,
 the `.env` fallback, and Windows-protected Gemini key storage remain in the
 stable state root.
 
-The `0.8.0` bootstrap source provisions only the public Studio verification key.
 The production private signing key remains outside the repository behind the
 separately deployed signing service. Signing infrastructure and private R2
 staging exist, but **no v0.8.0 release has been published and no public
@@ -88,6 +99,31 @@ evidence that OTA updates are publicly available**. The curated GitHub Release
 remains the public manual download and recovery path. See
 [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and remaining
 release gates.
+
+### Khmer Caption Contributor source contract
+
+The Contributor program has exactly two caption-data states: **Private** and an
+explicit **Khmer Caption Contributor** opt-in. Importing a Studio profile never
+copies consent to another installation. Corrections made before joining are not
+harvested later.
+
+Eligible examples must trace back to generated wording, contain a material human
+text correction after consent, and become approved. Formatting-only changes and
+manually-authored starting captions are excluded. The client extracts only a
+short mono WAV around that caption and does not send the full video, project
+name, filename, local path, topic/context text, unrelated captions, correction
+memory, SRT contents, Gemini key, or PostHog id.
+
+The planned Sthang intake is a Cloudflare Worker backed by **private R2 + D1**.
+The source includes idempotent sample ids, a pseudonymous contributor credential
+stored server-side only as a hash, offline retry, separate submitted/verified
+states, contributor-wide withdrawal, rejection cleanup, and a 180-day limit for
+samples that remain submitted but unverified. Production deployment at
+`contribute.sthang.app` remains separately approval-gated.
+
+See [`docs/KHMER-CAPTION-CONTRIBUTOR.md`](docs/KHMER-CAPTION-CONTRIBUTOR.md) and
+[`PRIVACY.md`](PRIVACY.md) for the complete contract, including future model
+training and withdrawal limitations.
 
 ## Contributor development setup
 
@@ -128,7 +164,7 @@ macOS/Linux contributors may run the source with compatible Node/Python/FFmpeg
 setups, but the installer, desktop shortcut, and protected in-app key storage are
 currently Windows-first.
 
-## What runs locally and what uses Gemini
+## Local and cloud data flow
 
 Sthang Studio is local-first, but it is **not fully offline** when generating AI
 caption wording.
@@ -137,7 +173,7 @@ For current source builds, the local pipeline may include unreleased cache and
 prewarm behavior described below. The verified `0.7.14` public release remains
 defined by its matching release notes and package evidence.
 
-**Local on your computer:**
+**Local on your computer by default:**
 
 - the Sthang Studio frontend and API (`127.0.0.1`);
 - imported media, project state, history, correction memory, caches, proposals,
@@ -147,11 +183,13 @@ defined by its matching release notes and package evidence.
 - a persistent local KFA timing worker while Studio is open, with cached transcript-independent acoustic evidence;
 - deterministic exact-transcript timing caches and the faster-whisper timing fallback;
 - resumable same-job processing checkpoints;
-- decoded Fine Timing waveform/spectrum data in browser memory while the page remains open.
+- decoded Fine Timing waveform/spectrum data in browser memory while the page remains open;
+- default-off analytics preferences/identity state and the default-off Contributor
+  queue/withdrawal credential.
 
 Studio may begin **local-only** normalization and timing-runtime preparation shortly
 after new or replacement media is saved. It does not speculatively upload that
-media to Gemini before you choose Generate/Improve.
+media to Gemini or Sthang before the corresponding user action/consent.
 
 **Sent to Gemini when you generate/regenerate AI wording:**
 
@@ -174,6 +212,15 @@ is independent of interaction storage controls. See Google's
 [Files API guide](https://ai.google.dev/gemini-api/docs/files),
 [zero-data-retention guidance](https://ai.google.dev/gemini-api/docs/zdr), and
 [`PRIVACY.md`](PRIVACY.md) for the full data-flow summary.
+
+**Only after separate explicit v0.8 opt-ins and production configuration:**
+
+- Khmer Caption Contributor may send the bounded correction sample described
+  above to Sthang's private corpus service;
+- optional product analytics may send coarse allow-listed workflow events to
+  PostHog EU using a random installation analytics id.
+
+Those two identities and data flows are intentionally separate.
 
 ## API-key handling
 
@@ -217,6 +264,7 @@ Typical setup:
 ```text
 npm ci --include=dev
 npm run test:public
+npm run test:contribution
 npm run check:public
 npm run test:updater
 npm run typecheck
@@ -259,6 +307,12 @@ payload, and writes the ZIP plus SHA-256 file to ignored `release-artifacts/`.
 The resulting archive is the candidate GitHub Release asset; the repository
 source ZIP is not.
 
+A v0.8 source branch that still truthfully says `v0.7.14` is the verified public
+Beta is **not yet a publishable v0.8 package**. Final release documentation must
+be switched to matching v0.8 public evidence only after its clean-Windows,
+privacy/service, and publication gates are ready; do not weaken that packager
+block merely to produce an artifact.
+
 On Windows, `npm run package:ota` creates an **unsigned, local-only** OTA
 candidate and protocol metadata under ignored `release-artifacts/`. It does not
 sign, upload, publish, deploy, or advance `latest.json`. See
@@ -286,8 +340,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
 - [`UX-AUDIT.md`](UX-AUDIT.md): historical UX findings and validation targets
 - [`PRIVACY.md`](PRIVACY.md) — local/cloud data flow and key handling
-- [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) — unreleased signed-update
-  protocol, rollback model, and production gates
+- [`docs/KHMER-CAPTION-CONTRIBUTOR.md`](docs/KHMER-CAPTION-CONTRIBUTOR.md) — v0.8 contributor/corpus privacy and quality contract
+- [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) — unreleased signed-update protocol, rollback model, and production gates
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — dependency/model notices
 - [`TRADEMARKS.md`](TRADEMARKS.md) — Sthang name and brand-asset terms
 
@@ -300,16 +354,15 @@ The **Sthang**, **Sthang Studio**, wordmarks, approved Studio marks, icons, and
 other Sthang identity assets are not granted for unrestricted trademark use by
 the MIT software license. See [`TRADEMARKS.md`](TRADEMARKS.md).
 
-Third-party libraries, downloaded models, hosted APIs, and external tools such
-as FFmpeg remain subject to their own terms. See
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Third-party libraries, downloaded models, hosted APIs, and external tools such as
+FFmpeg remain subject to their own terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## Product relationship
 
 Sthang Studio is a Sthang product. Captions is its current Khmer-first
-workspace. CapCut is a third-party product; Google/Gemini is a third-party
-service. Their names are used only to describe compatibility or configured
-integrations and do not imply sponsorship or endorsement.
+workspace. CapCut is a third-party product; Google/Gemini and PostHog are
+third-party services. Their names are used only to describe compatibility or
+configured integrations and do not imply sponsorship or endorsement.
 
 ---
 
