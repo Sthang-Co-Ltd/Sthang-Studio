@@ -6,6 +6,7 @@ import profile from './routes/profile.js';
 import system from './routes/system.js';
 import jobs from './routes/jobs.js';
 import updates from './routes/updates.js';
+import contribution from './routes/contribution.js';
 import { APP_VERSION } from './version.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
@@ -35,6 +36,7 @@ app.use('/api/profile', profile);
 app.use('/api/system', system);
 app.use('/api/jobs', jobs);
 app.use('/api/updates', updates);
+app.use('/api/contribution', contribution);
 app.get('/api/health', async (_req, res) => {
   try {
     const llm = await publicLlmSettings();
@@ -64,6 +66,7 @@ app.get('/api/health', async (_req, res) => {
         secureWindowsKeyStorage: true,
         minimalScrollbars: true,
         signedUpdateArchitecture: true,
+        khmerCaptionContribution: true,
       },
       timing: {
         provider: 'local',
@@ -100,6 +103,7 @@ app.listen(config.port, '127.0.0.1', () => {
     });
   }
   console.log('Correction memory: automatic edit capture + approval inbox');
+  console.log(`Khmer contribution: ${config.contributionEndpoint ? 'endpoint configured; still opt-in only' : 'offline/fail-closed until endpoint configuration'}`);
   console.log('Stage cache: normalized audio + Gemini/timing stages');
   console.log('Professional review: waveform + locks + diff approval + history');
   console.log('Background jobs: persistent queue with retry/resume');

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { CaptionProject } from '@kcs/shared';
 import { profileStore } from '../services/profile-store.js';
+import { contributionStore } from '../services/contribution-store.js';
 import { store } from '../services/store.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 
@@ -12,7 +13,12 @@ router.get('/', async (_req, res) => {
 
 router.patch('/', async (req, res) => {
   try {
-    res.json(await profileStore.patch(req.body));
+    const before = await profileStore.get();
+    const updated = await profileStore.patch(req.body);
+    const previousConsent = before.preferences.khmerContributionConsent || 'unset';
+    const nextConsent = updated.preferences.khmerContributionConsent || 'unset';
+    if (previousConsent !== nextConsent) await contributionStore.syncConsent(nextConsent);
+    res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile update failed' });
   }
@@ -27,7 +33,9 @@ router.get('/export', async (_req, res) => {
 
 router.post('/import', async (req, res) => {
   try {
-    res.json(await profileStore.replace(req.body));
+    const profile = await profileStore.replace(req.body);
+    await contributionStore.syncConsent('unset');
+    res.json(profile);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile import failed' });
   }

@@ -66,6 +66,10 @@ export const config = {
   historyDir: path.join(stateRootDir, 'data', 'history'),
   proposalDir: path.join(stateRootDir, 'data', 'proposals'),
   jobsFile: path.join(stateRootDir, 'data', 'jobs.json'),
+  contributionDir: path.join(stateRootDir, 'data', 'contribution'),
+  contributionStateFile: path.join(stateRootDir, 'data', 'contribution', 'state.json'),
+  // Cloud contribution is fail-closed until a separately deployed Sthang endpoint is configured.
+  contributionEndpoint: String(process.env.STHANG_CONTRIBUTION_ENDPOINT || '').trim(),
   localTimingWorker: path.join(rootDir, 'local-timing', 'worker.py'),
   updateDir: path.join(stateRootDir, 'updates'),
   versionsDir: path.join(stateRootDir, 'versions'),

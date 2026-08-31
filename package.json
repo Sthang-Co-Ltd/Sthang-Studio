@@ -27,11 +27,12 @@
     "verify:manifest": "node scripts/verify-product-manifest.mjs",
     "check:public": "node scripts/verify-product-manifest.mjs && node scripts/public-readiness-check.mjs",
     "test:public": "node --test tests/public-readiness.test.mjs tests/product-release-identity.test.mjs",
+    "test:contribution": "node --import tsx --test tests/contribution-core.test.ts",
     "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs tests/ota-signer-worker.test.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
     "update:release": "node scripts/update-release.mjs",
-    "ci": "npm run test:public && npm run check:public && npm run test:updater && npm run typecheck && npm run build",
+    "ci": "npm run test:public && npm run test:contribution && npm run check:public && npm run test:updater && npm run typecheck && npm run build",
     "test:update-powershell": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/update-powershell.test.ps1"
   },
   "allowScripts": {

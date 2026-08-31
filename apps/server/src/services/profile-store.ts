@@ -5,9 +5,12 @@ import type {
   AppProfile,
   CaptionProject,
   CaptionSegment,
+  ConsentState,
   CorrectionEvent,
   CorrectionRule,
   CorrectionSuggestionKind,
+  TimingQuality,
+  TimingSource,
 } from '@kcs/shared';
 import { config } from '../config.js';
 import { normalizeForMatch } from './tokenizer.js';
@@ -30,6 +33,8 @@ const DEFAULT_PROFILE: AppProfile = {
     autosaveDelayMs: 2200,
     waveformMode: 'waveform',
     waveformZoom: 2,
+    analyticsConsent: 'unset',
+    khmerContributionConsent: 'unset',
   },
   updatedAt: new Date(0).toISOString(),
 };
@@ -48,6 +53,18 @@ function uniqueLines(lines: unknown): string[] {
     if (out.length >= 300) break;
   }
   return out;
+}
+
+function consentState(value: unknown): ConsentState {
+  return ['declined', 'granted'].includes(String(value)) ? value as ConsentState : 'unset';
+}
+
+function timingSource(value: unknown): TimingSource | undefined {
+  return ['stt', 'stt-split', 'interpolated', 'manual'].includes(String(value)) ? value as TimingSource : undefined;
+}
+
+function timingQuality(value: unknown): TimingQuality | undefined {
+  return ['high', 'medium', 'low'].includes(String(value)) ? value as TimingQuality : undefined;
 }
 
 function normalizeProfile(value: unknown): AppProfile {
@@ -100,6 +117,11 @@ function normalizeProfile(value: unknown): AppProfile {
         originalText: String(x.originalText || '').slice(0, 1000),
         correctedText: String(x.correctedText || '').slice(0, 1000),
         suggestedVocabularyLine: String(x.suggestedVocabularyLine || '').slice(0, 600),
+        sourceTimingSource: timingSource(x.sourceTimingSource),
+        sourceTimingQuality: timingQuality(x.sourceTimingQuality),
+        sourceConfidence: Number.isFinite(Number(x.sourceConfidence)) ? Math.max(0, Math.min(1, Number(x.sourceConfidence))) : undefined,
+        sourceTextModel: x.sourceTextModel ? String(x.sourceTextModel).slice(0, 120) : undefined,
+        sourceEngineVersion: x.sourceEngineVersion ? String(x.sourceEngineVersion).slice(0, 80) : undefined,
       }))
       .slice(-500)
     : [];
@@ -120,6 +142,8 @@ function normalizeProfile(value: unknown): AppProfile {
       autosaveDelayMs: Math.max(800, Math.min(10000, Number(raw.preferences.autosaveDelayMs ?? 2200))),
       waveformMode: raw.preferences.waveformMode === 'spectrum' ? 'spectrum' : 'waveform',
       waveformZoom: Math.max(1, Math.min(24, Number(raw.preferences.waveformZoom ?? 2))),
+      analyticsConsent: consentState(raw.preferences.analyticsConsent),
+      khmerContributionConsent: consentState(raw.preferences.khmerContributionConsent),
     }
     : DEFAULT_PROFILE.preferences;
 
@@ -139,7 +163,7 @@ async function load(): Promise<AppProfile> {
   try {
     return normalizeProfile(JSON.parse(await fs.readFile(config.profileFile, 'utf8')));
   } catch {
-    return { ...DEFAULT_PROFILE, updatedAt: new Date().toISOString() };
+    return { ...DEFAULT_PROFILE, preferences: { ...DEFAULT_PROFILE.preferences }, updatedAt: new Date().toISOString() };
   }
 }
 
@@ -220,7 +244,14 @@ export const profileStore = {
   },
 
   async replace(value: unknown) {
-    return save(normalizeProfile(value));
+    const imported = normalizeProfile(value);
+    // Privacy consent is installation-specific. Profile transfer never opts a different machine in.
+    imported.preferences = {
+      ...imported.preferences,
+      analyticsConsent: 'unset',
+      khmerContributionConsent: 'unset',
+    };
+    return save(imported);
   },
 
   async recordCaptionChanges(project: CaptionProject, before: CaptionSegment[], after: CaptionSegment[]) {
@@ -260,6 +291,11 @@ export const profileStore = {
         suggestedVocabularyLine: suggestion.line,
         status: 'pending',
         createdAt: new Date().toISOString(),
+        sourceTimingSource: old.timingSource,
+        sourceTimingQuality: old.timingQuality,
+        sourceConfidence: old.confidence,
+        sourceTextModel: project.transcript?.textModel,
+        sourceEngineVersion: project.engineVersion,
       });
     });
 

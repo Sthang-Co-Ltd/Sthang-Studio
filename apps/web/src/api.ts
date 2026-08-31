@@ -3,6 +3,7 @@ import type {
   CaptionMode,
   CaptionProject,
   CaptionSegment,
+  ContributionStatus,
   ProcessingJob,
   ProjectHistoryEntry,
   QaProfileSettings,
@@ -89,7 +90,6 @@ export interface HealthResponse {
     paidApi: false;
   };
 }
-
 
 export interface UpdateSafetySnapshot {
   dirty: boolean;
@@ -220,4 +220,6 @@ export const api = {
   correctionAction: (id: string, action: 'remember-global' | 'add-project' | 'ignore') => request<CorrectionActionResponse>(`/api/profile/corrections/${id}/action`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
   }),
+  contributionStatus: () => request<ContributionStatus>('/api/contribution/status'),
+  withdrawContributions: () => request<ContributionStatus>('/api/contribution/withdraw', { method: 'POST' }),
 };

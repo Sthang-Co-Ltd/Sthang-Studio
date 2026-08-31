@@ -7,6 +7,7 @@ import type { CaptionProject, CaptionSegment, CaptionMode, QaProfileSettings, Re
 import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
+import { contributionStore } from '../services/contribution-store.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
@@ -262,6 +263,9 @@ router.put('/:id/captions', async (req, res) => {
   await store.upsert(project);
   const recordCorrections = req.body?.recordCorrections !== false;
   const corrections = recordCorrections ? await profileStore.recordCaptionChanges(project, before, captions) : { created: [] };
+  await contributionStore.captureApprovedCorrections(project, before, captions).catch((error) => {
+    console.warn('[contribution] Local candidate capture failed without affecting caption save:', error instanceof Error ? error.message : error);
+  });
   res.json({ project, correctionsCreated: corrections.created.length });
 });
 
@@ -360,6 +364,7 @@ router.delete('/:id', async (req, res) => {
   await historyStore.clear(project.id);
   await proposalStore.removeProject(project.id);
   await jobStore.removeProject(project.id);
+  await contributionStore.removeProject(project.id).catch(() => {});
   res.status(204).end();
 });
 
