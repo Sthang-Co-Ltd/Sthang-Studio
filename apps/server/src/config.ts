@@ -25,6 +25,17 @@ function envThinkingLevel(name: string, fallback: 'low' | 'medium' | 'high') {
   return ['low', 'medium', 'high'].includes(raw) ? raw as 'low' | 'medium' | 'high' : fallback;
 }
 
+function httpsOrigin(name: string, fallback = '') {
+  const raw = String(process.env[name] || fallback).trim().replace(/\/+$/, '');
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'https:' ? parsed.origin : '';
+  } catch {
+    return '';
+  }
+}
+
 export const config = {
   port: Number(process.env.PORT || 8787),
   webOrigin: process.env.WEB_ORIGIN || 'http://localhost:5188',
@@ -34,16 +45,9 @@ export const config = {
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),
   geminiRetryMaxMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_RETRY_MAX_MS || 60000))),
-  // Verbatim transcription is latency-sensitive and does not need agent-style reasoning.
-  // Gemini 3.7 Flash supports low/medium/high; low remains configurable for A/B testing.
   geminiTranscriptionThinkingLevel: envThinkingLevel('GEMINI_TRANSCRIPTION_THINKING_LEVEL', 'low'),
-  // Best-effort use of the current Interactions API ASR custom_vocabulary feature.
-  // If an older SDK/backend rejects it, gemini.ts falls back to prompt-based protection automatically.
   geminiNativeVocabularyBias: envBool('GEMINI_NATIVE_VOCABULARY_BIAS', true),
 
-  // v0.7 timing remains local-only by default. KFA directly force-aligns Gemini's
-  // Khmer transcript; faster-whisper is a LOCAL fallback. No cloud timing adapter
-  // is invoked automatically.
   localTimingPython: process.env.LOCAL_TIMING_PYTHON || defaultVenvPython,
   localKfaEnabled: envBool('LOCAL_KFA_ENABLED', true),
   localWhisperFallbackEnabled: envBool('LOCAL_WHISPER_FALLBACK_ENABLED', true),
@@ -66,10 +70,14 @@ export const config = {
   historyDir: path.join(stateRootDir, 'data', 'history'),
   proposalDir: path.join(stateRootDir, 'data', 'proposals'),
   jobsFile: path.join(stateRootDir, 'data', 'jobs.json'),
+  analyticsIdentityFile: path.join(stateRootDir, 'data', 'analytics-identity.json'),
   contributionDir: path.join(stateRootDir, 'data', 'contribution'),
   contributionStateFile: path.join(stateRootDir, 'data', 'contribution', 'state.json'),
-  // Cloud contribution is fail-closed until a separately deployed Sthang endpoint is configured.
-  contributionEndpoint: String(process.env.STHANG_CONTRIBUTION_ENDPOINT || '').trim(),
+  contributionTempDir: path.join(stateRootDir, 'data', 'contribution', 'temp'),
+  // These cloud features remain fail-closed until production configuration is supplied.
+  contributionEndpoint: httpsOrigin('STHANG_CONTRIBUTION_ENDPOINT'),
+  posthogHost: httpsOrigin('STHANG_POSTHOG_HOST', 'https://eu.i.posthog.com'),
+  posthogProjectKey: String(process.env.STHANG_POSTHOG_PROJECT_KEY || '').trim(),
   localTimingWorker: path.join(rootDir, 'local-timing', 'worker.py'),
   updateDir: path.join(stateRootDir, 'updates'),
   versionsDir: path.join(stateRootDir, 'versions'),
