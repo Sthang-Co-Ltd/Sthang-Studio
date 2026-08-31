@@ -31,7 +31,14 @@ When you generate or regenerate AI wording, Studio sends normalized WAV audio an
 Studio requests store:false for the interaction, uploads the WAV through the Gemini Files API, and does not explicitly delete that remote file.
 Google currently documents that Files API uploads are stored for up to 48 hours.
 Update checks disclose only the installed version/channel plus ordinary HTTPS metadata; they do not send projects, captions, media, Gemini keys, or device/license enrollment data.
-See PRIVACY.md inside "Sthang Studio Files" and https://ai.google.dev/gemini-api/docs/files.
+
+Version 0.8 source also contains two separate privacy choices that are off unless you turn them on in Settings > Privacy and their production service is configured.
+- Khmer Caption Contributor can share eligible corrections made after you join: only a bounded short audio clip around the corrected caption plus generated/corrected wording, timing, and technical evidence. Full videos, project names, filenames, API keys, unrelated captions, and PostHog ids are excluded.
+- Optional product analytics can send only allow-listed workflow events and coarse technical buckets to a configured PostHog project using a random analytics installation id. Studio does not include PostHog session replay or autocapture and does not send caption/media content to analytics.
+
+Contributor uploads are submitted first and are shown as verified only after corpus quality review accepts them. Unverified submissions expire after 180 days. Settings > Privacy provides a Request deletion action for contribution data already sent to Sthang; local projects are not deleted by that request.
+
+See PRIVACY.md inside "Sthang Studio Files", docs/KHMER-CAPTION-CONTRIBUTOR.md in the public source repository, and https://ai.google.dev/gemini-api/docs/files.
 
 The "Sthang Studio Files" folder is used automatically by setup. You do not need to open or edit anything inside it.
 
