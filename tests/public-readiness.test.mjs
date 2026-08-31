@@ -127,6 +127,20 @@ test('rejects a plausible private key block in the current tree and Git history 
   assert.ok(!historicalResult.output.includes(syntheticBody), 'History scan output must not disclose private-key material');
 });
 
+test('rejects legacy encrypted PEM headers without printing key material', (t) => {
+  const { root } = createFixture(t);
+  const syntheticBody = 'B'.repeat(128);
+  commitFile(
+    root,
+    'synthetic-legacy-secret.txt',
+    `-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,0123456789ABCDEF\n\n${syntheticBody}\n-----END RSA PRIVATE KEY-----\n`,
+  );
+  const result = scan(root);
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /private key block pattern found in synthetic-legacy-secret\.txt/);
+  assert.ok(!result.output.includes(syntheticBody), 'Scanner output must not disclose legacy private-key material');
+});
+
 test('continues to reject a currently tracked private path', (t) => {
   const { root } = createFixture(t);
   commitFile(root, '.env', 'synthetic placeholder only\n');
