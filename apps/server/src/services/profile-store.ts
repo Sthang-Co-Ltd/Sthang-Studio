@@ -13,6 +13,7 @@ import type {
   TimingSource,
 } from '@kcs/shared';
 import { config } from '../config.js';
+import { APP_VERSION } from '../version.js';
 import { normalizeForMatch } from './tokenizer.js';
 
 const DEFAULT_PROFILE: AppProfile = {
@@ -199,8 +200,6 @@ function suggestCorrection(originalText: string, correctedText: string): {
     return { kind: 'formatting', line: corrected };
   }
   if (looksLatinEntity(corrected)) {
-    // Important: never assert that a different recognized product/model is an alias.
-    // We only protect the corrected canonical entity globally.
     return { kind: 'protected-term', line: corrected };
   }
   return { kind: 'review', line: corrected };
@@ -295,7 +294,7 @@ export const profileStore = {
         sourceTimingQuality: old.timingQuality,
         sourceConfidence: old.confidence,
         sourceTextModel: project.transcript?.textModel,
-        sourceEngineVersion: project.engineVersion,
+        sourceEngineVersion: APP_VERSION,
       });
     });
 
