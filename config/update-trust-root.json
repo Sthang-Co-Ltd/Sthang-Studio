@@ -4,8 +4,8 @@
   "platform": "windows-x64",
   "channel": "preview",
   "endpoint": "https://updates.sthang.app/studio/windows/latest.json",
-  "keyId": "studio-updates-unprovisioned",
-  "publicKeyHex": "",
-  "provisioned": false,
+  "keyId": "studio-updates-ed25519-root-v1",
+  "publicKeyHex": "0e9ff5aaa1d9b3ea80887bd372d73fe83d5d7aaf51bfcfa09c3c07b1280cce5d",
+  "provisioned": true,
   "brokerVersion": "1.0.0"
 }
