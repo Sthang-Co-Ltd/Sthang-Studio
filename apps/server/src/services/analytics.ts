@@ -66,13 +66,13 @@ async function identity() {
   return value.distinctId;
 }
 
-function sanitizedProperties(properties: Record<string, SafePropertyValue | undefined>) {
+export function sanitizeAnalyticsProperties(properties: Record<string, unknown>) {
   const out: Record<string, SafePropertyValue> = {
     app_version: APP_VERSION,
     platform: process.platform,
   };
   for (const [key, value] of Object.entries(properties)) {
-    if (!ALLOWED_PROPERTY_KEYS.has(key) || value == null) continue;
+    if (!ALLOWED_PROPERTY_KEYS.has(key) || key === 'app_version' || key === 'platform' || value == null) continue;
     if (typeof value === 'string') out[key] = value.slice(0, 80);
     else if (typeof value === 'number' && Number.isFinite(value)) out[key] = value;
     else if (typeof value === 'boolean') out[key] = value;
@@ -105,7 +105,7 @@ export async function captureAnalytics(
             // Keep server-side analytics personless and skip GeoIP enrichment.
             // PostHog still receives ordinary HTTPS metadata such as the request IP.
             $geoip_disable: true,
-            ...sanitizedProperties(properties),
+            ...sanitizeAnalyticsProperties(properties),
           },
         }),
       });
