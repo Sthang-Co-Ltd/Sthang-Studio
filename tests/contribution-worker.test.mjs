@@ -61,3 +61,8 @@ test('contribution worker rejects tampered audio and clips that do not contain t
   await assert.rejects(() => validateSubmission(validPayload({ audioSha256: 'b'.repeat(64) })), /audio hash mismatch/);
   await assert.rejects(() => validateSubmission(validPayload({ clipStartMs: 1200 })), /contain caption range/);
 });
+
+test('contribution worker fails closed if private project fields enter the upload payload', async () => {
+  await assert.rejects(() => validateSubmission(validPayload({ projectTitle: 'private client job' })), /forbidden contribution field/);
+  await assert.rejects(() => validateSubmission(validPayload({ apiKey: 'secret' })), /forbidden contribution field/);
+});
