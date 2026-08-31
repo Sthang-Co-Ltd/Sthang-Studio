@@ -96,6 +96,37 @@ test('allows placeholder configuration and empty runtime scaffolding', (t) => {
   assert.equal(result.status, 0, result.output);
 });
 
+test('allows private-key parser syntax without treating marker text as key material', (t) => {
+  const { root } = createFixture(t);
+  commitFile(
+    root,
+    'parser-example.mjs',
+    String.raw`const keyPattern = /-----BEGIN PRIVATE KEY-----([A-Za-z0-9+/=\r\n]+)-----END PRIVATE KEY-----/;\n`,
+  );
+  const result = scan(root);
+  assert.equal(result.status, 0, result.output);
+});
+
+test('rejects a plausible private key block in the current tree and Git history without printing key material', (t) => {
+  const { root } = createFixture(t);
+  const syntheticBody = 'A'.repeat(64);
+  commitFile(
+    root,
+    'synthetic-secret.txt',
+    `-----BEGIN PRIVATE KEY-----\n${syntheticBody}\n-----END PRIVATE KEY-----\n`,
+  );
+  const currentResult = scan(root);
+  assert.equal(currentResult.status, 1, currentResult.output);
+  assert.match(currentResult.output, /private key block pattern found in synthetic-secret\.txt/);
+  assert.ok(!currentResult.output.includes(syntheticBody), 'Scanner output must not disclose private-key material');
+
+  removeFile(root, 'synthetic-secret.txt');
+  const historicalResult = scan(root);
+  assert.equal(historicalResult.status, 1, historicalResult.output);
+  assert.match(historicalResult.output, /private key block pattern found in Git history/);
+  assert.ok(!historicalResult.output.includes(syntheticBody), 'History scan output must not disclose private-key material');
+});
+
 test('continues to reject a currently tracked private path', (t) => {
   const { root } = createFixture(t);
   commitFile(root, '.env', 'synthetic placeholder only\n');
