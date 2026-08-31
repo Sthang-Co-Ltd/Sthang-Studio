@@ -111,28 +111,30 @@ layout into per-project atomic files to reduce repeated disk I/O. Existing proje
 data is preserved during migration; the legacy project source/history files are
 not silently discarded as part of the migration itself.
 
-## Update checks (unreleased source architecture)
+## Update checks (unreleased 0.8.0 bootstrap source)
 
-The current source contains a signed updater designed for the Sthang-controlled
-host `updates.sthang.app`, but its committed trust root is unprovisioned. In that
-state Studio fails closed and does not contact the update service.
+The unreleased `0.8.0` bootstrap source contains the Studio public verification
+key for the signed updater and is configured for the Sthang-controlled metadata
+host `updates.sthang.app`. This source change does not mean that `0.8.0` or a
+public OTA release is available: the verified public Beta remains `v0.7.14`, and
+a public signed `latest.json` pointer is not promoted during source preparation.
 
-In a future separately approved and released build with a provisioned Studio
-public verification key, Studio may make one update-metadata request per browser
-session/startup and additional requests only when you choose **Check for
-updates**. The request uses the public update URL and ordinary HTTPS metadata
-such as the source IP address and request headers. Studio does not send projects,
-captions, media, exports, correction memory, history, the Gemini API key, a
-license, an enrollment record, D1/device credentials, or a Sthang analytics
-identifier to check for an update. The installed version is compared locally;
-the public package URL reveals the chosen public version only after you confirm a
-download.
+A released build containing this provisioned public key may make one
+update-metadata request per browser session/startup and additional requests only
+when you choose **Check for updates**. The request uses the public update URL and
+ordinary HTTPS metadata such as the source IP address and request headers. Studio
+may disclose the installed version and update channel needed to compare an offer,
+but it does not send projects, captions, media, exports, correction memory,
+history, the Gemini API key, a license, an enrollment record, D1/device
+credentials, or a Sthang analytics identifier to check for an update. The
+installed version is compared locally; the public package URL reveals the chosen
+public version only after you confirm a download.
 
 Studio downloads a signed update package only after explicit confirmation and
-installs it only after a second explicit confirmation. A failed update-service
-request is non-destructive and does not affect caption work on the installed
-version. See `docs/OTA-UPDATES.md` for the unreleased protocol and production
-gates.
+installs it only after a second explicit confirmation. A failed or unavailable
+update-service request is non-destructive and does not affect caption work on the
+installed version. See `docs/OTA-UPDATES.md` for the unreleased protocol and
+remaining production/release gates.
 
 ## Telemetry
 
@@ -140,8 +142,8 @@ The application does not include a separate Sthang analytics or
 telemetry service. Processing-stage timing measurements are stored only as local
 job diagnostics; they are not sent to Sthang or another analytics provider.
 Network access is used for configured Gemini requests, package/model installation
-or download, the separately disclosed update checks above when provisioned, and
-any links the user chooses to open.
+or download, the separately disclosed update checks above in a released
+provisioned build, and any links the user chooses to open.
 
 ## Deleting local data
 
