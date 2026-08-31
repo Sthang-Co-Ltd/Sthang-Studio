@@ -10,7 +10,7 @@ Update controls remain secondary to caption work. Installation is blocked while 
 
 ## Trust and immutable release contract
 
-Studio has a dedicated Ed25519 trust-root configuration at `config/update-trust-root.json`; it is separate from every ACO trust root or credential. The repository currently carries an explicitly **unprovisioned** public-key slot, so release signing and runtime checks fail closed. Production key generation/custody is a separate approval-gated operation. Only the approved public verification key may later be committed; the private key must stay in external protected custody.
+Studio has a dedicated Ed25519 trust-root configuration at `config/update-trust-root.json`; it is separate from every ACO trust root or credential. The accepted repository source currently carries an explicitly **unprovisioned** public-key slot, so release signing and runtime checks fail closed. Production key custody and infrastructure deployment are separate operations from source acceptance. Only the approved public verification key may later be committed; the private key must stay in external protected custody.
 
 The public Studio updater requires no license, authentication, D1 enrollment, or
 device credential. It must never reuse ACO enrollment state, update credentials,
@@ -25,6 +25,14 @@ https://updates.sthang.app/studio/windows/latest.json
 The mutable pointer and immutable version manifest are both Ed25519-signed. Version manifests and package objects must live below `/v<version>/`, have no query string or redirect, and bind the exact package byte length, SHA-256, expanded-size ceiling, lockfile hash, Python requirement hashes, setup strategy, minimum broker version, and bounded release notes. A pointer is promotable only from a verification receipt produced after the versioned manifest signature and package bytes match.
 
 `npm run package:ota` creates an unsigned local candidate only. `scripts/update-release.mjs` signs, verifies, and creates a promotable pointer from an externally held key; it does not upload or deploy anything. The tooling refuses signing while the trust root is unprovisioned or when the external private key does not match the committed public key.
+
+## Runner-free production signing broker
+
+The production signer is implemented as a dedicated Cloudflare Worker under `infra/ota-signer/` rather than a GitHub Actions signing job. The owner-controlled private key stays behind a Cloudflare Secrets Store binding; ChatGPT and Codex invoke signing by posting the exact `/studio-ota-sign` command to an authorized open `release:` issue. GitHub sends the signed `issue_comment` webhook directly to `signer.sthang.app`, so routine signing does not consume GitHub Actions or Blacksmith runner quota.
+
+The signer does not accept arbitrary messages, manifests, or upload URLs to sign. A local/Codex release-preparation step may stage the OTA ZIP under a private R2 key bound to the exact current `main` commit. Before using the Studio key, the Worker downloads GitHub's archive for that exact commit, parses both archives, rejects unsafe/protected/unsupported entries, and requires the staged package's complete allowed file set and every file byte to match accepted source. It derives the release manifest itself from accepted source and verified package bytes, signs that canonical manifest plus a provenance attestation, and writes only create-only immutable version objects.
+
+The signing command never promotes `latest.json`. Public update availability still requires a separately verified update-serving origin, clean-Windows release evidence, the matching GitHub recovery release, and deliberate latest-pointer promotion.
 
 ## Staging, activation, and rollback
 
@@ -48,12 +56,12 @@ The Windows-protected Gemini key already lives outside source versions. The adva
 
 Before OTA can be advertised or enabled:
 
-1. Approve production Ed25519 key generation and custody, then commit only the Studio public key and mark the trust root provisioned.
+1. Establish Studio-specific production signing custody, commit only the approved public key, and mark the trust root provisioned in the exact bootstrap release source.
 2. Approve and deploy the `updates.sthang.app` serving layer and immutable R2 object policy. Do not allow overwriting versioned keys.
-3. Build a clean candidate, sign it externally, verify its exact bytes/manifest, upload immutable objects, and verify them again from the public endpoint.
+3. Build a clean candidate, stage and sign it through the production signer, verify its exact bytes/manifest/attestation, and verify the immutable objects again from the public endpoint.
 4. Run clean Windows installation and representative Khmer caption regression tests, plus same-version refusal, dependency-change upgrade, failed setup, interrupted download, interruption before/after pointer swap, failed health, rollback, state preservation, shortcut/default-browser, and manual GitHub recovery tests.
 5. Publish the matching deliberate GitHub Release and keep it available as the recovery/download path.
-6. Advance `latest.json` only from the matching verification receipt.
+6. Advance `latest.json` only from matching verified immutable-release evidence.
 7. Complete approved HQ intake and Distribution synchronization before updating public claims or website/docs.
 
 HQ's current product schema can represent `manual-github-release` and
@@ -64,5 +72,5 @@ then needs matching `/studio/` installation, update, privacy, rollback,
 troubleshooting, and GitHub recovery documentation based on exact release and
 deployment evidence.
 
-The committed trust root remains unprovisioned. No step above is authorized by
-the source implementation or this document.
+The accepted trust root remains unprovisioned. No source branch, local build,
+signer deployment, or signing-custody step is by itself public release evidence.
