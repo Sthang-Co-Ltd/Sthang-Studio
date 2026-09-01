@@ -123,7 +123,7 @@ export interface SegmentOptions {
 export type CorrectionStatus = 'pending' | 'remembered-global' | 'added-project' | 'ignored';
 export type CorrectionSuggestionKind = 'phonetic-alias' | 'protected-term' | 'formatting' | 'review';
 export type ConsentState = 'unset' | 'declined' | 'granted';
-export type ContributionQueueStatus = 'queued' | 'submitted' | 'verified' | 'rejected' | 'withdrawn';
+export type ContributionQueueStatus = 'queued' | 'uploading' | 'submitted' | 'verified' | 'rejected' | 'withdrawn';
 
 export interface CorrectionEvent {
   id: string;
