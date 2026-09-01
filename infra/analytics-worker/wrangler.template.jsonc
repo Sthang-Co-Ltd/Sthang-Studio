@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sthang-studio-analytics",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-08-31",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "analytics.sthang.app", "custom_domain": true }
+  ],
+  "secrets": {
+    "required": ["ANALYTICS_PROJECT_KEY"]
+  }
+}
