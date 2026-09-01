@@ -41,6 +41,8 @@ const DEFAULT_PROFILE: AppProfile = {
   updatedAt: new Date(0).toISOString(),
 };
 
+let profileInitialization: Promise<AppProfile> | null = null;
+
 function uniqueLines(lines: unknown): string[] {
   if (!Array.isArray(lines)) return [];
   const seen = new Set<string>();
@@ -171,8 +173,8 @@ async function exists(filePath: string) {
   return fs.stat(filePath).then(() => true).catch(() => false);
 }
 
-async function hasPriorStudioState() {
-  if (await exists(config.profileFile)) return true;
+async function hasPriorStudioState(includeProfileFile = true) {
+  if (includeProfileFile && await exists(config.profileFile)) return true;
   if (await exists(config.dataFile)) return true;
   if (await exists(config.jobsFile)) return true;
 
@@ -184,21 +186,55 @@ async function hasPriorStudioState() {
   return historyNames.length > 0;
 }
 
+function initialProfile(priorStudioState: boolean): AppProfile {
+  return {
+    ...DEFAULT_PROFILE,
+    preferences: {
+      ...DEFAULT_PROFILE.preferences,
+      ...(priorStudioState ? {} : { privacyUpgradeNoticeVersion: PRIVACY_UPGRADE_NOTICE_VERSION }),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function initializeMissingProfile() {
+  if (profileInitialization) return profileInitialization;
+  const task = (async () => {
+    // Another request may have completed initialization between the original
+    // ENOENT and this serialized task. Prefer that durable profile if it exists.
+    try {
+      return normalizeProfile(JSON.parse(await fs.readFile(config.profileFile, 'utf8')));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') return initialProfile(true);
+    }
+
+    // Ignore profile.json itself here: this path is reached specifically because
+    // it does not exist. Fresh v0.8 storage markers/order files are also ignored;
+    // only durable prior-use evidence such as real projects/jobs/history counts.
+    const priorStudioState = await hasPriorStudioState(false);
+    return save(initialProfile(priorStudioState));
+  })();
+  profileInitialization = task;
+  void task.finally(() => {
+    if (profileInitialization === task) profileInitialization = null;
+  }).catch(() => {});
+  return task;
+}
+
 async function load(): Promise<AppProfile> {
+  let serialized: string;
   try {
-    return normalizeProfile(JSON.parse(await fs.readFile(config.profileFile, 'utf8')));
+    serialized = await fs.readFile(config.profileFile, 'utf8');
   } catch (error) {
-    const priorStudioState = await hasPriorStudioState();
-    const initial: AppProfile = {
-      ...DEFAULT_PROFILE,
-      preferences: {
-        ...DEFAULT_PROFILE.preferences,
-        ...(priorStudioState ? {} : { privacyUpgradeNoticeVersion: PRIVACY_UPGRADE_NOTICE_VERSION }),
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return save(initial);
-    return initial;
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return initializeMissingProfile();
+    return initialProfile(true);
+  }
+  try {
+    return normalizeProfile(JSON.parse(serialized));
+  } catch {
+    // A malformed existing profile is prior-use evidence, but do not overwrite it
+    // merely to show the introduction. A later explicit profile write can repair it.
+    return initialProfile(true);
   }
 }
 
