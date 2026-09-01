@@ -13,7 +13,7 @@
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 while preserving v0.7.14 as the verified public download and keeping service deployment, release, HQ, and Distribution separately gated."
+      "summary": "Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 with production services provisioned and synthetic-validated, while preserving v0.7.14 as the verified public download and keeping release, HQ, and Distribution separately gated."
     },
     "releaseImpact": "version"
   },
@@ -104,7 +104,7 @@
         {
           "id": "sthang-khmer-contribution",
           "purpose": "Optional Khmer caption improvement corpus",
-          "availability": "unreleased-fail-closed-until-configured",
+          "availability": "unreleased-provisioned-default-off",
           "triggers": [
             "explicit Khmer Caption Contributor opt-in",
             "eligible post-consent caption correction followed by approval"
@@ -128,7 +128,7 @@
             "correction memory",
             "SRT exports",
             "Gemini API key",
-            "PostHog analytics id"
+            "product analytics installation id"
           ],
           "credentialOwner": "app-generated-pseudonymous",
           "credentialStorage": "local withdrawal token; service stores only its SHA-256",
@@ -143,8 +143,8 @@
         },
         {
           "id": "posthog-eu",
-          "purpose": "Optional product analytics",
-          "availability": "unreleased-fail-closed-until-configured",
+          "purpose": "Optional product analytics processed through the Sthang-owned analytics relay",
+          "availability": "unreleased-provisioned-default-off",
           "triggers": [
             "explicit product analytics opt-in"
           ],
@@ -152,7 +152,8 @@
             "allow-listed event names",
             "coarse workflow buckets",
             "random analytics installation id",
-            "Studio and platform version"
+            "Studio and platform version",
+            "ordinary infrastructure and HTTPS metadata may be observed by service providers"
           ],
           "staysLocal": [
             "caption and transcript text",
@@ -259,11 +260,14 @@
         "PRIVACY.md",
         "README.md",
         "docs/KHMER-CAPTION-CONTRIBUTOR.md",
+        "config/product-services.json",
         "apps/server/src/services/gemini.ts",
         "apps/server/src/services/analytics.ts",
         "apps/server/src/services/contribution-store.ts",
         "infra/contribution-worker/src/index.mjs",
         "infra/contribution-worker/src/retention.mjs",
+        "infra/analytics-worker/src/index.mjs",
+        "infra/analytics-worker/README.md",
         "docs/OTA-UPDATES.md"
       ],
       "requiredTerms": [
@@ -275,6 +279,7 @@
         "ordinary HTTPS metadata",
         "no license, authentication, D1 enrollment",
         "contribute.sthang.app",
+        "analytics.sthang.app",
         "explicit opt-in",
         "private R2",
         "180 days",
