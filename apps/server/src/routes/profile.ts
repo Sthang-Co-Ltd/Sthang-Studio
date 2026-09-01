@@ -30,7 +30,10 @@ router.patch('/', async (req, res) => {
 });
 
 router.get('/export', async (_req, res) => {
-  const profile = await profileStore.get();
+  const profile = structuredClone(await profileStore.get());
+  // The privacy-introduction marker belongs to this installation, not the
+  // transferable creator profile. Imports preserve the receiving installation's marker.
+  delete profile.preferences.privacyUpgradeNoticeVersion;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="sthang-studio-profile.json"');
   res.send(JSON.stringify(profile, null, 2));
