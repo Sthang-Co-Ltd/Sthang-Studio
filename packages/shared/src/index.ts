@@ -123,6 +123,7 @@ export interface SegmentOptions {
 export type CorrectionStatus = 'pending' | 'remembered-global' | 'added-project' | 'ignored';
 export type CorrectionSuggestionKind = 'phonetic-alias' | 'protected-term' | 'formatting' | 'review';
 export type ConsentState = 'unset' | 'declined' | 'granted';
+export const PRIVACY_UPGRADE_NOTICE_VERSION = '0.8';
 export type ContributionQueueStatus = 'queued' | 'uploading' | 'submitted' | 'verified' | 'rejected' | 'withdrawn';
 
 export interface CorrectionEvent {
@@ -244,6 +245,8 @@ export interface AppPreferences {
   /** Both privacy choices are off unless the user explicitly grants them. */
   analyticsConsent?: ConsentState;
   khmerContributionConsent?: ConsentState;
+  /** Installation-local marker for a one-time existing-user privacy introduction. */
+  privacyUpgradeNoticeVersion?: string;
 }
 
 export interface AppProfile {
