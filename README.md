@@ -67,12 +67,15 @@ It also contains the source foundation for two new privacy-controlled features:
   Sthang corpus service. Submitted samples are not called verified until corpus
   QA promotes them.
 - **Optional product analytics** — separate explicit consent. Studio sends only
-  a server-owned allow-list of coarse workflow events/properties to a configured
-  PostHog project. No browser PostHog SDK, replay, or autocapture is included.
+  a fixed allow-list of coarse workflow events/properties to the Sthang-owned
+  `analytics.sthang.app` relay. The relay validates that narrow schema again and
+  forwards accepted events to Sthang's configured PostHog EU processor. Studio
+  contains no browser analytics SDK, replay, or autocapture, and its normal app
+  configuration contains no processor endpoint or project ingestion key.
 
 Both new cloud paths fail closed when their production configuration is absent.
 The current source therefore does **not** establish that contribution hosting or
-PostHog analytics is publicly enabled.
+product analytics is publicly enabled.
 
 ### Signed updates in source — bootstrap trust prepared, OTA not public
 
@@ -112,7 +115,7 @@ text correction after consent, and become approved. Formatting-only changes and
 manually-authored starting captions are excluded. The client extracts only a
 short mono WAV around that caption and does not send the full video, project
 name, filename, local path, topic/context text, unrelated captions, correction
-memory, SRT contents, Gemini key, or PostHog id.
+memory, SRT contents, Gemini key, or product-analytics id.
 
 The planned Sthang intake is a Cloudflare Worker backed by **private R2 + D1**.
 The source includes idempotent sample ids, a pseudonymous contributor credential
@@ -157,8 +160,7 @@ is needed.
 - WinGet recommended but not required for the one-click installer.
 - Internet access for initial dependency/model setup and Gemini transcription.
 - A Gemini Developer API key for AI caption wording.
-- Enough local disk space for Python/Node dependencies, media, caches, and
-  downloaded timing models.
+- Enough local disk space for local timing resources and your media.
 
 macOS/Linux contributors may run the source with compatible Node/Python/FFmpeg
 setups, but the installer, desktop shortcut, and protected in-app key storage are
@@ -218,7 +220,8 @@ is independent of interaction storage controls. See Google's
 - Khmer Caption Contributor may send the bounded correction sample described
   above to Sthang's private corpus service;
 - optional product analytics may send coarse allow-listed workflow events to
-  PostHog EU using a random installation analytics id.
+  `analytics.sthang.app`, where the Sthang relay validates them before forwarding
+  accepted events to the disclosed EU analytics processor.
 
 Those two identities and data flows are intentionally separate.
 
@@ -246,7 +249,7 @@ Examples of safe reuse include normalized/range audio, KFA acoustic emissions,
 exact transcript+timing results, decoded waveform data, and completed stages of
 the same resumable job. New Alternative/Deep Verify jobs still ask Gemini again.
 The local timing daemon is an optimization only; Studio retains its one-shot
-Python timing path as a recovery route if the persistent worker transport fails.
+Python worker/CLI recovery path for setup, diagnostics, and daemon-transport failure.
 
 Projects and history are stored in atomic per-project files so an autosave no
 longer rewrites every project or dozens of full history snapshots. Existing
@@ -341,6 +344,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 - [`UX-AUDIT.md`](UX-AUDIT.md): historical UX findings and validation targets
 - [`PRIVACY.md`](PRIVACY.md) — local/cloud data flow and key handling
 - [`docs/KHMER-CAPTION-CONTRIBUTOR.md`](docs/KHMER-CAPTION-CONTRIBUTOR.md) — v0.8 contributor/corpus privacy and quality contract
+- [`infra/contribution-worker/README.md`](infra/contribution-worker/README.md) — Sthang corpus-service provisioning and synthetic validation
+- [`infra/analytics-worker/README.md`](infra/analytics-worker/README.md) — Sthang analytics-relay boundary and provisioning
 - [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) — unreleased signed-update protocol, rollback model, and production gates
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — dependency/model notices
 - [`TRADEMARKS.md`](TRADEMARKS.md) — Sthang name and brand-asset terms
