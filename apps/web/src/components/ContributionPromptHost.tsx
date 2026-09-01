@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api } from '../api';
+import { CONTRIBUTION_PROMPT_SESSION_KEY } from '../privacy-onboarding';
 import './contribution.css';
-
-const SESSION_PROMPT_KEY = 'sthang:contribution-prompt-shown:v1';
 
 export function ContributionPromptHost() {
   const [open, setOpen] = useState(false);
@@ -14,11 +13,11 @@ export function ContributionPromptHost() {
     let disposed = false;
     const maybeOffer = async () => {
       try {
-        if (sessionStorage.getItem(SESSION_PROMPT_KEY) === '1') return;
+        if (sessionStorage.getItem(CONTRIBUTION_PROMPT_SESSION_KEY) === '1') return;
         const [profile, status] = await Promise.all([api.profile(), api.contributionStatus()]);
         if (disposed || !status.endpointConfigured) return;
         if ((profile.preferences.khmerContributionConsent || 'unset') !== 'unset') return;
-        sessionStorage.setItem(SESSION_PROMPT_KEY, '1');
+        sessionStorage.setItem(CONTRIBUTION_PROMPT_SESSION_KEY, '1');
         setOpen(true);
       } catch {
         // Contribution onboarding is optional and must never interfere with export.
