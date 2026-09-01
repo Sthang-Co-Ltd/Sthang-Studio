@@ -14,6 +14,7 @@ import { api } from '../api';
 interface ContributorSettingsProps {
   profile: AppProfile;
   busy: boolean;
+  showIntro?: boolean;
   onSave(patch: Partial<AppProfile>): void | Promise<void>;
 }
 
@@ -29,7 +30,7 @@ function durationLabel(ms: number) {
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
-export function ContributorSettings({ profile, busy, onSave }: ContributorSettingsProps) {
+export function ContributorSettings({ profile, busy, showIntro = true, onSave }: ContributorSettingsProps) {
   const [liveProfile, setLiveProfile] = useState(profile);
   const [status, setStatus] = useState<ContributionStatus | null>(null);
   const [working, setWorking] = useState(false);
@@ -80,13 +81,13 @@ export function ContributorSettings({ profile, busy, onSave }: ContributorSettin
   const disabled = busy || working;
 
   return <div className="privacy-settings">
-    <div className="privacy-intro">
+    {showIntro && <div className="privacy-intro">
       <div className="privacy-intro-icon"><ShieldCheck size={22}/></div>
       <div>
         <strong>Privacy &amp; contribution</strong>
         <span>Caption contribution and product analytics are separate choices. Both stay off unless you explicitly turn them on.</span>
       </div>
-    </div>
+    </div>}
 
     <section className="privacy-card privacy-card-contributor">
       <div className="privacy-card-layout">
@@ -95,7 +96,6 @@ export function ContributorSettings({ profile, busy, onSave }: ContributorSettin
           <header className="privacy-card-heading">
             <div className="privacy-card-title">
               <strong>Khmer Caption Contributor</strong>
-              <span className="privacy-country-badge">KH</span>
             </div>
             <span className={`privacy-status-chip status-${contributionState.tone}`}>
               <i aria-hidden="true"/>{contributionState.label}
