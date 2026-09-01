@@ -13,6 +13,7 @@ export function PrivacyUpgradeHost() {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
+  const dialogRef = useRef<HTMLElement | null>(null);
   const primaryRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -45,8 +46,11 @@ export function PrivacyUpgradeHost() {
   }, []);
 
   useEffect(() => {
-    if (!open || view !== 'intro') return;
-    window.setTimeout(() => primaryRef.current?.focus(), 0);
+    if (!open) return;
+    window.setTimeout(() => {
+      if (view === 'intro') primaryRef.current?.focus();
+      else dialogRef.current?.querySelector<HTMLElement>('.privacy-upgrade-close')?.focus();
+    }, 0);
   }, [open, view]);
 
   const saveResolution = async (consent?: Exclude<ConsentState, 'unset'>) => {
@@ -110,6 +114,23 @@ export function PrivacyUpgradeHost() {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') {
+        const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        );
+        if (!controls?.length) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
@@ -124,7 +145,7 @@ export function PrivacyUpgradeHost() {
 
   if (view === 'review') {
     return <div className="privacy-upgrade-backdrop">
-      <section className="privacy-upgrade-dialog review-mode" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-review-title">
+      <section ref={dialogRef} className="privacy-upgrade-dialog review-mode" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-review-title">
         <button className="privacy-upgrade-close" aria-label="Close privacy settings" onClick={() => setOpen(false)}><X size={19}/></button>
         <header className="privacy-upgrade-review-head">
           <span aria-hidden="true"><ShieldCheck size={20}/></span>
@@ -136,7 +157,7 @@ export function PrivacyUpgradeHost() {
   }
 
   return <div className="privacy-upgrade-backdrop">
-    <section className="privacy-upgrade-dialog" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-title" aria-describedby="privacy-upgrade-description">
+    <section ref={dialogRef} className="privacy-upgrade-dialog" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-title" aria-describedby="privacy-upgrade-description">
       <button className="privacy-upgrade-close" aria-label="Not now" disabled={working} onClick={() => void dismiss()}><X size={19}/></button>
 
       <div className="privacy-upgrade-hero">
