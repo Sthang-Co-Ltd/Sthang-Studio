@@ -5,10 +5,13 @@
   "compatibility_date": "2026-08-31",
   "workers_dev": false,
   "routes": [
-    { "pattern": "contribute.sthang.app/*", "zone_name": "sthang.app" }
+    { "pattern": "contribute.sthang.app", "custom_domain": true }
   ],
   "triggers": {
     "crons": ["17 3 * * *"]
+  },
+  "secrets": {
+    "required": ["CONTRIBUTION_ADMIN_TOKEN"]
   },
   "d1_databases": [
     {
