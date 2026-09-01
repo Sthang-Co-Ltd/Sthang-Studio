@@ -3,6 +3,9 @@ Sthang Studio 0.8.0 release notes candidate.
 This source prepares two privacy-controlled improvement paths: Khmer Caption Contributor and optional product analytics.
 Both are off by default and require an explicit user choice.
 
+Existing pre-v0.8 installations get one dismissible privacy introduction when the new Contributor choice first arrives.
+Fresh installations keep the normal post-export invitation; closing the upgrade notice leaves both choices off.
+
 Khmer Caption Contributor can submit only eligible post-consent corrections: a bounded short WAV around the corrected
 caption plus generated/corrected wording, timing, and model/version evidence. Full videos, project names, filenames,
 API keys, and unrelated captions are excluded.
