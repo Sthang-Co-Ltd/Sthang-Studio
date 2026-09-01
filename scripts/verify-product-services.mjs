@@ -34,25 +34,18 @@ function exactKeys(value, label, expected) {
   }
 }
 
-function httpsOrigin(value) {
-  try {
-    const raw = String(value || '').replace(/\/+$/, '');
-    const parsed = new URL(raw);
-    return parsed.protocol === 'https:' && parsed.origin === raw;
-  } catch {
-    return false;
-  }
-}
-
 const services = readJson('config/product-services.json');
 exactKeys(services, 'product services', ['schemaVersion', 'khmerContribution', 'productAnalytics']);
 if (services.schemaVersion !== 1) errors.push('product services schemaVersion must be 1');
 exactKeys(services.khmerContribution, 'khmerContribution', ['provisioned', 'endpoint']);
-exactKeys(services.productAnalytics, 'productAnalytics', ['provisioned', 'host', 'projectKey']);
+exactKeys(services.productAnalytics, 'productAnalytics', ['provisioned', 'endpoint']);
 
 const serialized = JSON.stringify(services).toLowerCase();
-for (const forbidden of ['admin_token', 'admin-token', 'personal_api', 'personal-api', 'secret', 'password', 'credential']) {
-  if (serialized.includes(forbidden)) errors.push(`public service config must not contain ${forbidden}`);
+for (const forbidden of [
+  'admin_token', 'admin-token', 'personal_api', 'personal-api', 'secret', 'password', 'credential',
+  'posthog', 'projectkey', 'project_key',
+]) {
+  if (serialized.includes(forbidden)) errors.push(`public Studio service config must not contain ${forbidden}`);
 }
 
 if (services.khmerContribution?.provisioned === true) {
@@ -65,29 +58,29 @@ if (services.khmerContribution?.provisioned === true) {
   errors.push('khmerContribution.provisioned must be a boolean');
 }
 
-if (services.productAnalytics?.host !== 'https://eu.i.posthog.com' || !httpsOrigin(services.productAnalytics?.host)) {
-  errors.push('product analytics host must be exactly the reviewed EU HTTPS ingestion origin');
-}
 if (services.productAnalytics?.provisioned === true) {
-  if (!/^phc_[A-Za-z0-9_-]{8,220}$/.test(String(services.productAnalytics.projectKey || ''))) {
-    errors.push('provisioned product analytics requires a public project ingestion key');
+  if (services.productAnalytics.endpoint !== 'https://analytics.sthang.app') {
+    errors.push('provisioned product analytics endpoint must be exactly https://analytics.sthang.app');
   }
 } else if (services.productAnalytics?.provisioned === false) {
-  if (services.productAnalytics.projectKey !== '') errors.push('unprovisioned product analytics project key must be empty');
+  if (services.productAnalytics.endpoint !== '') errors.push('unprovisioned product analytics endpoint must be empty');
 } else {
   errors.push('productAnalytics.provisioned must be a boolean');
 }
 
-// The third-party processor remains named in formal privacy/governance docs, but
-// normal app/UI/runtime/env-template copy stays provider-neutral by product decision.
+// The third-party processor remains named in formal privacy/governance/infra docs,
+// but the ordinary app/runtime/env/public-service configuration stays Sthang-only.
 for (const relativePath of [
   'apps/web/src/components/ContributorSettings.tsx',
   'apps/web/src/components/ContributionPromptHost.tsx',
   'apps/server/src/index.ts',
+  'apps/server/src/config.ts',
+  'apps/server/src/services/analytics.ts',
   '.env.example',
+  'config/product-services.json',
 ]) {
   if (/posthog/i.test(read(relativePath))) {
-    errors.push(`${relativePath} must keep analytics provider branding out of normal Studio copy`);
+    errors.push(`${relativePath} must keep analytics provider branding out of normal Studio app/config copy`);
   }
 }
 
@@ -97,9 +90,42 @@ for (const required of [
   'publicServices.khmerContribution?.provisioned === true',
   'publicServices.productAnalytics?.provisioned === true',
   "httpsOrigin('STHANG_CONTRIBUTION_ENDPOINT', publicContributionEndpoint)",
-  "httpsOrigin('STHANG_ANALYTICS_HOST', publicAnalyticsHost)",
+  "httpsOrigin('STHANG_ANALYTICS_ENDPOINT', publicAnalyticsEndpoint)",
 ]) {
   if (!serverConfig.includes(required)) errors.push(`apps/server/src/config.ts is missing public-service integration: ${required}`);
+}
+
+const analyticsClient = read('apps/server/src/services/analytics.ts');
+for (const required of [
+  'if (!config.analyticsEndpoint) return false',
+  '`${config.analyticsEndpoint}/v1/events`',
+  'schemaVersion: 1',
+  'installationId',
+  'sanitizeAnalyticsProperties(properties)',
+]) {
+  if (!analyticsClient.includes(required)) errors.push(`analytics client is missing Sthang-relay behavior: ${required}`);
+}
+if (/api_key|\$process_person_profile|\$geoip_disable/i.test(analyticsClient)) {
+  errors.push('Studio analytics client must not contain downstream processor protocol fields');
+}
+
+const relayConfig = read('infra/analytics-worker/wrangler.template.jsonc');
+for (const required of [
+  '"pattern": "analytics.sthang.app"',
+  '"custom_domain": true',
+  '"workers_dev": false',
+  '"ANALYTICS_PROJECT_KEY"',
+]) {
+  if (!relayConfig.includes(required)) errors.push(`analytics relay deployment template is missing: ${required}`);
+}
+const relay = read('infra/analytics-worker/src/index.mjs');
+for (const required of [
+  "$process_person_profile: false",
+  '$geoip_disable: true',
+  'https://eu.i.posthog.com/i/v0/e/',
+  "url.pathname === '/v1/events'",
+]) {
+  if (!relay.includes(required)) errors.push(`analytics relay is missing reviewed downstream privacy behavior: ${required}`);
 }
 
 if (errors.length) {
@@ -108,4 +134,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log('Product-service verification passed (fail-closed public config + provider-neutral Studio copy).');
+console.log('Product-service verification passed (Sthang-owned public endpoints + provider-neutral Studio app copy).');
