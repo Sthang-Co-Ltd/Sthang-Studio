@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 
-const host = String(process.env.STHANG_POSTHOG_HOST || 'https://eu.i.posthog.com').trim().replace(/\/+$/, '');
-const projectKey = String(process.env.STHANG_POSTHOG_PROJECT_KEY || '').trim();
+const host = String(process.env.STHANG_ANALYTICS_HOST || 'https://eu.i.posthog.com').trim().replace(/\/+$/, '');
+const projectKey = String(process.env.STHANG_ANALYTICS_PROJECT_KEY || '').trim();
 
-if (!host.startsWith('https://')) throw new Error('STHANG_POSTHOG_HOST must be an approved HTTPS ingestion origin.');
-if (!projectKey) throw new Error('Set STHANG_POSTHOG_PROJECT_KEY through production configuration.');
+if (!host.startsWith('https://')) throw new Error('STHANG_ANALYTICS_HOST must be an approved HTTPS ingestion origin.');
+if (!projectKey) throw new Error('Set STHANG_ANALYTICS_PROJECT_KEY through production configuration.');
 
 const distinctId = `sthang-studio-synthetic-${crypto.randomBytes(8).toString('hex')}`;
 const controller = new AbortController();
