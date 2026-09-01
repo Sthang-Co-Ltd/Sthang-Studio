@@ -72,12 +72,20 @@ hidden inside AI configuration or generic profile controls.
   conceptually separate. One choice never implies consent to the other.
 - Both begin off/unset. Do not preselect, silently migrate, or infer consent from
   profile import, ordinary editing, update checks, or Gemini use.
-- Contributor onboarding should appear only after Studio has already delivered
-  value, such as after a successful export, and only when contribution hosting is
-  actually configured. It must never block export or first use.
-- Dismissing a Contributor invitation is not consent and should only suppress that
-  invitation for the current session. A deliberate **Keep my work private** choice
-  may persist as declined.
+- For a fresh installation, Contributor onboarding appears only after Studio has
+  already delivered value, such as after a successful export, and only when
+  contribution hosting is actually configured. It must never block export or
+  first use.
+- A pre-v0.8 installation with durable evidence of prior Studio use may receive a
+  one-time, dismissible startup explanation when the Contributor choice is still
+  unset. This is a migration notice for an existing creator, not first-use
+  onboarding. Closing it or choosing to review the settings is not consent.
+  Analytics remains a separate off/unset choice. Record the handled notice only
+  on that installation and suppress the post-export invitation for the same
+  session so Studio never asks twice at once.
+- Dismissing a normal post-export Contributor invitation is not consent and should
+  only suppress that invitation for the current session. A deliberate **Keep my
+  work private** choice may persist as declined.
 - Mission-oriented copy may celebrate improving Khmer caption technology, but it
   must remain factual and non-coercive. Do not imply that refusing contribution is
   disloyal, selfish, or harmful to Khmer people/creators.
@@ -95,10 +103,34 @@ hidden inside AI configuration or generic profile controls.
   describe pseudonymous analytics as anonymous if that would be technically
   inaccurate.
 
-The post-export Contributor invitation is a small non-blocking card/toast-like
+Privacy cards share one visual grammar: 14px card radii, the same title/status/
+disclosure/action order, and the same decision-control anatomy. Desktop decision
+buttons target 48px height with readable labels, visible `:focus-visible`, and
+`aria-pressed` when they represent the persisted choice. The secondary/private
+choice must remain visibly actionable rather than looking disabled. State chips
+use copy plus a marker, never color alone. Contributor may use Studio lime as its
+contextual accent; analytics may use a restrained blue technical accent, but both
+must preserve identical spacing, radii, typography, hover/focus behavior, and
+information hierarchy. Contextual color must never suggest that analytics is
+required or equivalent to Contributor.
+
+Inside each Privacy card, keep this predictable order:
+
+```text
+icon → title/status → value line → explanation → data boundary → progress (if any) → decisions → helper/deletion state
+```
+
+The post-export Contributor invitation remains a small non-blocking card/toast-like
 surface. It must not obscure the video/caption editor, overlap the shared toast
 stack, or repeatedly reopen during the same session. The persistent Privacy
 settings surface remains the authoritative place to change choices later.
+
+The migration-only existing-user introduction is allowed to be a centered modal
+because it is a one-time explanation of a newly introduced data choice to someone
+who has already used Studio. It must have an obvious **Not now**/close path, must
+state that closing keeps both choices off, and must never auto-enable analytics.
+The review action may show the same authoritative Privacy cards inside the modal;
+it must not invent a second consent contract.
 
 ## Accessibility floor
 
