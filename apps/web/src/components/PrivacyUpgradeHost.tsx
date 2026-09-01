@@ -46,7 +46,9 @@ export function PrivacyUpgradeHost() {
 
   useEffect(() => {
     if (!open) return;
-    window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>('.privacy-upgrade-close')?.focus(), 0);
+    // Move accessibility focus into the dialog without visually preselecting any
+    // consent action or making the close control look like the primary decision.
+    window.setTimeout(() => dialogRef.current?.focus({ preventScroll: true }), 0);
   }, [open, view]);
 
   const saveResolution = async (consent?: Exclude<ConsentState, 'unset'>) => {
@@ -118,7 +120,7 @@ export function PrivacyUpgradeHost() {
         const first = controls[0];
         const last = controls[controls.length - 1];
         const active = document.activeElement;
-        if (event.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
+        if (event.shiftKey && (active === first || active === dialogRef.current || !dialogRef.current?.contains(active))) {
           event.preventDefault();
           last.focus();
         } else if (!event.shiftKey && active === last) {
@@ -141,7 +143,7 @@ export function PrivacyUpgradeHost() {
 
   if (view === 'review') {
     return <div className="privacy-upgrade-backdrop">
-      <section ref={dialogRef} className="privacy-upgrade-dialog review-mode" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-review-title">
+      <section ref={dialogRef} tabIndex={-1} style={{ outline: 'none' }} className="privacy-upgrade-dialog review-mode" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-review-title">
         <button className="privacy-upgrade-close" aria-label="Close privacy settings" onClick={() => setOpen(false)}><X size={19}/></button>
         <header className="privacy-upgrade-review-head">
           <span aria-hidden="true"><ShieldCheck size={20}/></span>
@@ -153,7 +155,7 @@ export function PrivacyUpgradeHost() {
   }
 
   return <div className="privacy-upgrade-backdrop">
-    <section ref={dialogRef} className="privacy-upgrade-dialog" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-title" aria-describedby="privacy-upgrade-description">
+    <section ref={dialogRef} tabIndex={-1} style={{ outline: 'none' }} className="privacy-upgrade-dialog" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-title" aria-describedby="privacy-upgrade-description">
       <button className="privacy-upgrade-close" aria-label="Not now" disabled={working} onClick={() => void dismiss()}><X size={19}/></button>
 
       <div className="privacy-upgrade-hero">
@@ -184,7 +186,7 @@ export function PrivacyUpgradeHost() {
         <button className="privacy-upgrade-action tertiary" disabled={working} onClick={() => void review()}><ShieldCheck size={16}/>Review privacy &amp; analytics settings</button>
       </div>
 
-      <div className="privacy-upgrade-foot"><ShieldCheck size={14}/><span>Closing this one-time notice keeps both choices off. You can change them later in Settings → Privacy.</span></div>
+      <div className="privacy-upgrade-foot"><ShieldCheck size={14}/><span>Closing this keeps both choices off. Change them anytime in Settings → Privacy.</span></div>
       {error && <div className="privacy-upgrade-error" role="alert">{error}</div>}
     </section>
   </div>;
