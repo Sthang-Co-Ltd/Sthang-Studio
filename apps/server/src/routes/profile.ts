@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { CaptionProject } from '@kcs/shared';
 import { profileStore } from '../services/profile-store.js';
 import { contributionStore } from '../services/contribution-store.js';
+import { resetAnalyticsIdentity } from '../services/analytics.js';
 import { store } from '../services/store.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 
@@ -15,9 +16,13 @@ router.patch('/', async (req, res) => {
   try {
     const before = await profileStore.get();
     const updated = await profileStore.patch(req.body);
-    const previousConsent = before.preferences.khmerContributionConsent || 'unset';
-    const nextConsent = updated.preferences.khmerContributionConsent || 'unset';
-    if (previousConsent !== nextConsent) await contributionStore.syncConsent(nextConsent);
+    const previousContribution = before.preferences.khmerContributionConsent || 'unset';
+    const nextContribution = updated.preferences.khmerContributionConsent || 'unset';
+    if (previousContribution !== nextContribution) await contributionStore.syncConsent(nextContribution);
+
+    const previousAnalytics = before.preferences.analyticsConsent || 'unset';
+    const nextAnalytics = updated.preferences.analyticsConsent || 'unset';
+    if (previousAnalytics !== nextAnalytics && nextAnalytics !== 'granted') await resetAnalyticsIdentity();
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile update failed' });
@@ -35,6 +40,7 @@ router.post('/import', async (req, res) => {
   try {
     const profile = await profileStore.replace(req.body);
     await contributionStore.syncConsent('unset');
+    await resetAnalyticsIdentity();
     res.json(profile);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile import failed' });
