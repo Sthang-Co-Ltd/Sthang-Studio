@@ -152,7 +152,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 while preserving v0.7.14 as the verified public download and keeping service deployment, release, HQ, and Distribution separately gated.',
+    'Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 with production services provisioned and synthetic-validated, while preserving v0.7.14 as the verified public download and keeping release, HQ, and Distribution separately gated.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -298,7 +298,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     ]);
     equal(corpusProvider.id, 'sthang-khmer-contribution', 'Contribution provider id');
     equal(corpusProvider.purpose, 'Optional Khmer caption improvement corpus', 'Contribution purpose');
-    equal(corpusProvider.availability, 'unreleased-fail-closed-until-configured', 'Contribution availability');
+    equal(corpusProvider.availability, 'unreleased-provisioned-default-off', 'Contribution availability');
     exactStringArray(corpusProvider.triggers, 'Contribution triggers', [
       'explicit Khmer Caption Contributor opt-in',
       'eligible post-consent caption correction followed by approval',
@@ -322,7 +322,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
       'correction memory',
       'SRT exports',
       'Gemini API key',
-      'PostHog analytics id',
+      'product analytics installation id',
     ]);
     equal(corpusProvider.credentialOwner, 'app-generated-pseudonymous', 'Contribution credentialOwner');
     equal(corpusProvider.credentialStorage, 'local withdrawal token; service stores only its SHA-256', 'Contribution credentialStorage');
@@ -349,14 +349,15 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
       'privacyUrl',
     ]);
     equal(analyticsProvider.id, 'posthog-eu', 'PostHog provider id');
-    equal(analyticsProvider.purpose, 'Optional product analytics', 'PostHog purpose');
-    equal(analyticsProvider.availability, 'unreleased-fail-closed-until-configured', 'PostHog availability');
+    equal(analyticsProvider.purpose, 'Optional product analytics processed through the Sthang-owned analytics relay', 'PostHog purpose');
+    equal(analyticsProvider.availability, 'unreleased-provisioned-default-off', 'PostHog availability');
     exactStringArray(analyticsProvider.triggers, 'PostHog triggers', ['explicit product analytics opt-in']);
     exactStringArray(analyticsProvider.dataSent, 'PostHog dataSent', [
       'allow-listed event names',
       'coarse workflow buckets',
       'random analytics installation id',
       'Studio and platform version',
+      'ordinary infrastructure and HTTPS metadata may be observed by service providers',
     ]);
     exactStringArray(analyticsProvider.staysLocal, 'PostHog staysLocal', [
       'caption and transcript text',
@@ -466,11 +467,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     'PRIVACY.md',
     'README.md',
     'docs/KHMER-CAPTION-CONTRIBUTOR.md',
+    'config/product-services.json',
     'apps/server/src/services/gemini.ts',
     'apps/server/src/services/analytics.ts',
     'apps/server/src/services/contribution-store.ts',
     'infra/contribution-worker/src/index.mjs',
     'infra/contribution-worker/src/retention.mjs',
+    'infra/analytics-worker/src/index.mjs',
+    'infra/analytics-worker/README.md',
     'docs/OTA-UPDATES.md',
   ];
   exactStringArray(evidenceDataProcessing.paths, 'manifest.evidence.dataProcessing.paths', dataProcessingPaths);
@@ -483,6 +487,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     'ordinary HTTPS metadata',
     'no license, authentication, D1 enrollment',
     'contribute.sthang.app',
+    'analytics.sthang.app',
     'explicit opt-in',
     'private R2',
     '180 days',
@@ -628,11 +633,27 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   }
 
   const analyticsSource = fs.readFileSync(path.join(root, 'apps/server/src/services/analytics.ts'), 'utf8');
-  for (const forbidden of ['caption.text', 'project.title', 'originalName', 'transcriptionContext', 'GEMINI_API_KEY']) {
-    if (analyticsSource.includes(forbidden)) errors.push(`Analytics source must not reference content-bearing field: ${forbidden}`);
+  for (const forbidden of [
+    'caption.text', 'project.title', 'originalName', 'transcriptionContext', 'GEMINI_API_KEY',
+    'api_key', '$process_person_profile', '$geoip_disable', 'posthog',
+  ]) {
+    if (analyticsSource.toLowerCase().includes(forbidden.toLowerCase())) {
+      errors.push(`Studio analytics source must not reference processor/content field: ${forbidden}`);
+    }
   }
-  for (const required of ["$process_person_profile: false", "analyticsConsent", "config.posthogProjectKey"]) {
-    if (!analyticsSource.includes(required)) errors.push(`Analytics source must preserve explicit privacy guard: ${required}`);
+  for (const required of ['analyticsConsent', 'config.analyticsEndpoint', '/v1/events', 'installationId']) {
+    if (!analyticsSource.includes(required)) errors.push(`Studio analytics source must preserve Sthang-relay privacy guard: ${required}`);
+  }
+
+  const analyticsRelay = fs.readFileSync(path.join(root, 'infra/analytics-worker/src/index.mjs'), 'utf8');
+  for (const required of [
+    '$process_person_profile: false',
+    '$geoip_disable: true',
+    'https://eu.i.posthog.com/i/v0/e/',
+    'ANALYTICS_PROJECT_KEY',
+    "url.pathname === '/v1/events'",
+  ]) {
+    if (!analyticsRelay.includes(required)) errors.push(`Analytics relay must preserve downstream privacy boundary: ${required}`);
   }
 
   rejectEmbeddedEvidence(manifest);
