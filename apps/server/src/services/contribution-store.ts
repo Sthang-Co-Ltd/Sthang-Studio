@@ -48,16 +48,19 @@ const EMPTY_STATE: ContributionState = {
   verifiedAudioMs: 0,
   withdrawalPending: false,
 };
+const STALE_UPLOAD_MS = 30_000;
 
 let stateQueue: Promise<void> = Promise.resolve();
 let syncInFlight: Promise<void> | null = null;
 
 function normalizeState(value: unknown): ContributionState {
   const raw = value && typeof value === 'object' ? value as Partial<ContributionState> : {};
+  const allowedStatuses = new Set(['queued', 'uploading', 'submitted', 'verified', 'rejected', 'withdrawn']);
   const candidates = Array.isArray(raw.candidates)
     ? raw.candidates.filter((item): item is ContributionCandidate => Boolean(item && typeof item === 'object' && item.id && item.projectId))
       .map((item) => ({
         ...item,
+        status: allowedStatuses.has(String(item.status)) ? item.status : 'queued',
         originalText: String(item.originalText || '').slice(0, 1000),
         correctedText: String(item.correctedText || '').slice(0, 1000),
         correctionEventIds: Array.isArray(item.correctionEventIds) ? item.correctionEventIds.map(String).slice(0, 32) : [],
@@ -140,7 +143,7 @@ function publicStatus(profile: AppProfile, state: ContributionState): Contributi
     consent: profile.preferences.khmerContributionConsent || 'unset',
     endpointConfigured: Boolean(config.contributionEndpoint),
     contributorEnrolled: Boolean(state.contributorId),
-    queued: count('queued'),
+    queued: count('queued') + count('uploading'),
     submitted: count('submitted'),
     verified: count('verified'),
     rejected: count('rejected'),
@@ -168,10 +171,13 @@ async function syncConsentState(consent: ConsentState) {
     }
     state.active = false;
     state.consentGrantedAt = undefined;
-    // Unsent derived correction data is discarded immediately when contribution stops.
+    // Drop never-started local work immediately. Preserve an in-flight upload only
+    // until its network result is known, then minimize it to remote receipt/status metadata.
     state.candidates = state.candidates
-      .filter((item) => !['queued', 'rejected'].includes(item.status))
-      .map(minimizeRemoteCandidate);
+      .filter((item) => item.status === 'uploading' || !['queued', 'rejected'].includes(item.status))
+      .map((item) => item.status === 'uploading' || ['submitted', 'verified', 'withdrawn'].includes(item.status)
+        ? minimizeRemoteCandidate(item)
+        : item);
   });
 }
 
@@ -284,12 +290,26 @@ async function sendWithdrawal(state: ContributionState) {
   return true;
 }
 
+async function recoverStaleUploads() {
+  const cutoff = Date.now() - STALE_UPLOAD_MS;
+  await mutateState((state) => {
+    state.candidates = state.candidates.flatMap((candidate) => {
+      if (candidate.status !== 'uploading') return [candidate];
+      const attemptTime = Date.parse(candidate.lastAttemptAt || '');
+      if (Number.isFinite(attemptTime) && attemptTime > cutoff) return [candidate];
+      if (!state.active) return [];
+      return [{ ...candidate, status: 'queued' as const }];
+    });
+  });
+}
+
 async function claimQueuedCandidate() {
   return mutateState((state) => {
     if (!state.active || state.withdrawalPending) return null;
     ensureIdentity(state);
     const candidate = state.candidates.find((item) => item.status === 'queued');
     if (!candidate) return null;
+    candidate.status = 'uploading';
     candidate.attempts += 1;
     candidate.lastAttemptAt = new Date().toISOString();
     return {
@@ -302,9 +322,19 @@ async function claimQueuedCandidate() {
   });
 }
 
+async function settleUploadFailure(candidateId: string) {
+  await mutateState((state) => {
+    const candidate = state.candidates.find((item) => item.id === candidateId);
+    if (!candidate || candidate.status !== 'uploading') return;
+    if (state.active) candidate.status = 'queued';
+    else state.candidates = state.candidates.filter((item) => item.id !== candidateId);
+  });
+}
+
 async function syncPendingInternal() {
   if (!config.contributionEndpoint) return;
   try {
+    await recoverStaleUploads();
     const initial = await readState();
     if (initial.withdrawalPending) {
       if (await sendWithdrawal(initial)) {
@@ -326,9 +356,14 @@ async function syncPendingInternal() {
     for (let index = 0; index < 8; index += 1) {
       const claimed = await claimQueuedCandidate();
       if (!claimed) break;
-      const uploaded = await uploadCandidate(claimed.state, claimed.candidate);
+      let uploaded: { receiptId: string } | null = null;
+      try {
+        uploaded = await uploadCandidate(claimed.state, claimed.candidate);
+      } catch (error) {
+        await settleUploadFailure(claimed.candidate.id);
+        throw error;
+      }
       if (!uploaded) {
-        // Project removal is allowed to discard a candidate that never left the device.
         await mutateState((state) => {
           state.candidates = state.candidates.filter((item) => item.id !== claimed.candidate.id);
         });
@@ -336,7 +371,7 @@ async function syncPendingInternal() {
       }
       await mutateState((state) => {
         const candidate = state.candidates.find((item) => item.id === claimed.candidate.id);
-        if (!candidate || candidate.status !== 'queued') return;
+        if (!candidate || candidate.status !== 'uploading') return;
         candidate.status = 'submitted';
         candidate.receiptId = uploaded.receiptId;
         candidate.submittedAt = new Date().toISOString();
@@ -405,21 +440,19 @@ export const contributionStore = {
 
   async removeProject(projectId: string) {
     await mutateState((state) => {
-      // Deleting a local project discards only never-uploaded data. Remote evidence
-      // stays as minimized receipt/status metadata so contributor-wide withdrawal remains possible.
       state.candidates = state.candidates
         .filter((item) => item.projectId !== projectId || !['queued', 'rejected'].includes(item.status))
-        .map((item) => item.projectId === projectId ? minimizeRemoteCandidate(item) : item);
+        .map((item) => item.projectId === projectId && item.status !== 'queued' ? minimizeRemoteCandidate(item) : item);
     });
   },
 
   async requestWithdrawal() {
     await mutateState((state) => {
-      const hasRemoteEvidence = state.candidates.some((item) => ['submitted', 'verified'].includes(item.status));
+      const hasRemoteEvidence = state.candidates.some((item) => ['uploading', 'submitted', 'verified'].includes(item.status));
       state.active = false;
       state.consentGrantedAt = undefined;
       state.candidates = state.candidates
-        .filter((item) => ['submitted', 'verified'].includes(item.status))
+        .filter((item) => ['uploading', 'submitted', 'verified'].includes(item.status))
         .map(minimizeRemoteCandidate);
       state.withdrawalPending = hasRemoteEvidence;
     });
