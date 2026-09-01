@@ -29,7 +29,10 @@ router.post('/withdraw', async (_req, res) => {
       preferences: { ...profile.preferences, khmerContributionConsent: 'declined' },
     });
     await contributionStore.requestWithdrawal();
-    // Give an online deletion request one immediate chance; failure remains safely pending.
+    // First wait for any already-running upload/sync. The second pass then sees
+    // withdrawalPending and performs contributor-wide remote deletion immediately
+    // when the service is reachable. Failure remains safely pending for retry.
+    await contributionStore.syncPending();
     await contributionStore.syncPending();
     res.json(await contributionStore.status(updated));
   } catch (error) {
