@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "khmerContribution": {
-    "provisioned": false,
-    "endpoint": ""
+    "provisioned": true,
+    "endpoint": "https://contribute.sthang.app"
   },
   "productAnalytics": {
-    "provisioned": false,
-    "endpoint": ""
+    "provisioned": true,
+    "endpoint": "https://analytics.sthang.app"
   }
 }
