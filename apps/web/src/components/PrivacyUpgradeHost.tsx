@@ -186,7 +186,7 @@ export function PrivacyUpgradeHost() {
         <button className="privacy-upgrade-action tertiary" disabled={working} onClick={() => void review()}><ShieldCheck size={16}/>Review privacy &amp; analytics settings</button>
       </div>
 
-      <div className="privacy-upgrade-foot"><ShieldCheck size={14}/><span>Closing this keeps both choices off. Change them anytime in Settings → Privacy.</span></div>
+      <div className="privacy-upgrade-foot"><ShieldCheck size={14}/><span>Closing this doesn’t change either privacy choice. Change them anytime in Settings → Privacy.</span></div>
       {error && <div className="privacy-upgrade-error" role="alert">{error}</div>}
     </section>
   </div>;
