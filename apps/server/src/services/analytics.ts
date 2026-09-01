@@ -12,10 +12,7 @@ export type AnalyticsEvent =
   | 'generation_completed'
   | 'generation_failed'
   | 'caption_approved'
-  | 'export_completed'
-  | 'contribution_choice'
-  | 'contribution_submitted'
-  | 'contribution_verified';
+  | 'export_completed';
 
 type SafePropertyValue = string | number | boolean;
 const ALLOWED_PROPERTY_KEYS = new Set([
@@ -27,7 +24,6 @@ const ALLOWED_PROPERTY_KEYS = new Set([
   'timing_ms_bucket',
   'approval_count_bucket',
   'warning_count_bucket',
-  'choice',
   'result',
 ]);
 
@@ -64,6 +60,10 @@ async function identity() {
   await fs.mkdir(path.dirname(config.analyticsIdentityFile), { recursive: true });
   await fs.writeFile(config.analyticsIdentityFile, JSON.stringify(value, null, 2), 'utf8');
   return value.distinctId;
+}
+
+export async function resetAnalyticsIdentity() {
+  await fs.rm(config.analyticsIdentityFile, { force: true }).catch(() => {});
 }
 
 export function sanitizeAnalyticsProperties(properties: Record<string, unknown>) {
