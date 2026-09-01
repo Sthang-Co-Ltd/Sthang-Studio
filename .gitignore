@@ -16,6 +16,10 @@ apps/*/.env.*
 credentials*.json
 service-account*.json
 
+# Provider-local deployment configuration / credentials
+infra/contribution-worker/wrangler.local.jsonc
+infra/contribution-worker/.dev.vars
+
 # Runtime media and exports
 uploads/*
 !uploads/.gitkeep
