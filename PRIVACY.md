@@ -102,7 +102,7 @@ wording, receives a material human text correction after consent, and is later
 approved. Formatting-only changes and corrections whose starting caption was
 manually authored are excluded. Each eligible contribution is limited to:
 
-- a random Contributor id that is not the PostHog analytics id;
+- a random Contributor id that is not the product-analytics installation id;
 - a deterministic sample id used for idempotency/deduplication;
 - generated caption wording and final corrected wording;
 - caption timing and generated timing/model/Studio-version evidence;
@@ -112,9 +112,9 @@ manually authored are excluded. Each eligible contribution is limited to:
 
 The client protocol does **not** contribute the full video, project title, source
 filename, local filesystem path, unrelated captions, topic/context text,
-correction-memory database, SRT content, Gemini API key, or PostHog identifier.
-The Sthang intake Worker also rejects those private fields if they appear in the
-payload.
+correction-memory database, SRT content, Gemini API key, or product-analytics
+identifier. The Sthang intake Worker also rejects those private fields if they
+appear in the payload.
 
 Eligible samples are first queued locally. Network failure never makes caption
 editing, Review, saving, generation, or export fail. Studio retries queued work
@@ -156,28 +156,38 @@ production gates.
 
 ## Optional product analytics (unreleased 0.8.0 source)
 
-Product analytics is a **separate, default-off choice**. Studio does not load the
-PostHog browser SDK, session replay, or autocapture. If the user explicitly
-enables analytics **and** a Studio PostHog project ingestion key is configured,
-the local Node server creates a random analytics installation id and sends a
-small allow-listed event set to PostHog. The current default ingestion region is
-PostHog EU (`eu.i.posthog.com`).
+Product analytics is a **separate, default-off choice**. Studio does not load a
+third-party browser analytics SDK, session replay, or autocapture. When the user
+explicitly enables analytics and the production service is provisioned, Studio's
+local Node server creates a random analytics installation id and sends only its
+small allow-listed event payload to the Sthang-controlled relay at
+`analytics.sthang.app`.
+
+The relay validates the same fixed event/property vocabulary again before
+forwarding an accepted event to Sthang's configured PostHog EU project. The
+processor-specific project ingestion key and endpoint are held by the relay,
+not shipped in Studio's normal app configuration. The relay requests
+`$process_person_profile: false` and `$geoip_disable: true` for forwarded events.
+The relay is designed not to intentionally persist Studio event payloads.
 
 Allow-listed events measure coarse workflow milestones such as Studio startup,
 project creation, caption generation start/completion/failure, caption approval,
 and SRT export. Properties are restricted to Studio/platform version and coarse
 buckets such as caption count, duration, processing time, and approval count.
-Studio requests that PostHog not create person profiles for these events.
 
 Analytics does **not** send caption/transcript text, audio/video, filenames,
 project names, local paths, topic/vocabulary/context text, correction memory,
-SRT contents, Gemini keys, Contributor ids, or contribution audio. PostHog's
+SRT contents, Gemini keys, Contributor ids, contribution audio, email addresses,
+or names. Studio does not deliberately include the creator's IP address as an
+event property. However, Cloudflare and PostHog can receive ordinary
+infrastructure/HTTPS metadata associated with requests or Worker subrequests;
+the relay must not be described as an IP-anonymization guarantee. PostHog's
 service terms/privacy policy apply to analytics data processed by PostHog.
 
 Analytics outages are fail-open. Turning analytics off stops new analytics
-events. Because the analytics id is random and intentionally separate from
-Contributor identity, the contribution service cannot use it to link corpus
-samples to PostHog behavior.
+events and removes the local random analytics identity so a later opt-in starts
+with a fresh id. The analytics identity is intentionally separate from Contributor
+identity, and the contribution service does not receive it.
 
 ## API keys
 
