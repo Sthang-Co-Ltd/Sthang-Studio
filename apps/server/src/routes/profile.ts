@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import type { CaptionProject } from '@kcs/shared';
 import { profileStore } from '../services/profile-store.js';
+import { contributionStore } from '../services/contribution-store.js';
+import { resetAnalyticsIdentity } from '../services/analytics.js';
 import { store } from '../services/store.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 
@@ -12,14 +14,26 @@ router.get('/', async (_req, res) => {
 
 router.patch('/', async (req, res) => {
   try {
-    res.json(await profileStore.patch(req.body));
+    const before = await profileStore.get();
+    const updated = await profileStore.patch(req.body);
+    const previousContribution = before.preferences.khmerContributionConsent || 'unset';
+    const nextContribution = updated.preferences.khmerContributionConsent || 'unset';
+    if (previousContribution !== nextContribution) await contributionStore.syncConsent(nextContribution);
+
+    const previousAnalytics = before.preferences.analyticsConsent || 'unset';
+    const nextAnalytics = updated.preferences.analyticsConsent || 'unset';
+    if (previousAnalytics !== nextAnalytics && nextAnalytics !== 'granted') await resetAnalyticsIdentity();
+    res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile update failed' });
   }
 });
 
 router.get('/export', async (_req, res) => {
-  const profile = await profileStore.get();
+  const profile = structuredClone(await profileStore.get());
+  // The privacy-introduction marker belongs to this installation, not the
+  // transferable creator profile. Imports preserve the receiving installation's marker.
+  delete profile.preferences.privacyUpgradeNoticeVersion;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="sthang-studio-profile.json"');
   res.send(JSON.stringify(profile, null, 2));
@@ -27,7 +41,10 @@ router.get('/export', async (_req, res) => {
 
 router.post('/import', async (req, res) => {
   try {
-    res.json(await profileStore.replace(req.body));
+    const profile = await profileStore.replace(req.body);
+    await contributionStore.syncConsent('unset');
+    await resetAnalyticsIdentity();
+    res.json(profile);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile import failed' });
   }

@@ -6,10 +6,13 @@ import profile from './routes/profile.js';
 import system from './routes/system.js';
 import jobs from './routes/jobs.js';
 import updates from './routes/updates.js';
+import contribution from './routes/contribution.js';
 import { APP_VERSION } from './version.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
 import { prewarmLocalTiming } from './services/local-timing.js';
+import { contributionStore } from './services/contribution-store.js';
+import { captureAnalytics } from './services/analytics.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -35,6 +38,7 @@ app.use('/api/profile', profile);
 app.use('/api/system', system);
 app.use('/api/jobs', jobs);
 app.use('/api/updates', updates);
+app.use('/api/contribution', contribution);
 app.get('/api/health', async (_req, res) => {
   try {
     const llm = await publicLlmSettings();
@@ -64,6 +68,12 @@ app.get('/api/health', async (_req, res) => {
         secureWindowsKeyStorage: true,
         minimalScrollbars: true,
         signedUpdateArchitecture: true,
+        khmerCaptionContribution: true,
+        optionalProductAnalytics: true,
+      },
+      cloudConfiguration: {
+        contributionConfigured: Boolean(config.contributionEndpoint),
+        analyticsConfigured: Boolean(config.analyticsEndpoint),
       },
       timing: {
         provider: 'local',
@@ -88,6 +98,9 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 app.listen(config.port, '127.0.0.1', () => {
+  void captureAnalytics('studio_started');
+  // Retry queued contribution work once at startup. No continuous polling is introduced.
+  windowlessDelay(() => contributionStore.syncPending(), 1500);
   void resolveGeminiSettings().then((llm) => {
     console.log(`Sthang Studio API v${APP_VERSION} -> http://localhost:${config.port}`);
     console.log(`Gemini: ${llm.configured ? `configured via ${llm.keySource}` : 'not configured — open Settings → AI connection'}`);
@@ -100,6 +113,8 @@ app.listen(config.port, '127.0.0.1', () => {
     });
   }
   console.log('Correction memory: automatic edit capture + approval inbox');
+  console.log(`Khmer contribution: ${config.contributionEndpoint ? 'endpoint configured; still opt-in only' : 'offline/fail-closed until endpoint configuration'}`);
+  console.log(`Product analytics: ${config.analyticsEndpoint ? 'endpoint configured; still opt-in only' : 'off until public configuration is provisioned'}`);
   console.log('Stage cache: normalized audio + Gemini/timing stages');
   console.log('Professional review: waveform + locks + diff approval + history');
   console.log('Background jobs: persistent queue with retry/resume');
@@ -107,3 +122,8 @@ app.listen(config.port, '127.0.0.1', () => {
   console.log(`Timing fallback: ${config.localWhisperFallbackEnabled ? `local faster-whisper ${config.localWhisperModel}` : 'disabled'}`);
   console.log('Paid cloud timing: OFF / not wired into automatic fallback');
 });
+
+function windowlessDelay(operation: () => Promise<unknown>, delayMs: number) {
+  const timer = setTimeout(() => { void operation().catch(() => {}); }, delayMs);
+  timer.unref?.();
+}

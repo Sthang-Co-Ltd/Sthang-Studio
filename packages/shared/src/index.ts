@@ -122,6 +122,9 @@ export interface SegmentOptions {
 
 export type CorrectionStatus = 'pending' | 'remembered-global' | 'added-project' | 'ignored';
 export type CorrectionSuggestionKind = 'phonetic-alias' | 'protected-term' | 'formatting' | 'review';
+export type ConsentState = 'unset' | 'declined' | 'granted';
+export const PRIVACY_UPGRADE_NOTICE_VERSION = '0.8';
+export type ContributionQueueStatus = 'queued' | 'uploading' | 'submitted' | 'verified' | 'rejected' | 'withdrawn';
 
 export interface CorrectionEvent {
   id: string;
@@ -139,6 +142,51 @@ export interface CorrectionEvent {
   status: CorrectionStatus;
   createdAt: string;
   decidedAt?: string;
+  /** Evidence captured before the human text edit, used only for local contribution eligibility. */
+  sourceTimingSource?: TimingSource;
+  sourceTimingQuality?: TimingQuality;
+  sourceConfidence?: number;
+  sourceTextModel?: string;
+  sourceEngineVersion?: string;
+}
+
+export interface ContributionCandidate {
+  id: string;
+  projectId: string;
+  captionId: string;
+  correctionEventIds: string[];
+  startMs: number;
+  endMs: number;
+  originalText: string;
+  correctedText: string;
+  sourceTimingSource?: TimingSource;
+  sourceTextModel?: string;
+  sourceEngineVersion?: string;
+  createdAt: string;
+  status: ContributionQueueStatus;
+  attempts: number;
+  lastAttemptAt?: string;
+  submittedAt?: string;
+  receiptId?: string;
+  verifiedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+}
+
+export interface ContributionStatus {
+  consent: ConsentState;
+  endpointConfigured: boolean;
+  contributorEnrolled: boolean;
+  queued: number;
+  submitted: number;
+  verified: number;
+  rejected: number;
+  withdrawn: number;
+  verifiedAudioMs: number;
+  withdrawalPending: boolean;
+  joinedAt?: string;
+  lastSyncAt?: string;
+  lastError?: string;
 }
 
 export interface CorrectionRule {
@@ -194,6 +242,11 @@ export interface AppPreferences {
   autosaveDelayMs?: number;
   waveformMode?: 'waveform' | 'spectrum';
   waveformZoom?: number;
+  /** Both privacy choices are off unless the user explicitly grants them. */
+  analyticsConsent?: ConsentState;
+  khmerContributionConsent?: ConsentState;
+  /** Installation-local marker for a one-time existing-user privacy introduction. */
+  privacyUpgradeNoticeVersion?: string;
 }
 
 export interface AppProfile {

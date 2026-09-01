@@ -1,15 +1,20 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
+import { PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
 import type {
   AppProfile,
   CaptionProject,
   CaptionSegment,
+  ConsentState,
   CorrectionEvent,
   CorrectionRule,
   CorrectionSuggestionKind,
+  TimingQuality,
+  TimingSource,
 } from '@kcs/shared';
 import { config } from '../config.js';
+import { APP_VERSION } from '../version.js';
 import { normalizeForMatch } from './tokenizer.js';
 
 const DEFAULT_PROFILE: AppProfile = {
@@ -30,9 +35,13 @@ const DEFAULT_PROFILE: AppProfile = {
     autosaveDelayMs: 2200,
     waveformMode: 'waveform',
     waveformZoom: 2,
+    analyticsConsent: 'unset',
+    khmerContributionConsent: 'unset',
   },
   updatedAt: new Date(0).toISOString(),
 };
+
+let profileInitialization: Promise<AppProfile> | null = null;
 
 function uniqueLines(lines: unknown): string[] {
   if (!Array.isArray(lines)) return [];
@@ -48,6 +57,23 @@ function uniqueLines(lines: unknown): string[] {
     if (out.length >= 300) break;
   }
   return out;
+}
+
+function consentState(value: unknown): ConsentState {
+  return ['declined', 'granted'].includes(String(value)) ? value as ConsentState : 'unset';
+}
+
+function upgradeNoticeVersion(value: unknown) {
+  const raw = String(value || '').trim();
+  return raw ? raw.slice(0, 16) : undefined;
+}
+
+function timingSource(value: unknown): TimingSource | undefined {
+  return ['stt', 'stt-split', 'interpolated', 'manual'].includes(String(value)) ? value as TimingSource : undefined;
+}
+
+function timingQuality(value: unknown): TimingQuality | undefined {
+  return ['high', 'medium', 'low'].includes(String(value)) ? value as TimingQuality : undefined;
 }
 
 function normalizeProfile(value: unknown): AppProfile {
@@ -100,6 +126,11 @@ function normalizeProfile(value: unknown): AppProfile {
         originalText: String(x.originalText || '').slice(0, 1000),
         correctedText: String(x.correctedText || '').slice(0, 1000),
         suggestedVocabularyLine: String(x.suggestedVocabularyLine || '').slice(0, 600),
+        sourceTimingSource: timingSource(x.sourceTimingSource),
+        sourceTimingQuality: timingQuality(x.sourceTimingQuality),
+        sourceConfidence: Number.isFinite(Number(x.sourceConfidence)) ? Math.max(0, Math.min(1, Number(x.sourceConfidence))) : undefined,
+        sourceTextModel: x.sourceTextModel ? String(x.sourceTextModel).slice(0, 120) : undefined,
+        sourceEngineVersion: x.sourceEngineVersion ? String(x.sourceEngineVersion).slice(0, 80) : undefined,
       }))
       .slice(-500)
     : [];
@@ -120,6 +151,9 @@ function normalizeProfile(value: unknown): AppProfile {
       autosaveDelayMs: Math.max(800, Math.min(10000, Number(raw.preferences.autosaveDelayMs ?? 2200))),
       waveformMode: raw.preferences.waveformMode === 'spectrum' ? 'spectrum' : 'waveform',
       waveformZoom: Math.max(1, Math.min(24, Number(raw.preferences.waveformZoom ?? 2))),
+      analyticsConsent: consentState(raw.preferences.analyticsConsent),
+      khmerContributionConsent: consentState(raw.preferences.khmerContributionConsent),
+      privacyUpgradeNoticeVersion: upgradeNoticeVersion(raw.preferences.privacyUpgradeNoticeVersion),
     }
     : DEFAULT_PROFILE.preferences;
 
@@ -135,11 +169,72 @@ function normalizeProfile(value: unknown): AppProfile {
   };
 }
 
+async function exists(filePath: string) {
+  return fs.stat(filePath).then(() => true).catch(() => false);
+}
+
+async function hasPriorStudioState(includeProfileFile = true) {
+  if (includeProfileFile && await exists(config.profileFile)) return true;
+  if (await exists(config.dataFile)) return true;
+  if (await exists(config.jobsFile)) return true;
+
+  const projectDir = path.join(path.dirname(config.dataFile), 'projects');
+  const projectNames = await fs.readdir(projectDir).catch(() => [] as string[]);
+  if (projectNames.some((name) => name.endsWith('.json') && name !== 'order.json')) return true;
+
+  const historyNames = await fs.readdir(config.historyDir).catch(() => [] as string[]);
+  return historyNames.length > 0;
+}
+
+function initialProfile(priorStudioState: boolean): AppProfile {
+  return {
+    ...DEFAULT_PROFILE,
+    preferences: {
+      ...DEFAULT_PROFILE.preferences,
+      ...(priorStudioState ? {} : { privacyUpgradeNoticeVersion: PRIVACY_UPGRADE_NOTICE_VERSION }),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function initializeMissingProfile() {
+  if (profileInitialization) return profileInitialization;
+  const task = (async () => {
+    // Another request may have completed initialization between the original
+    // ENOENT and this serialized task. Prefer that durable profile if it exists.
+    try {
+      return normalizeProfile(JSON.parse(await fs.readFile(config.profileFile, 'utf8')));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') return initialProfile(true);
+    }
+
+    // Ignore profile.json itself here: this path is reached specifically because
+    // it does not exist. Fresh v0.8 storage markers/order files are also ignored;
+    // only durable prior-use evidence such as real projects/jobs/history counts.
+    const priorStudioState = await hasPriorStudioState(false);
+    return save(initialProfile(priorStudioState));
+  })();
+  profileInitialization = task;
+  void task.finally(() => {
+    if (profileInitialization === task) profileInitialization = null;
+  }).catch(() => {});
+  return task;
+}
+
 async function load(): Promise<AppProfile> {
+  let serialized: string;
   try {
-    return normalizeProfile(JSON.parse(await fs.readFile(config.profileFile, 'utf8')));
+    serialized = await fs.readFile(config.profileFile, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return initializeMissingProfile();
+    return initialProfile(true);
+  }
+  try {
+    return normalizeProfile(JSON.parse(serialized));
   } catch {
-    return { ...DEFAULT_PROFILE, updatedAt: new Date().toISOString() };
+    // A malformed existing profile is prior-use evidence, but do not overwrite it
+    // merely to show the introduction. A later explicit profile write can repair it.
+    return initialProfile(true);
   }
 }
 
@@ -175,8 +270,6 @@ function suggestCorrection(originalText: string, correctedText: string): {
     return { kind: 'formatting', line: corrected };
   }
   if (looksLatinEntity(corrected)) {
-    // Important: never assert that a different recognized product/model is an alias.
-    // We only protect the corrected canonical entity globally.
     return { kind: 'protected-term', line: corrected };
   }
   return { kind: 'review', line: corrected };
@@ -220,7 +313,17 @@ export const profileStore = {
   },
 
   async replace(value: unknown) {
-    return save(normalizeProfile(value));
+    const current = await load();
+    const imported = normalizeProfile(value);
+    // Privacy consent and the upgrade-introduction marker are installation-specific.
+    // Profile transfer never opts another machine in or replays a handled notice.
+    imported.preferences = {
+      ...imported.preferences,
+      analyticsConsent: 'unset',
+      khmerContributionConsent: 'unset',
+      privacyUpgradeNoticeVersion: current.preferences.privacyUpgradeNoticeVersion,
+    };
+    return save(imported);
   },
 
   async recordCaptionChanges(project: CaptionProject, before: CaptionSegment[], after: CaptionSegment[]) {
@@ -260,6 +363,11 @@ export const profileStore = {
         suggestedVocabularyLine: suggestion.line,
         status: 'pending',
         createdAt: new Date().toISOString(),
+        sourceTimingSource: old.timingSource,
+        sourceTimingQuality: old.timingQuality,
+        sourceConfidence: old.confidence,
+        sourceTextModel: project.transcript?.textModel,
+        sourceEngineVersion: APP_VERSION,
       });
     });
 

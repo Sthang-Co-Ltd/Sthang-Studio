@@ -21,6 +21,16 @@ dependencies.
 | Vite | Web development/build tooling | MIT |
 | TypeScript | Type checking/build tooling | Apache-2.0 |
 
+The unreleased v0.8 optional product-analytics implementation adds no PostHog
+browser/runtime SDK. Studio sends its narrow analytics payload only to the
+Sthang-owned analytics relay; that relay uses its Worker-held project ingestion
+key to forward accepted events to PostHog. No PostHog npm dependency, browser
+autocapture, or session-replay library is introduced by this architecture.
+
+The unreleased Sthang contribution and analytics relay Workers use Cloudflare's
+Worker/D1/R2 capabilities directly and add no Studio application npm runtime
+dependency.
+
 ## Python / local timing
 
 | Component | Use | Upstream license |
@@ -29,7 +39,7 @@ dependencies.
 | NumPy | Numerical runtime dependency | BSD-3-Clause |
 | `sosap` | KFA dependency | MIT |
 | `khmercut` | Khmer word segmentation | Apache-2.0 |
-| `khmernormalizer` | Khmer text normalization | MIT |
+| `khmernormalizer` | Khmer text normalization | Apache-2.0 |
 | `chardet` | Encoding detection required by KFA | LGPL-2.1-or-later for the pinned 5.x line |
 | ONNX Runtime | Local model inference | MIT |
 | librosa | Audio loading/processing | ISC |
@@ -67,12 +77,34 @@ Those files remain subject to the license and distribution terms published by
 the upstream package/model host. Do not vendor model weights into Sthang Studio
 without a separate license review and attribution update.
 
-## Service terms
+## Hosted-service terms
 
-Using Gemini also requires accepting the applicable Google Gemini Developer API
-terms and privacy/data-handling terms. The open-source license for Sthang Studio
-does not grant access to, or modify the terms of, third-party hosted services.
+Using Gemini requires accepting the applicable Google Gemini Developer API terms
+and privacy/data-handling terms. The open-source license for Sthang Studio does
+not grant access to, or modify the terms of, third-party hosted services.
 
-When adding or changing a dependency, update this notice when the change affects
-a direct runtime dependency, redistributed binary, downloaded model, or other
-material licensing obligation.
+The unreleased v0.8 source can optionally send a narrow allow-listed set of
+product analytics events to the Sthang-controlled `analytics.sthang.app` relay
+after explicit user opt-in and production configuration. The relay revalidates
+the payload and forwards accepted events to Sthang's configured PostHog EU
+project. PostHog's service/privacy terms apply to data processed by that service.
+Studio does not include the PostHog browser SDK, session replay, or autocapture.
+Cloudflare's applicable service/data-processing terms also govern Sthang's use of
+the relay infrastructure.
+
+The Khmer Caption Contributor production service is Sthang-operated
+infrastructure implemented on Cloudflare Workers, private R2, and D1.
+Cloudflare's applicable service/data-processing terms govern Sthang's use of that
+infrastructure. The Contributor program's user-facing data contract, retention,
+and withdrawal rules are defined by Sthang Studio's `PRIVACY.md` and
+`docs/KHMER-CAPTION-CONTRIBUTOR.md`, not by the software license.
+
+The contribution service and analytics relay have been provisioned and passed
+synthetic production validation under separate approval. That provisioning does
+not make the unreleased v0.8 privacy choices part of the verified public Beta;
+public release, OTA promotion, and portfolio synchronization remain separately
+gated.
+
+When adding or changing a dependency or hosted service, update this notice when
+the change affects a direct runtime dependency, redistributed binary, downloaded
+model, or other material licensing/data-processing obligation.

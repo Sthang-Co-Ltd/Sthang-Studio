@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Khmer Caption Contributor and privacy-safe product analytics — production services provisioned, release not public
+
+- Added exactly two caption-data states for the new Contributor program: Studio remains private by default, while **Khmer Caption Contributor** requires explicit opt-in and never makes core caption features conditional on participation.
+- Added a non-blocking post-export invitation, a dedicated **Privacy** settings surface, installation-local consent, contributor status, verified-correction counts, verified-speech duration, opt-out, and contributor-wide deletion controls.
+- Redesigned the Privacy surface around standardized decision cards with deliberate status chips, visible data boundaries, 48px consent controls, keyboard focus states, and separate lime Contributor / restrained-blue analytics accents. Existing pre-v0.8 installations with an unset Contributor choice receive one dismissible startup explanation; fresh installations keep the post-export path, and closing or reviewing the migration notice never grants consent or enables analytics.
+- Extended the existing local correction pipeline with generated-wording lineage so incremental human edits resolve back to the original machine caption. Only eligible post-consent material corrections that are later approved can become contribution candidates; formatting-only and manually-authored starting captions are excluded.
+- Added a serialized local contribution queue with explicit queued/uploading/submitted/verified/rejected/withdrawn states, deterministic sample ids, bounded short-WAV extraction, offline retry, safe in-flight opt-out, and local data minimization after remote submission.
+- Added the Sthang-owned `contribute.sthang.app` Cloudflare Worker with private R2 audio, D1 metadata, hashed contributor credentials, strict payload validation, idempotency, rate bounds, corpus verification/rejection, 180-day expiry for submitted-unverified samples, and contributor-wide withdrawal/deletion.
+- Added separate optional product analytics with a random installation id and a fixed event/property allow-list. Studio talks only to the Sthang-owned `analytics.sthang.app` relay; normal Studio app/runtime/configuration contains no downstream analytics-vendor endpoint, project key, browser SDK, session replay, or autocapture.
+- Added a stateless Sthang analytics relay that revalidates the narrow event schema and forwards accepted personless events to the formally disclosed EU analytics processor with person-profile processing and GeoIP enrichment disabled. Formal privacy guidance does not claim the relay is an IP-anonymization guarantee.
+- Added versioned, fail-closed public service configuration so existing upgraded installations do not depend on preserved `.env` files. After production synthetic validation passed, the unreleased v0.8 branch was configured with only the two public Sthang service origins; both privacy choices remain default-off and explicit-consent-only.
+- Added repository guards and tests for contribution eligibility, corpus intake, analytics data minimization, Sthang relay boundaries, public service configuration, and vendor-neutral shipped Studio/app/release-note copy.
+- Added operator-only synthetic checks for contribution upload → verification → withdrawal and for analytics relay → downstream ingestion. Both production checks passed against the provisioned services. v0.8 publication, OTA promotion, HQ intake, Distribution synchronization, and production model training remain separately gated.
+
 ### Signed Studio updater architecture — bootstrap trust prepared, not publicly enabled
 
 - Added a Studio-native signed Windows updater around the existing
@@ -326,7 +340,7 @@
 - Context-aware vocabulary/native-bias path and deterministic user-owned alias canonicalization.
 - Local KFA Khmer forced alignment with local faster-whisper fallback.
 - Dynamic, Word, Phrase, and Line regrouping without timing drift.
-- Editable timeline, manual split/merge/nudge, video preview, and UTF-8 SRT export.
+- Editable timeline, manual split/merge/nudge, video preview, and UTF-8 CapCut SRT export.
 - No automatic paid Google Cloud timing fallback.
 
 ## 0.4.0 — Context-aware vocabulary

@@ -84,6 +84,17 @@ function rejectEmbeddedEvidence(value, label = 'manifest') {
   }
 }
 
+function readEvidenceCorpus(paths, label) {
+  return paths.map((relativePath) => {
+    try {
+      return fs.readFileSync(path.join(root, relativePath), 'utf8');
+    } catch (error) {
+      errors.push(`${label} path cannot be read: ${relativePath} (${error instanceof Error ? error.message : String(error)})`);
+      return '';
+    }
+  }).join('\n');
+}
+
 const manifest = readJson('.sthang/product-manifest.json');
 const rootPackage = readJson('package.json');
 const serverPackage = readJson('apps/server/package.json');
@@ -112,6 +123,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
       publicArchiveRoot: `Sthang Studio ${String(manifest?.proposal?.release?.publicVersion ?? '')}`,
     };
   }
+
   const {
     publicVersion,
     publicTag: tag,
@@ -133,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-ota-bootstrap-v0-8-0', 'manifest.change.id');
+  equal(change.id, 'studio-khmer-contributor-analytics-v0-8-0', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare the unreleased Studio 0.8.0 bootstrap trust release while preserving v0.7.14 as the verified public download until publication and keeping OTA promotion, HQ, and Distribution separately gated.',
+    'Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 with production services provisioned and synthetic-validated, while preserving v0.7.14 as the verified public download and keeping release, HQ, and Distribution separately gated.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -162,6 +174,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(proposal.displayName, 'Sthang Studio', 'manifest.proposal.displayName');
   equal(proposal.parentBrand, 'Sthang', 'manifest.proposal.parentBrand');
   equal(proposal.lifecycle, 'preview', 'manifest.proposal.lifecycle');
+
   const visibilityRequest = exactKeys(proposal.publicVisibilityRequest, 'manifest.proposal.publicVisibilityRequest', ['status', 'basis']);
   equal(visibilityRequest.status, 'approved', 'manifest.proposal.publicVisibilityRequest.status');
   equal(
@@ -169,6 +182,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     `Approved public repository and independently verified ${tag} prerelease evidence for the Studio beta`,
     'manifest.proposal.publicVisibilityRequest.basis',
   );
+
   const proposalSource = exactKeys(proposal.source, 'manifest.proposal.source', ['visibility', 'repository', 'normalization']);
   equal(proposalSource.visibility, 'public', 'manifest.proposal.source.visibility');
   equal(proposalSource.repository, 'Sthang-Co-Ltd/Sthang-Studio', 'manifest.proposal.source.repository');
@@ -180,7 +194,11 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   if (typeof proposal.publicSummary !== 'string' || !proposal.publicSummary.trim()) {
     errors.push('manifest.proposal.publicSummary must be a non-empty string');
   }
-  stringArray(proposal.publicClaims, 'manifest.proposal.publicClaims');
+  exactStringArray(proposal.publicClaims, 'manifest.proposal.publicClaims', [
+    'Khmer-first caption editing in the Captions workspace',
+    'Public source and a reviewed Beta download on GitHub',
+    'Timing, editing, projects, history, and exports remain local in the verified v0.7.14 Beta',
+  ]);
 
   const distribution = exactKeys(proposal.distribution, 'manifest.proposal.distribution', [
     'model',
@@ -226,12 +244,15 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(brand.accent, '#D7FF4F', 'manifest.proposal.brand.accent');
 
   const dataProcessing = exactKeys(proposal.dataProcessing, 'manifest.proposal.dataProcessing', ['providers']);
-  if (!Array.isArray(dataProcessing.providers) || dataProcessing.providers.length !== 1) {
-    errors.push('manifest.proposal.dataProcessing.providers must contain exactly the currently governed Gemini declaration');
+  if (!Array.isArray(dataProcessing.providers) || dataProcessing.providers.length !== 3) {
+    errors.push('manifest.proposal.dataProcessing.providers must contain Gemini, Sthang contribution, and PostHog declarations');
   } else {
-    const provider = exactKeys(dataProcessing.providers[0], 'manifest.proposal.dataProcessing.providers[0]', [
+    const [gemini, contribution, posthog] = dataProcessing.providers;
+
+    const provider = exactKeys(gemini, 'manifest.proposal.dataProcessing.providers[0]', [
       'id',
       'purpose',
+      'availability',
       'triggers',
       'dataSent',
       'staysLocal',
@@ -245,9 +266,10 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     ]);
     equal(provider.id, 'google-gemini', 'Gemini provider id');
     equal(provider.purpose, 'AI caption wording', 'Gemini purpose');
-    stringArray(provider.triggers, 'Gemini triggers');
-    stringArray(provider.dataSent, 'Gemini dataSent');
-    stringArray(provider.staysLocal, 'Gemini staysLocal');
+    equal(provider.availability, 'current-configured-user-action', 'Gemini availability');
+    exactStringArray(provider.triggers, 'Gemini triggers', ['generate', 'regenerate']);
+    exactStringArray(provider.dataSent, 'Gemini dataSent', ['normalized WAV audio', 'relevant context', 'requested wording']);
+    exactStringArray(provider.staysLocal, 'Gemini staysLocal', ['timing', 'editing', 'projects', 'history', 'exports']);
     equal(provider.credentialOwner, 'user', 'Gemini credentialOwner');
     exactStringArray(provider.keyStorage, 'Gemini keyStorage', [
       'Windows user-protected in-app storage',
@@ -258,6 +280,101 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     equal(provider.fileDeleteCalledByApp, false, 'Gemini fileDeleteCalledByApp');
     equal(provider.remoteFileRetention, 'provider-controlled-up-to-48-hours', 'Gemini remoteFileRetention');
     equal(provider.privacyUrl, 'https://github.com/Sthang-Co-Ltd/Sthang-Studio/blob/main/PRIVACY.md', 'Gemini privacyUrl');
+
+    const corpusProvider = exactKeys(contribution, 'manifest.proposal.dataProcessing.providers[1]', [
+      'id',
+      'purpose',
+      'availability',
+      'triggers',
+      'dataSent',
+      'staysLocal',
+      'credentialOwner',
+      'credentialStorage',
+      'remoteStorage',
+      'retention',
+      'deletion',
+      'trainingPurpose',
+      'privacyUrl',
+    ]);
+    equal(corpusProvider.id, 'sthang-khmer-contribution', 'Contribution provider id');
+    equal(corpusProvider.purpose, 'Optional Khmer caption improvement corpus', 'Contribution purpose');
+    equal(corpusProvider.availability, 'unreleased-provisioned-default-off', 'Contribution availability');
+    exactStringArray(corpusProvider.triggers, 'Contribution triggers', [
+      'explicit Khmer Caption Contributor opt-in',
+      'eligible post-consent caption correction followed by approval',
+    ]);
+    exactStringArray(corpusProvider.dataSent, 'Contribution dataSent', [
+      'random contributor id',
+      'bounded short WAV around corrected caption',
+      'generated caption wording',
+      'corrected caption wording',
+      'caption and clip timing',
+      'generated timing, model, and Studio version evidence',
+      'audio SHA-256',
+    ]);
+    exactStringArray(corpusProvider.staysLocal, 'Contribution staysLocal', [
+      'full source video',
+      'project title',
+      'source filename',
+      'local filesystem paths',
+      'unrelated captions',
+      'topic and context text',
+      'correction memory',
+      'SRT exports',
+      'Gemini API key',
+      'product analytics installation id',
+    ]);
+    equal(corpusProvider.credentialOwner, 'app-generated-pseudonymous', 'Contribution credentialOwner');
+    equal(corpusProvider.credentialStorage, 'local withdrawal token; service stores only its SHA-256', 'Contribution credentialStorage');
+    exactStringArray(corpusProvider.remoteStorage, 'Contribution remoteStorage', [
+      'private Cloudflare R2 audio',
+      'Cloudflare D1 correction metadata',
+    ]);
+    equal(corpusProvider.retention, 'submitted-unverified-180-days; verified-until-withdrawal-or-program-retirement', 'Contribution retention');
+    equal(corpusProvider.deletion, 'contributor-wide authenticated withdrawal deletes private audio and blanks contributed text', 'Contribution deletion');
+    equal(corpusProvider.trainingPurpose, true, 'Contribution trainingPurpose');
+    equal(corpusProvider.privacyUrl, 'https://github.com/Sthang-Co-Ltd/Sthang-Studio/blob/main/PRIVACY.md', 'Contribution privacyUrl');
+
+    const analyticsProvider = exactKeys(posthog, 'manifest.proposal.dataProcessing.providers[2]', [
+      'id',
+      'purpose',
+      'availability',
+      'triggers',
+      'dataSent',
+      'staysLocal',
+      'identity',
+      'personProfiles',
+      'sessionReplay',
+      'autocapture',
+      'privacyUrl',
+    ]);
+    equal(analyticsProvider.id, 'posthog-eu', 'PostHog provider id');
+    equal(analyticsProvider.purpose, 'Optional product analytics processed through the Sthang-owned analytics relay', 'PostHog purpose');
+    equal(analyticsProvider.availability, 'unreleased-provisioned-default-off', 'PostHog availability');
+    exactStringArray(analyticsProvider.triggers, 'PostHog triggers', ['explicit product analytics opt-in']);
+    exactStringArray(analyticsProvider.dataSent, 'PostHog dataSent', [
+      'allow-listed event names',
+      'coarse workflow buckets',
+      'random analytics installation id',
+      'Studio and platform version',
+      'ordinary infrastructure and HTTPS metadata may be observed by service providers',
+    ]);
+    exactStringArray(analyticsProvider.staysLocal, 'PostHog staysLocal', [
+      'caption and transcript text',
+      'audio and video',
+      'filenames and project names',
+      'local paths',
+      'topic, vocabulary, and context text',
+      'correction memory',
+      'SRT contents',
+      'Gemini API key',
+      'Khmer Contributor id',
+    ]);
+    equal(analyticsProvider.identity, 'random installation id separate from Khmer Contributor identity', 'PostHog identity');
+    equal(analyticsProvider.personProfiles, false, 'PostHog personProfiles');
+    equal(analyticsProvider.sessionReplay, false, 'PostHog sessionReplay');
+    equal(analyticsProvider.autocapture, false, 'PostHog autocapture');
+    equal(analyticsProvider.privacyUrl, 'https://posthog.com/privacy', 'PostHog privacyUrl');
   }
 
   const evidence = exactKeys(manifest.evidence, 'manifest.evidence', ['release', 'installation', 'dataProcessing', 'identity']);
@@ -346,7 +463,20 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   ]);
 
   const evidenceDataProcessing = exactKeys(evidence.dataProcessing, 'manifest.evidence.dataProcessing', ['paths', 'requiredTerms', 'forbiddenTerms']);
-  const dataProcessingPaths = ['PRIVACY.md', 'README.md', 'apps/server/src/services/gemini.ts', 'docs/OTA-UPDATES.md'];
+  const dataProcessingPaths = [
+    'PRIVACY.md',
+    'README.md',
+    'docs/KHMER-CAPTION-CONTRIBUTOR.md',
+    'config/product-services.json',
+    'apps/server/src/services/gemini.ts',
+    'apps/server/src/services/analytics.ts',
+    'apps/server/src/services/contribution-store.ts',
+    'infra/contribution-worker/src/index.mjs',
+    'infra/contribution-worker/src/retention.mjs',
+    'infra/analytics-worker/src/index.mjs',
+    'infra/analytics-worker/README.md',
+    'docs/OTA-UPDATES.md',
+  ];
   exactStringArray(evidenceDataProcessing.paths, 'manifest.evidence.dataProcessing.paths', dataProcessingPaths);
   exactStringArray(evidenceDataProcessing.requiredTerms, 'manifest.evidence.dataProcessing.requiredTerms', [
     'Files API',
@@ -356,25 +486,29 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     'updates.sthang.app',
     'ordinary HTTPS metadata',
     'no license, authentication, D1 enrollment',
+    'contribute.sthang.app',
+    'analytics.sthang.app',
+    'explicit opt-in',
+    'private R2',
+    '180 days',
+    'PostHog',
+    '$process_person_profile',
+    'session replay',
+    'autocapture',
   ]);
   exactStringArray(evidenceDataProcessing.forbiddenTerms, 'manifest.evidence.dataProcessing.forbiddenTerms', [
     'Sthang Studio is fully offline',
     'Studio deletes the remote file',
     'remote audio is deleted immediately',
+    'analytics is required',
+    'contribution is required',
   ]);
 
   for (const [label, declaration] of [
     ['manifest.evidence.installation', installation],
     ['manifest.evidence.dataProcessing', evidenceDataProcessing],
   ]) {
-    const corpus = declaration.paths.map((relativePath) => {
-      try {
-        return fs.readFileSync(path.join(root, relativePath), 'utf8');
-      } catch (error) {
-        errors.push(`${label} path cannot be read: ${relativePath} (${error instanceof Error ? error.message : String(error)})`);
-        return '';
-      }
-    }).join('\n');
+    const corpus = readEvidenceCorpus(declaration.paths, label);
     for (const term of declaration.requiredTerms) {
       if (!corpus.includes(term)) errors.push(`${label} required term is not present in its declared paths: ${term}`);
     }
@@ -477,6 +611,49 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     if (!otaDocs.toLowerCase().includes(required.toLowerCase())) {
       errors.push(`docs/OTA-UPDATES.md must preserve bootstrap updater truth: ${required}`);
     }
+  }
+
+  const contributorDocs = readEvidenceCorpus([
+    'PRIVACY.md',
+    'docs/KHMER-CAPTION-CONTRIBUTOR.md',
+    'infra/contribution-worker/README.md',
+  ], 'Contributor privacy evidence');
+  for (const required of [
+    'off by default',
+    'Corrections made before joining are not collected retroactively',
+    'submitted',
+    'verified',
+    '180 days',
+    'Request deletion',
+    'cannot literally rewind an already-trained model',
+  ]) {
+    if (!contributorDocs.toLowerCase().includes(required.toLowerCase())) {
+      errors.push(`Contributor privacy evidence must preserve: ${required}`);
+    }
+  }
+
+  const analyticsSource = fs.readFileSync(path.join(root, 'apps/server/src/services/analytics.ts'), 'utf8');
+  for (const forbidden of [
+    'caption.text', 'project.title', 'originalName', 'transcriptionContext', 'GEMINI_API_KEY',
+    'api_key', '$process_person_profile', '$geoip_disable', 'posthog',
+  ]) {
+    if (analyticsSource.toLowerCase().includes(forbidden.toLowerCase())) {
+      errors.push(`Studio analytics source must not reference processor/content field: ${forbidden}`);
+    }
+  }
+  for (const required of ['analyticsConsent', 'config.analyticsEndpoint', '/v1/events', 'installationId']) {
+    if (!analyticsSource.includes(required)) errors.push(`Studio analytics source must preserve Sthang-relay privacy guard: ${required}`);
+  }
+
+  const analyticsRelay = fs.readFileSync(path.join(root, 'infra/analytics-worker/src/index.mjs'), 'utf8');
+  for (const required of [
+    '$process_person_profile: false',
+    '$geoip_disable: true',
+    'https://eu.i.posthog.com/i/v0/e/',
+    'ANALYTICS_PROJECT_KEY',
+    "url.pathname === '/v1/events'",
+  ]) {
+    if (!analyticsRelay.includes(required)) errors.push(`Analytics relay must preserve downstream privacy boundary: ${required}`);
   }
 
   rejectEmbeddedEvidence(manifest);

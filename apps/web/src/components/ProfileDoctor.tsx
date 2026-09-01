@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppProfile, SystemDoctorReport, TopicPack, TranscriptionContext } from '@kcs/shared';
 import type { LlmConnectionTest, LlmSettingsStatus, SaveLlmSettingsInput } from '../api';
-import { Clipboard, Download, FileUp, HeartPulse, KeyRound, PackagePlus, Play, Save, Trash2, UserRound, X } from 'lucide-react';
+import { Clipboard, Download, FileUp, HeartPulse, KeyRound, PackagePlus, Play, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { AiSettingsPanel } from './AiSettingsPanel';
+import { ContributorSettings } from './ContributorSettings';
+import './contribution.css';
 
-export type SettingsTab = 'ai' | 'profile' | 'doctor';
+export type SettingsTab = 'ai' | 'profile' | 'privacy' | 'doctor';
 
 interface ProfileDoctorProps {
   open: boolean;
@@ -15,7 +17,7 @@ interface ProfileDoctorProps {
   busy: boolean;
   currentContext: TranscriptionContext | null;
   onClose(): void;
-  onSave(patch: Partial<AppProfile>): void;
+  onSave(patch: Partial<AppProfile>): void | Promise<void>;
   onImport(profile: AppProfile): void;
   onRunDoctor(): void;
   onApplyPack(pack: TopicPack): void;
@@ -84,10 +86,10 @@ export function ProfileDoctor({
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong>Settings</strong><span>Connect AI, manage your creator profile, and run a system check.</span></div>
+        <div><strong>Settings</strong><span>Connect AI, manage your creator profile and privacy, or run a system check.</span></div>
         <button className="icon-btn" onClick={onClose}><X size={18}/></button>
       </div>
-      <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>
+      <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>
 
       {tab === 'ai' ? <AiSettingsPanel settings={llmSettings} onSave={onSaveLlm} onTest={onTestLlm} onForget={onForgetLlm}/> : tab === 'profile' ? <div className="profile-body">
         <div className="profile-stats"><div><b>{profile.defaultVocabulary.length}</b><span>global terms</span></div><div><b>{profile.correctionRules.length}</b><span>approved rules</span></div><div><b>{profile.correctionEvents.length}</b><span>correction events</span></div><div><b>{profile.topicPacks.length}</b><span>topic packs</span></div></div>
@@ -99,7 +101,7 @@ export function ProfileDoctor({
           {currentContext && <div className="pack-create"><input value={packName} onChange={(event) => setPackName(event.target.value)} placeholder="Example: AI / Coding"/><button disabled={!packName.trim() || busy} onClick={createPack}><PackagePlus size={15}/>Save current project as pack</button></div>}
           <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button className="danger-quiet" onClick={() => removePack(pack.id)}><Trash2 size={14}/></button></div>)}</div>
         </div>
-      </div> : <div className="doctor-body">
+      </div> : tab === 'privacy' ? <ContributorSettings profile={profile} busy={busy} onSave={onSave}/> : <div className="doctor-body">
         <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. It never includes your API key.</span></div><button className="primary" disabled={busy} onClick={onRunDoctor}>Run checks</button></div>
         {!doctor && <div className="modal-empty"><HeartPulse size={28}/><strong>No report yet</strong><span>Run the check after installing on a new PC or whenever caption generation fails.</span></div>}
         {doctor && <>

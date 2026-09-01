@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sthang-studio-contribution",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-08-31",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "contribute.sthang.app", "custom_domain": true }
+  ],
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+  "secrets": {
+    "required": ["CONTRIBUTION_ADMIN_TOKEN"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sthang-studio-contribution",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "CORPUS",
+      "bucket_name": "sthang-studio-contribution-private"
+    }
+  ]
+}

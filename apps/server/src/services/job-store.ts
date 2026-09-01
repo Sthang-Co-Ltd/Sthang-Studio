@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import type { ProcessingJob, ProcessingJobType, RegenerationRefinementInput, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
 import { store } from './store.js';
+import { analyticsBuckets, captureAnalytics } from './analytics.js';
 import { createRangeRegenerationProposal, refineRegenerationProposal, transcribeProject } from './project-processing.js';
 import { withProcessingRun } from './run-context.js';
 import { removeRunCheckpoints } from './run-checkpoints.js';
@@ -164,19 +165,31 @@ async function report(id: string, stage: string, progress: number, message: stri
   });
 }
 
+async function completeJob(job: StoredJob, value: Partial<StoredJob>, captionCount?: number) {
+  const performance = finishPerformance(job.id, 'complete');
+  await patch(job.id, {
+    ...value,
+    status: 'completed',
+    stage: 'complete',
+    progress: 100,
+    completedAt: new Date().toISOString(),
+    canResume: false,
+    performance,
+  });
+  void captureAnalytics('generation_completed', {
+    job_type: job.type,
+    timing_ms_bucket: analyticsBuckets.milliseconds(performance?.totalMs || 0),
+    ...(captionCount == null ? {} : { caption_count_bucket: analyticsBuckets.captions(captionCount) }),
+  });
+}
+
 async function executeJobOperation(job: StoredJob) {
   if (job.type === 'transcribe') {
     const result = await transcribeProject(job.projectId, job.payload.transcriptionContext, job.payload.force, (stage, progress, message) => report(job.id, stage, progress, message));
-    await patch(job.id, {
-      status: 'completed',
-      stage: 'complete',
-      progress: 100,
+    await completeJob(job, {
       message: 'Full transcription and local timing completed.',
-      completedAt: new Date().toISOString(),
       resultProjectId: result.id,
-      canResume: false,
-      performance: finishPerformance(job.id, 'complete'),
-    });
+    }, result.captions.length);
     return;
   }
   if (job.type === 'regenerate-range') {
@@ -187,16 +200,10 @@ async function executeJobOperation(job: StoredJob) {
       job.payload.transcriptionContext,
       (stage, progress, message) => report(job.id, stage, progress, message),
     );
-    await patch(job.id, {
-      status: 'completed',
-      stage: 'complete',
-      progress: 100,
+    await completeJob(job, {
       message: 'Regeneration preview is ready for live A/B review.',
-      completedAt: new Date().toISOString(),
       proposalId: proposal.id,
-      canResume: false,
-      performance: finishPerformance(job.id, 'complete'),
-    });
+    }, proposal.proposedCaptions.length);
     return;
   }
   if (!job.payload.proposalId || !job.payload.strategy) throw new Error('Refinement job is missing its proposal or strategy.');
@@ -211,16 +218,10 @@ async function executeJobOperation(job: StoredJob) {
     },
     (stage, progress, message) => report(job.id, stage, progress, message),
   );
-  await patch(job.id, {
-    status: 'completed',
-    stage: 'complete',
-    progress: 100,
+  await completeJob(job, {
     message: `Refinement pass ${proposal.passNumber} is ready for live A/B review.`,
-    completedAt: new Date().toISOString(),
     proposalId: proposal.id,
-    canResume: false,
-    performance: finishPerformance(job.id, 'complete'),
-  });
+  }, proposal.proposedCaptions.length);
 }
 
 async function execute(job: StoredJob) {
@@ -242,6 +243,7 @@ async function execute(job: StoredJob) {
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
     const terminalStage = cancelled ? 'cancelled' : 'failed';
+    const finalPerformance = finishPerformance(job.id, terminalStage);
     await patch(job.id, {
       status: cancelled ? 'cancelled' : 'failed',
       stage: terminalStage,
@@ -249,8 +251,14 @@ async function execute(job: StoredJob) {
       error: error instanceof Error ? error.message : 'Processing failed',
       completedAt: new Date().toISOString(),
       canResume: !cancelled,
-      performance: finishPerformance(job.id, terminalStage),
+      performance: finalPerformance,
     });
+    if (!cancelled) {
+      void captureAnalytics('generation_failed', {
+        job_type: job.type,
+        timing_ms_bucket: analyticsBuckets.milliseconds(finalPerformance?.totalMs || 0),
+      });
+    }
     if (cancelled) await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   }
 }
@@ -327,6 +335,7 @@ export const jobStore = {
     jobs = jobs.slice(0, 80);
     await persist();
     notifySubscribers();
+    void captureAnalytics('generation_started', { job_type: type });
     void pump();
     return publicJob(job);
   },
@@ -346,6 +355,7 @@ export const jobStore = {
       cancelRequested: false,
       performance: undefined,
     });
+    void captureAnalytics('generation_started', { job_type: job.type });
     void pump();
     return (await this.get(id))!;
   },

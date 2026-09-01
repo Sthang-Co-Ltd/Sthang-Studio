@@ -4,15 +4,22 @@ Sthang Studio is designed as a local-first desktop-style workspace served from
 your own computer. Caption wording currently uses Google's Gemini service;
 caption timing and project editing are handled locally.
 
-This document describes the behavior of the application itself. It
-is not a substitute for the privacy terms of third-party services you choose to
-use.
+The verified public `v0.7.14` Beta does not contain Sthang product analytics or
+a Khmer training-contribution service. The current **unreleased 0.8.0 source**
+adds two separate, explicit opt-in paths described below. Their production
+services have been provisioned and synthetic-validated for the unreleased v0.8
+work, but both choices remain default-off and this is not evidence that 0.8.0 has
+been released or that either choice is available in the verified public Beta.
+
+This document describes the behavior of the application itself. It is not a
+substitute for the privacy terms of third-party services you choose to use.
 
 ## What stays on your computer
 
 The application runs its frontend and local API on loopback (`127.0.0.1`).
 Projects, source media, timing data, caches, and exports persist locally on your
-computer unless you explicitly export or otherwise share them:
+computer unless you explicitly export/share them or explicitly opt into the
+Khmer Caption Contributor program described below:
 
 - imported source media and normalized working audio;
 - reusable selected-range PCM WAVs created from that normalized audio;
@@ -37,8 +44,11 @@ from Git by `.gitignore`.
 After new or replacement media is saved, Studio may begin local-only preparation
 shortly afterward: normalizing the audio and warming the local timing runtime.
 This is intended to reduce the delay after you later choose Generate or Improve.
-This prewarming does **not** upload audio to Gemini. A cloud transcription request
-still begins only after you explicitly request caption generation/regeneration.
+This prewarming does **not** upload audio to Gemini or to Sthang's contribution
+service. A cloud transcription request still begins only after you explicitly
+request caption generation/regeneration. A contribution upload can occur only
+after explicit Contributor opt-in plus a later eligible human correction and
+approval.
 
 ## What is sent to Gemini
 
@@ -77,13 +87,131 @@ Google's Gemini Developer API terms, quotas, and privacy policies also apply.
 Sthang Studio does not use Gemini for final local timing alignment. Timing and
 project editing remain on-device after the transcript is returned.
 
+## Khmer Caption Contributor (unreleased 0.8.0 source)
+
+Khmer Caption Contributor is **off by default**. It is separate from product
+analytics and from Gemini transcription. Importing a Studio profile never carries
+Contributor consent onto another installation.
+
+When contribution hosting is configured, Studio may offer the program after a
+successful export. Joining is an explicit choice. Corrections made before joining
+are not collected retroactively, and declining does not disable any caption
+feature or local correction memory.
+
+There is one existing-user migration exception to that post-export timing. When
+an installation has durable evidence of pre-v0.8 Studio use and its Contributor
+choice is still unset, Studio may show one dismissible startup explanation when
+that installation first receives the new Contributor option. The notice exists
+because the creator used Studio before this data choice existed. Closing it or
+choosing to review the Privacy settings does **not** grant consent: contribution
+and analytics remain off/unset until separately chosen. Studio records only a
+small installation-local “notice handled” marker so the startup explanation does
+not repeat on every launch. If Contributor remains unset, the ordinary post-export
+invitation may still appear in a later session. Fresh v0.8 installations do not
+receive this migration popup and keep the normal post-export onboarding path.
+
+An eligible sample is created only when a caption can be traced back to generated
+wording, receives a material human text correction after consent, and is later
+approved. Formatting-only changes and corrections whose starting caption was
+manually authored are excluded. Each eligible contribution is limited to:
+
+- a random Contributor id that is not the product-analytics installation id;
+- a deterministic sample id used for idempotency/deduplication;
+- generated caption wording and final corrected wording;
+- caption timing and generated timing/model/Studio-version evidence;
+- a mono WAV containing the caption plus about 180 ms of surrounding audio on
+  each side, bounded to 16 seconds and 1.2 MB;
+- the audio SHA-256.
+
+The client protocol does **not** contribute the full video, project title, source
+filename, local filesystem path, unrelated captions, topic/context text,
+correction-memory database, SRT content, Gemini API key, or product-analytics
+identifier. The Sthang intake Worker also rejects those private fields if they
+appear in the payload.
+
+Eligible samples are first queued locally. Network failure never makes caption
+editing, Review, saving, generation, or export fail. Studio retries queued work
+after new eligible corrections and once at startup; it does not continuously
+poll the contribution service.
+
+The production contribution service is Sthang-controlled infrastructure at
+`contribute.sthang.app`, using a private Cloudflare R2 bucket for WAV clips and
+D1 for correction metadata. A high-entropy local withdrawal token authenticates
+the pseudonymous Contributor identity; only a SHA-256 of that token is stored by
+the service. The production service has passed a synthetic upload → submitted →
+verified → contributor-wide withdrawal validation. That validation does not make
+v0.8.0 a public release or complete the remaining privacy/release approvals.
+
+New uploads are `submitted`, not automatically `verified`. Only a separate
+corpus-quality decision may promote a sample to `verified`; Studio's verified
+counter follows that status. Rejected samples have their private R2 audio removed.
+Submitted samples that remain unverified expire after 180 days under the Worker
+retention job. Verified source samples may be retained until the Contributor
+withdraws or the program is retired.
+
+Turning contribution off stops new candidate creation and removes unsent local
+contribution candidates. **Request deletion** additionally asks Sthang to delete
+contribution data already sent under that Contributor identity. The service
+removes that Contributor's private R2 audio and blanks contributed caption text;
+if the service is unavailable, Studio keeps a pending-withdrawal state for retry.
+No Sthang account is required for that deletion request.
+
+Contribution data is intended to evaluate, develop, and improve Khmer caption
+technology, including preparing verified datasets for future model training. If
+a verified sample has already influenced a trained model, deleting the stored
+source sample cannot literally rewind an already-trained model; withdrawal
+excludes the source sample from retained corpus data and future training/retraining.
+This limitation must remain disclosed before production model training begins.
+
+Only enable Contributor mode for media you have the right or permission to share
+for this improvement purpose, including where another person's voice is present.
+See `docs/KHMER-CAPTION-CONTRIBUTOR.md` for the complete source contract and
+remaining release gates.
+
+## Optional product analytics (unreleased 0.8.0 source)
+
+Product analytics is a **separate, default-off choice**. Studio does not load a
+third-party browser analytics SDK, session replay, or autocapture. When the user
+explicitly enables analytics and the production service is provisioned, Studio's
+local Node server creates a random analytics installation id and sends only its
+small allow-listed event payload to the Sthang-controlled relay at
+`analytics.sthang.app`.
+
+The relay validates the same fixed event/property vocabulary again before
+forwarding an accepted event to Sthang's configured PostHog EU project. The
+processor-specific project ingestion key and endpoint are held by the relay,
+not shipped in Studio's normal app configuration. The relay requests
+`$process_person_profile: false` and `$geoip_disable: true` for forwarded events.
+The relay is designed not to intentionally persist Studio event payloads. The
+production relay has passed a synthetic relay → downstream-ingestion validation;
+that does not make the unreleased v0.8 analytics choice part of the verified
+public Beta.
+
+Allow-listed events measure coarse workflow milestones such as Studio startup,
+project creation, caption generation start/completion/failure, caption approval,
+and SRT export. Properties are restricted to Studio/platform version and coarse
+buckets such as caption count, duration, processing time, and approval count.
+
+Analytics does **not** send caption/transcript text, audio/video, filenames,
+project names, local paths, topic/vocabulary/context text, correction memory,
+SRT contents, Gemini keys, Contributor ids, contribution audio, email addresses,
+or names. Studio does not deliberately include the creator's IP address as an
+event property. However, Cloudflare and PostHog can receive ordinary
+infrastructure/HTTPS metadata associated with requests or Worker subrequests;
+the relay must not be described as an IP-anonymization guarantee. PostHog's
+service terms/privacy policy apply to analytics data processed by PostHog.
+
+Analytics outages are fail-open. Turning analytics off stops new analytics
+events and removes the local random analytics identity so a later opt-in starts
+with a fresh id. The analytics identity is intentionally separate from Contributor
+identity, and the contribution service does not receive it.
+
 ## API keys
 
-On Windows, the preferred in-app setup stores the Gemini API key using
-Windows user-protected storage (DPAPI) under `%LOCALAPPDATA%\Sthang Studio`.
-The browser receives only a masked representation. An `apps/server/.env`
-`GEMINI_API_KEY` remains supported as an advanced fallback and is ignored by
-Git.
+On Windows, the preferred in-app setup stores the Gemini API key using Windows
+user-protected storage (DPAPI) under `%LOCALAPPDATA%\Sthang Studio`. The browser
+receives only a masked representation. An `apps/server/.env` `GEMINI_API_KEY`
+remains supported as an advanced fallback and is ignored by Git.
 
 To avoid repeatedly starting PowerShell/DPAPI for every AI pass, Studio may keep
 the already-resolved key and model settings in server process memory for a short
@@ -136,21 +264,17 @@ update-service request is non-destructive and does not affect caption work on th
 installed version. See `docs/OTA-UPDATES.md` for the unreleased protocol and
 remaining production/release gates.
 
-## Telemetry
-
-The application does not include a separate Sthang analytics or
-telemetry service. Processing-stage timing measurements are stored only as local
-job diagnostics; they are not sent to Sthang or another analytics provider.
-Network access is used for configured Gemini requests, package/model installation
-or download, the separately disclosed update checks above in a released
-provisioned build, and any links the user chooses to open.
-
 ## Deleting local data
 
 Because projects and caches are local files, removing an installation does not
 necessarily remove data stored elsewhere on the same computer (for example the
-Windows-protected Gemini key under `%LOCALAPPDATA%`). Use the application's
-available delete/forget actions and remove local runtime folders deliberately
-when you no longer need them.
+Windows-protected Gemini key, random analytics identity, or Contributor withdrawal
+credential under the Studio state root). Use the application's available
+delete/forget/privacy actions and remove local runtime folders deliberately when
+you no longer need them.
+
+Deleting a local project removes unsent contribution candidates tied to that
+project, but it does not silently revoke contribution data that was already sent.
+Use **Privacy → Request deletion** for contributor-wide remote corpus deletion.
 
 For security reporting, see `SECURITY.md`.

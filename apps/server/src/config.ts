@@ -10,6 +10,18 @@ const environmentFile = process.env.STHANG_STUDIO_ENV_FILE || path.join(stateRoo
 
 dotenv.config({ path: environmentFile });
 
+interface PublicServicesConfig {
+  schemaVersion?: number;
+  khmerContribution?: {
+    provisioned?: boolean;
+    endpoint?: string;
+  };
+  productAnalytics?: {
+    provisioned?: boolean;
+    endpoint?: string;
+  };
+}
+
 const defaultVenvPython = process.platform === 'win32'
   ? path.join(rootDir, '.venv', 'Scripts', 'python.exe')
   : path.join(rootDir, '.venv', 'bin', 'python');
@@ -25,6 +37,39 @@ function envThinkingLevel(name: string, fallback: 'low' | 'medium' | 'high') {
   return ['low', 'medium', 'high'].includes(raw) ? raw as 'low' | 'medium' | 'high' : fallback;
 }
 
+function httpsOriginValue(value: unknown) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'https:' ? parsed.origin : '';
+  } catch {
+    return '';
+  }
+}
+
+function httpsOrigin(name: string, fallback = '') {
+  return httpsOriginValue(process.env[name] || fallback);
+}
+
+function readPublicServicesConfig(): PublicServicesConfig {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(rootDir, 'config', 'product-services.json'), 'utf8')) as PublicServicesConfig;
+    return parsed?.schemaVersion === 1 ? parsed : {};
+  } catch {
+    // Public service configuration is optional until deliberately provisioned.
+    return {};
+  }
+}
+
+const publicServices = readPublicServicesConfig();
+const publicContributionEndpoint = publicServices.khmerContribution?.provisioned === true
+  ? httpsOriginValue(publicServices.khmerContribution.endpoint)
+  : '';
+const publicAnalyticsEndpoint = publicServices.productAnalytics?.provisioned === true
+  ? httpsOriginValue(publicServices.productAnalytics.endpoint)
+  : '';
+
 export const config = {
   port: Number(process.env.PORT || 8787),
   webOrigin: process.env.WEB_ORIGIN || 'http://localhost:5188',
@@ -34,16 +79,9 @@ export const config = {
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),
   geminiRetryMaxMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_RETRY_MAX_MS || 60000))),
-  // Verbatim transcription is latency-sensitive and does not need agent-style reasoning.
-  // Gemini 3.7 Flash supports low/medium/high; low remains configurable for A/B testing.
   geminiTranscriptionThinkingLevel: envThinkingLevel('GEMINI_TRANSCRIPTION_THINKING_LEVEL', 'low'),
-  // Best-effort use of the current Interactions API ASR custom_vocabulary feature.
-  // If an older SDK/backend rejects it, gemini.ts falls back to prompt-based protection automatically.
   geminiNativeVocabularyBias: envBool('GEMINI_NATIVE_VOCABULARY_BIAS', true),
 
-  // v0.7 timing remains local-only by default. KFA directly force-aligns Gemini's
-  // Khmer transcript; faster-whisper is a LOCAL fallback. No cloud timing adapter
-  // is invoked automatically.
   localTimingPython: process.env.LOCAL_TIMING_PYTHON || defaultVenvPython,
   localKfaEnabled: envBool('LOCAL_KFA_ENABLED', true),
   localWhisperFallbackEnabled: envBool('LOCAL_WHISPER_FALLBACK_ENABLED', true),
@@ -66,6 +104,14 @@ export const config = {
   historyDir: path.join(stateRootDir, 'data', 'history'),
   proposalDir: path.join(stateRootDir, 'data', 'proposals'),
   jobsFile: path.join(stateRootDir, 'data', 'jobs.json'),
+  analyticsIdentityFile: path.join(stateRootDir, 'data', 'analytics-identity.json'),
+  contributionDir: path.join(stateRootDir, 'data', 'contribution'),
+  contributionStateFile: path.join(stateRootDir, 'data', 'contribution', 'state.json'),
+  contributionTempDir: path.join(stateRootDir, 'data', 'contribution', 'temp'),
+  // Public Sthang service endpoints ship with the versioned source once provisioned.
+  // Environment variables are override hooks for deliberate development/operator validation.
+  contributionEndpoint: httpsOrigin('STHANG_CONTRIBUTION_ENDPOINT', publicContributionEndpoint),
+  analyticsEndpoint: httpsOrigin('STHANG_ANALYTICS_ENDPOINT', publicAnalyticsEndpoint),
   localTimingWorker: path.join(rootDir, 'local-timing', 'worker.py'),
   updateDir: path.join(stateRootDir, 'updates'),
   versionsDir: path.join(stateRootDir, 'versions'),
