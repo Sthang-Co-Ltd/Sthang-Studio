@@ -11,6 +11,8 @@ Sthang Studio has two clear caption-data modes:
 
 Declining contribution does not reduce caption quality, disable features, or remove local correction memory. Imported Studio profiles never carry contribution consent onto another installation.
 
+Corrections made before joining are not collected retroactively.
+
 The contributor invitation is progressively disclosed after a successful export when production contribution hosting is configured. It is not a first-launch gate and dismissal for the current session is not treated as consent.
 
 ## Why this exists
