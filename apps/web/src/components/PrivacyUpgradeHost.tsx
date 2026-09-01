@@ -149,7 +149,7 @@ export function PrivacyUpgradeHost() {
           <span aria-hidden="true"><ShieldCheck size={20}/></span>
           <div><strong id="privacy-upgrade-review-title">Privacy choices</strong><small>Contribution and product analytics remain separate. You can change either choice later in Settings → Privacy.</small></div>
         </header>
-        <ContributorSettings profile={profile} busy={working} onSave={saveReviewPatch}/>
+        <ContributorSettings profile={profile} busy={working} showIntro={false} onSave={saveReviewPatch}/>
       </section>
     </div>;
   }
