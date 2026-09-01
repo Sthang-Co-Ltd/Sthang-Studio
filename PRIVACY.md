@@ -6,9 +6,10 @@ caption timing and project editing are handled locally.
 
 The verified public `v0.7.14` Beta does not contain Sthang product analytics or
 a Khmer training-contribution service. The current **unreleased 0.8.0 source**
-adds two separate, explicit opt-in paths described below. Both fail closed unless
-their production service configuration is present, and neither is evidence that
-0.8.0 has been released or that those services are publicly enabled.
+adds two separate, explicit opt-in paths described below. Their production
+services have been provisioned and synthetic-validated for the unreleased v0.8
+work, but both choices remain default-off and this is not evidence that 0.8.0 has
+been released or that either choice is available in the verified public Beta.
 
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
@@ -92,10 +93,10 @@ Khmer Caption Contributor is **off by default**. It is separate from product
 analytics and from Gemini transcription. Importing a Studio profile never carries
 Contributor consent onto another installation.
 
-When production contribution hosting is configured, Studio may offer the program
-after a successful export. Joining is an explicit choice. Corrections made before
-joining are not collected retroactively, and declining does not disable any
-caption feature or local correction memory.
+When contribution hosting is configured, Studio may offer the program after a
+successful export. Joining is an explicit choice. Corrections made before joining
+are not collected retroactively, and declining does not disable any caption
+feature or local correction memory.
 
 An eligible sample is created only when a caption can be traced back to generated
 wording, receives a material human text correction after consent, and is later
@@ -121,12 +122,13 @@ editing, Review, saving, generation, or export fail. Studio retries queued work
 after new eligible corrections and once at startup; it does not continuously
 poll the contribution service.
 
-The planned production service is Sthang-controlled infrastructure at
+The production contribution service is Sthang-controlled infrastructure at
 `contribute.sthang.app`, using a private Cloudflare R2 bucket for WAV clips and
 D1 for correction metadata. A high-entropy local withdrawal token authenticates
 the pseudonymous Contributor identity; only a SHA-256 of that token is stored by
-the service. Source implementation does not mean that production endpoint has
-been deployed.
+the service. The production service has passed a synthetic upload → submitted →
+verified → contributor-wide withdrawal validation. That validation does not make
+v0.8.0 a public release or complete the remaining privacy/release approvals.
 
 New uploads are `submitted`, not automatically `verified`. Only a separate
 corpus-quality decision may promote a sample to `verified`; Studio's verified
@@ -152,7 +154,7 @@ This limitation must remain disclosed before production model training begins.
 Only enable Contributor mode for media you have the right or permission to share
 for this improvement purpose, including where another person's voice is present.
 See `docs/KHMER-CAPTION-CONTRIBUTOR.md` for the complete source contract and
-production gates.
+remaining release gates.
 
 ## Optional product analytics (unreleased 0.8.0 source)
 
@@ -168,7 +170,10 @@ forwarding an accepted event to Sthang's configured PostHog EU project. The
 processor-specific project ingestion key and endpoint are held by the relay,
 not shipped in Studio's normal app configuration. The relay requests
 `$process_person_profile: false` and `$geoip_disable: true` for forwarded events.
-The relay is designed not to intentionally persist Studio event payloads.
+The relay is designed not to intentionally persist Studio event payloads. The
+production relay has passed a synthetic relay → downstream-ingestion validation;
+that does not make the unreleased v0.8 analytics choice part of the verified
+public Beta.
 
 Allow-listed events measure coarse workflow milestones such as Studio startup,
 project creation, caption generation start/completion/failure, caption approval,
