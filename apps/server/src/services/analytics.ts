@@ -85,28 +85,22 @@ export async function captureAnalytics(
   properties: Record<string, SafePropertyValue | undefined> = {},
 ) {
   try {
-    if (!config.analyticsProjectKey || !config.analyticsHost) return false;
+    if (!config.analyticsEndpoint) return false;
     const profile = await profileStore.get();
     if ((profile.preferences.analyticsConsent || 'unset') !== 'granted') return false;
-    const distinctId = await identity();
+    const installationId = await identity();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
     try {
-      const response = await fetch(`${config.analyticsHost}/i/v0/e/`, {
+      const response = await fetch(`${config.analyticsEndpoint}/v1/events`, {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          api_key: config.analyticsProjectKey,
-          distinct_id: distinctId,
+          schemaVersion: 1,
+          installationId,
           event,
-          properties: {
-            $process_person_profile: false,
-            // Keep server-side analytics personless and skip GeoIP enrichment.
-            // The analytics host still receives ordinary HTTPS metadata such as the request IP.
-            $geoip_disable: true,
-            ...sanitizeAnalyticsProperties(properties),
-          },
+          properties: sanitizeAnalyticsProperties(properties),
         }),
       });
       return response.ok;
