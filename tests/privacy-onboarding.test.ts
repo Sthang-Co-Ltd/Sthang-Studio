@@ -61,9 +61,16 @@ test('analytics consent never controls the Contributor upgrade introduction', ()
   assert.equal(shouldShowPrivacyUpgradeNotice(value), true);
 });
 
-test('fresh v0.8 concurrent profile reads stay stamped for post-export onboarding', () => {
+test('fresh v0.8 project-store bootstrap plus concurrent profile reads stays post-export-only', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sthang-fresh-v08-'));
   try {
+    // Home can initialize the new per-project store before the privacy host asks
+    // for a profile. These v0.8 bookkeeping files are not evidence of prior use.
+    const projectDir = path.join(root, 'data', 'projects');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'order.json'), '[]\n', 'utf8');
+    fs.writeFileSync(path.join(projectDir, '.per-project-v1'), 'Sthang Studio per-project storage v1\n', 'utf8');
+
     const values = profilesFromIsolatedStateRoot(root);
     assert.equal(values.length, 3);
     for (const value of values) {
