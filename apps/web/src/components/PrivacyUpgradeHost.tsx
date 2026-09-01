@@ -159,7 +159,7 @@ export function PrivacyUpgradeHost() {
       <div className="privacy-upgrade-hero">
         <div className="privacy-upgrade-mark" aria-hidden="true"><ShieldCheck size={29}/></div>
         <span className="privacy-upgrade-kicker">What’s new in Studio 0.8</span>
-        <h2 id="privacy-upgrade-title">Help make Khmer captions world-class 🇰🇭</h2>
+        <h2 id="privacy-upgrade-title">Help make Khmer captions world-class</h2>
         <p id="privacy-upgrade-description">Because this Studio installation predates the new Contributor option, we’re asking once before it can collect anything.</p>
       </div>
 
