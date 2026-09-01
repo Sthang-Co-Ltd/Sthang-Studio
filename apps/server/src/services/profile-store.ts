@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
+import { PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
 import type {
   AppProfile,
   CaptionProject,
@@ -58,6 +59,11 @@ function uniqueLines(lines: unknown): string[] {
 
 function consentState(value: unknown): ConsentState {
   return ['declined', 'granted'].includes(String(value)) ? value as ConsentState : 'unset';
+}
+
+function upgradeNoticeVersion(value: unknown) {
+  const raw = String(value || '').trim();
+  return raw ? raw.slice(0, 16) : undefined;
 }
 
 function timingSource(value: unknown): TimingSource | undefined {
@@ -145,6 +151,7 @@ function normalizeProfile(value: unknown): AppProfile {
       waveformZoom: Math.max(1, Math.min(24, Number(raw.preferences.waveformZoom ?? 2))),
       analyticsConsent: consentState(raw.preferences.analyticsConsent),
       khmerContributionConsent: consentState(raw.preferences.khmerContributionConsent),
+      privacyUpgradeNoticeVersion: upgradeNoticeVersion(raw.preferences.privacyUpgradeNoticeVersion),
     }
     : DEFAULT_PROFILE.preferences;
 
@@ -160,11 +167,38 @@ function normalizeProfile(value: unknown): AppProfile {
   };
 }
 
+async function exists(filePath: string) {
+  return fs.stat(filePath).then(() => true).catch(() => false);
+}
+
+async function hasPriorStudioState() {
+  if (await exists(config.profileFile)) return true;
+  if (await exists(config.dataFile)) return true;
+  if (await exists(config.jobsFile)) return true;
+
+  const projectDir = path.join(path.dirname(config.dataFile), 'projects');
+  const projectNames = await fs.readdir(projectDir).catch(() => [] as string[]);
+  if (projectNames.some((name) => name.endsWith('.json') && name !== 'order.json')) return true;
+
+  const historyNames = await fs.readdir(config.historyDir).catch(() => [] as string[]);
+  return historyNames.length > 0;
+}
+
 async function load(): Promise<AppProfile> {
   try {
     return normalizeProfile(JSON.parse(await fs.readFile(config.profileFile, 'utf8')));
-  } catch {
-    return { ...DEFAULT_PROFILE, preferences: { ...DEFAULT_PROFILE.preferences }, updatedAt: new Date().toISOString() };
+  } catch (error) {
+    const priorStudioState = await hasPriorStudioState();
+    const initial: AppProfile = {
+      ...DEFAULT_PROFILE,
+      preferences: {
+        ...DEFAULT_PROFILE.preferences,
+        ...(priorStudioState ? {} : { privacyUpgradeNoticeVersion: PRIVACY_UPGRADE_NOTICE_VERSION }),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return save(initial);
+    return initial;
   }
 }
 
@@ -243,12 +277,15 @@ export const profileStore = {
   },
 
   async replace(value: unknown) {
+    const current = await load();
     const imported = normalizeProfile(value);
-    // Privacy consent is installation-specific. Profile transfer never opts a different machine in.
+    // Privacy consent and the upgrade-introduction marker are installation-specific.
+    // Profile transfer never opts another machine in or replays a handled notice.
     imported.preferences = {
       ...imported.preferences,
       analyticsConsent: 'unset',
       khmerContributionConsent: 'unset',
+      privacyUpgradeNoticeVersion: current.preferences.privacyUpgradeNoticeVersion,
     };
     return save(imported);
   },
