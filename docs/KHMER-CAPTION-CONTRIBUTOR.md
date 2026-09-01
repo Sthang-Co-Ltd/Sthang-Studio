@@ -27,7 +27,7 @@ A user edit is never automatically treated as training truth. A candidate must t
 
 ## What one eligible contribution can contain
 
-- a random contributor id unrelated to PostHog;
+- a random contributor id unrelated to product analytics;
 - a deterministic sample id for deduplication;
 - the caption's start/end time;
 - a short mono WAV containing the caption plus about 180 ms of local context on each side;
@@ -36,7 +36,7 @@ A user edit is never automatically treated as training truth. A candidate must t
 - generated timing source and model/app version evidence;
 - a SHA-256 of the WAV.
 
-The client and intake Worker must not send/accept project titles, source filenames, local paths, full videos, unrelated captions, topic/context text, correction-memory databases, SRT exports, Gemini API keys, or PostHog identifiers.
+The client and intake Worker must not send/accept project titles, source filenames, local paths, full videos, unrelated captions, topic/context text, correction-memory databases, SRT exports, Gemini API keys, or product-analytics identifiers.
 
 ## Quality lifecycle
 
@@ -70,7 +70,7 @@ Rejected samples are removed from private R2 when rejection is recorded. Submitt
 
 The production design uses a Sthang-controlled Cloudflare Worker, private R2 bucket, and D1 metadata database. The contributor id is random. A separate high-entropy local withdrawal token authenticates uploads/status/deletion; only its SHA-256 is stored by the service.
 
-This contributor identity is intentionally unrelated to the random PostHog analytics installation id.
+This contributor identity is intentionally unrelated to the random product-analytics installation id.
 
 Local upload state is fail-open for caption work: network errors keep eligible samples queued and never make editing, Review, generation, saving, or SRT export fail. Studio retries once on startup and after new eligible contribution work; it does not continuously poll.
 
@@ -90,9 +90,9 @@ Production terms/privacy text require owner/legal review before the corpus is en
 
 ## Product analytics is separate
 
-Optional PostHog product analytics is a different consent choice. It uses a random installation id and a small server-owned event/property allow-list. It never receives caption text, audio, filenames, project names, local paths, topic/vocabulary text, SRT content, Gemini keys, or the contributor id.
+Optional product analytics is a different consent choice. Studio creates a separate random installation id and sends a small fixed event/property vocabulary only to the Sthang-owned `analytics.sthang.app` relay. It never sends caption text, audio, filenames, project names, local paths, topic/vocabulary text, SRT content, Gemini keys, or the contributor id.
 
-Studio does not load PostHog's browser SDK, session replay, or autocapture. The local Node server sends allow-listed events only when the analytics preference is explicitly enabled and a PostHog project ingestion key is configured.
+The relay validates the payload again and forwards accepted events to Sthang's configured PostHog EU project. The downstream processor key/protocol remains in the Worker, not Studio's app configuration. Studio does not load PostHog's browser SDK, session replay, or autocapture.
 
 ## Production gates
 
@@ -100,11 +100,11 @@ Before a public v0.8 release can enable contribution:
 
 - provision `contribute.sthang.app`, private R2, D1, admin secret, WAF/rate limits, and the 180-day submitted-sample cleanup;
 - test upload, idempotency, verification status, offline retry, and contributor-wide withdrawal against non-sensitive fixtures;
-- configure `STHANG_CONTRIBUTION_ENDPOINT` only after the service is verified;
+- set the versioned public contribution endpoint only after the service passes synthetic validation;
 - approve final privacy/program terms and website/docs representation;
 - synchronize approved product evidence through Sthang HQ and Distribution;
 - complete the normal v0.8 Windows/release/OTA validation gates.
 
-Before optional PostHog analytics can be publicly enabled, provision the Studio PostHog project, use the EU ingestion host unless governance decides otherwise, configure the project ingestion key, and verify the event allow-list with synthetic events.
+Before optional product analytics can be publicly enabled, provision a dedicated Studio PostHog EU project, deploy `analytics.sthang.app` with its project ingestion key stored only as a Worker secret, verify the relay/event allow-list with synthetic events, then set the versioned public Studio analytics endpoint to `https://analytics.sthang.app`.
 
 Production provisioning, cross-repository synchronization, public release publication, OTA promotion, and model training are separately approval-gated actions.
