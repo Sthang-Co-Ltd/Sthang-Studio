@@ -27,7 +27,7 @@
     "verify:manifest": "node scripts/verify-product-manifest.mjs",
     "check:public": "node scripts/verify-product-manifest.mjs && node scripts/verify-product-services.mjs && node scripts/public-readiness-check.mjs",
     "test:public": "node --test tests/public-readiness.test.mjs tests/product-release-identity.test.mjs",
-    "test:contribution": "node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/analytics-worker.test.mjs tests/public-services-config.test.mjs tests/privacy-onboarding.test.ts",
+    "test:contribution": "npm run build --workspace @kcs/shared && node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/analytics-worker.test.mjs tests/public-services-config.test.mjs tests/privacy-onboarding.test.ts",
     "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs tests/ota-signer-worker.test.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
