@@ -20,11 +20,10 @@ test('analytics sanitizer keeps only the fixed coarse-property vocabulary', () =
 
   assert.equal(value.job_type, 'transcribe');
   assert.equal(value.caption_count_bucket, '<=25');
-  assert.equal(value.choice, 'granted');
   assert.ok(value.app_version);
   assert.ok(value.platform);
   for (const forbidden of [
-    'caption_text', 'project_name', 'filename', 'local_path', 'context', 'api_key', 'contributor_id',
+    'choice', 'caption_text', 'project_name', 'filename', 'local_path', 'context', 'api_key', 'contributor_id',
   ]) assert.equal(forbidden in value, false, forbidden);
   assert.notEqual(value.app_version, 'attacker-overwrite');
   assert.notEqual(value.platform, 'attacker-overwrite');
