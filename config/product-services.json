@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "khmerContribution": {
+    "provisioned": false,
+    "endpoint": ""
+  },
+  "productAnalytics": {
+    "provisioned": false,
+    "host": "https://eu.i.posthog.com",
+    "projectKey": ""
+  }
+}
