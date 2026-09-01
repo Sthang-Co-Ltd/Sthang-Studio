@@ -76,6 +76,16 @@ a successful export, rather than before first use. The invitation may celebrate
 the collective goal of better Khmer caption technology, but it must not shame,
 penalize, or repeatedly pressure creators who keep their work private.
 
+There is one migration-only exception: when an installation with evidence of
+pre-v0.8 Studio use first runs a version that introduces Contributor, and the
+Contributor choice is still unset, Studio may show one dismissible startup
+explanation because that creator used the product before this data choice existed.
+Fresh installations still use the post-export invitation. Closing or reviewing
+the migration notice is not consent, and product analytics remains a separate,
+default-off decision. The migration notice is recorded locally so it is not shown
+again on every launch; if Contributor remains unset, the normal post-export
+invitation may still appear in a later session.
+
 An eligible contribution must trace back to generated wording, contain a material
 human correction made after consent, and reach an approval decision. Formatting-
 only edits and manually-authored starting captions are excluded. Only the bounded
