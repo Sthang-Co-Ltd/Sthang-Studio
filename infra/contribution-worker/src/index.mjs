@@ -133,6 +133,19 @@ async function requireContributor(env, request, contributorId) {
   return { tokenHash };
 }
 
+async function claimContributor(env, contributorId, tokenHash, now) {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO contributors (id, token_hash, created_at, last_seen_at, withdrawn_at)
+     VALUES (?, ?, ?, ?, NULL)`,
+  ).bind(contributorId, tokenHash, now, now).run();
+  const row = await env.DB.prepare('SELECT token_hash FROM contributors WHERE id = ?').bind(contributorId).first();
+  if (!row || row.token_hash !== tokenHash) return false;
+  await env.DB.prepare(
+    'UPDATE contributors SET last_seen_at = ?, withdrawn_at = NULL WHERE id = ? AND token_hash = ?',
+  ).bind(now, contributorId, tokenHash).run();
+  return true;
+}
+
 async function acceptContribution(request, env) {
   const tokenHash = await contributorTokenHash(request);
   if (!tokenHash) return json({ error: 'Contributor authorization required' }, 401);
@@ -143,8 +156,10 @@ async function acceptContribution(request, env) {
     return json({ error: error instanceof Error ? error.message : 'Invalid contribution' }, 400);
   }
 
-  const existingContributor = await env.DB.prepare('SELECT token_hash FROM contributors WHERE id = ?').bind(sample.contributorId).first();
-  if (existingContributor && existingContributor.token_hash !== tokenHash) return json({ error: 'Contributor authorization failed' }, 403);
+  const now = new Date().toISOString();
+  if (!await claimContributor(env, sample.contributorId, tokenHash, now)) {
+    return json({ error: 'Contributor authorization failed' }, 403);
+  }
 
   const existingSample = await env.DB.prepare(
     'SELECT contributor_id, receipt_id, status FROM samples WHERE candidate_id = ?',
@@ -154,7 +169,6 @@ async function acceptContribution(request, env) {
     return json({ receiptId: existingSample.receipt_id, status: existingSample.status });
   }
 
-  const now = new Date().toISOString();
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const recent = await env.DB.prepare(
     'SELECT COUNT(*) AS count FROM samples WHERE contributor_id = ? AND created_at >= ?',
@@ -174,28 +188,27 @@ async function acceptContribution(request, env) {
   });
 
   try {
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO contributors (id, token_hash, created_at, last_seen_at, withdrawn_at)
-         VALUES (?, ?, ?, ?, NULL)
-         ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at, withdrawn_at = NULL`,
-      ).bind(sample.contributorId, tokenHash, now, now),
-      env.DB.prepare(
-        `INSERT INTO samples (
-          candidate_id, contributor_id, receipt_id, status, original_text, corrected_text,
-          caption_start_ms, caption_end_ms, clip_start_ms, clip_end_ms,
-          source_timing_source, source_text_model, source_engine_version, app_version,
-          audio_sha256, audio_duration_ms, object_key, created_at, updated_at
-        ) VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        sample.candidateId, sample.contributorId, receiptId, sample.originalText, sample.correctedText,
-        sample.captionStartMs, sample.captionEndMs, sample.clipStartMs, sample.clipEndMs,
-        sample.sourceTimingSource, sample.sourceTextModel, sample.sourceEngineVersion, sample.appVersion,
-        sample.audioSha256, sample.audioDurationMs, objectKey, now, now,
-      ),
-    ]);
+    await env.DB.prepare(
+      `INSERT INTO samples (
+        candidate_id, contributor_id, receipt_id, status, original_text, corrected_text,
+        caption_start_ms, caption_end_ms, clip_start_ms, clip_end_ms,
+        source_timing_source, source_text_model, source_engine_version, app_version,
+        audio_sha256, audio_duration_ms, object_key, created_at, updated_at
+      ) VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sample.candidateId, sample.contributorId, receiptId, sample.originalText, sample.correctedText,
+      sample.captionStartMs, sample.captionEndMs, sample.clipStartMs, sample.clipEndMs,
+      sample.sourceTimingSource, sample.sourceTextModel, sample.sourceEngineVersion, sample.appVersion,
+      sample.audioSha256, sample.audioDurationMs, objectKey, now, now,
+    ).run();
   } catch (error) {
     await env.CORPUS.delete(objectKey).catch(() => {});
+    const existing = await env.DB.prepare(
+      'SELECT contributor_id, receipt_id, status FROM samples WHERE candidate_id = ?',
+    ).bind(sample.candidateId).first();
+    if (existing?.contributor_id === sample.contributorId) {
+      return json({ receiptId: existing.receipt_id, status: existing.status });
+    }
     throw error;
   }
 
