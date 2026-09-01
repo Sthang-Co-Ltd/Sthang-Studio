@@ -35,9 +35,11 @@ Production provisioning/deployment is not authorized merely by merging this sour
 4. Add `CONTRIBUTION_ADMIN_TOKEN` using Wrangler secret storage.
 5. Apply Cloudflare rate limiting/WAF policy to `contribute.sthang.app` in addition to the Worker’s validation and per-contributor daily cap.
 6. Deploy the Worker and verify `/health` over the production hostname.
-7. Configure released Studio with `STHANG_CONTRIBUTION_ENDPOINT=https://contribute.sthang.app` only after the privacy/release gates are complete.
+7. After both production services pass synthetic validation, update `config/product-services.json` with only the public contribution origin and product-analytics ingestion values, then set the corresponding `provisioned` flags to `true`.
 
-Do not commit Wrangler credentials, API tokens, D1 access material, private corpus samples, or production configuration containing secrets.
+`config/product-services.json` is versioned source so existing Studio installations receive the same public service configuration when they update. Operator/development environment variables may override it deliberately, but ordinary users must not need to edit `.env` to receive the approved public configuration.
+
+Do not commit Wrangler credentials, API tokens, D1 access material, private corpus samples, production configuration containing secrets, or any personal analytics API credential. The analytics project ingestion key placed in `config/product-services.json` is a public client/project token, not an account-management credential.
 
 ## Production synthetic validation
 
@@ -54,8 +56,8 @@ The script creates only synthetic Khmer text and generated silence audio, confir
 The optional product-analytics ingestion smoke check is separate:
 
 ```text
-STHANG_POSTHOG_HOST=https://eu.i.posthog.com \
-STHANG_POSTHOG_PROJECT_KEY=<project-ingestion-key> \
+STHANG_ANALYTICS_HOST=https://eu.i.posthog.com \
+STHANG_ANALYTICS_PROJECT_KEY=<project-ingestion-key> \
 node scripts/verify-product-analytics-ingestion.mjs
 ```
 
