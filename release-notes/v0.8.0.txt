@@ -6,7 +6,7 @@ Khmer Caption Contributor can submit only eligible post-consent corrections: a b
 
 Submitted corrections are not called verified until corpus quality review accepts them. Unverified submissions expire after 180 days. Contributors can stop future contribution and request contributor-wide deletion of stored corpus audio/text.
 
-Optional product analytics uses a separate random installation id and a strict server-owned event/property allow-list. Studio does not include PostHog session replay or autocapture, and caption/media content is excluded from analytics.
+Optional product analytics uses a separate random installation id and a strict event/property allow-list sent through a Sthang-owned analytics relay. Studio includes no session replay or autocapture, and caption/media content is excluded from analytics.
 
 Both new cloud paths fail closed when their production configuration is absent, and service failure never blocks caption generation, Review, editing, saving, or SRT export.
 
