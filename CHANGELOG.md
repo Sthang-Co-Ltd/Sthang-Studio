@@ -6,6 +6,7 @@
 
 - Added exactly two caption-data states for the new Contributor program: Studio remains private by default, while **Khmer Caption Contributor** requires explicit opt-in and never makes core caption features conditional on participation.
 - Added a non-blocking post-export invitation, a dedicated **Privacy** settings surface, installation-local consent, contributor status, verified-correction counts, verified-speech duration, opt-out, and contributor-wide deletion controls.
+- Redesigned the Privacy surface around standardized decision cards with deliberate status chips, visible data boundaries, 48px consent controls, keyboard focus states, and separate lime Contributor / restrained-blue analytics accents. Existing pre-v0.8 installations with an unset Contributor choice receive one dismissible startup explanation; fresh installations keep the post-export path, and closing or reviewing the migration notice never grants consent or enables analytics.
 - Extended the existing local correction pipeline with generated-wording lineage so incremental human edits resolve back to the original machine caption. Only eligible post-consent material corrections that are later approved can become contribution candidates; formatting-only and manually-authored starting captions are excluded.
 - Added a serialized local contribution queue with explicit queued/uploading/submitted/verified/rejected/withdrawn states, deterministic sample ids, bounded short-WAV extraction, offline retry, safe in-flight opt-out, and local data minimization after remote submission.
 - Added the Sthang-owned `contribute.sthang.app` Cloudflare Worker with private R2 audio, D1 metadata, hashed contributor credentials, strict payload validation, idempotency, rate bounds, corpus verification/rejection, 180-day expiry for submitted-unverified samples, and contributor-wide withdrawal/deletion.
@@ -339,7 +340,7 @@
 - Context-aware vocabulary/native-bias path and deterministic user-owned alias canonicalization.
 - Local KFA Khmer forced alignment with local faster-whisper fallback.
 - Dynamic, Word, Phrase, and Line regrouping without timing drift.
-- Editable timeline, manual split/merge/nudge, video preview, and UTF-8 SRT export.
+- Editable timeline, manual split/merge/nudge, video preview, and UTF-8 CapCut SRT export.
 - No automatic paid Google Cloud timing fallback.
 
 ## 0.4.0 — Context-aware vocabulary
