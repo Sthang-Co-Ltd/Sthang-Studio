@@ -85,25 +85,25 @@ export async function captureAnalytics(
   properties: Record<string, SafePropertyValue | undefined> = {},
 ) {
   try {
-    if (!config.posthogProjectKey || !config.posthogHost) return false;
+    if (!config.analyticsProjectKey || !config.analyticsHost) return false;
     const profile = await profileStore.get();
     if ((profile.preferences.analyticsConsent || 'unset') !== 'granted') return false;
     const distinctId = await identity();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
     try {
-      const response = await fetch(`${config.posthogHost}/i/v0/e/`, {
+      const response = await fetch(`${config.analyticsHost}/i/v0/e/`, {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          api_key: config.posthogProjectKey,
+          api_key: config.analyticsProjectKey,
           distinct_id: distinctId,
           event,
           properties: {
             $process_person_profile: false,
             // Keep server-side analytics personless and skip GeoIP enrichment.
-            // PostHog still receives ordinary HTTPS metadata such as the request IP.
+            // The analytics host still receives ordinary HTTPS metadata such as the request IP.
             $geoip_disable: true,
             ...sanitizeAnalyticsProperties(properties),
           },
