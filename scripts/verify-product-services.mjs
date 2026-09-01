@@ -34,6 +34,17 @@ function exactKeys(value, label, expected) {
   }
 }
 
+function sourceFiles(relativeDir) {
+  const absolute = path.join(root, relativeDir);
+  const out = [];
+  for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+    const child = path.join(relativeDir, entry.name).replaceAll('\\', '/');
+    if (entry.isDirectory()) out.push(...sourceFiles(child));
+    else if (/\.(?:ts|tsx|js|jsx|mjs|cjs)$/i.test(entry.name)) out.push(child);
+  }
+  return out;
+}
+
 const services = readJson('config/product-services.json');
 exactKeys(services, 'product services', ['schemaVersion', 'khmerContribution', 'productAnalytics']);
 if (services.schemaVersion !== 1) errors.push('product services schemaVersion must be 1');
@@ -69,18 +80,18 @@ if (services.productAnalytics?.provisioned === true) {
 }
 
 // The third-party processor remains named in formal privacy/governance/infra docs,
-// but the ordinary app/runtime/env/public-service configuration stays Sthang-only.
-for (const relativePath of [
-  'apps/web/src/components/ContributorSettings.tsx',
-  'apps/web/src/components/ContributionPromptHost.tsx',
-  'apps/server/src/index.ts',
-  'apps/server/src/config.ts',
-  'apps/server/src/services/analytics.ts',
+// but shipped Studio app/runtime/installer/release-note copy stays Sthang-only.
+const providerNeutralPaths = [
+  ...sourceFiles('apps/web/src'),
+  ...sourceFiles('apps/server/src'),
   '.env.example',
   'config/product-services.json',
-]) {
+  'packaging/windows/Read Me.txt',
+  'release-notes/v0.8.0.txt',
+];
+for (const relativePath of providerNeutralPaths) {
   if (/posthog/i.test(read(relativePath))) {
-    errors.push(`${relativePath} must keep analytics provider branding out of normal Studio app/config copy`);
+    errors.push(`${relativePath} must keep analytics provider branding out of shipped Studio app/config/user copy`);
   }
 }
 
@@ -120,7 +131,7 @@ for (const required of [
 }
 const relay = read('infra/analytics-worker/src/index.mjs');
 for (const required of [
-  "$process_person_profile: false",
+  '$process_person_profile: false',
   '$geoip_disable: true',
   'https://eu.i.posthog.com/i/v0/e/',
   "url.pathname === '/v1/events'",
@@ -134,4 +145,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log('Product-service verification passed (Sthang-owned public endpoints + provider-neutral Studio app copy).');
+console.log('Product-service verification passed (Sthang-owned public endpoints + provider-neutral shipped Studio copy).');
