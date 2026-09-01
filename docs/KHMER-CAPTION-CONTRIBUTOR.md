@@ -13,7 +13,9 @@ Declining contribution does not reduce caption quality, disable features, or rem
 
 Corrections made before joining are not collected retroactively.
 
-The contributor invitation is progressively disclosed after a successful export when production contribution hosting is configured. It is not a first-launch gate and dismissal for the current session is not treated as consent.
+For fresh installations, the contributor invitation is progressively disclosed after a successful export when production contribution hosting is configured. It is not a first-launch gate and dismissal for the current session is not treated as consent.
+
+Existing installations that have durable evidence of pre-v0.8 Studio use are the one exception. If their Contributor choice is still unset when the new option first arrives, Studio may show one dismissible startup explanation because that creator used Studio before the data choice existed. Closing the notice or opening its Privacy review does not grant consent; both contribution and product analytics remain off/unset unless separately chosen. A small installation-local notice marker prevents that startup explanation from repeating. If Contributor remains unset, the ordinary post-export invitation may still appear in a later session, but never again in the same session as the upgrade notice.
 
 ## Why this exists
 
