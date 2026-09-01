@@ -25,7 +25,7 @@
     "start": "node apps/server/dist/index.js",
     "verify:brand": "node scripts/verify-brand-assets.mjs",
     "verify:manifest": "node scripts/verify-product-manifest.mjs",
-    "check:public": "node scripts/verify-product-manifest.mjs && node scripts/public-readiness-check.mjs",
+    "check:public": "node scripts/verify-product-manifest.mjs && node scripts/verify-product-services.mjs && node scripts/public-readiness-check.mjs",
     "test:public": "node --test tests/public-readiness.test.mjs tests/product-release-identity.test.mjs",
     "test:contribution": "node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/public-services-config.test.mjs",
     "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs tests/ota-signer-worker.test.mjs",
