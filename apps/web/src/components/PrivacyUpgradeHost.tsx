@@ -14,7 +14,6 @@ export function PrivacyUpgradeHost() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const dialogRef = useRef<HTMLElement | null>(null);
-  const primaryRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -47,10 +46,7 @@ export function PrivacyUpgradeHost() {
 
   useEffect(() => {
     if (!open) return;
-    window.setTimeout(() => {
-      if (view === 'intro') primaryRef.current?.focus();
-      else dialogRef.current?.querySelector<HTMLElement>('.privacy-upgrade-close')?.focus();
-    }, 0);
+    window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>('.privacy-upgrade-close')?.focus(), 0);
   }, [open, view]);
 
   const saveResolution = async (consent?: Exclude<ConsentState, 'unset'>) => {
@@ -183,7 +179,7 @@ export function PrivacyUpgradeHost() {
       </div>
 
       <div className="privacy-upgrade-actions">
-        <button ref={primaryRef} className="privacy-upgrade-action primary" disabled={working} onClick={() => void choose('granted')}><Sparkles size={18}/>Help improve Khmer captions</button>
+        <button className="privacy-upgrade-action primary" disabled={working} onClick={() => void choose('granted')}><Sparkles size={18}/>Help improve Khmer captions</button>
         <button className="privacy-upgrade-action" disabled={working} onClick={() => void choose('declined')}><LockKeyhole size={18}/>Keep my work private</button>
         <button className="privacy-upgrade-action tertiary" disabled={working} onClick={() => void review()}><ShieldCheck size={16}/>Review privacy &amp; analytics settings</button>
       </div>
