@@ -73,7 +73,7 @@ app.get('/api/health', async (_req, res) => {
       },
       cloudConfiguration: {
         contributionConfigured: Boolean(config.contributionEndpoint),
-        analyticsConfigured: Boolean(config.posthogHost && config.posthogProjectKey),
+        analyticsConfigured: Boolean(config.analyticsHost && config.analyticsProjectKey),
       },
       timing: {
         provider: 'local',
@@ -114,7 +114,7 @@ app.listen(config.port, '127.0.0.1', () => {
   }
   console.log('Correction memory: automatic edit capture + approval inbox');
   console.log(`Khmer contribution: ${config.contributionEndpoint ? 'endpoint configured; still opt-in only' : 'offline/fail-closed until endpoint configuration'}`);
-  console.log(`Product analytics: ${config.posthogProjectKey ? 'configured; still opt-in only' : 'off until project-key configuration'}`);
+  console.log(`Product analytics: ${config.analyticsProjectKey ? 'configured; still opt-in only' : 'off until public configuration is provisioned'}`);
   console.log('Stage cache: normalized audio + Gemini/timing stages');
   console.log('Professional review: waveform + locks + diff approval + history');
   console.log('Background jobs: persistent queue with retry/resume');
