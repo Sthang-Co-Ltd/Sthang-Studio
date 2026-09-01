@@ -39,7 +39,7 @@ dependency.
 | NumPy | Numerical runtime dependency | BSD-3-Clause |
 | `sosap` | KFA dependency | MIT |
 | `khmercut` | Khmer word segmentation | Apache-2.0 |
-| `khmernormalizer` | Khmer text normalization | MIT |
+| `khmernormalizer` | Khmer text normalization | Apache-2.0 |
 | `chardet` | Encoding detection required by KFA | LGPL-2.1-or-later for the pinned 5.x line |
 | ONNX Runtime | Local model inference | MIT |
 | librosa | Audio loading/processing | ISC |
@@ -92,16 +92,18 @@ Studio does not include the PostHog browser SDK, session replay, or autocapture.
 Cloudflare's applicable service/data-processing terms also govern Sthang's use of
 the relay infrastructure.
 
-The planned Khmer Caption Contributor service is Sthang-operated infrastructure
-implemented on Cloudflare Workers, private R2, and D1. Cloudflare's applicable
-service/data-processing terms govern Sthang's use of that infrastructure. The
-Contributor program's user-facing data contract, retention, and withdrawal rules
-are defined by Sthang Studio's `PRIVACY.md` and
+The Khmer Caption Contributor production service is Sthang-operated
+infrastructure implemented on Cloudflare Workers, private R2, and D1.
+Cloudflare's applicable service/data-processing terms govern Sthang's use of that
+infrastructure. The Contributor program's user-facing data contract, retention,
+and withdrawal rules are defined by Sthang Studio's `PRIVACY.md` and
 `docs/KHMER-CAPTION-CONTRIBUTOR.md`, not by the software license.
 
-Neither optional analytics nor the Contributor service is established as
-publicly enabled merely because the unreleased source contains integration code.
-Their production provisioning/release remains separately gated.
+The contribution service and analytics relay have been provisioned and passed
+synthetic production validation under separate approval. That provisioning does
+not make the unreleased v0.8 privacy choices part of the verified public Beta;
+public release, OTA promotion, and portfolio synchronization remain separately
+gated.
 
 When adding or changing a dependency or hosted service, update this notice when
 the change affects a direct runtime dependency, redistributed binary, downloaded
