@@ -31,7 +31,7 @@ Production provisioning/deployment is not authorized merely by merging this sour
 
 1. Create the private R2 bucket and D1 database.
 2. Apply `schema.sql` to D1.
-3. Copy `wrangler.template.jsonc` to a local ignored Wrangler config and replace the D1 id.
+3. Copy `wrangler.template.jsonc` to the ignored `wrangler.local.jsonc` and replace the D1 id there.
 4. Add `CONTRIBUTION_ADMIN_TOKEN` using Wrangler secret storage.
 5. Apply Cloudflare rate limiting/WAF policy to `contribute.sthang.app` in addition to the Worker’s validation and per-contributor daily cap.
 6. Deploy the Worker and verify `/health` over the production hostname.
