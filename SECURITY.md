@@ -18,10 +18,10 @@ A useful report includes:
 - expected versus observed behavior;
 - likely impact, if known.
 
-Never send a real Gemini API key, Contributor withdrawal token, Cloudflare
-credential, or private corpus sample as part of a report. If a credential may
-have been exposed, revoke/rotate it where possible and report only a redacted
-value.
+Never send a real Gemini API key, Contributor withdrawal token, analytics relay
+project key, Cloudflare credential, or private corpus sample as part of a report.
+If a credential may have been exposed, revoke/rotate it where possible and report
+only a redacted value.
 
 ## Security-sensitive areas
 
@@ -33,7 +33,7 @@ Extra care is welcome around:
 - project/history/cache isolation;
 - command/process execution for FFmpeg and local timing;
 - dependency and model-download supply chain behavior;
-- optional analytics allow-list enforcement and consent checks;
+- optional analytics allow-list enforcement, Sthang relay validation, and consent checks;
 - Contributor consent boundaries, local queue isolation, short-audio extraction,
   contributor-token handling, retry/withdrawal state, and corpus payload
   minimization;
@@ -54,16 +54,16 @@ paths also fail closed if their production configuration is missing.
 
 The local Contributor credential is a high-entropy pseudonymous withdrawal/upload
 token. Production corpus storage must persist only its SHA-256, never the raw
-token. The Contributor id/token must remain separate from the random PostHog
+token. The Contributor id/token must remain separate from the random product-
 analytics installation id. Report any path that links those identities without a
 new explicit product/privacy decision.
 
 The contribution client must never send a full video, project title, source
 filename, local path, unrelated caption text, topic/context text, correction
-memory, SRT contents, Gemini key, or PostHog id. The Sthang intake Worker also
-fails closed if private project/API fields appear in a contribution payload.
-Audio is bounded to the short correction range plus small context and is hash-
-checked before intake.
+memory, SRT contents, Gemini key, or product-analytics id. The Sthang intake
+Worker also fails closed if private project/API fields appear in a contribution
+payload. Audio is bounded to the short correction range plus small context and is
+hash-checked before intake.
 
 Submitted corpus samples are not trusted training truth. Only the maintainer-
 controlled corpus QA path may mark them verified. Rejected sample audio is
@@ -73,16 +73,19 @@ text in D1. Report any way to bypass those states, access another Contributor's
 samples, overwrite another candidate id, avoid deletion/retention cleanup, or
 make the public app expose the corpus admin secret.
 
-The contribution admin token, D1/R2 identifiers that are private operational
-coordinates, production Cloudflare API tokens, and corpus samples must not be
-committed to the public repository or placed in public logs/issues. The public
-Worker template may contain only non-secret placeholder configuration.
+The contribution admin token, analytics relay project key, D1/R2 identifiers that
+are private operational coordinates, production Cloudflare API tokens, and corpus
+samples must not be committed to the public repository or placed in public
+logs/issues. Public Worker templates may contain only non-secret placeholders.
 
-Optional product analytics is sent server-side through a fixed event/property
-allow-list. Studio does not include PostHog browser autocapture or session replay.
-Report any way for browser/project-supplied values to inject caption/media content,
-filenames, project names, paths, context/vocabulary, SRT contents, API keys, or
-Contributor ids into analytics.
+Optional product analytics is sent from Studio only to the Sthang-owned
+`analytics.sthang.app` relay through a fixed event/property allow-list. The relay
+revalidates event names, property keys/types, request size, and the random UUID
+before adding any downstream processor-specific fields. Studio must not contain
+the downstream analytics project key/protocol or browser autocapture/session
+replay. Report any way for browser/project-supplied values to inject caption/media
+content, filenames, project names, paths, context/vocabulary, SRT contents, API
+keys, names/email addresses, or Contributor ids into analytics.
 
 ## Signed update trust
 
