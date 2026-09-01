@@ -68,7 +68,7 @@ Rejected samples are removed from private R2 when rejection is recorded. Submitt
 
 ## Storage and identity
 
-The production design uses a Sthang-controlled Cloudflare Worker, private R2 bucket, and D1 metadata database. The contributor id is random. A separate high-entropy local withdrawal token authenticates uploads/status/deletion; only its SHA-256 is stored by the service.
+The production service uses a Sthang-controlled Cloudflare Worker, private R2 bucket, and D1 metadata database. The contributor id is random. A separate high-entropy local withdrawal token authenticates uploads/status/deletion; only its SHA-256 is stored by the service.
 
 This contributor identity is intentionally unrelated to the random product-analytics installation id.
 
@@ -86,7 +86,7 @@ If verified contribution data has already influenced a trained model, deleting t
 
 Contributor mode should be enabled only for media the user has the right or permission to contribute for improving Sthang's Khmer caption/speech technology, including where another person's voice is present.
 
-Production terms/privacy text require owner/legal review before the corpus is enabled publicly. Source implementation, a deployed test Worker, or a merged commit is not sufficient release evidence.
+Production terms/privacy text require owner/legal review before the corpus is enabled in a public Studio release. Production infrastructure existing and passing synthetic validation is not sufficient release evidence.
 
 ## Product analytics is separate
 
@@ -94,17 +94,21 @@ Optional product analytics is a different consent choice. Studio creates a separ
 
 The relay validates the payload again and forwards accepted events to Sthang's configured PostHog EU project. The downstream processor key/protocol remains in the Worker, not Studio's app configuration. Studio does not load PostHog's browser SDK, session replay, or autocapture.
 
-## Production gates
+## Production status and remaining gates
 
-Before a public v0.8 release can enable contribution:
+Production provisioning completed under separate approval:
 
-- provision `contribute.sthang.app`, private R2, D1, admin secret, WAF/rate limits, and the 180-day submitted-sample cleanup;
-- test upload, idempotency, verification status, offline retry, and contributor-wide withdrawal against non-sensitive fixtures;
-- set the versioned public contribution endpoint only after the service passes synthetic validation;
+- `contribute.sthang.app`, private R2, D1, the admin secret, and the 180-day submitted-sample cleanup are provisioned;
+- the production contribution synthetic lifecycle passed upload → submitted → verified → contributor-wide withdrawal using non-sensitive fixtures;
+- a dedicated Studio PostHog EU project and `analytics.sthang.app` relay are provisioned with the processor ingestion key stored only as a Worker secret;
+- the production analytics synthetic relay → downstream-ingestion check passed with person-profile processing disabled and GeoIP enrichment disabled;
+- the unreleased v0.8 branch now carries only the two public Sthang service origins in `config/product-services.json`.
+
+Before a public v0.8 release can enable these choices for ordinary users, remaining gates are:
+
 - approve final privacy/program terms and website/docs representation;
-- synchronize approved product evidence through Sthang HQ and Distribution;
-- complete the normal v0.8 Windows/release/OTA validation gates.
+- complete the full current source test/typecheck/build/public-readiness suite and clean-Windows validation;
+- synchronize approved product evidence through Sthang HQ and Distribution under their separate approvals;
+- complete the normal v0.8 GitHub Release and OTA publication gates under separate approvals.
 
-Before optional product analytics can be publicly enabled, provision a dedicated Studio PostHog EU project, deploy `analytics.sthang.app` with its project ingestion key stored only as a Worker secret, verify the relay/event allow-list with synthetic events, then set the versioned public Studio analytics endpoint to `https://analytics.sthang.app`.
-
-Production provisioning, cross-repository synchronization, public release publication, OTA promotion, and model training are separately approval-gated actions.
+Production model training remains a separate future governance action even after the Contributor service is available.
