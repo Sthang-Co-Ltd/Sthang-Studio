@@ -18,8 +18,7 @@ interface PublicServicesConfig {
   };
   productAnalytics?: {
     provisioned?: boolean;
-    host?: string;
-    projectKey?: string;
+    endpoint?: string;
   };
 }
 
@@ -67,11 +66,8 @@ const publicServices = readPublicServicesConfig();
 const publicContributionEndpoint = publicServices.khmerContribution?.provisioned === true
   ? httpsOriginValue(publicServices.khmerContribution.endpoint)
   : '';
-const publicAnalyticsHost = publicServices.productAnalytics?.provisioned === true
-  ? httpsOriginValue(publicServices.productAnalytics.host)
-  : '';
-const publicAnalyticsProjectKey = publicServices.productAnalytics?.provisioned === true
-  ? String(publicServices.productAnalytics.projectKey || '').trim().slice(0, 240)
+const publicAnalyticsEndpoint = publicServices.productAnalytics?.provisioned === true
+  ? httpsOriginValue(publicServices.productAnalytics.endpoint)
   : '';
 
 export const config = {
@@ -112,11 +108,10 @@ export const config = {
   contributionDir: path.join(stateRootDir, 'data', 'contribution'),
   contributionStateFile: path.join(stateRootDir, 'data', 'contribution', 'state.json'),
   contributionTempDir: path.join(stateRootDir, 'data', 'contribution', 'temp'),
-  // Public service endpoints/tokens ship with the versioned source once provisioned.
+  // Public Sthang service endpoints ship with the versioned source once provisioned.
   // Environment variables are override hooks for deliberate development/operator validation.
   contributionEndpoint: httpsOrigin('STHANG_CONTRIBUTION_ENDPOINT', publicContributionEndpoint),
-  analyticsHost: httpsOrigin('STHANG_ANALYTICS_HOST', publicAnalyticsHost),
-  analyticsProjectKey: String(process.env.STHANG_ANALYTICS_PROJECT_KEY || publicAnalyticsProjectKey).trim().slice(0, 240),
+  analyticsEndpoint: httpsOrigin('STHANG_ANALYTICS_ENDPOINT', publicAnalyticsEndpoint),
   localTimingWorker: path.join(rootDir, 'local-timing', 'worker.py'),
   updateDir: path.join(stateRootDir, 'updates'),
   versionsDir: path.join(stateRootDir, 'versions'),
