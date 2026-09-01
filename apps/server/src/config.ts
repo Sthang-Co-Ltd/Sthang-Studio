@@ -10,6 +10,19 @@ const environmentFile = process.env.STHANG_STUDIO_ENV_FILE || path.join(stateRoo
 
 dotenv.config({ path: environmentFile });
 
+interface PublicServicesConfig {
+  schemaVersion?: number;
+  khmerContribution?: {
+    provisioned?: boolean;
+    endpoint?: string;
+  };
+  productAnalytics?: {
+    provisioned?: boolean;
+    host?: string;
+    projectKey?: string;
+  };
+}
+
 const defaultVenvPython = process.platform === 'win32'
   ? path.join(rootDir, '.venv', 'Scripts', 'python.exe')
   : path.join(rootDir, '.venv', 'bin', 'python');
@@ -25,8 +38,8 @@ function envThinkingLevel(name: string, fallback: 'low' | 'medium' | 'high') {
   return ['low', 'medium', 'high'].includes(raw) ? raw as 'low' | 'medium' | 'high' : fallback;
 }
 
-function httpsOrigin(name: string, fallback = '') {
-  const raw = String(process.env[name] || fallback).trim().replace(/\/+$/, '');
+function httpsOriginValue(value: unknown) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
   if (!raw) return '';
   try {
     const parsed = new URL(raw);
@@ -35,6 +48,31 @@ function httpsOrigin(name: string, fallback = '') {
     return '';
   }
 }
+
+function httpsOrigin(name: string, fallback = '') {
+  return httpsOriginValue(process.env[name] || fallback);
+}
+
+function readPublicServicesConfig(): PublicServicesConfig {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(rootDir, 'config', 'product-services.json'), 'utf8')) as PublicServicesConfig;
+    return parsed?.schemaVersion === 1 ? parsed : {};
+  } catch {
+    // Public service configuration is optional until deliberately provisioned.
+    return {};
+  }
+}
+
+const publicServices = readPublicServicesConfig();
+const publicContributionEndpoint = publicServices.khmerContribution?.provisioned === true
+  ? httpsOriginValue(publicServices.khmerContribution.endpoint)
+  : '';
+const publicAnalyticsHost = publicServices.productAnalytics?.provisioned === true
+  ? httpsOriginValue(publicServices.productAnalytics.host)
+  : '';
+const publicAnalyticsProjectKey = publicServices.productAnalytics?.provisioned === true
+  ? String(publicServices.productAnalytics.projectKey || '').trim().slice(0, 240)
+  : '';
 
 export const config = {
   port: Number(process.env.PORT || 8787),
@@ -74,10 +112,11 @@ export const config = {
   contributionDir: path.join(stateRootDir, 'data', 'contribution'),
   contributionStateFile: path.join(stateRootDir, 'data', 'contribution', 'state.json'),
   contributionTempDir: path.join(stateRootDir, 'data', 'contribution', 'temp'),
-  // These cloud features remain fail-closed until production configuration is supplied.
-  contributionEndpoint: httpsOrigin('STHANG_CONTRIBUTION_ENDPOINT'),
-  posthogHost: httpsOrigin('STHANG_POSTHOG_HOST', 'https://eu.i.posthog.com'),
-  posthogProjectKey: String(process.env.STHANG_POSTHOG_PROJECT_KEY || '').trim(),
+  // Public service endpoints/tokens ship with the versioned source once provisioned.
+  // Environment variables are override hooks for deliberate development/operator validation.
+  contributionEndpoint: httpsOrigin('STHANG_CONTRIBUTION_ENDPOINT', publicContributionEndpoint),
+  analyticsHost: httpsOrigin('STHANG_ANALYTICS_HOST', publicAnalyticsHost),
+  analyticsProjectKey: String(process.env.STHANG_ANALYTICS_PROJECT_KEY || publicAnalyticsProjectKey).trim().slice(0, 240),
   localTimingWorker: path.join(rootDir, 'local-timing', 'worker.py'),
   updateDir: path.join(stateRootDir, 'updates'),
   versionsDir: path.join(stateRootDir, 'versions'),
