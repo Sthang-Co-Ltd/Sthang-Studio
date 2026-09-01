@@ -114,7 +114,7 @@ app.listen(config.port, '127.0.0.1', () => {
   }
   console.log('Correction memory: automatic edit capture + approval inbox');
   console.log(`Khmer contribution: ${config.contributionEndpoint ? 'endpoint configured; still opt-in only' : 'offline/fail-closed until endpoint configuration'}`);
-  console.log(`Product analytics: ${config.posthogProjectKey ? 'PostHog configured; still opt-in only' : 'off until project-key configuration'}`);
+  console.log(`Product analytics: ${config.posthogProjectKey ? 'configured; still opt-in only' : 'off until project-key configuration'}`);
   console.log('Stage cache: normalized audio + Gemini/timing stages');
   console.log('Professional review: waveform + locks + diff approval + history');
   console.log('Background jobs: persistent queue with retry/resume');
