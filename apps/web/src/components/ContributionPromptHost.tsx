@@ -49,7 +49,7 @@ export function ContributionPromptHost() {
     <button className="contribution-prompt-close" aria-label="Dismiss for this session" onClick={() => setOpen(false)}><X size={17}/></button>
     <div className="contribution-prompt-icon"><Sparkles size={22}/></div>
     <div className="contribution-prompt-copy">
-      <strong>Help make Khmer captions world-class 🇰🇭</strong>
+      <strong>Help make Khmer captions world-class</strong>
       <p>Your corrections can help improve Khmer caption technology for creators everywhere.</p>
       <p className="contribution-prompt-detail"><ShieldCheck size={14}/>If you join, Studio may share the short audio around eligible corrections you make <b>after joining</b>, together with generated and corrected text and timing. Full videos, project names, API keys, and unrelated captions are not contributed.</p>
     </div>
