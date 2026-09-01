@@ -6,7 +6,6 @@
   },
   "productAnalytics": {
     "provisioned": false,
-    "host": "https://eu.i.posthog.com",
-    "projectKey": ""
+    "endpoint": ""
   }
 }
