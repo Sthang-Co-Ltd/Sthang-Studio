@@ -166,7 +166,7 @@ export function ContributorSettings({ profile, busy, onSave }: ContributorSettin
 
           <div className="privacy-boundary">
             <LockKeyhole size={17}/>
-            <span>When enabled, Studio creates a random analytics installation ID and sends only event names plus coarse technical buckets. Analytics never includes caption text, audio, filenames, project names, local paths, vocabulary/context text, exports, or your Gemini API key. It is independent from Khmer Caption Contributor.</span>
+            <span>When enabled, Studio creates a random analytics installation ID and sends only event names plus coarse technical buckets. Analytics never includes caption text, audio, filenames, project names, local paths, vocabulary/context text, SRT contents, or your Gemini API key. It is independent from Khmer Caption Contributor.</span>
           </div>
 
           <div className="privacy-choice-row">
