@@ -2,7 +2,7 @@
 
 This directory defines the **unreleased** Sthang-owned intake service for the optional Khmer Caption Contributor program.
 
-It is intentionally separate from PostHog. PostHog receives only allow-listed product events; this service receives opted-in correction samples consisting of a bounded short WAV clip plus generated/corrected caption evidence.
+It is intentionally separate from product analytics. The contribution service receives opted-in correction samples consisting of a bounded short WAV clip plus generated/corrected caption evidence; the separate Sthang analytics relay receives only allow-listed coarse product events.
 
 ## Data boundary
 
@@ -15,7 +15,7 @@ The public client protocol accepts:
 - generated-timing/model/app-version evidence;
 - a mono WAV clip bounded to 16 seconds / 1.2 MB plus its SHA-256.
 
-It must not receive project titles, source filenames, local filesystem paths, full videos, topic/context text, correction-memory databases, SRT exports, Gemini API keys, or PostHog identifiers.
+It must not receive project titles, source filenames, local filesystem paths, full videos, topic/context text, correction-memory databases, SRT exports, Gemini API keys, or analytics identifiers.
 
 The Worker hashes the contributor token before storing it. Audio objects stay in a **private** R2 bucket. D1 stores the correction metadata and private object key. A contributor-wide withdrawal authenticated with the same local token deletes R2 objects and blanks contributed text in D1 before marking records withdrawn.
 
@@ -28,8 +28,6 @@ This separation is deliberate: user edits are candidate evidence, not automatic 
 ## Production provisioning
 
 Provision only from an authenticated operator environment. Keep `wrangler.local.jsonc`, `.dev.vars`, provider credentials, and the admin secret out of Git.
-
-From the repository root:
 
 ```text
 cd infra/contribution-worker
@@ -63,9 +61,9 @@ curl https://contribute.sthang.app/health
 
 Then run the full synthetic lifecycle below before setting Studio's versioned contribution `provisioned` flag to `true`.
 
-`config/product-services.json` is versioned source so existing Studio installations receive the same public service configuration when they update. Operator/development environment variables may override it deliberately, but ordinary users must not need to edit `.env` to receive the approved public configuration.
+`config/product-services.json` is versioned source so existing Studio installations receive the same public Sthang service endpoints when they update. Operator/development environment variables may override it deliberately, but ordinary users must not need to edit `.env`.
 
-Do not commit Wrangler credentials, API tokens, D1 access material, private corpus samples, production configuration containing secrets, or any personal analytics API credential. The analytics project ingestion key placed in `config/product-services.json` is a public client/project token, not an account-management credential.
+Do not commit Wrangler credentials, API tokens, D1 access material, private corpus samples, production configuration containing secrets, or analytics-processor credentials.
 
 ## Production synthetic validation
 
@@ -79,22 +77,21 @@ node scripts/verify-contribution-production.mjs
 
 The script creates only synthetic Khmer text and generated silence audio, confirms `submitted`, marks that sample `verified` through the maintainer endpoint, then withdraws the synthetic contributor and confirms the sample ends `withdrawn`. It does not print the admin token or contributor token.
 
-The optional product-analytics ingestion smoke check is separate:
+The optional product-analytics smoke check is separate and goes only through the Sthang relay:
 
 ```text
-STHANG_ANALYTICS_HOST=https://eu.i.posthog.com \
-STHANG_ANALYTICS_PROJECT_KEY=<project-ingestion-key> \
+STHANG_ANALYTICS_ENDPOINT=https://analytics.sthang.app \
 node scripts/verify-product-analytics-ingestion.mjs
 ```
 
-That check submits one personless synthetic event only. It is not part of CI and must be run deliberately against the intended production project.
+That check submits one synthetic event and passes only if the relay's downstream ingestion request is accepted.
 
-Only after **both** services pass their production synthetic checks should `config/product-services.json` be changed from fail-closed defaults to:
+Only after **both** Sthang services pass their production synthetic checks should `config/product-services.json` be changed from fail-closed defaults to:
 
 - `khmerContribution.provisioned: true` with `https://contribute.sthang.app`;
-- `productAnalytics.provisioned: true` with the approved EU ingestion origin and Studio project ingestion key.
+- `productAnalytics.provisioned: true` with `https://analytics.sthang.app`.
 
-Those are public service coordinates, not private account-management credentials. Do not enable either flag based only on source code or a dashboard resource existing.
+Those are public Sthang service coordinates. Do not enable either flag based only on source code or a dashboard resource existing.
 
 ## Withdrawal contract
 
