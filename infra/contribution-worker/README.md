@@ -25,17 +25,43 @@ New samples enter `submitted`. They are **not** shown as verified merely because
 
 This separation is deliberate: user edits are candidate evidence, not automatic training truth.
 
-## Provisioning (separately approval-gated)
+## Production provisioning
 
-Production provisioning/deployment is not authorized merely by merging this source. An approved operator must:
+Provision only from an authenticated operator environment. Keep `wrangler.local.jsonc`, `.dev.vars`, provider credentials, and the admin secret out of Git.
 
-1. Create the private R2 bucket and D1 database.
-2. Apply `schema.sql` to D1.
-3. Copy `wrangler.template.jsonc` to the ignored `wrangler.local.jsonc` and replace the D1 id there.
-4. Add `CONTRIBUTION_ADMIN_TOKEN` using Wrangler secret storage.
-5. Apply Cloudflare rate limiting/WAF policy to `contribute.sthang.app` in addition to the Worker’s validation and per-contributor daily cap.
-6. Deploy the Worker and verify `/health` over the production hostname.
-7. After both production services pass synthetic validation, update `config/product-services.json` with only the public contribution origin and product-analytics ingestion values, then set the corresponding `provisioned` flags to `true`.
+From the repository root:
+
+```text
+cd infra/contribution-worker
+npx wrangler@latest login
+npx wrangler@latest r2 bucket create sthang-studio-contribution-private --location apac
+npx wrangler@latest d1 create sthang-studio-contribution --location apac
+```
+
+Copy `wrangler.template.jsonc` to the ignored `wrangler.local.jsonc`, replace `REPLACE_WITH_D1_DATABASE_ID` with the exact D1 id returned by the create command, then initialize the remote schema:
+
+```text
+npx wrangler@latest d1 execute sthang-studio-contribution --remote --file=./schema.sql --config ./wrangler.local.jsonc
+```
+
+The Worker is Studio's origin at `contribute.sthang.app`, so the template uses a Cloudflare **Custom Domain** rather than a route in front of another origin. `workers.dev` stays disabled. The template also declares `CONTRIBUTION_ADMIN_TOKEN` as a required Worker secret.
+
+Once the D1 schema and private R2 binding are ready, set the admin secret using Wrangler's secret store and deploy the exact reviewed Worker:
+
+```text
+npx wrangler@latest secret put CONTRIBUTION_ADMIN_TOKEN --config ./wrangler.local.jsonc
+npx wrangler@latest deploy --config ./wrangler.local.jsonc
+```
+
+The secret command prompts for the value; do not place it on the command line, in shell history, source, or logs. Confirm that the private R2 bucket has no public/custom-domain access of its own. Apply Cloudflare rate limiting/WAF protection to the public Worker hostname in addition to the Worker's schema checks and per-contributor daily cap.
+
+Verify the public health endpoint:
+
+```text
+curl https://contribute.sthang.app/health
+```
+
+Then run the full synthetic lifecycle below before setting Studio's versioned contribution `provisioned` flag to `true`.
 
 `config/product-services.json` is versioned source so existing Studio installations receive the same public service configuration when they update. Operator/development environment variables may override it deliberately, but ordinary users must not need to edit `.env` to receive the approved public configuration.
 
@@ -43,7 +69,7 @@ Do not commit Wrangler credentials, API tokens, D1 access material, private corp
 
 ## Production synthetic validation
 
-After the production Worker, D1 schema, private R2 binding, route, and admin secret are live, run the repository-owned destructive synthetic lifecycle check from an approved operator environment:
+After the production Worker, D1 schema, private R2 binding, Custom Domain, and admin secret are live, run the repository-owned destructive synthetic lifecycle check from an approved operator environment:
 
 ```text
 STHANG_CONTRIBUTION_ENDPOINT=https://contribute.sthang.app \
@@ -62,6 +88,13 @@ node scripts/verify-product-analytics-ingestion.mjs
 ```
 
 That check submits one personless synthetic event only. It is not part of CI and must be run deliberately against the intended production project.
+
+Only after **both** services pass their production synthetic checks should `config/product-services.json` be changed from fail-closed defaults to:
+
+- `khmerContribution.provisioned: true` with `https://contribute.sthang.app`;
+- `productAnalytics.provisioned: true` with the approved EU ingestion origin and Studio project ingestion key.
+
+Those are public service coordinates, not private account-management credentials. Do not enable either flag based only on source code or a dashboard resource existing.
 
 ## Withdrawal contract
 
