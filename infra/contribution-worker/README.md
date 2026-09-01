@@ -39,6 +39,28 @@ Production provisioning/deployment is not authorized merely by merging this sour
 
 Do not commit Wrangler credentials, API tokens, D1 access material, private corpus samples, or production configuration containing secrets.
 
+## Production synthetic validation
+
+After the production Worker, D1 schema, private R2 binding, route, and admin secret are live, run the repository-owned destructive synthetic lifecycle check from an approved operator environment:
+
+```text
+STHANG_CONTRIBUTION_ENDPOINT=https://contribute.sthang.app \
+CONTRIBUTION_ADMIN_TOKEN=<operator-secret> \
+node scripts/verify-contribution-production.mjs
+```
+
+The script creates only synthetic Khmer text and generated silence audio, confirms `submitted`, marks that sample `verified` through the maintainer endpoint, then withdraws the synthetic contributor and confirms the sample ends `withdrawn`. It does not print the admin token or contributor token.
+
+The optional product-analytics ingestion smoke check is separate:
+
+```text
+STHANG_POSTHOG_HOST=https://eu.i.posthog.com \
+STHANG_POSTHOG_PROJECT_KEY=<project-ingestion-key> \
+node scripts/verify-product-analytics-ingestion.mjs
+```
+
+That check submits one personless synthetic event only. It is not part of CI and must be run deliberately against the intended production project.
+
 ## Withdrawal contract
 
 `POST /v1/contributors/:id/withdraw` is idempotent at the data-model level. Studio retains its local withdrawal credential specifically so a contributor can request deletion without creating a Sthang account. If the service is unavailable, Studio records deletion as pending and retries at a later startup or explicit sync.
