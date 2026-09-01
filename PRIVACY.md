@@ -98,6 +98,18 @@ successful export. Joining is an explicit choice. Corrections made before joinin
 are not collected retroactively, and declining does not disable any caption
 feature or local correction memory.
 
+There is one existing-user migration exception to that post-export timing. When
+an installation has durable evidence of pre-v0.8 Studio use and its Contributor
+choice is still unset, Studio may show one dismissible startup explanation when
+that installation first receives the new Contributor option. The notice exists
+because the creator used Studio before this data choice existed. Closing it or
+choosing to review the Privacy settings does **not** grant consent: contribution
+and analytics remain off/unset until separately chosen. Studio records only a
+small installation-local “notice handled” marker so the startup explanation does
+not repeat on every launch. If Contributor remains unset, the ordinary post-export
+invitation may still appear in a later session. Fresh v0.8 installations do not
+receive this migration popup and keep the normal post-export onboarding path.
+
 An eligible sample is created only when a caption can be traced back to generated
 wording, receives a material human text correction after consent, and is later
 approved. Formatting-only changes and corrections whose starting caption was
