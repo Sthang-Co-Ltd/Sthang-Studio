@@ -1,19 +1,29 @@
 Sthang Studio 0.8.0 release notes candidate.
 
-This source prepares two privacy-controlled improvement paths: Khmer Caption Contributor and optional product analytics. Both are off by default and require an explicit user choice.
+This source prepares two privacy-controlled improvement paths: Khmer Caption Contributor and optional product analytics.
+Both are off by default and require an explicit user choice.
 
-Khmer Caption Contributor can submit only eligible post-consent corrections: a bounded short WAV around the corrected caption plus generated/corrected wording, timing, and model/version evidence. Full videos, project names, filenames, API keys, and unrelated captions are excluded.
+Khmer Caption Contributor can submit only eligible post-consent corrections: a bounded short WAV around the corrected
+caption plus generated/corrected wording, timing, and model/version evidence. Full videos, project names, filenames,
+API keys, and unrelated captions are excluded.
 
-Submitted corrections are not called verified until corpus quality review accepts them. Unverified submissions expire after 180 days. Contributors can stop future contribution and request contributor-wide deletion of stored corpus audio/text.
+Submitted corrections are not called verified until corpus quality review accepts them. Unverified submissions expire
+after 180 days. Contributors can stop future contribution and request contributor-wide deletion of stored corpus audio/text.
 
-Optional product analytics uses a separate random installation id and a strict event/property allow-list sent through a Sthang-owned analytics relay. Studio includes no session replay or autocapture, and caption/media content is excluded from analytics.
+Optional product analytics uses a separate random installation id and a strict event/property allow-list sent through a
+Sthang-owned analytics relay. Studio includes no session replay or autocapture, and caption/media content is excluded.
 
-Both new cloud paths fail closed when their production configuration is absent, and service failure never blocks caption generation, Review, editing, saving, or SRT export.
+The production contribution service and Sthang-owned analytics relay have passed synthetic validation for the unreleased
+v0.8 source. Both features remain default-off and require explicit user opt-in. Service failure never blocks caption work.
 
-The Studio-native signed updater keeps GitHub Release as the manual download and recovery path. Update checks run at most once per session plus a manual Check for updates action; downloads and installs require separate confirmation.
+The Studio-native signed updater keeps GitHub Release as the manual download and recovery path. Update checks run at most
+once per session plus a manual Check for updates action; downloads and installs require separate confirmation.
 
-Update activation stages and verifies immutable signed packages, prepares reviewed Node and Python dependencies before switching versions, and rolls back if activation or exact-version health checks fail.
+Update activation stages and verifies immutable signed packages, prepares reviewed Node and Python dependencies before
+switching versions, and rolls back if activation or exact-version health checks fail.
 
-Projects, source media, captions, locks, approvals, history, correction memory, processing jobs/checkpoints, proposals, exports, compatible caches, Gemini key storage, and the advanced .env fallback remain outside swappable source versions.
+Projects, source media, captions, locks, approvals, history, correction memory, processing jobs/checkpoints, proposals,
+exports, compatible caches, Gemini key storage, and the advanced .env fallback remain outside swappable source versions.
 
-Publishing 0.8.0 still requires the normal clean-Windows, privacy/service, signed-release, GitHub Release, and portfolio synchronization gates. This source file alone is not public release evidence.
+Publishing 0.8.0 still requires the normal clean-Windows, privacy/service, signed-release, GitHub Release, and portfolio
+synchronization gates. This source file alone is not public release evidence.
