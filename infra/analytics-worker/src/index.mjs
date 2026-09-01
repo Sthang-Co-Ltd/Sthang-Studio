@@ -67,11 +67,13 @@ export function validateAnalyticsEvent(raw) {
 
   const properties = {};
   for (const [key, value] of Object.entries(raw.properties)) {
-    const lowered = key.toLowerCase();
-    if (FORBIDDEN_PROPERTY_NAMES.some((part) => lowered.includes(part))) {
-      throw new Error(`forbidden analytics property: ${key}`);
+    if (!ALLOWED_PROPERTIES.has(key)) {
+      const lowered = key.toLowerCase();
+      if (FORBIDDEN_PROPERTY_NAMES.some((part) => lowered.includes(part))) {
+        throw new Error(`forbidden analytics property: ${key}`);
+      }
+      throw new Error(`analytics property is not allow-listed: ${key}`);
     }
-    if (!ALLOWED_PROPERTIES.has(key)) throw new Error(`analytics property is not allow-listed: ${key}`);
     const safe = safePropertyValue(value);
     if (safe == null) throw new Error(`analytics property value is invalid: ${key}`);
     properties[key] = safe;
