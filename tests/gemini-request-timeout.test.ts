@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GeminiRequestTimeoutError, withGeminiRequestTimeout } from '../apps/server/src/services/gemini-request-timeout.js';
+import { GeminiRequestTimeoutError, withGeminiRequestTimeout } from '../apps/server/src/services/gemini-request-timeout.ts';
 
 test('Gemini request timeout aborts a stalled external operation', async () => {
   let observedAbort = false;
