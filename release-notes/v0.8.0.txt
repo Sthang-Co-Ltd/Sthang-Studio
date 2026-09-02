@@ -1,14 +1,13 @@
-Sthang Studio 0.8.0 release notes candidate.
+Sthang Studio 0.8.0 - Public Beta
 
-This source prepares two privacy-controlled improvement paths: Khmer Caption Contributor and optional product analytics.
-Both are off by default and require an explicit user choice.
+For Windows 10 or 11 x64. A Gemini Developer API key is required for AI caption wording.
 
-Existing pre-v0.8 installations get one dismissible privacy introduction when the new Contributor choice first arrives.
-Fresh installations keep the normal post-export invitation; closing the upgrade notice leaves both choices off.
+This release adds Khmer Caption Contributor and optional product analytics as two separate privacy choices.
+Both are off by default and require explicit opt-in. Core caption features do not depend on either choice.
 
 Khmer Caption Contributor can submit only eligible post-consent corrections: a bounded short WAV around the corrected
 caption plus generated/corrected wording, timing, and model/version evidence. Full videos, project names, filenames,
-API keys, and unrelated captions are excluded.
+API keys, unrelated captions, and the product-analytics identity are excluded.
 
 Submitted corrections are not called verified until corpus quality review accepts them. Unverified submissions expire
 after 180 days. Contributors can stop future contribution and request contributor-wide deletion of stored corpus audio/text.
@@ -16,20 +15,16 @@ after 180 days. Contributors can stop future contribution and request contributo
 Optional product analytics uses a separate random installation id and a strict event/property allow-list sent through a
 Sthang-owned analytics relay. Studio includes no session replay or autocapture, and caption/media content is excluded.
 
-The production contribution service and Sthang-owned analytics relay have passed synthetic validation for the unreleased
-v0.8 source. Both features remain default-off and require explicit user opt-in. Service failure never blocks caption work.
+Caption processing now preserves more deterministic local work across retries, including normalized audio, local timing
+evidence, and same-job checkpoints. Fresh Alternative and Deep Verify listens still request fresh AI evidence.
 
-Gemini upload and transcription requests now have a bounded timeout, so a stalled external request fails/retries instead
-of blocking Studio's local processing queue indefinitely. Projects and already-saved processing checkpoints remain safe.
+Gemini upload and transcription calls now have bounded request timeouts so a stalled external request cannot block the
+local processing queue indefinitely. The Gemini Files API upload path remains compatible with resumable uploads.
 
-The Studio-native signed updater keeps GitHub Release as the manual download and recovery path. Update checks run at most
-once per session plus a manual Check for updates action; downloads and installs require separate confirmation.
+Studio requests store: false for Gemini transcription interactions. Normalized WAV audio is uploaded separately through
+the Files API; Studio does not explicitly delete that remote file. Google currently documents retention of up to 48 hours.
 
-Update activation stages and verifies immutable signed packages, prepares reviewed Node and Python dependencies before
-switching versions, and rolls back if activation or exact-version health checks fail.
+The 0.8.0 bootstrap contains Studio's public updater verification trust, but OTA publication is not enabled by this GitHub
+Release. The curated GitHub Release remains the manual download and recovery path; no public latest pointer is promoted.
 
-Projects, source media, captions, locks, approvals, history, correction memory, processing jobs/checkpoints, proposals,
-exports, compatible caches, Gemini key storage, and the advanced .env fallback remain outside swappable source versions.
-
-Publishing 0.8.0 still requires the normal clean-Windows, privacy/service, signed-release, GitHub Release, and portfolio
-synchronization gates. This source file alone is not public release evidence.
+The release download includes Sthang-Studio-Windows-v0.8.0.zip and a matching SHA-256 checksum file.
