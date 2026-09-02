@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — Public Beta
 
-### Khmer Caption Contributor and privacy-safe product analytics — production services provisioned, release not public
+### Khmer Caption Contributor and privacy-safe product analytics
 
 - Added exactly two caption-data states for the new Contributor program: Studio remains private by default, while **Khmer Caption Contributor** requires explicit opt-in and never makes core caption features conditional on participation.
 - Added a non-blocking post-export invitation, a dedicated **Privacy** settings surface, installation-local consent, contributor status, verified-correction counts, verified-speech duration, opt-out, and contributor-wide deletion controls.
@@ -12,11 +12,16 @@
 - Added the Sthang-owned `contribute.sthang.app` Cloudflare Worker with private R2 audio, D1 metadata, hashed contributor credentials, strict payload validation, idempotency, rate bounds, corpus verification/rejection, 180-day expiry for submitted-unverified samples, and contributor-wide withdrawal/deletion.
 - Added separate optional product analytics with a random installation id and a fixed event/property allow-list. Studio talks only to the Sthang-owned `analytics.sthang.app` relay; normal Studio app/runtime/configuration contains no downstream analytics-vendor endpoint, project key, browser SDK, session replay, or autocapture.
 - Added a stateless Sthang analytics relay that revalidates the narrow event schema and forwards accepted personless events to the formally disclosed EU analytics processor with person-profile processing and GeoIP enrichment disabled. Formal privacy guidance does not claim the relay is an IP-anonymization guarantee.
-- Added versioned, fail-closed public service configuration so existing upgraded installations do not depend on preserved `.env` files. After production synthetic validation passed, the unreleased v0.8 branch was configured with only the two public Sthang service origins; both privacy choices remain default-off and explicit-consent-only.
+- Added versioned, fail-closed public service configuration so existing upgraded installations do not depend on preserved `.env` files. After production synthetic validation passed, v0.8.0 was configured with only the two public Sthang service origins; both privacy choices remain default-off and explicit-consent-only.
 - Added repository guards and tests for contribution eligibility, corpus intake, analytics data minimization, Sthang relay boundaries, public service configuration, and vendor-neutral shipped Studio/app/release-note copy.
-- Added operator-only synthetic checks for contribution upload → verification → withdrawal and for analytics relay → downstream ingestion. Both production checks passed against the provisioned services. v0.8 publication, OTA promotion, HQ intake, Distribution synchronization, and production model training remain separately gated.
+- Added operator-only synthetic checks for contribution upload → verification → withdrawal and for analytics relay → downstream ingestion. Both production checks passed against the provisioned services. The v0.8.0 GitHub Release is public; OTA promotion, HQ intake, Distribution synchronization, and production model training remain separately gated.
 
-### Signed Studio updater architecture — bootstrap trust prepared, not publicly enabled
+### Gemini request resilience
+
+- Bounded Gemini upload and transcription requests so a stalled external call fails/retries instead of blocking Studio's serialized processing queue indefinitely.
+- Preserved the Google SDK's resumable Files API upload path while applying cancellation safely; the final compatibility fix was exercised successfully with caption generation on Windows Sandbox before publication.
+
+### Signed Studio updater architecture — bootstrap trust published, OTA not publicly enabled
 
 - Added a Studio-native signed Windows updater around the existing
   `%LOCALAPPDATA%\\Sthang Studio\\app` installation instead of migrating the app
@@ -25,11 +30,11 @@
   immutable version manifests, byte/hash verification, bounded plain-text
   release notes, and release tooling suitable for separately approved hosting
   at `updates.sthang.app` and immutable Cloudflare R2 objects.
-- Prepared the unreleased `0.8.0` bootstrap source with the reviewed public
-  Ed25519 verification key. The matching private key remains outside the
-  repository behind the dedicated production signing-service custody boundary.
+- Published the `0.8.0` bootstrap with the reviewed public Ed25519 verification
+  key. The matching private key remains outside the repository behind the
+  dedicated production signing-service custody boundary.
 - Deployed the runner-free production signer, private R2 staging path, and GitHub
-  issue-comment webhook separately from release publication. Provider-specific
+  issue-comment webhook separately from OTA publication. Provider-specific
   credentials and private custody coordinates remain outside public source.
 - Added one non-blocking update check per browser session plus a manual **Check
   for updates** action. Downloads and installs always require separate explicit
@@ -42,10 +47,10 @@
   jobs/checkpoints, proposals, exports, compatible caches, the advanced `.env`
   fallback, and Windows-protected Gemini key storage outside swappable source
   versions.
-- Kept `v0.7.14` as the verified public Beta and the curated GitHub Release
-  package as the public manual download and recovery path. No `0.8.0` release,
-  mutable `latest.json` promotion, or public OTA availability claim is included
-  by this source preparation.
+- Published `v0.8.0` as the verified public Beta through the curated GitHub
+  Release package, which remains the public manual download and recovery path.
+  No public signed `latest.json` pointer has been promoted, so OTA availability
+  is not claimed by this release.
 
 ### Repository maintenance
 
@@ -56,8 +61,6 @@
 - Align contributor setup with locked dependency installation, document commit
   email privacy, and distinguish historical audit/release records from current
   requirements and maintainer-only portfolio coordination.
-- No product runtime, installer, release version, branding, or data-processing
-  behavior changed.
 
 ## 0.7.14 — Public Beta disclosure repair
 
@@ -99,7 +102,7 @@
 - Made the Windows launcher wait for both local services, respect the registered default browser when Windows has a usable `http://` association, and print the local Studio URL when no browser association is available; Chrome is never assumed.
 - Added a curated Windows Release packager that keeps the extracted first-run folder to `Install Sthang Studio.bat`, `Read Me.txt`, and one `Sthang Studio Files` folder; setup copies the app to `%LOCALAPPDATA%\Sthang Studio\app`, preserves user runtime state during source refresh, and emits a SHA-256 checksum alongside the release ZIP.
 - Removed stale hard-coded version labels from Windows setup/launcher banners and routed incomplete-install recovery back through `INSTALL-NEW-PC.bat`.
-- No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, installer, or SRT export behavior changed.
+- No caption transcription, Khmer handling, timing, Review, project, correction-memory, regeneration, installer, or SRT output behavior changed.
 
 ## 0.7.10 — Focus Loop & Clear Copy
 
@@ -117,7 +120,7 @@
 ## 0.7.9 — Review Focus
 
 - Added a video-centric Review Focus marker so the caption currently being reviewed is obvious without looking at the right-hand queue.
-- The marker activates only when playback actually enters the selected review caption, preserving clean pre-roll.
+- The marker activates only when playback actually enters that caption, preserving clean pre-roll.
 - Added an angular Studio-lime bracket treatment that does not alter caption text, size, position, timing, or exports.
 - Added a persistent Review Focus preference: **Brackets + label**, **Brackets only**, or **Off**.
 - Regeneration A/B preview also keeps the active proposal range visually focused while Current/Proposed text is compared.
