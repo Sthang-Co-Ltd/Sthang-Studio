@@ -79,6 +79,7 @@ export const config = {
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),
   geminiRetryMaxMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_RETRY_MAX_MS || 60000))),
+  geminiRequestTimeoutMs: Math.max(10000, Math.min(600000, Number(process.env.GEMINI_REQUEST_TIMEOUT_MS || 120000))),
   geminiTranscriptionThinkingLevel: envThinkingLevel('GEMINI_TRANSCRIPTION_THINKING_LEVEL', 'low'),
   geminiNativeVocabularyBias: envBool('GEMINI_NATIVE_VOCABULARY_BIAS', true),
 
