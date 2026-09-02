@@ -239,13 +239,12 @@ function thinkingGenerationConfig(model: string) {
     : undefined;
 }
 
-async function makeRestInteraction(
+async function makeNativeVocabularyInteraction(
   apiKey: string,
   model: string,
   uploaded: { uri: string; mimeType: string },
   prompt: string,
   hints: string[],
-  enableNativeBias: boolean,
 ): Promise<InteractionResult> {
   const generationConfig = thinkingGenerationConfig(model);
   return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
@@ -266,12 +265,10 @@ async function makeRestInteraction(
         ],
         response_format: { type: 'text', mime_type: 'application/json', schema },
         ...(generationConfig ? { generation_config: generationConfig } : {}),
-        ...(enableNativeBias && hints.length ? {
-          transcription_config: {
-            custom_vocabulary: hints,
-            language_codes: ['km-KH', 'en-US'],
-          },
-        } : {}),
+        transcription_config: {
+          custom_vocabulary: hints,
+          language_codes: ['km-KH', 'en-US'],
+        },
       }),
     });
 
@@ -291,32 +288,35 @@ async function makeRestInteraction(
     try {
       payload = JSON.parse(body);
     } catch (error) {
-      throw new Error('Gemini Interactions REST response was not valid JSON.', { cause: error });
+      throw new Error('Gemini native-vocabulary REST response was not valid JSON.', { cause: error });
     }
     const outputText = outputTextFromRestInteraction(payload);
-    if (!outputText) throw new Error('Gemini Interactions REST response did not contain a model text output.');
-    return { outputText, nativeVocabularyBias: enableNativeBias && hints.length > 0 };
+    if (!outputText) throw new Error('Gemini native-vocabulary REST response did not contain a model text output.');
+    return { outputText, nativeVocabularyBias: true };
   });
 }
 
-async function makeNativeVocabularyInteraction(
-  apiKey: string,
-  model: string,
-  uploaded: { uri: string; mimeType: string },
-  prompt: string,
-  hints: string[],
-): Promise<InteractionResult> {
-  return makeRestInteraction(apiKey, model, uploaded, prompt, hints, true);
-}
-
 async function makePromptOnlyInteraction(
-  _ai: GoogleGenAI,
-  apiKey: string,
+  ai: GoogleGenAI,
   model: string,
   uploaded: { uri: string; mimeType: string },
   prompt: string,
 ): Promise<InteractionResult> {
-  return makeRestInteraction(apiKey, model, uploaded, prompt, [], false);
+  const generationConfig = thinkingGenerationConfig(model);
+  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async () => {
+    const interaction = await ai.interactions.create({
+      model,
+      store: false,
+      system_instruction: systemInstruction,
+      input: [
+        { type: 'text', text: prompt },
+        { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
+      ],
+      response_format: { type: 'text', mime_type: 'application/json', schema },
+      ...(generationConfig ? { generation_config: generationConfig } : {}),
+    } as never);
+    return { outputText: interaction.output_text || '', nativeVocabularyBias: false };
+  });
 }
 
 async function makeInteraction(
@@ -331,7 +331,7 @@ async function makeInteraction(
   if (enableNativeBias && hints.length) {
     return makeNativeVocabularyInteraction(apiKey, model, uploaded, prompt, hints);
   }
-  return makePromptOnlyInteraction(ai, apiKey, model, uploaded, prompt);
+  return makePromptOnlyInteraction(ai, model, uploaded, prompt);
 }
 
 async function createInteractionWithRetry(
@@ -438,7 +438,10 @@ async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSetting
   if (cached) return cached.promise;
 
   const promise = (async () => {
-    const ai = new GoogleGenAI({ apiKey: llm.apiKey });
+    const ai = new GoogleGenAI({
+      apiKey: llm.apiKey,
+      httpOptions: { timeout: config.geminiRequestTimeoutMs },
+    });
     const uploadedFile = await withGeminiRequestTimeout(config.geminiRequestTimeoutMs, (signal) => ai.files.upload({
       file: audioPath,
       config: {
