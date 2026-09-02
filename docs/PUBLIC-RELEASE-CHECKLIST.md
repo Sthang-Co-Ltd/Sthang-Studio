@@ -5,25 +5,72 @@ and publication evidence. Historical checkmarks do not verify today's GitHub
 settings or authorize another release. Inspect current settings and repeat the
 relevant checks for each new release.
 
-The repository and the `v0.7.14` Beta release are public. Its exact tag, curated
-Windows ZIP, checksum, and release notes were verified on 2026-08-27. Website/HQ
-synchronization remains separately approval-gated.
+The repository and the `v0.8.0` Public Beta release are public. Its exact tag,
+curated Windows ZIP, checksum asset, release notes, and GitHub-recorded asset
+digest were independently verified on 2026-09-02. HQ intake and Distribution
+synchronization remain separately approval-gated.
 
-On 2026-08-28, the public [Studio page](https://sthang.app/studio/) advertised
-`v0.7.14` and linked to its Windows release asset. Maintainers record HQ intake
-and website synchronization approvals in their owning repositories; this public
-document does not duplicate a pending/completed synchronization ledger.
+The historical `v0.7.14` publication record remains below. On 2026-08-28, the
+public [Studio page](https://sthang.app/studio/) advertised `v0.7.14`; that dated
+observation is preserved as history rather than rewritten as current website
+evidence. The owning HQ and Distribution repositories must establish the current
+public website/docs state through their separately governed synchronization flow.
 
-## Signed updater bootstrap release gates — not completed
+## Version 0.8.0 GitHub publication verification
 
-The source updater described in [`OTA-UPDATES.md`](OTA-UPDATES.md) is not a
-published feature and does not change the verified `v0.7.14` distribution record
-below. The unreleased `0.8.0` bootstrap source may provision the reviewed public
-verification key before publication so the resulting bootstrap build can trust a
-later signed release. That public trust value is not a private credential and is
-not release evidence.
+The following checks record the actual v0.8.0 publication rather than an intended
+pre-release plan:
 
-Setup already completed outside public release evidence:
+- [x] The accepted release source on `main` was
+      `ba54570079e9f20516be54cd7c7738a9f4d9745f`.
+- [x] `npm run ci` passed locally on that exact release commit, covering the
+      public-readiness tests, Contributor/analytics privacy tests, Gemini timeout
+      tests, product/public verification, updater tests, typecheck, protected
+      brand verification, and production build.
+- [x] `npm run test:update-powershell` passed locally on that exact release
+      commit.
+- [x] `npm run package:windows` passed on that exact release commit and produced
+      the curated `Sthang-Studio-Windows-v0.8.0.zip` plus its `.sha256` file. The
+      packager verified the intended top-level layout: `Install Sthang Studio.bat`,
+      `Read Me.txt`, and `Sthang Studio Files`.
+- [x] The locally built curated ZIP SHA-256 was
+      `5bad7342e3b3b558d07cd7f2c55e165ec66c2093914fdd16635b32ea95922290`.
+- [x] The public GitHub Release is `v0.8.0`, titled **Sthang Studio 0.8.0 Public
+      Beta**, non-draft, and marked prerelease/Beta. The tag resolves directly to
+      `ba54570079e9f20516be54cd7c7738a9f4d9745f`.
+- [x] The release contains `Sthang-Studio-Windows-v0.8.0.zip` and
+      `Sthang-Studio-Windows-v0.8.0.zip.sha256`. GitHub records the ZIP digest as
+      the same SHA-256 shown above, so the published asset matches the locally
+      built release artifact exactly.
+- [x] The published release notes include the Windows/Gemini requirements,
+      explicit-opt-in Contributor and analytics boundaries, Gemini Files API
+      disclosure, current provider retention of up to 48 hours, and checksum
+      guidance.
+- [x] Before publication, Windows Sandbox testing exercised the v0.8 runtime,
+      including the final Gemini resumable-upload compatibility fix, and
+      successfully generated captions from representative media.
+- [ ] A brand-new clean-Windows installation of the **final curated v0.8.0 ZIP
+      bytes** was deliberately not repeated before publication. The earlier
+      source/Sandbox runtime validation is useful evidence but is not the same
+      check. Do not report this item as passed.
+- [ ] HQ intake and Distribution `/studio/` synchronization for the v0.8.0
+      public facts remain separately governed and are not established by this
+      repository record.
+- [ ] No public signed `latest.json` pointer has been promoted. OTA availability
+      is not established by the v0.8.0 GitHub Release.
+
+No hosted GitHub Actions or Blacksmith runner was used for the accepted v0.8.0
+release validation or publication sequence described above.
+
+## OTA rollout gates — not completed
+
+The source updater described in [`OTA-UPDATES.md`](OTA-UPDATES.md) is included in
+the public `0.8.0` bootstrap, but the bootstrap trust is **not evidence that OTA
+updates are publicly available**. The curated GitHub Release remains the public
+manual download and recovery path until a later signed release completes the
+remaining OTA gates.
+
+Setup already completed outside public OTA evidence:
 
 - [x] Studio-specific Ed25519 production signing custody exists outside the
       repository; only the reviewed public verification identity is committed to
@@ -32,35 +79,6 @@ Setup already completed outside public release evidence:
       binding, and GitHub issue-comment webhook were deployed separately. No
       private key, webhook secret, provider credential, or private custody
       coordinate is committed here.
-
-Before the `0.8.0` bootstrap release can be published:
-
-- [ ] Accept the exact bootstrap release source on `main`, including synchronized
-      `0.8.0` package/workspace/lockfile identities, the provisioned public trust
-      root, bounded release notes, and unreleased/public-version evidence split.
-- [ ] From a complete clean Windows checkout of that exact commit, run the
-      repository-owned public-readiness, updater, Windows broker, typecheck,
-      build, and packaging checks without relying on an arbitrary development
-      folder.
-- [ ] Build the ordinary Windows GitHub Release candidate and the OTA candidate
-      from the same exact accepted commit.
-- [ ] Stage the OTA package to its private commit-bound R2 key, invoke the
-      production signer, and independently verify the signed manifest,
-      attestation, package size/hash, expanded-size bound, lockfile hash, Python
-      requirement hashes, setup strategy, broker compatibility, and state schema.
-- [ ] Verify immutable versioned R2 objects after upload and verify the public
-      `updates.sthang.app` serving route/cache behavior. Do not promote
-      `latest.json` yet.
-- [ ] Install the bootstrap candidate through the curated manual Windows package
-      on a clean Windows user/machine and confirm the stable desktop shortcut and
-      registered default browser behavior.
-- [ ] Confirm projects, media, captions, locks, approvals, history, correction
-      memory, jobs/checkpoints, proposals, exports, compatible caches, the
-      `.env` fallback, Windows-protected Gemini key files, and downloaded local
-      model state are preserved.
-- [ ] Publish and retain the matching curated GitHub Release ZIP/checksum only
-      after separate release/publication approval and verify the uploaded bytes
-      against the tested candidate.
 
 Before OTA can be advertised or enabled for a later signed release:
 
@@ -78,20 +96,22 @@ Before OTA can be advertised or enabled for a later signed release:
 - [ ] Confirm offline/update-host failure leaves the installed version usable.
 - [ ] Run a representative Khmer upload → generate → Review → edit/lock/history/
       resume → UTF-8 CapCut SRT export after a successful OTA upgrade.
+- [ ] Publish and independently verify the matching deliberate GitHub Release for
+      the later offered version so users retain a manual recovery path.
 - [ ] Advance the signed `latest.json` pointer only from matching verified
       immutable-release, GitHub Release, and clean-Windows evidence.
-- [ ] Verify a real installed client offers the intended version once per
+- [ ] Verify a real installed client offers the intended newer version once per
       session/startup and through manual **Check for updates**, with explicit
       confirmation for download and installation and no continuous polling.
 - [ ] Complete separately approved HQ intake and Distribution `/studio/`
-      synchronization using exact release/deployment evidence. The current HQ
-      schema supports only manual GitHub updates or private signed OTA, so public
-      anonymous signed OTA needs an approved schema/model extension rather than
-      being mislabeled as private.
+      synchronization before changing public website/docs claims about OTA
+      availability. The current HQ update model must not mislabel public anonymous
+      signed OTA as private OTA.
 
-Provisioning the public verification key in bootstrap source is expected and
-safe; public documentation must still not claim OTA availability until the
-release, signed-object, clean-Windows, latest-pointer, and governance gates pass.
+Provisioning the public verification key in the bootstrap is expected and safe;
+public documentation must still not claim OTA availability until the signed
+release objects, clean-Windows evidence, latest-pointer promotion, and governance
+gates pass.
 
 ## Repository readiness
 
@@ -264,5 +284,6 @@ binary or model inside a release asset, perform a separate license review for
 the exact artifact/build and update `THIRD_PARTY_NOTICES.md`.
 
 A clean repository check verifies structure and source/build integrity; it does
-not replace the clean-Windows installation and real Khmer caption workflow tests
-above.
+not replace a clean-Windows installation or a real Khmer caption workflow test.
+For v0.8.0 specifically, the publication record above explicitly marks the final
+curated-ZIP clean-install check as not run.
