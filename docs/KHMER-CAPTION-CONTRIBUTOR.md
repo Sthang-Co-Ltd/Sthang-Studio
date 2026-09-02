@@ -1,6 +1,6 @@
 # Khmer Caption Contributor
 
-This document defines the unreleased v0.8 Sthang Studio contribution program and corpus contract.
+This document defines the v0.8 Sthang Studio contribution program and corpus contract.
 
 ## Product promise
 
@@ -90,7 +90,7 @@ If verified contribution data has already influenced a trained model, deleting t
 
 Contributor mode should be enabled only for media the user has the right or permission to contribute for improving Sthang's Khmer caption/speech technology, including where another person's voice is present.
 
-Production terms/privacy text require owner/legal review before the corpus is enabled in a public Studio release. Production infrastructure existing and passing synthetic validation is not sufficient release evidence.
+The current v0.8 program/privacy terms received product-owner approval for this public Beta. Production model training remains a separate future governance action and is not authorized by publishing Studio 0.8.0.
 
 ## Product analytics is separate
 
@@ -98,7 +98,7 @@ Optional product analytics is a different consent choice. Studio creates a separ
 
 The relay validates the payload again and forwards accepted events to Sthang's configured PostHog EU project. The downstream processor key/protocol remains in the Worker, not Studio's app configuration. Studio does not load PostHog's browser SDK, session replay, or autocapture.
 
-## Production status and remaining gates
+## Production status
 
 Production provisioning completed under separate approval:
 
@@ -106,13 +106,8 @@ Production provisioning completed under separate approval:
 - the production contribution synthetic lifecycle passed upload → submitted → verified → contributor-wide withdrawal using non-sensitive fixtures;
 - a dedicated Studio PostHog EU project and `analytics.sthang.app` relay are provisioned with the processor ingestion key stored only as a Worker secret;
 - the production analytics synthetic relay → downstream-ingestion check passed with person-profile processing disabled and GeoIP enrichment disabled;
-- the unreleased v0.8 branch now carries only the two public Sthang service origins in `config/product-services.json`.
+- v0.8 carries only the two public Sthang service origins in `config/product-services.json`.
 
-Before a public v0.8 release can enable these choices for ordinary users, remaining gates are:
+The v0.8 program is still private by default at the user level: Contributor and product analytics each require their own explicit opt-in, and service failure does not block caption work.
 
-- approve final privacy/program terms and website/docs representation;
-- complete the full current source test/typecheck/build/public-readiness suite and clean-Windows validation;
-- synchronize approved product evidence through Sthang HQ and Distribution under their separate approvals;
-- complete the normal v0.8 GitHub Release and OTA publication gates under separate approvals.
-
-Production model training remains a separate future governance action even after the Contributor service is available.
+HQ intake and Distribution `/studio/` synchronization remain separate governance/publication actions and are not implied by the GitHub Release. Production model training remains a separate future governance action even after the Contributor service is available.
