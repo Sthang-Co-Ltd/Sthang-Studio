@@ -13,7 +13,7 @@
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 with production services provisioned and synthetic-validated, while preserving v0.7.14 as the verified public download and keeping release, HQ, and Distribution separately gated."
+      "summary": "Publish Studio 0.8.0 Public Beta with explicit opt-in Khmer Caption Contributor and privacy-safe product analytics provisioned and default-off, while keeping OTA promotion and HQ/Distribution synchronization separately gated."
     },
     "releaseImpact": "version"
   },
@@ -23,7 +23,7 @@
     "lifecycle": "preview",
     "publicVisibilityRequest": {
       "status": "approved",
-      "basis": "Approved public repository and independently verified v0.7.14 prerelease evidence for the Studio beta"
+      "basis": "Approved public repository and independently verified v0.8.0 prerelease evidence for the Studio beta"
     },
     "source": {
       "visibility": "public",
@@ -36,7 +36,7 @@
       "downloadAuthority": "github-releases",
       "primaryAction": {
         "label": "Download for Windows",
-        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.7.14/Sthang-Studio-Windows-v0.7.14.zip"
+        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.8.0/Sthang-Studio-Windows-v0.8.0.zip"
       },
       "sourceAction": {
         "label": "View source on GitHub",
@@ -49,7 +49,7 @@
     },
     "release": {
       "sourceVersion": "0.8.0",
-      "publicVersion": "0.7.14",
+      "publicVersion": "0.8.0",
       "publicVersionStatus": "verified",
       "channel": "preview"
     },
@@ -66,7 +66,7 @@
     "publicClaims": [
       "Khmer-first caption editing in the Captions workspace",
       "Public source and a reviewed Beta download on GitHub",
-      "Timing, editing, projects, history, and exports remain local in the verified v0.7.14 Beta"
+      "Timing, editing, projects, history, and exports remain local; Gemini and optional Contributor/analytics transfers are explicitly disclosed"
     ],
     "dataProcessing": {
       "providers": [
@@ -104,7 +104,7 @@
         {
           "id": "sthang-khmer-contribution",
           "purpose": "Optional Khmer caption improvement corpus",
-          "availability": "unreleased-provisioned-default-off",
+          "availability": "public-default-off-explicit-opt-in",
           "triggers": [
             "explicit Khmer Caption Contributor opt-in",
             "eligible post-consent caption correction followed by approval"
@@ -144,7 +144,7 @@
         {
           "id": "posthog-eu",
           "purpose": "Optional product analytics processed through the Sthang-owned analytics relay",
-          "availability": "unreleased-provisioned-default-off",
+          "availability": "public-default-off-explicit-opt-in",
           "triggers": [
             "explicit product analytics opt-in"
           ],
@@ -178,13 +178,13 @@
   "evidence": {
     "release": {
       "mode": "github-release",
-      "tag": "v0.7.14",
+      "tag": "v0.8.0",
       "expectedDraft": false,
       "expectedPrerelease": true,
-      "assetName": "Sthang-Studio-Windows-v0.7.14.zip",
-      "checksumAssetName": "Sthang-Studio-Windows-v0.7.14.zip.sha256",
+      "assetName": "Sthang-Studio-Windows-v0.8.0.zip",
+      "checksumAssetName": "Sthang-Studio-Windows-v0.8.0.zip.sha256",
       "notesRequiredTerms": [
-        "Sthang Studio 0.7.14",
+        "Sthang Studio 0.8.0",
         "Public Beta",
         "Windows 10 or 11 x64",
         "Gemini Developer API key",
@@ -199,27 +199,27 @@
         "no public download"
       ],
       "package": {
-        "entrypoint": "Sthang Studio 0.7.14/Install Sthang Studio.bat",
+        "entrypoint": "Sthang Studio 0.8.0/Install Sthang Studio.bat",
         "requiredPaths": [
-          "Sthang Studio 0.7.14/Install Sthang Studio.bat",
-          "Sthang Studio 0.7.14/Read Me.txt",
-          "Sthang Studio 0.7.14/Sthang Studio Files/.env.example",
-          "Sthang Studio 0.7.14/Sthang Studio Files/.sthang/product-manifest.json",
-          "Sthang Studio 0.7.14/Sthang Studio Files/INSTALL-NEW-PC.bat",
-          "Sthang Studio 0.7.14/Sthang Studio Files/README.md",
-          "Sthang Studio 0.7.14/Sthang Studio Files/PRIVACY.md",
-          "Sthang Studio 0.7.14/Sthang Studio Files/package-lock.json",
-          "Sthang Studio 0.7.14/Sthang Studio Files/scripts/install-release-package.ps1"
+          "Sthang Studio 0.8.0/Install Sthang Studio.bat",
+          "Sthang Studio 0.8.0/Read Me.txt",
+          "Sthang Studio 0.8.0/Sthang Studio Files/.env.example",
+          "Sthang Studio 0.8.0/Sthang Studio Files/.sthang/product-manifest.json",
+          "Sthang Studio 0.8.0/Sthang Studio Files/INSTALL-NEW-PC.bat",
+          "Sthang Studio 0.8.0/Sthang Studio Files/README.md",
+          "Sthang Studio 0.8.0/Sthang Studio Files/PRIVACY.md",
+          "Sthang Studio 0.8.0/Sthang Studio Files/package-lock.json",
+          "Sthang Studio 0.8.0/Sthang Studio Files/scripts/install-release-package.ps1"
         ],
         "truth": {
           "paths": [
-            "Sthang Studio 0.7.14/Read Me.txt",
-            "Sthang Studio 0.7.14/Sthang Studio Files/README.md",
-            "Sthang Studio 0.7.14/Sthang Studio Files/PRIVACY.md"
+            "Sthang Studio 0.8.0/Read Me.txt",
+            "Sthang Studio 0.8.0/Sthang Studio Files/README.md",
+            "Sthang Studio 0.8.0/Sthang Studio Files/PRIVACY.md"
           ],
           "requiredTerms": [
             "public Beta",
-            "v0.7.14",
+            "v0.8.0",
             "Gemini Files API",
             "store: false",
             "48 hours"
