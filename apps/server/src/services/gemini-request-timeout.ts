@@ -19,7 +19,6 @@ export async function withGeminiRequestTimeout<T>(
       controller.abort(error);
       reject(error);
     }, timeoutMs);
-    timer.unref?.();
   });
 
   try {
