@@ -38,6 +38,7 @@ data/working/
 data/cache/
 data/history/
 data/proposals/
+data/contribution/
 
 # Python/runtime caches
 .venv/
