@@ -14,8 +14,8 @@ After installation completes, you can delete this extracted setup folder. Sthang
 
 UPDATES
 The verified public distribution and manual recovery path is the curated GitHub Release package.
-The 0.8.0 bootstrap release source includes the Studio public verification trust needed to verify later signed updates from updates.sthang.app.
-That public key does not make an OTA release available by itself. A signed latest pointer and matching later release must pass separate verification and publication gates.
+The 0.8.0 bootstrap release includes the Studio public verification trust needed to verify later signed updates from updates.sthang.app.
+That public key does not make OTA updates publicly available by itself. No public signed latest pointer is promoted as part of this GitHub Release.
 Studio checks at most once per session plus a manual Check for updates action. It never continuously polls, never auto-downloads, and never auto-installs.
 Download and installation each require explicit confirmation. Packages are verified and staged before activation, and failed setup, health checks, or interruption use rollback so the previous installed version and local caption data remain usable.
 The curated GitHub Release remains the manual recovery path.
@@ -32,7 +32,7 @@ Studio requests store:false for the interaction, uploads the WAV through the Gem
 Google currently documents that Files API uploads are stored for up to 48 hours.
 Update checks disclose only the installed version/channel plus ordinary HTTPS metadata; they do not send projects, captions, media, Gemini keys, or device/license enrollment data.
 
-Version 0.8 source also contains two separate privacy choices that are off unless you turn them on in Settings > Privacy and their production service is configured.
+Version 0.8.0 includes two separate privacy choices that stay off unless you turn them on in Settings > Privacy.
 - Khmer Caption Contributor can share eligible corrections made after you join: only a bounded short audio clip around the corrected caption plus generated/corrected wording, timing, and technical evidence. Full videos, project names, filenames, API keys, unrelated captions, and analytics ids are excluded.
 - Optional product analytics can send only allow-listed workflow events and coarse technical buckets through a Sthang-owned analytics relay using a random analytics installation id. Studio includes no session replay or autocapture and does not send caption/media content to analytics.
 
