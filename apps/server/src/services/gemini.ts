@@ -8,6 +8,7 @@ import { prepareTimingLocally } from './local-timing.js';
 import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
 import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
+import { withGeminiRequestTimeout } from './gemini-request-timeout.js';
 
 const schema = {
   type: 'object',
@@ -246,50 +247,53 @@ async function makeNativeVocabularyInteraction(
   hints: string[],
 ): Promise<InteractionResult> {
   const generationConfig = thinkingGenerationConfig(model);
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify({
-      model,
-      store: false,
-      system_instruction: systemInstruction,
-      input: [
-        { type: 'text', text: prompt },
-        { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
-      ],
-      response_format: { type: 'text', mime_type: 'application/json', schema },
-      ...(generationConfig ? { generation_config: generationConfig } : {}),
-      transcription_config: {
-        custom_vocabulary: hints,
-        language_codes: ['km-KH', 'en-US'],
+  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
-    }),
-  });
+      body: JSON.stringify({
+        model,
+        store: false,
+        system_instruction: systemInstruction,
+        input: [
+          { type: 'text', text: prompt },
+          { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
+        ],
+        response_format: { type: 'text', mime_type: 'application/json', schema },
+        ...(generationConfig ? { generation_config: generationConfig } : {}),
+        transcription_config: {
+          custom_vocabulary: hints,
+          language_codes: ['km-KH', 'en-US'],
+        },
+      }),
+    });
 
-  const body = await response.text();
-  if (!response.ok) {
-    let message = `Gemini Interactions REST request failed with HTTP ${response.status}.`;
-    try {
-      const parsed = JSON.parse(body) as { error?: { message?: string } };
-      if (parsed.error?.message) message = parsed.error.message;
-    } catch {
-      // Keep the HTTP fallback message.
+    const body = await response.text();
+    if (!response.ok) {
+      let message = `Gemini Interactions REST request failed with HTTP ${response.status}.`;
+      try {
+        const parsed = JSON.parse(body) as { error?: { message?: string } };
+        if (parsed.error?.message) message = parsed.error.message;
+      } catch {
+        // Keep the HTTP fallback message.
+      }
+      throw new GeminiRestError(message, response.status, response.headers, body);
     }
-    throw new GeminiRestError(message, response.status, response.headers, body);
-  }
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(body);
-  } catch (error) {
-    throw new Error('Gemini native-vocabulary REST response was not valid JSON.', { cause: error });
-  }
-  const outputText = outputTextFromRestInteraction(payload);
-  if (!outputText) throw new Error('Gemini native-vocabulary REST response did not contain a model text output.');
-  return { outputText, nativeVocabularyBias: true };
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch (error) {
+      throw new Error('Gemini native-vocabulary REST response was not valid JSON.', { cause: error });
+    }
+    const outputText = outputTextFromRestInteraction(payload);
+    if (!outputText) throw new Error('Gemini native-vocabulary REST response did not contain a model text output.');
+    return { outputText, nativeVocabularyBias: true };
+  });
 }
 
 async function makePromptOnlyInteraction(
@@ -299,18 +303,20 @@ async function makePromptOnlyInteraction(
   prompt: string,
 ): Promise<InteractionResult> {
   const generationConfig = thinkingGenerationConfig(model);
-  const interaction = await ai.interactions.create({
-    model,
-    store: false,
-    system_instruction: systemInstruction,
-    input: [
-      { type: 'text', text: prompt },
-      { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
-    ],
-    response_format: { type: 'text', mime_type: 'application/json', schema },
-    ...(generationConfig ? { generation_config: generationConfig } : {}),
-  } as never);
-  return { outputText: interaction.output_text || '', nativeVocabularyBias: false };
+  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async () => {
+    const interaction = await ai.interactions.create({
+      model,
+      store: false,
+      system_instruction: systemInstruction,
+      input: [
+        { type: 'text', text: prompt },
+        { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
+      ],
+      response_format: { type: 'text', mime_type: 'application/json', schema },
+      ...(generationConfig ? { generation_config: generationConfig } : {}),
+    } as never);
+    return { outputText: interaction.output_text || '', nativeVocabularyBias: false };
+  });
 }
 
 async function makeInteraction(
@@ -432,8 +438,17 @@ async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSetting
   if (cached) return cached.promise;
 
   const promise = (async () => {
-    const ai = new GoogleGenAI({ apiKey: llm.apiKey });
-    const uploadedFile = await ai.files.upload({ file: audioPath, config: { mimeType: 'audio/wav' } });
+    const ai = new GoogleGenAI({
+      apiKey: llm.apiKey,
+      httpOptions: { timeout: config.geminiRequestTimeoutMs },
+    });
+    const uploadedFile = await withGeminiRequestTimeout(config.geminiRequestTimeoutMs, (signal) => ai.files.upload({
+      file: audioPath,
+      config: {
+        mimeType: 'audio/wav',
+        abortSignal: signal,
+      },
+    }));
     if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
     return {
       ai,
@@ -506,7 +521,18 @@ export async function transcribeTextWithGemini(
     }
   }
 
-  const prepared = await preparedGeminiAudio(audioPath, llm);
+  let prepared: PreparedGeminiAudio;
+  try {
+    prepared = await preparedGeminiAudio(audioPath, llm);
+  } catch (error) {
+    if (transientGeminiError(error)) {
+      throw new GeminiUnavailableError(
+        'Gemini did not respond in time while preparing the audio. Your video and project are safe; wait a moment and try Generate accurate captions again.',
+        error,
+      );
+    }
+    throw error;
+  }
   const { ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);
   const prompt = buildPrompt(context, entries, guidance);
@@ -541,7 +567,7 @@ export async function transcribeTextWithGemini(
     } catch (fallbackError) {
       if (transientGeminiError(fallbackError)) {
         throw new GeminiUnavailableError(
-          `Gemini is temporarily overloaded. The app retried ${llm.model} and also tried ${fallback}. Your video and project are safe; wait a minute and click Generate accurate captions again.`,
+          `Gemini is temporarily unavailable. The app retried ${llm.model} and also tried ${fallback}. Your video and project are safe; wait a minute and click Generate accurate captions again.`,
           fallbackError,
         );
       }

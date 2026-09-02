@@ -19,6 +19,9 @@ Sthang-owned analytics relay. Studio includes no session replay or autocapture, 
 The production contribution service and Sthang-owned analytics relay have passed synthetic validation for the unreleased
 v0.8 source. Both features remain default-off and require explicit user opt-in. Service failure never blocks caption work.
 
+Gemini upload and transcription requests now have a bounded timeout, so a stalled external request fails/retries instead
+of blocking Studio's local processing queue indefinitely. Projects and already-saved processing checkpoints remain safe.
+
 The Studio-native signed updater keeps GitHub Release as the manual download and recovery path. Update checks run at most
 once per session plus a manual Check for updates action; downloads and installs require separate confirmation.
 
