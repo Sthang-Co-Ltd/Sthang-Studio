@@ -152,7 +152,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare explicit opt-in Khmer Caption Contributor corpus and privacy-safe product analytics for unreleased Studio 0.8.0 with production services provisioned and synthetic-validated, while preserving v0.7.14 as the verified public download and keeping release, HQ, and Distribution separately gated.',
+    'Publish Studio 0.8.0 Public Beta with explicit opt-in Khmer Caption Contributor and privacy-safe product analytics provisioned and default-off, while keeping OTA promotion and HQ/Distribution synchronization separately gated.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -197,7 +197,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   exactStringArray(proposal.publicClaims, 'manifest.proposal.publicClaims', [
     'Khmer-first caption editing in the Captions workspace',
     'Public source and a reviewed Beta download on GitHub',
-    'Timing, editing, projects, history, and exports remain local in the verified v0.7.14 Beta',
+    'Timing, editing, projects, history, and exports remain local; Gemini and optional Contributor/analytics transfers are explicitly disclosed',
   ]);
 
   const distribution = exactKeys(proposal.distribution, 'manifest.proposal.distribution', [
@@ -214,7 +214,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(primaryAction.label, 'Download for Windows', 'manifest.proposal.distribution.primaryAction.label');
   equal(primaryAction.href, `${releaseBase}/${assetName}`, 'manifest.proposal.distribution.primaryAction.href');
   const sourceAction = exactKeys(distribution.sourceAction, 'manifest.proposal.distribution.sourceAction', ['label', 'href']);
-  equal(sourceAction.label, 'View source on GitHub', 'manifest.proposal.distribution.sourceAction.label');
+  equal(sourceAction.label, 'View source on GitHub', 'manifest.proposal.sourceAction.label');
   equal(sourceAction.href, 'https://github.com/Sthang-Co-Ltd/Sthang-Studio', 'manifest.proposal.distribution.sourceAction.href');
 
   const updates = exactKeys(proposal.updates, 'manifest.proposal.updates', ['model', 'automaticPublication']);
@@ -298,7 +298,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     ]);
     equal(corpusProvider.id, 'sthang-khmer-contribution', 'Contribution provider id');
     equal(corpusProvider.purpose, 'Optional Khmer caption improvement corpus', 'Contribution purpose');
-    equal(corpusProvider.availability, 'unreleased-provisioned-default-off', 'Contribution availability');
+    equal(corpusProvider.availability, 'public-default-off-explicit-opt-in', 'Contribution availability');
     exactStringArray(corpusProvider.triggers, 'Contribution triggers', [
       'explicit Khmer Caption Contributor opt-in',
       'eligible post-consent caption correction followed by approval',
@@ -350,7 +350,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     ]);
     equal(analyticsProvider.id, 'posthog-eu', 'PostHog provider id');
     equal(analyticsProvider.purpose, 'Optional product analytics processed through the Sthang-owned analytics relay', 'PostHog purpose');
-    equal(analyticsProvider.availability, 'unreleased-provisioned-default-off', 'PostHog availability');
+    equal(analyticsProvider.availability, 'public-default-off-explicit-opt-in', 'PostHog availability');
     exactStringArray(analyticsProvider.triggers, 'PostHog triggers', ['explicit product analytics opt-in']);
     exactStringArray(analyticsProvider.dataSent, 'PostHog dataSent', [
       'allow-listed event names',

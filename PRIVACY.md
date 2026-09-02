@@ -4,12 +4,11 @@ Sthang Studio is designed as a local-first desktop-style workspace served from
 your own computer. Caption wording currently uses Google's Gemini service;
 caption timing and project editing are handled locally.
 
-The verified public `v0.7.14` Beta does not contain Sthang product analytics or
-a Khmer training-contribution service. The current **unreleased 0.8.0 source**
-adds two separate, explicit opt-in paths described below. Their production
-services have been provisioned and synthetic-validated for the unreleased v0.8
-work, but both choices remain default-off and this is not evidence that 0.8.0 has
-been released or that either choice is available in the verified public Beta.
+The public `v0.8.0` Beta includes two separate privacy-controlled Sthang cloud
+paths: Khmer Caption Contributor and optional product analytics. Both are **off
+by default** and require separate explicit opt-in. Their production services are
+provisioned, but neither choice is required for caption generation, review,
+editing, saving, or export.
 
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
@@ -87,16 +86,15 @@ Google's Gemini Developer API terms, quotas, and privacy policies also apply.
 Sthang Studio does not use Gemini for final local timing alignment. Timing and
 project editing remain on-device after the transcript is returned.
 
-## Khmer Caption Contributor (unreleased 0.8.0 source)
+## Khmer Caption Contributor
 
 Khmer Caption Contributor is **off by default**. It is separate from product
 analytics and from Gemini transcription. Importing a Studio profile never carries
 Contributor consent onto another installation.
 
-When contribution hosting is configured, Studio may offer the program after a
-successful export. Joining is an explicit choice. Corrections made before joining
-are not collected retroactively, and declining does not disable any caption
-feature or local correction memory.
+Studio may offer the program after a successful export. Joining is an explicit
+choice. Corrections made before joining are not collected retroactively, and
+declining does not disable any caption feature or local correction memory.
 
 There is one existing-user migration exception to that post-export timing. When
 an installation has durable evidence of pre-v0.8 Studio use and its Contributor
@@ -138,9 +136,9 @@ The production contribution service is Sthang-controlled infrastructure at
 `contribute.sthang.app`, using a private Cloudflare R2 bucket for WAV clips and
 D1 for correction metadata. A high-entropy local withdrawal token authenticates
 the pseudonymous Contributor identity; only a SHA-256 of that token is stored by
-the service. The production service has passed a synthetic upload → submitted →
-verified → contributor-wide withdrawal validation. That validation does not make
-v0.8.0 a public release or complete the remaining privacy/release approvals.
+the service. The production service passed a synthetic upload → submitted →
+verified → contributor-wide withdrawal validation before the v0.8.0 release.
+That service validation does not enable contribution unless the creator opts in.
 
 New uploads are `submitted`, not automatically `verified`. Only a separate
 corpus-quality decision may promote a sample to `verified`; Studio's verified
@@ -165,17 +163,15 @@ This limitation must remain disclosed before production model training begins.
 
 Only enable Contributor mode for media you have the right or permission to share
 for this improvement purpose, including where another person's voice is present.
-See `docs/KHMER-CAPTION-CONTRIBUTOR.md` for the complete source contract and
-remaining release gates.
+See `docs/KHMER-CAPTION-CONTRIBUTOR.md` for the complete program contract.
 
-## Optional product analytics (unreleased 0.8.0 source)
+## Optional product analytics
 
 Product analytics is a **separate, default-off choice**. Studio does not load a
 third-party browser analytics SDK, session replay, or autocapture. When the user
-explicitly enables analytics and the production service is provisioned, Studio's
-local Node server creates a random analytics installation id and sends only its
-small allow-listed event payload to the Sthang-controlled relay at
-`analytics.sthang.app`.
+explicitly enables analytics, Studio's local Node server creates a random
+analytics installation id and sends only its small allow-listed event payload to
+the Sthang-controlled relay at `analytics.sthang.app`.
 
 The relay validates the same fixed event/property vocabulary again before
 forwarding an accepted event to Sthang's configured PostHog EU project. The
@@ -183,9 +179,8 @@ processor-specific project ingestion key and endpoint are held by the relay,
 not shipped in Studio's normal app configuration. The relay requests
 `$process_person_profile: false` and `$geoip_disable: true` for forwarded events.
 The relay is designed not to intentionally persist Studio event payloads. The
-production relay has passed a synthetic relay → downstream-ingestion validation;
-that does not make the unreleased v0.8 analytics choice part of the verified
-public Beta.
+production relay passed a synthetic relay → downstream-ingestion validation
+before the v0.8.0 release. Analytics still remains off until explicitly enabled.
 
 Allow-listed events measure coarse workflow milestones such as Studio startup,
 project creation, caption generation start/completion/failure, caption approval,
@@ -239,13 +234,14 @@ layout into per-project atomic files to reduce repeated disk I/O. Existing proje
 data is preserved during migration; the legacy project source/history files are
 not silently discarded as part of the migration itself.
 
-## Update checks (unreleased 0.8.0 bootstrap source)
+## Update checks (0.8.0 bootstrap)
 
-The unreleased `0.8.0` bootstrap source contains the Studio public verification
-key for the signed updater and is configured for the Sthang-controlled metadata
-host `updates.sthang.app`. This source change does not mean that `0.8.0` or a
-public OTA release is available: the verified public Beta remains `v0.7.14`, and
-a public signed `latest.json` pointer is not promoted during source preparation.
+The public `0.8.0` bootstrap contains the Studio public verification key for the
+signed updater and is configured for the Sthang-controlled metadata host
+`updates.sthang.app`. **No public signed `latest.json` pointer is promoted by the
+0.8.0 GitHub Release, so this is not evidence that OTA updates are publicly
+available.** The curated GitHub Release remains the manual download and recovery
+path.
 
 A released build containing this provisioned public key may make one
 update-metadata request per browser session/startup and additional requests only
@@ -261,8 +257,8 @@ public version only after you confirm a download.
 Studio downloads a signed update package only after explicit confirmation and
 installs it only after a second explicit confirmation. A failed or unavailable
 update-service request is non-destructive and does not affect caption work on the
-installed version. See `docs/OTA-UPDATES.md` for the unreleased protocol and
-remaining production/release gates.
+installed version. See `docs/OTA-UPDATES.md` for the protocol and remaining OTA
+gates.
 
 ## Deleting local data
 

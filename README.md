@@ -26,19 +26,18 @@ available without crowding the main editing flow.
 - UTF-8 SRT export designed for CapCut workflows.
 - Local projects, history, caches, proposals, and exports.
 - Windows-protected in-app storage for a Gemini API key.
-- Unreleased v0.8 source adds a default-private **Khmer Caption Contributor**
-  foundation and separate optional product analytics; both require explicit
-  consent and production service configuration before any new data leaves Studio.
+- Version 0.8.0 adds a default-private **Khmer Caption Contributor** program and
+  separate optional product analytics; both require explicit consent before the
+  corresponding Sthang cloud data flow is enabled.
 
 ## Distribution status
 
 Sthang Studio is available as a public Beta. Windows users should download the
-curated **Sthang Studio for Windows** ZIP from GitHub Releases. The currently
-verified public release remains
-[0.7.14 Beta](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.7.14),
-even while this source tree prepares the unreleased `0.8.0` release. GitHub's
-**Code → Download ZIP** is the source tree for developers and is intentionally
-not the end-user installer.
+curated **Sthang Studio for Windows** ZIP from GitHub Releases. For this `0.8.0`
+source, use the matching
+[0.8.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.8.0).
+GitHub's **Code → Download ZIP** is the source tree for developers and is
+intentionally not the end-user installer.
 
 The Windows release package keeps the first-run folder simple: **Install Sthang
 Studio.bat**, **Read Me.txt**, and one **Sthang Studio Files** folder. Setup copies
@@ -46,20 +45,15 @@ the application into `%LOCALAPPDATA%\Sthang Studio\app`, so the downloaded setup
 folder can be deleted after installation while projects and local app state stay
 in the stable installed location.
 
-## Current source changes (unreleased)
+## Version 0.8.0
 
-The current source version is `0.8.0`, but that version is **not a published
-release yet**. The verified public Beta remains `v0.7.14` until a matching
-Windows package, release evidence, clean-Windows validation, and publication are
-completed deliberately.
-
-Unreleased source includes performance-oriented pipeline work such as reusable
+Version `0.8.0` adds performance-oriented pipeline work such as reusable
 normalized/range audio, warm local timing, transcript-independent KFA acoustic
 evidence caching, exact timing-result caching, resumable same-job AI checkpoints,
 concurrent Deep Verify listens, browser-memory waveform reuse, and per-project/
 history persistence that avoids rewriting unrelated projects.
 
-It also contains the source foundation for two new privacy-controlled features:
+It also includes two new privacy-controlled features:
 
 - **Khmer Caption Contributor** — private by default. After explicit opt-in,
   eligible corrections made after joining can queue a bounded short WAV plus the
@@ -73,17 +67,17 @@ It also contains the source foundation for two new privacy-controlled features:
   contains no browser analytics SDK, replay, or autocapture, and its normal app
   configuration contains no processor endpoint or project ingestion key.
 
-Both new cloud paths fail closed when their production configuration is absent.
-The current source therefore does **not** establish that contribution hosting or
-product analytics is publicly enabled.
+Both Sthang cloud paths remain default-off and fail open for caption work if a
+service is unavailable. Their production endpoints are provisioned; no caption
+or analytics data is sent through them until the corresponding explicit opt-in.
 
-### Signed updates in source — bootstrap trust prepared, OTA not public
+### Signed updates — bootstrap trust included, OTA not public
 
-The unreleased `0.8.0` source contains a Studio-native signed Windows updater
-designed around the existing `%LOCALAPPDATA%\Sthang Studio\app` installation.
-It checks at most once per browser session plus a manual **Check for updates**
-action, never polls continuously, and requires separate explicit confirmation
-before download and before installation.
+Version `0.8.0` contains a Studio-native signed Windows updater designed around
+the existing `%LOCALAPPDATA%\Sthang Studio\app` installation. It checks at most
+once per browser session plus a manual **Check for updates** action, never polls
+continuously, and requires separate explicit confirmation before download and
+before installation.
 
 The planned public update origin is `updates.sthang.app`. Release metadata and
 immutable version packages are verified with a Studio-only Ed25519 public trust
@@ -95,15 +89,15 @@ the `.env` fallback, and Windows-protected Gemini key storage remain in the
 stable state root.
 
 The production private signing key remains outside the repository behind the
-separately deployed signing service. Signing infrastructure and private R2
-staging exist, but **no v0.8.0 release has been published and no public
-`latest.json` pointer has been promoted**. This source architecture is **not
+separately deployed signing service. Version 0.8.0 is the updater-capable
+bootstrap delivered through the curated GitHub Release path, but **no public
+`latest.json` pointer is promoted by this release**. This bootstrap is **not
 evidence that OTA updates are publicly available**. The curated GitHub Release
 remains the public manual download and recovery path. See
-[`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and remaining
-release gates.
+[`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and remaining OTA
+gates.
 
-### Khmer Caption Contributor source contract
+### Khmer Caption Contributor contract
 
 The Contributor program has exactly two caption-data states: **Private** and an
 explicit **Khmer Caption Contributor** opt-in. Importing a Studio profile never
@@ -117,12 +111,12 @@ short mono WAV around that caption and does not send the full video, project
 name, filename, local path, topic/context text, unrelated captions, correction
 memory, SRT contents, Gemini key, or product-analytics id.
 
-The planned Sthang intake is a Cloudflare Worker backed by **private R2 + D1**.
-The source includes idempotent sample ids, a pseudonymous contributor credential
-stored server-side only as a hash, offline retry, separate submitted/verified
-states, contributor-wide withdrawal, rejection cleanup, and a 180-day limit for
-samples that remain submitted but unverified. Production deployment at
-`contribute.sthang.app` remains separately approval-gated.
+The Sthang intake is a Cloudflare Worker backed by **private R2 + D1**. The
+service uses idempotent sample ids, a pseudonymous contributor credential stored
+server-side only as a hash, offline retry, separate submitted/verified states,
+contributor-wide withdrawal, rejection cleanup, and a 180-day limit for samples
+that remain submitted but unverified. The production endpoint is
+`contribute.sthang.app`; participation remains explicit opt-in.
 
 See [`docs/KHMER-CAPTION-CONTRIBUTOR.md`](docs/KHMER-CAPTION-CONTRIBUTOR.md) and
 [`PRIVACY.md`](PRIVACY.md) for the complete contract, including future model
@@ -171,9 +165,8 @@ currently Windows-first.
 Sthang Studio is local-first, but it is **not fully offline** when generating AI
 caption wording.
 
-For current source builds, the local pipeline may include unreleased cache and
-prewarm behavior described below. The verified `0.7.14` public release remains
-defined by its matching release notes and package evidence.
+Version 0.8.0 includes the cache, prewarm, resumable-job, Contributor, and
+optional analytics behavior described below.
 
 **Local on your computer by default:**
 
@@ -215,7 +208,7 @@ is independent of interaction storage controls. See Google's
 [zero-data-retention guidance](https://ai.google.dev/gemini-api/docs/zdr), and
 [`PRIVACY.md`](PRIVACY.md) for the full data-flow summary.
 
-**Only after separate explicit v0.8 opt-ins and production configuration:**
+**Only after separate explicit opt-ins:**
 
 - Khmer Caption Contributor may send the bounded correction sample described
   above to Sthang's private corpus service;
@@ -241,15 +234,17 @@ Never commit or publish a real API key.
 
 ## Performance architecture
 
-Current unreleased source optimizes repeated caption work around a simple rule:
+Version 0.8.0 optimizes repeated caption work around a simple rule:
 **reuse deterministic prerequisites, never reuse a fresh AI opinion as though it
 were new.**
 
 Examples of safe reuse include normalized/range audio, KFA acoustic emissions,
 exact transcript+timing results, decoded waveform data, and completed stages of
 the same resumable job. New Alternative/Deep Verify jobs still ask Gemini again.
-The local timing daemon is an optimization only; Studio retains its one-shot
-Python worker/CLI recovery path for setup, diagnostics, and daemon-transport failure.
+Gemini upload and transcription requests are bounded so a stalled external call
+cannot wedge the local processing queue indefinitely. The local timing daemon is
+an optimization only; Studio retains its one-shot Python worker/CLI recovery path
+for setup, diagnostics, and daemon-transport failure.
 
 Projects and history are stored in atomic per-project files so an autosave no
 longer rewrites every project or dozens of full history snapshots. Existing
@@ -310,11 +305,9 @@ payload, and writes the ZIP plus SHA-256 file to ignored `release-artifacts/`.
 The resulting archive is the candidate GitHub Release asset; the repository
 source ZIP is not.
 
-A v0.8 source branch that still truthfully says `v0.7.14` is the verified public
-Beta is **not yet a publishable v0.8 package**. Final release documentation must
-be switched to matching v0.8 public evidence only after its clean-Windows,
-privacy/service, and publication gates are ready; do not weaken that packager
-block merely to produce an artifact.
+The release packager requires the packaged README and privacy guidance to match
+the current release version and public data-flow truth. Do not weaken that guard
+to package a stale or mismatched release.
 
 On Windows, `npm run package:ota` creates an **unsigned, local-only** OTA
 candidate and protocol metadata under ignored `release-artifacts/`. It does not
@@ -346,7 +339,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution expectations and
 - [`docs/KHMER-CAPTION-CONTRIBUTOR.md`](docs/KHMER-CAPTION-CONTRIBUTOR.md) — v0.8 contributor/corpus privacy and quality contract
 - [`infra/contribution-worker/README.md`](infra/contribution-worker/README.md) — Sthang corpus-service provisioning and synthetic validation
 - [`infra/analytics-worker/README.md`](infra/analytics-worker/README.md) — Sthang analytics-relay boundary and provisioning
-- [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) — unreleased signed-update protocol, rollback model, and production gates
+- [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) — signed-update protocol, rollback model, and production gates
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — dependency/model notices
 - [`TRADEMARKS.md`](TRADEMARKS.md) — Sthang name and brand-asset terms
 
