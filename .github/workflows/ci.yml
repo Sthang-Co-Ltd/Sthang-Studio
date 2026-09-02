@@ -45,6 +45,9 @@ jobs:
       - name: Contribution privacy tests
         run: npm run test:contribution
 
+      - name: Gemini request timeout tests
+        run: npm run test:gemini
+
       - name: Updater tests
         run: npm run test:updater
 
