@@ -56,13 +56,31 @@ keeps KFA's alignment math and KFA remains the timing authority; this repository
 does not relicense that adapted KFA-derived portion under more restrictive
 terms.
 
-## FFmpeg
+## FFmpeg and subtitle rendering
 
 Sthang Studio expects `ffmpeg`/`ffprobe` to be installed on the user's system and
-does not commit FFmpeg binaries to this repository. FFmpeg licensing depends on
-the specific build and enabled codecs (commonly LGPL and/or GPL terms). Anyone
-redistributing an installer that bundles FFmpeg must review the license of that
-exact build separately.
+does not commit FFmpeg binaries to this repository. Studio uses that local runtime
+for audio normalization/range work and, in the captioned-video source
+implementation, for video decoding/encoding, stream mapping, probing, output
+verification, and ASS subtitle rendering through FFmpeg's `subtitles`/libass
+filter when the installed build exposes it.
+
+FFmpeg licensing depends on the exact build and enabled codecs/components
+(commonly LGPL and/or GPL terms). H.264/HEVC encoder availability and licensing
+also depend on the exact build and hardware/runtime in use. `libass` is an
+ISC-licensed subtitle renderer, but its availability inside FFmpeg still depends
+on how that FFmpeg build was configured.
+
+The application therefore probes the installed runtime rather than assuming that
+an arbitrary `ffmpeg.exe` provides libass, H.264, HEVC, or hardware encoders. The
+captioned-video feature does not add or vendor a new FFmpeg/libass binary in this
+source change. Before a public release claims finished-video export, Sthang must
+review and validate the exact ordinary-user Windows FFmpeg path/build and any
+redistribution/licensing implications of the release package.
+
+Anyone redistributing an installer that bundles FFmpeg must review the license of
+that exact build separately. A development or system-installed FFmpeg capability
+is not evidence that the public package has the same codec/filter configuration.
 
 ## Runtime-downloaded model assets
 
