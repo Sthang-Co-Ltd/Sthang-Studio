@@ -847,7 +847,7 @@ export default function App() {
       const anchor = document.createElement('a');
       anchor.href = `/api/projects/${project.id}/export.srt`; anchor.download = '';
       document.body.appendChild(anchor); anchor.click(); anchor.remove();
-      setNotice('SRT exported with caption text and timing. Visual styling is set in your editing app.');
+      setNotice('SRT export started. It includes caption text and timing; visual styling is set in your editing app.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Export failed'); }
     finally { setBusy(''); }
   };
@@ -910,7 +910,7 @@ export default function App() {
       const imported = await api.importProfile(value);
       setProfile(imported);
       setVocabularyText((current) => uniqueLines(imported.defaultVocabulary, current.split(/\r?\n/)).join('\n'));
-      setNotice('Profile imported. Glossary, topic packs, styles and correction memory are now available on this PC.');
+      setNotice('Profile imported. Glossary, topic packs, grouping presets and correction memory are now available on this PC.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Profile import failed'); }
     finally { setBusy(''); }
   };
