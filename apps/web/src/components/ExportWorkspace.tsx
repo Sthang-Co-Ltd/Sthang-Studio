@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_CAPTION_APPEARANCE,
   type CaptionAppearance,
+  type CaptionAppearancePreset,
   type CaptionProject,
   type ProcessingJob,
   type VideoCodec,
@@ -10,9 +11,8 @@ import {
   type VideoExportSettings,
   type VideoFrameRatePreset,
   type VideoQualityPreset,
-  type VideoResolutionPreset,
 } from '@kcs/shared';
-import { Download, Film, HardDrive, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Download, Film, HardDrive, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import './video-export.css';
 
@@ -72,17 +72,33 @@ function frameRateLabel(value: VideoFrameRatePreset, source: number) {
   return value === 'source' ? `Match source (${source > 0 ? source.toFixed(source % 1 ? 2 : 0) : 'auto'} fps)` : `${value} fps`;
 }
 
+function isVideoProject(project: CaptionProject) {
+  return project.media.mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(project.media.originalName);
+}
+
 export function ExportWorkspace({ project, sampleText, busy, activeExportJob, onExportSrt, onSaveAppearance, onStartVideoExport }: Props) {
+  const videoProject = isVideoProject(project);
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
-  const [loadingCapabilities, setLoadingCapabilities] = useState(true);
+  const [loadingCapabilities, setLoadingCapabilities] = useState(videoProject);
   const [capabilityError, setCapabilityError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [settings, setSettings] = useState<VideoExportSettings>(DEFAULT_SETTINGS);
   const [appearance, setAppearance] = useState<CaptionAppearance>({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance });
+  const [presets, setPresets] = useState<CaptionAppearancePreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
+  const [savingPreset, setSavingPreset] = useState(false);
   const [savingAppearance, setSavingAppearance] = useState(false);
   const [startingExport, setStartingExport] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const loadCapabilities = async (refresh = false) => {
+    if (!videoProject) {
+      setCapabilities(null);
+      setLoadingCapabilities(false);
+      setCapabilityError('');
+      return;
+    }
     setLoadingCapabilities(true);
     setCapabilityError('');
     try { setCapabilities(await api.videoExportCapabilities(project.id, refresh)); }
@@ -90,11 +106,24 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
     finally { setLoadingCapabilities(false); }
   };
 
+  const loadPresets = async () => {
+    try {
+      const profile = await api.profile();
+      setPresets(profile.captionAppearances || []);
+    } catch {
+      // Presets are optional. Project appearance and export remain usable if profile loading fails.
+    }
+  };
+
   useEffect(() => {
     setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance });
     setSettings(DEFAULT_SETTINGS);
     setCapabilities(null);
+    setCapabilityError('');
+    setActionError('');
+    setSelectedPresetId('');
     void loadCapabilities(false);
+    void loadPresets();
   }, [project.id, project.media.filename]);
 
   useEffect(() => {
@@ -113,18 +142,64 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
   const availableFonts = capabilities?.fonts.filter((font) => font.available) || [];
   const hevcAvailable = Boolean(capabilities?.encoders.some((encoder) => encoder.codec === 'hevc' && encoder.available));
   const source = capabilities?.source;
-  const exportBlocked = Boolean(!capabilities?.supported || activeExportJob || busy || startingExport || !project.captions.length);
+  const exportBlocked = Boolean(!videoProject || !capabilities?.supported || activeExportJob || busy || startingExport || !project.captions.length);
   const sampleScale = Math.max(0.55, Math.min(1.7, appearance.fontSize1080 / DEFAULT_CAPTION_APPEARANCE.fontSize1080));
 
   const saveAppearance = async () => {
     setSavingAppearance(true);
+    setActionError('');
     try { await onSaveAppearance(appearance); }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not save caption appearance'); }
     finally { setSavingAppearance(false); }
+  };
+
+  const savePreset = async () => {
+    const name = presetName.trim();
+    if (!name) return;
+    setSavingPreset(true);
+    setActionError('');
+    try {
+      const profile = await api.profile();
+      const now = new Date().toISOString();
+      const existing = (profile.captionAppearances || []).find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
+      const next: CaptionAppearancePreset = existing
+        ? { ...existing, name, appearance: { ...appearance }, updatedAt: now }
+        : { id: crypto.randomUUID(), name, appearance: { ...appearance }, createdAt: now, updatedAt: now };
+      const captionAppearances = [next, ...(profile.captionAppearances || []).filter((preset) => preset.id !== next.id)].slice(0, 20);
+      const updated = await api.patchProfile({ captionAppearances });
+      setPresets(updated.captionAppearances || []);
+      setSelectedPresetId(next.id);
+      setPresetName('');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not save appearance preset');
+    } finally { setSavingPreset(false); }
+  };
+
+  const applyPreset = (id: string) => {
+    setSelectedPresetId(id);
+    const preset = presets.find((item) => item.id === id);
+    if (preset) setAppearance({ ...preset.appearance });
+  };
+
+  const deletePreset = async () => {
+    if (!selectedPresetId) return;
+    setSavingPreset(true);
+    setActionError('');
+    try {
+      const profile = await api.profile();
+      const updated = await api.patchProfile({ captionAppearances: (profile.captionAppearances || []).filter((preset) => preset.id !== selectedPresetId) });
+      setPresets(updated.captionAppearances || []);
+      setSelectedPresetId('');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not delete appearance preset');
+    } finally { setSavingPreset(false); }
   };
 
   const startExport = async () => {
     setStartingExport(true);
+    setActionError('');
     try { await onStartVideoExport(settings, appearance); }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not start video export'); }
     finally { setStartingExport(false); }
   };
 
@@ -134,7 +209,7 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
   return <div className="export-workspace">
     <div className="export-workspace-head">
       <div><strong>Export</strong><span>Keep captions editable as SRT, or render a finished MP4 with the appearance baked into the picture.</span></div>
-      <button onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} title="Recheck local video encoders and fonts"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck</button>
+      {videoProject && <button onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} title="Recheck local video encoders and fonts"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck</button>}
     </div>
 
     <div className="export-paths">
@@ -145,17 +220,18 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
       </section>
 
       <section className="export-path-card video-path">
-        <div className="export-path-title"><Film size={19}/><div><strong>Captioned video</strong><span>MP4 · finished appearance included in the picture</span></div></div>
-        <p>Studio renders a new local video. The original media is never overwritten, and the exported captions are no longer separately editable inside the MP4.</p>
+        <div className="export-path-title"><Film size={19}/><div><strong>Captioned video</strong><span>{videoProject ? 'MP4 · finished appearance included in the picture' : 'Requires a video project'}</span></div></div>
+        <p>{videoProject ? 'Studio renders a new local video. The original media is never overwritten, and the exported captions are no longer separately editable inside the MP4.' : 'This project contains audio only, so Studio can export the timed SRT but has no video picture to render captions into.'}</p>
         {activeExportJob && <div className="export-active"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}% · you can keep editing while this saved snapshot renders</span></div></div>}
       </section>
     </div>
 
-    {loadingCapabilities && <div className="export-status"><LoaderCircle className="spin" size={16}/>Checking video, color, encoders, Khmer fonts and disk space…</div>}
+    {videoProject && loadingCapabilities && <div className="export-status"><LoaderCircle className="spin" size={16}/>Checking video, color, encoders, Khmer fonts and disk space…</div>}
     {capabilityError && <div className="export-block"><TriangleAlert size={17}/><div><strong>Video export check failed</strong><span>{capabilityError}</span></div></div>}
+    {actionError && <div className="export-block"><TriangleAlert size={17}/><div><strong>Export setting could not be saved</strong><span>{actionError}</span></div></div>}
     {capabilities && !capabilities.supported && <div className="export-block"><TriangleAlert size={17}/><div><strong>Captioned video is blocked for this source</strong><span>{capabilities.blockingReason}</span></div></div>}
 
-    {capabilities && <>
+    {videoProject && capabilities && <>
       <section className="export-section">
         <div className="export-section-title"><div><strong>Video quality</strong><span>Match source is safest. Higher-than-source resolutions are allowed but are clearly marked as upscaled.</span></div>{source && <span className="export-source-chip">Source {source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
 
@@ -191,6 +267,13 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
       <section className="export-section appearance-section">
         <div className="export-section-title"><div><strong>Caption appearance</strong><span>These controls affect Captioned video only. SRT export remains text + timing.</span></div><button className="quiet-action" onClick={() => setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, fontFamily: availableFonts[0]?.name || DEFAULT_CAPTION_APPEARANCE.fontFamily })}><RotateCcw size={13}/>Reset</button></div>
 
+        <div className="appearance-preset-row">
+          <label><span>Reusable preset</span><select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}><option value="">Current project appearance</option>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
+          <label><span>Save current look as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
+          <button disabled={!presetName.trim() || savingPreset} onClick={() => void savePreset()}><Save size={13}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
+          <button className="danger-quiet" disabled={!selectedPresetId || savingPreset} onClick={() => void deletePreset()}><Trash2 size={13}/>Delete</button>
+        </div>
+
         <div className="appearance-preview">
           <div className="appearance-safe-area"/>
           <div className={`appearance-preview-text align-${appearance.alignment}`} style={{
@@ -223,7 +306,7 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
           <label className="toggle-field"><span>Background box</span><button className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => setAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? 'On' : 'Off'}</button></label>
           {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => setAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Background opacity <b>{Math.round(appearance.backgroundOpacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(appearance.backgroundOpacity * 100)} onChange={(event) => setAppearance((current) => ({ ...current, backgroundOpacity: Number(event.target.value) / 100 }))}/></label><label className="range-field"><span>Box padding <b>{appearance.backgroundPadding1080}px</b></span><input type="range" min="0" max="28" value={appearance.backgroundPadding1080} onChange={(event) => setAppearance((current) => ({ ...current, backgroundPadding1080: Number(event.target.value) }))}/></label></>}
         </div>
-        <div className="appearance-actions"><button disabled={savingAppearance || busy} onClick={() => void saveAppearance()}><Save size={14}/>{savingAppearance ? 'Saving…' : 'Save appearance'}</button><span>Appearance is stored with this project and never changes SRT output.</span></div>
+        <div className="appearance-actions"><button disabled={savingAppearance || busy} onClick={() => void saveAppearance()}><Save size={14}/>{savingAppearance ? 'Saving…' : 'Save for project'}</button><span>Project appearance and reusable presets are local. Neither changes SRT output.</span></div>
       </section>
 
       {capabilities.warnings.length > 0 && <div className="export-warnings">{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={13}/><span>{warning}</span></div>)}</div>}
