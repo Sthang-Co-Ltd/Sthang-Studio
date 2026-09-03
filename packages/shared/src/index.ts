@@ -40,6 +40,142 @@ export interface CaptionSegment {
   timingLocked?: boolean;
 }
 
+export type CaptionHorizontalAlignment = 'left' | 'center' | 'right';
+
+export interface CaptionAppearance {
+  /** Font family resolved against reviewed local/system Khmer fonts at export time. */
+  fontFamily: string;
+  /** Reference size at 1080px frame height. Export scales this with output resolution. */
+  fontSize1080: number;
+  bold: boolean;
+  textColor: string;
+  outlineColor: string;
+  outlineWidth1080: number;
+  shadowWidth1080: number;
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  backgroundPadding1080: number;
+  alignment: CaptionHorizontalAlignment;
+  /** Distance from the bottom of the frame, expressed as a percent of frame height. */
+  positionBottomPct: number;
+  /** Maximum caption region width as a percent of frame width. */
+  maxWidthPct: number;
+}
+
+export const DEFAULT_CAPTION_APPEARANCE: CaptionAppearance = {
+  fontFamily: 'Khmer UI',
+  fontSize1080: 56,
+  bold: true,
+  textColor: '#FFFFFF',
+  outlineColor: '#000000',
+  outlineWidth1080: 3,
+  shadowWidth1080: 2,
+  backgroundEnabled: false,
+  backgroundColor: '#000000',
+  backgroundOpacity: 0.58,
+  backgroundPadding1080: 8,
+  alignment: 'center',
+  positionBottomPct: 12,
+  maxWidthPct: 82,
+};
+
+export interface CaptionAppearancePreset {
+  id: string;
+  name: string;
+  appearance: CaptionAppearance;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type VideoResolutionPreset = 'source' | '720p' | '1080p' | '1440p' | '2160p';
+export type VideoFrameRatePreset = 'source' | 24 | 25 | 30 | 50 | 60;
+export type VideoQualityPreset = 'smaller' | 'recommended' | 'high';
+export type VideoCodec = 'h264' | 'hevc';
+export type VideoEncoderPreference = 'auto' | 'software' | 'nvidia' | 'intel' | 'amd';
+export type VideoHdrKind = 'sdr' | 'hdr10' | 'hlg' | 'dolby-vision' | 'unknown-hdr';
+
+export interface VideoExportSettings {
+  resolution: VideoResolutionPreset;
+  frameRate: VideoFrameRatePreset;
+  quality: VideoQualityPreset;
+  codec: VideoCodec;
+  encoder: VideoEncoderPreference;
+  /** Optional advanced override. Omit to use Studio's quality preset. */
+  customBitrateMbps?: number;
+}
+
+export interface VideoExportSourceInfo {
+  width: number;
+  height: number;
+  displayWidth: number;
+  displayHeight: number;
+  rotation: number;
+  durationMs: number;
+  frameRate: number;
+  variableFrameRate: boolean;
+  videoCodec: string;
+  pixelFormat: string;
+  bitDepth: number;
+  colorPrimaries?: string;
+  colorTransfer?: string;
+  colorSpace?: string;
+  colorRange?: string;
+  hdr: VideoHdrKind;
+  audioCodecs: string[];
+  audioStreams: number;
+}
+
+export interface VideoExportResolutionOption {
+  id: VideoResolutionPreset;
+  label: string;
+  width: number;
+  height: number;
+  upscaled: boolean;
+}
+
+export interface VideoExportEncoderCapability {
+  id: Exclude<VideoEncoderPreference, 'auto'>;
+  label: string;
+  encoder: string;
+  codec: VideoCodec;
+  hardware: boolean;
+  available: boolean;
+}
+
+export interface VideoExportFontCapability {
+  name: string;
+  available: boolean;
+  boldAvailable: boolean;
+  source: 'windows-system' | 'user-installed' | 'linux-system';
+}
+
+export interface VideoExportCapabilities {
+  supported: boolean;
+  blockingReason?: string;
+  source: VideoExportSourceInfo;
+  resolutions: VideoExportResolutionOption[];
+  encoders: VideoExportEncoderCapability[];
+  fonts: VideoExportFontCapability[];
+  subtitlesFilter: boolean;
+  availableDiskBytes: number;
+  warnings: string[];
+}
+
+export interface VideoExportResult {
+  filename: string;
+  url: string;
+  sizeBytes: number;
+  width: number;
+  height: number;
+  frameRate: number;
+  videoCodec: VideoCodec;
+  encoder: string;
+  audioCodec: string | null;
+  durationMs: number;
+  createdAt: string;
+}
+
 export interface TimingDiagnostics {
   engine: TimingEngine;
   provider: 'local' | 'google-cloud';
@@ -106,6 +242,8 @@ export interface CaptionProject {
   transcript: TranscriptResult | null;
   captions: CaptionSegment[];
   mode: CaptionMode;
+  /** Project-level burned-in caption appearance. It never changes SRT serialization. */
+  captionAppearance?: CaptionAppearance;
   engineVersion?: string;
   pipelineCache?: PipelineCacheInfo;
   /** Set when accepted caption-only diffs no longer exactly mirror canonical transcript tokens. */
@@ -253,6 +391,8 @@ export interface AppProfile {
   version: 1;
   defaultVocabulary: string[];
   styles: CaptionStylePreset[];
+  /** Reusable local burned-in appearance presets. Omitted legacy profiles remain valid. */
+  captionAppearances?: CaptionAppearancePreset[];
   topicPacks: TopicPack[];
   correctionRules: CorrectionRule[];
   correctionEvents: CorrectionEvent[];
@@ -363,7 +503,7 @@ export interface RegenerationRefinementInput {
   useProposalAsBaseline?: boolean;
 }
 
-export type ProcessingJobType = 'transcribe' | 'regenerate-range' | 'refine-proposal';
+export type ProcessingJobType = 'transcribe' | 'regenerate-range' | 'refine-proposal' | 'export-video';
 export type ProcessingJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 
 export interface ProcessingJob {
@@ -382,5 +522,6 @@ export interface ProcessingJob {
   error?: string;
   resultProjectId?: string;
   proposalId?: string;
+  resultExport?: VideoExportResult;
   canResume: boolean;
 }
