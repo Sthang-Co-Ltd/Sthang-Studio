@@ -86,6 +86,12 @@ function safeHex(value: unknown, fallback: string) {
   return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
 }
 
+function ffmpegMetadataValue(value: string | undefined) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || ['unknown', 'unspecified', 'reserved', 'n/a'].includes(raw)) return undefined;
+  return raw;
+}
+
 export function normalizeCaptionAppearance(value: Partial<CaptionAppearance> | null | undefined): CaptionAppearance {
   const raw = value || {};
   return {
@@ -239,10 +245,10 @@ async function probeMedia(inputPath: string): Promise<VideoExportSourceInfo> {
     videoCodec: String(video.codec_name || 'unknown'),
     pixelFormat: String(video.pix_fmt || 'unknown'),
     bitDepth: bitDepth(video),
-    colorPrimaries: video.color_primaries || undefined,
-    colorTransfer: video.color_transfer || undefined,
-    colorSpace: video.color_space || undefined,
-    colorRange: video.color_range || undefined,
+    colorPrimaries: ffmpegMetadataValue(video.color_primaries),
+    colorTransfer: ffmpegMetadataValue(video.color_transfer),
+    colorSpace: ffmpegMetadataValue(video.color_space),
+    colorRange: ffmpegMetadataValue(video.color_range),
     hdr: classifyHdr(video),
     audioCodecs: audio.map((stream) => String(stream.codec_name || 'unknown')),
     audioStreams: audio.length,
@@ -398,7 +404,7 @@ function assTimestamp(ms: number) {
 
 export function escapeAssText(text: string) {
   return String(text || '')
-    .replace(/\\/g, '\\h')
+    .replace(/\\/g, '＼')
     .replace(/\{/g, '｛')
     .replace(/\}/g, '｝')
     .replace(/\r?\n/g, '\\N')
@@ -414,6 +420,37 @@ function assColor(hex: string, opacity = 1) {
   return `&H${alpha}${bb}${gg}${rr}`;
 }
 
+function wrapCaptionText(text: string, maxGraphemesPerLine: number) {
+  const lines = String(text || '').split(/\r?\n/);
+  const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('km', { granularity: 'grapheme' }) : null;
+  const output: string[] = [];
+  for (const line of lines) {
+    const graphemes = segmenter ? Array.from(segmenter.segment(line), (item) => item.segment) : Array.from(line);
+    if (graphemes.length <= maxGraphemesPerLine) {
+      output.push(line);
+      continue;
+    }
+    let cursor = 0;
+    while (cursor < graphemes.length) {
+      const hardEnd = Math.min(graphemes.length, cursor + maxGraphemesPerLine);
+      let end = hardEnd;
+      if (hardEnd < graphemes.length) {
+        const floor = cursor + Math.max(1, Math.floor(maxGraphemesPerLine * 0.62));
+        for (let index = hardEnd - 1; index >= floor; index -= 1) {
+          if (/\s|[។៕៖!?.,:;]/u.test(graphemes[index] || '')) {
+            end = index + 1;
+            break;
+          }
+        }
+      }
+      output.push(graphemes.slice(cursor, end).join('').trim());
+      cursor = end;
+      while (cursor < graphemes.length && /\s/u.test(graphemes[cursor] || '')) cursor += 1;
+    }
+  }
+  return output.filter(Boolean).join('\n');
+}
+
 export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Partial<CaptionAppearance> | undefined, width: number, height: number) {
   const appearance = normalizeCaptionAppearance(appearanceInput);
   const scale = height / 1080;
@@ -423,13 +460,15 @@ export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Pa
   const boxPadding = Math.round(appearance.backgroundPadding1080 * scale * 10) / 10;
   const sideMargin = Math.max(8, Math.round(width * (100 - appearance.maxWidthPct) / 200));
   const marginV = Math.max(8, Math.round(height * appearance.positionBottomPct / 100));
+  const usableWidth = width * appearance.maxWidthPct / 100;
+  const maxGraphemesPerLine = Math.max(6, Math.floor(usableWidth / Math.max(1, fontSize * 0.72)));
   const alignment = appearance.alignment === 'left' ? 1 : appearance.alignment === 'right' ? 3 : 2;
   const borderStyle = appearance.backgroundEnabled ? 3 : 1;
   const styleOutline = appearance.backgroundEnabled ? Math.max(boxPadding, outline) : outline;
   const backColor = assColor(appearance.backgroundColor, appearance.backgroundEnabled ? appearance.backgroundOpacity : 0);
   const events = captions
     .filter((caption) => caption.text.trim() && caption.endMs > caption.startMs)
-    .map((caption) => `Dialogue: 0,${assTimestamp(caption.startMs)},${assTimestamp(caption.endMs)},Default,,0,0,0,,${escapeAssText(caption.text)}`)
+    .map((caption) => `Dialogue: 0,${assTimestamp(caption.startMs)},${assTimestamp(caption.endMs)},Default,,0,0,0,,${escapeAssText(wrapCaptionText(caption.text, maxGraphemesPerLine))}`)
     .join('\n');
   return `\uFEFF[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,${appearance.fontFamily.replace(/,/g, ' ')},${fontSize},${assColor(appearance.textColor)},${assColor(appearance.textColor)},${assColor(appearance.outlineColor)},${backColor},${appearance.bold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${styleOutline},${shadow},${alignment},${sideMargin},${sideMargin},${marginV},1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
 }
@@ -443,7 +482,7 @@ function selectedFontDirectory(fontName: string) {
     if (fontName === 'Noto Sans Khmer' && process.env.LOCALAPPDATA) return path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts');
     return path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts');
   }
-  return fontName === 'Noto Sans Khmer' ? '/usr/share/fonts' : '/usr/share/fonts';
+  return '/usr/share/fonts';
 }
 
 function qualityCrf(codec: VideoCodec, quality: VideoQualityPreset) {
@@ -493,6 +532,7 @@ function encoderArgs(capability: VideoExportEncoderCapability, settings: VideoEx
   }
   const preserve10Bit = settings.codec === 'hevc' && !capability.hardware && sourceBitDepth > 8;
   args.push('-pix_fmt', preserve10Bit ? 'yuv420p10le' : 'yuv420p');
+  if (settings.codec === 'hevc') args.push('-tag:v', 'hvc1');
   return args;
 }
 
@@ -509,6 +549,13 @@ async function runFfmpegRender(args: string[], durationMs: number, callbacks: Re
     let stderr = '';
     let cancelled = false;
     let lastReported = -1;
+    let settled = false;
+    const finish = (operation: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(cancelTimer);
+      operation();
+    };
     const cancelTimer = setInterval(() => {
       if (callbacks.shouldCancel?.() && !cancelled) {
         cancelled = true;
@@ -533,19 +580,15 @@ async function runFfmpegRender(args: string[], durationMs: number, callbacks: Re
       stderr += String(chunk);
       if (stderr.length > 32_000) stderr = stderr.slice(-32_000);
     });
-    child.on('error', (error) => {
-      clearInterval(cancelTimer);
-      reject(new Error(`FFmpeg could not start. ${error.message}`));
-    });
-    child.on('close', (code) => {
-      clearInterval(cancelTimer);
+    child.on('error', (error) => finish(() => reject(new Error(`FFmpeg could not start. ${error.message}`))));
+    child.on('close', (code) => finish(() => {
       if (cancelled || callbacks.shouldCancel?.()) {
         reject(new Error('Video export cancelled.'));
         return;
       }
       if (code === 0) resolve();
       else reject(new Error(`Video render failed (exit ${code}). ${stderr.trim() || 'FFmpeg did not provide an error message.'}`));
-    });
+    }));
   });
 }
 
@@ -590,7 +633,6 @@ export async function renderCaptionedVideo(
   settingsInput: Partial<VideoExportSettings> | undefined,
   callbacks: RenderCallbacks = {},
 ): Promise<VideoExportResult> {
-  if (!project.media.mimeType.startsWith('video/')) throw new Error('Captioned-video export requires a video project. Audio-only projects can still export SRT.');
   if (!captions.some((caption) => caption.text.trim())) throw new Error('There are no captions to burn into this video.');
   const settings = normalizeVideoExportSettings(settingsInput);
   const appearance = normalizeCaptionAppearance(appearanceInput);
