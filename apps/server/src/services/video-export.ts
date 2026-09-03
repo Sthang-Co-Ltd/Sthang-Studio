@@ -92,6 +92,20 @@ function ffmpegMetadataValue(value: string | undefined) {
   return raw;
 }
 
+function cancellationError() {
+  return new Error('Video export cancelled.');
+}
+
+function throwIfCancelled(callbacks: RenderCallbacks) {
+  if (callbacks.shouldCancel?.()) throw cancellationError();
+}
+
+async function emitProgress(callbacks: RenderCallbacks, progress: number, message: string) {
+  throwIfCancelled(callbacks);
+  await callbacks.onProgress?.(progress, message);
+  throwIfCancelled(callbacks);
+}
+
 export function normalizeCaptionAppearance(value: Partial<CaptionAppearance> | null | undefined): CaptionAppearance {
   const raw = value || {};
   return {
@@ -352,6 +366,10 @@ function projectMediaPath(project: CaptionProject) {
 
 export async function probeVideoExportCapabilities(project: CaptionProject, force = false): Promise<VideoExportCapabilities> {
   const cacheKey = `${project.id}:${project.media.filename}:${project.media.size}`;
+  if (force) {
+    capabilityCache.delete(cacheKey);
+    encoderProbeCache.clear();
+  }
   const cached = capabilityCache.get(cacheKey);
   if (!force && cached && Date.now() - cached.at < capabilityCacheMs) return cached.value;
   const [source, subtitlesFilter, encoders, fonts, availableDiskBytes] = await Promise.all([
@@ -516,6 +534,10 @@ function chooseEncoder(capabilities: VideoExportCapabilities, settings: VideoExp
   return requested;
 }
 
+function softwareEncoder(capabilities: VideoExportCapabilities, codec: VideoCodec) {
+  return capabilities.encoders.find((item) => item.codec === codec && item.id === 'software' && item.available);
+}
+
 function encoderArgs(capability: VideoExportEncoderCapability, settings: VideoExportSettings, width: number, height: number, fps: number, sourceBitDepth: number) {
   const args = ['-c:v', capability.encoder];
   if (!capability.hardware) {
@@ -549,6 +571,8 @@ async function runFfmpegRender(args: string[], durationMs: number, callbacks: Re
     let stderr = '';
     let cancelled = false;
     let lastReported = -1;
+    let progressError: unknown = null;
+    let progressPromise: Promise<void> = Promise.resolve();
     let settled = false;
     const finish = (operation: () => void) => {
       if (settled) return;
@@ -556,11 +580,13 @@ async function runFfmpegRender(args: string[], durationMs: number, callbacks: Re
       clearInterval(cancelTimer);
       operation();
     };
+    const requestStop = () => {
+      if (cancelled) return;
+      cancelled = true;
+      child.kill();
+    };
     const cancelTimer = setInterval(() => {
-      if (callbacks.shouldCancel?.() && !cancelled) {
-        cancelled = true;
-        child.kill();
-      }
+      if (callbacks.shouldCancel?.()) requestStop();
     }, 250);
     const report = (line: string) => {
       if (!line.startsWith('out_time=')) return;
@@ -568,7 +594,12 @@ async function runFfmpegRender(args: string[], durationMs: number, callbacks: Re
       const progress = Math.max(3, Math.min(96, Math.round(elapsed / Math.max(1, durationMs) * 96)));
       if (progress === lastReported) return;
       lastReported = progress;
-      void callbacks.onProgress?.(progress, `Rendering captioned video… ${progress}%`);
+      progressPromise = progressPromise
+        .then(() => emitProgress(callbacks, progress, `Rendering captioned video… ${progress}%`))
+        .catch((error) => {
+          progressError = error;
+          requestStop();
+        });
     };
     child.stdout.on('data', (chunk) => {
       stdoutBuffer += String(chunk);
@@ -582,12 +613,18 @@ async function runFfmpegRender(args: string[], durationMs: number, callbacks: Re
     });
     child.on('error', (error) => finish(() => reject(new Error(`FFmpeg could not start. ${error.message}`))));
     child.on('close', (code) => finish(() => {
-      if (cancelled || callbacks.shouldCancel?.()) {
-        reject(new Error('Video export cancelled.'));
-        return;
-      }
-      if (code === 0) resolve();
-      else reject(new Error(`Video render failed (exit ${code}). ${stderr.trim() || 'FFmpeg did not provide an error message.'}`));
+      void progressPromise.finally(() => {
+        if (progressError) {
+          reject(progressError);
+          return;
+        }
+        if (cancelled || callbacks.shouldCancel?.()) {
+          reject(cancellationError());
+          return;
+        }
+        if (code === 0) resolve();
+        else reject(new Error(`Video render failed (exit ${code}). ${stderr.trim() || 'FFmpeg did not provide an error message.'}`));
+      });
     }));
   });
 }
@@ -626,6 +663,50 @@ async function decodeSpotCheck(outputPath: string, durationMs: number) {
   }
 }
 
+function buildRenderArgs(
+  project: CaptionProject,
+  assPath: string,
+  partialPath: string,
+  appearance: CaptionAppearance,
+  settings: VideoExportSettings,
+  source: VideoExportSourceInfo,
+  encoder: VideoExportEncoderCapability,
+  width: number,
+  height: number,
+  outputFps: number,
+) {
+  const filters = [
+    `scale=${width}:${height}:flags=lanczos`,
+    'setsar=1',
+    ...(settings.frameRate === 'source' ? [] : [`fps=fps=${settings.frameRate}`]),
+    `subtitles=filename='${filterPath(assPath)}':fontsdir='${filterPath(selectedFontDirectory(appearance.fontFamily))}'`,
+  ];
+  const args = [
+    '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+    '-progress', 'pipe:1', '-stats_period', '0.5',
+    '-i', projectMediaPath(project),
+    '-map', '0:v:0', '-map', '0:a?',
+    '-vf', filters.join(','),
+    ...encoderArgs(encoder, settings, width, height, outputFps, source.bitDepth),
+  ];
+  if (source.audioStreams > 0) {
+    const canCopyAudio = source.audioCodecs.every((codec) => codec.toLowerCase() === 'aac');
+    args.push(...(canCopyAudio ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '192k']));
+  }
+  if (source.colorPrimaries) args.push('-color_primaries', source.colorPrimaries);
+  if (source.colorTransfer) args.push('-color_trc', source.colorTransfer);
+  if (source.colorSpace) args.push('-colorspace', source.colorSpace);
+  if (source.colorRange) args.push('-color_range', source.colorRange);
+  args.push(
+    '-map_metadata', '0',
+    '-metadata:s:v:0', 'rotate=0',
+    '-movflags', '+faststart',
+    '-fps_mode', settings.frameRate === 'source' ? 'vfr' : 'cfr',
+    partialPath,
+  );
+  return args;
+}
+
 export async function renderCaptionedVideo(
   project: CaptionProject,
   captions: CaptionSegment[],
@@ -645,7 +726,7 @@ export async function renderCaptionedVideo(
   if (appearance.bold && !font.boldAvailable) appearance.bold = false;
   const dimensions = resolveVideoDimensions(capabilities.source.displayWidth, capabilities.source.displayHeight, settings.resolution);
   const outputFps = settings.frameRate === 'source' ? capabilities.source.frameRate : settings.frameRate;
-  const encoder = chooseEncoder(capabilities, settings);
+  let encoder = chooseEncoder(capabilities, settings);
   const estimatedBytes = estimateVideoExportBytes(capabilities.source, settings);
   const freeBytes = await diskFreeBytes(config.exportDir);
   const reserveBytes = Math.max(256 * 1024 * 1024, Math.ceil(estimatedBytes * 1.25));
@@ -661,43 +742,39 @@ export async function renderCaptionedVideo(
   const finalPath = path.join(config.exportDir, filename);
   const partialPath = path.join(workDir, `${filename}.partial.mp4`);
   try {
-    await callbacks.onProgress?.(2, 'Preparing caption appearance and output settings…');
+    await emitProgress(callbacks, 2, 'Preparing caption appearance and output settings…');
     await fs.writeFile(assPath, buildAssDocument(captions, appearance, dimensions.width, dimensions.height), 'utf8');
-    const filters = [
-      `scale=${dimensions.width}:${dimensions.height}:flags=lanczos`,
-      'setsar=1',
-      ...(settings.frameRate === 'source' ? [] : [`fps=fps=${settings.frameRate}`]),
-      `subtitles=filename='${filterPath(assPath)}':fontsdir='${filterPath(selectedFontDirectory(appearance.fontFamily))}'`,
-    ];
-    const args = [
-      '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-      '-progress', 'pipe:1', '-stats_period', '0.5',
-      '-i', projectMediaPath(project),
-      '-map', '0:v:0', '-map', '0:a?',
-      '-vf', filters.join(','),
-      ...encoderArgs(encoder, settings, dimensions.width, dimensions.height, outputFps, capabilities.source.bitDepth),
-    ];
-    if (capabilities.source.audioStreams > 0) {
-      const canCopyAudio = capabilities.source.audioCodecs.every((codec) => codec.toLowerCase() === 'aac');
-      args.push(...(canCopyAudio ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '192k']));
+    throwIfCancelled(callbacks);
+
+    const render = async () => {
+      await fs.rm(partialPath, { force: true }).catch(() => {});
+      await runFfmpegRender(
+        buildRenderArgs(project, assPath, partialPath, appearance, settings, capabilities.source, encoder, dimensions.width, dimensions.height, outputFps),
+        capabilities.source.durationMs,
+        callbacks,
+      );
+    };
+
+    try {
+      await render();
+    } catch (error) {
+      throwIfCancelled(callbacks);
+      const fallback = settings.encoder === 'auto' && encoder.hardware ? softwareEncoder(capabilities, settings.codec) : undefined;
+      if (!fallback || error instanceof Error && error.message === 'Video export cancelled.') throw error;
+      encoder = fallback;
+      await emitProgress(callbacks, 3, `The preferred GPU encoder could not finish this render. Retrying safely with ${fallback.label.toLowerCase()} encoding…`);
+      await render();
     }
-    if (capabilities.source.colorPrimaries) args.push('-color_primaries', capabilities.source.colorPrimaries);
-    if (capabilities.source.colorTransfer) args.push('-color_trc', capabilities.source.colorTransfer);
-    if (capabilities.source.colorSpace) args.push('-colorspace', capabilities.source.colorSpace);
-    if (capabilities.source.colorRange) args.push('-color_range', capabilities.source.colorRange);
-    args.push(
-      '-map_metadata', '0',
-      '-metadata:s:v:0', 'rotate=0',
-      '-movflags', '+faststart',
-      '-fps_mode', settings.frameRate === 'source' ? 'vfr' : 'cfr',
-      partialPath,
-    );
-    await runFfmpegRender(args, capabilities.source.durationMs, callbacks);
-    await callbacks.onProgress?.(97, 'Verifying video, audio, dimensions, and duration…');
+
+    throwIfCancelled(callbacks);
+    await emitProgress(callbacks, 97, 'Verifying video, audio, dimensions, and duration…');
     const verified = await validateRenderedVideo(partialPath, dimensions.width, dimensions.height, capabilities.source, settings);
+    throwIfCancelled(callbacks);
     await decodeSpotCheck(partialPath, verified.result.durationMs);
+    throwIfCancelled(callbacks);
+    await emitProgress(callbacks, 99, 'Finalizing export…');
+    throwIfCancelled(callbacks);
     await fs.rename(partialPath, finalPath);
-    await callbacks.onProgress?.(99, 'Finalizing export…');
     return {
       filename,
       url: `/exports/${encodeURIComponent(filename)}`,
