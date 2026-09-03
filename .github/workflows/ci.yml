@@ -48,6 +48,9 @@ jobs:
       - name: Gemini request timeout tests
         run: npm run test:gemini
 
+      - name: High-resolution media clock tests
+        run: npm run test:media-clock
+
       - name: Updater tests
         run: npm run test:updater
 

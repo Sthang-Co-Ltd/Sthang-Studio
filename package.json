@@ -29,11 +29,12 @@
     "test:public": "node --test tests/public-readiness.test.mjs tests/product-release-identity.test.mjs",
     "test:contribution": "npm run build --workspace @kcs/shared && node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/analytics-worker.test.mjs tests/public-services-config.test.mjs tests/privacy-onboarding.test.ts",
     "test:gemini": "node --import tsx --test tests/gemini-request-timeout.test.ts",
+    "test:media-clock": "node --import tsx --test tests/media-clock.test.ts",
     "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs tests/ota-signer-worker.test.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
     "update:release": "node scripts/update-release.mjs",
-    "ci": "npm run test:public && npm run test:contribution && npm run test:gemini && npm run check:public && npm run test:updater && npm run typecheck && npm run build",
+    "ci": "npm run test:public && npm run test:contribution && npm run test:gemini && npm run test:media-clock && npm run check:public && npm run test:updater && npm run typecheck && npm run build",
     "test:update-powershell": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/update-powershell.test.ps1"
   },
   "allowScripts": {
