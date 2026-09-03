@@ -31,7 +31,7 @@ Less-used actions live in the labeled **Tools** menu. Never collapse them into u
 The video and caption list are the persistent core. Advanced workspaces appear one at a time:
 
 ```text
-Review · Fine timing · Accuracy · Caption style · Details
+Review · Fine timing · Accuracy · Caption grouping · Details
 ```
 
 Do not stack all advanced panels beneath the video. Do not use a blocking modal for any task that requires watching or replaying the video.
@@ -162,9 +162,10 @@ it must not invent a second consent contract.
 Prefer:
 
 - “System check” over “System Doctor”.
-- “Caption style” over “caption rhythm” for first exposure.
+- “Caption grouping” over “caption rhythm” for controls that change how much text appears at once.
 - “Review suggested” over multiple alarming chips on every row.
 - “Generate captions” over infrastructure-heavy descriptions in the primary path.
+- Editor-neutral SRT export guidance: SRT carries caption text and timing; visual styling is set in the destination editing app.
 - “Help make Khmer captions world-class” as mission-oriented Contributor framing,
   followed by precise data disclosure.
 - “Verified corrections” only after corpus verification, not after upload.

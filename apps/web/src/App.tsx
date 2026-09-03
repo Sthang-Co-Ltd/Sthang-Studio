@@ -696,15 +696,15 @@ export default function App() {
     const styles = [...profile.styles];
     const index = styles.findIndex((style) => style.id === next.id);
     if (index >= 0) styles[index] = next; else styles.unshift(next);
-    try { setProfile(await api.patchProfile({ styles })); setNotice('My TikTok Style saved to your transferable profile.'); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Style save failed'); }
+    try { setProfile(await api.patchProfile({ styles })); setNotice('Caption grouping saved to your transferable profile.'); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Grouping save failed'); }
   };
   const applyStyle = () => {
     if (!project || !profile) return;
     const style = profile.styles.find((item) => item.id === 'my-tiktok-style') || profile.styles[0];
     if (!style) return;
     setMaxChars(style.maxChars);
-    void runProject('Applying My TikTok Style…', () => api.resegment(project.id, style.mode, style.maxChars));
+    void runProject('Applying saved caption grouping…', () => api.resegment(project.id, style.mode, style.maxChars));
   };
 
   const regenerateSelection = async () => {
@@ -847,6 +847,7 @@ export default function App() {
       const anchor = document.createElement('a');
       anchor.href = `/api/projects/${project.id}/export.srt`; anchor.download = '';
       document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      setNotice('SRT export started. It includes caption text and timing; visual styling is set in your editing app.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Export failed'); }
     finally { setBusy(''); }
   };
@@ -909,7 +910,7 @@ export default function App() {
       const imported = await api.importProfile(value);
       setProfile(imported);
       setVocabularyText((current) => uniqueLines(imported.defaultVocabulary, current.split(/\r?\n/)).join('\n'));
-      setNotice('Profile imported. Glossary, topic packs, styles and correction memory are now available on this PC.');
+      setNotice('Profile imported. Glossary, topic packs, grouping presets and correction memory are now available on this PC.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Profile import failed'); }
     finally { setBusy(''); }
   };
@@ -1079,7 +1080,7 @@ export default function App() {
           onUpdates={() => setShowUpdates(true)}
         />
         <button className="save-action" disabled={!dirty || !!busy} title={dirty ? 'Save changes' : 'All changes saved'} onClick={() => void saveDraft(false, 'manual-save', true)}><Save size={16}/><span>{dirty ? 'Save' : 'Saved'}</span></button>
-        <button className={`primary ${draft.length ? '' : 'disabled'}`} title="Export for CapCut" disabled={!draft.length || !!busy} onClick={exportSrt}><Download size={16}/><span>Export SRT</span></button>
+        <button className={`primary ${draft.length ? '' : 'disabled'}`} title="Export caption text and timing as SRT" disabled={!draft.length || !!busy} onClick={exportSrt}><Download size={16}/><span>Export SRT</span></button>
       </div>
     </header>
 
@@ -1127,7 +1128,7 @@ export default function App() {
               {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ShieldCheck size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
               {hasHybrid && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
               <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><WandSparkles size={16}/><span>Accuracy</span><small>optional</small></button>
-              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption style</span></button>}
+              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption grouping</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
             </nav>
           </div>
@@ -1186,7 +1187,7 @@ export default function App() {
             {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>Local processing checkpoints are ready, so interrupted jobs can resume without repeating completed stages.</span></div>}
           </div>}
 
-          {workspaceTool === 'rhythm' && hasHybrid && <div className="controls-card"><div className="control-title"><strong>Caption style</strong><span>Change grouping without recalculating the speech timing. Locked captions stay protected.</span></div><div className="mode-grid">{modes.map((mode) => <button key={mode.id} className={project.mode === mode.id ? 'selected' : ''} disabled={!!busy} onClick={() => void runProject('Regrouping timed words…', () => api.resegment(project.id, mode.id, maxChars))}><strong>{mode.label}</strong><span>{mode.desc}</span></button>)}</div><label className="slider"><span>Target maximum characters <b>{maxChars}</b></span><input type="range" min="6" max="44" value={maxChars} onChange={(event) => setMaxChars(Number(event.target.value))}/></label><div className="preset-actions"><span>Use a saved rhythm across projects, or clean artificial Khmer spaces without changing timing.</span><button onClick={cleanKhmerSpacing} disabled={!!busy}><Languages size={14}/>Clean Khmer spacing</button><button onClick={saveStyle}>Save style</button>{profile?.styles.length ? <button onClick={applyStyle}>Apply saved style</button> : null}</div></div>}
+          {workspaceTool === 'rhythm' && hasHybrid && <div className="controls-card"><div className="control-title"><strong>Caption grouping</strong><span>Change how much caption text appears at once without recalculating speech timing. Visual styling is set in your editing app.</span></div><div className="mode-grid">{modes.map((mode) => <button key={mode.id} className={project.mode === mode.id ? 'selected' : ''} disabled={!!busy} onClick={() => void runProject('Regrouping timed words…', () => api.resegment(project.id, mode.id, maxChars))}><strong>{mode.label}</strong><span>{mode.desc}</span></button>)}</div><label className="slider"><span>Target maximum characters <b>{maxChars}</b></span><input type="range" min="6" max="44" value={maxChars} onChange={(event) => setMaxChars(Number(event.target.value))}/></label><div className="preset-actions"><span>Reuse the same grouping across projects, or clean artificial Khmer spaces without changing timing.</span><button onClick={cleanKhmerSpacing} disabled={!!busy}><Languages size={14}/>Clean Khmer spacing</button><button onClick={saveStyle}>Save grouping</button>{profile?.styles.length ? <button onClick={applyStyle}>Apply saved grouping</button> : null}</div></div>}
         </>}
       </div>
 

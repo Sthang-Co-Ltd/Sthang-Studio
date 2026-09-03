@@ -128,7 +128,7 @@ Sthang Studio is an **Operate** interface for a mixed beginner/power-user audien
 Preserve these rules:
 
 - The persistent core is video/audio evidence plus the caption list.
-- Show one advanced workspace at a time; do not stack waveform, review, context, timing details, and style controls together.
+- Show one advanced workspace at a time; do not stack waveform, review, context, timing details, and grouping controls together.
 - When no advanced workspace is open, never reserve an empty fixed-height tool region; the media canvas should reclaim that space on desktop.
 - Keep the project header limited to frequent actions. Less-used actions belong in the labeled Tools menu.
 - Never replace labels with unexplained icon-only controls at responsive breakpoints.
@@ -138,6 +138,7 @@ Preserve these rules:
 - Review auto-advance and optional auto-play must never leak into normal timeline editing.
 - A newly entered Review item may play with the configured surrounding context once; repeated loops, Replay, and post-edit verification must use the tight focus pass around the selected caption. Keep a deliberate **Play with context** escape hatch.
 - Normal tooltips and primary workflow copy must describe user actions/outcomes, not internal providers, models, aligners, runtimes, or fallback architecture. Technical names belong only in setup/Details/diagnostics when they are necessary.
+- Treat the grouping workspace as caption structure, not visual formatting. SRT export guidance must stay editor-neutral and state that SRT carries caption text and timing while visual styling is set in the destination editing app.
 - Errors and notices use the shared non-overlapping toast stack.
 - Do not introduce operational copy below 10px; target 13–15px for editable/body text.
 - Preserve visible keyboard focus, Khmer-aware typography, caption-list viewport stability, and explicit playback-follow controls.
