@@ -9,10 +9,15 @@ import {
 
 const router = Router();
 
+function isVideoProject(mimeType: string, originalName: string) {
+  return mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(originalName);
+}
+
 router.get('/:projectId/capabilities', async (req, res) => {
   try {
     const project = await store.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!isVideoProject(project.media.mimeType, project.media.originalName)) return res.status(409).json({ error: 'Captioned-video export requires a video project. Audio-only projects can still export SRT.' });
     res.json(await probeVideoExportCapabilities(project, String(req.query.refresh || '') === '1'));
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Could not inspect video export capabilities' });
@@ -36,7 +41,10 @@ router.post('/:projectId/jobs', async (req, res) => {
   try {
     const project = await store.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!isVideoProject(project.media.mimeType, project.media.originalName)) return res.status(409).json({ error: 'Captioned-video export requires a video project. Audio-only projects can still export SRT.' });
     if (!project.captions.length) return res.status(400).json({ error: 'Generate or add captions before exporting a captioned video.' });
+    const existing = (await jobStore.list(project.id)).find((job) => job.type === 'export-video' && ['queued', 'running'].includes(job.status));
+    if (existing) return res.status(409).json({ error: 'A captioned-video export is already active for this project. Cancel it or let it finish before starting another.' });
     const appearance = normalizeCaptionAppearance(req.body?.appearance || project.captionAppearance);
     const settings = normalizeVideoExportSettings(req.body?.settings);
     const capabilities = await probeVideoExportCapabilities(project);
