@@ -2,41 +2,91 @@
 
 ## Product
 
-Sthang Studio is a short-form video finishing workspace. Its current flagship module, **Captions**, helps Khmer-speaking creators move from a CapCut export to accurate, locally aligned, reviewable captions and a CapCut-ready SRT.
+Sthang Studio is a short-form video finishing workspace. Its flagship **Captions**
+module helps Khmer-speaking creators generate accurate wording, align it locally,
+review difficult moments quickly, and choose between a portable subtitle file or
+a finished captioned-video render.
+
+The published release state is governed separately by release evidence. A feature
+being present on `main` is not proof that it is available in the current public
+download.
 
 ## Primary users
 
 - Cambodian TikTok and short-form creators.
-- Many users are comfortable with CapCut but are not developers.
-- Experience ranges from first-time caption-tool users to power users who need waveform timing, locks, correction memory, and regeneration diffs.
+- Many users are comfortable with mainstream video editors but are not developers.
+- Experience ranges from first-time caption-tool users to power users who need waveform timing, locks, correction memory, regeneration diffs, and quality-controlled export.
 
 ## Primary job
 
-> Upload a video, generate accurate Khmer captions, quickly verify the few uncertain parts, and export an SRT without learning a professional subtitle application.
+> Upload a video, generate accurate Khmer captions, quickly verify the few uncertain parts, then export either editable timed captions or a finished captioned video without learning a professional subtitle application.
 
 ## Aha moment
 
-The first captioned playback stays synchronized through the full video, with Khmer wording that is materially better than CapCut and an obvious path to correct any remaining issue.
+The first captioned playback stays synchronized through the full video, with Khmer
+wording that is materially better than generic caption tools and an obvious path
+to correct any remaining issue. When the creator chooses a finished render, the
+caption appearance they selected is preserved in the exported picture.
 
 ## Core workflow
 
 ```text
-Upload → optional accuracy context → generate → review flagged captions → export SRT
+Upload → optional accuracy context → generate → review flagged captions → export
+                                                          ↳ SRT
+                                                          ↳ Captioned video
 ```
 
 Everything else is secondary and should appear progressively, at the moment it becomes useful.
+
+## Export contract
+
+Sthang Studio has two deliberately different output paths:
+
+- **SRT** remains the portable, editable caption handoff. It contains caption text
+  and timing; it does not promise visual-style transfer into another editor.
+- **Captioned video** is a new local render with caption appearance baked into the
+  picture. The source media is never overwritten, and captions are no longer
+  separately editable inside the exported MP4.
+
+For captioned-video export:
+
+- Match-source is the recommended quality default.
+- HD 720p, Full HD 1080p, QHD 1440p and 4K UHD 2160p must preserve source aspect
+  ratio/orientation without implicit cropping; above-source output is labeled as
+  upscaled rather than presented as recovered detail.
+- Match-source frame rate is the default. Fixed 24/25/30/50/60 fps is an explicit
+  conversion choice.
+- Studio must probe real local encoder/filter/font capability rather than infer it
+  from a GPU name or installed command.
+- Output is non-destructive: render to a partial file, verify it, then publish the
+  final file atomically.
+- A render uses an immutable snapshot of captions, appearance, export settings and
+  source-media identity. Later caption edits do not mutate a running export.
+- Video rendering has its own processing lane so a long 4K render does not block
+  caption generation or regeneration. Media replacement/deletion remains blocked
+  while an export uses that source.
+- Never silently crop, lower the chosen resolution/frame rate, drop source audio,
+  flatten HDR, add a watermark, or overwrite the original media.
+- HDR10, HLG, Dolby Vision and unknown HDR are blocked until the exact color path
+  is validated. An honest block is preferable to a successful-looking export with
+  damaged color.
+- Caption appearance is project/export state, not caption text state. It must not
+  change SRT serialization, correction eligibility, timing, locks, or history.
+- Browser appearance preview may be approximate; copy must distinguish it from the
+  final local FFmpeg/libass render. Release readiness requires representative real
+  render validation, not only browser preview or type/build checks.
 
 ## Product principles
 
 1. **Evidence stays visible.** Audio/video remains playable during any decision about text or timing.
 2. **Safe by default.** Regeneration proposes; it never silently destroys reviewed work.
-3. **Local where practical.** KFA/Whisper timing stays local and paid cloud timing remains a last resort.
+3. **Local where practical.** KFA/Whisper timing and finished video rendering stay local; paid cloud timing remains a last resort.
 4. **Reuse completed deterministic work.** Normalized/range audio, local acoustic evidence, exact timing results, and completed stages of the same resumable job should be reused when their signatures still match. A request for a fresh AI alternative must remain a fresh listen.
 5. **Fast repeated review matters.** The first pass may perform necessary preparation; subsequent Improve, Deep Verify, exact realignment, waveform reopening, and job resume should avoid repeating unchanged work wherever accuracy and safeguards allow.
 6. **Plain language.** Casual users should not need to understand `.env`, forced alignment, CPS, tokens, providers, model names, or timing infrastructure to succeed. Keep implementation names out of routine tooltips and primary workflow copy; disclose them only where setup or diagnostics genuinely require them.
 7. **Power without intimidation.** Advanced controls remain available, but one focused tool is shown at a time.
-8. **Errors explain recovery.** Messages name what failed and the exact next action.
-9. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text.
+8. **Errors explain recovery.** Messages name what failed, what remains safe, and the exact next action.
+9. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text; render-only wrapping must respect Khmer grapheme boundaries.
 10. **Updates never compete with caption work.** Check at most once per Studio
     session plus an explicit manual action, require confirmation before download
     and install, and block activation while editing, Review, regeneration, export,
@@ -55,6 +105,10 @@ Everything else is secondary and should appear progressively, at the moment it b
 14. **Cloud improvement paths fail open for creators.** Contribution/analytics
     outages never block generation, Review, editing, saving, export, or local
     correction memory. Studio remains useful when either service is absent.
+15. **Technical export quality is a product promise.** A creator choosing Studio's
+    finished-video path should not accept a hidden resolution, timing, audio, color,
+    or aspect-ratio downgrade. Creative NLE features remain out of scope unless they
+    directly improve the caption workflow.
 
 ## Khmer Caption Contributor
 
@@ -111,4 +165,6 @@ leaderboards. Quantity incentives must never encourage fabricated/noisy edits.
 - Number and duration of **verified** Khmer contribution samples, kept distinct from submitted candidates.
 - Percentage of Contributor uploads rejected as noisy/ambiguous evidence; quality should improve before volume is optimized.
 - Contributor withdrawal/deletion requests completed without affecting local projects.
-- Analytics funnel measures such as project creation → generation → review/approval → successful SRT export, without collecting caption content.
+- Analytics funnel measures such as project creation → generation → review/approval → successful export, without collecting caption content.
+- Captioned-video render success rate by source resolution/codec/frame-rate class without collecting filenames or content.
+- Post-render verification failures, cancellations, and resumptions, using only coarse allow-listed operational buckets if analytics consent is granted.
