@@ -42,9 +42,10 @@ test('resolution presets preserve orientation and aspect ratio without cropping'
   assert.deepEqual(resolveVideoDimensions(1080, 1080, '2160p'), { width: 2160, height: 2160, upscaled: true });
   assert.deepEqual(resolveVideoDimensions(1919, 1079, 'source'), { width: 1920, height: 1080, upscaled: false });
 
+  // Portrait 1080p is a 1080x1920 envelope, so a 4:5 source already fits at source size.
   const unusual = resolveVideoDimensions(1080, 1350, '1080p');
-  assert.equal(unusual.width, 864);
-  assert.equal(unusual.height, 1080);
+  assert.equal(unusual.width, 1080);
+  assert.equal(unusual.height, 1350);
   assert.equal(unusual.upscaled, false);
 });
 
