@@ -57,11 +57,16 @@ interface RuntimePerformanceState {
 }
 
 type JobSubscriber = (snapshot: ProcessingJob[]) => void;
+type JobLane = 'caption' | 'export';
 
 let jobs: StoredJob[] = [];
-let pumping = false;
+const pumping: Record<JobLane, boolean> = { caption: false, export: false };
 const performanceStates = new Map<string, RuntimePerformanceState>();
 const subscribers = new Set<JobSubscriber>();
+
+function laneFor(type: ProcessingJobType): JobLane {
+  return type === 'export-video' ? 'export' : 'caption';
+}
 
 function beginPerformance(id: string) {
   const now = Date.now();
@@ -294,7 +299,8 @@ async function execute(job: StoredJob) {
     performance,
   });
   try {
-    await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
+    if (job.type === 'export-video') await executeJobOperation(job);
+    else await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
     if (job.type !== 'export-video') await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
@@ -321,22 +327,27 @@ async function execute(job: StoredJob) {
   }
 }
 
-async function pump() {
-  if (pumping) return;
-  pumping = true;
+async function pumpLane(lane: JobLane) {
+  if (pumping[lane]) return;
+  pumping[lane] = true;
   try {
     while (true) {
-      const next = jobs.find((job) => job.status === 'queued');
+      const next = jobs.find((job) => job.status === 'queued' && laneFor(job.type) === lane);
       if (!next) break;
       await execute(next);
     }
   } finally {
-    pumping = false;
+    pumping[lane] = false;
   }
 }
 
+function pump() {
+  void pumpLane('caption');
+  void pumpLane('export');
+}
+
 await load();
-queueMicrotask(() => { void pump(); });
+queueMicrotask(pump);
 
 export const jobStore = {
   hasAnyActive() {
@@ -394,7 +405,7 @@ export const jobStore = {
     await persist();
     notifySubscribers();
     if (type !== 'export-video') void captureAnalytics('generation_started', { job_type: type });
-    void pump();
+    pump();
     return publicJob(job);
   },
 
@@ -419,7 +430,7 @@ export const jobStore = {
       performance: undefined,
     });
     if (job.type !== 'export-video') void captureAnalytics('generation_started', { job_type: job.type });
-    void pump();
+    pump();
     return (await this.get(id))!;
   },
 
