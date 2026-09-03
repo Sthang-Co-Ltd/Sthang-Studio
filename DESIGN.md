@@ -21,10 +21,13 @@
 Only frequent actions remain visible:
 
 ```text
-Review · Tools · Save · Export SRT
+Review · Tools · Save · Export
 ```
 
-Less-used actions live in the labeled **Tools** menu. Never collapse them into unexplained icon-only buttons at narrower widths.
+**Export** opens one focused output workspace. It does not immediately download a
+file because Studio now has two legitimate output paths: editable SRT and finished
+captioned video. Less-used actions live in the labeled **Tools** menu. Never
+collapse them into unexplained icon-only buttons at narrower widths.
 
 ### Editor
 
@@ -37,6 +40,44 @@ Review · Fine timing · Accuracy · Caption grouping · Details
 Do not stack all advanced panels beneath the video. Do not use a blocking modal for any task that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
+
+### Export workspace
+
+Export is an output decision, not another always-visible editing panel. Opening the
+header action temporarily uses the same focused workspace region and keeps the
+video/caption evidence visible.
+
+Present two clearly different paths:
+
+```text
+Captions file (SRT)        Captioned video (MP4)
+text + timing              finished appearance baked into picture
+editable elsewhere        not separately editable inside the MP4
+```
+
+- Keep SRT first-class and editor-neutral. Never imply that font, color, size,
+  position, outline, background, or animation transfers through SRT.
+- Captioned-video appearance belongs inside the video-export path, not Caption
+  grouping and not the caption rows.
+- Default video quality should be **Match source** + **Recommended**. Expose
+  HD/FHD/QHD/4K and fixed frame rates without implying that upscaling recovers
+  source detail.
+- Mark any larger-than-source result **Upscaled**.
+- Keep advanced codec/bitrate/encoder controls progressively disclosed.
+- Show source dimensions/frame rate/color state, estimated output size, and free
+  disk space before a long render where available.
+- Browser caption appearance is a responsive working preview, not proof of exact
+  rendered pixels. Label it accordingly; release validation uses the actual local
+  render path.
+- Appearance controls must remain Khmer-safe and project/output-scoped. They never
+  mutate SRT, correction eligibility, timing, locks, Review focus, or source media.
+- Reusable appearance presets are local creator-profile conveniences. Applying a
+  preset changes the current export/project appearance only.
+- If HDR cannot be preserved correctly, block the finished-video path with a
+  specific explanation while keeping SRT available. Never hide color loss behind
+  a normal success state.
+- Long video renders belong in Activity with progress/cancel/resume/download.
+  They must not cover the editor or force the creator to stop caption work.
 
 ### Review decisions
 
@@ -151,6 +192,8 @@ it must not invent a second consent contract.
   install remain distinct labeled actions, and unsafe active work must be
   explained before those actions can proceed.
 - Regeneration review stays docked beneath the video.
+- Video export runs in Activity rather than a blocking progress modal. Completion
+  exposes a direct download action without auto-opening or overwriting media.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.
 - Optional analytics/contribution outages should not create alarming editor
@@ -166,15 +209,17 @@ Prefer:
 - “Review suggested” over multiple alarming chips on every row.
 - “Generate captions” over infrastructure-heavy descriptions in the primary path.
 - Editor-neutral SRT export guidance: SRT carries caption text and timing; visual styling is set in the destination editing app.
+- “Captioned video” for the finished MP4 path; do not call the browser overlay an exact rendered preview.
+- “Match source” as the default quality choice; “Upscaled” when output dimensions exceed source dimensions.
 - “Help make Khmer captions world-class” as mission-oriented Contributor framing,
   followed by precise data disclosure.
 - “Verified corrections” only after corpus verification, not after upload.
 
-Technical details remain available in **Details**, diagnostics, and privacy
-explanations where the provider/storage distinction is material to a user's
-choice.
+Technical details remain available in **Details**, diagnostics, export Advanced,
+and privacy explanations where the provider/storage distinction is material to a
+user's choice.
 
-Tooltips should be brief, concrete, and action-oriented. Do not name KFA, Gemini, Whisper, model IDs, backend/runtime components, or fallback architecture in ordinary hover help or the primary workflow. Provider/model names are allowed where users genuinely need them to configure or diagnose the system, and hosted-service names may appear in Privacy when they are needed for informed data-flow disclosure.
+Tooltips should be brief, concrete, and action-oriented. Do not name KFA, Gemini, Whisper, model IDs, backend/runtime components, or fallback architecture in ordinary hover help or the primary workflow. Provider/model names are allowed where users genuinely need them to configure or diagnose the system, and hosted-service names may appear in Privacy when they are needed for informed data-flow disclosure. FFmpeg/libass names may appear in advanced export diagnostics or the clearly labeled render-preview boundary where they explain a local capability limitation; do not make creators learn them to perform a normal export.
 
 ## Browser surfaces
 
@@ -191,4 +236,4 @@ The home screen is an operational launcher, not a marketing landing page. Keep o
 - Pre-roll remains clean: the review marker must not appear on the preceding caption before the target timestamp begins.
 - Default review focus is **Brackets + label**; users may choose **Brackets only** or **Off**.
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
-- Review-focus graphics are editor chrome and must never affect SRT export or source media.
+- Review-focus graphics are editor chrome and must never affect SRT export, captioned-video appearance, or source media.
