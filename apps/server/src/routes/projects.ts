@@ -93,7 +93,7 @@ router.post('/:id/replace-media', upload.single('media'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Choose a replacement video or audio file.' });
     if (jobStore.hasActiveForProject(project.id)) {
       await fs.rm(req.file.path, { force: true });
-      return res.status(409).json({ error: 'A caption job is still running for this project. Finish or cancel it before replacing the media.' });
+      return res.status(409).json({ error: 'A processing job is still running for this project. Finish or cancel it before replacing the media.' });
     }
     const ext = path.extname(req.file.originalname);
     const filename = `${project.id}-${Date.now()}${ext}`;
@@ -221,6 +221,7 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
       ...entry.snapshot,
       id: current.id,
       media: current.media,
+      captionAppearance: current.captionAppearance,
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString(),
       engineVersion: '0.7.10',
