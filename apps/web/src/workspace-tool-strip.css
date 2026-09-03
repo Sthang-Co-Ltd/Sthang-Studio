@@ -1,0 +1,35 @@
+/* Workspace tool selector affordance.
+   Keep advanced tools visually secondary to the caption workflow while making
+   each option read as an intentional control rather than passive metadata. */
+.stage-column .workspace-tool-strip{
+  padding:12px 14px;
+  border:1px solid #262d35;
+  border-radius:12px;
+  background:#0d1014;
+  box-shadow:inset 0 1px 0 #ffffff05;
+}
+.stage-column .workspace-tool-strip nav{gap:7px}
+.stage-column .workspace-tool-strip nav>button{
+  border-color:#303740;
+  border-radius:10px;
+  background:#12161a;
+  color:#b5bec7;
+  padding-inline:11px;
+  box-shadow:inset 0 1px 0 #ffffff04;
+}
+.stage-column .workspace-tool-strip nav>button:hover{
+  border-color:#4b5661;
+  background:#181d22;
+  color:#f3f5f7;
+}
+.stage-column .workspace-tool-strip nav>button.active{
+  border-color:#7d9138;
+  background:#1a210f;
+  color:#efffb8;
+  box-shadow:inset 0 0 0 1px #d7ff4f1a;
+}
+.stage-column .workspace-tool-strip nav>button.active:hover{
+  border-color:#9db844;
+  background:#1e2710;
+  color:#f5ffcb;
+}
