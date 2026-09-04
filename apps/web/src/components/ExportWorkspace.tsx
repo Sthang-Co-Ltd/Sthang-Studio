@@ -143,6 +143,7 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
     const availableFonts = capabilities.fonts.filter((font) => font.available);
     if (availableFonts.length && !availableFonts.some((font) => font.name === appearance.fontFamily)) {
       setAppearance((current) => ({ ...current, fontFamily: availableFonts[0].name, bold: availableFonts[0].boldAvailable && current.bold }));
+      setSelectedPresetId('');
     }
     const codecAvailable = capabilities.encoders.some((encoder) => encoder.codec === settings.codec && encoder.available);
     if (!codecAvailable && settings.codec === 'hevc') setSettings((current) => ({ ...current, codec: 'h264', encoder: 'auto' }));
@@ -156,6 +157,17 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
   const source = capabilities?.source;
   const exportBlocked = Boolean(!videoProject || !capabilities?.supported || activeExportJob || busy || startingExport || !project.captions.length);
   const sampleScale = Math.max(0.55, Math.min(1.7, appearance.fontSize1080 / DEFAULT_CAPTION_APPEARANCE.fontSize1080));
+
+  const fitAppearanceToFonts = (value: CaptionAppearance) => {
+    const font = availableFonts.find((item) => item.name === value.fontFamily) || availableFonts[0];
+    return font ? { ...value, fontFamily: font.name, bold: font.boldAvailable && value.bold } : value;
+  };
+
+  const updateAppearance = (change: (current: CaptionAppearance) => CaptionAppearance) => {
+    setSelectedPresetId('');
+    setDeletePresetArmed(false);
+    setAppearance(change);
+  };
 
   const saveAppearance = async () => {
     setSavingAppearance(true);
@@ -191,8 +203,12 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
   const applyPreset = (id: string) => {
     setSelectedPresetId(id);
     setDeletePresetArmed(false);
+    if (!id) {
+      setAppearance(fitAppearanceToFonts({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance }));
+      return;
+    }
     const preset = presets.find((item) => item.id === id);
-    if (preset) setAppearance({ ...preset.appearance });
+    if (preset) setAppearance(fitAppearanceToFonts({ ...preset.appearance }));
   };
 
   const deletePreset = async () => {
@@ -247,7 +263,7 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
       {actionError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Export needs attention</strong><span>{actionError}</span></div></div>}
       {capabilities && !capabilities.supported && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Captioned video is blocked for this source</strong><span>{capabilities.blockingReason}</span></div></div>}
 
-      {capabilities && <>
+      {capabilities?.supported && <>
         <section className="export-section" aria-labelledby="video-quality-title">
           <div className="export-section-title"><div><strong id="video-quality-title">Video</strong><span>Match source + Recommended is the safest default.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
 
@@ -274,10 +290,10 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
         </section>
 
         <section className="export-section appearance-section" aria-labelledby="caption-appearance-title">
-          <div className="export-section-title"><div><strong id="caption-appearance-title">Caption appearance</strong><span>Applies only to the captioned video. SRT remains text + timing.</span></div><button className="quiet-action" onClick={() => setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, fontFamily: availableFonts[0]?.name || DEFAULT_CAPTION_APPEARANCE.fontFamily })}><RotateCcw size={13}/>Reset</button></div>
+          <div className="export-section-title"><div><strong id="caption-appearance-title">Caption appearance</strong><span>Applies only to the captioned video. SRT remains text + timing.</span></div><button className="quiet-action" onClick={() => updateAppearance(() => fitAppearanceToFonts({ ...DEFAULT_CAPTION_APPEARANCE }))}><RotateCcw size={13}/>Reset</button></div>
 
           <div className="appearance-preset-bar">
-            <label><span>Preset</span><select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}><option value="">Current project appearance</option>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
+            <label><span>Preset</span><select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}><option value="">Custom / current project</option>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
             <details className="appearance-preset-tools" onToggle={() => setDeletePresetArmed(false)}>
               <summary>Manage presets</summary>
               <div className="appearance-preset-tools-body">
@@ -289,10 +305,10 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
           </div>
 
           <div className="appearance-essential-grid">
-            <label><span>Khmer font</span><select value={appearance.fontFamily} onChange={(event) => { const font = availableFonts.find((item) => item.name === event.target.value); setAppearance((current) => ({ ...current, fontFamily: event.target.value, bold: font?.boldAvailable ? current.bold : false })); }}>{availableFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</select></label>
-            <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => setAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
-            <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => setAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }))}/></label>
-            <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => setAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }))}/></label>
+            <label><span>Khmer font</span><select value={appearance.fontFamily} onChange={(event) => { const font = availableFonts.find((item) => item.name === event.target.value); updateAppearance((current) => ({ ...current, fontFamily: event.target.value, bold: font?.boldAvailable ? current.bold : false })); }}>{availableFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</select></label>
+            <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
+            <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }))}/></label>
+            <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }))}/></label>
           </div>
 
           <div className="appearance-preview" aria-label="Approximate caption appearance sample">
@@ -316,14 +332,14 @@ export function ExportWorkspace({ project, sampleText, busy, activeExportJob, on
           <details className="appearance-more">
             <summary>More appearance</summary>
             <div className="appearance-grid">
-              <label className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} disabled={!availableFonts.find((font) => font.name === appearance.fontFamily)?.boldAvailable} onClick={() => setAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></label>
-              <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => setAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
-              <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => setAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }))}/></label>
-              <label className="range-field"><span>Shadow <b>{appearance.shadowWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.shadowWidth1080} onChange={(event) => setAppearance((current) => ({ ...current, shadowWidth1080: Number(event.target.value) }))}/></label>
-              <label className="range-field"><span>Max width <b>{appearance.maxWidthPct}%</b></span><input type="range" min="45" max="96" value={appearance.maxWidthPct} onChange={(event) => setAppearance((current) => ({ ...current, maxWidthPct: Number(event.target.value) }))}/></label>
-              <label><span>Alignment</span><select value={appearance.alignment} onChange={(event) => setAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-              <label className="toggle-field"><span>Background box</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => setAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? 'On' : 'Off'}</button></label>
-              {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => setAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Background opacity <b>{Math.round(appearance.backgroundOpacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(appearance.backgroundOpacity * 100)} onChange={(event) => setAppearance((current) => ({ ...current, backgroundOpacity: Number(event.target.value) / 100 }))}/></label><label className="range-field"><span>Box padding <b>{appearance.backgroundPadding1080}px</b></span><input type="range" min="0" max="28" value={appearance.backgroundPadding1080} onChange={(event) => setAppearance((current) => ({ ...current, backgroundPadding1080: Number(event.target.value) }))}/></label></>}
+              <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} disabled={!availableFonts.find((font) => font.name === appearance.fontFamily)?.boldAvailable} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
+              <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
+              <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }))}/></label>
+              <label className="range-field"><span>Shadow <b>{appearance.shadowWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.shadowWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, shadowWidth1080: Number(event.target.value) }))}/></label>
+              <label className="range-field"><span>Max width <b>{appearance.maxWidthPct}%</b></span><input type="range" min="45" max="96" value={appearance.maxWidthPct} onChange={(event) => updateAppearance((current) => ({ ...current, maxWidthPct: Number(event.target.value) }))}/></label>
+              <label><span>Alignment</span><select value={appearance.alignment} onChange={(event) => updateAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+              <div className="toggle-field"><span>Background box</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? 'On' : 'Off'}</button></div>
+              {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Background opacity <b>{Math.round(appearance.backgroundOpacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(appearance.backgroundOpacity * 100)} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundOpacity: Number(event.target.value) / 100 }))}/></label><label className="range-field"><span>Box padding <b>{appearance.backgroundPadding1080}px</b></span><input type="range" min="0" max="28" value={appearance.backgroundPadding1080} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundPadding1080: Number(event.target.value) }))}/></label></>}
             </div>
           </details>
 
