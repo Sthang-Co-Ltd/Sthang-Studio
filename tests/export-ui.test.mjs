@@ -74,6 +74,7 @@ test('appearance save barrier serializes writes and preserves the latest save re
   assert.match(appearanceSave, /await api\.saveCaptionAppearance\(projectId, snapshot\)/);
   assert.match(appearanceSave, /export async function waitForCaptionAppearanceSaves/);
   assert.match(appearanceSave, /lastResults\.get\(projectId\) \?\? true/);
+  assert.match(appearanceComponent, /await waitForCaptionAppearanceSaves\(project\.id\)/);
 });
 
 test('export waits for appearance saves, re-reads saved appearance, and snapshots it into the render request', () => {
