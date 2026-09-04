@@ -17,6 +17,7 @@ import { createRangeRegenerationProposal, refineRegenerationProposal, transcribe
 import { withProcessingRun } from './run-context.js';
 import { removeRunCheckpoints } from './run-checkpoints.js';
 import { renderCaptionedVideo } from './video-export.js';
+import { cleanupStaleVideoExportWork } from './export-maintenance.js';
 
 interface JobPayload {
   transcriptionContext?: TranscriptionContext;
@@ -346,6 +347,7 @@ function pump() {
   void pumpLane('export');
 }
 
+await cleanupStaleVideoExportWork();
 await load();
 queueMicrotask(pump);
 
