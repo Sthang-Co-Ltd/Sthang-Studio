@@ -13,6 +13,7 @@ import {
 } from '@kcs/shared';
 import { Download, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
+import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import './video-export.css';
 
 interface Props {
@@ -75,6 +76,10 @@ function isVideoProject(project: CaptionProject) {
   return project.media.mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(project.media.originalName);
 }
 
+function resolvedAppearance(project: CaptionProject): CaptionAppearance {
+  return { ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance };
+}
+
 export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
@@ -83,7 +88,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
   const [capabilityError, setCapabilityError] = useState('');
   const [actionError, setActionError] = useState('');
   const [settings, setSettings] = useState<VideoExportSettings>(DEFAULT_SETTINGS);
-  const [appearance, setAppearance] = useState<CaptionAppearance>({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance });
+  const [appearance, setAppearance] = useState<CaptionAppearance>(resolvedAppearance(project));
+  const [appearanceSaveBlocked, setAppearanceSaveBlocked] = useState(false);
   const [startingExport, setStartingExport] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -105,15 +111,28 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
     let active = true;
     setOutputMode(videoProject ? 'video' : 'captions');
     setSettings(DEFAULT_SETTINGS);
-    setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance });
+    setAppearance(resolvedAppearance(project));
+    setAppearanceSaveBlocked(false);
     setCapabilities(null);
     setCapabilityError('');
     setActionError('');
     setAdvancedOpen(false);
     void loadCapabilities(false);
-    void api.get(project.id).then((fresh) => {
-      if (active) setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, ...fresh.captionAppearance });
-    }).catch(() => {});
+    void (async () => {
+      const saved = await waitForCaptionAppearanceSaves(project.id);
+      if (!active) return;
+      if (!saved) {
+        setAppearanceSaveBlocked(true);
+        setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');
+        return;
+      }
+      try {
+        const fresh = await api.get(project.id);
+        if (active) setAppearance(resolvedAppearance(fresh));
+      } catch {
+        if (active) setActionError('Could not load the latest saved caption appearance. Reopen Export to try again.');
+      }
+    })();
     return () => { active = false; };
   }, [project.id, project.media.filename]);
 
@@ -129,14 +148,31 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
   const hevcAvailable = Boolean(capabilities?.encoders.some((encoder) => encoder.codec === 'hevc' && encoder.available));
   const source = capabilities?.source;
   const appearanceFontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily));
-  const exportBlocked = Boolean(!videoProject || !capabilities?.supported || appearanceFontUnavailable || activeExportJob || busy || startingExport || !project.captions.length);
+  const exportBlocked = Boolean(!videoProject || !capabilities?.supported || appearanceSaveBlocked || appearanceFontUnavailable || activeExportJob || busy || startingExport || !project.captions.length);
 
   const startExport = async () => {
     setStartingExport(true);
     setActionError('');
-    try { await onStartVideoExport(settings, appearance); }
-    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not start video export'); }
-    finally { setStartingExport(false); }
+    try {
+      const saved = await waitForCaptionAppearanceSaves(project.id);
+      if (!saved) {
+        setAppearanceSaveBlocked(true);
+        setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');
+        return;
+      }
+      const fresh = await api.get(project.id);
+      const latestAppearance = resolvedAppearance(fresh);
+      setAppearance(latestAppearance);
+      setAppearanceSaveBlocked(false);
+      const fontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily));
+      if (fontUnavailable) {
+        setActionError(`${latestAppearance.fontFamily} is not available on this PC. Edit appearance and choose an available Khmer font before rendering.`);
+        return;
+      }
+      await onStartVideoExport(settings, latestAppearance);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not start video export');
+    } finally { setStartingExport(false); }
   };
 
   const setCodec = (codec: VideoCodec) => setSettings((current) => ({ ...current, codec, encoder: 'auto' }));
