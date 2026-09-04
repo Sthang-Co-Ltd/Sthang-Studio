@@ -51,13 +51,15 @@ test('appearance is a first-class editor workspace with progressive controls', (
   assert.match(appearanceComponent, /<span>Position <b>/);
 });
 
-test('preset management disclosure stays anchored when opened', () => {
+test('preset management disclosure keeps the selector full width without dead desktop space', () => {
   assert.match(appearanceComponent, /<details className="appearance-preset-tools"/);
-  assert.match(appearanceCss, /\.appearance-preset-bar\{display:flex;align-items:flex-start;/);
-  assert.doesNotMatch(appearanceCss, /\.appearance-preset-bar\{display:flex;align-items:flex-end;/);
-  assert.match(appearanceCss, /\.appearance-preset-bar>label\{min-width:220px;max-width:360px;flex:0 1 360px\}/);
-  assert.match(appearanceCss, /\.appearance-preset-tools\[open\]\{flex:1;min-width:0\}/);
-  assert.match(appearanceCss, /@media\(max-width:780px\)[\s\S]*\.appearance-preset-bar\{align-items:stretch;flex-direction:column\}/);
+  assert.match(appearanceCss, /\.appearance-preset-bar\{display:block;position:relative;/);
+  assert.match(appearanceCss, /\.appearance-preset-bar>label\{min-width:0;max-width:none\}/);
+  assert.match(appearanceCss, /\.appearance-preset-bar>label>select\{width:100%\}/);
+  assert.match(appearanceCss, /\.appearance-preset-tools summary\{position:absolute;top:14px;right:0\}/);
+  assert.match(appearanceCss, /\.appearance-preset-tools\[open\]\{width:100%;min-width:0\}/);
+  assert.doesNotMatch(appearanceCss, /\.appearance-preset-bar\{display:flex;align-items:flex-start;/);
+  assert.match(appearanceCss, /@media\(max-width:780px\)[\s\S]*\.appearance-preset-tools summary\{position:static\}/);
 });
 
 test('appearance previews on the real editor video instead of a fake sample panel', () => {
