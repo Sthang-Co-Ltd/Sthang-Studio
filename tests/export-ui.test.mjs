@@ -60,6 +60,17 @@ test('appearance previews on the real editor video instead of a fake sample pane
   assert.doesNotMatch(appearanceComponent, /appearance-preview-text/);
 });
 
+test('appearance live preview preserves Khmer glyph paint and safe wrapping', () => {
+  assert.doesNotMatch(appearanceCss, /\.caption-preview\{display:inline!important/);
+  assert.match(appearanceCss, /\.caption-preview\{display:inline-block!important/);
+  assert.match(appearanceCss, /paint-order:stroke fill/);
+  assert.match(appearanceCss, /white-space:pre-wrap/);
+  assert.match(appearanceCss, /overflow-wrap:anywhere/);
+  assert.match(appearanceCss, /word-break:normal/);
+  assert.match(appearanceCss, /line-height:1\.45!important/);
+  assert.match(appearanceCss, /\.caption-preview-target\{min-width:0;max-width:100%;padding:4px 6px;overflow:visible/);
+});
+
 test('appearance autosaves project styling and queues the final workspace value', () => {
   assert.match(appearanceComponent, /Saving automatically…/);
   assert.match(appearanceComponent, /window\.setTimeout\(\(\) => \{ void persistAppearance\(snapshot\); \}, 650\)/);
