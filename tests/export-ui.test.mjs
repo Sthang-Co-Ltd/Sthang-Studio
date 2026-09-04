@@ -68,13 +68,17 @@ test('appearance autosaves project styling and queues the final workspace value'
   assert.match(appearanceComponent, /queueCaptionAppearanceSave\(project\.id, finalSnapshot\)/);
 });
 
-test('appearance save barrier serializes writes and preserves the latest save result', () => {
+test('appearance save barrier serializes writes and recovers the latest failed styling for retry', () => {
   assert.match(appearanceSave, /const queues = new Map<string, Promise<boolean>>\(\)/);
+  assert.match(appearanceSave, /const latestSnapshots = new Map<string, CaptionAppearance>\(\)/);
+  assert.match(appearanceSave, /latestSnapshots\.set\(projectId, snapshot\)/);
   assert.match(appearanceSave, /const previous = queues\.get\(projectId\)/);
   assert.match(appearanceSave, /await api\.saveCaptionAppearance\(projectId, snapshot\)/);
   assert.match(appearanceSave, /export async function waitForCaptionAppearanceSaves/);
+  assert.match(appearanceSave, /export function recoverUnsavedCaptionAppearance/);
   assert.match(appearanceSave, /lastResults\.get\(projectId\) \?\? true/);
   assert.match(appearanceComponent, /await waitForCaptionAppearanceSaves\(project\.id\)/);
+  assert.match(appearanceComponent, /recoverUnsavedCaptionAppearance\(project\.id\)/);
 });
 
 test('export waits for appearance saves, re-reads saved appearance, and snapshots it into the render request', () => {
