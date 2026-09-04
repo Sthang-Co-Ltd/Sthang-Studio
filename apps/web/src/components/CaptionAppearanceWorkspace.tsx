@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CAPTION_APPEARANCE,
   type CaptionAppearance,
@@ -10,14 +10,26 @@ import { CheckCircle2, LoaderCircle, RotateCcw, Save, Trash2, TriangleAlert } fr
 import { api } from '../api';
 import './caption-appearance.css';
 
-export type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
+type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 
 interface Props {
   project: CaptionProject;
-  appearance: CaptionAppearance;
-  saveState: AppearanceSaveState;
-  onChange(appearance: CaptionAppearance): void;
-  onRetry(): void;
+}
+
+function resolveAppearance(value?: CaptionAppearance): CaptionAppearance {
+  return { ...DEFAULT_CAPTION_APPEARANCE, ...value };
+}
+
+function appearanceKey(value: CaptionAppearance) {
+  return JSON.stringify(value);
+}
+
+function rgba(hex: string, opacity: number) {
+  const raw = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '000000';
+  const r = Number.parseInt(raw.slice(0, 2), 16);
+  const g = Number.parseInt(raw.slice(2, 4), 16);
+  const b = Number.parseInt(raw.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -27,7 +39,10 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
-export function CaptionAppearanceWorkspace({ project, appearance, saveState, onChange, onRetry }: Props) {
+export function CaptionAppearanceWorkspace({ project }: Props) {
+  const initial = resolveAppearance(project.captionAppearance);
+  const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
+  const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
   const [fonts, setFonts] = useState<VideoExportFontCapability[]>([]);
   const [loadingFonts, setLoadingFonts] = useState(true);
   const [fontError, setFontError] = useState('');
@@ -37,26 +52,115 @@ export function CaptionAppearanceWorkspace({ project, appearance, saveState, onC
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetError, setPresetError] = useState('');
   const [deletePresetArmed, setDeletePresetArmed] = useState(false);
+  const appearanceRef = useRef<CaptionAppearance>(initial);
+  const dirtyRef = useRef(false);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+
+  const persistAppearance = (snapshot: CaptionAppearance, reportState = true): Promise<boolean> => {
+    const snapshotKey = appearanceKey(snapshot);
+    const execute = async () => {
+      if (reportState) setSaveState('saving');
+      try {
+        await api.saveCaptionAppearance(project.id, snapshot);
+        if (appearanceKey(appearanceRef.current) === snapshotKey) {
+          dirtyRef.current = false;
+          if (reportState) setSaveState('saved');
+        } else if (reportState) setSaveState('pending');
+        return true;
+      } catch {
+        if (appearanceKey(appearanceRef.current) === snapshotKey && reportState) setSaveState('error');
+        return false;
+      }
+    };
+    const task = saveQueue.current.then(execute, execute);
+    saveQueue.current = task.then(() => undefined, () => undefined);
+    return task;
+  };
 
   useEffect(() => {
     let active = true;
+    const localInitial = resolveAppearance(project.captionAppearance);
+    setAppearance(localInitial);
+    appearanceRef.current = localInitial;
+    dirtyRef.current = false;
+    setSaveState('saved');
+    setSelectedPresetId('');
+    setPresetName('');
+    setDeletePresetArmed(false);
     setLoadingFonts(true);
     setFontError('');
+
+    void api.get(project.id).then((fresh) => {
+      if (!active || dirtyRef.current) return;
+      const next = resolveAppearance(fresh.captionAppearance);
+      setAppearance(next);
+      appearanceRef.current = next;
+    }).catch(() => {});
+
     void api.videoExportCapabilities(project.id)
       .then((capabilities) => {
-        if (!active) return;
-        setFonts(capabilities.fonts.filter((font) => font.available));
+        if (active) setFonts(capabilities.fonts.filter((font) => font.available));
       })
       .catch((error) => {
-        if (!active) return;
-        setFontError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
+        if (active) setFontError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
       })
       .finally(() => { if (active) setLoadingFonts(false); });
+
     void api.profile().then((profile) => {
       if (active) setPresets(profile.captionAppearances || []);
     }).catch(() => {});
+
     return () => { active = false; };
   }, [project.id, project.media.filename]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add('caption-appearance-previewing');
+    return () => {
+      root.classList.remove('caption-appearance-previewing');
+      [
+        '--caption-live-bottom', '--caption-live-side', '--caption-live-justify', '--caption-live-align', '--caption-live-font',
+        '--caption-live-size', '--caption-live-weight', '--caption-live-color', '--caption-live-stroke', '--caption-live-stroke-color',
+        '--caption-live-shadow', '--caption-live-background', '--caption-live-padding',
+      ].forEach((name) => root.style.removeProperty(name));
+      if (dirtyRef.current) {
+        const finalSnapshot = { ...appearanceRef.current };
+        saveQueue.current = saveQueue.current.then(() => api.saveCaptionAppearance(project.id, finalSnapshot)).catch(() => undefined);
+      }
+    };
+  }, [project.id]);
+
+  useEffect(() => {
+    const ratio = Math.max(0.38, Math.min(2.15, appearance.fontSize1080 / DEFAULT_CAPTION_APPEARANCE.fontSize1080));
+    const minimum = Math.max(12, Math.round(22 * ratio));
+    const maximum = Math.max(minimum, Math.round(42 * ratio));
+    const side = Math.max(2, (100 - appearance.maxWidthPct) / 2);
+    const shadow = appearance.shadowWidth1080 > 0
+      ? `0 ${Math.max(1, appearance.shadowWidth1080 * 0.42)}px ${Math.max(2, appearance.shadowWidth1080 * 1.3)}px rgba(0,0,0,.88)`
+      : 'none';
+    const root = document.documentElement;
+    root.style.setProperty('--caption-live-bottom', `${appearance.positionBottomPct}%`);
+    root.style.setProperty('--caption-live-side', `${side}%`);
+    root.style.setProperty('--caption-live-justify', appearance.alignment === 'left' ? 'flex-start' : appearance.alignment === 'right' ? 'flex-end' : 'center');
+    root.style.setProperty('--caption-live-align', appearance.alignment);
+    root.style.setProperty('--caption-live-font', `'${appearance.fontFamily.replaceAll("'", "\\'")}', 'Noto Sans Khmer', sans-serif`);
+    root.style.setProperty('--caption-live-size', `clamp(${minimum}px, ${(3 * ratio).toFixed(2)}vw, ${maximum}px)`);
+    root.style.setProperty('--caption-live-weight', appearance.bold ? '700' : '400');
+    root.style.setProperty('--caption-live-color', appearance.textColor);
+    root.style.setProperty('--caption-live-stroke', `${Math.max(0, appearance.outlineWidth1080 * 0.42)}px`);
+    root.style.setProperty('--caption-live-stroke-color', appearance.outlineColor);
+    root.style.setProperty('--caption-live-shadow', shadow);
+    root.style.setProperty('--caption-live-background', appearance.backgroundEnabled ? rgba(appearance.backgroundColor, appearance.backgroundOpacity) : 'transparent');
+    root.style.setProperty('--caption-live-padding', appearance.backgroundEnabled ? `${Math.max(2, appearance.backgroundPadding1080 * 0.32)}px ${Math.max(4, appearance.backgroundPadding1080 * 0.64)}px` : '0px');
+  }, [appearance]);
+
+  useEffect(() => {
+    if (!dirtyRef.current) return;
+    setSaveState((state) => state === 'saving' ? state : 'pending');
+    const snapshot = { ...appearance };
+    const timer = window.setTimeout(() => { void persistAppearance(snapshot); }, 650);
+    return () => window.clearTimeout(timer);
+  }, [appearance]);
 
   const currentFontAvailable = fonts.some((font) => font.name === appearance.fontFamily);
   const fontOptions = useMemo(() => {
@@ -64,11 +168,16 @@ export function CaptionAppearanceWorkspace({ project, appearance, saveState, onC
     return [{ name: appearance.fontFamily, available: false, boldAvailable: appearance.bold, source: 'user-installed' as const }, ...fonts];
   }, [fonts, currentFontAvailable, appearance.fontFamily, appearance.bold]);
   const currentPreset = presets.find((preset) => preset.id === selectedPresetId);
+  const chosenFont = fonts.find((font) => font.name === appearance.fontFamily);
 
   const updateAppearance = (change: (current: CaptionAppearance) => CaptionAppearance) => {
     setSelectedPresetId('');
     setDeletePresetArmed(false);
-    onChange(change(appearance));
+    const next = change(appearanceRef.current);
+    appearanceRef.current = next;
+    dirtyRef.current = true;
+    setSaveState('pending');
+    setAppearance(next);
   };
 
   const applyPreset = (id: string) => {
@@ -78,10 +187,14 @@ export function CaptionAppearanceWorkspace({ project, appearance, saveState, onC
     const preset = presets.find((item) => item.id === id);
     if (!preset) return;
     const targetFont = fonts.find((font) => font.name === preset.appearance.fontFamily);
-    onChange({
+    const next = {
       ...preset.appearance,
       bold: targetFont ? targetFont.boldAvailable && preset.appearance.bold : preset.appearance.bold,
-    });
+    };
+    appearanceRef.current = next;
+    dirtyRef.current = true;
+    setSaveState('pending');
+    setAppearance(next);
   };
 
   const savePreset = async () => {
@@ -95,8 +208,8 @@ export function CaptionAppearanceWorkspace({ project, appearance, saveState, onC
       const now = new Date().toISOString();
       const existing = (profile.captionAppearances || []).find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
       const next: CaptionAppearancePreset = existing
-        ? { ...existing, name, appearance: { ...appearance }, updatedAt: now }
-        : { id: crypto.randomUUID(), name, appearance: { ...appearance }, createdAt: now, updatedAt: now };
+        ? { ...existing, name, appearance: { ...appearanceRef.current }, updatedAt: now }
+        : { id: crypto.randomUUID(), name, appearance: { ...appearanceRef.current }, createdAt: now, updatedAt: now };
       const captionAppearances = [next, ...(profile.captionAppearances || []).filter((preset) => preset.id !== next.id)].slice(0, 20);
       const updated = await api.patchProfile({ captionAppearances });
       setPresets(updated.captionAppearances || []);
@@ -126,18 +239,11 @@ export function CaptionAppearanceWorkspace({ project, appearance, saveState, onC
     }
   };
 
-  const chosenFont = fonts.find((font) => font.name === appearance.fontFamily);
-
   return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title">
     <div className="caption-appearance-head">
-      <div>
-        <strong id="caption-appearance-workspace-title">Caption appearance</strong>
-        <span>Style captions while watching the real video. The browser preview is approximate; the finished MP4 uses the local renderer.</span>
-      </div>
+      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions while watching the real video above. This browser preview is approximate; the finished MP4 uses the local renderer.</span></div>
       <div className={`appearance-save-state ${saveState}`} role="status" aria-live="polite">
-        {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>} 
-        <span>{saveStateCopy(saveState)}</span>
-        {saveState === 'error' && <button onClick={onRetry}>Retry</button>}
+        {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{saveStateCopy(saveState)}</span>{saveState === 'error' && <button onClick={() => void persistAppearance({ ...appearanceRef.current })}>Retry</button>}
       </div>
     </div>
 
@@ -178,6 +284,6 @@ export function CaptionAppearanceWorkspace({ project, appearance, saveState, onC
       </div>
     </details>
 
-    <div className="appearance-workspace-footer"><span>These settings are project appearance. They never change caption text, timing, locks, correction memory, source media, or SRT output.</span><button className="quiet-action" onClick={() => { setSelectedPresetId(''); onChange({ ...DEFAULT_CAPTION_APPEARANCE, fontFamily: fonts[0]?.name || DEFAULT_CAPTION_APPEARANCE.fontFamily, bold: fonts[0] ? fonts[0].boldAvailable && DEFAULT_CAPTION_APPEARANCE.bold : DEFAULT_CAPTION_APPEARANCE.bold }); }}><RotateCcw size={14}/>Reset appearance</button></div>
+    <div className="appearance-workspace-footer"><span>Appearance is project styling. It never changes caption text, timing, locks, correction memory, source media, or SRT output.</span><button className="quiet-action" onClick={() => updateAppearance(() => ({ ...DEFAULT_CAPTION_APPEARANCE, fontFamily: fonts[0]?.name || DEFAULT_CAPTION_APPEARANCE.fontFamily, bold: fonts[0] ? fonts[0].boldAvailable && DEFAULT_CAPTION_APPEARANCE.bold : DEFAULT_CAPTION_APPEARANCE.bold }))}><RotateCcw size={14}/>Reset appearance</button></div>
   </section>;
 }
