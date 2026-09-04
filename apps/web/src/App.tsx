@@ -35,6 +35,7 @@ import {
   ListTodo,
   LoaderCircle,
   LockKeyhole,
+  Palette,
   Play,
   RotateCcw,
   RefreshCw,
@@ -61,6 +62,7 @@ import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
 import { ExportWorkspace } from './components/ExportWorkspace';
+import { CaptionAppearanceWorkspace } from './components/CaptionAppearanceWorkspace';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
 import './styles.css';
@@ -78,7 +80,7 @@ const PROFILE_MIGRATION_KEY = 'kcs:profile-migrated:v1';
 const FIRST_RUN_DISMISSED_KEY = 'sthang:first-run-dismissed:v1';
 const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
-type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'details' | 'export' | null;
+type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
 type ReviewPlaybackPass = 'context' | 'focus';
 
 type ReviewUndoState = {
@@ -1164,6 +1166,7 @@ export default function App() {
               {hasHybrid && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
               <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><WandSparkles size={16}/><span>Accuracy</span><small>optional</small></button>
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption grouping</span></button>}
+              {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
             </nav>
           </div>}
@@ -1175,8 +1178,11 @@ export default function App() {
             activeExportJob={activeExportJob}
             onExportSrt={() => void exportSrt()}
             onSaveAppearance={saveCaptionAppearance}
+            onEditAppearance={() => chooseWorkspaceTool('appearance')}
             onStartVideoExport={startVideoExport}
           />}
+
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace project={project}/>}
 
           {workspaceTool === 'timeline' && hasHybrid && <WaveformEditor
             projectId={project.id}
