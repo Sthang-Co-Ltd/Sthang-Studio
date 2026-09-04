@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  DEFAULT_CAPTION_APPEARANCE,
   type CaptionAppearance,
   type CaptionProject,
   type ProcessingJob,
@@ -16,12 +17,13 @@ import './video-export.css';
 
 interface Props {
   project: CaptionProject;
-  appearance: CaptionAppearance;
+  sampleText?: string;
   busy: boolean;
   activeExportJob?: ProcessingJob;
   onExportSrt(): void;
+  onSaveAppearance?(appearance: CaptionAppearance): Promise<void>;
   onEditAppearance(): void;
-  onStartVideoExport(settings: VideoExportSettings): Promise<ProcessingJob | null>;
+  onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null>;
 }
 
 type OutputMode = 'video' | 'captions';
@@ -73,7 +75,7 @@ function isVideoProject(project: CaptionProject) {
   return project.media.mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(project.media.originalName);
 }
 
-export function ExportWorkspace({ project, appearance, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport }: Props) {
+export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
@@ -81,6 +83,7 @@ export function ExportWorkspace({ project, appearance, busy, activeExportJob, on
   const [capabilityError, setCapabilityError] = useState('');
   const [actionError, setActionError] = useState('');
   const [settings, setSettings] = useState<VideoExportSettings>(DEFAULT_SETTINGS);
+  const [appearance, setAppearance] = useState<CaptionAppearance>({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance });
   const [startingExport, setStartingExport] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -99,13 +102,19 @@ export function ExportWorkspace({ project, appearance, busy, activeExportJob, on
   };
 
   useEffect(() => {
+    let active = true;
     setOutputMode(videoProject ? 'video' : 'captions');
     setSettings(DEFAULT_SETTINGS);
+    setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance });
     setCapabilities(null);
     setCapabilityError('');
     setActionError('');
     setAdvancedOpen(false);
     void loadCapabilities(false);
+    void api.get(project.id).then((fresh) => {
+      if (active) setAppearance({ ...DEFAULT_CAPTION_APPEARANCE, ...fresh.captionAppearance });
+    }).catch(() => {});
+    return () => { active = false; };
   }, [project.id, project.media.filename]);
 
   useEffect(() => {
@@ -125,7 +134,7 @@ export function ExportWorkspace({ project, appearance, busy, activeExportJob, on
   const startExport = async () => {
     setStartingExport(true);
     setActionError('');
-    try { await onStartVideoExport(settings); }
+    try { await onStartVideoExport(settings, appearance); }
     catch (error) { setActionError(error instanceof Error ? error.message : 'Could not start video export'); }
     finally { setStartingExport(false); }
   };
