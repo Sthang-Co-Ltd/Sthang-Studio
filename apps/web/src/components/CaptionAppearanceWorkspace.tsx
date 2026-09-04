@@ -8,7 +8,7 @@ import {
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
-import { queueCaptionAppearanceSave } from '../caption-appearance-save';
+import { queueCaptionAppearanceSave, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import './caption-appearance.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
@@ -84,12 +84,20 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
     setLoadingFonts(true);
     setFontError('');
 
-    void api.get(project.id).then((fresh) => {
-      if (!active || dirtyRef.current) return;
-      const next = resolveAppearance(fresh.captionAppearance);
-      setAppearance(next);
-      appearanceRef.current = next;
-    }).catch(() => {});
+    void (async () => {
+      const priorSaved = await waitForCaptionAppearanceSaves(project.id);
+      if (!active) return;
+      if (!priorSaved) setSaveState('error');
+      try {
+        const fresh = await api.get(project.id);
+        if (!active || dirtyRef.current) return;
+        const next = resolveAppearance(fresh.captionAppearance);
+        setAppearance(next);
+        appearanceRef.current = next;
+      } catch {
+        if (active) setSaveState('error');
+      }
+    })();
 
     void api.videoExportCapabilities(project.id)
       .then((capabilities) => {
