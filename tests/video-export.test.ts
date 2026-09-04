@@ -13,6 +13,7 @@ import {
   normalizeVideoExportSettings,
   parseRate,
   resolveVideoDimensions,
+  validateVideoExportProbe,
 } from '../apps/server/src/services/video-export.js';
 
 const source: VideoExportSourceInfo = {
@@ -136,4 +137,27 @@ test('quality and resolution materially change the estimated output size', () =>
   const fourK = estimateVideoExportBytes(source, { resolution: '2160p', frameRate: 'source', quality: 'recommended', codec: 'h264', encoder: 'auto' });
   assert.ok(high > smaller);
   assert.ok(fourK > smaller);
+});
+
+test('post-render verification rejects hidden fps, audio, rotation and SDR color changes', () => {
+  const settings = { resolution: 'source', frameRate: 30, quality: 'recommended', codec: 'h264', encoder: 'auto' } as const;
+  const good = { ...source };
+  assert.doesNotThrow(() => validateVideoExportProbe(good, 1920, 1080, source, settings));
+
+  assert.throws(
+    () => validateVideoExportProbe({ ...good, frameRate: 25 }, 1920, 1080, source, settings),
+    /requested 30 fps/i,
+  );
+  assert.throws(
+    () => validateVideoExportProbe({ ...good, audioStreams: 0, audioCodecs: [] }, 1920, 1080, source, settings),
+    /expected 1 audio track/i,
+  );
+  assert.throws(
+    () => validateVideoExportProbe({ ...good, rotation: 90 }, 1920, 1080, source, settings),
+    /rotation metadata/i,
+  );
+  assert.throws(
+    () => validateVideoExportProbe({ ...good, colorPrimaries: undefined }, 1920, 1080, source, settings),
+    /color primaries changed/i,
+  );
 });
