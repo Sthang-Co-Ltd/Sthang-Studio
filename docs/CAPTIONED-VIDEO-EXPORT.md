@@ -12,13 +12,43 @@
 Sthang Studio supports two deliberately different outputs:
 
 1. **SRT** — portable caption text + timing for continued editing elsewhere.
-2. **Captioned video** — a new local MP4 with the selected caption appearance
+2. **Captioned video** — a new local MP4 with the saved project caption appearance
    rendered into the picture.
 
 The finished-video path exists so a creator can keep the look they reviewed in
 Studio without relying on an editing application to recreate font, size, color,
 outline, background, or position. It is not intended to turn Studio into a
 multi-track general-purpose video editor.
+
+## Appearance workflow
+
+Caption appearance is edited **before export** as project state. A video project
+with captions exposes a focused **Appearance** workspace alongside Review, Fine
+timing, Accuracy, Caption grouping, and Details.
+
+The Appearance workspace keeps the real video visible and temporarily applies the
+current styling to Studio's editor caption overlay. This makes font, size, color,
+position, outline, shadow, width, alignment and background decisions visible
+against the creator's actual footage instead of a generic sample panel.
+
+This browser treatment remains intentionally approximate. It is editor chrome,
+not a rendered frame, and it is removed when the creator leaves Appearance. The
+final MP4 is still rendered by FFmpeg/libass and is authoritative.
+
+The common appearance path is intentionally small: preset, Khmer font, text color,
+size and position. Specialist controls stay under **More appearance**, while
+preset creation/deletion stays under **Manage presets**. Project appearance saves
+automatically and the final workspace value is flushed when leaving so moving
+straight to Export does not silently lose the latest adjustment.
+
+Export does not duplicate these styling controls. It re-reads the saved project
+appearance, shows a compact summary plus **Edit appearance**, and includes that
+appearance in the immutable render snapshot. If a saved font is unavailable to
+the local renderer, Studio blocks the finished-video action and sends the creator
+back to Appearance rather than silently substituting typography.
+
+Appearance remains independent of caption text/timing, locks, correction memory,
+Review behavior, SRT serialization and source media.
 
 ## Quality contract
 
@@ -89,21 +119,22 @@ Windows **Khmer UI** is the default supported system font. Noto Sans Khmer may b
 used when the user has it installed. Studio does not redistribute a new font in
 this implementation.
 
-The browser appearance preview is intentionally labeled as a preview. The final
-MP4 is rendered by FFmpeg/libass; release validation must inspect actual rendered
-frames rather than treating CSS preview parity as proof.
+The Appearance workspace's live browser overlay is intentionally labeled as an
+approximate preview. The final MP4 is rendered by FFmpeg/libass; release validation
+must inspect actual rendered frames rather than treating CSS preview parity as
+proof.
 
 ## Non-destructive job model
 
 Starting a video export saves an immutable snapshot of:
 
 - caption text and timing;
-- caption appearance;
+- saved project caption appearance;
 - video export settings;
 - source media filename + size identity.
 
-The creator can continue editing captions while the saved snapshot renders. Those
-later edits do not mutate the running export.
+The creator can continue editing captions or appearance while the saved snapshot
+renders. Those later edits do not mutate the running export.
 
 Video exports run on a separate serialized export lane from caption-generation
 jobs. A long 4K render therefore does not block transcription/regeneration, while
@@ -165,6 +196,9 @@ least:
 - multiple audio streams;
 - Khmer-only, Khmer-English, punctuation, manual line breaks, long no-space Khmer,
   outline/background/position combinations, and all offered fonts;
+- Appearance workspace live-preview behavior at normal Windows scaling levels,
+  including autosave, presets, unavailable-font recovery, and moving directly
+  from Appearance to Export;
 - cancellation, interruption/resume, low disk space and encoder failure;
 - A/V duration/sync across the full rendered output;
 - output upload/playback in representative publishing/editor applications.
