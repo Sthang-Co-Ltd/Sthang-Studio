@@ -8,7 +8,7 @@ import {
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
-import { queueCaptionAppearanceSave, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import './caption-appearance.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
@@ -87,7 +87,16 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
     void (async () => {
       const priorSaved = await waitForCaptionAppearanceSaves(project.id);
       if (!active) return;
-      if (!priorSaved) setSaveState('error');
+      if (!priorSaved) {
+        const recovered = recoverUnsavedCaptionAppearance(project.id);
+        if (recovered) {
+          appearanceRef.current = recovered;
+          dirtyRef.current = true;
+          setAppearance(recovered);
+        }
+        setSaveState('error');
+        return;
+      }
       try {
         const fresh = await api.get(project.id);
         if (!active || dirtyRef.current) return;
