@@ -4,8 +4,8 @@
 
 Sthang Studio is a short-form video finishing workspace. Its flagship **Captions**
 module helps Khmer-speaking creators generate accurate wording, align it locally,
-review difficult moments quickly, and choose between a portable subtitle file or
-a finished captioned-video render.
+review difficult moments quickly, style finished captions against the real video,
+and choose between a portable subtitle file or a finished captioned-video render.
 
 The published release state is governed separately by release evidence. A feature
 being present on `main` is not proof that it is available in the current public
@@ -19,24 +19,49 @@ download.
 
 ## Primary job
 
-> Upload a video, generate accurate Khmer captions, quickly verify the few uncertain parts, then export either editable timed captions or a finished captioned video without learning a professional subtitle application.
+> Upload a video, generate accurate Khmer captions, quickly verify the few uncertain parts, optionally style the captions while watching the video, then export either editable timed captions or a finished captioned video without learning a professional subtitle application.
 
 ## Aha moment
 
 The first captioned playback stays synchronized through the full video, with Khmer
 wording that is materially better than generic caption tools and an obvious path
-to correct any remaining issue. When the creator chooses a finished render, the
-caption appearance they selected is preserved in the exported picture.
+to correct any remaining issue. When the creator styles a finished captioned video,
+the editor preview responds on the actual footage and that saved project appearance
+is preserved in the exported picture.
 
 ## Core workflow
 
 ```text
 Upload → optional accuracy context → generate → review flagged captions → export
+                                                ↘ Appearance (optional) ↗
                                                           ↳ SRT
                                                           ↳ Captioned video
 ```
 
 Everything else is secondary and should appear progressively, at the moment it becomes useful.
+
+## Caption appearance contract
+
+Caption appearance is **project editing state**, not an export-only setting.
+Creators may style captions before export while watching the real video evidence.
+
+- Appearance is available as a focused editor workspace for video projects once
+  captions exist to judge.
+- The common path is deliberately small: preset, Khmer font, text color, size and
+  position. Weight, outline, shadow, width, alignment and background styling stay
+  progressively disclosed.
+- While Appearance is open, the actual editor caption overlay reflects the current
+  appearance approximately so the creator can judge it against their footage.
+  This browser preview is editor-only and never modifies source media.
+- The final local FFmpeg/libass render remains authoritative. The browser preview
+  must be labeled approximate rather than presented as pixel-identical proof.
+- Project appearance saves automatically and survives leaving/reopening the
+  workspace. Reusable presets remain local creator-profile conveniences.
+- An unavailable saved font is preserved and disclosed; Studio must not silently
+  change the creator's typography. Captioned-video rendering requires an available
+  local export font when the saved choice cannot be honored.
+- Appearance never changes SRT serialization, caption text/timing, locks,
+  correction eligibility, correction memory, Review behavior, or source media.
 
 ## Export contract
 
@@ -44,12 +69,15 @@ Sthang Studio has two deliberately different output paths:
 
 - **SRT** remains the portable, editable caption handoff. It contains caption text
   and timing; it does not promise visual-style transfer into another editor.
-- **Captioned video** is a new local render with caption appearance baked into the
-  picture. The source media is never overwritten, and captions are no longer
-  separately editable inside the exported MP4.
+- **Captioned video** is a new local render with the saved project caption
+  appearance baked into the picture. The source media is never overwritten, and
+  captions are no longer separately editable inside the exported MP4.
 
 For captioned-video export:
 
+- Export focuses on output decisions. It shows a compact summary of the saved
+  project appearance plus an **Edit appearance** path back to the editor; it does
+  not duplicate the styling controls.
 - Match-source is the recommended quality default.
 - HD 720p, Full HD 1080p, QHD 1440p and 4K UHD 2160p must preserve source aspect
   ratio/orientation without implicit cropping; above-source output is labeled as
@@ -60,25 +88,24 @@ For captioned-video export:
   from a GPU name or installed command.
 - Output is non-destructive: render to a partial file, verify it, then publish the
   final file atomically.
-- A render uses an immutable snapshot of captions, appearance, export settings and
-  source-media identity. Later caption edits do not mutate a running export.
+- Before a render starts, Studio re-reads the saved project appearance and uses an
+  immutable snapshot of captions, appearance, export settings and source-media
+  identity. Later caption or appearance edits do not mutate a running export.
 - Video rendering has its own processing lane so a long 4K render does not block
   caption generation or regeneration. Media replacement/deletion remains blocked
   while an export uses that source.
 - Never silently crop, lower the chosen resolution/frame rate, drop source audio,
-  flatten HDR, add a watermark, or overwrite the original media.
+  flatten HDR, add a watermark, overwrite the original media, or substitute a
+  different caption font without warning.
 - HDR10, HLG, Dolby Vision and unknown HDR are blocked until the exact color path
   is validated. An honest block is preferable to a successful-looking export with
   damaged color.
-- Caption appearance is project/export state, not caption text state. It must not
-  change SRT serialization, correction eligibility, timing, locks, or history.
-- Browser appearance preview may be approximate; copy must distinguish it from the
-  final local FFmpeg/libass render. Release readiness requires representative real
-  render validation, not only browser preview or type/build checks.
+- Release readiness requires representative real render validation, not only the
+  browser appearance preview or type/build checks.
 
 ## Product principles
 
-1. **Evidence stays visible.** Audio/video remains playable during any decision about text or timing.
+1. **Evidence stays visible.** Audio/video remains playable during any decision about text, timing, or caption appearance.
 2. **Safe by default.** Regeneration proposes; it never silently destroys reviewed work.
 3. **Local where practical.** KFA/Whisper timing and finished video rendering stay local; paid cloud timing remains a last resort.
 4. **Reuse completed deterministic work.** Normalized/range audio, local acoustic evidence, exact timing results, and completed stages of the same resumable job should be reused when their signatures still match. A request for a fresh AI alternative must remain a fresh listen.
@@ -107,8 +134,8 @@ For captioned-video export:
     correction memory. Studio remains useful when either service is absent.
 15. **Technical export quality is a product promise.** A creator choosing Studio's
     finished-video path should not accept a hidden resolution, timing, audio, color,
-    or aspect-ratio downgrade. Creative NLE features remain out of scope unless they
-    directly improve the caption workflow.
+    aspect-ratio, or caption-appearance downgrade. Creative NLE features remain out
+    of scope unless they directly improve the caption workflow.
 
 ## Khmer Caption Contributor
 
