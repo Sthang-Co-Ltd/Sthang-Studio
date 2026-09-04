@@ -34,12 +34,43 @@ collapse them into unexplained icon-only buttons at narrower widths.
 The video and caption list are the persistent core. Advanced workspaces appear one at a time:
 
 ```text
-Review · Fine timing · Accuracy · Caption grouping · Details
+Review · Fine timing · Accuracy · Caption grouping · Appearance · Details
 ```
 
 Do not stack all advanced panels beneath the video. Do not use a blocking modal for any task that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
+
+### Caption appearance workspace
+
+Caption appearance is **project editing state**, not an export setting. Creators
+should be able to decide how their captions look while watching the actual video,
+before they reach Export.
+
+- Show **Appearance** as a labeled editor workspace once a video project has
+  captions to judge.
+- Keep the real video evidence visible. While Appearance is open, temporarily
+  reflect the current project appearance on the editor caption overlay so font,
+  size, color, position, outline, background and width can be judged against the
+  footage itself.
+- The browser overlay is explicitly an **approximate appearance preview**. The
+  finished MP4 remains authoritative because FFmpeg/libass performs the real
+  render. Leaving Appearance returns the editor overlay to its normal neutral
+  preview treatment; editor-only preview chrome never enters the source or export.
+- Keep the common path small: **Preset, Khmer font, text color, size, position**.
+  Put weight, outline, shadow, max width, alignment and background-box controls
+  behind **More appearance**.
+- Project appearance saves automatically and must surface saving/failure state.
+  Leaving the workspace must not silently discard the creator's latest change.
+- Reusable appearance presets are local creator-profile conveniences. Preset
+  creation/deletion stays secondary under **Manage presets** and deletion requires
+  a deliberate confirmation step.
+- Never silently replace an unavailable saved font. Preserve the project choice,
+  explain the local limitation, and require an available font before a finished
+  video render when an exact font match cannot be honored.
+- Appearance remains Khmer-safe and project-scoped. It never mutates SRT,
+  correction eligibility, caption text/timing, locks, Review focus, correction
+  memory, history semantics, or source media.
 
 ### Export workspace
 
@@ -57,8 +88,9 @@ editable elsewhere        not separately editable inside the MP4
 
 - Keep SRT first-class and editor-neutral. Never imply that font, color, size,
   position, outline, background, or animation transfers through SRT.
-- Captioned-video appearance belongs inside the video-export path, not Caption
-  grouping and not the caption rows.
+- Export **consumes the saved project appearance**. Do not duplicate appearance
+  editing controls inside Export. Show a compact appearance summary and an
+  **Edit appearance** action that returns to the Appearance workspace.
 - Default video quality should be **Match source** + **Recommended**. Expose
   HD/FHD/QHD/4K and fixed frame rates without implying that upscaling recovers
   source detail.
@@ -66,13 +98,12 @@ editable elsewhere        not separately editable inside the MP4
 - Keep advanced codec/bitrate/encoder controls progressively disclosed.
 - Show source dimensions/frame rate/color state, estimated output size, and free
   disk space before a long render where available.
-- Browser caption appearance is a responsive working preview, not proof of exact
-  rendered pixels. Label it accordingly; release validation uses the actual local
-  render path.
-- Appearance controls must remain Khmer-safe and project/output-scoped. They never
-  mutate SRT, correction eligibility, timing, locks, Review focus, or source media.
-- Reusable appearance presets are local creator-profile conveniences. Applying a
-  preset changes the current export/project appearance only.
+- Before starting a render, re-read the saved project appearance and snapshot it
+  together with captions, media identity and output settings. This avoids stale
+  styling if the creator edited Appearance immediately before Export.
+- If the selected project font is not available to the local renderer, block the
+  finished-video action with a clear path back to Appearance rather than silently
+  substituting typography.
 - If HDR cannot be preserved correctly, block the finished-video path with a
   specific explanation while keeping SRT available. Never hide color loss behind
   a normal success state.
@@ -206,6 +237,7 @@ Prefer:
 
 - “System check” over “System Doctor”.
 - “Caption grouping” over “caption rhythm” for controls that change how much text appears at once.
+- “Appearance” for project caption styling; do not call it an export setting.
 - “Review suggested” over multiple alarming chips on every row.
 - “Generate captions” over infrastructure-heavy descriptions in the primary path.
 - Editor-neutral SRT export guidance: SRT carries caption text and timing; visual styling is set in the destination editing app.
