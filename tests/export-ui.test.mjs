@@ -6,13 +6,15 @@ const exportComponentPath = new URL('../apps/web/src/components/ExportWorkspace.
 const exportCssPath = new URL('../apps/web/src/components/video-export.css', import.meta.url);
 const appearanceComponentPath = new URL('../apps/web/src/components/CaptionAppearanceWorkspace.tsx', import.meta.url);
 const appearanceCssPath = new URL('../apps/web/src/components/caption-appearance.css', import.meta.url);
+const appearanceSavePath = new URL('../apps/web/src/caption-appearance-save.ts', import.meta.url);
 const appPath = new URL('../apps/web/src/App.tsx', import.meta.url);
 
-const [exportComponent, exportCss, appearanceComponent, appearanceCss, app] = await Promise.all([
+const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearanceSave, app] = await Promise.all([
   fs.readFile(exportComponentPath, 'utf8'),
   fs.readFile(exportCssPath, 'utf8'),
   fs.readFile(appearanceComponentPath, 'utf8'),
   fs.readFile(appearanceCssPath, 'utf8'),
+  fs.readFile(appearanceSavePath, 'utf8'),
   fs.readFile(appPath, 'utf8'),
 ]);
 
@@ -58,18 +60,29 @@ test('appearance previews on the real editor video instead of a fake sample pane
   assert.doesNotMatch(appearanceComponent, /appearance-preview-text/);
 });
 
-test('appearance autosaves project styling and flushes the final workspace value', () => {
+test('appearance autosaves project styling and queues the final workspace value', () => {
   assert.match(appearanceComponent, /Saving automatically…/);
   assert.match(appearanceComponent, /window\.setTimeout\(\(\) => \{ void persistAppearance\(snapshot\); \}, 650\)/);
-  assert.match(appearanceComponent, /api\.saveCaptionAppearance\(project\.id, snapshot\)/);
+  assert.match(appearanceComponent, /queueCaptionAppearanceSave\(project\.id, snapshot\)/);
   assert.match(appearanceComponent, /finalSnapshot/);
-  assert.match(appearanceComponent, /saveQueue\.current = saveQueue\.current\.then\(\(\) => api\.saveCaptionAppearance\(project\.id, finalSnapshot\)\)/);
+  assert.match(appearanceComponent, /queueCaptionAppearanceSave\(project\.id, finalSnapshot\)/);
 });
 
-test('export re-reads saved appearance and snapshots that appearance into the render request', () => {
+test('appearance save barrier serializes writes and preserves the latest save result', () => {
+  assert.match(appearanceSave, /const queues = new Map<string, Promise<boolean>>\(\)/);
+  assert.match(appearanceSave, /const previous = queues\.get\(projectId\)/);
+  assert.match(appearanceSave, /await api\.saveCaptionAppearance\(projectId, snapshot\)/);
+  assert.match(appearanceSave, /export async function waitForCaptionAppearanceSaves/);
+  assert.match(appearanceSave, /lastResults\.get\(projectId\) \?\? true/);
+});
+
+test('export waits for appearance saves, re-reads saved appearance, and snapshots it into the render request', () => {
+  const waits = exportComponent.match(/waitForCaptionAppearanceSaves\(project\.id\)/g) || [];
+  assert.ok(waits.length >= 2, `expected Export to wait on appearance during load and render, received ${waits.length}`);
   assert.match(exportComponent, /api\.get\(project\.id\)/);
-  assert.match(exportComponent, /setAppearance\(\{ \.\.\.DEFAULT_CAPTION_APPEARANCE, \.\.\.fresh\.captionAppearance \}\)/);
-  assert.match(exportComponent, /onStartVideoExport\(settings, appearance\)/);
+  assert.match(exportComponent, /setAppearance\(resolvedAppearance\(fresh\)\)/);
+  assert.match(exportComponent, /onStartVideoExport\(settings, latestAppearance\)/);
+  assert.match(exportComponent, /Your latest caption appearance could not be saved/);
   assert.match(exportComponent, /Choose an available caption font/);
 });
 
