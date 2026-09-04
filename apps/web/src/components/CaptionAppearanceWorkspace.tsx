@@ -8,6 +8,7 @@ import {
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
+import { queueCaptionAppearanceSave } from '../caption-appearance-save';
 import './caption-appearance.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
@@ -54,27 +55,20 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
   const [deletePresetArmed, setDeletePresetArmed] = useState(false);
   const appearanceRef = useRef<CaptionAppearance>(initial);
   const dirtyRef = useRef(false);
-  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
 
-  const persistAppearance = (snapshot: CaptionAppearance, reportState = true): Promise<boolean> => {
+  const persistAppearance = async (snapshot: CaptionAppearance, reportState = true): Promise<boolean> => {
     const snapshotKey = appearanceKey(snapshot);
-    const execute = async () => {
-      if (reportState) setSaveState('saving');
-      try {
-        await api.saveCaptionAppearance(project.id, snapshot);
-        if (appearanceKey(appearanceRef.current) === snapshotKey) {
-          dirtyRef.current = false;
-          if (reportState) setSaveState('saved');
-        } else if (reportState) setSaveState('pending');
-        return true;
-      } catch {
-        if (appearanceKey(appearanceRef.current) === snapshotKey && reportState) setSaveState('error');
-        return false;
-      }
-    };
-    const task = saveQueue.current.then(execute, execute);
-    saveQueue.current = task.then(() => undefined, () => undefined);
-    return task;
+    if (reportState) setSaveState('saving');
+    const saved = await queueCaptionAppearanceSave(project.id, snapshot);
+    if (saved) {
+      if (appearanceKey(appearanceRef.current) === snapshotKey) {
+        dirtyRef.current = false;
+        if (reportState) setSaveState('saved');
+      } else if (reportState) setSaveState('pending');
+      return true;
+    }
+    if (appearanceKey(appearanceRef.current) === snapshotKey && reportState) setSaveState('error');
+    return false;
   };
 
   useEffect(() => {
@@ -125,7 +119,7 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
       ].forEach((name) => root.style.removeProperty(name));
       if (dirtyRef.current) {
         const finalSnapshot = { ...appearanceRef.current };
-        saveQueue.current = saveQueue.current.then(() => api.saveCaptionAppearance(project.id, finalSnapshot)).catch(() => undefined);
+        void queueCaptionAppearanceSave(project.id, finalSnapshot);
       }
     };
   }, [project.id]);
