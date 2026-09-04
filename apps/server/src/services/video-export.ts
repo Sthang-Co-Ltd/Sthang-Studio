@@ -635,8 +635,18 @@ function outputName(project: CaptionProject, preset: VideoResolutionPreset) {
   return `${base}-captioned-${preset}-${stamp}-${nanoid(5)}.mp4`;
 }
 
-async function validateRenderedVideo(outputPath: string, expectedWidth: number, expectedHeight: number, source: VideoExportSourceInfo, settings: VideoExportSettings) {
-  const result = await probeMedia(outputPath);
+function verifyDefinedMetadata(label: string, expected: string | undefined, actual: string | undefined) {
+  if (!expected) return;
+  if (actual !== expected) throw new Error(`Export verification failed: ${label} changed from ${expected} to ${actual || 'unspecified'}.`);
+}
+
+export function validateVideoExportProbe(
+  result: VideoExportSourceInfo,
+  expectedWidth: number,
+  expectedHeight: number,
+  source: VideoExportSourceInfo,
+  settings: VideoExportSettings,
+) {
   if (result.displayWidth !== expectedWidth || result.displayHeight !== expectedHeight) {
     throw new Error(`Export verification failed: expected ${expectedWidth}×${expectedHeight}, received ${result.displayWidth}×${result.displayHeight}.`);
   }
@@ -644,9 +654,32 @@ async function validateRenderedVideo(outputPath: string, expectedWidth: number, 
   if (source.durationMs > 0 && Math.abs(result.durationMs - source.durationMs) > durationTolerance) {
     throw new Error(`Export verification failed: output duration differs from the source by ${Math.abs(result.durationMs - source.durationMs)} ms.`);
   }
-  if (source.audioStreams > 0 && result.audioStreams === 0) throw new Error('Export verification failed: source audio is missing from the output.');
+  if (result.audioStreams !== source.audioStreams) {
+    throw new Error(`Export verification failed: expected ${source.audioStreams} audio track${source.audioStreams === 1 ? '' : 's'}, received ${result.audioStreams}.`);
+  }
+  if (settings.frameRate !== 'source') {
+    const expectedFrameRate = Number(settings.frameRate);
+    const tolerance = Math.max(0.05, expectedFrameRate * 0.002);
+    if (Math.abs(result.frameRate - expectedFrameRate) > tolerance) {
+      throw new Error(`Export verification failed: requested ${expectedFrameRate} fps, received ${result.frameRate.toFixed(3)} fps.`);
+    }
+  }
+  if (result.rotation !== 0) throw new Error(`Export verification failed: unexpected ${result.rotation}° rotation metadata remains on the output.`);
+  if (source.hdr === 'sdr') {
+    verifyDefinedMetadata('color primaries', source.colorPrimaries, result.colorPrimaries);
+    verifyDefinedMetadata('color transfer', source.colorTransfer, result.colorTransfer);
+    verifyDefinedMetadata('color space', source.colorSpace, result.colorSpace);
+    verifyDefinedMetadata('color range', source.colorRange, result.colorRange);
+  }
   const expectedCodec = settings.codec === 'hevc' ? ['hevc', 'h265'] : ['h264', 'avc1'];
-  if (!expectedCodec.some((value) => result.videoCodec.toLowerCase().includes(value))) throw new Error(`Export verification failed: unexpected output video codec ${result.videoCodec}.`);
+  if (!expectedCodec.some((value) => result.videoCodec.toLowerCase().includes(value))) {
+    throw new Error(`Export verification failed: unexpected output video codec ${result.videoCodec}.`);
+  }
+}
+
+async function validateRenderedVideo(outputPath: string, expectedWidth: number, expectedHeight: number, source: VideoExportSourceInfo, settings: VideoExportSettings) {
+  const result = await probeMedia(outputPath);
+  validateVideoExportProbe(result, expectedWidth, expectedHeight, source, settings);
   const stat = await fs.stat(outputPath);
   if (!stat.isFile() || stat.size < 16_384) throw new Error('Export verification failed: output file is empty or incomplete.');
   return { result, sizeBytes: stat.size };
