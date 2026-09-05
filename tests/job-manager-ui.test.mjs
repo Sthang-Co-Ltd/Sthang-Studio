@@ -12,11 +12,21 @@ const [manager, css, route] = await Promise.all([
   fs.readFile(routePath, 'utf8'),
 ]);
 
-test('Activity header keeps title and supporting copy in a readable vertical stack', () => {
+test('Activity header keeps title and supporting copy in a readable vertical stack without a redundant status badge', () => {
   assert.match(manager, /className="job-modal-heading-copy"><strong>Activity<\/strong><span>\{queueSummary\}<\/span>/);
+  assert.doesNotMatch(manager, /job-modal-heading-icon/);
+  assert.doesNotMatch(manager, /const headerIcon/);
   assert.match(css, /\.job-modal-heading-copy\{display:flex!important;flex-direction:column;/);
-  assert.match(css, /\.job-modal-heading-copy strong\{font-size:14px/);
-  assert.match(css, /\.job-modal-heading-copy span\{font-size:10\.5px;line-height:1\.4/);
+  assert.match(css, /\.job-modal-heading-copy strong\{font-size:15px/);
+  assert.match(css, /\.job-modal-heading-copy span\{font-size:11px;line-height:1\.45/);
+});
+
+test('Activity uses a Studio-styled close control instead of the generic modal button treatment', () => {
+  assert.match(manager, /className="job-modal-close" aria-label="Close Activity"/);
+  assert.match(css, /\.job-modal-close\{width:36px!important;height:36px!important/);
+  assert.match(css, /background:#15191e!important/);
+  assert.match(css, /\.job-modal-close:hover/);
+  assert.match(css, /@media\(max-width:620px\)[\s\S]*\.job-modal-close\{width:44px!important;height:44px!important/);
 });
 
 test('completed job actions live under job metadata instead of floating in a detached column', () => {
@@ -25,7 +35,7 @@ test('completed job actions live under job metadata instead of floating in a det
   assert.match(css, /\.job-modal \.job-actions\{margin-top:10px;padding-top:10px;border-top:/);
   assert.match(css, /justify-content:flex-end/);
   assert.match(manager, /className="job-action-primary"[\s\S]*Download video/);
-  assert.match(manager, /<FolderOpen size=\{13\}\/>Open folder/);
+  assert.match(manager, /'Open folder'/);
 });
 
 test('Activity metadata is deliberately separated into readable lines', () => {
@@ -35,15 +45,25 @@ test('Activity metadata is deliberately separated into readable lines', () => {
   assert.match(css, /\.job-modal \.job-meta small\{display:block;font-size:10px/);
 });
 
-test('Windows export-folder launch is visible and waits for Explorer to actually spawn', () => {
+test('Windows export-folder launch uses the interactive shell without browser-supplied paths', () => {
   assert.match(route, /process\.env\.WINDIR \|\| process\.env\.SystemRoot \|\| 'C:\\\\Windows'/);
-  assert.match(route, /path\.join\(windowsRoot, 'explorer\.exe'\)/);
-  assert.match(route, /await fs\.access\(explorerPath\)/);
-  assert.match(route, /spawn\(explorerPath, \[exportDir\]/);
-  assert.match(route, /child\.once\('error', reject\)/);
-  assert.match(route, /child\.once\('spawn'/);
-  assert.doesNotMatch(route, /windowsHide\s*:\s*true/);
+  assert.match(route, /process\.env\.ComSpec \|\| path\.join\(windowsRoot, 'System32', 'cmd\.exe'\)/);
+  assert.match(route, /STHANG_STUDIO_EXPORT_DIR: exportDir/);
+  assert.match(route, /start \"\" \"%STHANG_STUDIO_EXPORT_DIR%\"/);
+  assert.match(route, /child\.once\('error'/);
+  assert.match(route, /child\.once\('close'/);
+  assert.match(route, /windowsHide:\s*true/);
   assert.doesNotMatch(route, /req\.body[^\n]*open-folder/);
+  assert.doesNotMatch(route, /spawn\(explorerPath/);
+});
+
+test('folder action exposes working and success/error feedback instead of silent clicks', () => {
+  assert.match(manager, /const \[openingFolder, setOpeningFolder\] = useState\(false\)/);
+  assert.match(manager, /setFolderNotice\('Opened Studio exports in File Explorer\.'\)/);
+  assert.match(manager, /disabled=\{openingFolder\}/);
+  assert.match(manager, /openingFolder \? 'Opening…' : 'Open folder'/);
+  assert.match(manager, /className="activity-notice" role="status"/);
+  assert.match(manager, /className="activity-error" role="alert"/);
 });
 
 test('Activity controls preserve desktop and narrow touch target floors', () => {
