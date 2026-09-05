@@ -27,8 +27,8 @@ The first captioned playback stays synchronized through the full video, with Khm
 wording that is materially better than generic caption tools and an obvious path
 to correct any remaining issue. When the creator styles a finished captioned video,
 the editor preview responds on the actual footage, that saved project appearance
-remains visible while they continue reviewing, and the same appearance is
-preserved in the exported picture.
+remains visible while they continue reviewing, and the same layout and appearance
+are preserved in the exported picture.
 
 ## Core workflow
 
@@ -55,11 +55,14 @@ Creators may style captions before export while watching the real video evidence
   creator can judge it against their footage while styling **and** while moving
   through Review, Fine timing, Accuracy, Caption grouping, and Details. Appearance
   is where the look is edited; it is not a temporary visual mode.
-- The browser treatment is approximate and editor-only. The explicit approximate
-  preview badge appears while Appearance is being edited; leaving Appearance does
-  not revert the project to a fake neutral look and never modifies source media.
-- The final local FFmpeg/libass render remains authoritative. The browser preview
-  must not be presented as pixel-identical proof.
+- Preview/export **layout parity is a contract**. Studio uses the same deterministic
+  Khmer-grapheme line plan for the editor and finished-video render, and derives
+  preview size, maximum-width region and bottom position from the actual displayed
+  video rectangle. A caption planned as one line must not unexpectedly become two
+  lines after export, and the relative size/alignment/position must remain stable.
+- Browser CSS and libass are different rasterizers, so tiny antialiasing or glyph-
+  metric differences can remain. The **Layout-locked appearance preview** badge
+  communicates that distinction without excusing changed line count or geometry.
 - Project appearance saves automatically and survives leaving/reopening the
   workspace. Reusable presets remain local creator-profile conveniences.
 - An unavailable saved font is preserved and disclosed; Studio must not silently
@@ -102,15 +105,21 @@ For captioned-video export:
 - Video rendering has its own processing lane so a long 4K render does not block
   caption generation or regeneration. Media replacement/deletion remains blocked
   while an export uses that source.
+- Long-running caption generation/regeneration and video export expose horizontal
+  progress plus elapsed time. Completed work keeps the actual duration so creators
+  can tell how long the operation took. Completed captioned-video exports expose
+  obvious **Download video** and Windows **Open folder** actions.
 - Never silently crop, lower the chosen resolution/frame rate, drop source audio,
   flatten HDR, add a watermark, overwrite the original media, substitute a
-  different caption font, or downgrade Khmer shaping without warning.
+  different caption font, change planned line count/geometry, or downgrade Khmer
+  shaping without warning.
 - HDR10, HLG, Dolby Vision and unknown HDR are blocked until the exact color path
   is validated. An honest block is preferable to a successful-looking export with
   damaged color.
 - Release readiness requires representative real render validation, not only the
   browser appearance preview or type/build checks. At least one mixed
-  Khmer-English regression sample must confirm correct shaping in the actual MP4.
+  Khmer-English regression sample must confirm correct shaping in the actual MP4,
+  and one-line/multi-line samples must confirm preview/export layout parity.
 
 ## Product principles
 
@@ -143,8 +152,8 @@ For captioned-video export:
     correction memory. Studio remains useful when either service is absent.
 15. **Technical export quality is a product promise.** A creator choosing Studio's
     finished-video path should not accept a hidden resolution, timing, audio, color,
-    aspect-ratio, Khmer-shaping, or caption-appearance downgrade. Creative NLE
-    features remain out of scope unless they directly improve the caption workflow.
+    aspect-ratio, Khmer-shaping, layout, or caption-appearance downgrade. Creative
+    NLE features remain out of scope unless they directly improve the caption workflow.
 
 ## Khmer Caption Contributor
 
@@ -203,4 +212,6 @@ leaderboards. Quantity incentives must never encourage fabricated/noisy edits.
 - Contributor withdrawal/deletion requests completed without affecting local projects.
 - Analytics funnel measures such as project creation → generation → review/approval → successful export, without collecting caption content.
 - Captioned-video render success rate by source resolution/codec/frame-rate class without collecting filenames or content.
+- Preview/export line-count and layout parity on a stable caption appearance regression set.
+- User-visible caption-generation and export duration, derived from persisted job timestamps rather than analytics-only timing buckets.
 - Post-render verification failures, cancellations, and resumptions, using only coarse allow-listed operational buckets if analytics consent is granted.
