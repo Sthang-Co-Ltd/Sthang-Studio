@@ -95,7 +95,8 @@ export const config = {
 
   ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
   ffprobePath: process.env.FFPROBE_PATH || 'ffprobe',
-  maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 500),
+  // Studio is a local app. The previous 500 MB default blocked ordinary 4K phone footage before export could even be considered.
+  maxUploadMb: Math.max(500, Math.min(32768, Number(process.env.MAX_UPLOAD_MB || 8192))),
   uploadDir: path.join(stateRootDir, 'uploads'),
   workingDir: path.join(stateRootDir, 'data', 'working'),
   exportDir: path.join(stateRootDir, 'exports'),
