@@ -26,8 +26,9 @@ download.
 The first captioned playback stays synchronized through the full video, with Khmer
 wording that is materially better than generic caption tools and an obvious path
 to correct any remaining issue. When the creator styles a finished captioned video,
-the editor preview responds on the actual footage and that saved project appearance
-is preserved in the exported picture.
+the editor preview responds on the actual footage, that saved project appearance
+remains visible while they continue reviewing, and the same appearance is
+preserved in the exported picture.
 
 ## Core workflow
 
@@ -50,11 +51,15 @@ Creators may style captions before export while watching the real video evidence
 - The common path is deliberately small: preset, Khmer font, text color, size and
   position. Weight, outline, shadow, width, alignment and background styling stay
   progressively disclosed.
-- While Appearance is open, the actual editor caption overlay reflects the current
-  appearance approximately so the creator can judge it against their footage.
-  This browser preview is editor-only and never modifies source media.
+- The actual editor caption overlay reflects the current project appearance so the
+  creator can judge it against their footage while styling **and** while moving
+  through Review, Fine timing, Accuracy, Caption grouping, and Details. Appearance
+  is where the look is edited; it is not a temporary visual mode.
+- The browser treatment is approximate and editor-only. The explicit approximate
+  preview badge appears while Appearance is being edited; leaving Appearance does
+  not revert the project to a fake neutral look and never modifies source media.
 - The final local FFmpeg/libass render remains authoritative. The browser preview
-  must be labeled approximate rather than presented as pixel-identical proof.
+  must not be presented as pixel-identical proof.
 - Project appearance saves automatically and survives leaving/reopening the
   workspace. Reusable presets remain local creator-profile conveniences.
 - An unavailable saved font is preserved and disclosed; Studio must not silently
@@ -86,6 +91,9 @@ For captioned-video export:
   conversion choice.
 - Studio must probe real local encoder/filter/font capability rather than infer it
   from a GPU name or installed command.
+- Khmer burned-in captions require the native ASS/libass path with **explicit
+  complex shaping**. If the local FFmpeg runtime cannot expose that capability,
+  Studio must block finished-video export rather than produce broken Khmer glyphs.
 - Output is non-destructive: render to a partial file, verify it, then publish the
   final file atomically.
 - Before a render starts, Studio re-reads the saved project appearance and uses an
@@ -95,13 +103,14 @@ For captioned-video export:
   caption generation or regeneration. Media replacement/deletion remains blocked
   while an export uses that source.
 - Never silently crop, lower the chosen resolution/frame rate, drop source audio,
-  flatten HDR, add a watermark, overwrite the original media, or substitute a
-  different caption font without warning.
+  flatten HDR, add a watermark, overwrite the original media, substitute a
+  different caption font, or downgrade Khmer shaping without warning.
 - HDR10, HLG, Dolby Vision and unknown HDR are blocked until the exact color path
   is validated. An honest block is preferable to a successful-looking export with
   damaged color.
 - Release readiness requires representative real render validation, not only the
-  browser appearance preview or type/build checks.
+  browser appearance preview or type/build checks. At least one mixed
+  Khmer-English regression sample must confirm correct shaping in the actual MP4.
 
 ## Product principles
 
@@ -113,7 +122,7 @@ For captioned-video export:
 6. **Plain language.** Casual users should not need to understand `.env`, forced alignment, CPS, tokens, providers, model names, or timing infrastructure to succeed. Keep implementation names out of routine tooltips and primary workflow copy; disclose them only where setup or diagnostics genuinely require them.
 7. **Power without intimidation.** Advanced controls remain available, but one focused tool is shown at a time.
 8. **Errors explain recovery.** Messages name what failed, what remains safe, and the exact next action.
-9. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text; render-only wrapping must respect Khmer grapheme boundaries.
+9. **Khmer typography is first-class.** Do not apply English word-spacing assumptions to Khmer text; render-only wrapping must respect Khmer grapheme boundaries and final rendering must use complex-script shaping.
 10. **Updates never compete with caption work.** Check at most once per Studio
     session plus an explicit manual action, require confirmation before download
     and install, and block activation while editing, Review, regeneration, export,
@@ -134,8 +143,8 @@ For captioned-video export:
     correction memory. Studio remains useful when either service is absent.
 15. **Technical export quality is a product promise.** A creator choosing Studio's
     finished-video path should not accept a hidden resolution, timing, audio, color,
-    aspect-ratio, or caption-appearance downgrade. Creative NLE features remain out
-    of scope unless they directly improve the caption workflow.
+    aspect-ratio, Khmer-shaping, or caption-appearance downgrade. Creative NLE
+    features remain out of scope unless they directly improve the caption workflow.
 
 ## Khmer Caption Contributor
 
