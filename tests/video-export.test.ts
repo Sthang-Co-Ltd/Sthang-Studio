@@ -5,6 +5,7 @@ import {
   type VideoExportSourceInfo,
 } from '@kcs/shared';
 import {
+  buildAssCaptionFilter,
   buildAssDocument,
   classifyHdr,
   escapeAssText,
@@ -123,12 +124,21 @@ test('ASS rendering scales style to output and wraps long Khmer on grapheme boun
     positionBottomPct: 10,
   }, 3840, 2160);
 
+  assert.match(document, /Language: km/);
   assert.match(document, /PlayResX: 3840/);
   assert.match(document, /PlayResY: 2160/);
   assert.match(document, /Style: Default,Khmer UI,144/);
   assert.match(document, /Dialogue: 0,0:00:00\.00,0:00:02\.50/);
   assert.ok(document.includes('\\N'), 'long Khmer should receive an explicit render-only wrap');
   assert.ok(document.includes(longKhmer.slice(0, 4)), 'Khmer graphemes should remain in the render document');
+});
+
+test('native ASS renderer explicitly requests complex shaping for Khmer', () => {
+  const filter = buildAssCaptionFilter('C:\\work\\captions.ass', 'C:\\Windows\\Fonts');
+  assert.match(filter, /^ass=/);
+  assert.match(filter, /shaping=complex/);
+  assert.match(filter, /fontsdir=/);
+  assert.doesNotMatch(filter, /^subtitles=/);
 });
 
 test('quality and resolution materially change the estimated output size', () => {
