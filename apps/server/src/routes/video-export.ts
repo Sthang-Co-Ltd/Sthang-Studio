@@ -1,6 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { Router } from 'express';
 import { config } from '../config.js';
 import { store } from '../services/store.js';
@@ -12,64 +9,13 @@ import {
 } from '../services/video-export.js';
 
 const router = Router();
-const OPEN_FOLDER_TIMEOUT_MS = 5000;
 
 function isVideoProject(mimeType: string, originalName: string) {
   return mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(originalName);
 }
 
-async function openExportsFolderOnWindows() {
-  await fs.mkdir(config.exportDir, { recursive: true });
-  const exportDir = await fs.realpath(config.exportDir);
-  const windowsRoot = process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows';
-  const powershellPath = path.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  await fs.access(powershellPath);
-
-  // Invoke-Item asks the logged-in Windows shell to open Studio's own export
-  // directory. The directory is supplied only through the server environment,
-  // so the browser never controls a shell command or filesystem target.
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(powershellPath, [
-      '-NoLogo',
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      'Invoke-Item -LiteralPath $env:STHANG_STUDIO_EXPORT_DIR',
-    ], {
-      env: { ...process.env, STHANG_STUDIO_EXPORT_DIR: exportDir },
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      if (error) reject(error);
-      else resolve();
-    };
-    const timeout = setTimeout(() => {
-      child.kill();
-      finish(new Error('Windows did not respond while opening the Studio exports folder. Try opening it again from Activity.'));
-    }, OPEN_FOLDER_TIMEOUT_MS);
-    child.once('error', (error) => finish(error));
-    child.once('close', (code) => {
-      if (code === 0) finish();
-      else finish(new Error(`Windows could not open the Studio exports folder (shell exit ${code ?? 'unknown'}).`));
-    });
-  });
-}
-
-router.post('/open-folder', async (_req, res) => {
-  try {
-    if (process.platform !== 'win32') {
-      return res.status(501).json({ error: 'Opening the exports folder from Studio is currently supported on Windows.' });
-    }
-    await openExportsFolderOnWindows();
-    res.json({ opened: true });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not open the exports folder' });
-  }
+router.get('/location', (_req, res) => {
+  res.json({ directory: config.exportDir });
 });
 
 router.get('/:projectId/capabilities', async (req, res) => {
