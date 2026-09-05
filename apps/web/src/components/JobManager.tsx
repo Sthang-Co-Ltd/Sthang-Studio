@@ -79,6 +79,8 @@ function formatDuration(ms: number) {
 export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
   const [now, setNow] = useState(Date.now());
   const [folderError, setFolderError] = useState('');
+  const [folderNotice, setFolderNotice] = useState('');
+  const [openingFolder, setOpeningFolder] = useState(false);
 
   useEffect(() => {
     const refresh = () => onRefresh();
@@ -93,16 +95,27 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
     return () => window.clearInterval(timer);
   }, [open, jobs]);
 
+  useEffect(() => {
+    if (!folderNotice) return;
+    const timer = window.setTimeout(() => setFolderNotice(''), 3200);
+    return () => window.clearTimeout(timer);
+  }, [folderNotice]);
+
   const openExportsFolder = async () => {
     setFolderError('');
+    setFolderNotice('');
+    setOpeningFolder(true);
     try {
       const response = await fetch('/api/video-export/open-folder', { method: 'POST' });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(body.error || `Could not open the exports folder (${response.status}).`);
       }
+      setFolderNotice('Opened Studio exports in File Explorer.');
     } catch (error) {
       setFolderError(error instanceof Error ? error.message : 'Could not open the exports folder.');
+    } finally {
+      setOpeningFolder(false);
     }
   };
 
@@ -114,23 +127,16 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
     : activeJobs.length
       ? 'Work is queued and will start automatically.'
       : 'Recent caption processing and video exports.';
-  const headerIcon = runningJobs.length
-    ? <LoaderCircle className="spin" size={18}/>
-    : activeJobs.length
-      ? <Clock3 size={18}/>
-      : <CheckCircle2 size={18}/>;
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head job-modal-head">
-        <div className="job-modal-heading">
-          <span className="job-modal-heading-icon" aria-hidden="true">{headerIcon}</span>
-          <div className="job-modal-heading-copy"><strong>Activity</strong><span>{queueSummary}</span></div>
-        </div>
-        <button aria-label="Close Activity" onClick={onClose}><X size={17}/></button>
+        <div className="job-modal-heading-copy"><strong>Activity</strong><span>{queueSummary}</span></div>
+        <button className="job-modal-close" aria-label="Close Activity" title="Close Activity" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="history-toolbar job-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
       {folderError && <div className="activity-error" role="alert">{folderError}</div>}
+      {folderNotice && <div className="activity-notice" role="status"><FolderOpen size={14}/><span>{folderNotice}</span></div>}
       <div className="job-list">
         {jobs.map((job) => {
           const duration = jobDurationMs(job, now);
@@ -155,7 +161,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
-                {job.status === 'completed' && job.resultExport && <button onClick={() => void openExportsFolder()}><FolderOpen size={13}/>Open folder</button>}
+                {job.status === 'completed' && job.resultExport && <button disabled={openingFolder} onClick={() => void openExportsFolder()}>{openingFolder ? <LoaderCircle className="spin" size={13}/> : <FolderOpen size={13}/>} {openingFolder ? 'Opening…' : 'Open folder'}</button>}
                 {job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}
                 {['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}
               </div>
