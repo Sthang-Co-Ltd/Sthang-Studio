@@ -21,7 +21,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/verify-brand-assets.mjs && node scripts/build.mjs",
-    "typecheck": "node scripts/verify-brand-assets.mjs && node scripts/typecheck.mjs --noEmit",
+    "typecheck": "node scripts/verify-brand-assets.mjs && node scripts/typecheck.mjs",
     "start": "node apps/server/dist/index.js",
     "verify:brand": "node scripts/verify-brand-assets.mjs",
     "verify:manifest": "node scripts/verify-product-manifest.mjs",
