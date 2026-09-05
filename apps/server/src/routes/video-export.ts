@@ -1,4 +1,7 @@
+import fs from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { Router } from 'express';
+import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { jobStore } from '../services/job-store.js';
 import {
@@ -12,6 +15,24 @@ const router = Router();
 function isVideoProject(mimeType: string, originalName: string) {
   return mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(originalName);
 }
+
+router.post('/open-folder', async (_req, res) => {
+  try {
+    if (process.platform !== 'win32') {
+      return res.status(501).json({ error: 'Opening the exports folder from Studio is currently supported on Windows.' });
+    }
+    await fs.mkdir(config.exportDir, { recursive: true });
+    const child = spawn('explorer.exe', [config.exportDir], {
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    res.json({ opened: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not open the exports folder' });
+  }
+});
 
 router.get('/:projectId/capabilities', async (req, res) => {
   try {
