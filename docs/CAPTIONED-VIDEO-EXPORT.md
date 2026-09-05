@@ -26,14 +26,19 @@ Caption appearance is edited **before export** as project state. A video project
 with captions exposes a focused **Appearance** workspace alongside Review, Fine
 timing, Accuracy, Caption grouping, and Details.
 
-The Appearance workspace keeps the real video visible and temporarily applies the
-current styling to Studio's editor caption overlay. This makes font, size, color,
+The Appearance workspace keeps the real video visible and applies the current
+project styling to Studio's editor caption overlay. This makes font, size, color,
 position, outline, shadow, width, alignment and background decisions visible
 against the creator's actual footage instead of a generic sample panel.
 
-This browser treatment remains intentionally approximate. It is editor chrome,
-not a rendered frame, and it is removed when the creator leaves Appearance. The
-final MP4 is still rendered by FFmpeg/libass and is authoritative.
+The saved project appearance remains visible on the video when the creator moves
+to Review, Fine timing, Accuracy, Caption grouping, or Details. Appearance is the
+place where the look is edited; it is not a temporary visual mode. Only the
+**Approximate appearance preview** editing badge is removed when the creator
+leaves Appearance.
+
+The browser treatment remains intentionally approximate. It is editor chrome, not
+a rendered frame. The final MP4 is rendered by FFmpeg/libass and is authoritative.
 
 The common appearance path is intentionally small: preset, Khmer font, text color,
 size and position. Specialist controls stay under **More appearance**, while
@@ -100,12 +105,18 @@ A future HDR release requires real color-managed validation for:
 
 ## Khmer caption rendering
 
-Final MP4 caption rendering uses ASS/libass through the local FFmpeg `subtitles`
-filter. This allows deterministic fill, outline, shadow/background, alignment,
-position and margin behavior.
+Final MP4 caption rendering uses a native ASS document through FFmpeg's `ass`
+filter and explicitly requests libass **complex shaping**. Khmer requires complex
+OpenType substitution and positioning; Studio therefore does not rely on a
+renderer default that may select simple shaping on some FFmpeg builds.
+
+Before enabling captioned-video export, Studio probes the local FFmpeg `ass`
+filter and requires its complex-shaping capability. If that capability is missing,
+the finished-video path fails closed instead of producing visually broken Khmer.
 
 The renderer:
 
+- marks the generated ASS script as Khmer and requests `shaping=complex`;
 - escapes ASS control characters from caption text;
 - preserves explicit line breaks;
 - adds render-only wrapping for long Khmer without spaces using Khmer grapheme
@@ -119,10 +130,10 @@ Windows **Khmer UI** is the default supported system font. Noto Sans Khmer may b
 used when the user has it installed. Studio does not redistribute a new font in
 this implementation.
 
-The Appearance workspace's live browser overlay is intentionally labeled as an
-approximate preview. The final MP4 is rendered by FFmpeg/libass; release validation
-must inspect actual rendered frames rather than treating CSS preview parity as
-proof.
+The editor overlay is intentionally approximate. The final MP4 is rendered by
+FFmpeg/libass; release validation must inspect actual rendered frames and confirm
+that Khmer consonants, vowels, diacritics and mixed Khmer-English text retain
+correct shaping rather than treating CSS preview parity as proof.
 
 ## Non-destructive job model
 
@@ -149,10 +160,10 @@ export discards its large caption snapshot from job persistence.
 
 A render performs these steps:
 
-1. re-probe the current local capability/source state;
+1. re-probe the current local capability/source state, including complex ASS shaping;
 2. check estimated output size against free disk space with safety reserve;
 3. write a temporary ASS document inside `exports/.working/`;
-4. render to a `.partial.mp4` file;
+4. render to a `.partial.mp4` file with explicit complex shaping;
 5. report machine-readable FFmpeg progress;
 6. honor cancellation by terminating the local encoder and removing partial work;
 7. verify dimensions, duration, video codec and required audio with `ffprobe`;
@@ -167,7 +178,7 @@ the static route.
 
 Captioned video needs more than the presence of `ffmpeg.exe`:
 
-- FFmpeg `subtitles`/libass filter;
+- FFmpeg's native `ass`/libass filter with explicit complex-shaping support;
 - a reviewed Khmer font;
 - a usable H.264 encoder;
 - optional HEVC/hardware encoders if advanced options are to be shown.
@@ -196,9 +207,14 @@ least:
 - multiple audio streams;
 - Khmer-only, Khmer-English, punctuation, manual line breaks, long no-space Khmer,
   outline/background/position combinations, and all offered fonts;
-- Appearance workspace live-preview behavior at normal Windows scaling levels,
-  including autosave, presets, unavailable-font recovery, and moving directly
-  from Appearance to Export;
+- a regression sample that previously produced broken Khmer in the finished MP4,
+  confirming consonants/vowels/diacritics are correctly shaped by the actual ASS
+  renderer rather than only in the browser;
+- project appearance remaining visible when switching from Appearance to Review,
+  Fine timing, Accuracy, Caption grouping and Details;
+- Appearance workspace behavior at normal Windows scaling levels, including
+  autosave, presets, unavailable-font recovery, and moving directly from
+  Appearance to Export;
 - cancellation, interruption/resume, low disk space and encoder failure;
 - A/V duration/sync across the full rendered output;
 - output upload/playback in representative publishing/editor applications.
