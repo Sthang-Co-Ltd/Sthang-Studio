@@ -63,6 +63,7 @@ import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
 import { ExportWorkspace } from './components/ExportWorkspace';
 import { CaptionAppearanceWorkspace } from './components/CaptionAppearanceWorkspace';
+import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
 import './styles.css';
@@ -181,6 +182,7 @@ export default function App() {
   const [autosaveState, setAutosaveState] = useState<'saved' | 'pending' | 'saving'>('saved');
   const [queuedSeekMs, setQueuedSeekMs] = useState<number | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
+  const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
   const replaceInput = useRef<HTMLInputElement | null>(null);
@@ -602,6 +604,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -724,7 +727,14 @@ export default function App() {
       openSettings('ai');
       return;
     }
-    if (selection.endMs - selection.startMs > 90_000 && !window.confirm('This selection is over 90 seconds. Build a diff preview anyway?')) return;
+    if (selection.endMs - selection.startMs > 90_000) {
+      const confirmed = await confirmInStudio({
+        title: 'Build a long regeneration preview?',
+        message: 'This selection is over 90 seconds, so comparing another take may take noticeably longer. Your current captions stay untouched until you approve the result.',
+        confirmLabel: 'Build preview',
+      });
+      if (!confirmed) return;
+    }
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return;
@@ -784,7 +794,12 @@ export default function App() {
 
   const runTimingPostprocessor = async () => {
     if (!project) return;
-    if (!window.confirm(`Apply safe timing cleanup using “${qaSettings.name}”? Timing-locked captions will be skipped and a history checkpoint will be created.`)) return;
+    const confirmed = await confirmInStudio({
+      title: 'Apply safe timing cleanup?',
+      message: `Studio will use “${qaSettings.name}”, skip timing-locked captions, and create a History checkpoint before changing timing.`,
+      confirmLabel: 'Apply cleanup',
+    });
+    if (!confirmed) return;
     setBusy('Snapping and smoothing caption timing…');
     try {
       const hadUnsavedEdits = dirtyRef.current;
@@ -848,7 +863,14 @@ export default function App() {
   const exportSrt = async () => {
     if (!project) return;
     const severe = issues.filter((issue) => issue.severity !== 'info').length;
-    if (severe > 0 && !window.confirm(`${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Export anyway?`)) return;
+    if (severe > 0) {
+      const confirmed = await confirmInStudio({
+        title: 'Export with review warnings?',
+        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. SRT can still be exported with the current text and timing.`,
+        confirmLabel: 'Export SRT',
+      });
+      if (!confirmed) return;
+    }
     setBusy('Saving & exporting…'); setError('');
     try {
       const hadUnsavedEdits = dirtyRef.current;
@@ -878,7 +900,14 @@ export default function App() {
   const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null> => {
     if (!project) return null;
     const severe = issues.filter((issue) => issue.severity !== 'info').length;
-    if (severe > 0 && !window.confirm(`${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Render the captioned video anyway?`)) return null;
+    if (severe > 0) {
+      const confirmed = await confirmInStudio({
+        title: 'Render with review warnings?',
+        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Studio can render anyway, but the finished video will use the current caption text and timing.`,
+        confirmLabel: 'Render anyway',
+      });
+      if (!confirmed) return null;
+    }
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return null;
@@ -1011,7 +1040,13 @@ export default function App() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load history'); }
   };
   const restoreHistory = async (historyId: string) => {
-    if (!project || !window.confirm('Restore this checkpoint? Your current state will be saved as another history entry first.')) return;
+    if (!project) return;
+    const confirmed = await confirmInStudio({
+      title: 'Restore this checkpoint?',
+      message: 'Studio saves your current state as another History entry first, so you can still return to it later.',
+      confirmLabel: 'Restore checkpoint',
+    });
+    if (!confirmed) return;
     setBusy('Restoring project history…');
     try { applyProject(await api.restoreHistory(project.id, historyId)); setShowHistory(false); setNotice('Earlier project version restored.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Restore failed'); }
@@ -1069,6 +1104,7 @@ export default function App() {
       }}
       onExport={() => { setShowGuide(false); setReviewMode(false); setWorkspaceTool('export'); }}
     />
+    {confirmationDialog}
   </>;
 
   const statusToasts = <div className="toast-stack" aria-live="polite" aria-atomic="false">
