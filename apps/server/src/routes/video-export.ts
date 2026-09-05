@@ -21,18 +21,30 @@ async function openExportsFolderOnWindows() {
   await fs.mkdir(config.exportDir, { recursive: true });
   const exportDir = await fs.realpath(config.exportDir);
   const windowsRoot = process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows';
-  const explorerPath = path.join(windowsRoot, 'explorer.exe');
-  await fs.access(explorerPath);
+  const commandPath = process.env.ComSpec || path.join(windowsRoot, 'System32', 'cmd.exe');
+  await fs.access(commandPath);
 
+  // `start` goes through the interactive Windows shell instead of asking a
+  // detached Explorer child to create a window itself. The directory comes only
+  // from Studio's configured export root and is passed through an environment
+  // variable so the browser can never inject a filesystem target or shell text.
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(explorerPath, [exportDir], {
-      detached: true,
+    const child = spawn(commandPath, ['/d', '/s', '/c', 'start "" "%STHANG_STUDIO_EXPORT_DIR%"'], {
+      env: { ...process.env, STHANG_STUDIO_EXPORT_DIR: exportDir },
+      windowsHide: true,
       stdio: 'ignore',
     });
-    child.once('error', reject);
-    child.once('spawn', () => {
-      child.unref();
-      resolve();
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve();
+    };
+    child.once('error', (error) => finish(error));
+    child.once('close', (code) => {
+      if (code === 0) finish();
+      else finish(new Error(`Windows could not open the Studio exports folder (shell exit ${code ?? 'unknown'}).`));
     });
   });
 }
