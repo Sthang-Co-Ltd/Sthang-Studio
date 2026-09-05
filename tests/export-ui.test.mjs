@@ -8,17 +8,21 @@ const appearanceComponentPath = new URL('../apps/web/src/components/CaptionAppea
 const appearanceCssPath = new URL('../apps/web/src/components/caption-appearance.css', import.meta.url);
 const appearancePreviewPath = new URL('../apps/web/src/caption-appearance-preview.ts', import.meta.url);
 const appearanceSavePath = new URL('../apps/web/src/caption-appearance-save.ts', import.meta.url);
+const confirmationPath = new URL('../apps/web/src/components/ConfirmationDialog.tsx', import.meta.url);
+const confirmationCssPath = new URL('../apps/web/src/components/confirmation-dialog.css', import.meta.url);
 const jobManagerPath = new URL('../apps/web/src/components/JobManager.tsx', import.meta.url);
 const videoExportRoutePath = new URL('../apps/server/src/routes/video-export.ts', import.meta.url);
 const appPath = new URL('../apps/web/src/App.tsx', import.meta.url);
 
-const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, jobManager, videoExportRoute, app] = await Promise.all([
+const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, confirmation, confirmationCss, jobManager, videoExportRoute, app] = await Promise.all([
   fs.readFile(exportComponentPath, 'utf8'),
   fs.readFile(exportCssPath, 'utf8'),
   fs.readFile(appearanceComponentPath, 'utf8'),
   fs.readFile(appearanceCssPath, 'utf8'),
   fs.readFile(appearancePreviewPath, 'utf8'),
   fs.readFile(appearanceSavePath, 'utf8'),
+  fs.readFile(confirmationPath, 'utf8'),
+  fs.readFile(confirmationCssPath, 'utf8'),
   fs.readFile(jobManagerPath, 'utf8'),
   fs.readFile(videoExportRoutePath, 'utf8'),
   fs.readFile(appPath, 'utf8'),
@@ -147,12 +151,29 @@ test('long-running export and generation work expose progress and elapsed durati
 });
 
 test('completed captioned-video exports expose a safe obvious Open folder action', () => {
-  assert.match(jobManager, /<FolderOpen size=\{13\}\/>Open folder/);
+  assert.match(jobManager, /openingFolder \? 'Opening…' : 'Open folder'/);
   assert.match(jobManager, /fetch\('\/api\/video-export\/open-folder', \{ method: 'POST' \}\)/);
   assert.match(videoExportRoute, /router\.post\('\/open-folder'/);
   assert.match(videoExportRoute, /process\.platform !== 'win32'/);
   assert.match(videoExportRoute, /openExportsFolderOnWindows\(\)/);
+  assert.match(videoExportRoute, /STHANG_STUDIO_EXPORT_DIR: exportDir/);
   assert.doesNotMatch(videoExportRoute, /req\.body[^\n]*open-folder/);
+});
+
+test('Studio uses an in-app accessible confirmation surface instead of native browser confirms', () => {
+  assert.match(app, /useStudioConfirm\(\)/);
+  assert.match(app, /confirmationDialog/);
+  assert.doesNotMatch(app, /window\.confirm\(/);
+  assert.match(app, /title: 'Render with review warnings\?'/);
+  assert.match(app, /confirmLabel: 'Render anyway'/);
+  assert.match(confirmation, /role="alertdialog"/);
+  assert.match(confirmation, /aria-modal="true"/);
+  assert.match(confirmation, /cancelRef\.current\?\.focus\(\)/);
+  assert.match(confirmation, /event\.key === 'Escape'/);
+  assert.match(confirmation, /event\.key !== 'Tab'/);
+  assert.match(confirmationCss, /\.studio-confirm-dialog\{position:relative;width:min\(440px/);
+  assert.match(confirmationCss, /\.studio-confirm-actions button\{min-height:38px/);
+  assert.match(confirmationCss, /@media\(max-width:560px\)[\s\S]*\.studio-confirm-actions button\{min-height:44px/);
 });
 
 test('selected button states expose semantics instead of relying on color alone', () => {
