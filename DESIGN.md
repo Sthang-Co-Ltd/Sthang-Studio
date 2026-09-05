@@ -122,8 +122,9 @@ editable elsewhere        not separately editable inside the MP4
   time without covering the editor. The user may keep editing because the render
   uses an immutable snapshot.
 - Long video renders belong in Activity with progress/cancel/resume/download.
-  Completed exports retain the actual time taken and expose obvious **Download
-  video** and Windows **Open folder** actions.
+  Completed exports retain the actual time taken, expose an obvious **Download
+  video** action, and show Studio's fixed local exports-folder path instead of a
+  fragile desktop-shell action.
 
 ### Review decisions
 
@@ -240,8 +241,9 @@ it must not invent a second consent contract.
 - Regeneration review stays docked beneath the video.
 - Activity is the durable progress surface for generation, regeneration and video
   export. Every running job shows a horizontal progress bar and elapsed time;
-  completed jobs retain **Took …** duration. Video-export completion shows
-  **Download video** and **Open folder** without auto-opening or overwriting media.
+  completed jobs retain **Took …** duration. Video-export completion shows an
+  obvious **Download video** action plus the fixed local exports-folder path; it
+  never auto-opens a desktop folder or overwrites media.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.
 - Optional analytics/contribution outages should not create alarming editor
