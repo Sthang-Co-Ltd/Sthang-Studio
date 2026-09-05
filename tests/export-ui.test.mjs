@@ -8,15 +8,19 @@ const appearanceComponentPath = new URL('../apps/web/src/components/CaptionAppea
 const appearanceCssPath = new URL('../apps/web/src/components/caption-appearance.css', import.meta.url);
 const appearancePreviewPath = new URL('../apps/web/src/caption-appearance-preview.ts', import.meta.url);
 const appearanceSavePath = new URL('../apps/web/src/caption-appearance-save.ts', import.meta.url);
+const jobManagerPath = new URL('../apps/web/src/components/JobManager.tsx', import.meta.url);
+const videoExportRoutePath = new URL('../apps/server/src/routes/video-export.ts', import.meta.url);
 const appPath = new URL('../apps/web/src/App.tsx', import.meta.url);
 
-const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, app] = await Promise.all([
+const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, jobManager, videoExportRoute, app] = await Promise.all([
   fs.readFile(exportComponentPath, 'utf8'),
   fs.readFile(exportCssPath, 'utf8'),
   fs.readFile(appearanceComponentPath, 'utf8'),
   fs.readFile(appearanceCssPath, 'utf8'),
   fs.readFile(appearancePreviewPath, 'utf8'),
   fs.readFile(appearanceSavePath, 'utf8'),
+  fs.readFile(jobManagerPath, 'utf8'),
+  fs.readFile(videoExportRoutePath, 'utf8'),
   fs.readFile(appPath, 'utf8'),
 ]);
 
@@ -73,27 +77,32 @@ test('project appearance stays on the real video after leaving the Appearance wo
   assert.match(appearancePreview, /export function clearCaptionAppearancePreview/);
   assert.match(appearanceCss, /caption-project-appearance \.caption-preview-shell/);
   assert.match(appearanceCss, /caption-project-appearance \.caption-preview-shell \.caption-preview/);
-  assert.match(appearanceCss, /caption-appearance-previewing \.media-stage::after\{content:'Approximate appearance preview'/);
+  assert.match(appearanceCss, /caption-appearance-previewing \.media-stage::after\{content:'Layout-locked appearance preview'/);
 });
 
-test('appearance previews on the real editor video instead of a fake sample panel', () => {
-  assert.match(appearanceComponent, /applyCaptionAppearancePreview\(appearance\)/);
-  assert.match(appearancePreview, /--caption-live-font/);
-  assert.match(appearancePreview, /--caption-live-bottom/);
-  assert.match(appearanceCss, /caption-project-appearance \.caption-preview-shell/);
-  assert.match(appearanceCss, /caption-appearance-previewing \.media-stage::after\{content:'Approximate appearance preview'/);
-  assert.doesNotMatch(appearanceComponent, /appearance-preview-text/);
+test('appearance layout follows the same deterministic line planner as video export', () => {
+  assert.match(appearancePreview, /const CAPTION_WRAP_ADVANCE = 0\.72/);
+  assert.match(appearancePreview, /const CAPTION_WRAP_FLOOR = 0\.62/);
+  assert.match(appearancePreview, /new Intl\.Segmenter\('km', \{ granularity: 'grapheme' \}\)/);
+  assert.match(appearancePreview, /export function planCaptionPreviewText/);
+  assert.match(appearancePreview, /appearance\.fontSize1080 \* scale/);
+  assert.match(appearancePreview, /appearance\.maxWidthPct/);
+  assert.match(appearancePreview, /video\.videoWidth/);
+  assert.match(appearancePreview, /video\.videoHeight/);
+  assert.match(appearancePreview, /new ResizeObserver/);
+  assert.match(appearancePreview, /new MutationObserver/);
+  assert.match(appearanceCss, /white-space:pre/);
+  assert.match(appearanceCss, /overflow-wrap:normal/);
+  assert.match(appearanceCss, /word-break:normal/);
+  assert.doesNotMatch(appearancePreview, /--caption-live-size', `clamp\(/);
 });
 
-test('appearance live preview preserves Khmer glyph paint and safe wrapping', () => {
+test('appearance live preview preserves Khmer glyph paint while using planned lines', () => {
   assert.doesNotMatch(appearanceCss, /\.caption-preview\{display:inline!important/);
   assert.match(appearanceCss, /\.caption-preview\{display:inline-block!important/);
   assert.match(appearanceCss, /paint-order:stroke fill/);
-  assert.match(appearanceCss, /white-space:pre-wrap/);
-  assert.match(appearanceCss, /overflow-wrap:anywhere/);
-  assert.match(appearanceCss, /word-break:normal/);
-  assert.match(appearanceCss, /line-height:1\.45!important/);
-  assert.match(appearanceCss, /\.caption-preview-target\{min-width:0;max-width:100%;padding:4px 6px;overflow:visible/);
+  assert.match(appearanceCss, /line-height:1\.2!important/);
+  assert.match(appearanceCss, /\.caption-preview-target\{min-width:0;max-width:100%;padding:0;overflow:visible/);
 });
 
 test('appearance autosaves project styling and queues the final workspace value', () => {
@@ -125,6 +134,25 @@ test('export waits for appearance saves, re-reads saved appearance, and snapshot
   assert.match(exportComponent, /onStartVideoExport\(settings, latestAppearance\)/);
   assert.match(exportComponent, /Your latest caption appearance could not be saved/);
   assert.match(exportComponent, /Choose an available caption font/);
+});
+
+test('long-running export and generation work expose progress and elapsed duration', () => {
+  assert.match(exportComponent, /className="export-active-progress"/);
+  assert.match(exportComponent, /elapsedLabel\(activeExportJob\)/);
+  assert.match(exportCss, /\.export-active-progress\{height:5px/);
+  assert.match(jobManager, /className="job-progress"/);
+  assert.match(jobManager, /Took \$\{formatDuration\(duration\)\}/);
+  assert.match(jobManager, /\$\{formatDuration\(duration\)\} elapsed/);
+  assert.match(jobManager, /window\.setInterval\(\(\) => setNow\(Date\.now\(\)\), 1000\)/);
+});
+
+test('completed captioned-video exports expose a safe obvious Open folder action', () => {
+  assert.match(jobManager, /<FolderOpen size=\{13\}\/>Open folder/);
+  assert.match(jobManager, /fetch\('\/api\/video-export\/open-folder', \{ method: 'POST' \}\)/);
+  assert.match(videoExportRoute, /router\.post\('\/open-folder'/);
+  assert.match(videoExportRoute, /process\.platform !== 'win32'/);
+  assert.match(videoExportRoute, /spawn\('explorer\.exe', \[config\.exportDir\]/);
+  assert.doesNotMatch(videoExportRoute, /req\.body[^\n]*open-folder/);
 });
 
 test('selected button states expose semantics instead of relying on color alone', () => {
