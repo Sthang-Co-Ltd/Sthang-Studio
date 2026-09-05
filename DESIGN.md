@@ -49,14 +49,16 @@ before they reach Export.
 
 - Show **Appearance** as a labeled editor workspace once a video project has
   captions to judge.
-- Keep the real video evidence visible. While Appearance is open, temporarily
-  reflect the current project appearance on the editor caption overlay so font,
-  size, color, position, outline, background and width can be judged against the
-  footage itself.
-- The browser overlay is explicitly an **approximate appearance preview**. The
-  finished MP4 remains authoritative because FFmpeg/libass performs the real
-  render. Leaving Appearance returns the editor overlay to its normal neutral
-  preview treatment; editor-only preview chrome never enters the source or export.
+- Keep the real video evidence visible. The editor caption overlay should reflect
+  the current project appearance while the creator works across Review, Fine
+  timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
+  focused place for changing the look, not a temporary styling mode.
+- While Appearance is open, show the **Approximate appearance preview** badge to
+  make the browser/render boundary explicit. Leaving Appearance removes that
+  editing badge but does **not** revert the caption to a neutral fake style.
+- The browser overlay remains approximate. The finished MP4 is authoritative
+  because FFmpeg/libass performs the real render. Editor-only preview chrome never
+  enters the source or export.
 - Keep the common path small: **Preset, Khmer font, text color, size, position**.
   Put weight, outline, shadow, max width, alignment and background-box controls
   behind **More appearance**.
@@ -101,6 +103,10 @@ editable elsewhere        not separately editable inside the MP4
 - Before starting a render, re-read the saved project appearance and snapshot it
   together with captions, media identity and output settings. This avoids stale
   styling if the creator edited Appearance immediately before Export.
+- Khmer captioned-video export must use the native ASS/libass path with explicit
+  **complex shaping**. If the installed FFmpeg cannot expose that capability,
+  block finished-video export with recovery guidance instead of producing broken
+  glyphs.
 - If the selected project font is not available to the local renderer, block the
   finished-video action with a clear path back to Appearance rather than silently
   substituting typography.
@@ -264,7 +270,7 @@ The home screen is an operational launcher, not a marketing landing page. Keep o
 ### Video-centric review focus
 
 - In Review mode, the selected caption is the user's current decision target. When playback actually enters that caption's timestamp, identify it directly over the video with restrained Studio-lime corner brackets.
-- Do not recolor, resize, reposition, or restyle the caption text itself to indicate review state; the creator must judge the caption in its real visual form.
+- Do not recolor, resize, reposition, or restyle the caption text itself to indicate review state; the creator must judge the caption in its real project appearance.
 - Pre-roll remains clean: the review marker must not appear on the preceding caption before the target timestamp begins.
 - Default review focus is **Brackets + label**; users may choose **Brackets only** or **Off**.
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
