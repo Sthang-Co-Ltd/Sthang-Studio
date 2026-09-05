@@ -34,11 +34,20 @@ against the creator's actual footage instead of a generic sample panel.
 The saved project appearance remains visible on the video when the creator moves
 to Review, Fine timing, Accuracy, Caption grouping, or Details. Appearance is the
 place where the look is edited; it is not a temporary visual mode. Only the
-**Approximate appearance preview** editing badge is removed when the creator
+**Layout-locked appearance preview** editing badge is removed when the creator
 leaves Appearance.
 
-The browser treatment remains intentionally approximate. It is editor chrome, not
-a rendered frame. The final MP4 is rendered by FFmpeg/libass and is authoritative.
+Preview/export layout is a product contract rather than a loose visual hint.
+Studio uses the same Khmer-grapheme line planner for the browser overlay and the
+ASS render input, and scales font size, maximum width, outline, padding and bottom
+position from the actual displayed video rectangle rather than from browser
+viewport units. If the preview plans one line, the render receives that same line
+plan; if it plans two lines, the render receives those same explicit breaks.
+Letterboxing or pillarboxing is accounted for when positioning the browser overlay.
+
+The browser and libass are still separate rasterizers, so minor antialiasing and
+font-metric differences can remain. Those differences must not change the planned
+line count, relative size, alignment, maximum-width region, or bottom position.
 
 The common appearance path is intentionally small: preset, Khmer font, text color,
 size and position. Specialist controls stay under **More appearance**, while
@@ -121,6 +130,8 @@ The renderer:
 - preserves explicit line breaks;
 - adds render-only wrapping for long Khmer without spaces using Khmer grapheme
   segmentation rather than English word-spacing assumptions;
+- uses the same deterministic grapheme-capacity plan that the browser preview uses
+  so line-count decisions do not change after the creator starts export;
 - scales caption size, outline, shadow and background padding with output frame
   height;
 - constrains captions to a project-selected maximum frame width;
@@ -130,10 +141,11 @@ Windows **Khmer UI** is the default supported system font. Noto Sans Khmer may b
 used when the user has it installed. Studio does not redistribute a new font in
 this implementation.
 
-The editor overlay is intentionally approximate. The final MP4 is rendered by
-FFmpeg/libass; release validation must inspect actual rendered frames and confirm
-that Khmer consonants, vowels, diacritics and mixed Khmer-English text retain
-correct shaping rather than treating CSS preview parity as proof.
+The editor overlay and libass still use different rasterization engines. Release
+validation must inspect actual rendered frames and confirm Khmer consonants,
+vowels, diacritics and mixed Khmer-English text retain correct shaping, while also
+confirming the planned line count, relative size and position match what Studio
+showed before export.
 
 ## Non-destructive job model
 
@@ -151,6 +163,13 @@ Video exports run on a separate serialized export lane from caption-generation
 jobs. A long 4K render therefore does not block transcription/regeneration, while
 only one video render runs at a time to avoid uncontrolled local CPU/GPU and disk
 pressure.
+
+Activity shows horizontal job progress for caption generation/regeneration and
+video export. Once a job has started it also shows elapsed time, and terminal jobs
+retain the actual duration derived from their persisted start/completion times.
+Completed video exports provide both **Download video** and **Open folder**. The
+folder action is Windows-local and opens Studio's fixed exports directory; it does
+not accept an arbitrary browser-supplied path.
 
 Media replacement/deletion is blocked while any project job still uses the
 source. An interrupted export can restart from its saved snapshot; a completed
@@ -210,11 +229,16 @@ least:
 - a regression sample that previously produced broken Khmer in the finished MP4,
   confirming consonants/vowels/diacritics are correctly shaped by the actual ASS
   renderer rather than only in the browser;
+- one-line and multi-line regression samples confirming that preview line count,
+  relative font size, alignment, maximum-width region and bottom position survive
+  export, including portrait footage and letterboxed/pillarboxed preview states;
 - project appearance remaining visible when switching from Appearance to Review,
   Fine timing, Accuracy, Caption grouping and Details;
 - Appearance workspace behavior at normal Windows scaling levels, including
   autosave, presets, unavailable-font recovery, and moving directly from
   Appearance to Export;
+- Activity progress and elapsed/completion duration for caption generation and
+  video export, plus the completed export **Open folder** action on Windows;
 - cancellation, interruption/resume, low disk space and encoder failure;
 - A/V duration/sync across the full rendered output;
 - output upload/playback in representative publishing/editor applications.
