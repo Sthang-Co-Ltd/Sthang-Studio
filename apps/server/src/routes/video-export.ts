@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { Router } from 'express';
 import { config } from '../config.js';
@@ -16,18 +17,32 @@ function isVideoProject(mimeType: string, originalName: string) {
   return mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(originalName);
 }
 
+async function openExportsFolderOnWindows() {
+  await fs.mkdir(config.exportDir, { recursive: true });
+  const exportDir = await fs.realpath(config.exportDir);
+  const windowsRoot = process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows';
+  const explorerPath = path.join(windowsRoot, 'explorer.exe');
+  await fs.access(explorerPath);
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(explorerPath, [exportDir], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
 router.post('/open-folder', async (_req, res) => {
   try {
     if (process.platform !== 'win32') {
       return res.status(501).json({ error: 'Opening the exports folder from Studio is currently supported on Windows.' });
     }
-    await fs.mkdir(config.exportDir, { recursive: true });
-    const child = spawn('explorer.exe', [config.exportDir], {
-      detached: true,
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    child.unref();
+    await openExportsFolderOnWindows();
     res.json({ opened: true });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Could not open the exports folder' });
