@@ -30,7 +30,7 @@
     "test:contribution": "npm run build --workspace @kcs/shared && node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/analytics-worker.test.mjs tests/public-services-config.test.mjs tests/privacy-onboarding.test.ts",
     "test:gemini": "node --import tsx --test tests/gemini-request-timeout.test.ts",
     "test:media-clock": "node --import tsx --test tests/media-clock.test.ts",
-    "test:video-export": "node --import tsx --test tests/video-export.test.ts tests/export-ui.test.mjs",
+    "test:video-export": "node --import tsx --test tests/video-export.test.ts tests/caption-preview-parity.test.ts tests/export-ui.test.mjs",
     "test:updater": "node --import tsx --test tests/updater-core.test.ts tests/update-protocol.test.mjs tests/update-runtime.test.mjs tests/ota-signer-worker.test.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-release.ps1",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
