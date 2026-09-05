@@ -29,13 +29,14 @@ test('Activity uses a Studio-styled close control instead of the generic modal b
   assert.match(css, /@media\(max-width:620px\)[\s\S]*\.job-modal-close\{width:44px!important;height:44px!important/);
 });
 
-test('completed job actions live under job metadata instead of floating in a detached column', () => {
+test('completed job actions live under job metadata with Download video as the export result action', () => {
   assert.match(manager, /className="job-meta"[\s\S]*className="job-actions"/);
   assert.match(css, /\.job-modal \.job-list article\{display:grid;grid-template-columns:34px minmax\(0,1fr\)/);
   assert.match(css, /\.job-modal \.job-actions\{margin-top:10px;padding-top:10px;border-top:/);
   assert.match(css, /justify-content:flex-end/);
   assert.match(manager, /className="job-action-primary"[\s\S]*Download video/);
-  assert.match(manager, /'Open folder'/);
+  assert.doesNotMatch(manager, /Open folder/);
+  assert.doesNotMatch(manager, /openExportsFolder/);
 });
 
 test('Activity metadata is deliberately separated into readable lines', () => {
@@ -45,32 +46,18 @@ test('Activity metadata is deliberately separated into readable lines', () => {
   assert.match(css, /\.job-modal \.job-meta small\{display:block;font-size:10px/);
 });
 
-test('Windows export-folder launch uses PowerShell shell association with a bounded timeout', () => {
-  assert.match(route, /process\.env\.WINDIR \|\| process\.env\.SystemRoot \|\| 'C:\\\\Windows'/);
-  assert.match(route, /path\.join\(windowsRoot, 'System32', 'WindowsPowerShell', 'v1\.0', 'powershell\.exe'\)/);
-  assert.match(route, /STHANG_STUDIO_EXPORT_DIR: exportDir/);
-  assert.match(route, /Invoke-Item -LiteralPath \$env:STHANG_STUDIO_EXPORT_DIR/);
-  assert.match(route, /const OPEN_FOLDER_TIMEOUT_MS = 5000/);
-  assert.match(route, /setTimeout\(\(\) => \{/);
-  assert.match(route, /child\.kill\(\)/);
-  assert.match(route, /child\.once\('error'/);
-  assert.match(route, /child\.once\('close'/);
-  assert.doesNotMatch(route, /req\.body[^\n]*open-folder/);
-  assert.doesNotMatch(route, /start \"\"/);
-});
-
-test('folder action scopes Opening state to the clicked job and cannot hang forever', () => {
-  assert.match(manager, /const \[openingFolderJobId, setOpeningFolderJobId\] = useState<string \| null>\(null\)/);
-  assert.match(manager, /const OPEN_FOLDER_REQUEST_TIMEOUT_MS = 7000/);
-  assert.match(manager, /const controller = new AbortController\(\)/);
-  assert.match(manager, /controller\.abort\(\)/);
-  assert.match(manager, /signal: controller\.signal/);
-  assert.match(manager, /const openingThisFolder = openingFolderJobId === job\.id/);
-  assert.match(manager, /openExportsFolder\(job\.id\)/);
-  assert.match(manager, /openingThisFolder \? 'Opening…' : 'Open folder'/);
-  assert.match(manager, /setFolderNotice\('Opened Studio exports in File Explorer\.'\)/);
-  assert.match(manager, /className="activity-notice" role="status"/);
-  assert.match(manager, /className="activity-error" role="alert"/);
+test('Activity lists Studio fixed export directory instead of trying to launch a desktop shell', () => {
+  assert.match(manager, /fetch\('\/api\/video-export\/location'\)/);
+  assert.match(manager, /className="activity-export-location"/);
+  assert.match(manager, /<span>Exports folder<\/span>/);
+  assert.match(manager, /exportDirectory \|\| exportDirectoryError \|\| 'Loading location…'/);
+  assert.match(css, /\.activity-export-location\{margin:10px 14px 0/);
+  assert.match(css, /\.activity-export-location code\{font-size:10\.5px/);
+  assert.match(route, /router\.get\('\/location'/);
+  assert.match(route, /res\.json\(\{ directory: config\.exportDir \}\)/);
+  assert.doesNotMatch(route, /open-folder/);
+  assert.doesNotMatch(route, /spawn\(/);
+  assert.doesNotMatch(route, /powershell/i);
 });
 
 test('Activity controls preserve desktop and narrow touch target floors', () => {
