@@ -151,7 +151,7 @@ test('completed captioned-video exports expose a safe obvious Open folder action
   assert.match(jobManager, /fetch\('\/api\/video-export\/open-folder', \{ method: 'POST' \}\)/);
   assert.match(videoExportRoute, /router\.post\('\/open-folder'/);
   assert.match(videoExportRoute, /process\.platform !== 'win32'/);
-  assert.match(videoExportRoute, /spawn\('explorer\.exe', \[config\.exportDir\]/);
+  assert.match(videoExportRoute, /openExportsFolderOnWindows\(\)/);
   assert.doesNotMatch(videoExportRoute, /req\.body[^\n]*open-folder/);
 });
 
