@@ -151,12 +151,13 @@ test('long-running export and generation work expose progress and elapsed durati
 });
 
 test('completed captioned-video exports expose a safe obvious Open folder action', () => {
-  assert.match(jobManager, /openingFolder \? 'Opening…' : 'Open folder'/);
-  assert.match(jobManager, /fetch\('\/api\/video-export\/open-folder', \{ method: 'POST' \}\)/);
+  assert.match(jobManager, /openingThisFolder \? 'Opening…' : 'Open folder'/);
+  assert.match(jobManager, /fetch\('\/api\/video-export\/open-folder', \{ method: 'POST', signal: controller\.signal \}\)/);
   assert.match(videoExportRoute, /router\.post\('\/open-folder'/);
   assert.match(videoExportRoute, /process\.platform !== 'win32'/);
   assert.match(videoExportRoute, /openExportsFolderOnWindows\(\)/);
   assert.match(videoExportRoute, /STHANG_STUDIO_EXPORT_DIR: exportDir/);
+  assert.match(videoExportRoute, /OPEN_FOLDER_TIMEOUT_MS/);
   assert.doesNotMatch(videoExportRoute, /req\.body[^\n]*open-folder/);
 });
 
