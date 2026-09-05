@@ -14,6 +14,8 @@ interface Props {
   onOpen(job: ProcessingJob): void;
 }
 
+const OPEN_FOLDER_REQUEST_TIMEOUT_MS = 7000;
+
 function isStopping(job: ProcessingJob) {
   return job.status === 'running' && job.message.toLocaleLowerCase('en').startsWith('cancellation requested');
 }
@@ -80,7 +82,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
   const [now, setNow] = useState(Date.now());
   const [folderError, setFolderError] = useState('');
   const [folderNotice, setFolderNotice] = useState('');
-  const [openingFolder, setOpeningFolder] = useState(false);
+  const [openingFolderJobId, setOpeningFolderJobId] = useState<string | null>(null);
 
   useEffect(() => {
     const refresh = () => onRefresh();
@@ -101,21 +103,29 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
     return () => window.clearTimeout(timer);
   }, [folderNotice]);
 
-  const openExportsFolder = async () => {
+  const openExportsFolder = async (jobId: string) => {
     setFolderError('');
     setFolderNotice('');
-    setOpeningFolder(true);
+    setOpeningFolderJobId(jobId);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), OPEN_FOLDER_REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch('/api/video-export/open-folder', { method: 'POST' });
+      const response = await fetch('/api/video-export/open-folder', { method: 'POST', signal: controller.signal });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(body.error || `Could not open the exports folder (${response.status}).`);
       }
       setFolderNotice('Opened Studio exports in File Explorer.');
     } catch (error) {
-      setFolderError(error instanceof Error ? error.message : 'Could not open the exports folder.');
+      const message = error instanceof Error && error.name === 'AbortError'
+        ? 'Windows took too long to open the exports folder. Try again, or open the Studio exports folder manually.'
+        : error instanceof Error
+          ? error.message
+          : 'Could not open the exports folder.';
+      setFolderError(message);
     } finally {
-      setOpeningFolder(false);
+      window.clearTimeout(timeout);
+      setOpeningFolderJobId((current) => current === jobId ? null : current);
     }
   };
 
@@ -147,6 +157,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
                 ? ` · ${formatDuration(duration)} elapsed`
                 : ` · ${formatDuration(duration)}`
             : '';
+          const openingThisFolder = openingFolderJobId === job.id;
           return <article key={job.id} className={`job-${job.status}`}>
             <div className="job-status-icon" title={activityLabel(job)}>{icon(job)}</div>
             <div className="job-copy">
@@ -161,7 +172,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
-                {job.status === 'completed' && job.resultExport && <button disabled={openingFolder} onClick={() => void openExportsFolder()}>{openingFolder ? <LoaderCircle className="spin" size={13}/> : <FolderOpen size={13}/>} {openingFolder ? 'Opening…' : 'Open folder'}</button>}
+                {job.status === 'completed' && job.resultExport && <button disabled={Boolean(openingFolderJobId)} onClick={() => void openExportsFolder(job.id)}>{openingThisFolder ? <LoaderCircle className="spin" size={13}/> : <FolderOpen size={13}/>} {openingThisFolder ? 'Opening…' : 'Open folder'}</button>}
                 {job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}
                 {['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}
               </div>
