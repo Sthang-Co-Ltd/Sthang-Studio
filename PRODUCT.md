@@ -108,7 +108,8 @@ For captioned-video export:
 - Long-running caption generation/regeneration and video export expose horizontal
   progress plus elapsed time. Completed work keeps the actual duration so creators
   can tell how long the operation took. Completed captioned-video exports expose
-  obvious **Download video** and Windows **Open folder** actions.
+  an obvious **Download video** action and list Studio's fixed local exports folder
+  so creators know where the verified MP4 is stored.
 - Never silently crop, lower the chosen resolution/frame rate, drop source audio,
   flatten HDR, add a watermark, overwrite the original media, substitute a
   different caption font, change planned line count/geometry, or downgrade Khmer
