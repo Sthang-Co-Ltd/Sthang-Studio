@@ -269,10 +269,11 @@ async function probeMedia(inputPath: string): Promise<VideoExportSourceInfo> {
   };
 }
 
-async function hasSubtitlesFilter() {
+async function hasComplexAssFilter() {
   try {
-    const { stdout, stderr } = await runCommand(config.ffmpegPath, ['-hide_banner', '-filters'], 'FFmpeg filter probe', 12_000);
-    return /\bsubtitles\b/i.test(`${stdout}\n${stderr}`);
+    const { stdout, stderr } = await runCommand(config.ffmpegPath, ['-hide_banner', '-h', 'filter=ass'], 'FFmpeg ASS shaping probe', 12_000);
+    const details = `${stdout}\n${stderr}`;
+    return /\bfontsdir\b/i.test(details) && /\bshaping\b/i.test(details) && /\bcomplex\b/i.test(details);
   } catch {
     return false;
   }
@@ -372,9 +373,9 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
   }
   const cached = capabilityCache.get(cacheKey);
   if (!force && cached && Date.now() - cached.at < capabilityCacheMs) return cached.value;
-  const [source, subtitlesFilter, encoders, fonts, availableDiskBytes] = await Promise.all([
+  const [source, complexAssFilter, encoders, fonts, availableDiskBytes] = await Promise.all([
     probeMedia(projectMediaPath(project)),
-    hasSubtitlesFilter(),
+    hasComplexAssFilter(),
     encoderCapabilities(),
     fontCapabilities(),
     diskFreeBytes(config.exportDir),
@@ -384,13 +385,13 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
   if (source.bitDepth > 8 && source.hdr === 'sdr') warnings.push(`${source.bitDepth}-bit SDR source detected. H.264 compatibility output is 8-bit; HEVC software export can preserve 10-bit when available.`);
   if (source.audioStreams > 1) warnings.push(`${source.audioStreams} audio tracks detected. Studio preserves all tracks, transcoding to AAC only when MP4 compatibility requires it.`);
   if (source.hdr !== 'sdr') warnings.push('HDR source detected. Captioned-video export is blocked until Studio can preserve HDR appearance without color damage.');
-  if (!subtitlesFilter) warnings.push('This FFmpeg build does not expose the libass subtitles filter required for burned-in captions.');
+  if (!complexAssFilter) warnings.push('This FFmpeg build does not expose the native ASS/libass complex shaping required for correct Khmer captions.');
   if (!fonts.some((font) => font.available)) warnings.push('No reviewed Khmer export font was found on this system.');
   if (!encoders.some((item) => item.codec === 'h264' && item.available)) warnings.push('No usable H.264 encoder was detected.');
   const blockingReason = source.hdr !== 'sdr'
     ? `This source is ${source.hdr === 'hlg' ? 'HLG HDR' : source.hdr === 'hdr10' ? 'HDR10/PQ' : source.hdr === 'dolby-vision' ? 'Dolby Vision' : 'HDR'}. Studio will not silently flatten HDR during caption rendering. Export SRT instead, or convert the source to SDR in a color-managed editor first.`
-    : !subtitlesFilter
-      ? 'This FFmpeg installation does not include the subtitles/libass filter required for Khmer burned-in captions.'
+    : !complexAssFilter
+      ? 'This FFmpeg installation cannot guarantee correct Khmer shaping. Studio requires the native ASS/libass filter with complex shaping; install the reviewed FFmpeg runtime or point FFMPEG_PATH to a compatible build.'
       : !fonts.some((font) => font.available)
         ? 'No reviewed Khmer font is available to the local renderer. Windows Khmer UI is the default supported font.'
         : !encoders.some((item) => item.codec === 'h264' && item.available)
@@ -403,7 +404,7 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
     resolutions: resolutionOptions(source),
     encoders,
     fonts,
-    subtitlesFilter,
+    subtitlesFilter: complexAssFilter,
     availableDiskBytes,
     warnings,
   };
@@ -488,11 +489,15 @@ export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Pa
     .filter((caption) => caption.text.trim() && caption.endMs > caption.startMs)
     .map((caption) => `Dialogue: 0,${assTimestamp(caption.startMs)},${assTimestamp(caption.endMs)},Default,,0,0,0,,${escapeAssText(wrapCaptionText(caption.text, maxGraphemesPerLine))}`)
     .join('\n');
-  return `\uFEFF[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,${appearance.fontFamily.replace(/,/g, ' ')},${fontSize},${assColor(appearance.textColor)},${assColor(appearance.textColor)},${assColor(appearance.outlineColor)},${backColor},${appearance.bold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${styleOutline},${shadow},${alignment},${sideMargin},${sideMargin},${marginV},1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
+  return `\uFEFF[Script Info]\nScriptType: v4.00+\nLanguage: km\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,${appearance.fontFamily.replace(/,/g, ' ')},${fontSize},${assColor(appearance.textColor)},${assColor(appearance.textColor)},${assColor(appearance.outlineColor)},${backColor},${appearance.bold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${styleOutline},${shadow},${alignment},${sideMargin},${sideMargin},${marginV},1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
 }
 
 function filterPath(filePath: string) {
   return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+}
+
+export function buildAssCaptionFilter(assPath: string, fontDirectory: string) {
+  return `ass=filename='${filterPath(assPath)}':fontsdir='${filterPath(fontDirectory)}':shaping=complex`;
 }
 
 function selectedFontDirectory(fontName: string) {
@@ -712,7 +717,7 @@ function buildRenderArgs(
     `scale=${width}:${height}:flags=lanczos`,
     'setsar=1',
     ...(settings.frameRate === 'source' ? [] : [`fps=fps=${settings.frameRate}`]),
-    `subtitles=filename='${filterPath(assPath)}':fontsdir='${filterPath(selectedFontDirectory(appearance.fontFamily))}'`,
+    buildAssCaptionFilter(assPath, selectedFontDirectory(appearance.fontFamily)),
   ];
   const args = [
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
