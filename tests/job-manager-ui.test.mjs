@@ -45,23 +45,30 @@ test('Activity metadata is deliberately separated into readable lines', () => {
   assert.match(css, /\.job-modal \.job-meta small\{display:block;font-size:10px/);
 });
 
-test('Windows export-folder launch uses the interactive shell without browser-supplied paths', () => {
+test('Windows export-folder launch uses PowerShell shell association with a bounded timeout', () => {
   assert.match(route, /process\.env\.WINDIR \|\| process\.env\.SystemRoot \|\| 'C:\\\\Windows'/);
-  assert.match(route, /process\.env\.ComSpec \|\| path\.join\(windowsRoot, 'System32', 'cmd\.exe'\)/);
+  assert.match(route, /path\.join\(windowsRoot, 'System32', 'WindowsPowerShell', 'v1\.0', 'powershell\.exe'\)/);
   assert.match(route, /STHANG_STUDIO_EXPORT_DIR: exportDir/);
-  assert.match(route, /start \"\" \"%STHANG_STUDIO_EXPORT_DIR%\"/);
+  assert.match(route, /Invoke-Item -LiteralPath \$env:STHANG_STUDIO_EXPORT_DIR/);
+  assert.match(route, /const OPEN_FOLDER_TIMEOUT_MS = 5000/);
+  assert.match(route, /setTimeout\(\(\) => \{/);
+  assert.match(route, /child\.kill\(\)/);
   assert.match(route, /child\.once\('error'/);
   assert.match(route, /child\.once\('close'/);
-  assert.match(route, /windowsHide:\s*true/);
   assert.doesNotMatch(route, /req\.body[^\n]*open-folder/);
-  assert.doesNotMatch(route, /spawn\(explorerPath/);
+  assert.doesNotMatch(route, /start \"\"/);
 });
 
-test('folder action exposes working and success/error feedback instead of silent clicks', () => {
-  assert.match(manager, /const \[openingFolder, setOpeningFolder\] = useState\(false\)/);
+test('folder action scopes Opening state to the clicked job and cannot hang forever', () => {
+  assert.match(manager, /const \[openingFolderJobId, setOpeningFolderJobId\] = useState<string \| null>\(null\)/);
+  assert.match(manager, /const OPEN_FOLDER_REQUEST_TIMEOUT_MS = 7000/);
+  assert.match(manager, /const controller = new AbortController\(\)/);
+  assert.match(manager, /controller\.abort\(\)/);
+  assert.match(manager, /signal: controller\.signal/);
+  assert.match(manager, /const openingThisFolder = openingFolderJobId === job\.id/);
+  assert.match(manager, /openExportsFolder\(job\.id\)/);
+  assert.match(manager, /openingThisFolder \? 'Opening…' : 'Open folder'/);
   assert.match(manager, /setFolderNotice\('Opened Studio exports in File Explorer\.'\)/);
-  assert.match(manager, /disabled=\{openingFolder\}/);
-  assert.match(manager, /openingFolder \? 'Opening…' : 'Open folder'/);
   assert.match(manager, /className="activity-notice" role="status"/);
   assert.match(manager, /className="activity-error" role="alert"/);
 });
