@@ -80,6 +80,16 @@ function resolvedAppearance(project: CaptionProject): CaptionAppearance {
   return { ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance };
 }
 
+function elapsedLabel(job: ProcessingJob) {
+  if (!job.startedAt) return '';
+  const started = Date.parse(job.startedAt);
+  if (!Number.isFinite(started)) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - started) / 1000));
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m elapsed`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s elapsed`;
+  return `${seconds}s elapsed`;
+}
+
 export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
@@ -197,7 +207,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
     </section>}
 
     {outputMode === 'video' && <>
-      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}% · you can keep editing while this saved snapshot renders</span></div></div>}
+      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · you can keep editing while this saved snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
       {loadingCapabilities && <div className="export-status" role="status"><LoaderCircle className="spin" size={16}/>Checking video export support…</div>}
       {capabilityError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Video export check failed</strong><span>{capabilityError}</span></div></div>}
       {actionError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Export needs attention</strong><span>{actionError}</span></div></div>}
