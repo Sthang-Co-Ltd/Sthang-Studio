@@ -12,9 +12,10 @@ const confirmationPath = new URL('../apps/web/src/components/ConfirmationDialog.
 const confirmationCssPath = new URL('../apps/web/src/components/confirmation-dialog.css', import.meta.url);
 const jobManagerPath = new URL('../apps/web/src/components/JobManager.tsx', import.meta.url);
 const videoExportRoutePath = new URL('../apps/server/src/routes/video-export.ts', import.meta.url);
+const viteConfigPath = new URL('../apps/web/vite.config.ts', import.meta.url);
 const appPath = new URL('../apps/web/src/App.tsx', import.meta.url);
 
-const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, confirmation, confirmationCss, jobManager, videoExportRoute, app] = await Promise.all([
+const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, confirmation, confirmationCss, jobManager, videoExportRoute, viteConfig, app] = await Promise.all([
   fs.readFile(exportComponentPath, 'utf8'),
   fs.readFile(exportCssPath, 'utf8'),
   fs.readFile(appearanceComponentPath, 'utf8'),
@@ -25,6 +26,7 @@ const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearanc
   fs.readFile(confirmationCssPath, 'utf8'),
   fs.readFile(jobManagerPath, 'utf8'),
   fs.readFile(videoExportRoutePath, 'utf8'),
+  fs.readFile(viteConfigPath, 'utf8'),
   fs.readFile(appPath, 'utf8'),
 ]);
 
@@ -50,7 +52,8 @@ test('export is output-focused and points back to project appearance editing', (
 
 test('appearance is a first-class editor workspace with progressive controls', () => {
   assert.match(app, /WorkspaceTool = [^;]*'appearance'/);
-  assert.match(app, /<Palette size=\{16\}\/><span>Appearance<\/span>/);
+  assert.match(app, /<Palette size=\{16\}/);
+  assert.match(app, /<span>Appearance<\/span>/);
   assert.match(app, /workspaceTool === 'appearance'[\s\S]*<CaptionAppearanceWorkspace project=\{project\}\/>/);
   assert.match(appearanceComponent, /Style captions while watching the real video above/);
   assert.match(appearanceComponent, /<summary>More appearance<\/summary>/);
@@ -150,15 +153,14 @@ test('long-running export and generation work expose progress and elapsed durati
   assert.match(jobManager, /window\.setInterval\(\(\) => setNow\(Date\.now\(\)\), 1000\)/);
 });
 
-test('completed captioned-video exports expose a safe obvious Open folder action', () => {
-  assert.match(jobManager, /openingThisFolder \? 'Opening…' : 'Open folder'/);
-  assert.match(jobManager, /fetch\('\/api\/video-export\/open-folder', \{ method: 'POST', signal: controller\.signal \}\)/);
-  assert.match(videoExportRoute, /router\.post\('\/open-folder'/);
-  assert.match(videoExportRoute, /process\.platform !== 'win32'/);
-  assert.match(videoExportRoute, /openExportsFolderOnWindows\(\)/);
-  assert.match(videoExportRoute, /STHANG_STUDIO_EXPORT_DIR: exportDir/);
-  assert.match(videoExportRoute, /OPEN_FOLDER_TIMEOUT_MS/);
-  assert.doesNotMatch(videoExportRoute, /req\.body[^\n]*open-folder/);
+test('completed captioned-video exports download verified backend bytes and list the local export location', () => {
+  assert.match(jobManager, /Download video/);
+  assert.match(jobManager, /fetch\('\/api\/video-export\/location'\)/);
+  assert.match(jobManager, /Exports folder/);
+  assert.doesNotMatch(jobManager, /Open folder/);
+  assert.match(videoExportRoute, /router\.get\('\/location'/);
+  assert.match(videoExportRoute, /directory: config\.exportDir/);
+  assert.match(viteConfig, /'\/exports': 'http:\/\/127\.0\.0\.1:8787'/);
 });
 
 test('Studio uses an in-app accessible confirmation surface instead of native browser confirms', () => {
