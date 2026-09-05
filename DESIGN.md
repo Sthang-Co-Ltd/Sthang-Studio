@@ -53,12 +53,17 @@ before they reach Export.
   the current project appearance while the creator works across Review, Fine
   timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
   focused place for changing the look, not a temporary styling mode.
-- While Appearance is open, show the **Approximate appearance preview** badge to
-  make the browser/render boundary explicit. Leaving Appearance removes that
-  editing badge but does **not** revert the caption to a neutral fake style.
-- The browser overlay remains approximate. The finished MP4 is authoritative
-  because FFmpeg/libass performs the real render. Editor-only preview chrome never
-  enters the source or export.
+- While Appearance is open, show the **Layout-locked appearance preview** badge.
+  The preview and export share the same deterministic Khmer-grapheme line plan,
+  and preview geometry is scaled from the actual displayed video rectangle. A
+  one-line preview must remain one line after export; relative font size,
+  alignment, maximum-width region and bottom position must remain stable too.
+- Account for letterboxing/pillarboxing when mapping preview geometry. Do not
+  position captions relative to browser chrome or the outer black media-stage box
+  when that differs from the displayed video frame.
+- Browser CSS and libass remain different rasterizers, so minor antialiasing and
+  glyph-metric differences are acceptable. Those differences must not be used to
+  excuse changed line count or meaningful size/position drift.
 - Keep the common path small: **Preset, Khmer font, text color, size, position**.
   Put weight, outline, shadow, max width, alignment and background-box controls
   behind **More appearance**.
@@ -113,8 +118,12 @@ editable elsewhere        not separately editable inside the MP4
 - If HDR cannot be preserved correctly, block the finished-video path with a
   specific explanation while keeping SRT available. Never hide color loss behind
   a normal success state.
+- While a video render is active, show a horizontal progress bar plus elapsed
+  time without covering the editor. The user may keep editing because the render
+  uses an immutable snapshot.
 - Long video renders belong in Activity with progress/cancel/resume/download.
-  They must not cover the editor or force the creator to stop caption work.
+  Completed exports retain the actual time taken and expose obvious **Download
+  video** and Windows **Open folder** actions.
 
 ### Review decisions
 
@@ -169,7 +178,7 @@ hidden inside AI configuration or generic profile controls.
   disloyal, selfish, or harmful to Khmer people/creators.
 - Make the material data boundary visible near the decision: bounded matching
   audio + generated/corrected text/timing evidence can be contributed; the full
-  video/project and unrelated caption data are not part of the contribution.
+  video/project and unrelated caption data are not part of the corpus protocol.
 - Keep **Request deletion** discoverable once remote contribution evidence exists.
   Pending deletion must be described honestly instead of showing a false success.
 - Contributor recognition may show private progress such as verified correction
@@ -229,8 +238,10 @@ it must not invent a second consent contract.
   install remain distinct labeled actions, and unsafe active work must be
   explained before those actions can proceed.
 - Regeneration review stays docked beneath the video.
-- Video export runs in Activity rather than a blocking progress modal. Completion
-  exposes a direct download action without auto-opening or overwriting media.
+- Activity is the durable progress surface for generation, regeneration and video
+  export. Every running job shows a horizontal progress bar and elapsed time;
+  completed jobs retain **Took …** duration. Video-export completion shows
+  **Download video** and **Open folder** without auto-opening or overwriting media.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.
 - Optional analytics/contribution outages should not create alarming editor
@@ -247,7 +258,9 @@ Prefer:
 - “Review suggested” over multiple alarming chips on every row.
 - “Generate captions” over infrastructure-heavy descriptions in the primary path.
 - Editor-neutral SRT export guidance: SRT carries caption text and timing; visual styling is set in the destination editing app.
-- “Captioned video” for the finished MP4 path; do not call the browser overlay an exact rendered preview.
+- “Captioned video” for the finished MP4 path.
+- “Layout-locked appearance preview” for the editor state where line plan and
+  geometry are intended to match export while rasterization remains renderer-specific.
 - “Match source” as the default quality choice; “Upscaled” when output dimensions exceed source dimensions.
 - “Help make Khmer captions world-class” as mission-oriented Contributor framing,
   followed by precise data disclosure.
