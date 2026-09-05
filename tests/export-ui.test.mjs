@@ -6,14 +6,16 @@ const exportComponentPath = new URL('../apps/web/src/components/ExportWorkspace.
 const exportCssPath = new URL('../apps/web/src/components/video-export.css', import.meta.url);
 const appearanceComponentPath = new URL('../apps/web/src/components/CaptionAppearanceWorkspace.tsx', import.meta.url);
 const appearanceCssPath = new URL('../apps/web/src/components/caption-appearance.css', import.meta.url);
+const appearancePreviewPath = new URL('../apps/web/src/caption-appearance-preview.ts', import.meta.url);
 const appearanceSavePath = new URL('../apps/web/src/caption-appearance-save.ts', import.meta.url);
 const appPath = new URL('../apps/web/src/App.tsx', import.meta.url);
 
-const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearanceSave, app] = await Promise.all([
+const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, app] = await Promise.all([
   fs.readFile(exportComponentPath, 'utf8'),
   fs.readFile(exportCssPath, 'utf8'),
   fs.readFile(appearanceComponentPath, 'utf8'),
   fs.readFile(appearanceCssPath, 'utf8'),
+  fs.readFile(appearancePreviewPath, 'utf8'),
   fs.readFile(appearanceSavePath, 'utf8'),
   fs.readFile(appPath, 'utf8'),
 ]);
@@ -62,11 +64,23 @@ test('preset management disclosure keeps the selector full width without dead de
   assert.match(appearanceCss, /@media\(max-width:780px\)[\s\S]*\.appearance-preset-tools summary\{position:static\}/);
 });
 
-test('appearance previews on the real editor video instead of a fake sample panel', () => {
+test('project appearance stays on the real video after leaving the Appearance workspace', () => {
+  assert.match(appearanceComponent, /applyCaptionAppearancePreview\(appearance\)/);
   assert.match(appearanceComponent, /classList\.add\('caption-appearance-previewing'\)/);
-  assert.match(appearanceComponent, /--caption-live-font/);
-  assert.match(appearanceComponent, /--caption-live-bottom/);
-  assert.match(appearanceCss, /caption-appearance-previewing \.caption-preview-shell/);
+  assert.match(appearanceComponent, /classList\.remove\('caption-appearance-previewing'\)/);
+  assert.doesNotMatch(appearanceComponent, /root\.style\.removeProperty/);
+  assert.match(appearancePreview, /classList\.add\('caption-project-appearance'\)/);
+  assert.match(appearancePreview, /export function clearCaptionAppearancePreview/);
+  assert.match(appearanceCss, /caption-project-appearance \.caption-preview-shell/);
+  assert.match(appearanceCss, /caption-project-appearance \.caption-preview-shell \.caption-preview/);
+  assert.match(appearanceCss, /caption-appearance-previewing \.media-stage::after\{content:'Approximate appearance preview'/);
+});
+
+test('appearance previews on the real editor video instead of a fake sample panel', () => {
+  assert.match(appearanceComponent, /applyCaptionAppearancePreview\(appearance\)/);
+  assert.match(appearancePreview, /--caption-live-font/);
+  assert.match(appearancePreview, /--caption-live-bottom/);
+  assert.match(appearanceCss, /caption-project-appearance \.caption-preview-shell/);
   assert.match(appearanceCss, /caption-appearance-previewing \.media-stage::after\{content:'Approximate appearance preview'/);
   assert.doesNotMatch(appearanceComponent, /appearance-preview-text/);
 });
