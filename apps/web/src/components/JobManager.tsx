@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ProcessingJob } from '@kcs/shared';
-import { Ban, CheckCircle2, CircleAlert, Clock3, Download, FolderOpen, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
+import { Ban, CheckCircle2, CircleAlert, Clock3, Download, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
 import { JOBS_UPDATED_EVENT } from '../api';
 import './job-manager.css';
 
@@ -13,8 +13,6 @@ interface Props {
   onCancel(id: string): void;
   onOpen(job: ProcessingJob): void;
 }
-
-const OPEN_FOLDER_REQUEST_TIMEOUT_MS = 7000;
 
 function isStopping(job: ProcessingJob) {
   return job.status === 'running' && job.message.toLocaleLowerCase('en').startsWith('cancellation requested');
@@ -80,9 +78,9 @@ function formatDuration(ms: number) {
 
 export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
   const [now, setNow] = useState(Date.now());
-  const [folderError, setFolderError] = useState('');
-  const [folderNotice, setFolderNotice] = useState('');
-  const [openingFolderJobId, setOpeningFolderJobId] = useState<string | null>(null);
+  const [exportDirectory, setExportDirectory] = useState('');
+  const [exportDirectoryError, setExportDirectoryError] = useState('');
+  const hasCompletedExport = jobs.some((job) => job.status === 'completed' && Boolean(job.resultExport));
 
   useEffect(() => {
     const refresh = () => onRefresh();
@@ -98,36 +96,26 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
   }, [open, jobs]);
 
   useEffect(() => {
-    if (!folderNotice) return;
-    const timer = window.setTimeout(() => setFolderNotice(''), 3200);
-    return () => window.clearTimeout(timer);
-  }, [folderNotice]);
-
-  const openExportsFolder = async (jobId: string) => {
-    setFolderError('');
-    setFolderNotice('');
-    setOpeningFolderJobId(jobId);
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), OPEN_FOLDER_REQUEST_TIMEOUT_MS);
-    try {
-      const response = await fetch('/api/video-export/open-folder', { method: 'POST', signal: controller.signal });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error || `Could not open the exports folder (${response.status}).`);
+    if (!open || !hasCompletedExport) return;
+    let cancelled = false;
+    setExportDirectoryError('');
+    void (async () => {
+      try {
+        const response = await fetch('/api/video-export/location');
+        if (!response.ok) throw new Error(`Could not read the export location (${response.status}).`);
+        const body = await response.json() as { directory?: string };
+        const directory = String(body.directory || '').trim();
+        if (!directory) throw new Error('Studio did not report an export location.');
+        if (!cancelled) setExportDirectory(directory);
+      } catch (error) {
+        if (!cancelled) {
+          setExportDirectory('');
+          setExportDirectoryError(error instanceof Error ? error.message : 'Could not read the export location.');
+        }
       }
-      setFolderNotice('Opened Studio exports in File Explorer.');
-    } catch (error) {
-      const message = error instanceof Error && error.name === 'AbortError'
-        ? 'Windows took too long to open the exports folder. Try again, or open the Studio exports folder manually.'
-        : error instanceof Error
-          ? error.message
-          : 'Could not open the exports folder.';
-      setFolderError(message);
-    } finally {
-      window.clearTimeout(timeout);
-      setOpeningFolderJobId((current) => current === jobId ? null : current);
-    }
-  };
+    })();
+    return () => { cancelled = true; };
+  }, [open, hasCompletedExport]);
 
   if (!open) return null;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
@@ -145,8 +133,10 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
         <button className="job-modal-close" aria-label="Close Activity" title="Close Activity" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="history-toolbar job-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
-      {folderError && <div className="activity-error" role="alert">{folderError}</div>}
-      {folderNotice && <div className="activity-notice" role="status"><FolderOpen size={14}/><span>{folderNotice}</span></div>}
+      {hasCompletedExport && <div className="activity-export-location" aria-label="Video export location" aria-live="polite">
+        <span>Exports folder</span>
+        <code title={exportDirectory || undefined}>{exportDirectory || exportDirectoryError || 'Loading location…'}</code>
+      </div>}
       <div className="job-list">
         {jobs.map((job) => {
           const duration = jobDurationMs(job, now);
@@ -157,7 +147,6 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
                 ? ` · ${formatDuration(duration)} elapsed`
                 : ` · ${formatDuration(duration)}`
             : '';
-          const openingThisFolder = openingFolderJobId === job.id;
           return <article key={job.id} className={`job-${job.status}`}>
             <div className="job-status-icon" title={activityLabel(job)}>{icon(job)}</div>
             <div className="job-copy">
@@ -172,7 +161,6 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
-                {job.status === 'completed' && job.resultExport && <button disabled={Boolean(openingFolderJobId)} onClick={() => void openExportsFolder(job.id)}>{openingThisFolder ? <LoaderCircle className="spin" size={13}/> : <FolderOpen size={13}/>} {openingThisFolder ? 'Opening…' : 'Open folder'}</button>}
                 {job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}
                 {['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}
               </div>
