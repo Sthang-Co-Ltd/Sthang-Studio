@@ -12,6 +12,7 @@ import {
 } from '../services/video-export.js';
 
 const router = Router();
+const OPEN_FOLDER_TIMEOUT_MS = 5000;
 
 function isVideoProject(mimeType: string, originalName: string) {
   return mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(originalName);
@@ -21,15 +22,20 @@ async function openExportsFolderOnWindows() {
   await fs.mkdir(config.exportDir, { recursive: true });
   const exportDir = await fs.realpath(config.exportDir);
   const windowsRoot = process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows';
-  const commandPath = process.env.ComSpec || path.join(windowsRoot, 'System32', 'cmd.exe');
-  await fs.access(commandPath);
+  const powershellPath = path.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  await fs.access(powershellPath);
 
-  // `start` goes through the interactive Windows shell instead of asking a
-  // detached Explorer child to create a window itself. The directory comes only
-  // from Studio's configured export root and is passed through an environment
-  // variable so the browser can never inject a filesystem target or shell text.
+  // Invoke-Item asks the logged-in Windows shell to open Studio's own export
+  // directory. The directory is supplied only through the server environment,
+  // so the browser never controls a shell command or filesystem target.
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(commandPath, ['/d', '/s', '/c', 'start "" "%STHANG_STUDIO_EXPORT_DIR%"'], {
+    const child = spawn(powershellPath, [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'Invoke-Item -LiteralPath $env:STHANG_STUDIO_EXPORT_DIR',
+    ], {
       env: { ...process.env, STHANG_STUDIO_EXPORT_DIR: exportDir },
       windowsHide: true,
       stdio: 'ignore',
@@ -38,9 +44,14 @@ async function openExportsFolderOnWindows() {
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
       if (error) reject(error);
       else resolve();
     };
+    const timeout = setTimeout(() => {
+      child.kill();
+      finish(new Error('Windows did not respond while opening the Studio exports folder. Try opening it again from Activity.'));
+    }, OPEN_FOLDER_TIMEOUT_MS);
     child.once('error', (error) => finish(error));
     child.once('close', (code) => {
       if (code === 0) finish();
