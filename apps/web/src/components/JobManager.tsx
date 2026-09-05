@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { ProcessingJob } from '@kcs/shared';
-import { Ban, CheckCircle2, CircleAlert, Clock3, Download, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
+import { Ban, CheckCircle2, CircleAlert, Clock3, Download, FolderOpen, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
 import { JOBS_UPDATED_EVENT } from '../api';
 
 interface Props {
@@ -52,12 +52,58 @@ function downloadExport(job: ProcessingJob) {
   anchor.remove();
 }
 
+function jobDurationMs(job: ProcessingJob, now: number) {
+  if (!job.startedAt) return 0;
+  const start = Date.parse(job.startedAt);
+  if (!Number.isFinite(start)) return 0;
+  const end = job.completedAt
+    ? Date.parse(job.completedAt)
+    : job.status === 'running'
+      ? now
+      : Date.parse(job.updatedAt);
+  return Number.isFinite(end) ? Math.max(0, end - start) : 0;
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 1) return '<1s';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+  const [now, setNow] = useState(Date.now());
+  const [folderError, setFolderError] = useState('');
+
   useEffect(() => {
     const refresh = () => onRefresh();
     window.addEventListener(JOBS_UPDATED_EVENT, refresh);
     return () => window.removeEventListener(JOBS_UPDATED_EVENT, refresh);
   }, [onRefresh]);
+
+  useEffect(() => {
+    if (!open || !jobs.some((job) => job.status === 'running')) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [open, jobs]);
+
+  const openExportsFolder = async () => {
+    setFolderError('');
+    try {
+      const response = await fetch('/api/video-export/open-folder', { method: 'POST' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || `Could not open the exports folder (${response.status}).`);
+      }
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : 'Could not open the exports folder.');
+    }
+  };
 
   if (!open) return null;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
@@ -77,12 +123,23 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
     <section className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head"><div>{headerIcon}<div><strong>Activity</strong><span>{queueSummary}</span></div></div><button onClick={onClose}><X size={17}/></button></div>
       <div className="history-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
+      {folderError && <div className="inline-form-error" role="alert">{folderError}</div>}
       <div className="job-list">
-        {jobs.map((job) => <article key={job.id} className={`job-${job.status}`}>
-          <div className="job-status-icon" title={activityLabel(job)}>{icon(job)}</div>
-          <div className="job-copy"><div><strong>{jobLabel(job)}</strong><span>{job.projectTitle}</span></div><p>{job.message}</p><div className="job-progress"><i style={{ width: `${job.progress}%` }}/></div><small>{activityLabel(job)} · {job.stage.replaceAll('-', ' ')} · {job.progress}% · {new Date(job.updatedAt).toLocaleTimeString()}</small>{job.resultExport && <small>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</small>}{job.error && <em>{job.error}</em>}</div>
-          <div className="job-actions">{job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}{job.status === 'completed' && job.resultExport && <button onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}{job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}{['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}</div>
-        </article>)}
+        {jobs.map((job) => {
+          const duration = jobDurationMs(job, now);
+          const durationCopy = duration > 0
+            ? job.status === 'completed'
+              ? ` · Took ${formatDuration(duration)}`
+              : job.status === 'running'
+                ? ` · ${formatDuration(duration)} elapsed`
+                : ` · ${formatDuration(duration)}`
+            : '';
+          return <article key={job.id} className={`job-${job.status}`}>
+            <div className="job-status-icon" title={activityLabel(job)}>{icon(job)}</div>
+            <div className="job-copy"><div><strong>{jobLabel(job)}</strong><span>{job.projectTitle}</span></div><p>{job.message}</p><div className="job-progress" aria-label={`${job.progress}% complete`}><i style={{ width: `${job.progress}%` }}/></div><small>{activityLabel(job)} · {job.stage.replaceAll('-', ' ')} · {job.progress}%{durationCopy} · {new Date(job.updatedAt).toLocaleTimeString()}</small>{job.resultExport && <small>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</small>}{job.error && <em>{job.error}</em>}</div>
+            <div className="job-actions">{job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}{job.status === 'completed' && job.resultExport && <button onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}{job.status === 'completed' && job.resultExport && <button onClick={() => void openExportsFolder()}><FolderOpen size={13}/>Open folder</button>}{job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}{['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}</div>
+          </article>;
+        })}
         {!jobs.length && <div className="review-empty">No activity yet.</div>}
       </div>
     </section>
