@@ -167,9 +167,9 @@ pressure.
 Activity shows horizontal job progress for caption generation/regeneration and
 video export. Once a job has started it also shows elapsed time, and terminal jobs
 retain the actual duration derived from their persisted start/completion times.
-Completed video exports provide both **Download video** and **Open folder**. The
-folder action is Windows-local and opens Studio's fixed exports directory; it does
-not accept an arbitrary browser-supplied path.
+Completed video exports provide an obvious **Download video** action and display
+Studio's fixed local exports-folder path. Studio does not depend on a desktop-shell
+folder-opening action for this handoff.
 
 Media replacement/deletion is blocked while any project job still uses the
 source. An interrupted export can restart from its saved snapshot; a completed
@@ -189,9 +189,12 @@ A render performs these steps:
 8. decode-check frames near the beginning, middle and end;
 9. atomically rename the verified partial file into the export directory.
 
-The source file is never overwritten. The public `/exports` local route exposes
-only completed files; working files remain under a dot directory and are denied by
-the static route.
+The source file is never overwritten. The backend `/exports` route exposes only
+completed files; working files remain under a dot directory and are denied by the
+static route. Studio's local web runtime must proxy `/exports` to that backend
+route just like `/api` and `/media`; serving a frontend fallback under an `.mp4`
+filename is a corrupt-download failure, even when the rendered file on disk is
+valid.
 
 ## Installation/runtime contract
 
@@ -238,7 +241,10 @@ least:
   autosave, presets, unavailable-font recovery, and moving directly from
   Appearance to Export;
 - Activity progress and elapsed/completion duration for caption generation and
-  video export, plus the completed export **Open folder** action on Windows;
+  video export, plus the displayed local exports-folder path;
+- browser **Download video** returning the actual verified MP4 bytes through the
+  local `/exports` proxy and that downloaded file playing in representative Windows
+  playback software;
 - cancellation, interruption/resume, low disk space and encoder failure;
 - A/V duration/sync across the full rendered output;
 - output upload/playback in representative publishing/editor applications.
