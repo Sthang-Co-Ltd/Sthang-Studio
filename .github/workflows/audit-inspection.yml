@@ -20,7 +20,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Capture tracked-source evidence only
+      - name: Set up matching validation runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Install existing locked development dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Capture exact source and dependency transport
         shell: bash
         run: |
           set -euo pipefail
@@ -28,9 +34,9 @@ jobs:
           git rev-parse HEAD HEAD^{tree} | tee "$RUNNER_TEMP/studio-source-audit/revision.txt"
           git ls-tree -r --long HEAD > "$RUNNER_TEMP/studio-source-audit/tree.txt"
           git bundle create "$RUNNER_TEMP/studio-source-audit/source.bundle" HEAD
-          sha256sum "$RUNNER_TEMP/studio-source-audit/source.bundle" | tee "$RUNNER_TEMP/studio-source-audit/sha256.txt"
-          cat "$RUNNER_TEMP/studio-source-audit/tree.txt"
-      - name: Retain source audit transport (not a build or release)
+          tar -czf "$RUNNER_TEMP/studio-source-audit/locked-node-modules.tar.gz" node_modules
+          sha256sum package-lock.json "$RUNNER_TEMP/studio-source-audit/source.bundle" "$RUNNER_TEMP/studio-source-audit/locked-node-modules.tar.gz" | tee "$RUNNER_TEMP/studio-source-audit/sha256.txt"
+      - name: Retain temporary audit transport (not a build or release)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: exact-source-audit-${{ github.event.pull_request.head.sha }}
