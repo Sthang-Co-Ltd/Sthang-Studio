@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ProcessingJob } from '@kcs/shared';
 import { Ban, CheckCircle2, CircleAlert, Clock3, Download, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
 import { JOBS_UPDATED_EVENT } from '../api';
+import { useModalFocus } from '../use-modal-focus';
 import './job-manager.css';
 
 interface Props {
@@ -77,15 +78,16 @@ function formatDuration(ms: number) {
 }
 
 export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+  const dialog = useRef<HTMLElement | null>(null);
+  useModalFocus(open, dialog, onClose);
   const [now, setNow] = useState(Date.now());
   const [exportDirectory, setExportDirectory] = useState('');
   const [exportDirectoryError, setExportDirectoryError] = useState('');
   const hasCompletedExport = jobs.some((job) => job.status === 'completed' && Boolean(job.resultExport));
 
   useEffect(() => {
-    const refresh = () => onRefresh();
-    window.addEventListener(JOBS_UPDATED_EVENT, refresh);
-    return () => window.removeEventListener(JOBS_UPDATED_EVENT, refresh);
+    window.addEventListener(JOBS_UPDATED_EVENT, onRefresh);
+    return () => window.removeEventListener(JOBS_UPDATED_EVENT, onRefresh);
   }, [onRefresh]);
 
   useEffect(() => {
@@ -127,9 +129,9 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
       : 'Recent caption processing and video exports.';
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
-    <section className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="activity-title" tabIndex={-1} className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head job-modal-head">
-        <div className="job-modal-heading-copy"><strong>Activity</strong><span>{queueSummary}</span></div>
+        <div className="job-modal-heading-copy"><strong id="activity-title">Activity</strong><span>{queueSummary}</span></div>
         <button className="job-modal-close" aria-label="Close Activity" title="Close Activity" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="history-toolbar job-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
@@ -152,7 +154,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
             <div className="job-copy">
               <div className="job-title-line"><strong>{jobLabel(job)}</strong><span>{job.projectTitle}</span></div>
               <p>{job.message}</p>
-              <div className="job-progress" aria-label={`${job.progress}% complete`}><i style={{ width: `${job.progress}%` }}/></div>
+              <div className="job-progress" role="progressbar" aria-label={`${jobLabel(job)} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress}><i style={{ width: `${job.progress}%` }}/></div>
               <div className="job-meta">
                 <small>{activityLabel(job)} · {job.stage.replaceAll('-', ' ')} · {job.progress}%{durationCopy} · {new Date(job.updatedAt).toLocaleTimeString()}</small>
                 {job.resultExport && <small>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</small>}

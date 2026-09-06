@@ -4,18 +4,10 @@ import {
   DEFAULT_CAPTION_APPEARANCE,
   type VideoExportSourceInfo,
 } from '@kcs/shared';
-import {
-  buildAssCaptionFilter,
-  buildAssDocument,
-  classifyHdr,
-  escapeAssText,
-  estimateVideoExportBytes,
-  normalizeCaptionAppearance,
-  normalizeVideoExportSettings,
-  parseRate,
-  resolveVideoDimensions,
-  validateVideoExportProbe,
-} from '../apps/server/src/services/video-export.js';
+import { classifyHdr, parseRate, validateVideoExportProbe, supportsComplexAssFilterHelp } from '../apps/server/src/services/video-export.js';
+import { buildAssCaptionFilter, buildAssDocument, escapeAssText } from '../apps/server/src/services/caption-renderer.js';
+import { estimateVideoExportBytes, normalizeCaptionAppearance, normalizeVideoExportSettings, resolveVideoDimensions } from '@kcs/shared';
+
 
 const source: VideoExportSourceInfo = {
   width: 1920,
@@ -107,10 +99,7 @@ test('caption appearance normalization clamps values and sanitizes colors', () =
 
 test('ASS escaping prevents control injection while preserving explicit line breaks', () => {
   const escaped = escapeAssText('ខ្មែរ\\N{\\bord50}\nSecond');
-  assert.equal(escaped.includes('{'), false);
-  assert.equal(escaped.includes('}'), false);
-  assert.equal(escaped.includes('\\bord50'), false);
-  assert.ok(escaped.includes('\\NSecond'));
+  assert.equal(escaped, 'ខ្មែរ\\{}N\\{\\{}bord50\\}\\NSecond');
 });
 
 test('ASS rendering scales style to output and wraps long Khmer on grapheme boundaries', () => {
@@ -170,4 +159,19 @@ test('post-render verification rejects hidden fps, audio, rotation and SDR color
     () => validateVideoExportProbe({ ...good, colorPrimaries: undefined }, 1920, 1080, source, settings),
     /color primaries changed/i,
   );
+});
+
+test('supportsComplexAssFilterHelp detects complete complex-shaping help and rejects incomplete help', () => {
+  const completeHelp = `Filter ass
+  Libass based caption renderer.
+  fontsdir: Directory containing fonts
+  shaping: Set shaping engine (simple, complex)
+  alpha: Render with alpha channel`;
+  assert.equal(supportsComplexAssFilterHelp(completeHelp), true);
+
+  assert.equal(supportsComplexAssFilterHelp('Filter ass without options'), false);
+  assert.equal(supportsComplexAssFilterHelp('fontsdir only'), false);
+  assert.equal(supportsComplexAssFilterHelp('fontsdir and shaping only'), false);
+  assert.equal(supportsComplexAssFilterHelp('shaping and complex only'), false);
+  assert.equal(supportsComplexAssFilterHelp(''), false);
 });

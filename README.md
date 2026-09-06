@@ -1,15 +1,19 @@
 # Sthang Studio
 
-**Accurate Khmer captions, ready for CapCut.**
+**Accurate Khmer captions, styled and finished or ready for CapCut.**
 
 Sthang Studio is a Windows-first caption workspace for Cambodian Khmer creators.
 It combines AI-assisted Khmer transcription with local timing, fast review tools,
-correction memory, and CapCut-compatible SRT export.
+visual caption styling, correction memory, and both CapCut-compatible SRT and
+burned-in captioned video export.
 
 The product is designed around one practical workflow:
 
 ```text
-Upload → generate → review → export SRT
+Upload → generate → review flagged captions → export
+                                 ↘ Appearance (optional) ↗
+                                           ↳ SRT
+                                           ↳ Captioned video
 ```
 
 Advanced timing, regeneration, history, corrections, and diagnostics stay
@@ -21,9 +25,10 @@ available without crowding the main editing flow.
 - Local caption timing with a Khmer forced aligner and local Whisper fallback.
 - Sequential Review with context on first listen and tight replay while editing.
 - Caption approval, text/timing locks, correction memory, and project history.
+- Native caption appearance styling with layout-locked preview matching final video export.
 - Non-destructive Current/Proposed regeneration review.
 - Precision waveform timing for difficult captions.
-- UTF-8 SRT export designed for CapCut workflows.
+- Dual export paths: portable UTF-8 SRT for video editors, and local MP4 rendering with baked-in captions.
 - Local projects, history, caches, proposals, and exports.
 - Windows-protected in-app storage for a Gemini API key.
 - Version 0.8.0 adds a default-private **Khmer Caption Contributor** program and
@@ -121,6 +126,21 @@ that remain submitted but unverified. The production endpoint is
 See [`docs/KHMER-CAPTION-CONTRIBUTOR.md`](docs/KHMER-CAPTION-CONTRIBUTOR.md) and
 [`PRIVACY.md`](PRIVACY.md) for the complete contract, including future model
 training and withdrawal limitations.
+
+## Caption appearance and captioned video export
+
+Sthang Studio provides two distinct export workflows:
+
+- **SRT export** — standard portable subtitle text and timing designed for editors like CapCut. SRT carries caption wording and timecodes; visual styling is controlled inside the destination editing application.
+- **Captioned video export** — local MP4 render baking the saved project caption appearance directly into the picture. The source media is never overwritten.
+
+### Native preview and export contract
+
+- **Layout parity**: Studio's native caption preview is powered directly by local FFmpeg and libass (`shaping=complex`), generating transparent RGBA PNG frames rather than approximating layout through browser CSS. Preview and export share the same native caption layout and rasterization contract before video encoding; lossy encoding and display scaling may soften pixel edges without changing the intended typography, line layout, alignment, position, or effects.
+- **Local rendering operations**: Studio does not upload rendered video frames or the resulting captioned MP4 as part of that rendering process. Caption generation/regeneration has a separate data flow involving normalized audio and related context, as described in the Gemini and Contributor sections.
+- **Runtime prerequisites**: Captioned-video export and native preview require an FFmpeg build with the native ASS/libass capabilities Studio checks locally (including complex shaping). Studio also detects whether the runtime exposes the alpha-mode metadata used by its preferred preview compositing path and selects the compatible rendering path automatically. If required complex shaping is unavailable, video export is safely blocked with actionable guidance rather than outputting distorted Khmer script. Validated against the exact local builds recorded in the release evidence.
+- **Typography and fonts**: Khmer text requires complex shaping. Windows Khmer UI and Linux Noto Sans Khmer are the default supported fonts. If a regular-only font is chosen while bold is requested, Studio clearly indicates the bold mismatch and never silently drops styling.
+- **Temporary working files and cleanup**: Preview and render scratch files in `exports/.working` are temporary, and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal.
 
 ## Contributor development setup
 

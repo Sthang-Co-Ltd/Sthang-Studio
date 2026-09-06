@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptionProject } from '@kcs/shared';
+import type { CaptionAppearance, CaptionProject } from '@kcs/shared';
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
 
@@ -126,16 +126,27 @@ async function ensureInitialized() {
   return initializePromise;
 }
 
-function queueProjectWrite(project: CaptionProject) {
-  const id = project.id;
+function queueProjectWrite<T>(id: string, operation: () => Promise<T>) {
   const previous = writeQueues.get(id) || Promise.resolve();
-  const task = previous.then(() => atomicWrite(projectFile(id), `${JSON.stringify(project)}\n`));
+  const task = previous.then(operation);
   const tracked = task.then(() => undefined, () => undefined);
   writeQueues.set(id, tracked);
-  tracked.finally(() => {
+  void tracked.then(() => {
     if (writeQueues.get(id) === tracked) writeQueues.delete(id);
   });
   return task;
+}
+
+async function persistProject(stored: CaptionProject) {
+  const previous = projects.get(stored.id);
+  const mediaChanged = !previous
+    || previous.media.filename !== stored.media.filename
+    || previous.media.size !== stored.media.size;
+  await atomicWrite(projectFile(stored.id), `${JSON.stringify(stored)}\n`);
+  projects.set(stored.id, stored);
+  if (!previous) await queueOrderUpdate((current) => [stored.id, ...current.filter((id) => id !== stored.id)]);
+  if (mediaChanged) scheduleProjectMediaPrewarm(stored);
+  return structuredClone(stored);
 }
 
 export const store = {
@@ -154,32 +165,35 @@ export const store = {
   },
 
   async upsert(project: CaptionProject) {
+    const snapshot = structuredClone(project);
     await ensureInitialized();
-    const previous = projects.get(project.id);
-    const isNew = !previous;
-    const mediaChanged = !previous
-      || previous.media.filename !== project.media.filename
-      || previous.media.size !== project.media.size;
-    const stored = structuredClone(project);
+    return queueProjectWrite(snapshot.id, async () => {
+      // Caption/transcript operations own their fields, not appearance. They may have
+      // started before a concurrent appearance save; never restore that older look.
+      const current = projects.get(snapshot.id);
+      if (current) snapshot.captionAppearance = current.captionAppearance;
+      return persistProject(snapshot);
+    });
+  },
 
-    // Publish a project in memory only after its own atomic file is durable.
-    // Per-project write queues keep concurrent autosaves in the same order on disk.
-    await queueProjectWrite(stored);
-    projects.set(project.id, stored);
-    if (isNew) {
-      await queueOrderUpdate((current) => [project.id, ...current.filter((id) => id !== project.id)]);
-    }
-    if (mediaChanged) scheduleProjectMediaPrewarm(stored);
-    return structuredClone(stored);
+  async setCaptionAppearance(id: string, appearance: CaptionAppearance) {
+    const snapshot = structuredClone(appearance);
+    await ensureInitialized();
+    return queueProjectWrite(id, async () => {
+      // Resolve the project inside the same queue as caption writes, not before it.
+      const current = projects.get(id);
+      if (!current) return null;
+      return persistProject({ ...current, captionAppearance: snapshot, updatedAt: new Date().toISOString() });
+    });
   },
 
   async remove(id: string) {
     await ensureInitialized();
-    cancelScheduledProjectPrewarm(id);
-    const pending = writeQueues.get(id);
-    if (pending) await pending;
-    await fs.rm(projectFile(id), { force: true });
-    projects.delete(id);
-    await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
+    return queueProjectWrite(id, async () => {
+      cancelScheduledProjectPrewarm(id);
+      await fs.rm(projectFile(id), { force: true });
+      projects.delete(id);
+      await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
+    });
   },
 };

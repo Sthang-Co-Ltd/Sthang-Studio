@@ -54,16 +54,18 @@ before they reach Export.
   timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
   focused place for changing the look, not a temporary styling mode.
 - While Appearance is open, show the **Layout-locked appearance preview** badge.
-  The preview and export share the same deterministic Khmer-grapheme line plan,
-  and preview geometry is scaled from the actual displayed video rectangle. A
-  one-line preview must remain one line after export; relative font size,
-  alignment, maximum-width region and bottom position must remain stable too.
-- Account for letterboxing/pillarboxing when mapping preview geometry. Do not
-  position captions relative to browser chrome or the outer black media-stage box
-  when that differs from the displayed video frame.
-- Browser CSS and libass remain different rasterizers, so minor antialiasing and
-  glyph-metric differences are acceptable. Those differences must not be used to
-  excuse changed line count or meaningful size/position drift.
+  The preview is rendered as native transparent RGBA PNG frames by the exact same
+  FFmpeg and libass (`shaping=complex`) engine used for MP4 export, eliminating
+  browser CSS font-metric and shaping divergence. A one-line preview remains one
+  line after export; preview and export share the same native caption layout and
+  rasterization contract before video encoding; lossy encoding and display scaling
+  may soften pixel edges without changing the intended typography, line layout,
+  alignment, position, or effects.
+- Account for letterboxing and pillarboxing when mapping preview geometry.
+  `containedVideoFrame` projects caption frames directly to the active video
+  rectangle, never the outer black container or browser chrome.
+- Preserve accessible touch targets: all interactive controls, toolbar buttons,
+  and modal actions enforce >= 44px touch targets on mobile viewports (<= 620px).
 - Keep the common path small: **Preset, Khmer font, text color, size, position**.
   Put weight, outline, shadow, max width, alignment and background-box controls
   behind **More appearance**.

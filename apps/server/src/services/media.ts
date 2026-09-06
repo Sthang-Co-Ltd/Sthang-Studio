@@ -125,16 +125,6 @@ export async function normalizeAudioFile(inputPath: string, outputPath: string) 
   return { outputPath, durationMs };
 }
 
-/** Legacy helper retained for compatibility with older code paths. */
-export async function normalizeAudio(inputPath: string, projectId: string) {
-  const dir = path.join(config.workingDir, projectId);
-  await fs.rm(dir, { recursive: true, force: true });
-  await fs.mkdir(dir, { recursive: true });
-  const outputPath = path.join(dir, 'normalized.wav');
-  const normalized = await normalizeAudioFile(inputPath, outputPath);
-  return { dir, ...normalized };
-}
-
 export async function probeDurationMs(filePath: string) {
   const { stdout } = await runCommand(config.ffprobePath, [
     '-v', 'error', '-show_entries', 'format=duration',

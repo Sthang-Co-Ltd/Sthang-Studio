@@ -58,6 +58,7 @@ export function WorkspaceToolsMenu({
     };
   }, []);
   const run = (action: () => void) => {
+    details.current?.querySelector('summary')?.focus();
     details.current?.removeAttribute('open');
     action();
   };

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -17,6 +17,7 @@ import type {
   TopicPack,
   TranscriptionContext,
   VideoExportSettings,
+  VideoResolutionPreset,
 } from '@kcs/shared';
 import {
   BookOpenCheck,
@@ -47,7 +48,7 @@ import {
   WandSparkles,
   X,
 } from 'lucide-react';
-import { api, type HealthResponse, type LlmConnectionTest, type LlmSettingsStatus, type SaveLlmSettingsInput } from './api';
+import { api, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput } from './api';
 import { Upload } from './components/Upload';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
@@ -62,6 +63,8 @@ import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
 import { ExportWorkspace } from './components/ExportWorkspace';
+import { isVideoProject, normalizeCaptionAppearance } from '@kcs/shared';
+import { NativeCaptionPreview } from './components/NativeCaptionPreview';
 import { CaptionAppearanceWorkspace } from './components/CaptionAppearanceWorkspace';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
@@ -112,10 +115,6 @@ function rangeLabel(startMs: number, endMs: number) {
     return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
   };
   return `${fmt(startMs)}–${fmt(endMs)}`;
-}
-
-function captionsText(captions: CaptionSegment[]) {
-  return captionTextForEditing(captions);
 }
 
 function distributePreviewText(text: string, slots: CaptionSegment[]) {
@@ -289,7 +288,7 @@ export default function App() {
     if (!proposal) return;
     setProposalPreviewMode('proposed');
     setProposalLoop(true);
-    setProposalEditedText(captionsText(proposal.proposedCaptions));
+    setProposalEditedText(captionTextForEditing(proposal.proposedCaptions));
     setProposalAccuracyHint(proposal.accuracyHint || '');
     const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
     window.setTimeout(() => {
@@ -366,7 +365,7 @@ export default function App() {
   const active = useMemo(() => draft.find((caption) => time * 1000 >= caption.startMs && time * 1000 < caption.endMs) ?? null, [draft, time]);
   const proposedPreviewRange = useMemo(() => {
     if (!proposal) return [] as CaptionSegment[];
-    const original = captionsText(proposal.proposedCaptions);
+    const original = captionTextForEditing(proposal.proposedCaptions);
     if (!proposalEditedText.trim() || proposalEditedText.trim() === original.trim()) return proposal.proposedCaptions;
     return distributePreviewText(proposalEditedText, proposal.proposedCaptions);
   }, [proposal, proposalEditedText]);
@@ -375,6 +374,13 @@ export default function App() {
     const outside = draft.filter((caption) => caption.endMs <= proposal.startMs || caption.startMs >= proposal.endMs);
     return [...outside, ...proposedPreviewRange].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
   }, [draft, proposal, proposalPreviewMode, proposedPreviewRange]);
+  const [liveAppearance, setLiveAppearance] = useState<{ projectId: string; appearance: CaptionAppearance } | null>(null);
+  const [previewResolution, setPreviewResolution] = useState<VideoResolutionPreset>('source');
+  const changeAppearance = useCallback((appearance: CaptionAppearance) => {
+    if (project) setLiveAppearance({ projectId: project.id, appearance });
+  }, [project?.id]);
+  const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.projectId === project?.id ? liveAppearance?.appearance : project?.captionAppearance), [project?.id, project?.captionAppearance, liveAppearance]);
+  useEffect(() => { setPreviewResolution('source'); setLiveAppearance(null); }, [project?.id, project?.media.filename]);
   const videoActive = useMemo(() => videoCaptions.find((caption) => time * 1000 >= caption.startMs && time * 1000 < caption.endMs) ?? null, [videoCaptions, time]);
   const reviewFocusMode = profile?.preferences.reviewFocusMode || 'brackets-label';
   const reviewFocusActive = useMemo(() => {
@@ -383,6 +389,11 @@ export default function App() {
     if (proposal) return playheadMs >= proposal.startMs && playheadMs < proposal.endMs;
     return selection.captions.some((caption) => playheadMs >= caption.startMs && playheadMs < caption.endMs);
   }, [reviewMode, reviewFocusMode, videoActive, time, proposal, selection.captions]);
+  const reviewFocusIndices = useMemo(() => reviewMode && reviewFocusMode !== 'off'
+    ? videoCaptions.flatMap((caption, index) => (proposal
+      ? caption.endMs > proposal.startMs && caption.startMs < proposal.endMs
+      : selection.ids.includes(caption.id)) ? [index] : [])
+    : [], [reviewMode, reviewFocusMode, videoCaptions, proposal, selection.ids]);
   const reviewFocusKey = proposal
     ? `${proposal.id}:${proposalPreviewMode}:${videoActive?.id || 'none'}`
     : `${selection.ids.join(',')}:${videoActive?.id || 'none'}`;
@@ -606,6 +617,7 @@ export default function App() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
+      if (target?.closest('[aria-modal="true"]')) return;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault(); void saveDraft(false, 'manual-save', true); return;
@@ -622,7 +634,7 @@ export default function App() {
         if (workspaceTool) { setWorkspaceTool(null); setReviewMode(false); return; }
         return;
       }
-      if (typing || !project) return;
+      if (typing || !project || target?.closest('button, select, summary, [role="button"], [role="slider"], [role="combobox"]')) return;
       if (event.key === ' ') {
         event.preventDefault(); if (media.current?.paused) media.current.play().catch(() => {}); else media.current?.pause();
       } else if (event.key.toLowerCase() === 'r') {
@@ -884,18 +896,6 @@ export default function App() {
     finally { setBusy(''); }
   };
 
-  const saveCaptionAppearance = async (appearance: CaptionAppearance) => {
-    if (!project) return;
-    setError('');
-    try {
-      const next = await api.saveCaptionAppearance(project.id, appearance);
-      applyProject(next, false);
-      setNotice('Caption appearance saved for this project. SRT output remains unchanged.');
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save caption appearance');
-      throw reason;
-    }
-  };
 
   const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null> => {
     if (!project) return null;
@@ -961,7 +961,6 @@ export default function App() {
     return next;
   };
   const saveLlmSettings = async (input: SaveLlmSettingsInput) => refreshAiHealth(await api.saveLlmSettings(input));
-  const testLlmSettings = async (input: { apiKey?: string; model?: string }): Promise<LlmConnectionTest> => api.testLlmConnection(input);
   const forgetLlmKey = async () => refreshAiHealth(await api.forgetLlmKey());
 
   const saveProfilePatch = async (patch: Partial<AppProfile>) => {
@@ -1053,7 +1052,7 @@ export default function App() {
     finally { setBusy(''); }
   };
 
-  const isVideo = Boolean(project && (project.media.mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(project.media.originalName)));
+  const isVideo = Boolean(project && isVideoProject(project));
   const timing = project?.transcript?.timing;
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
@@ -1080,7 +1079,7 @@ export default function App() {
 
   const overlays = <>
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
-    {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={testLlmSettings} onForgetLlm={forgetLlmKey}/>}
+    {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey}/>}
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={() => setShowHistory(false)} onRefresh={() => { if (project) void api.history(project.id).then(setHistoryEntries); }} onRestore={(id) => void restoreHistory(id)}/>
     <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
@@ -1163,15 +1162,7 @@ export default function App() {
           {isVideo
             ? <video ref={(element: HTMLVideoElement | null) => { media.current = element; }} src={project.media.url} controls onLoadedMetadata={onLoadedMetadata} onTimeUpdate={(event) => onMediaTimeUpdate(event.currentTarget)}/>
             : <audio ref={(element: HTMLAudioElement | null) => { media.current = element; }} src={project.media.url} controls onLoadedMetadata={onLoadedMetadata} onTimeUpdate={(event) => onMediaTimeUpdate(event.currentTarget)}/>} 
-          {isVideo && videoActive && <div className="caption-preview-shell">
-            <div className={`caption-preview-target ${reviewFocusActive ? 'review-focus-active' : ''}`}>
-              <div className={`caption-preview ${proposal && proposalPreviewMode === 'proposed' ? 'proposal-preview' : ''}`}>{videoActive.text}</div>
-              {reviewFocusActive && <div key={reviewFocusKey} className="review-focus-frame" aria-hidden="true">
-                {reviewFocusMode === 'brackets-label' && <span className="review-focus-label">Reviewing</span>}
-                <i className="review-focus-corner review-focus-tl"/><i className="review-focus-corner review-focus-tr"/><i className="review-focus-corner review-focus-bl"/><i className="review-focus-corner review-focus-br"/>
-              </div>}
-            </div>
-          </div>}
+          {isVideo && <NativeCaptionPreview key={`${project.id}:${project.media.filename}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
 
@@ -1207,18 +1198,17 @@ export default function App() {
             </nav>
           </div>}
 
-          {workspaceTool === 'export' && <ExportWorkspace
+          {workspaceTool === 'export' && <ExportWorkspace key={`${project.id}:${project.media.filename}`}
+            onPreviewResolution={setPreviewResolution}
             project={project}
-            sampleText={selection.captions[0]?.text || videoActive?.text || draft[0]?.text || ''}
             busy={Boolean(busy)}
             activeExportJob={activeExportJob}
             onExportSrt={() => void exportSrt()}
-            onSaveAppearance={saveCaptionAppearance}
             onEditAppearance={() => chooseWorkspaceTool('appearance')}
             onStartVideoExport={startVideoExport}
           />}
 
-          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace project={project}/>}
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} onAppearanceChange={changeAppearance} onConfirm={confirmInStudio}/>}
 
           {workspaceTool === 'timeline' && hasHybrid && <WaveformEditor
             projectId={project.id}
@@ -1252,7 +1242,7 @@ export default function App() {
                 <button className="review-approve-next primary" onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
               </div>
             </div>
-            <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label className="review-focus-mode-control"><span>Review focus</span><select value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
+            <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">
