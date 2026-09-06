@@ -21,22 +21,110 @@
 Only frequent actions remain visible:
 
 ```text
-Review · Tools · Save · Export SRT
+Review · Tools · Save · Export
 ```
 
-Less-used actions live in the labeled **Tools** menu. Never collapse them into unexplained icon-only buttons at narrower widths.
+**Export** opens one focused output workspace. It does not immediately download a
+file because Studio now has two legitimate output paths: editable SRT and finished
+captioned video. Less-used actions live in the labeled **Tools** menu. Never
+collapse them into unexplained icon-only buttons at narrower widths.
 
 ### Editor
 
 The video and caption list are the persistent core. Advanced workspaces appear one at a time:
 
 ```text
-Review · Fine timing · Accuracy · Caption grouping · Details
+Review · Fine timing · Accuracy · Caption grouping · Appearance · Details
 ```
 
 Do not stack all advanced panels beneath the video. Do not use a blocking modal for any task that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
+
+### Caption appearance workspace
+
+Caption appearance is **project editing state**, not an export setting. Creators
+should be able to decide how their captions look while watching the actual video,
+before they reach Export.
+
+- Show **Appearance** as a labeled editor workspace once a video project has
+  captions to judge.
+- Keep the real video evidence visible. The editor caption overlay should reflect
+  the current project appearance while the creator works across Review, Fine
+  timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
+  focused place for changing the look, not a temporary styling mode.
+- While Appearance is open, show the **Layout-locked appearance preview** badge.
+  The preview and export share the same deterministic Khmer-grapheme line plan,
+  and preview geometry is scaled from the actual displayed video rectangle. A
+  one-line preview must remain one line after export; relative font size,
+  alignment, maximum-width region and bottom position must remain stable too.
+- Account for letterboxing/pillarboxing when mapping preview geometry. Do not
+  position captions relative to browser chrome or the outer black media-stage box
+  when that differs from the displayed video frame.
+- Browser CSS and libass remain different rasterizers, so minor antialiasing and
+  glyph-metric differences are acceptable. Those differences must not be used to
+  excuse changed line count or meaningful size/position drift.
+- Keep the common path small: **Preset, Khmer font, text color, size, position**.
+  Put weight, outline, shadow, max width, alignment and background-box controls
+  behind **More appearance**.
+- Project appearance saves automatically and must surface saving/failure state.
+  Leaving the workspace must not silently discard the creator's latest change.
+- Reusable appearance presets are local creator-profile conveniences. Preset
+  creation/deletion stays secondary under **Manage presets** and deletion requires
+  a deliberate confirmation step.
+- Never silently replace an unavailable saved font. Preserve the project choice,
+  explain the local limitation, and require an available font before a finished
+  video render when an exact font match cannot be honored.
+- Appearance remains Khmer-safe and project-scoped. It never mutates SRT,
+  correction eligibility, caption text/timing, locks, Review focus, correction
+  memory, history semantics, or source media.
+
+### Export workspace
+
+Export is an output decision, not another always-visible editing panel. Opening the
+header action temporarily uses the same focused workspace region and keeps the
+video/caption evidence visible.
+
+Present two clearly different paths:
+
+```text
+Captions file (SRT)        Captioned video (MP4)
+text + timing              finished appearance baked into picture
+editable elsewhere        not separately editable inside the MP4
+```
+
+- Keep SRT first-class and editor-neutral. Never imply that font, color, size,
+  position, outline, background, or animation transfers through SRT.
+- Export **consumes the saved project appearance**. Do not duplicate appearance
+  editing controls inside Export. Show a compact appearance summary and an
+  **Edit appearance** action that returns to the Appearance workspace.
+- Default video quality should be **Match source** + **Recommended**. Expose
+  HD/FHD/QHD/4K and fixed frame rates without implying that upscaling recovers
+  source detail.
+- Mark any larger-than-source result **Upscaled**.
+- Keep advanced codec/bitrate/encoder controls progressively disclosed.
+- Show source dimensions/frame rate/color state, estimated output size, and free
+  disk space before a long render where available.
+- Before starting a render, re-read the saved project appearance and snapshot it
+  together with captions, media identity and output settings. This avoids stale
+  styling if the creator edited Appearance immediately before Export.
+- Khmer captioned-video export must use the native ASS/libass path with explicit
+  **complex shaping**. If the installed FFmpeg cannot expose that capability,
+  block finished-video export with recovery guidance instead of producing broken
+  glyphs.
+- If the selected project font is not available to the local renderer, block the
+  finished-video action with a clear path back to Appearance rather than silently
+  substituting typography.
+- If HDR cannot be preserved correctly, block the finished-video path with a
+  specific explanation while keeping SRT available. Never hide color loss behind
+  a normal success state.
+- While a video render is active, show a horizontal progress bar plus elapsed
+  time without covering the editor. The user may keep editing because the render
+  uses an immutable snapshot.
+- Long video renders belong in Activity with progress/cancel/resume/download.
+  Completed exports retain the actual time taken, expose an obvious **Download
+  video** action, and show Studio's fixed local exports-folder path instead of a
+  fragile desktop-shell action.
 
 ### Review decisions
 
@@ -91,7 +179,7 @@ hidden inside AI configuration or generic profile controls.
   disloyal, selfish, or harmful to Khmer people/creators.
 - Make the material data boundary visible near the decision: bounded matching
   audio + generated/corrected text/timing evidence can be contributed; the full
-  video/project and unrelated caption data are not part of the contribution.
+  video/project and unrelated caption data are not part of the corpus protocol.
 - Keep **Request deletion** discoverable once remote contribution evidence exists.
   Pending deletion must be described honestly instead of showing a false success.
 - Contributor recognition may show private progress such as verified correction
@@ -151,6 +239,11 @@ it must not invent a second consent contract.
   install remain distinct labeled actions, and unsafe active work must be
   explained before those actions can proceed.
 - Regeneration review stays docked beneath the video.
+- Activity is the durable progress surface for generation, regeneration and video
+  export. Every running job shows a horizontal progress bar and elapsed time;
+  completed jobs retain **Took …** duration. Video-export completion shows an
+  obvious **Download video** action plus the fixed local exports-folder path; it
+  never auto-opens a desktop folder or overwrites media.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.
 - Optional analytics/contribution outages should not create alarming editor
@@ -163,18 +256,23 @@ Prefer:
 
 - “System check” over “System Doctor”.
 - “Caption grouping” over “caption rhythm” for controls that change how much text appears at once.
+- “Appearance” for project caption styling; do not call it an export setting.
 - “Review suggested” over multiple alarming chips on every row.
 - “Generate captions” over infrastructure-heavy descriptions in the primary path.
 - Editor-neutral SRT export guidance: SRT carries caption text and timing; visual styling is set in the destination editing app.
+- “Captioned video” for the finished MP4 path.
+- “Layout-locked appearance preview” for the editor state where line plan and
+  geometry are intended to match export while rasterization remains renderer-specific.
+- “Match source” as the default quality choice; “Upscaled” when output dimensions exceed source dimensions.
 - “Help make Khmer captions world-class” as mission-oriented Contributor framing,
   followed by precise data disclosure.
 - “Verified corrections” only after corpus verification, not after upload.
 
-Technical details remain available in **Details**, diagnostics, and privacy
-explanations where the provider/storage distinction is material to a user's
-choice.
+Technical details remain available in **Details**, diagnostics, export Advanced,
+and privacy explanations where the provider/storage distinction is material to a
+user's choice.
 
-Tooltips should be brief, concrete, and action-oriented. Do not name KFA, Gemini, Whisper, model IDs, backend/runtime components, or fallback architecture in ordinary hover help or the primary workflow. Provider/model names are allowed where users genuinely need them to configure or diagnose the system, and hosted-service names may appear in Privacy when they are needed for informed data-flow disclosure.
+Tooltips should be brief, concrete, and action-oriented. Do not name KFA, Gemini, Whisper, model IDs, backend/runtime components, or fallback architecture in ordinary hover help or the primary workflow. Provider/model names are allowed where users genuinely need them to configure or diagnose the system, and hosted-service names may appear in Privacy when they are needed for informed data-flow disclosure. FFmpeg/libass names may appear in advanced export diagnostics or the clearly labeled render-preview boundary where they explain a local capability limitation; do not make creators learn them to perform a normal export.
 
 ## Browser surfaces
 
@@ -187,8 +285,8 @@ The home screen is an operational launcher, not a marketing landing page. Keep o
 ### Video-centric review focus
 
 - In Review mode, the selected caption is the user's current decision target. When playback actually enters that caption's timestamp, identify it directly over the video with restrained Studio-lime corner brackets.
-- Do not recolor, resize, reposition, or restyle the caption text itself to indicate review state; the creator must judge the caption in its real visual form.
+- Do not recolor, resize, reposition, or restyle the caption text itself to indicate review state; the creator must judge the caption in its real project appearance.
 - Pre-roll remains clean: the review marker must not appear on the preceding caption before the target timestamp begins.
 - Default review focus is **Brackets + label**; users may choose **Brackets only** or **Off**.
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
-- Review-focus graphics are editor chrome and must never affect SRT export or source media.
+- Review-focus graphics are editor chrome and must never affect SRT export, captioned-video appearance, or source media.

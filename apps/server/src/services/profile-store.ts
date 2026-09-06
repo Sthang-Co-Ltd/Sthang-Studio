@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
-import { PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
 import type {
   AppProfile,
+  CaptionAppearance,
   CaptionProject,
   CaptionSegment,
   ConsentState,
@@ -21,6 +22,7 @@ const DEFAULT_PROFILE: AppProfile = {
   version: 1,
   defaultVocabulary: [],
   styles: [{ id: 'my-tiktok-style', name: 'My TikTok Style', mode: 'dynamic', maxChars: 18 }],
+  captionAppearances: [],
   topicPacks: [],
   correctionRules: [],
   correctionEvents: [],
@@ -76,6 +78,36 @@ function timingQuality(value: unknown): TimingQuality | undefined {
   return ['high', 'medium', 'low'].includes(String(value)) ? value as TimingQuality : undefined;
 }
 
+function boundedNumber(value: unknown, min: number, max: number, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+}
+
+function hexColor(value: unknown, fallback: string) {
+  const raw = String(value || '').trim().toUpperCase();
+  return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
+}
+
+function normalizeCaptionAppearance(value: unknown): CaptionAppearance {
+  const raw = value && typeof value === 'object' ? value as Partial<CaptionAppearance> : {};
+  return {
+    fontFamily: String(raw.fontFamily || DEFAULT_CAPTION_APPEARANCE.fontFamily).trim().slice(0, 80) || DEFAULT_CAPTION_APPEARANCE.fontFamily,
+    fontSize1080: boundedNumber(raw.fontSize1080, 22, 120, DEFAULT_CAPTION_APPEARANCE.fontSize1080),
+    bold: raw.bold !== false,
+    textColor: hexColor(raw.textColor, DEFAULT_CAPTION_APPEARANCE.textColor),
+    outlineColor: hexColor(raw.outlineColor, DEFAULT_CAPTION_APPEARANCE.outlineColor),
+    outlineWidth1080: boundedNumber(raw.outlineWidth1080, 0, 12, DEFAULT_CAPTION_APPEARANCE.outlineWidth1080),
+    shadowWidth1080: boundedNumber(raw.shadowWidth1080, 0, 12, DEFAULT_CAPTION_APPEARANCE.shadowWidth1080),
+    backgroundEnabled: raw.backgroundEnabled === true,
+    backgroundColor: hexColor(raw.backgroundColor, DEFAULT_CAPTION_APPEARANCE.backgroundColor),
+    backgroundOpacity: boundedNumber(raw.backgroundOpacity, 0.05, 1, DEFAULT_CAPTION_APPEARANCE.backgroundOpacity),
+    backgroundPadding1080: boundedNumber(raw.backgroundPadding1080, 0, 28, DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080),
+    alignment: ['left', 'center', 'right'].includes(String(raw.alignment)) ? raw.alignment! : DEFAULT_CAPTION_APPEARANCE.alignment,
+    positionBottomPct: boundedNumber(raw.positionBottomPct, 3, 82, DEFAULT_CAPTION_APPEARANCE.positionBottomPct),
+    maxWidthPct: boundedNumber(raw.maxWidthPct, 45, 96, DEFAULT_CAPTION_APPEARANCE.maxWidthPct),
+  };
+}
+
 function normalizeProfile(value: unknown): AppProfile {
   const raw = value && typeof value === 'object' ? value as Partial<AppProfile> : {};
   const styles = Array.isArray(raw.styles)
@@ -83,12 +115,28 @@ function normalizeProfile(value: unknown): AppProfile {
       .filter((x): x is NonNullable<typeof x> => Boolean(x && typeof x === 'object'))
       .map((x) => ({
         id: String(x.id || nanoid(8)).slice(0, 80),
-        name: String(x.name || 'Caption style').trim().slice(0, 80),
+        name: String(x.name || 'Caption grouping').trim().slice(0, 80),
         mode: ['dynamic', 'word', 'phrase', 'single-line'].includes(String(x.mode)) ? x.mode : 'dynamic',
         maxChars: Math.max(6, Math.min(80, Number(x.maxChars || 18))),
       }))
       .slice(0, 20)
     : DEFAULT_PROFILE.styles;
+
+  const captionAppearances = Array.isArray(raw.captionAppearances)
+    ? raw.captionAppearances
+      .filter((x): x is NonNullable<typeof x> => Boolean(x && typeof x === 'object'))
+      .map((x) => {
+        const now = new Date().toISOString();
+        return {
+          id: String(x.id || nanoid(10)).slice(0, 80),
+          name: String(x.name || 'Caption appearance').trim().slice(0, 80) || 'Caption appearance',
+          appearance: normalizeCaptionAppearance(x.appearance),
+          createdAt: String(x.createdAt || now),
+          updatedAt: String(x.updatedAt || now),
+        };
+      })
+      .slice(0, 20)
+    : [];
 
   const topicPacks = Array.isArray(raw.topicPacks)
     ? raw.topicPacks
@@ -161,6 +209,7 @@ function normalizeProfile(value: unknown): AppProfile {
     version: 1,
     defaultVocabulary: uniqueLines(raw.defaultVocabulary),
     styles: styles.length ? styles : DEFAULT_PROFILE.styles,
+    captionAppearances,
     topicPacks,
     correctionRules,
     correctionEvents,
@@ -305,6 +354,7 @@ export const profileStore = {
       ...current,
       defaultVocabulary: raw.defaultVocabulary == null ? current.defaultVocabulary : uniqueLines(raw.defaultVocabulary),
       styles: raw.styles == null ? current.styles : normalizeProfile({ ...current, styles: raw.styles }).styles,
+      captionAppearances: raw.captionAppearances == null ? current.captionAppearances : normalizeProfile({ ...current, captionAppearances: raw.captionAppearances }).captionAppearances,
       topicPacks: raw.topicPacks == null ? current.topicPacks : normalizeProfile({ ...current, topicPacks: raw.topicPacks }).topicPacks,
       preferences: raw.preferences == null
         ? current.preferences

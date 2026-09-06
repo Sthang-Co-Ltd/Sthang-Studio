@@ -1,13 +1,23 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
-import type { ProcessingJob, ProcessingJobType, RegenerationRefinementInput, TranscriptionContext } from '@kcs/shared';
+import type {
+  CaptionAppearance,
+  CaptionSegment,
+  ProcessingJob,
+  ProcessingJobType,
+  RegenerationRefinementInput,
+  TranscriptionContext,
+  VideoExportSettings,
+} from '@kcs/shared';
 import { config } from '../config.js';
 import { store } from './store.js';
 import { analyticsBuckets, captureAnalytics } from './analytics.js';
 import { createRangeRegenerationProposal, refineRegenerationProposal, transcribeProject } from './project-processing.js';
 import { withProcessingRun } from './run-context.js';
 import { removeRunCheckpoints } from './run-checkpoints.js';
+import { renderCaptionedVideo } from './video-export.js';
+import { cleanupStaleVideoExportWork } from './export-maintenance.js';
 
 interface JobPayload {
   transcriptionContext?: TranscriptionContext;
@@ -19,6 +29,11 @@ interface JobPayload {
   accuracyHint?: string;
   editedText?: string;
   useProposalAsBaseline?: boolean;
+  exportSettings?: VideoExportSettings;
+  exportAppearance?: CaptionAppearance;
+  exportCaptions?: CaptionSegment[];
+  exportMediaFilename?: string;
+  exportMediaSize?: number;
 }
 
 interface JobPerformance {
@@ -43,11 +58,16 @@ interface RuntimePerformanceState {
 }
 
 type JobSubscriber = (snapshot: ProcessingJob[]) => void;
+type JobLane = 'caption' | 'export';
 
 let jobs: StoredJob[] = [];
-let pumping = false;
+const pumping: Record<JobLane, boolean> = { caption: false, export: false };
 const performanceStates = new Map<string, RuntimePerformanceState>();
 const subscribers = new Set<JobSubscriber>();
+
+function laneFor(type: ProcessingJobType): JobLane {
+  return type === 'export-video' ? 'export' : 'caption';
+}
 
 function beginPerformance(id: string) {
   const now = Date.now();
@@ -106,7 +126,9 @@ async function load() {
       ...job,
       status: 'interrupted' as const,
       stage: 'interrupted',
-      message: 'The app stopped during this job. Resume uses saved processing checkpoints where possible.',
+      message: job.type === 'export-video'
+        ? 'Studio stopped during this video export. Resume restarts the render with the saved caption and export snapshot.'
+        : 'The app stopped during this job. Resume uses saved processing checkpoints where possible.',
       updatedAt: now,
       canResume: true,
     };
@@ -167,8 +189,17 @@ async function report(id: string, stage: string, progress: number, message: stri
 
 async function completeJob(job: StoredJob, value: Partial<StoredJob>, captionCount?: number) {
   const performance = finishPerformance(job.id, 'complete');
+  const compactPayload = job.type === 'export-video'
+    ? {
+      exportSettings: job.payload.exportSettings,
+      exportAppearance: job.payload.exportAppearance,
+      exportMediaFilename: job.payload.exportMediaFilename,
+      exportMediaSize: job.payload.exportMediaSize,
+    }
+    : job.payload;
   await patch(job.id, {
     ...value,
+    payload: compactPayload,
     status: 'completed',
     stage: 'complete',
     progress: 100,
@@ -176,14 +207,45 @@ async function completeJob(job: StoredJob, value: Partial<StoredJob>, captionCou
     canResume: false,
     performance,
   });
-  void captureAnalytics('generation_completed', {
-    job_type: job.type,
-    timing_ms_bucket: analyticsBuckets.milliseconds(performance?.totalMs || 0),
-    ...(captionCount == null ? {} : { caption_count_bucket: analyticsBuckets.captions(captionCount) }),
-  });
+  if (job.type !== 'export-video') {
+    void captureAnalytics('generation_completed', {
+      job_type: job.type,
+      timing_ms_bucket: analyticsBuckets.milliseconds(performance?.totalMs || 0),
+      ...(captionCount == null ? {} : { caption_count_bucket: analyticsBuckets.captions(captionCount) }),
+    });
+  }
 }
 
 async function executeJobOperation(job: StoredJob) {
+  if (job.type === 'export-video') {
+    const project = await store.get(job.projectId);
+    if (!project) throw new Error('Project not found');
+    if (!job.payload.exportSettings || !job.payload.exportAppearance || !job.payload.exportCaptions) {
+      throw new Error('This video export does not contain a complete saved render snapshot. Start a new export.');
+    }
+    if (project.media.filename !== job.payload.exportMediaFilename || project.media.size !== job.payload.exportMediaSize) {
+      throw new Error('The project media changed after this export was created. Start a new export from the current video.');
+    }
+    const result = await renderCaptionedVideo(
+      project,
+      job.payload.exportCaptions,
+      job.payload.exportAppearance,
+      job.payload.exportSettings,
+      {
+        onProgress: (progress, message) => report(job.id, 'video-export', progress, message),
+        shouldCancel: () => Boolean(jobs.find((item) => item.id === job.id)?.cancelRequested),
+      },
+    );
+    await completeJob(job, {
+      message: 'Captioned video export is ready.',
+      resultExport: result,
+    });
+    void captureAnalytics('export_completed', {
+      result: 'captioned-video',
+      duration_bucket: analyticsBuckets.durationSeconds(result.durationMs / 1000),
+    });
+    return;
+  }
   if (job.type === 'transcribe') {
     const result = await transcribeProject(job.projectId, job.payload.transcriptionContext, job.payload.force, (stage, progress, message) => report(job.id, stage, progress, message));
     await completeJob(job, {
@@ -231,15 +293,16 @@ async function execute(job: StoredJob) {
     startedAt: new Date().toISOString(),
     stage: 'starting',
     progress: 1,
-    message: 'Starting processing job…',
+    message: job.type === 'export-video' ? 'Preparing captioned video export…' : 'Starting processing job…',
     error: undefined,
     canResume: false,
     cancelRequested: false,
     performance,
   });
   try {
-    await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
-    await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
+    if (job.type === 'export-video') await executeJobOperation(job);
+    else await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
+    if (job.type !== 'export-video') await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
     const terminalStage = cancelled ? 'cancelled' : 'failed';
@@ -247,38 +310,46 @@ async function execute(job: StoredJob) {
     await patch(job.id, {
       status: cancelled ? 'cancelled' : 'failed',
       stage: terminalStage,
-      message: cancelled ? 'Job cancelled.' : 'Processing failed. Saved checkpoints remain available for retry.',
-      error: error instanceof Error ? error.message : 'Processing failed',
+      message: cancelled
+        ? job.type === 'export-video' ? 'Video export cancelled. The partial file was removed.' : 'Job cancelled.'
+        : job.type === 'export-video' ? 'Video export failed. The source project and captions are unchanged.' : 'Processing failed. Saved checkpoints remain available for retry.',
+      error: cancelled ? undefined : error instanceof Error ? error.message : 'Processing failed',
       completedAt: new Date().toISOString(),
       canResume: !cancelled,
       performance: finalPerformance,
     });
-    if (!cancelled) {
+    if (!cancelled && job.type !== 'export-video') {
       void captureAnalytics('generation_failed', {
         job_type: job.type,
         timing_ms_bucket: analyticsBuckets.milliseconds(finalPerformance?.totalMs || 0),
       });
     }
-    if (cancelled) await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
+    if (cancelled && job.type !== 'export-video') await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   }
 }
 
-async function pump() {
-  if (pumping) return;
-  pumping = true;
+async function pumpLane(lane: JobLane) {
+  if (pumping[lane]) return;
+  pumping[lane] = true;
   try {
     while (true) {
-      const next = jobs.find((job) => job.status === 'queued');
+      const next = jobs.find((job) => job.status === 'queued' && laneFor(job.type) === lane);
       if (!next) break;
       await execute(next);
     }
   } finally {
-    pumping = false;
+    pumping[lane] = false;
   }
 }
 
+function pump() {
+  void pumpLane('caption');
+  void pumpLane('export');
+}
+
+await cleanupStaleVideoExportWork();
 await load();
-queueMicrotask(() => { void pump(); });
+queueMicrotask(pump);
 
 export const jobStore = {
   hasAnyActive() {
@@ -325,7 +396,7 @@ export const jobStore = {
       status: 'queued',
       stage: 'queued',
       progress: 0,
-      message: 'Waiting for the local processing worker…',
+      message: type === 'export-video' ? 'Captioned video export is queued.' : 'Waiting for the local processing worker…',
       createdAt: now,
       updatedAt: now,
       canResume: false,
@@ -335,8 +406,8 @@ export const jobStore = {
     jobs = jobs.slice(0, 80);
     await persist();
     notifySubscribers();
-    void captureAnalytics('generation_started', { job_type: type });
-    void pump();
+    if (type !== 'export-video') void captureAnalytics('generation_started', { job_type: type });
+    pump();
     return publicJob(job);
   },
 
@@ -344,19 +415,24 @@ export const jobStore = {
     const job = jobs.find((item) => item.id === id);
     if (!job) throw new Error('Job not found');
     if (!['failed', 'interrupted'].includes(job.status)) throw new Error('Only failed or interrupted jobs can be resumed.');
+    if (job.type === 'export-video' && (!job.payload.exportCaptions || !job.payload.exportSettings || !job.payload.exportAppearance)) {
+      throw new Error('This older export job no longer has a complete render snapshot. Start a new export.');
+    }
     await patch(id, {
       status: 'queued',
       stage: 'queued',
       progress: 0,
-      message: 'Queued again. Saved stage checkpoints will be reused when valid.',
+      message: job.type === 'export-video'
+        ? 'Export queued again with the saved caption and quality settings.'
+        : 'Queued again. Saved stage checkpoints will be reused when valid.',
       error: undefined,
       completedAt: undefined,
       canResume: false,
       cancelRequested: false,
       performance: undefined,
     });
-    void captureAnalytics('generation_started', { job_type: job.type });
-    void pump();
+    if (job.type !== 'export-video') void captureAnalytics('generation_started', { job_type: job.type });
+    pump();
     return (await this.get(id))!;
   },
 
@@ -364,10 +440,10 @@ export const jobStore = {
     const job = jobs.find((item) => item.id === id);
     if (!job) throw new Error('Job not found');
     if (job.status === 'queued') {
-      await patch(id, { status: 'cancelled', stage: 'cancelled', message: 'Job cancelled before it started.', completedAt: new Date().toISOString(), canResume: false });
-      await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
+      await patch(id, { status: 'cancelled', stage: 'cancelled', message: job.type === 'export-video' ? 'Video export cancelled before it started.' : 'Job cancelled before it started.', completedAt: new Date().toISOString(), canResume: false });
+      if (job.type !== 'export-video') await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
     } else if (job.status === 'running') {
-      await patch(id, { cancelRequested: true, message: 'Cancellation requested. The current external stage may finish first.' });
+      await patch(id, { cancelRequested: true, message: job.type === 'export-video' ? 'Cancellation requested. Stopping the local video encoder…' : 'Cancellation requested. The current external stage may finish first.' });
     }
     return (await this.get(id))!;
   },

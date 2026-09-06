@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppProfile,
+  CaptionAppearance,
   CaptionMode,
   CaptionProject,
   CaptionSegment,
@@ -15,6 +16,7 @@ import type {
   SystemDoctorReport,
   TopicPack,
   TranscriptionContext,
+  VideoExportSettings,
 } from '@kcs/shared';
 import {
   BookOpenCheck,
@@ -33,6 +35,7 @@ import {
   ListTodo,
   LoaderCircle,
   LockKeyhole,
+  Palette,
   Play,
   RotateCcw,
   RefreshCw,
@@ -58,6 +61,9 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
+import { ExportWorkspace } from './components/ExportWorkspace';
+import { CaptionAppearanceWorkspace } from './components/CaptionAppearanceWorkspace';
+import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
 import './styles.css';
@@ -75,7 +81,7 @@ const PROFILE_MIGRATION_KEY = 'kcs:profile-migrated:v1';
 const FIRST_RUN_DISMISSED_KEY = 'sthang:first-run-dismissed:v1';
 const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
-type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'details' | null;
+type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
 type ReviewPlaybackPass = 'context' | 'focus';
 
 type ReviewUndoState = {
@@ -176,6 +182,7 @@ export default function App() {
   const [autosaveState, setAutosaveState] = useState<'saved' | 'pending' | 'saving'>('saved');
   const [queuedSeekMs, setQueuedSeekMs] = useState<number | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
+  const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
   const replaceInput = useRef<HTMLInputElement | null>(null);
@@ -335,7 +342,10 @@ export default function App() {
   const readiness = useMemo(() => exportReadiness(draft, issues), [draft, issues]);
   const pendingCorrections = profile?.correctionEvents.filter((event) => event.status === 'pending').length || 0;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
-  const currentProjectActiveJob = project ? activeJobs.find((job) => job.projectId === project.id) : undefined;
+  const currentProjectAnyActiveJob = project ? activeJobs.find((job) => job.projectId === project.id) : undefined;
+  const currentProjectActiveJob = project ? activeJobs.find((job) => job.projectId === project.id && job.type !== 'export-video') : undefined;
+  const activeExportJob = project ? activeJobs.find((job) => job.projectId === project.id && job.type === 'export-video') : undefined;
+  const currentProjectToastJob = currentProjectActiveJob || activeExportJob;
   const refinementJob = project ? activeJobs.find((job) => job.projectId === project.id && job.type === 'refine-proposal') : undefined;
 
   const selection = useMemo(() => {
@@ -506,6 +516,8 @@ export default function App() {
               applyProject(value);
               setNotice('Background caption generation completed.');
             }).catch(() => {});
+          } else if (job.resultExport) {
+            setNotice(`Captioned video ready: ${job.resultExport.filename}. Open Activity to download it.`);
           }
         }
       } else if (job.status === 'failed') {
@@ -592,6 +604,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -710,11 +723,18 @@ export default function App() {
   const regenerateSelection = async () => {
     if (!project || !selection.captions.length) return;
     if (!llmSettings?.configured) {
-      setError('Connect AI in Settings → AI connection before improving captions.');
+      setError('Connect AI before asking for another take. Exact wording can still refresh timing without AI.');
       openSettings('ai');
       return;
     }
-    if (selection.endMs - selection.startMs > 90_000 && !window.confirm('This selection is over 90 seconds. Build a diff preview anyway?')) return;
+    if (selection.endMs - selection.startMs > 90_000) {
+      const confirmed = await confirmInStudio({
+        title: 'Build a long regeneration preview?',
+        message: 'This selection is over 90 seconds, so comparing another take may take noticeably longer. Your current captions stay untouched until you approve the result.',
+        confirmLabel: 'Build preview',
+      });
+      if (!confirmed) return;
+    }
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return;
@@ -732,7 +752,7 @@ export default function App() {
       return;
     }
     if (currentProjectActiveJob) {
-      setNotice('A processing job is already running for this project.');
+      setNotice('A caption processing job is already running for this project.');
       return;
     }
     const label = input.strategy === 'deep-verify'
@@ -774,7 +794,12 @@ export default function App() {
 
   const runTimingPostprocessor = async () => {
     if (!project) return;
-    if (!window.confirm(`Apply safe timing cleanup using “${qaSettings.name}”? Timing-locked captions will be skipped and a history checkpoint will be created.`)) return;
+    const confirmed = await confirmInStudio({
+      title: 'Apply safe timing cleanup?',
+      message: `Studio will use “${qaSettings.name}”, skip timing-locked captions, and create a History checkpoint before changing timing.`,
+      confirmLabel: 'Apply cleanup',
+    });
+    if (!confirmed) return;
     setBusy('Snapping and smoothing caption timing…');
     try {
       const hadUnsavedEdits = dirtyRef.current;
@@ -838,7 +863,14 @@ export default function App() {
   const exportSrt = async () => {
     if (!project) return;
     const severe = issues.filter((issue) => issue.severity !== 'info').length;
-    if (severe > 0 && !window.confirm(`${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Export anyway?`)) return;
+    if (severe > 0) {
+      const confirmed = await confirmInStudio({
+        title: 'Export with review warnings?',
+        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. SRT can still be exported with the current text and timing.`,
+        confirmLabel: 'Export SRT',
+      });
+      if (!confirmed) return;
+    }
     setBusy('Saving & exporting…'); setError('');
     try {
       const hadUnsavedEdits = dirtyRef.current;
@@ -850,6 +882,40 @@ export default function App() {
       setNotice('SRT export started. It includes caption text and timing; visual styling is set in your editing app.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Export failed'); }
     finally { setBusy(''); }
+  };
+
+  const saveCaptionAppearance = async (appearance: CaptionAppearance) => {
+    if (!project) return;
+    setError('');
+    try {
+      const next = await api.saveCaptionAppearance(project.id, appearance);
+      applyProject(next, false);
+      setNotice('Caption appearance saved for this project. SRT output remains unchanged.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not save caption appearance');
+      throw reason;
+    }
+  };
+
+  const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null> => {
+    if (!project) return null;
+    const severe = issues.filter((issue) => issue.severity !== 'info').length;
+    if (severe > 0) {
+      const confirmed = await confirmInStudio({
+        title: 'Render with review warnings?',
+        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Studio can render anyway, but the finished video will use the current caption text and timing.`,
+        confirmLabel: 'Render anyway',
+      });
+      if (!confirmed) return null;
+    }
+    const hadUnsavedEdits = dirtyRef.current;
+    const saved = await saveDraft(true, 'manual-save', true);
+    if (hadUnsavedEdits && !saved) return null;
+    return startJob(
+      () => api.startVideoExportJob(project.id, settings, appearance),
+      'Captioned video export queued. Studio saved a caption/settings snapshot, so you can keep editing while it renders.',
+      false,
+    );
   };
 
   const handleCorrectionAction = async (event: CorrectionEvent, action: 'remember-global' | 'add-project' | 'ignore') => {
@@ -974,14 +1040,20 @@ export default function App() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load history'); }
   };
   const restoreHistory = async (historyId: string) => {
-    if (!project || !window.confirm('Restore this checkpoint? Your current state will be saved as another history entry first.')) return;
+    if (!project) return;
+    const confirmed = await confirmInStudio({
+      title: 'Restore this checkpoint?',
+      message: 'Studio saves your current state as another History entry first, so you can still return to it later.',
+      confirmLabel: 'Restore checkpoint',
+    });
+    if (!confirmed) return;
     setBusy('Restoring project history…');
     try { applyProject(await api.restoreHistory(project.id, historyId)); setShowHistory(false); setNotice('Earlier project version restored.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Restore failed'); }
     finally { setBusy(''); }
   };
 
-  const isVideo = project?.media.mimeType.startsWith('video/');
+  const isVideo = Boolean(project && (project.media.mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(project.media.originalName)));
   const timing = project?.transcript?.timing;
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
@@ -1030,13 +1102,14 @@ export default function App() {
         setReviewMode(false);
         window.setTimeout(() => document.querySelector('.accuracy-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
       }}
-      onExport={() => { setShowGuide(false); void exportSrt(); }}
+      onExport={() => { setShowGuide(false); setReviewMode(false); setWorkspaceTool('export'); }}
     />
+    {confirmationDialog}
   </>;
 
   const statusToasts = <div className="toast-stack" aria-live="polite" aria-atomic="false">
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
-    {currentProjectActiveJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectActiveJob.message}</strong><span>{currentProjectActiveJob.progress}% · open activity</span></div></button>}
+    {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
     {reviewUndo && <div className="toast notice review-undo-toast"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
     {notice && <div className="toast notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
@@ -1069,7 +1142,7 @@ export default function App() {
           activeJobs={activeJobs.length}
           pendingCorrections={pendingCorrections}
           llmConfigured={Boolean(llmSettings?.configured)}
-          replaceDisabled={Boolean(currentProjectActiveJob || busy)}
+          replaceDisabled={Boolean(currentProjectAnyActiveJob || busy)}
           onGuide={() => setShowGuide(true)}
           onCorrect={() => setShowFindReplace(true)}
           onHistory={() => void openHistory()}
@@ -1080,7 +1153,7 @@ export default function App() {
           onUpdates={() => setShowUpdates(true)}
         />
         <button className="save-action" disabled={!dirty || !!busy} title={dirty ? 'Save changes' : 'All changes saved'} onClick={() => void saveDraft(false, 'manual-save', true)}><Save size={16}/><span>{dirty ? 'Save' : 'Saved'}</span></button>
-        <button className={`primary ${draft.length ? '' : 'disabled'}`} title="Export caption text and timing as SRT" disabled={!draft.length || !!busy} onClick={exportSrt}><Download size={16}/><span>Export SRT</span></button>
+        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><Download size={16}/><span>Export</span></button>
       </div>
     </header>
 
@@ -1122,16 +1195,30 @@ export default function App() {
         />}
 
         {!proposal && <>
-          <div className="workspace-tool-strip">
+          {workspaceTool !== 'export' && <div className="workspace-tool-strip">
             <div className="workspace-tool-intro"><strong>{hasHybrid ? 'Choose one workspace tool' : 'Generate first, or add optional context'}</strong><span>{hasHybrid ? 'Advanced controls stay out of the way until you need them.' : 'The normal workflow works with the default settings.'}</span></div>
             <nav aria-label="Caption workspace tools">
               {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ShieldCheck size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
               {hasHybrid && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
               <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><WandSparkles size={16}/><span>Accuracy</span><small>optional</small></button>
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption grouping</span></button>}
+              {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
             </nav>
-          </div>
+          </div>}
+
+          {workspaceTool === 'export' && <ExportWorkspace
+            project={project}
+            sampleText={selection.captions[0]?.text || videoActive?.text || draft[0]?.text || ''}
+            busy={Boolean(busy)}
+            activeExportJob={activeExportJob}
+            onExportSrt={() => void exportSrt()}
+            onSaveAppearance={saveCaptionAppearance}
+            onEditAppearance={() => chooseWorkspaceTool('appearance')}
+            onStartVideoExport={startVideoExport}
+          />}
+
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace project={project}/>}
 
           {workspaceTool === 'timeline' && hasHybrid && <WaveformEditor
             projectId={project.id}

@@ -1,5 +1,6 @@
 import type {
   AppProfile,
+  CaptionAppearance,
   CaptionMode,
   CaptionProject,
   CaptionSegment,
@@ -12,6 +13,8 @@ import type {
   RegenerationRefinementInput,
   SystemDoctorReport,
   TranscriptionContext,
+  VideoExportCapabilities,
+  VideoExportSettings,
 } from '@kcs/shared';
 
 export const JOBS_UPDATED_EVENT = 'sthang:jobs-updated';
@@ -189,6 +192,13 @@ export const api = {
   job: (id: string) => request<ProcessingJob>(`/api/jobs/${id}`),
   resumeJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' })),
   cancelJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/cancel`, { method: 'POST' })),
+  videoExportCapabilities: (projectId: string, refresh = false) => request<VideoExportCapabilities>(`/api/video-export/${projectId}/capabilities${refresh ? '?refresh=1' : ''}`),
+  saveCaptionAppearance: (projectId: string, appearance: CaptionAppearance) => request<CaptionProject>(`/api/video-export/${projectId}/appearance`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appearance }),
+  }),
+  startVideoExportJob: (projectId: string, settings: VideoExportSettings, appearance: CaptionAppearance) => jobMutation(() => request<ProcessingJob>(`/api/video-export/${projectId}/jobs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, appearance }),
+  })),
   regenerationProposal: (projectId: string, proposalId: string) => request<RegenerationProposal>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}`),
   applyRegenerationProposal: (projectId: string, proposalId: string, mode: RegenerationApplyMode, editedText?: string) => request<CaptionProject>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}/apply`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, editedText }),

@@ -7,6 +7,7 @@ import system from './routes/system.js';
 import jobs from './routes/jobs.js';
 import updates from './routes/updates.js';
 import contribution from './routes/contribution.js';
+import videoExport from './routes/video-export.js';
 import { APP_VERSION } from './version.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
@@ -33,12 +34,14 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '8mb' }));
 app.use('/media', express.static(config.uploadDir));
+app.use('/exports', express.static(config.exportDir, { index: false, dotfiles: 'deny' }));
 app.use('/api/projects', projects);
 app.use('/api/profile', profile);
 app.use('/api/system', system);
 app.use('/api/jobs', jobs);
 app.use('/api/updates', updates);
 app.use('/api/contribution', contribution);
+app.use('/api/video-export', videoExport);
 app.get('/api/health', async (_req, res) => {
   try {
     const llm = await publicLlmSettings();
@@ -70,6 +73,7 @@ app.get('/api/health', async (_req, res) => {
         signedUpdateArchitecture: true,
         khmerCaptionContribution: true,
         optionalProductAnalytics: true,
+        captionedVideoExport: true,
       },
       cloudConfiguration: {
         contributionConfigured: Boolean(config.contributionEndpoint),
@@ -118,6 +122,7 @@ app.listen(config.port, '127.0.0.1', () => {
   console.log('Stage cache: normalized audio + Gemini/timing stages');
   console.log('Professional review: waveform + locks + diff approval + history');
   console.log('Background jobs: persistent queue with retry/resume');
+  console.log('Captioned video: local FFmpeg render path with capability checks and verified MP4 output');
   console.log('Timing primary: KFA Khmer forced alignment (local CPU/ONNX)');
   console.log(`Timing fallback: ${config.localWhisperFallbackEnabled ? `local faster-whisper ${config.localWhisperModel}` : 'disabled'}`);
   console.log('Paid cloud timing: OFF / not wired into automatic fallback');
