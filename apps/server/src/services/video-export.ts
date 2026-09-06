@@ -3,27 +3,25 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import {
-  DEFAULT_CAPTION_APPEARANCE,
-  wrapCaptionText,
+  normalizeCaptionAppearance, normalizeVideoExportSettings, resolveVideoDimensions,
+  estimateVideoExportBytes, targetBitrateMbps,
   type CaptionAppearance,
   type CaptionProject,
   type CaptionSegment,
   type VideoCodec,
-  type VideoEncoderPreference,
   type VideoExportCapabilities,
   type VideoExportEncoderCapability,
-  type VideoExportFontCapability,
   type VideoExportResolutionOption,
   type VideoExportResult,
   type VideoExportSettings,
   type VideoExportSourceInfo,
-  type VideoFrameRatePreset,
   type VideoHdrKind,
   type VideoQualityPreset,
   type VideoResolutionPreset,
 } from '@kcs/shared';
 import { config } from '../config.js';
 import { runCommand } from './media.js';
+import { buildAssDocument, buildAssCaptionFilter, fontCapabilities, requireCaptionFont, prepareCaptionFonts } from './caption-renderer.js';
 
 interface ProbeStream {
   codec_type?: string;
@@ -59,13 +57,6 @@ const encoderProbeCache = new Map<string, Promise<boolean>>();
 const capabilityCache = new Map<string, { at: number; value: VideoExportCapabilities }>();
 const capabilityCacheMs = 30_000;
 
-const resolutionBounds: Record<Exclude<VideoResolutionPreset, 'source'>, { landscape: [number, number]; portrait: [number, number] }> = {
-  '720p': { landscape: [1280, 720], portrait: [720, 1280] },
-  '1080p': { landscape: [1920, 1080], portrait: [1080, 1920] },
-  '1440p': { landscape: [2560, 1440], portrait: [1440, 2560] },
-  '2160p': { landscape: [3840, 2160], portrait: [2160, 3840] },
-};
-
 const resolutionLabels: Record<VideoResolutionPreset, string> = {
   source: 'Original',
   '720p': 'HD 720p',
@@ -76,15 +67,6 @@ const resolutionLabels: Record<VideoResolutionPreset, string> = {
 
 function even(value: number) {
   return Math.max(2, Math.round(value / 2) * 2);
-}
-
-function clamp(value: number, min: number, max: number, fallback: number) {
-  return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
-}
-
-function safeHex(value: unknown, fallback: string) {
-  const raw = String(value || '').trim().toUpperCase();
-  return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
 }
 
 function ffmpegMetadataValue(value: string | undefined) {
@@ -105,52 +87,6 @@ async function emitProgress(callbacks: RenderCallbacks, progress: number, messag
   throwIfCancelled(callbacks);
   await callbacks.onProgress?.(progress, message);
   throwIfCancelled(callbacks);
-}
-
-export function normalizeCaptionAppearance(value: Partial<CaptionAppearance> | null | undefined): CaptionAppearance {
-  const raw = value || {};
-  return {
-    fontFamily: String(raw.fontFamily || DEFAULT_CAPTION_APPEARANCE.fontFamily).trim().slice(0, 80) || DEFAULT_CAPTION_APPEARANCE.fontFamily,
-    fontSize1080: clamp(Number(raw.fontSize1080), 22, 120, DEFAULT_CAPTION_APPEARANCE.fontSize1080),
-    bold: raw.bold !== false,
-    textColor: safeHex(raw.textColor, DEFAULT_CAPTION_APPEARANCE.textColor),
-    outlineColor: safeHex(raw.outlineColor, DEFAULT_CAPTION_APPEARANCE.outlineColor),
-    outlineWidth1080: clamp(Number(raw.outlineWidth1080), 0, 12, DEFAULT_CAPTION_APPEARANCE.outlineWidth1080),
-    shadowWidth1080: clamp(Number(raw.shadowWidth1080), 0, 12, DEFAULT_CAPTION_APPEARANCE.shadowWidth1080),
-    backgroundEnabled: raw.backgroundEnabled === true,
-    backgroundColor: safeHex(raw.backgroundColor, DEFAULT_CAPTION_APPEARANCE.backgroundColor),
-    backgroundOpacity: clamp(Number(raw.backgroundOpacity), 0.05, 1, DEFAULT_CAPTION_APPEARANCE.backgroundOpacity),
-    backgroundPadding1080: clamp(Number(raw.backgroundPadding1080), 0, 28, DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080),
-    alignment: ['left', 'center', 'right'].includes(String(raw.alignment)) ? raw.alignment! : DEFAULT_CAPTION_APPEARANCE.alignment,
-    positionBottomPct: clamp(Number(raw.positionBottomPct), 3, 82, DEFAULT_CAPTION_APPEARANCE.positionBottomPct),
-    maxWidthPct: clamp(Number(raw.maxWidthPct), 45, 96, DEFAULT_CAPTION_APPEARANCE.maxWidthPct),
-  };
-}
-
-export function normalizeVideoExportSettings(value: Partial<VideoExportSettings> | null | undefined): VideoExportSettings {
-  const raw = value || {};
-  const resolution = ['source', '720p', '1080p', '1440p', '2160p'].includes(String(raw.resolution))
-    ? raw.resolution as VideoResolutionPreset
-    : 'source';
-  const frameRate = raw.frameRate === 'source' || [24, 25, 30, 50, 60].includes(Number(raw.frameRate))
-    ? raw.frameRate as VideoFrameRatePreset
-    : 'source';
-  const quality = ['smaller', 'recommended', 'high'].includes(String(raw.quality))
-    ? raw.quality as VideoQualityPreset
-    : 'recommended';
-  const codec = ['h264', 'hevc'].includes(String(raw.codec)) ? raw.codec as VideoCodec : 'h264';
-  const encoder = ['auto', 'software', 'nvidia', 'intel', 'amd'].includes(String(raw.encoder))
-    ? raw.encoder as VideoEncoderPreference
-    : 'auto';
-  const customBitrate = Number(raw.customBitrateMbps);
-  return {
-    resolution,
-    frameRate,
-    quality,
-    codec,
-    encoder,
-    ...(Number.isFinite(customBitrate) && customBitrate >= 1 && customBitrate <= 200 ? { customBitrateMbps: customBitrate } : {}),
-  };
 }
 
 export function parseRate(value: unknown) {
@@ -201,22 +137,6 @@ function bitDepth(stream: ProbeStream) {
   const pix = String(stream.pix_fmt || '').toLowerCase();
   const match = pix.match(/(?:p|le|be)(10|12|14|16)(?:le|be)?$/) || pix.match(/(10|12|14|16)/);
   return match ? Number(match[1]) : 8;
-}
-
-export function resolveVideoDimensions(sourceWidth: number, sourceHeight: number, preset: VideoResolutionPreset) {
-  const width = even(sourceWidth);
-  const height = even(sourceHeight);
-  if (preset === 'source') return { width, height, upscaled: false };
-  const portrait = height > width;
-  const bounds = portrait ? resolutionBounds[preset].portrait : resolutionBounds[preset].landscape;
-  const scale = Math.min(bounds[0] / width, bounds[1] / height);
-  const outputWidth = even(width * scale);
-  const outputHeight = even(height * scale);
-  return {
-    width: outputWidth,
-    height: outputHeight,
-    upscaled: outputWidth > width * 1.01 || outputHeight > height * 1.01,
-  };
 }
 
 function resolutionOptions(source: VideoExportSourceInfo): VideoExportResolutionOption[] {
@@ -316,42 +236,6 @@ async function encoderCapabilities(): Promise<VideoExportEncoderCapability[]> {
   return definitions.map((item, index) => ({ ...item, available: available[index] }));
 }
 
-async function candidateFont(name: string, regularPath: string, boldPath?: string, source: VideoExportFontCapability['source'] = 'windows-system') {
-  const available = await fs.stat(regularPath).then((stat) => stat.isFile()).catch(() => false);
-  const boldAvailable = boldPath ? await fs.stat(boldPath).then((stat) => stat.isFile()).catch(() => false) : available;
-  return { name, available, boldAvailable, source } satisfies VideoExportFontCapability;
-}
-
-async function fontCapabilities() {
-  const fonts: VideoExportFontCapability[] = [];
-  if (process.platform === 'win32') {
-    const windows = process.env.WINDIR || 'C:\\Windows';
-    const systemFonts = path.join(windows, 'Fonts');
-    fonts.push(await candidateFont('Khmer UI', path.join(systemFonts, 'KhmerUI.ttf'), path.join(systemFonts, 'KhmerUIB.ttf')));
-    fonts.push(await candidateFont('DaunPenh', path.join(systemFonts, 'Daunpenh.ttf')));
-    fonts.push(await candidateFont('MoolBoran', path.join(systemFonts, 'Moolbor.ttf')));
-    const userFonts = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Windows', 'Fonts');
-    if (process.env.LOCALAPPDATA) {
-      try {
-        const names = await fs.readdir(userFonts);
-        const regular = names.find((name) => /^NotoSansKhmer(?:-Regular)?\.(?:ttf|otf)$/i.test(name));
-        const bold = names.find((name) => /^NotoSansKhmer-Bold\.(?:ttf|otf)$/i.test(name));
-        if (regular) fonts.push(await candidateFont('Noto Sans Khmer', path.join(userFonts, regular), bold ? path.join(userFonts, bold) : undefined, 'user-installed'));
-      } catch { /* optional user font directory */ }
-    }
-  } else {
-    const linuxCandidates = [
-      ['/usr/share/fonts/truetype/noto/NotoSansKhmer-Regular.ttf', '/usr/share/fonts/truetype/noto/NotoSansKhmer-Bold.ttf'],
-      ['/usr/share/fonts/opentype/noto/NotoSansKhmer-Regular.ttf', '/usr/share/fonts/opentype/noto/NotoSansKhmer-Bold.ttf'],
-    ];
-    for (const [regular, bold] of linuxCandidates) {
-      const item = await candidateFont('Noto Sans Khmer', regular, bold, 'linux-system');
-      if (item.available) { fonts.push(item); break; }
-    }
-  }
-  return fonts.filter((font, index, all) => all.findIndex((item) => item.name === font.name) === index);
-}
-
 async function diskFreeBytes(dir: string) {
   try {
     await fs.mkdir(dir, { recursive: true });
@@ -404,98 +288,20 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
     source,
     resolutions: resolutionOptions(source),
     encoders,
-    fonts,
+    fonts: fonts.map(({ name, available, boldAvailable, source }) => ({ name, available, boldAvailable, source })),
     subtitlesFilter: complexAssFilter,
     availableDiskBytes,
     warnings,
   };
+  for (const [key, entry] of capabilityCache) if (Date.now() - entry.at >= capabilityCacheMs) capabilityCache.delete(key);
+  if (capabilityCache.size >= 32) capabilityCache.delete(capabilityCache.keys().next().value!);
   capabilityCache.set(cacheKey, { at: Date.now(), value });
   return value;
-}
-
-function assTimestamp(ms: number) {
-  const totalCentiseconds = Math.max(0, Math.round(ms / 10));
-  const hours = Math.floor(totalCentiseconds / 360000);
-  const minutes = Math.floor((totalCentiseconds % 360000) / 6000);
-  const seconds = Math.floor((totalCentiseconds % 6000) / 100);
-  const centiseconds = totalCentiseconds % 100;
-  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
-}
-
-export function escapeAssText(text: string) {
-  return String(text || '')
-    .replace(/\\/g, '＼')
-    .replace(/\{/g, '｛')
-    .replace(/\}/g, '｝')
-    .replace(/\r?\n/g, '\\N')
-    .trim();
-}
-
-function assColor(hex: string, opacity = 1) {
-  const value = safeHex(hex, '#FFFFFF').slice(1);
-  const rr = value.slice(0, 2);
-  const gg = value.slice(2, 4);
-  const bb = value.slice(4, 6);
-  const alpha = Math.round((1 - clamp(opacity, 0, 1, 1)) * 255).toString(16).toUpperCase().padStart(2, '0');
-  return `&H${alpha}${bb}${gg}${rr}`;
-}
-
-export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Partial<CaptionAppearance> | undefined, width: number, height: number) {
-  const appearance = normalizeCaptionAppearance(appearanceInput);
-  const scale = height / 1080;
-  const fontSize = Math.round(appearance.fontSize1080 * scale * 10) / 10;
-  const outline = Math.round(appearance.outlineWidth1080 * scale * 10) / 10;
-  const shadow = Math.round(appearance.shadowWidth1080 * scale * 10) / 10;
-  const boxPadding = Math.round(appearance.backgroundPadding1080 * scale * 10) / 10;
-  const sideMargin = Math.max(8, Math.round(width * (100 - appearance.maxWidthPct) / 200));
-  const marginV = Math.max(8, Math.round(height * appearance.positionBottomPct / 100));
-  const usableWidth = width * appearance.maxWidthPct / 100;
-  const maxGraphemesPerLine = Math.max(6, Math.floor(usableWidth / Math.max(1, fontSize * 0.72)));
-  const alignment = appearance.alignment === 'left' ? 1 : appearance.alignment === 'right' ? 3 : 2;
-  const borderStyle = appearance.backgroundEnabled ? 3 : 1;
-  const styleOutline = appearance.backgroundEnabled ? Math.max(boxPadding, outline) : outline;
-  const backColor = assColor(appearance.backgroundColor, appearance.backgroundEnabled ? appearance.backgroundOpacity : 0);
-  const events = captions
-    .filter((caption) => caption.text.trim() && caption.endMs > caption.startMs)
-    .map((caption) => `Dialogue: 0,${assTimestamp(caption.startMs)},${assTimestamp(caption.endMs)},Default,,0,0,0,,${escapeAssText(wrapCaptionText(caption.text, maxGraphemesPerLine))}`)
-    .join('\n');
-  return `\uFEFF[Script Info]\nScriptType: v4.00+\nLanguage: km\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,${appearance.fontFamily.replace(/,/g, ' ')},${fontSize},${assColor(appearance.textColor)},${assColor(appearance.textColor)},${assColor(appearance.outlineColor)},${backColor},${appearance.bold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${styleOutline},${shadow},${alignment},${sideMargin},${sideMargin},${marginV},1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
-}
-
-function filterPath(filePath: string) {
-  return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-}
-
-export function buildAssCaptionFilter(assPath: string, fontDirectory: string) {
-  return `ass=filename='${filterPath(assPath)}':fontsdir='${filterPath(fontDirectory)}':shaping=complex`;
-}
-
-function selectedFontDirectory(fontName: string) {
-  if (process.platform === 'win32') {
-    if (fontName === 'Noto Sans Khmer' && process.env.LOCALAPPDATA) return path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts');
-    return path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts');
-  }
-  return '/usr/share/fonts';
 }
 
 function qualityCrf(codec: VideoCodec, quality: VideoQualityPreset) {
   if (codec === 'hevc') return quality === 'high' ? 18 : quality === 'smaller' ? 25 : 21;
   return quality === 'high' ? 17 : quality === 'smaller' ? 23 : 19;
-}
-
-function targetBitrateMbps(width: number, height: number, fps: number, codec: VideoCodec, quality: VideoQualityPreset) {
-  const bpp = quality === 'high' ? 0.15 : quality === 'smaller' ? 0.065 : 0.1;
-  const efficiency = codec === 'hevc' ? 0.72 : 1;
-  return clamp(width * height * Math.max(12, fps) * bpp * efficiency / 1_000_000, 1.5, codec === 'hevc' ? 100 : 140, 8);
-}
-
-export function estimateVideoExportBytes(source: VideoExportSourceInfo, settingsInput: Partial<VideoExportSettings> | undefined) {
-  const settings = normalizeVideoExportSettings(settingsInput);
-  const dims = resolveVideoDimensions(source.displayWidth, source.displayHeight, settings.resolution);
-  const fps = settings.frameRate === 'source' ? source.frameRate : settings.frameRate;
-  const mbps = settings.customBitrateMbps || targetBitrateMbps(dims.width, dims.height, fps, settings.codec, settings.quality);
-  const audioMbps = source.audioStreams ? 0.256 * source.audioStreams : 0;
-  return Math.ceil((mbps + audioMbps) * 1_000_000 / 8 * source.durationMs / 1000 * 1.04);
 }
 
 function chooseEncoder(capabilities: VideoExportCapabilities, settings: VideoExportSettings) {
@@ -656,7 +462,7 @@ async function validateRenderedVideo(outputPath: string, expectedWidth: number, 
   const result = await probeMedia(outputPath);
   validateVideoExportProbe(result, expectedWidth, expectedHeight, source, settings);
   const stat = await fs.stat(outputPath);
-  if (!stat.isFile() || stat.size < 16_384) throw new Error('Export verification failed: output file is empty or incomplete.');
+  if (!stat.isFile() || stat.size === 0) throw new Error('Export verification failed: output file is empty or incomplete.');
   return { result, sizeBytes: stat.size };
 }
 
@@ -675,7 +481,7 @@ function buildRenderArgs(
   project: CaptionProject,
   assPath: string,
   partialPath: string,
-  appearance: CaptionAppearance,
+  fontDirectory: string,
   settings: VideoExportSettings,
   source: VideoExportSourceInfo,
   encoder: VideoExportEncoderCapability,
@@ -687,7 +493,7 @@ function buildRenderArgs(
     `scale=${width}:${height}:flags=lanczos`,
     'setsar=1',
     ...(settings.frameRate === 'source' ? [] : [`fps=fps=${settings.frameRate}`]),
-    buildAssCaptionFilter(assPath, selectedFontDirectory(appearance.fontFamily)),
+    buildAssCaptionFilter(assPath, fontDirectory),
   ];
   const args = [
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
@@ -727,11 +533,7 @@ export async function renderCaptionedVideo(
   const appearance = normalizeCaptionAppearance(appearanceInput);
   const capabilities = await probeVideoExportCapabilities(project, true);
   if (!capabilities.supported) throw new Error(capabilities.blockingReason || 'Captioned-video export is not available on this PC.');
-  const font = capabilities.fonts.find((item) => item.name === appearance.fontFamily && item.available)
-    || capabilities.fonts.find((item) => item.available);
-  if (!font) throw new Error('No reviewed Khmer font is available for video export.');
-  appearance.fontFamily = font.name;
-  if (appearance.bold && !font.boldAvailable) appearance.bold = false;
+  requireCaptionFont(capabilities.fonts, appearance);
   const dimensions = resolveVideoDimensions(capabilities.source.displayWidth, capabilities.source.displayHeight, settings.resolution);
   const outputFps = settings.frameRate === 'source' ? capabilities.source.frameRate : settings.frameRate;
   let encoder = chooseEncoder(capabilities, settings);
@@ -751,13 +553,14 @@ export async function renderCaptionedVideo(
   const partialPath = path.join(workDir, `${filename}.partial.mp4`);
   try {
     await emitProgress(callbacks, 2, 'Preparing caption appearance and output settings…');
+    const fontDirectory = await prepareCaptionFonts(workDir, appearance);
     await fs.writeFile(assPath, buildAssDocument(captions, appearance, dimensions.width, dimensions.height), 'utf8');
     throwIfCancelled(callbacks);
 
     const render = async () => {
       await fs.rm(partialPath, { force: true }).catch(() => {});
       await runFfmpegRender(
-        buildRenderArgs(project, assPath, partialPath, appearance, settings, capabilities.source, encoder, dimensions.width, dimensions.height, outputFps),
+        buildRenderArgs(project, assPath, partialPath, fontDirectory, settings, capabilities.source, encoder, dimensions.width, dimensions.height, outputFps),
         capabilities.source.durationMs,
         callbacks,
       );

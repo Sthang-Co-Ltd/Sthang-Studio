@@ -261,7 +261,7 @@ router.put('/:id/captions', async (req, res) => {
   project.captions = captions;
   project.updatedAt = new Date().toISOString();
   project.engineVersion = '0.7.10';
-  await store.upsert(project);
+  const saved = await store.upsert(project);
   const recordCorrections = req.body?.recordCorrections !== false;
   const corrections = recordCorrections ? await profileStore.recordCaptionChanges(project, before, captions) : { created: [] };
   await contributionStore.captureApprovedCorrections(project, before, captions).catch((error) => {
@@ -270,7 +270,7 @@ router.put('/:id/captions', async (req, res) => {
   const beforeById = new Map(before.map((caption) => [caption.id, caption]));
   const approvedNow = captions.filter((caption) => caption.approved === true && beforeById.get(caption.id)?.approved !== true).length;
   if (approvedNow > 0) void captureAnalytics('caption_approved', { approval_count_bucket: analyticsBuckets.approvals(approvedNow) });
-  res.json({ project, correctionsCreated: corrections.created.length });
+  res.json({ project: saved, correctionsCreated: corrections.created.length });
 });
 
 router.post('/:id/normalize-khmer-spacing', async (req, res) => {

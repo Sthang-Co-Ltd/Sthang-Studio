@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CAPTION_APPEARANCE,
+  normalizeCaptionAppearance,
   type CaptionAppearance,
   type CaptionAppearancePreset,
   type CaptionProject,
@@ -8,7 +9,6 @@ import {
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
-import { applyCaptionAppearancePreview, resolveCaptionAppearance } from '../caption-appearance-preview';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import './caption-appearance.css';
 
@@ -16,10 +16,7 @@ type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 
 interface Props {
   project: CaptionProject;
-}
-
-function appearanceKey(value: CaptionAppearance) {
-  return JSON.stringify(value);
+  onAppearanceChange(appearance: CaptionAppearance): void;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -29,8 +26,8 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
-export function CaptionAppearanceWorkspace({ project }: Props) {
-  const initial = resolveCaptionAppearance(project.captionAppearance);
+export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Props) {
+  const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
   const [fonts, setFonts] = useState<VideoExportFontCapability[]>([]);
@@ -45,24 +42,24 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
   const appearanceRef = useRef<CaptionAppearance>(initial);
   const dirtyRef = useRef(false);
 
-  const persistAppearance = async (snapshot: CaptionAppearance, reportState = true): Promise<boolean> => {
-    const snapshotKey = appearanceKey(snapshot);
-    if (reportState) setSaveState('saving');
+  const persistAppearance = async (snapshot: CaptionAppearance): Promise<boolean> => {
+    const snapshotKey = JSON.stringify(snapshot);
+    setSaveState('saving');
     const saved = await queueCaptionAppearanceSave(project.id, snapshot);
     if (saved) {
-      if (appearanceKey(appearanceRef.current) === snapshotKey) {
+      if (JSON.stringify(appearanceRef.current) === snapshotKey) {
         dirtyRef.current = false;
-        if (reportState) setSaveState('saved');
-      } else if (reportState) setSaveState('pending');
+        setSaveState('saved');
+      } else setSaveState('pending');
       return true;
     }
-    if (appearanceKey(appearanceRef.current) === snapshotKey && reportState) setSaveState('error');
+    if (JSON.stringify(appearanceRef.current) === snapshotKey) setSaveState('error');
     return false;
   };
 
   useEffect(() => {
     let active = true;
-    const localInitial = resolveCaptionAppearance(project.captionAppearance);
+    const localInitial = normalizeCaptionAppearance(project.captionAppearance);
     setAppearance(localInitial);
     appearanceRef.current = localInitial;
     dirtyRef.current = false;
@@ -89,7 +86,7 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
       try {
         const fresh = await api.get(project.id);
         if (!active || dirtyRef.current) return;
-        const next = resolveCaptionAppearance(fresh.captionAppearance);
+        const next = normalizeCaptionAppearance(fresh.captionAppearance);
         setAppearance(next);
         appearanceRef.current = next;
       } catch {
@@ -114,13 +111,7 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
   }, [project.id, project.media.filename]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.add('caption-appearance-previewing');
     return () => {
-      // Appearance is project styling, so leaving this workspace removes only
-      // the editing badge. The current look stays on the real video in Review,
-      // Fine timing, Accuracy, Caption grouping, and Details.
-      root.classList.remove('caption-appearance-previewing');
       if (dirtyRef.current) {
         const finalSnapshot = { ...appearanceRef.current };
         void queueCaptionAppearanceSave(project.id, finalSnapshot);
@@ -129,8 +120,8 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
   }, [project.id]);
 
   useEffect(() => {
-    applyCaptionAppearancePreview(appearance);
-  }, [appearance]);
+    onAppearanceChange(appearance);
+  }, [appearance, onAppearanceChange]);
 
   useEffect(() => {
     if (!dirtyRef.current) return;
@@ -164,11 +155,7 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
     if (!id) return;
     const preset = presets.find((item) => item.id === id);
     if (!preset) return;
-    const targetFont = fonts.find((font) => font.name === preset.appearance.fontFamily);
-    const next = {
-      ...preset.appearance,
-      bold: targetFont ? targetFont.boldAvailable && preset.appearance.bold : preset.appearance.bold,
-    };
+    const next = normalizeCaptionAppearance(preset.appearance);
     appearanceRef.current = next;
     dirtyRef.current = true;
     setSaveState('pending');
@@ -219,7 +206,7 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
 
   return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title">
     <div className="caption-appearance-head">
-      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions while watching the real video above. This browser preview is approximate; the finished MP4 uses the local renderer.</span></div>
+      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions while watching the real video above. Preview and MP4 use the same local caption renderer. Video compression and display scaling can soften edges.</span></div>
       <div className={`appearance-save-state ${saveState}`} role="status" aria-live="polite">
         {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{saveStateCopy(saveState)}</span>{saveState === 'error' && <button onClick={() => void persistAppearance({ ...appearanceRef.current })}>Retry</button>}
       </div>
@@ -239,10 +226,12 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
 
     {presetError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{presetError}</span></div>}
     {fontError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{fontError}. Your current appearance remains unchanged.</span></div>}
-    {!loadingFonts && fonts.length > 0 && !currentFontAvailable && <div className="appearance-inline-warning"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is not available on this PC. Choose an available Khmer font before rendering if you need an exact font match.</span></div>}
+    {!loadingFonts && !currentFontAvailable && <div className="appearance-inline-warning"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is not available on this PC. Choose an available Khmer font before previewing or rendering. The saved font has not been substituted.</span></div>}
+
+    {!loadingFonts && chosenFont && appearance.bold && !chosenFont.boldAvailable && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>Bold {appearance.fontFamily} is unavailable. Turn off Bold in More appearance or choose a font with an installed bold face.</span></div>}
 
     <div className="appearance-essential-grid">
-      <label><span>Khmer font</span><select value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => { const font = fonts.find((item) => item.name === event.target.value); updateAppearance((current) => ({ ...current, fontFamily: event.target.value, bold: font ? font.boldAvailable && current.bold : current.bold })); }}>{fontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.available ? font.boldAvailable ? '' : ' · regular only' : ' · unavailable'}</option>)}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select></label>
+      <label><span>Khmer font</span><select value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => updateAppearance((current) => ({ ...current, fontFamily: event.target.value }))}>{fontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.available ? font.boldAvailable ? '' : ' · regular only' : ' · unavailable'}</option>)}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select></label>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
       <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }))}/></label>
       <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }))}/></label>
@@ -251,7 +240,7 @@ export function CaptionAppearanceWorkspace({ project }: Props) {
     <details className="appearance-more">
       <summary>More appearance</summary>
       <div className="appearance-grid">
-        <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} disabled={Boolean(chosenFont && !chosenFont.boldAvailable)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
+        <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
         <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
         <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }))}/></label>
         <label className="range-field"><span>Shadow <b>{appearance.shadowWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.shadowWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, shadowWidth1080: Number(event.target.value) }))}/></label>

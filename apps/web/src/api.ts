@@ -176,9 +176,6 @@ export const api = {
     fd.append('media', file);
     return request<CaptionProject>(`/api/projects/${id}/replace-media`, { method: 'POST', body: fd });
   },
-  transcribe: (id: string, transcriptionContext: TranscriptionContext, force = false) => request<CaptionProject>(`/api/projects/${id}/transcribe`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcriptionContext, force }),
-  }),
   startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, force = false) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force }),
   })),
@@ -189,7 +186,6 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, proposalId, ...input }),
   })),
   jobs: jobsRequest,
-  job: (id: string) => request<ProcessingJob>(`/api/jobs/${id}`),
   resumeJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' })),
   cancelJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/cancel`, { method: 'POST' })),
   videoExportCapabilities: (projectId: string, refresh = false) => request<VideoExportCapabilities>(`/api/video-export/${projectId}/capabilities${refresh ? '?refresh=1' : ''}`),
@@ -218,7 +214,6 @@ export const api = {
   }),
   history: (id: string) => request<ProjectHistoryEntry[]>(`/api/projects/${id}/history`),
   restoreHistory: (id: string, historyId: string) => request<CaptionProject>(`/api/projects/${id}/history/${historyId}/restore`, { method: 'POST' }),
-  remove: (id: string) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
 
   profile: () => request<AppProfile>('/api/profile'),
   patchProfile: (patch: Partial<AppProfile>) => request<AppProfile>('/api/profile', {

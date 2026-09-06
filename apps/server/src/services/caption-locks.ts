@@ -96,14 +96,6 @@ export function preserveCaptionLocks(existing: CaptionSegment[], generated: Capt
   ].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
 }
 
-export function lockCounts(captions: CaptionSegment[]) {
-  return {
-    text: captions.filter((caption) => caption.textLocked).length,
-    timing: captions.filter((caption) => caption.timingLocked).length,
-    approved: captions.filter((caption) => caption.approved).length,
-  };
-}
-
 export function captionsInRange(captions: CaptionSegment[], startMs: number, endMs: number) {
   return captions.filter((caption) => caption.endMs > startMs && caption.startMs < endMs);
 }

@@ -59,3 +59,7 @@ Thumbs.db
 updates/
 versions/
 .sthang-update-version.json
+
+# Local browser regression output (synthetic fixtures only).
+/test-results/
+/playwright-report/

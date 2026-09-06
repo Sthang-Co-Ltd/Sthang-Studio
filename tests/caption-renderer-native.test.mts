@@ -121,7 +121,7 @@ test('cancelled and rejected previews clean up after the native child has actual
   });
   await assert.rejects(renderCaptionPreview(input, capabilities, controller.signal), /Caption preview cancelled/);
   assert.equal(nativeStarted, true, 'must exercise a running native child');
-  await assert.rejects(renderCaptionPreview({ ...input, appearance: { ...appearance, fontFamily: 'Missing Font' } } }, capabilities), /unavailable/);
+  await assert.rejects(renderCaptionPreview({ ...input, appearance: { ...appearance, fontFamily: 'Missing Font' } }, capabilities), /unavailable/);
   const remaining = await fs.readdir(path.join(config.exportDir, '.working')).catch(() => []);
   assert.deepEqual(remaining, []);
 });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, TriangleAlert, X } from 'lucide-react';
+import { useModalFocus } from '../use-modal-focus';
 import './confirmation-dialog.css';
 
 export interface StudioConfirmOptions {
@@ -18,30 +19,7 @@ function ConfirmationDialog({ request, onResolve }: { request: PendingConfirmati
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
-    cancelRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onResolve(false);
-        return;
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onResolve]);
+  useModalFocus(true, dialogRef, () => onResolve(false), cancelRef);
 
   const warning = request.tone !== 'neutral';
   return <div className="studio-confirm-backdrop" onMouseDown={() => onResolve(false)}>
@@ -49,6 +27,7 @@ function ConfirmationDialog({ request, onResolve }: { request: PendingConfirmati
       ref={dialogRef}
       className={`studio-confirm-dialog ${warning ? 'warning' : 'neutral'}`}
       role="alertdialog"
+      tabIndex={-1}
       aria-modal="true"
       aria-labelledby="studio-confirm-title"
       aria-describedby="studio-confirm-message"

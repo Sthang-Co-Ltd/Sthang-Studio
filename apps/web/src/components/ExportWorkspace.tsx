@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  DEFAULT_CAPTION_APPEARANCE,
+  normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject,
   type CaptionAppearance,
   type CaptionProject,
   type ProcessingJob,
@@ -10,6 +10,7 @@ import {
   type VideoExportSettings,
   type VideoFrameRatePreset,
   type VideoQualityPreset,
+  type VideoResolutionPreset,
 } from '@kcs/shared';
 import { Download, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
@@ -18,12 +19,11 @@ import './video-export.css';
 
 interface Props {
   project: CaptionProject;
-  sampleText?: string;
   busy: boolean;
   activeExportJob?: ProcessingJob;
   onExportSrt(): void;
-  onSaveAppearance?(appearance: CaptionAppearance): Promise<void>;
   onEditAppearance(): void;
+  onPreviewResolution(resolution: VideoResolutionPreset): void;
   onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null>;
 }
 
@@ -52,17 +52,6 @@ function bytes(value: number) {
   return `${current >= 100 || unit === 0 ? current.toFixed(0) : current.toFixed(1)} ${units[unit]}`;
 }
 
-function estimateBytes(capabilities: VideoExportCapabilities, settings: VideoExportSettings) {
-  const resolution = capabilities.resolutions.find((item) => item.id === settings.resolution) || capabilities.resolutions[0];
-  if (!resolution || capabilities.source.durationMs <= 0) return 0;
-  const fps = settings.frameRate === 'source' ? capabilities.source.frameRate : settings.frameRate;
-  const bpp = settings.quality === 'high' ? 0.15 : settings.quality === 'smaller' ? 0.065 : 0.1;
-  const efficiency = settings.codec === 'hevc' ? 0.72 : 1;
-  const videoMbps = settings.customBitrateMbps || Math.max(1.5, Math.min(settings.codec === 'hevc' ? 100 : 140, resolution.width * resolution.height * Math.max(12, fps) * bpp * efficiency / 1_000_000));
-  const audioMbps = capabilities.source.audioStreams ? 0.256 * capabilities.source.audioStreams : 0;
-  return Math.ceil((videoMbps + audioMbps) * 1_000_000 / 8 * capabilities.source.durationMs / 1000 * 1.04);
-}
-
 function frameRateLabel(value: VideoFrameRatePreset, source: number) {
   return value === 'source' ? `Match source (${source > 0 ? source.toFixed(source % 1 ? 2 : 0) : 'auto'} fps)` : `${value} fps`;
 }
@@ -70,14 +59,6 @@ function frameRateLabel(value: VideoFrameRatePreset, source: number) {
 function resolutionLabel(item: VideoExportCapabilities['resolutions'][number]) {
   const label = item.id === 'source' ? 'Match source' : item.label;
   return `${label} · ${item.width}×${item.height}${item.upscaled ? ' · Upscaled' : ''}`;
-}
-
-function isVideoProject(project: CaptionProject) {
-  return project.media.mimeType.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(project.media.originalName);
-}
-
-function resolvedAppearance(project: CaptionProject): CaptionAppearance {
-  return { ...DEFAULT_CAPTION_APPEARANCE, ...project.captionAppearance };
 }
 
 function elapsedLabel(job: ProcessingJob) {
@@ -90,7 +71,7 @@ function elapsedLabel(job: ProcessingJob) {
   return `${seconds}s elapsed`;
 }
 
-export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport }: Props) {
+export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport, onPreviewResolution }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
@@ -98,10 +79,14 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
   const [capabilityError, setCapabilityError] = useState('');
   const [actionError, setActionError] = useState('');
   const [settings, setSettings] = useState<VideoExportSettings>(DEFAULT_SETTINGS);
-  const [appearance, setAppearance] = useState<CaptionAppearance>(resolvedAppearance(project));
+  const [appearance, setAppearance] = useState<CaptionAppearance>(normalizeCaptionAppearance(project.captionAppearance));
   const [appearanceSaveBlocked, setAppearanceSaveBlocked] = useState(false);
   const [startingExport, setStartingExport] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const capabilityRequest = useRef(0);
+  useEffect(() => { onPreviewResolution(settings.resolution); }, [settings.resolution, onPreviewResolution]);
+  useEffect(() => () => { capabilityRequest.current += 1; onPreviewResolution('source'); }, [onPreviewResolution]);
 
   const loadCapabilities = async (refresh = false) => {
     if (!videoProject) {
@@ -110,18 +95,19 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
       setCapabilityError('');
       return;
     }
+    const request = ++capabilityRequest.current;
     setLoadingCapabilities(true);
     setCapabilityError('');
-    try { setCapabilities(await api.videoExportCapabilities(project.id, refresh)); }
-    catch (error) { setCapabilityError(error instanceof Error ? error.message : 'Could not inspect video export support'); }
-    finally { setLoadingCapabilities(false); }
+    try { const result = await api.videoExportCapabilities(project.id, refresh); if (request === capabilityRequest.current) setCapabilities(result); }
+    catch (error) { if (request === capabilityRequest.current) setCapabilityError(error instanceof Error ? error.message : 'Could not inspect video export support'); }
+    finally { if (request === capabilityRequest.current) setLoadingCapabilities(false); }
   };
 
   useEffect(() => {
     let active = true;
     setOutputMode(videoProject ? 'video' : 'captions');
     setSettings(DEFAULT_SETTINGS);
-    setAppearance(resolvedAppearance(project));
+    setAppearance(normalizeCaptionAppearance(project.captionAppearance));
     setAppearanceSaveBlocked(false);
     setCapabilities(null);
     setCapabilityError('');
@@ -138,7 +124,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
       }
       try {
         const fresh = await api.get(project.id);
-        if (active) setAppearance(resolvedAppearance(fresh));
+        if (active) setAppearance(normalizeCaptionAppearance(fresh.captionAppearance));
       } catch {
         if (active) setActionError('Could not load the latest saved caption appearance. Reopen Export to try again.');
       }
@@ -153,11 +139,11 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
   }, [capabilities]);
 
   const resolution = useMemo(() => capabilities?.resolutions.find((item) => item.id === settings.resolution), [capabilities, settings.resolution]);
-  const estimatedBytes = useMemo(() => capabilities ? estimateBytes(capabilities, settings) : 0, [capabilities, settings]);
+  const estimatedBytes = useMemo(() => capabilities ? estimateVideoExportBytes(capabilities.source, settings) : 0, [capabilities, settings]);
   const availableEncoders = useMemo(() => capabilities?.encoders.filter((item) => item.codec === settings.codec && item.available) || [], [capabilities, settings.codec]);
   const hevcAvailable = Boolean(capabilities?.encoders.some((encoder) => encoder.codec === 'hevc' && encoder.available));
   const source = capabilities?.source;
-  const appearanceFontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily));
+  const appearanceFontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily && (!appearance.bold || font.boldAvailable)));
   const exportBlocked = Boolean(!videoProject || !capabilities?.supported || appearanceSaveBlocked || appearanceFontUnavailable || activeExportJob || busy || startingExport || !project.captions.length);
 
   const startExport = async () => {
@@ -171,12 +157,12 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
         return;
       }
       const fresh = await api.get(project.id);
-      const latestAppearance = resolvedAppearance(fresh);
+      const latestAppearance = normalizeCaptionAppearance(fresh.captionAppearance);
       setAppearance(latestAppearance);
       setAppearanceSaveBlocked(false);
-      const fontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily));
+      const fontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily && (!latestAppearance.bold || font.boldAvailable)));
       if (fontUnavailable) {
-        setActionError(`${latestAppearance.fontFamily} is not available on this PC. Edit appearance and choose an available Khmer font before rendering.`);
+        setActionError(`${latestAppearance.bold ? 'Bold ' : ''}${latestAppearance.fontFamily} is not available on this PC. Edit appearance and choose an available Khmer font before rendering.`);
         return;
       }
       await onStartVideoExport(settings, latestAppearance);

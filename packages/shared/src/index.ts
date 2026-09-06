@@ -1,4 +1,6 @@
-export { wrapCaptionText } from './caption-layout.js';
+import type { CaptionAppearance } from './caption-settings.js';
+export * from './caption-settings.js';
+export { wrapCaptionText, planCaptionRenderStates, type CaptionRenderState } from './caption-layout.js';
 
 export type CaptionMode = 'dynamic' | 'word' | 'phrase' | 'single-line';
 export type TimingSource = 'stt' | 'stt-split' | 'interpolated' | 'manual';
@@ -41,46 +43,6 @@ export interface CaptionSegment {
   /** Timing locks survive regeneration, regrouping and timing post-processing. */
   timingLocked?: boolean;
 }
-
-export type CaptionHorizontalAlignment = 'left' | 'center' | 'right';
-
-export interface CaptionAppearance {
-  /** Font family resolved against reviewed local/system Khmer fonts at export time. */
-  fontFamily: string;
-  /** Reference size at 1080px frame height. Export scales this with output resolution. */
-  fontSize1080: number;
-  bold: boolean;
-  textColor: string;
-  outlineColor: string;
-  outlineWidth1080: number;
-  shadowWidth1080: number;
-  backgroundEnabled: boolean;
-  backgroundColor: string;
-  backgroundOpacity: number;
-  backgroundPadding1080: number;
-  alignment: CaptionHorizontalAlignment;
-  /** Distance from the bottom of the frame, expressed as a percent of frame height. */
-  positionBottomPct: number;
-  /** Maximum caption region width as a percent of frame width. */
-  maxWidthPct: number;
-}
-
-export const DEFAULT_CAPTION_APPEARANCE: CaptionAppearance = {
-  fontFamily: 'Khmer UI',
-  fontSize1080: 56,
-  bold: true,
-  textColor: '#FFFFFF',
-  outlineColor: '#000000',
-  outlineWidth1080: 3,
-  shadowWidth1080: 2,
-  backgroundEnabled: false,
-  backgroundColor: '#000000',
-  backgroundOpacity: 0.58,
-  backgroundPadding1080: 8,
-  alignment: 'center',
-  positionBottomPct: 12,
-  maxWidthPct: 82,
-};
 
 export interface CaptionAppearancePreset {
   id: string;

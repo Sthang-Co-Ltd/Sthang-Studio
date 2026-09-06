@@ -1,5 +1,8 @@
+import type { CaptionSegment } from './index.js';
+import { captionRenderTime } from './caption-settings.js';
+
 /**
- * Render-only line wrapping shared by the browser preview and ASS renderer.
+ * Render-only line wrapping for the native preview and video renderer.
  * Callers supply a positive integer grapheme limit after resolving their geometry.
  * This never changes stored captions or SRT serialization.
  */
@@ -33,3 +36,37 @@ export function wrapCaptionText(text: string, maxGraphemesPerLine: number) {
   }
   return output.filter(Boolean).join('\n');
 }
+
+export interface CaptionRenderState {
+  atMs: number;
+  endMs: number;
+  key: string;
+  text: string;
+}
+
+/** Sweep caption boundaries once, not the entire project at every playback frame. */
+export function planCaptionRenderStates(captions: CaptionSegment[]): CaptionRenderState[] {
+  const events = new Map<number, { starts: number[]; ends: number[] }>();
+  const boundary = (time: number) => {
+    let value = events.get(time);
+    if (!value) { value = { starts: [], ends: [] }; events.set(time, value); }
+    return value;
+  };
+  captions.forEach((caption, index) => {
+    const start = captionRenderTime(caption.startMs);
+    const end = captionRenderTime(caption.endMs);
+    if (!caption.text.trim() || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+    boundary(start).starts.push(index);
+    boundary(end).ends.push(index);
+  });
+  const times = [...events.keys()].sort((a, b) => a - b);
+  const active = new Set<number>();
+  return times.slice(0, -1).map((time, index) => {
+    const event = events.get(time)!;
+    event.ends.forEach((id) => active.delete(id));
+    event.starts.forEach((id) => active.add(id));
+    const ids = [...active].sort((a, b) => a - b);
+    return { atMs: time, endMs: times[index + 1], key: ids.join(','), text: ids.map((id) => captions[id].text).join('\n') };
+  });
+}
+
