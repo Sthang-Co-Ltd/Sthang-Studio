@@ -54,6 +54,23 @@ jobs:
           $binary = Get-ChildItem $root -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           if (-not $binary) { throw 'FFmpeg archive is missing its executable' }
           $binary.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install Windows Khmer supplemental fonts for native rendering tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $regular = Join-Path $env:WINDIR 'Fonts\KhmerUI.ttf'
+          $bold = Join-Path $env:WINDIR 'Fonts\KhmerUIB.ttf'
+          if (-not (Test-Path $regular) -or -not (Test-Path $bold)) {
+            $capability = 'Language.Fonts.Khmr~~~und-KHMR~0.0.1.0'
+            $current = Get-WindowsCapability -Online -Name $capability
+            if ($current.State -ne 'Installed') {
+              Add-WindowsCapability -Online -Name $capability | Out-Null
+            }
+          }
+          if (-not (Test-Path $regular) -or -not (Test-Path $bold)) {
+            throw 'Windows Khmer Supplemental Fonts did not provide Khmer UI regular and bold faces.'
+          }
       - name: Native rasterization, cancellation and real MP4 tests
         run: npm run test:caption-renderer
       - name: Install isolated browser runtime
