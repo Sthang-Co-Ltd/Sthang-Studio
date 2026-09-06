@@ -28,7 +28,7 @@ Khmer Caption Contributor program described below:
 - project-scoped KFA acoustic-emission caches and deterministic local timing-result caches;
 - browser-memory waveform/spectrum data while Studio remains open;
 - SRT exports and captioned MP4 video exports;
-- transient native caption preview frames and render scratch files in `exports/.working` (purged automatically);
+- transient native caption preview frames and render scratch files in `exports/.working`;
 - local timing/alignment using KFA, with faster-whisper as a local fallback;
 - native caption preview and burned-in video rendering using local FFmpeg and libass.
 
@@ -90,11 +90,11 @@ project editing remain on-device after the transcript is returned.
 
 ## Local video rendering and caption preview
 
-Native caption styling preview and finished captioned MP4 video export are performed entirely on your local computer:
+Caption preview and captioned-video rendering are local operations:
 
-- **Zero video cloud transfer**: Your source video and rendered captioned MP4 files are never uploaded to Google Gemini, Sthang, or any external service for preview generation or video rendering. Only the normalized WAV audio required for speech recognition is sent to Gemini upon explicit user request.
-- **Local FFmpeg execution**: Transparent preview frames and burned-in video rendering are generated on-device by local FFmpeg and libass (`shaping=complex`).
-- **Scratch files and cleanup**: Preview requests generate transient PNG frames and ASS subtitle files in a local hidden directory (`exports/.working/preview-*`). These files are ephemeral and are cleaned up immediately when the preview completes, fails, or is cancelled. Video renders output directly to `exports/` with temporary files removed upon completion or abortion.
+- **Local rendering data boundary**: Studio does not upload rendered video frames or the resulting captioned MP4 as part of that rendering process. Caption generation and regeneration have a separate cloud data flow involving normalized audio and relevant context sent to Gemini upon explicit user action, as described in the Gemini section above. Optional Contributor mode also has its separately consented data flow.
+- **Local FFmpeg execution**: Transparent preview frames and burned-in video rendering are generated on-device by a local FFmpeg installation exposing libass with complex shaping (`shaping=complex`).
+- **Temporary working files and cleanup**: Preview requests generate transient PNG frames and ASS subtitle files in a local working directory (`exports/.working/preview-*`). These scratch files are temporary and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal. Video renders output to `exports/` with working files cleaned up upon completion or abortion.
 - **SRT styling boundary**: SRT exports contain only UTF-8 caption text and timing coordinates. Caption appearance styling (colors, fonts, outlines, backgrounds) is purely local project metadata for the on-device renderer and is never embedded in or leaked through SRT files.
 
 ## Khmer Caption Contributor

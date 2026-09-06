@@ -48,7 +48,7 @@ letterboxing, pillarboxing, and responsive resizing.
    shadows and translucent backgrounds present in some FFmpeg builds, Studio renders
    the ASS layer over synthetic black and white planes, recovering accurate alpha
    via `blend=all_mode=subtract`, `alphamerge`, and premultiplied-alpha unmultiplication
-   (`setparams=alpha_mode=premultiplied,unpremultiply=inplace=1`).
+   (`setparams=alpha_mode=premultiplied,unpremultiply=inplace=1` where supported by the runtime, or direct `unpremultiply=inplace=1`).
 3. **Bounding box detection**: The backend filtergraph runs `bbox` detection on the
    isolated alpha mask, extracting tight subtitle bounding boxes. In sequential
    Review mode, this provides precise coordinates for non-destructive corner focus

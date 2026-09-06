@@ -190,19 +190,19 @@ test('native preview concurrency is bounded and cancelled work frees both slots'
   assert.ok(retry.frames[0].bounds);
 });
 
-test('runtime capability probe distinguishes modern vs legacy setparams alpha_mode', async () => {
+test('runtime capability probe detects whether setparams alpha_mode is exposed', async () => {
   resetSetparamsAlphaModeCache();
   const systemSupports = await probeSetparamsAlphaMode(config.ffmpegPath);
   assert.equal(typeof systemSupports, 'boolean');
 
-  // Verify against FFmpeg 7.1 portable runtime if present in temp directory
+  // Verify against tested portable FFmpeg 7.1 build if present in temp directory
   const ffmpeg71Path = path.join(os.tmpdir(), 'ffmpeg-7.1-essentials_build', 'bin', 'ffmpeg.exe');
   const has71 = await fs.stat(ffmpeg71Path).then(() => true).catch(() => false);
   if (has71) {
     const supports71 = await probeSetparamsAlphaMode(ffmpeg71Path);
-    assert.equal(supports71, false, 'FFmpeg 7.1 must be detected as lacking setparams=alpha_mode');
+    assert.equal(supports71, false, 'Tested FFmpeg 7.1 build must be detected as lacking setparams=alpha_mode');
 
-    // Test that the compatible rendering path succeeds on FFmpeg 7.1
+    // Test that the compatible rendering path succeeds on the tested 7.1 build
     const originalFfmpeg = config.ffmpegPath;
     try {
       config.ffmpegPath = ffmpeg71Path;

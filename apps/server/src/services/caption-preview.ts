@@ -16,9 +16,9 @@ export const maxPreviewFrames = 8;
 const alphaModeSupportCache = new Map<string, boolean>();
 
 /** Probe whether the installed FFmpeg runtime exposes setparams=alpha_mode=premultiplied.
- * FFmpeg 8.0+ added alpha_mode to setparams, which allows unpremultiply to correctly handle
- * the premultiplied ink stream without warnings. On FFmpeg 7.x and older, setparams does
- * not expose alpha_mode, but unpremultiply runs directly and faithfully without requiring it.
+ * When supported, setting alpha_mode to premultiplied allows unpremultiply to handle
+ * the premultiplied ink stream without warnings. On runtimes where setparams does not
+ * expose alpha_mode, unpremultiply runs directly without requiring that metadata parameter.
  */
 export async function probeSetparamsAlphaMode(ffmpegPath: string = config.ffmpegPath): Promise<boolean> {
   const cached = alphaModeSupportCache.get(ffmpegPath);

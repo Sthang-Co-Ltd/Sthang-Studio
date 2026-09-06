@@ -9,13 +9,13 @@
 
 During this audit, all 222 tracked files were accounted for, analyzed against architectural and brand invariants, and validated through local tests. Key issues identified and resolved locally:
 
-1. **FFmpeg 8.x Unpremultiply Bug Fixed** (`apps/server/src/services/caption-preview.ts`):
-   - Added `setparams=alpha_mode=premultiplied` before `unpremultiply=inplace=1` in the caption preview filtergraph, preventing libavfilter alpha mode warnings and black-outline artifacts.
+1. **FFmpeg Unpremultiply Alpha Capability Detection** (`apps/server/src/services/caption-preview.ts`):
+   - Added runtime capability probing for `setparams=alpha_mode=premultiplied` before `unpremultiply=inplace=1` in the caption preview filtergraph, selecting the compatible rendering path automatically to prevent libavfilter alpha mode warnings and black-outline artifacts while preserving full compatibility across runtime builds.
 
 2. **Profile Store Concurrency & Deduplication Fixed** (`apps/server/src/services/profile-store.ts`):
    - Replaced redundant inline normalization logic with canonical `@kcs/shared` import.
    - Added atomic file write (`.tmp` + atomic rename) and an in-process serialization mutex queue to eliminate read-modify-write race conditions under concurrent preference/preset updates.
-   - Created new concurrency regression test suite (`tests/profile-store-concurrency.test.mts`, 7 tests passing).
+   - Created comprehensive concurrency regression test suite (`tests/profile-store-concurrency.test.mts`, 12 tests passing).
 
 3. **Browser Test Harness Range Support & Font Discovery** (`tests/browser/fixtures.mts`):
    - Added HTTP 206 Partial Content Range header support to the media route and mock server, enabling Chromium HTML5 video seeking to update `video.currentTime` without falling back to 0.
@@ -232,8 +232,7 @@ During this audit, all 222 tracked files were accounted for, analyzed against ar
 ### Product & Technical Documentation (6 files)
 
 | File Path | Blob SHA | Purpose / Scope | Consumers / Callers | Validation Method | Disposition & Findings |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `docs/AUDIT-LEDGER.md` | `706fc480dd` | Comprehensive whole-repository audit ledger itemizing all tracked files. | Engineers, auditors, reviewers | `Documentation / check:public review` | **Added & Verified**: Comprehensive audit ledger accounting for all 222 tracked repository files. |
+| `docs/AUDIT-LEDGER.md` | `self-referential*` | Comprehensive whole-repository audit ledger itemizing all tracked files. | Engineers, auditors, reviewers | `Documentation / check:public review` | **Added & Verified**: Comprehensive audit ledger accounting for all 222 tracked repository files (*Self-referential document: Git blob SHA reflects baseline 706fc480dd / updated on commit; exempted from circular self-hashing). |
 | `docs/BRAND-VERIFICATION-NOTE.md` | `71bf3026b4` | Component file for BRAND-VERIFICATION-NOTE.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
 | `docs/CAPTIONED-VIDEO-EXPORT.md` | `c4a301b344` | Technical architecture specification and quality contract for captioned video export. | Engineering team, release validators | `Documentation / check:public review` | **Changed & Verified**: Documented native caption preview architecture: transparent PNG frame generation via FFmpeg/libass complex shaping, alpha difference matte, 24-frame/32MB heap cache, 2-concurrency backend render queue, and fail-closed font verification. |
 | `docs/KHMER-CAPTION-CONTRIBUTOR.md` | `0ee73c3533` | Component file for KHMER-CAPTION-CONTRIBUTOR.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
@@ -354,9 +353,3 @@ During this audit, all 222 tracked files were accounted for, analyzed against ar
 | `tests/browser/appearance-export.spec.mts` | `5558dd9ffb` | Component file for appearance-export.spec.mts | Application modules / build pipeline | `npm run typecheck` | **Retained**: Audited and verified clean. Retained without modification. |
 | `tests/browser/fixtures.mts` | `40ddcfc9ef` | Mock server, synthetic media generation, and page route fixtures for Playwright browser tests. | tests/browser/*.spec.mts | `npm run typecheck` | **Changed & Verified**: Added HTTP 206 Partial Content Range header support to media route and mock server, allowing Chromium to seek HTML5 video without resetting currentTime to 0. Populated transcript tokens in synthetic project fixture. |
 
-## New Uncommitted Verification Artifacts
-
-The following additional files support this audit's verification and will be tracked:
-
-- `tests/profile-store-concurrency.test.mts`: 7 deterministic tests validating atomic file writing, concurrent preference patching, multi-project mutation isolation, and error resiliency in `profile-store.ts`.
-- `docs/AUDIT-LEDGER.md`: This comprehensive whole-repository accounting document.
