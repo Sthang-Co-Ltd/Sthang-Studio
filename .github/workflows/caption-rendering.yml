@@ -1,0 +1,72 @@
+name: Native captions and browser behavior
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: caption-rendering-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Caption rendering (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked development dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Install Linux native caption prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+      - name: Prepare reviewed Windows FFmpeg without running the installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Reuse the installer's exact pinned archive/hash, not a floating CI-only runtime.
+          $installer = Get-Content scripts/install-new-pc.ps1 -Raw
+          $section = [regex]::Match($installer, '(?s)function Install-FFmpegFallback \{(.*?)function Install-VCRuntimeFallback').Groups[1].Value
+          $version = [regex]::Match($section, '\$version = ''([^'']+)''').Groups[1].Value
+          $sha = [regex]::Match($section, '\$expectedSha256 = ''([a-f0-9]{64})''').Groups[1].Value
+          if (-not $version -or -not $sha) { throw 'Reviewed FFmpeg pin could not be resolved' }
+          $archive = Join-Path $env:RUNNER_TEMP 'caption-ffmpeg.zip'
+          Invoke-WebRequest "https://github.com/GyanD/codexffmpeg/releases/download/$version/ffmpeg-$version-essentials_build.zip" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha) { throw 'FFmpeg checksum mismatch' }
+          $root = Join-Path $env:RUNNER_TEMP 'caption-ffmpeg'
+          Expand-Archive $archive $root
+          $binary = Get-ChildItem $root -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $binary) { throw 'FFmpeg archive is missing its executable' }
+          $binary.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Native rasterization, cancellation and real MP4 tests
+        run: npm run test:caption-renderer
+      - name: Install isolated browser runtime
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Real app interaction and geometry tests
+        if: runner.os == 'Linux'
+        run: npm run test:browser
+      - name: Retain synthetic browser failure evidence
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: caption-browser-failures
+          path: test-results/
+          retention-days: 5
+          if-no-files-found: ignore
