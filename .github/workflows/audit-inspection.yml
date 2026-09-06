@@ -26,6 +26,12 @@ jobs:
           node-version: 22.16.0
       - name: Install existing locked development dependencies
         run: npm ci --include=dev --no-audit --no-fund
+      - name: Prepare reviewed development-only browser test dependency
+        run: |
+          npm view @playwright/test@1.63.0 version license engines dependencies scripts dist --json
+          npm view playwright@1.63.0 version license engines dependencies optionalDependencies scripts dist --json
+          npm view playwright-core@1.63.0 version license engines dependencies scripts dist --json
+          npm install --save-dev --save-exact @playwright/test@1.63.0 --ignore-scripts --no-audit --no-fund
       - name: Capture exact source and dependency transport
         shell: bash
         run: |
@@ -35,6 +41,8 @@ jobs:
           git ls-tree -r --long HEAD > "$RUNNER_TEMP/studio-source-audit/tree.txt"
           git bundle create "$RUNNER_TEMP/studio-source-audit/source.bundle" HEAD
           tar -czf "$RUNNER_TEMP/studio-source-audit/locked-node-modules.tar.gz" node_modules
+          cp package.json package-lock.json "$RUNNER_TEMP/studio-source-audit/"
+          git diff -- package.json package-lock.json > "$RUNNER_TEMP/studio-source-audit/dependency.diff"
           sha256sum package-lock.json "$RUNNER_TEMP/studio-source-audit/source.bundle" "$RUNNER_TEMP/studio-source-audit/locked-node-modules.tar.gz" | tee "$RUNNER_TEMP/studio-source-audit/sha256.txt"
       - name: Retain temporary audit transport (not a build or release)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
