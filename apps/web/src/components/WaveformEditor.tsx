@@ -50,7 +50,7 @@ function nearestBoundary(tokens: TimedToken[], value: number) {
   return distance <= 220 ? result : value;
 }
 
-function computeSpectrum(samples: Float32Array, columns = 320, bands = 28) {
+export function computeSpectrum(samples: Float32Array, columns = 320, bands = 28) {
   const result = new Float32Array(columns * bands);
   const windowSize = 192;
   const usefulBins = Math.min(72, Math.floor(windowSize / 2));
@@ -253,17 +253,6 @@ export function WaveformEditor({
           spectrum: null,
           touchedAt: Date.now(),
         });
-        window.setTimeout(() => {
-          if (cancelled) return;
-          const computed = computeSpectrum(decoded.samples);
-          setSpectrum(computed);
-          rememberWaveform(memoryKey, {
-            samples: decoded.samples,
-            durationMs: decoded.durationMs,
-            spectrum: computed,
-            touchedAt: Date.now(),
-          });
-        }, 50);
       } catch (reason) {
         if (!cancelled) {
           setLoadError(reason instanceof Error ? reason.message : 'Waveform could not load');
@@ -275,10 +264,40 @@ export function WaveformEditor({
     void load();
     return () => {
       cancelled = true;
-      const remembered = waveformMemory.get(memoryKey);
-      if (remembered && !remembered.spectrum) waveformMemory.delete(memoryKey);
     };
   }, [projectId, memoryKey, reloadKey]);
+
+  useEffect(() => {
+    if (mode !== 'spectrum' || spectrum) return;
+    const samples = samplesRef.current;
+    if (!samples || !durationMs) return;
+
+    const remembered = recalledWaveform(memoryKey);
+    if (remembered?.spectrum) {
+      setSpectrum(remembered.spectrum);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      const computed = computeSpectrum(samples);
+      if (cancelled) return;
+      setSpectrum(computed);
+      const existing = recalledWaveform(memoryKey);
+      rememberWaveform(memoryKey, {
+        samples: existing?.samples ?? samples,
+        durationMs: existing?.durationMs ?? durationMs,
+        spectrum: computed,
+        touchedAt: Date.now(),
+      });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mode, spectrum, memoryKey, durationMs]);
 
   useEffect(() => {
     if (!follow || !durationMs) return;

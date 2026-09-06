@@ -39,9 +39,12 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
     if (mode === 'regex' && remember !== 'none') setRemember('none');
   }, [mode, remember]);
 
-  const targetIds = useMemo(() => scope === 'selection' ? new Set(selectedIds) : null, [scope, selectedIds]);
+  const targetIds = useMemo(() => {
+    if (!open || scope !== 'selection') return null;
+    return new Set(selectedIds);
+  }, [open, scope, selectedIds]);
   const preview = useMemo(() => {
-    if (!query) return { captions: [] as CaptionSegment[], count: 0, locked: 0, regex: null as RegExp | null };
+    if (!open || !query) return { captions: [] as CaptionSegment[], count: 0, locked: 0, regex: null as RegExp | null };
     try {
       const regex = buildRegex(query, mode);
       let count = 0;
@@ -59,7 +62,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
     } catch {
       return { captions: [] as CaptionSegment[], count: 0, locked: 0, regex: null as RegExp | null };
     }
-  }, [captions, mode, query, targetIds]);
+  }, [open, captions, mode, query, targetIds]);
 
   if (!open) return null;
 
