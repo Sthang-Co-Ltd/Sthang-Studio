@@ -57,8 +57,10 @@ before they reach Export.
   The preview is rendered as native transparent RGBA PNG frames by the exact same
   FFmpeg and libass (`shaping=complex`) engine used for MP4 export, eliminating
   browser CSS font-metric and shaping divergence. A one-line preview remains one
-  line after export; relative font size, outlines, shadows, alignments, and bottom
-  positioning match the finished export frame-for-frame.
+  line after export; preview and export share the same native caption layout and
+  rasterization contract before video encoding; lossy encoding and display scaling
+  may soften pixel edges without changing the intended typography, line layout,
+  alignment, position, or effects.
 - Account for letterboxing and pillarboxing when mapping preview geometry.
   `containedVideoFrame` projects caption frames directly to the active video
   rectangle, never the outer black container or browser chrome.

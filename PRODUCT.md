@@ -59,10 +59,11 @@ Creators may style captions before export while watching the real video evidence
   preview pipeline powered directly by local FFmpeg and libass (`shaping=complex`),
   generating transparent RGBA PNG frames rather than approximating layout via
   browser CSS. Preview geometry is projected onto the contained video rectangle
-  via `containedVideoFrame`, ensuring that Khmer complex shaping, line count,
-  relative font size, outlines, shadows, and bottom positioning match the exported
-  MP4 frame-for-frame across responsive viewports. Interactive controls and dialog
-  buttons maintain accessible >= 44px touch targets on mobile viewports.
+  via `containedVideoFrame`, ensuring that preview and export share the same native
+  caption layout and rasterization contract before video encoding; lossy encoding
+  and display scaling may soften pixel edges without changing the intended typography,
+  line layout, alignment, position, or effects across responsive viewports. Interactive
+  controls and dialog buttons maintain accessible >= 44px touch targets on mobile viewports.
 - Project appearance saves automatically and survives leaving/reopening the
   workspace. Reusable presets remain local creator-profile conveniences.
 - An unavailable saved font is preserved and disclosed; Studio must not silently

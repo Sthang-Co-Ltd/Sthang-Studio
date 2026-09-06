@@ -272,15 +272,23 @@ async function atomicWrite(targetPath: string, content: string) {
 
 let writeQueue = Promise.resolve();
 
+type ProfileMutationOutcome<T> =
+  | { save: false; result: T }
+  | { save?: true; next: AppProfile; result?: (saved: AppProfile) => T };
+
 function queueProfileMutation<T>(
-  mutation: (current: AppProfile) => Promise<{ next: AppProfile; result: T }> | { next: AppProfile; result: T },
+  mutation: (current: AppProfile) => Promise<ProfileMutationOutcome<T>> | ProfileMutationOutcome<T>,
 ): Promise<T> {
-  const run = async () => {
+  const run = async (): Promise<T> => {
     const current = await load();
     const cloned = structuredClone(current);
     const outcome = await mutation(cloned);
+    if ('save' in outcome && outcome.save === false) {
+      return structuredClone(outcome.result);
+    }
     const saved = await save(outcome.next);
-    return outcome.result !== undefined ? outcome.result : (structuredClone(saved) as unknown as T);
+    const result = outcome.result ? outcome.result(saved) : (saved as unknown as T);
+    return structuredClone(result);
   };
   const execution = writeQueue.then(run, run);
   writeQueue = execution.then(() => {}, () => {});
@@ -360,7 +368,7 @@ export const profileStore = {
           ? current.preferences
           : normalizeProfile({ ...current, preferences: { ...current.preferences, ...input.preferences } }).preferences,
       };
-      return { next, result: next };
+      return { next };
     });
   },
 
@@ -376,7 +384,7 @@ export const profileStore = {
         khmerContributionConsent: 'unset',
         privacyUpgradeNoticeVersion: current.preferences.privacyUpgradeNoticeVersion,
       };
-      return { next: imported, result: imported };
+      return { next: imported };
     });
   },
 
@@ -429,12 +437,12 @@ export const profileStore = {
         });
       });
 
-      if (!created.length) return { next: current, result: { profile: current, created } };
+      if (!created.length) return { save: false, result: { profile: current, created } };
       const next: AppProfile = {
         ...current,
         correctionEvents: [...current.correctionEvents, ...created].slice(-500),
       };
-      return { next, result: { profile: next, created } };
+      return { next, result: (saved) => ({ profile: saved, created }) };
     });
   },
 
@@ -469,7 +477,14 @@ export const profileStore = {
         correctionRules: nextRules,
         correctionEvents: nextEvents,
       };
-      return { next, result: { profile: next, event: nextEvents[index] } };
+      const eventIndex = index;
+      return {
+        next,
+        result: (saved) => ({
+          profile: saved,
+          event: saved.correctionEvents[eventIndex] || nextEvents[eventIndex],
+        }),
+      };
     });
   },
 

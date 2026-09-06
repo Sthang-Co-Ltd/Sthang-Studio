@@ -275,3 +275,73 @@ test('preset deletion persists without resurrecting removed items in subsequent 
   assert.equal(finalProfile.captionAppearances[0].id, 'keep-me');
   assert.equal(finalProfile.preferences.waveformMode, 'spectrum');
 });
+
+test('profileStore.patch() returned updatedAt equals subsequent profileStore.get().updatedAt', async () => {
+  const patched = await profileStore.patch({ preferences: { autosaveDelayMs: 2500 } });
+  const read = await profileStore.get();
+  assert.equal(patched.updatedAt, read.updatedAt);
+  assert.equal(patched.preferences.autosaveDelayMs, 2500);
+  assert.equal(read.preferences.autosaveDelayMs, 2500);
+});
+
+test('profileStore.replace() returned updatedAt equals persisted state', async () => {
+  const current = await profileStore.get();
+  const replaced = await profileStore.replace({
+    ...current,
+    defaultVocabulary: ['Vocabulary Replacement Test'],
+  });
+  const read = await profileStore.get();
+  assert.equal(replaced.updatedAt, read.updatedAt);
+  assert.deepEqual(replaced.defaultVocabulary, ['Vocabulary Replacement Test']);
+  assert.deepEqual(read.defaultVocabulary, ['Vocabulary Replacement Test']);
+});
+
+test('recordCaptionChanges() returns the persisted saved profile when it creates corrections', async () => {
+  const project = dummyProject('p-record-return');
+  const before: CaptionSegment[] = [{ id: 'c-ret-1', startMs: 0, endMs: 500, text: 'អរគុណ' }];
+  const after: CaptionSegment[] = [{ id: 'c-ret-1', startMs: 0, endMs: 500, text: 'អរគុណ Thanks' }];
+
+  const result = await profileStore.recordCaptionChanges(project, before, after);
+  const read = await profileStore.get();
+
+  assert.equal(result.created.length, 1);
+  assert.equal(result.profile.updatedAt, read.updatedAt);
+  assert.ok(result.profile.correctionEvents.some((e) => e.captionId === 'c-ret-1'));
+  assert.ok(read.correctionEvents.some((e) => e.captionId === 'c-ret-1'));
+});
+
+test('actOnCorrection() returns the persisted saved profile', async () => {
+  const project = dummyProject('p-act-return');
+  const before: CaptionSegment[] = [{ id: 'c-act-1', startMs: 0, endMs: 500, text: 'សួស្តី' }];
+  const after: CaptionSegment[] = [{ id: 'c-act-1', startMs: 0, endMs: 500, text: 'សួស្តី Hello' }];
+
+  const recordResult = await profileStore.recordCaptionChanges(project, before, after);
+  const eventId = recordResult.created[0].id;
+
+  const actResult = await profileStore.actOnCorrection(eventId, 'remember-global');
+  const read = await profileStore.get();
+
+  assert.equal(actResult.profile.updatedAt, read.updatedAt);
+  assert.equal(actResult.event.id, eventId);
+  assert.equal(actResult.event.status, 'remembered-global');
+  assert.equal(read.correctionEvents.find((e) => e.id === eventId)?.status, 'remembered-global');
+});
+
+test('recordCaptionChanges() with no material correction does not alter the profile file bytes or updatedAt', async () => {
+  const project = dummyProject('p-noop');
+  const before: CaptionSegment[] = [{ id: 'c-noop-1', startMs: 0, endMs: 500, text: 'មិនផ្លាស់ប្តូរ' }];
+  const after: CaptionSegment[] = [{ id: 'c-noop-1', startMs: 0, endMs: 500, text: 'មិនផ្លាស់ប្តូរ' }];
+
+  const profileBefore = await profileStore.get();
+  const fileBytesBefore = await fs.readFile(config.profileFile);
+
+  const result = await profileStore.recordCaptionChanges(project, before, after);
+  const profileAfter = await profileStore.get();
+  const fileBytesAfter = await fs.readFile(config.profileFile);
+
+  assert.equal(result.created.length, 0);
+  assert.equal(result.profile.updatedAt, profileBefore.updatedAt);
+  assert.equal(profileAfter.updatedAt, profileBefore.updatedAt);
+  assert.deepEqual(fileBytesAfter, fileBytesBefore);
+});
+

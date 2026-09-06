@@ -142,3 +142,76 @@ test('SRT remains a separate text-and-timing export mode without appearance cont
   await expect(page.locator('.export-workspace input[type="color"]')).toHaveCount(0);
   expect(state.projects[0].captionAppearance).toEqual(appearance);
 });
+
+test('export settings grid and preset selector preserve unified field wrappers and full-width layout at desktop', async ({ page }) => {
+  await openProject(page);
+  await appearancePanel(page);
+
+  // 1. Preset bar at desktop: single label child wrapping select, occupying full available width
+  const presetBar = page.locator('.appearance-preset-bar');
+  const presetLabel = presetBar.locator('> label[for="appearance-preset-select"]');
+  await expect(presetLabel).toBeVisible();
+  await expect(presetLabel.locator('#appearance-preset-select')).toBeVisible();
+  const presetBarBox = (await presetBar.boundingBox())!;
+  const presetSelectBox = (await page.locator('#appearance-preset-select').boundingBox())!;
+  expect(presetSelectBox.width).toBeGreaterThanOrEqual(presetBarBox.width * 0.9);
+  await expect(page.getByLabel('Preset', { exact: true })).toHaveId('appearance-preset-select');
+
+  // 2. Export workspaces at desktop: setting grid has exactly 3 children
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const settingGrid = page.locator('.export-setting-grid');
+  await expect(settingGrid).toBeVisible();
+  expect(await settingGrid.locator('> *').count()).toBe(3);
+
+  // Resolution block
+  const resLabel = settingGrid.locator('> label[for="export-resolution-select"]');
+  await expect(resLabel).toBeVisible();
+  await expect(resLabel.locator('#export-resolution-select')).toBeVisible();
+  const resLabelBox = (await resLabel.boundingBox())!;
+  const resSelectBox = (await page.locator('#export-resolution-select').boundingBox())!;
+  expect(resSelectBox.x).toBeGreaterThanOrEqual(resLabelBox.x - 2);
+  expect(resSelectBox.x + resSelectBox.width).toBeLessThanOrEqual(resLabelBox.x + resLabelBox.width + 2);
+
+  // Frame rate block
+  const fpsLabel = settingGrid.locator('> label[for="export-framerate-select"]');
+  await expect(fpsLabel).toBeVisible();
+  await expect(fpsLabel.locator('#export-framerate-select')).toBeVisible();
+  const fpsLabelBox = (await fpsLabel.boundingBox())!;
+  const fpsSelectBox = (await page.locator('#export-framerate-select').boundingBox())!;
+  expect(fpsSelectBox.x).toBeGreaterThanOrEqual(fpsLabelBox.x - 2);
+  expect(fpsSelectBox.x + fpsSelectBox.width).toBeLessThanOrEqual(fpsLabelBox.x + fpsLabelBox.width + 2);
+
+  // 3. Advanced video settings grid has exactly 3 children
+  await page.getByText('Advanced video settings', { exact: true }).click();
+  const advancedGrid = page.locator('.export-advanced-grid');
+  await expect(advancedGrid).toBeVisible();
+  expect(await advancedGrid.locator('> *').count()).toBe(3);
+
+  // Codec block
+  const codecLabel = advancedGrid.locator('> label[for="export-codec-select"]');
+  await expect(codecLabel).toBeVisible();
+  await expect(codecLabel.locator('#export-codec-select')).toBeVisible();
+  const codecLabelBox = (await codecLabel.boundingBox())!;
+  const codecSelectBox = (await page.locator('#export-codec-select').boundingBox())!;
+  expect(codecSelectBox.x).toBeGreaterThanOrEqual(codecLabelBox.x - 2);
+  expect(codecSelectBox.x + codecSelectBox.width).toBeLessThanOrEqual(codecLabelBox.x + codecLabelBox.width + 2);
+
+  // Encoder block
+  const encLabel = advancedGrid.locator('> label[for="export-encoder-select"]');
+  await expect(encLabel).toBeVisible();
+  await expect(encLabel.locator('#export-encoder-select')).toBeVisible();
+  const encLabelBox = (await encLabel.boundingBox())!;
+  const encSelectBox = (await page.locator('#export-encoder-select').boundingBox())!;
+  expect(encSelectBox.x).toBeGreaterThanOrEqual(encLabelBox.x - 2);
+  expect(encSelectBox.x + encSelectBox.width).toBeLessThanOrEqual(encLabelBox.x + encLabelBox.width + 2);
+
+  // Custom bitrate block
+  const bitrateLabel = advancedGrid.locator('> label[for="export-bitrate-input"]');
+  await expect(bitrateLabel).toBeVisible();
+  await expect(bitrateLabel.locator('#export-bitrate-input')).toBeVisible();
+  const bitrateLabelBox = (await bitrateLabel.boundingBox())!;
+  const bitrateInputBox = (await page.locator('#export-bitrate-input').boundingBox())!;
+  expect(bitrateInputBox.x).toBeGreaterThanOrEqual(bitrateLabelBox.x - 2);
+  expect(bitrateInputBox.x + bitrateInputBox.width).toBeLessThanOrEqual(bitrateLabelBox.x + bitrateLabelBox.width + 2);
+});
+

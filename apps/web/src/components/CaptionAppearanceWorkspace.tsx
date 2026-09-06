@@ -18,7 +18,7 @@ type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 interface Props {
   project: CaptionProject;
   onAppearanceChange(appearance: CaptionAppearance): void;
-  onConfirm?(options: StudioConfirmOptions): Promise<boolean>;
+  onConfirm(options: StudioConfirmOptions): Promise<boolean>;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -40,7 +40,6 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
   const [presetName, setPresetName] = useState('');
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetError, setPresetError] = useState('');
-  const [deletePresetArmed, setDeletePresetArmed] = useState(false);
   const appearanceRef = useRef<CaptionAppearance>(initial);
   const dirtyRef = useRef(false);
   const isRecoveringRef = useRef(false);
@@ -69,7 +68,6 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
     setSaveState('saved');
     setSelectedPresetId('');
     setPresetName('');
-    setDeletePresetArmed(false);
     setLoadingFonts(true);
     setFontError('');
 
@@ -149,7 +147,6 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
 
   const updateAppearance = (change: (current: CaptionAppearance) => CaptionAppearance) => {
     setSelectedPresetId('');
-    setDeletePresetArmed(false);
     const next = change(appearanceRef.current);
     appearanceRef.current = next;
     dirtyRef.current = true;
@@ -159,7 +156,6 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
 
   const applyPreset = (id: string) => {
     setSelectedPresetId(id);
-    setDeletePresetArmed(false);
     if (!id) return;
     const preset = presets.find((item) => item.id === id);
     if (!preset) return;
@@ -175,7 +171,6 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
     if (!name) return;
     setSavingPreset(true);
     setPresetError('');
-    setDeletePresetArmed(false);
     try {
       const profile = await api.profile();
       const now = new Date().toISOString();
@@ -198,15 +193,13 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
   const deletePreset = async () => {
     if (!selectedPresetId) return;
     const target = presets.find((item) => item.id === selectedPresetId);
-    if (onConfirm) {
-      const confirmed = await onConfirm({
-        title: `Delete “${target?.name || 'Preset'}”?`,
-        message: 'This removes the preset from your profile. Existing projects that use this appearance are not changed.',
-        confirmLabel: 'Delete preset',
-        tone: 'warning',
-      });
-      if (!confirmed) return;
-    }
+    const confirmed = await onConfirm({
+      title: `Delete “${target?.name || 'Preset'}”?`,
+      message: 'This removes the preset from your profile. Existing projects that use this appearance are not changed.',
+      confirmLabel: 'Delete preset',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
     setSavingPreset(true);
     setPresetError('');
     try {
@@ -214,7 +207,6 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
       const updated = await api.patchProfile({ captionAppearances: (profile.captionAppearances || []).filter((preset) => preset.id !== selectedPresetId) });
       setPresets(updated.captionAppearances || []);
       setSelectedPresetId('');
-      setDeletePresetArmed(false);
     } catch (error) {
       setPresetError(error instanceof Error ? error.message : 'Could not delete appearance preset');
     } finally {
@@ -231,9 +223,14 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
     </div>
 
     <div className="appearance-preset-bar">
-      <label htmlFor="appearance-preset-select"><span>Preset</span></label>
-      <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}><option value="">Custom / current project</option>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>
-      <details className="appearance-preset-tools" onToggle={() => setDeletePresetArmed(false)}>
+      <label htmlFor="appearance-preset-select">
+        <span>Preset</span>
+        <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
+          <option value="">Custom / current project</option>
+          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+        </select>
+      </label>
+      <details className="appearance-preset-tools">
         <summary>Manage presets</summary>
         <div className="appearance-preset-tools-body">
           <label><span>Save current look as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
