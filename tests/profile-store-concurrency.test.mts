@@ -158,3 +158,120 @@ test('preset appearance is normalized according to shared constraints', async ()
   assert.equal(preset.appearance.textColor, DEFAULT_CAPTION_APPEARANCE.textColor);
   assert.equal(preset.appearance.backgroundOpacity, 1);
 });
+
+test('failed write followed by successful write does not deadlock or poison queue', async () => {
+  // Trigger a rejected mutation by acting on a non-existent correction event
+  await assert.rejects(
+    profileStore.actOnCorrection('non-existent-correction-id', 'remember-global'),
+    /Correction event not found/,
+  );
+
+  // Subsequent mutation must succeed immediately without deadlocking or failing
+  const recovered = await profileStore.patch({
+    preferences: { reviewPreRollMs: 720 },
+  });
+  assert.equal(recovered.preferences.reviewPreRollMs, 720);
+
+  const current = await profileStore.get();
+  assert.equal(current.preferences.reviewPreRollMs, 720);
+});
+
+test('conflicting same-field updates in reverse ordering deterministically honor execution order', async () => {
+  const op1 = profileStore.patch({ preferences: { waveformZoom: 3 } });
+  const op2 = profileStore.patch({ preferences: { waveformZoom: 5 } });
+  await Promise.all([op1, op2]);
+
+  let current = await profileStore.get();
+  assert.equal(current.preferences.waveformZoom, 5);
+
+  const op3 = profileStore.patch({ preferences: { waveformZoom: 5 } });
+  const op4 = profileStore.patch({ preferences: { waveformZoom: 3 } });
+  await Promise.all([op3, op4]);
+
+  current = await profileStore.get();
+  assert.equal(current.preferences.waveformZoom, 3);
+});
+
+test('replace semantics reset installation-specific consent while preserving upgrade notice version', async () => {
+  // First set up local machine consent and an upgrade notice marker
+  await profileStore.patch({
+    preferences: {
+      analyticsConsent: 'granted',
+      khmerContributionConsent: 'granted',
+      privacyUpgradeNoticeVersion: 'v0.8.0',
+    },
+  });
+
+  const importedProfile = {
+    version: 1,
+    defaultVocabulary: ['Imported Term'],
+    styles: [],
+    captionAppearances: [],
+    topicPacks: [],
+    correctionRules: [],
+    correctionEvents: [],
+    preferences: {
+      analyticsConsent: 'granted', // foreign machine was granted
+      khmerContributionConsent: 'granted',
+      privacyUpgradeNoticeVersion: 'foreign-machine-marker',
+      reviewPreRollMs: 250,
+    },
+  };
+
+  const result = await profileStore.replace(importedProfile);
+  // Machine-specific consent must be reset to unset on import
+  assert.equal(result.preferences.analyticsConsent, 'unset');
+  assert.equal(result.preferences.khmerContributionConsent, 'unset');
+  // Local machine upgrade notice version must be preserved, not overwritten
+  assert.equal(result.preferences.privacyUpgradeNoticeVersion, 'v0.8.0');
+  assert.deepEqual(result.defaultVocabulary, ['Imported Term']);
+});
+
+test('privacy consent choices survive concurrent unrelated profile mutations without resetting to unset', async () => {
+  // Set explicit consent
+  await profileStore.patch({
+    preferences: {
+      analyticsConsent: 'declined',
+      khmerContributionConsent: 'granted',
+    },
+  });
+
+  // Launch concurrent unrelated mutations
+  const p1 = profileStore.patch({ defaultVocabulary: ['Word1', 'Word2'] });
+  const p2 = profileStore.patch({ preferences: { autosaveDelayMs: 4000 } });
+  const p3 = profileStore.patch({ topicPacks: [{ id: 'tp1', name: 'Topic 1', description: '', vocabulary: ['V1'] }] });
+
+  await Promise.all([p1, p2, p3]);
+
+  const finalProfile = await profileStore.get();
+  assert.equal(finalProfile.preferences.analyticsConsent, 'declined');
+  assert.equal(finalProfile.preferences.khmerContributionConsent, 'granted');
+  assert.equal(finalProfile.preferences.autosaveDelayMs, 4000);
+  assert.ok(finalProfile.defaultVocabulary.includes('Word1'));
+  assert.equal(finalProfile.topicPacks.length, 1);
+});
+
+test('preset deletion persists without resurrecting removed items in subsequent concurrent patches', async () => {
+  // Add two presets
+  await profileStore.patch({
+    captionAppearances: [
+      { id: 'keep-me', name: 'Keep', appearance: DEFAULT_CAPTION_APPEARANCE },
+      { id: 'delete-me', name: 'Delete', appearance: DEFAULT_CAPTION_APPEARANCE },
+    ],
+  });
+
+  // Concurrent operations: one deletes 'delete-me' and keeps 'keep-me', another updates preferences
+  const deleteOp = profileStore.patch({
+    captionAppearances: [{ id: 'keep-me', name: 'Keep', appearance: DEFAULT_CAPTION_APPEARANCE }],
+  });
+  const prefOp = profileStore.patch({
+    preferences: { waveformMode: 'spectrum' },
+  });
+
+  await Promise.all([deleteOp, prefOp]);
+
+  const finalProfile = await profileStore.get();
+  assert.equal(finalProfile.captionAppearances.length, 1);
+  assert.equal(finalProfile.captionAppearances[0].id, 'keep-me');
+  assert.equal(finalProfile.preferences.waveformMode, 'spectrum');
+});

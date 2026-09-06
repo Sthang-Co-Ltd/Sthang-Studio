@@ -35,6 +35,14 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
     ? check('ffmpeg', 'FFmpeg', 'ok', ffmpeg.text.split(/\r?\n/)[0] || 'Available')
     : check('ffmpeg', 'FFmpeg', 'error', ffmpeg.text, 'Install FFmpeg or set FFMPEG_PATH in apps/server/.env.'));
 
+  if (ffmpeg.ok) {
+    const assProbe = await probe(config.ffmpegPath, ['-hide_banner', '-h', 'filter=ass'], 'FFmpeg ASS filter probe');
+    const hasComplexAss = assProbe.ok && /\bfontsdir\b/i.test(assProbe.text) && /\bshaping\b/i.test(assProbe.text) && /\bcomplex\b/i.test(assProbe.text);
+    checks.push(hasComplexAss
+      ? check('ffmpeg-ass', 'FFmpeg native subtitle filter', 'ok', 'libass with complex shaping available')
+      : check('ffmpeg-ass', 'FFmpeg native subtitle filter', 'warning', 'Missing complex libass shaping. Video export and caption preview require complex shaping.', 'Install the reviewed FFmpeg essentials build or point FFMPEG_PATH to a compatible build.'));
+  }
+
   const ffprobe = await probe(config.ffprobePath, ['-version'], 'FFprobe probe');
   checks.push(ffprobe.ok
     ? check('ffprobe', 'FFprobe', 'ok', ffprobe.text.split(/\r?\n/)[0] || 'Available')

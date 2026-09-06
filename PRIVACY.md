@@ -27,8 +27,10 @@ Khmer Caption Contributor program described below:
 - project history, proposals, processing-job metadata, and resumable job checkpoints;
 - project-scoped KFA acoustic-emission caches and deterministic local timing-result caches;
 - browser-memory waveform/spectrum data while Studio remains open;
-- SRT exports;
-- local timing/alignment using KFA, with faster-whisper as a local fallback.
+- SRT exports and captioned MP4 video exports;
+- transient native caption preview frames and render scratch files in `exports/.working` (purged automatically);
+- local timing/alignment using KFA, with faster-whisper as a local fallback;
+- native caption preview and burned-in video rendering using local FFmpeg and libass.
 
 Performance caches are derived from media already owned by the local project. They
 are bounded and are kept under the project's existing cache/runtime locations so
@@ -85,6 +87,15 @@ Google's Gemini Developer API terms, quotas, and privacy policies also apply.
 
 Sthang Studio does not use Gemini for final local timing alignment. Timing and
 project editing remain on-device after the transcript is returned.
+
+## Local video rendering and caption preview
+
+Native caption styling preview and finished captioned MP4 video export are performed entirely on your local computer:
+
+- **Zero video cloud transfer**: Your source video and rendered captioned MP4 files are never uploaded to Google Gemini, Sthang, or any external service for preview generation or video rendering. Only the normalized WAV audio required for speech recognition is sent to Gemini upon explicit user request.
+- **Local FFmpeg execution**: Transparent preview frames and burned-in video rendering are generated on-device by local FFmpeg and libass (`shaping=complex`).
+- **Scratch files and cleanup**: Preview requests generate transient PNG frames and ASS subtitle files in a local hidden directory (`exports/.working/preview-*`). These files are ephemeral and are cleaned up immediately when the preview completes, fails, or is cancelled. Video renders output directly to `exports/` with temporary files removed upon completion or abortion.
+- **SRT styling boundary**: SRT exports contain only UTF-8 caption text and timing coordinates. Caption appearance styling (colors, fonts, outlines, backgrounds) is purely local project metadata for the on-device renderer and is never embedded in or leaked through SRT files.
 
 ## Khmer Caption Contributor
 

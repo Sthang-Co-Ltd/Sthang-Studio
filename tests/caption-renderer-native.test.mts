@@ -14,7 +14,7 @@ process.env.STHANG_STUDIO_STATE_ROOT = root;
 process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'absent.env');
 const { config } = await import('../apps/server/src/config.js');
 const { buildAssDocument, buildAssCaptionFilter, fontCapabilities, prepareCaptionFonts } = await import('../apps/server/src/services/caption-renderer.js');
-const { renderCaptionPreview, parseCaptionPreviewInput } = await import('../apps/server/src/services/caption-preview.js');
+const { renderCaptionPreview, parseCaptionPreviewInput, probeSetparamsAlphaMode, resetSetparamsAlphaModeCache } = await import('../apps/server/src/services/caption-preview.js');
 const { renderCaptionedVideo, probeVideoExportCapabilities } = await import('../apps/server/src/services/video-export.js');
 after(() => fs.rm(root, { recursive: true, force: true }));
 
@@ -188,4 +188,48 @@ test('native preview concurrency is bounded and cancelled work frees both slots'
   }
   const retry = await renderCaptionPreview(input, capabilities);
   assert.ok(retry.frames[0].bounds);
+});
+
+test('runtime capability probe distinguishes modern vs legacy setparams alpha_mode', async () => {
+  resetSetparamsAlphaModeCache();
+  const systemSupports = await probeSetparamsAlphaMode(config.ffmpegPath);
+  assert.equal(typeof systemSupports, 'boolean');
+
+  // Verify against FFmpeg 7.1 portable runtime if present in temp directory
+  const ffmpeg71Path = path.join(os.tmpdir(), 'ffmpeg-7.1-essentials_build', 'bin', 'ffmpeg.exe');
+  const has71 = await fs.stat(ffmpeg71Path).then(() => true).catch(() => false);
+  if (has71) {
+    const supports71 = await probeSetparamsAlphaMode(ffmpeg71Path);
+    assert.equal(supports71, false, 'FFmpeg 7.1 must be detected as lacking setparams=alpha_mode');
+
+    // Test that the compatible rendering path succeeds on FFmpeg 7.1
+    const originalFfmpeg = config.ffmpegPath;
+    try {
+      config.ffmpegPath = ffmpeg71Path;
+      resetSetparamsAlphaModeCache();
+      const input = parseCaptionPreviewInput({ captions: cue(), timesMs: [200], appearance, resolution: 'source' });
+      const result = await renderCaptionPreview(input, capabilities);
+      assert.equal(result.frames.length, 1);
+      assert.ok(result.frames[0].bounds);
+      const png = decodePng(result.frames[0].png);
+      const reference = await referenceFrame(cue(), appearance, 640, 360, 200);
+      compareComposite(png, reference, 'ffmpeg-7.1-compatible-path');
+    } finally {
+      config.ffmpegPath = originalFfmpeg;
+      resetSetparamsAlphaModeCache();
+    }
+  }
+});
+
+test('unsupported runtime without subtitlesFilter fails explicitly and actionably', async () => {
+  const input = parseCaptionPreviewInput({ captions: cue(), timesMs: [100], appearance, resolution: 'source' });
+  const unsupportedCaps: VideoExportCapabilities = {
+    ...capabilities,
+    subtitlesFilter: false,
+    blockingReason: 'This FFmpeg installation cannot guarantee correct Khmer shaping.',
+  };
+  await assert.rejects(
+    renderCaptionPreview(input, unsupportedCaps),
+    /cannot render the caption preview\. Run System check/,
+  );
 });

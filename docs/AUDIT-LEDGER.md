@@ -1,13 +1,13 @@
 # Sthang Studio — Whole-Repository Audit Ledger
 
-> **Audit Scope:** Comprehensive accounting of all **220 tracked Git files** in repository `Sthang-Co-Ltd/Sthang-Studio` on branch `chatgpt/slop-audit-caption-appearance`.
+> **Audit Scope:** Comprehensive accounting of all **222 tracked Git files** in repository `Sthang-Co-Ltd/Sthang-Studio` on branch `chatgpt/slop-audit-caption-appearance`.
 > **Baseline Main Commit:** `3e88f3655dd8f1d1766ebf4ff47d7fbb39cb734a`
 > **Execution Constraints:** 100% local Windows execution; zero remote push; zero remote CI/Blacksmith dispatch; no sibling repo writes; brand SVG bytes strictly preserved.
 > **Audit Date:** September 6, 2026
 
 ## Summary of Audit Findings & Changes
 
-During this audit, all 220 tracked files were accounted for, analyzed against architectural and brand invariants, and validated through local tests. Key issues identified and resolved locally:
+During this audit, all 222 tracked files were accounted for, analyzed against architectural and brand invariants, and validated through local tests. Key issues identified and resolved locally:
 
 1. **FFmpeg 8.x Unpremultiply Bug Fixed** (`apps/server/src/services/caption-preview.ts`):
    - Added `setparams=alpha_mode=premultiplied` before `unpremultiply=inplace=1` in the caption preview filtergraph, preventing libavfilter alpha mode warnings and black-outline artifacts.
@@ -52,9 +52,9 @@ During this audit, all 220 tracked files were accounted for, analyzed against ar
 | `DESIGN.md` | `670cd80e06` | Design system and UI interaction invariants | Designers, developers, auditors | `Documentation / check:public review` | **Changed & Verified**: Recorded layout-locked native preview contract and touch target adherence (>= 44px on mobile viewports). |
 | `INSTALL-NEW-PC.bat` | `4ef19bdf9a` | Component file for INSTALL-NEW-PC.bat | Application modules / build pipeline | `Windows runtime / install validation` | **Retained**: Audited and verified clean. Retained without modification. |
 | `LICENSE` | `fc58563f0e` | Component file for LICENSE | Application modules / build pipeline | `npm run check:public` | **Retained**: Audited and verified clean. Retained without modification. |
-| `PRIVACY.md` | `a8b9b4ade9` | Component file for PRIVACY.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
+| `PRIVACY.md` | `41d9034650` | Privacy policies and local/cloud data flow boundaries | Creators, auditors, contributors | `Documentation / check:public review` | **Changed & Verified**: Documented on-device native caption preview, local MP4 video rendering, zero video cloud transmission, scratch file lifecycle in exports/.working, and SRT styling boundary. |
 | `PRODUCT.md` | `a51ce2e85c` | Product requirements and invariants | Designers, developers, auditors | `Documentation / check:public review` | **Changed & Verified**: Recorded layout-locked native preview contract and touch target adherence (>= 44px on mobile viewports). |
-| `README.md` | `f010df8494` | Component file for README.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
+| `README.md` | `50c5c7d3c4` | Primary repository documentation and user guide | All repository visitors and users | `Documentation / check:public review` | **Changed & Verified**: Documented dual export workflows (SRT and local MP4 rendering), native preview layout parity, local FFmpeg/libass complex shaping requirement, and runtime compatibility. |
 | `SECURITY.md` | `671f42f781` | Component file for SECURITY.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
 | `STOP-KHMER-CAPTION-STUDIO.bat` | `5eaef54e24` | Component file for STOP-KHMER-CAPTION-STUDIO.bat | Application modules / build pipeline | `Windows runtime / install validation` | **Retained**: Audited and verified clean. Retained without modification. |
 | `STOP-STHANG-STUDIO.bat` | `0c10588be5` | Component file for STOP-STHANG-STUDIO.bat | Application modules / build pipeline | `Windows runtime / install validation` | **Retained**: Audited and verified clean. Retained without modification. |
@@ -229,10 +229,11 @@ During this audit, all 220 tracked files were accounted for, analyzed against ar
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `data/.gitkeep` | `e69de29bb2` | Component file for .gitkeep | Application modules / build pipeline | `npm run check:public` | **Retained**: Audited and verified clean. Retained without modification. |
 
-### Product & Technical Documentation (5 files)
+### Product & Technical Documentation (6 files)
 
 | File Path | Blob SHA | Purpose / Scope | Consumers / Callers | Validation Method | Disposition & Findings |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| `docs/AUDIT-LEDGER.md` | `706fc480dd` | Comprehensive whole-repository audit ledger itemizing all tracked files. | Engineers, auditors, reviewers | `Documentation / check:public review` | **Added & Verified**: Comprehensive audit ledger accounting for all 222 tracked repository files. |
 | `docs/BRAND-VERIFICATION-NOTE.md` | `71bf3026b4` | Component file for BRAND-VERIFICATION-NOTE.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
 | `docs/CAPTIONED-VIDEO-EXPORT.md` | `c4a301b344` | Technical architecture specification and quality contract for captioned video export. | Engineering team, release validators | `Documentation / check:public review` | **Changed & Verified**: Documented native caption preview architecture: transparent PNG frame generation via FFmpeg/libass complex shaping, alpha difference matte, 24-frame/32MB heap cache, 2-concurrency backend render queue, and fail-closed font verification. |
 | `docs/KHMER-CAPTION-CONTRIBUTOR.md` | `0ee73c3533` | Component file for KHMER-CAPTION-CONTRIBUTOR.md | Application modules / build pipeline | `Documentation / check:public review` | **Retained**: Audited and verified clean. Retained without modification. |
@@ -318,7 +319,7 @@ During this audit, all 220 tracked files were accounted for, analyzed against ar
 | `scripts/verify-product-manifest.mjs` | `1669f681f5` | Component file for verify-product-manifest.mjs | Application modules / build pipeline | `npm run check:public` | **Retained**: Audited and verified clean. Retained without modification. |
 | `scripts/verify-product-services.mjs` | `4067834726` | Component file for verify-product-services.mjs | Application modules / build pipeline | `npm run check:public` | **Retained**: Audited and verified clean. Retained without modification. |
 
-### Test Suites & Verification Fixtures (21 files)
+### Test Suites & Verification Fixtures (22 files)
 
 | File Path | Blob SHA | Purpose / Scope | Consumers / Callers | Validation Method | Disposition & Findings |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -335,6 +336,7 @@ During this audit, all 220 tracked files were accounted for, analyzed against ar
 | `tests/ota-signer-worker.test.mjs` | `1dad41b3b4` | Component file for ota-signer-worker.test.mjs | Application modules / build pipeline | `npm test` | **Retained**: Audited and verified clean. Retained without modification. |
 | `tests/privacy-onboarding.test.ts` | `13fd1aec32` | Component file for privacy-onboarding.test.ts | Application modules / build pipeline | `npm run typecheck` | **Retained**: Audited and verified clean. Retained without modification. |
 | `tests/product-release-identity.test.mjs` | `c9ae0e9241` | Component file for product-release-identity.test.mjs | Application modules / build pipeline | `npm test` | **Retained**: Audited and verified clean. Retained without modification. |
+| `tests/profile-store-concurrency.test.mts` | `7f34adb2f1` | Concurrency and persistence regression test suite for profileStore. | Test runner (`npm run test:video-export`) | `npm test` | **Added & Verified**: 12 deterministic concurrency tests verifying read-modify-write safety, queue failure recovery, and consent preservation. |
 | `tests/project-store.test.mts` | `57644f3ad2` | Component file for project-store.test.mts | Application modules / build pipeline | `npm run typecheck` | **Retained**: Audited and verified clean. Retained without modification. |
 | `tests/public-readiness.test.mjs` | `2d03e4b7ab` | Component file for public-readiness.test.mjs | Application modules / build pipeline | `npm test` | **Retained**: Audited and verified clean. Retained without modification. |
 | `tests/public-services-config.test.mjs` | `0bdd3e4576` | Component file for public-services-config.test.mjs | Application modules / build pipeline | `npm test` | **Retained**: Audited and verified clean. Retained without modification. |

@@ -13,6 +13,40 @@ let activeRenders = 0;
 const maxConcurrentRenders = 2;
 export const maxPreviewFrames = 8;
 
+const alphaModeSupportCache = new Map<string, boolean>();
+
+/** Probe whether the installed FFmpeg runtime exposes setparams=alpha_mode=premultiplied.
+ * FFmpeg 8.0+ added alpha_mode to setparams, which allows unpremultiply to correctly handle
+ * the premultiplied ink stream without warnings. On FFmpeg 7.x and older, setparams does
+ * not expose alpha_mode, but unpremultiply runs directly and faithfully without requiring it.
+ */
+export async function probeSetparamsAlphaMode(ffmpegPath: string = config.ffmpegPath): Promise<boolean> {
+  const cached = alphaModeSupportCache.get(ffmpegPath);
+  if (cached !== undefined) return cached;
+  const supported = await new Promise<boolean>((resolve) => {
+    const child = spawn(ffmpegPath, [
+      '-hide_banner', '-nostdin',
+      '-f', 'lavfi', '-i', 'color=c=black:s=16x16:r=1',
+      '-frames:v', '1',
+      '-vf', 'setparams=alpha_mode=premultiplied',
+      '-f', 'null', '-',
+    ], { shell: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); resolve(false); }, 5000);
+    child.on('error', () => { clearTimeout(timer); resolve(false); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(!timedOut && code === 0);
+    });
+  }).catch(() => false);
+  alphaModeSupportCache.set(ffmpegPath, supported);
+  return supported;
+}
+
+export function resetSetparamsAlphaModeCache() {
+  alphaModeSupportCache.clear();
+}
+
 /** Validate at the local API boundary; never interpolate client strings into a filtergraph. */
 export function parseCaptionPreviewInput(value: unknown) {
   const input = value as { captions?: unknown; timesMs?: unknown; resolution?: unknown; focusIndices?: unknown; appearance?: Partial<CaptionAppearance> } | null;
@@ -78,7 +112,9 @@ export async function renderCaptionPreview(
       focusFilter = `;[focusbase]${buildAssCaptionFilter(focusPath, fonts)},format=gray,bbox@focus=min_val=1[focusBounds]`;
     }
     const split = focusFilter ? 'split=3[black][whitebase][focusbase]' : 'split[black][whitebase]';
-    const filter = `[0:v]settb=1/1000,setpts='${pts}',${split};[black]${ass},split[ink][subtract];[whitebase]lutrgb=r=255:g=255:b=255,${ass}[white];[white][subtract]blend=all_mode=subtract,format=gbrp,extractplanes=r,lut=y=255-val,split[alpha][mask];[ink][alpha]alphamerge,setparams=alpha_mode=premultiplied,unpremultiply=inplace=1,format=rgba[png];[mask]bbox@caption=min_val=1[minmax]${focusFilter}`;
+    const supportsAlphaMode = await probeSetparamsAlphaMode(config.ffmpegPath);
+    const alphaParam = supportsAlphaMode ? 'setparams=alpha_mode=premultiplied,' : '';
+    const filter = `[0:v]settb=1/1000,setpts='${pts}',${split};[black]${ass},split[ink][subtract];[whitebase]lutrgb=r=255:g=255:b=255,${ass}[white];[white][subtract]blend=all_mode=subtract,format=gbrp,extractplanes=r,lut=y=255-val,split[alpha][mask];[ink][alpha]alphamerge,${alphaParam}unpremultiply=inplace=1,format=rgba[png];[mask]bbox@caption=min_val=1[minmax]${focusFilter}`;
     const count = String(input.timesMs.length);
     const stderr = await runPreview([
       '-hide_banner', '-loglevel', 'info', '-nostdin', '-y',
