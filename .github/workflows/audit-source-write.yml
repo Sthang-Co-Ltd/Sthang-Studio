@@ -1,0 +1,40 @@
+name: Temporary exact audit source transfer
+
+on:
+  pull_request:
+    paths: ['.github/workflows/audit-source-write.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    if: github.event.pull_request.number == 38 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'chatgpt/slop-audit-caption-appearance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      AUDIT_HEAD: ${{ github.event.pull_request.head.sha }}
+      AUDIT_BRANCH: chatgpt/slop-audit-caption-appearance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+      - name: Check exact ownership and revision before scoped source write
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_HEAD"
+          test "$(git rev-parse HEAD^)" = 1ae3129aa8ebac8a6fad4e66539d970d34713ca0
+          test "$(git ls-remote origin "refs/heads/$AUDIT_BRANCH" | cut -f1)" = "$AUDIT_HEAD"
+          test -z "$(git status --porcelain)"
+          python .audit-transfer/write.py
+          git diff --cached --stat
+          test "$(git ls-remote origin "refs/heads/$AUDIT_BRANCH" | cut -f1)" = "$AUDIT_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: unify native caption appearance and replace source-spelling tests'
+          git push origin "HEAD:refs/heads/$AUDIT_BRANCH"
+          git rev-parse HEAD HEAD^{tree}
