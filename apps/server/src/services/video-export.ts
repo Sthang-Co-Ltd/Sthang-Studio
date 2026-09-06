@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import {
   DEFAULT_CAPTION_APPEARANCE,
+  wrapCaptionText,
   type CaptionAppearance,
   type CaptionProject,
   type CaptionSegment,
@@ -437,37 +438,6 @@ function assColor(hex: string, opacity = 1) {
   const bb = value.slice(4, 6);
   const alpha = Math.round((1 - clamp(opacity, 0, 1, 1)) * 255).toString(16).toUpperCase().padStart(2, '0');
   return `&H${alpha}${bb}${gg}${rr}`;
-}
-
-function wrapCaptionText(text: string, maxGraphemesPerLine: number) {
-  const lines = String(text || '').split(/\r?\n/);
-  const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('km', { granularity: 'grapheme' }) : null;
-  const output: string[] = [];
-  for (const line of lines) {
-    const graphemes = segmenter ? Array.from(segmenter.segment(line), (item) => item.segment) : Array.from(line);
-    if (graphemes.length <= maxGraphemesPerLine) {
-      output.push(line);
-      continue;
-    }
-    let cursor = 0;
-    while (cursor < graphemes.length) {
-      const hardEnd = Math.min(graphemes.length, cursor + maxGraphemesPerLine);
-      let end = hardEnd;
-      if (hardEnd < graphemes.length) {
-        const floor = cursor + Math.max(1, Math.floor(maxGraphemesPerLine * 0.62));
-        for (let index = hardEnd - 1; index >= floor; index -= 1) {
-          if (/\s|[។៕៖!?.,:;]/u.test(graphemes[index] || '')) {
-            end = index + 1;
-            break;
-          }
-        }
-      }
-      output.push(graphemes.slice(cursor, end).join('').trim());
-      cursor = end;
-      while (cursor < graphemes.length && /\s/u.test(graphemes[cursor] || '')) cursor += 1;
-    }
-  }
-  return output.filter(Boolean).join('\n');
 }
 
 export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Partial<CaptionAppearance> | undefined, width: number, height: number) {

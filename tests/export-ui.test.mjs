@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
+// Structural UI guards. Wrapping and save-queue behavior have executable coverage
+// in caption-layout, caption-preview-parity, and caption-appearance-save tests.
+
 const exportComponentPath = new URL('../apps/web/src/components/ExportWorkspace.tsx', import.meta.url);
 const exportCssPath = new URL('../apps/web/src/components/video-export.css', import.meta.url);
 const appearanceComponentPath = new URL('../apps/web/src/components/CaptionAppearanceWorkspace.tsx', import.meta.url);
 const appearanceCssPath = new URL('../apps/web/src/components/caption-appearance.css', import.meta.url);
 const appearancePreviewPath = new URL('../apps/web/src/caption-appearance-preview.ts', import.meta.url);
-const appearanceSavePath = new URL('../apps/web/src/caption-appearance-save.ts', import.meta.url);
 const confirmationPath = new URL('../apps/web/src/components/ConfirmationDialog.tsx', import.meta.url);
 const confirmationCssPath = new URL('../apps/web/src/components/confirmation-dialog.css', import.meta.url);
 const jobManagerPath = new URL('../apps/web/src/components/JobManager.tsx', import.meta.url);
@@ -15,13 +17,12 @@ const videoExportRoutePath = new URL('../apps/server/src/routes/video-export.ts'
 const viteConfigPath = new URL('../apps/web/vite.config.ts', import.meta.url);
 const appPath = new URL('../apps/web/src/App.tsx', import.meta.url);
 
-const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, appearanceSave, confirmation, confirmationCss, jobManager, videoExportRoute, viteConfig, app] = await Promise.all([
+const [exportComponent, exportCss, appearanceComponent, appearanceCss, appearancePreview, confirmation, confirmationCss, jobManager, videoExportRoute, viteConfig, app] = await Promise.all([
   fs.readFile(exportComponentPath, 'utf8'),
   fs.readFile(exportCssPath, 'utf8'),
   fs.readFile(appearanceComponentPath, 'utf8'),
   fs.readFile(appearanceCssPath, 'utf8'),
   fs.readFile(appearancePreviewPath, 'utf8'),
-  fs.readFile(appearanceSavePath, 'utf8'),
   fs.readFile(confirmationPath, 'utf8'),
   fs.readFile(confirmationCssPath, 'utf8'),
   fs.readFile(jobManagerPath, 'utf8'),
@@ -87,13 +88,7 @@ test('project appearance stays on the real video after leaving the Appearance wo
   assert.match(appearanceCss, /caption-appearance-previewing \.media-stage::after\{content:'Layout-locked appearance preview'/);
 });
 
-test('appearance layout follows the same deterministic line planner as video export', () => {
-  assert.match(appearancePreview, /const CAPTION_WRAP_ADVANCE = 0\.72/);
-  assert.match(appearancePreview, /const CAPTION_WRAP_FLOOR = 0\.62/);
-  assert.match(appearancePreview, /new Intl\.Segmenter\('km', \{ granularity: 'grapheme' \}\)/);
-  assert.match(appearancePreview, /export function planCaptionPreviewText/);
-  assert.match(appearancePreview, /appearance\.fontSize1080 \* scale/);
-  assert.match(appearancePreview, /appearance\.maxWidthPct/);
+test('appearance preview observes video geometry and preserves planned lines', () => {
   assert.match(appearancePreview, /video\.videoWidth/);
   assert.match(appearancePreview, /video\.videoHeight/);
   assert.match(appearancePreview, /new ResizeObserver/);
@@ -118,17 +113,6 @@ test('appearance autosaves project styling and queues the final workspace value'
   assert.match(appearanceComponent, /queueCaptionAppearanceSave\(project\.id, snapshot\)/);
   assert.match(appearanceComponent, /finalSnapshot/);
   assert.match(appearanceComponent, /queueCaptionAppearanceSave\(project\.id, finalSnapshot\)/);
-});
-
-test('appearance save barrier serializes writes and recovers the latest failed styling for retry', () => {
-  assert.match(appearanceSave, /const queues = new Map<string, Promise<boolean>>\(\)/);
-  assert.match(appearanceSave, /const latestSnapshots = new Map<string, CaptionAppearance>\(\)/);
-  assert.match(appearanceSave, /latestSnapshots\.set\(projectId, snapshot\)/);
-  assert.match(appearanceSave, /const previous = queues\.get\(projectId\)/);
-  assert.match(appearanceSave, /await api\.saveCaptionAppearance\(projectId, snapshot\)/);
-  assert.match(appearanceSave, /export async function waitForCaptionAppearanceSaves/);
-  assert.match(appearanceSave, /export function recoverUnsavedCaptionAppearance/);
-  assert.match(appearanceSave, /lastResults\.get\(projectId\) \?\? true/);
   assert.match(appearanceComponent, /await waitForCaptionAppearanceSaves\(project\.id\)/);
   assert.match(appearanceComponent, /recoverUnsavedCaptionAppearance\(project\.id\)/);
 });

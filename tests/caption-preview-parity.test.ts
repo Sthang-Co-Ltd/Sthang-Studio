@@ -4,14 +4,15 @@ import { DEFAULT_CAPTION_APPEARANCE } from '@kcs/shared';
 import { planCaptionPreviewText } from '../apps/web/src/caption-appearance-preview.js';
 import { buildAssDocument } from '../apps/server/src/services/video-export.js';
 
+const appearance = {
+  ...DEFAULT_CAPTION_APPEARANCE,
+  fontFamily: 'Noto Sans Khmer',
+  fontSize1080: 56,
+  maxWidthPct: 82,
+  positionBottomPct: 12,
+};
+
 function assTextFor(text: string, width: number, height: number) {
-  const appearance = {
-    ...DEFAULT_CAPTION_APPEARANCE,
-    fontFamily: 'Noto Sans Khmer',
-    fontSize1080: 56,
-    maxWidthPct: 82,
-    positionBottomPct: 12,
-  };
   const document = buildAssDocument([
     { id: 'preview-parity', startMs: 0, endMs: 2400, text },
   ], appearance, width, height);
@@ -24,13 +25,6 @@ function assTextFor(text: string, width: number, height: number) {
 }
 
 function previewAsAss(text: string, width: number, height: number) {
-  const appearance = {
-    ...DEFAULT_CAPTION_APPEARANCE,
-    fontFamily: 'Noto Sans Khmer',
-    fontSize1080: 56,
-    maxWidthPct: 82,
-    positionBottomPct: 12,
-  };
   return planCaptionPreviewText(text, appearance, width, height).replace(/\r?\n/g, '\\N');
 }
 

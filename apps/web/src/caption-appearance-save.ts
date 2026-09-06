@@ -6,11 +6,11 @@ const lastResults = new Map<string, boolean>();
 const latestSnapshots = new Map<string, CaptionAppearance>();
 
 export function queueCaptionAppearanceSave(projectId: string, appearance: CaptionAppearance): Promise<boolean> {
-  const previous = queues.get(projectId) || Promise.resolve(lastResults.get(projectId) ?? true);
+  const previous = queues.get(projectId) || Promise.resolve();
   const snapshot = { ...appearance };
   latestSnapshots.set(projectId, snapshot);
 
-  const execute = async () => {
+  const task = previous.then(async () => {
     try {
       await api.saveCaptionAppearance(projectId, snapshot);
       lastResults.set(projectId, true);
@@ -19,9 +19,7 @@ export function queueCaptionAppearanceSave(projectId: string, appearance: Captio
       lastResults.set(projectId, false);
       return false;
     }
-  };
-
-  const task = previous.then(execute, execute);
+  });
   queues.set(projectId, task);
   void task.finally(() => {
     if (queues.get(projectId) === task) queues.delete(projectId);

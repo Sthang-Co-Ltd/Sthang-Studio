@@ -1,4 +1,4 @@
-import { DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, wrapCaptionText, type CaptionAppearance } from '@kcs/shared';
 
 const PREVIEW_VARIABLES = [
   '--caption-live-bottom', '--caption-live-side', '--caption-live-justify', '--caption-live-align', '--caption-live-font',
@@ -6,11 +6,10 @@ const PREVIEW_VARIABLES = [
   '--caption-live-shadow', '--caption-live-background', '--caption-live-padding',
 ] as const;
 
-// Keep these values in sync with the ASS render-only wrapping contract in
+// Keep this advance estimate in sync with the ASS render-only wrapping contract in
 // apps/server/src/services/video-export.ts. The preview deliberately follows the
 // renderer's line planner instead of letting browser and libass wrap independently.
 const CAPTION_WRAP_ADVANCE = 0.72;
-const CAPTION_WRAP_FLOOR = 0.62;
 
 let currentAppearance: CaptionAppearance | null = null;
 let resizeObserver: ResizeObserver | null = null;
@@ -29,37 +28,6 @@ function rgba(hex: string, opacity: number) {
   const g = Number.parseInt(raw.slice(2, 4), 16);
   const b = Number.parseInt(raw.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-}
-
-function wrapCaptionText(text: string, maxGraphemesPerLine: number) {
-  const lines = String(text || '').split(/\r?\n/);
-  const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('km', { granularity: 'grapheme' }) : null;
-  const output: string[] = [];
-  for (const line of lines) {
-    const graphemes = segmenter ? Array.from(segmenter.segment(line), (item) => item.segment) : Array.from(line);
-    if (graphemes.length <= maxGraphemesPerLine) {
-      output.push(line);
-      continue;
-    }
-    let cursor = 0;
-    while (cursor < graphemes.length) {
-      const hardEnd = Math.min(graphemes.length, cursor + maxGraphemesPerLine);
-      let end = hardEnd;
-      if (hardEnd < graphemes.length) {
-        const floor = cursor + Math.max(1, Math.floor(maxGraphemesPerLine * CAPTION_WRAP_FLOOR));
-        for (let index = hardEnd - 1; index >= floor; index -= 1) {
-          if (/\s|[។៕៖!?.,:;]/u.test(graphemes[index] || '')) {
-            end = index + 1;
-            break;
-          }
-        }
-      }
-      output.push(graphemes.slice(cursor, end).join('').trim());
-      cursor = end;
-      while (cursor < graphemes.length && /\s/u.test(graphemes[cursor] || '')) cursor += 1;
-    }
-  }
-  return output.filter(Boolean).join('\n');
 }
 
 export function planCaptionPreviewText(text: string, appearance: CaptionAppearance, frameWidth: number, frameHeight: number) {
@@ -104,14 +72,14 @@ function formatPreviewCaption(appearance: CaptionAppearance, frameWidth: number,
 function observePreviewSurface(video: HTMLVideoElement, stage: HTMLElement) {
   if (observedVideo !== video) {
     resizeObserver?.disconnect();
-    resizeObserver = new ResizeObserver(() => schedulePreviewSync());
+    resizeObserver = new ResizeObserver(schedulePreviewSync);
     resizeObserver.observe(video);
     video.addEventListener('loadedmetadata', schedulePreviewSync, { once: true });
     observedVideo = video;
   }
   if (observedStage !== stage) {
     mutationObserver?.disconnect();
-    mutationObserver = new MutationObserver(() => schedulePreviewSync());
+    mutationObserver = new MutationObserver(schedulePreviewSync);
     mutationObserver.observe(stage, { subtree: true, childList: true, characterData: true });
     observedStage = stage;
   }

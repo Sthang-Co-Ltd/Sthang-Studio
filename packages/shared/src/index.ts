@@ -1,3 +1,5 @@
+export { wrapCaptionText } from './caption-layout.js';
+
 export type CaptionMode = 'dynamic' | 'word' | 'phrase' | 'single-line';
 export type TimingSource = 'stt' | 'stt-split' | 'interpolated' | 'manual';
 export type TimingQuality = 'high' | 'medium' | 'low';
