@@ -78,7 +78,7 @@ export async function renderCaptionPreview(
       focusFilter = `;[focusbase]${buildAssCaptionFilter(focusPath, fonts)},format=gray,bbox@focus=min_val=1[focusBounds]`;
     }
     const split = focusFilter ? 'split=3[black][whitebase][focusbase]' : 'split[black][whitebase]';
-    const filter = `[0:v]settb=1/1000,setpts='${pts}',${split};[black]${ass},split[ink][subtract];[whitebase]lutrgb=r=255:g=255:b=255,${ass}[white];[white][subtract]blend=all_mode=subtract,format=gbrp,extractplanes=r,lut=y=255-val,split[alpha][mask];[ink][alpha]alphamerge,unpremultiply=inplace=1,format=rgba[png];[mask]bbox@caption=min_val=1[minmax]${focusFilter}`;
+    const filter = `[0:v]settb=1/1000,setpts='${pts}',${split};[black]${ass},split[ink][subtract];[whitebase]lutrgb=r=255:g=255:b=255,${ass}[white];[white][subtract]blend=all_mode=subtract,format=gbrp,extractplanes=r,lut=y=255-val,split[alpha][mask];[ink][alpha]alphamerge,setparams=alpha_mode=premultiplied,unpremultiply=inplace=1,format=rgba[png];[mask]bbox@caption=min_val=1[minmax]${focusFilter}`;
     const count = String(input.timesMs.length);
     const stderr = await runPreview([
       '-hide_banner', '-loglevel', 'info', '-nostdin', '-y',

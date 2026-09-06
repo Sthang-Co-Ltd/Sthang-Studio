@@ -394,7 +394,8 @@ body{color:var(--text);caret-color:var(--accent)}
   .header-actions>button,.workspace-tools-menu>summary{flex:1;justify-content:center;min-width:0}
   .workspace-tools-menu{flex:1}
   .workspace-tools-popover{position:fixed;top:118px;right:10px;left:10px;width:auto;max-height:calc(100vh - 130px)}
-  .editor-grid{grid-template-columns:1fr}
+  .editor-grid{grid-template-columns:minmax(0,1fr);min-width:0}
+  .editor-grid>*{min-width:0}
   .stage-column{padding:12px}
   .caption-panel{min-height:58vh}
   .workspace-tool-strip{align-items:stretch;overflow-x:auto;justify-content:flex-start}

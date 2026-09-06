@@ -204,8 +204,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
           <div className="export-section-title"><div><strong id="video-quality-title">Video</strong><span>Match source + Recommended is the safest default.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
 
           <div className="export-setting-grid">
-            <label><span>Resolution</span><select value={settings.resolution} onChange={(event) => setSettings((current) => ({ ...current, resolution: event.target.value as VideoExportSettings['resolution'] }))}>{capabilities.resolutions.map((item) => <option key={item.id} value={item.id}>{resolutionLabel(item)}</option>)}</select></label>
-            <label><span>Frame rate</span><select value={String(settings.frameRate)} onChange={(event) => setSettings((current) => ({ ...current, frameRate: event.target.value === 'source' ? 'source' : Number(event.target.value) as VideoFrameRatePreset }))}>{(['source', 24, 25, 30, 50, 60] as VideoFrameRatePreset[]).map((value) => <option key={String(value)} value={String(value)}>{frameRateLabel(value, source?.frameRate || 0)}</option>)}</select></label>
+            <label htmlFor="export-resolution-select"><span>Resolution</span></label><select id="export-resolution-select" value={settings.resolution} onChange={(event) => setSettings((current) => ({ ...current, resolution: event.target.value as VideoExportSettings['resolution'] }))}>{capabilities.resolutions.map((item) => <option key={item.id} value={item.id}>{resolutionLabel(item)}</option>)}</select>
+            <label htmlFor="export-framerate-select"><span>Frame rate</span></label><select id="export-framerate-select" value={String(settings.frameRate)} onChange={(event) => setSettings((current) => ({ ...current, frameRate: event.target.value === 'source' ? 'source' : Number(event.target.value) as VideoFrameRatePreset }))}>{(['source', 24, 25, 30, 50, 60] as VideoFrameRatePreset[]).map((value) => <option key={String(value)} value={String(value)}>{frameRateLabel(value, source?.frameRate || 0)}</option>)}</select>
             <div className="export-quality-choice"><span>Quality</span><div role="group" aria-label="Video quality">{(['smaller', 'recommended', 'high'] as VideoQualityPreset[]).map((quality) => <button key={quality} aria-pressed={settings.quality === quality} className={settings.quality === quality ? 'selected' : ''} onClick={() => setSettings((current) => ({ ...current, quality, customBitrateMbps: undefined }))}>{qualityCopy[quality]}</button>)}</div></div>
           </div>
 
@@ -217,9 +217,9 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
           <details className="export-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
             <summary>Advanced video settings</summary>
             <div className="export-advanced-grid">
-              <label><span>Codec</span><select value={settings.codec} onChange={(event) => setCodec(event.target.value as VideoCodec)}><option value="h264">H.264 · widest compatibility</option>{hevcAvailable && <option value="hevc">HEVC / H.265 · smaller at similar quality</option>}</select></label>
-              <label><span>Encoder</span><select value={settings.encoder} onChange={(event) => setEncoder(event.target.value as VideoEncoderPreference)}><option value="auto">Auto · prefer verified GPU encoder</option>{availableEncoders.map((encoder) => <option key={`${encoder.codec}-${encoder.id}`} value={encoder.id}>{encoder.label}{encoder.hardware ? ' · hardware' : ' · CPU'}</option>)}</select></label>
-              <label><span>Custom bitrate (Mbps)</span><input type="number" min="1" max="200" step="0.5" value={settings.customBitrateMbps ?? ''} placeholder="Use quality preset" onChange={(event) => setSettings((current) => ({ ...current, customBitrateMbps: event.target.value ? Math.max(1, Math.min(200, Number(event.target.value))) : undefined }))}/></label>
+              <label htmlFor="export-codec-select"><span>Codec</span></label><select id="export-codec-select" value={settings.codec} onChange={(event) => setCodec(event.target.value as VideoCodec)}><option value="h264">H.264 · widest compatibility</option>{hevcAvailable && <option value="hevc">HEVC / H.265 · smaller at similar quality</option>}</select>
+              <label htmlFor="export-encoder-select"><span>Encoder</span></label><select id="export-encoder-select" value={settings.encoder} onChange={(event) => setEncoder(event.target.value as VideoEncoderPreference)}><option value="auto">Auto · prefer verified GPU encoder</option>{availableEncoders.map((encoder) => <option key={`${encoder.codec}-${encoder.id}`} value={encoder.id}>{encoder.label}{encoder.hardware ? ' · hardware' : ' · CPU'}</option>)}</select>
+              <label htmlFor="export-bitrate-input"><span>Custom bitrate (Mbps)</span></label><input id="export-bitrate-input" type="number" min="1" max="200" step="0.5" value={settings.customBitrateMbps ?? ''} placeholder="Use quality preset" onChange={(event) => setSettings((current) => ({ ...current, customBitrateMbps: event.target.value ? Math.max(1, Math.min(200, Number(event.target.value))) : undefined }))}/>
             </div>
             <span className="export-advanced-help">Auto tests encoders on this PC and falls back safely when needed.</span>
           </details>
@@ -236,7 +236,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
 
         <div className="export-finalize">
           <div><ShieldCheck size={17}/><span>Source stays untouched. Studio snapshots the current captions, appearance and quality settings, then verifies the finished file.</span></div>
-          <button className="primary" disabled={exportBlocked} onClick={() => void startExport()}>{startingExport ? <LoaderCircle className="spin" size={16}/> : <Film size={16}/>} {activeExportJob ? 'Export already running' : startingExport ? 'Starting…' : 'Export captioned video'}</button>
+          <button className="primary" disabled={exportBlocked} onClick={() => void startExport()}>{startingExport ? <LoaderCircle className="spin" size={16}/> : <Film size={16}/>} {activeExportJob ? 'Export already running' : startingExport ? 'Starting…' : 'Render captioned video'}</button>
         </div>
       </>}
     </>}

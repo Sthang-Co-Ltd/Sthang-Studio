@@ -10,6 +10,7 @@ import {
 import { CheckCircle2, LoaderCircle, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import type { StudioConfirmOptions } from './ConfirmationDialog';
 import './caption-appearance.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
@@ -17,6 +18,7 @@ type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 interface Props {
   project: CaptionProject;
   onAppearanceChange(appearance: CaptionAppearance): void;
+  onConfirm?(options: StudioConfirmOptions): Promise<boolean>;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -26,7 +28,7 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
-export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Props) {
+export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConfirm }: Props) {
   const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
@@ -41,6 +43,7 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Prop
   const [deletePresetArmed, setDeletePresetArmed] = useState(false);
   const appearanceRef = useRef<CaptionAppearance>(initial);
   const dirtyRef = useRef(false);
+  const isRecoveringRef = useRef(false);
 
   const persistAppearance = async (snapshot: CaptionAppearance): Promise<boolean> => {
     const snapshotKey = JSON.stringify(snapshot);
@@ -76,6 +79,7 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Prop
       if (!priorSaved) {
         const recovered = recoverUnsavedCaptionAppearance(project.id);
         if (recovered) {
+          isRecoveringRef.current = true;
           appearanceRef.current = recovered;
           dirtyRef.current = true;
           setAppearance(recovered);
@@ -125,6 +129,10 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Prop
 
   useEffect(() => {
     if (!dirtyRef.current) return;
+    if (isRecoveringRef.current) {
+      isRecoveringRef.current = false;
+      return;
+    }
     setSaveState((state) => state === 'saving' ? state : 'pending');
     const snapshot = { ...appearance };
     const timer = window.setTimeout(() => { void persistAppearance(snapshot); }, 650);
@@ -189,6 +197,16 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Prop
 
   const deletePreset = async () => {
     if (!selectedPresetId) return;
+    const target = presets.find((item) => item.id === selectedPresetId);
+    if (onConfirm) {
+      const confirmed = await onConfirm({
+        title: `Delete “${target?.name || 'Preset'}”?`,
+        message: 'This removes the preset from your profile. Existing projects that use this appearance are not changed.',
+        confirmLabel: 'Delete preset',
+        tone: 'warning',
+      });
+      if (!confirmed) return;
+    }
     setSavingPreset(true);
     setPresetError('');
     try {
@@ -213,13 +231,14 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange }: Prop
     </div>
 
     <div className="appearance-preset-bar">
-      <label><span>Preset</span><select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}><option value="">Custom / current project</option>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
+      <label htmlFor="appearance-preset-select"><span>Preset</span></label>
+      <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}><option value="">Custom / current project</option>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>
       <details className="appearance-preset-tools" onToggle={() => setDeletePresetArmed(false)}>
         <summary>Manage presets</summary>
         <div className="appearance-preset-tools-body">
           <label><span>Save current look as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
           <button disabled={!presetName.trim() || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
-          {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span>{deletePresetArmed ? <><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Confirm delete</button><button disabled={savingPreset} onClick={() => setDeletePresetArmed(false)}>Cancel</button></> : <button className="danger-quiet" disabled={savingPreset} onClick={() => setDeletePresetArmed(true)}><Trash2 size={14}/>Delete preset</button>}</div>}
+          {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
         </div>
       </details>
     </div>

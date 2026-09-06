@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import { DEFAULT_CAPTION_APPEARANCE, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities } from '@kcs/shared';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -22,7 +23,7 @@ const captions = [
   { id: 'c3', startMs: 2400, endMs: 3300, text: 'Third caption', timingQuality: 'high' as const, timingSource: 'stt' as const },
 ];
 export function project(id = 'landscape', style = appearance): CaptionProject {
-  return { id, title: `Audit ${id}`, createdAt: now, updatedAt: now, media: { filename: `${id}.mp4`, originalName: `${id}.mp4`, mimeType: 'video/mp4', size: 5000, url: `/media/${id}.mp4` }, mode: 'phrase', captions: structuredClone(captions), captionAppearance: { ...style }, transcript: { language: 'km', fullText: captions.map((c) => c.text).join(' '), segments: structuredClone(captions), tokens: [], timing: { engine: 'kfa-local', provider: 'local', model: 'synthetic', sttTranscript: 'synthetic', audioDurationMs: 4000, totalTokens: 3, anchoredTokens: 3, interpolatedTokens: 0, lowConfidenceTokens: 0, alignmentCoverage: 1, meanAlignmentScore: 1 } } };
+  return { id, title: `Audit ${id}`, createdAt: now, updatedAt: now, media: { filename: `${id}.mp4`, originalName: `${id}.mp4`, mimeType: 'video/mp4', size: 5000, url: `/media/${id}.mp4` }, mode: 'phrase', captions: structuredClone(captions), captionAppearance: { ...style }, transcript: { language: 'km', fullText: captions.map((c) => c.text).join(' '), segments: structuredClone(captions), tokens: captions.map((c) => ({ text: c.text, startMs: c.startMs, endMs: c.endMs, confidence: 1, quality: 'anchored' as const })), timing: { engine: 'kfa-local', provider: 'local', model: 'synthetic', sttTranscript: 'synthetic', audioDurationMs: 4000, totalTokens: 3, anchoredTokens: 3, interpolatedTokens: 0, lowConfidenceTokens: 0, alignmentCoverage: 1, meanAlignmentScore: 1 } } };
 }
 
 export interface FixtureState {
@@ -39,6 +40,7 @@ export interface FixtureState {
 let scratch: string;
 let media: Buffer;
 let nativeModules: { renderCaptionPreview: any; parseCaptionPreviewInput: any };
+let mockServer: http.Server | null = null;
 const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 
 export async function prepareFixtures() {
@@ -49,9 +51,69 @@ export async function prepareFixtures() {
   execFileSync(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=0x204060:s=640x360:r=25:d=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', file], { timeout: 30_000, windowsHide: true });
   media = await fs.readFile(file);
   nativeModules = await import('../../apps/server/src/services/caption-preview.js');
+  const { fontCapabilities } = await import('../../apps/server/src/services/caption-renderer.js');
+  const availableFonts = await fontCapabilities();
+  const candidate = availableFonts.find((item: any) => item.available && item.boldAvailable);
+  if (candidate) {
+    appearance.fontFamily = candidate.name;
+    capabilities.fonts[0] = {
+      name: candidate.name,
+      available: true,
+      boldAvailable: true,
+      source: candidate.source,
+    };
+  }
+  mockServer = http.createServer((req, res) => {
+    if (req.url?.startsWith('/exports/')) {
+      res.writeHead(200, {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': 'attachment; filename="synthetic-captioned.mp4"',
+      });
+      res.end(media);
+      return;
+    }
+    if (req.url?.startsWith('/media/')) {
+      const range = req.headers['range'];
+      if (range) {
+        const match = /bytes=(\d+)-(\d*)/.exec(range);
+        if (match) {
+          const start = parseInt(match[1], 10);
+          const end = match[2] ? parseInt(match[2], 10) : media.length - 1;
+          const chunk = media.subarray(start, end + 1);
+          res.writeHead(206, {
+            'Content-Type': 'video/mp4',
+            'Content-Range': `bytes ${start}-${end}/${media.length}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunk.length),
+          });
+          res.end(chunk);
+          return;
+        }
+      }
+      res.writeHead(200, {
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(media.length),
+      });
+      res.end(media);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve, reject) => {
+    mockServer!.listen(8787, '127.0.0.1', () => resolve());
+    mockServer!.on('error', reject);
+  });
 }
 export function fixtureMedia() { return Buffer.from(media); }
-export async function cleanFixtures() { if (scratch) await fs.rm(scratch, { recursive: true, force: true }); }
+export async function cleanFixtures() {
+  if (mockServer) {
+    await new Promise<void>((resolve) => mockServer!.close(() => resolve()));
+    mockServer = null;
+  }
+  if (scratch) await fs.rm(scratch, { recursive: true, force: true });
+}
 
 export async function installFixture(page: Page): Promise<FixtureState> {
   const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '' };
@@ -61,7 +123,36 @@ export async function installFixture(page: Page): Promise<FixtureState> {
     (window as any).EventSource = undefined;
   });
   await page.route('https://**/*', (route) => route.abort());
-  await page.route('**/media/*.mp4', (route) => route.fulfill({ contentType: 'video/mp4', body: media }));
+  await page.route('**/media/*.mp4', (route) => {
+    const range = route.request().headers()['range'];
+    if (range) {
+      const match = /bytes=(\d+)-(\d*)/.exec(range);
+      if (match) {
+        const start = parseInt(match[1], 10);
+        const end = match[2] ? parseInt(match[2], 10) : media.length - 1;
+        const chunk = media.subarray(start, end + 1);
+        return route.fulfill({
+          status: 206,
+          contentType: 'video/mp4',
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${media.length}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunk.length),
+          },
+          body: chunk,
+        });
+      }
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'video/mp4',
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(media.length),
+      },
+      body: media,
+    });
+  });
   await page.route('**/exports/*.mp4', (route) => route.fulfill({ contentType: 'video/mp4', body: media, headers: { 'Content-Disposition': 'attachment; filename="synthetic-captioned.mp4"' } }));
   await page.route('**/api/**', async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method(); const body = request.postDataJSON();

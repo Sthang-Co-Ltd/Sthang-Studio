@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
-import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION, normalizeCaptionAppearance } from '@kcs/shared';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -76,36 +76,6 @@ function timingSource(value: unknown): TimingSource | undefined {
 
 function timingQuality(value: unknown): TimingQuality | undefined {
   return ['high', 'medium', 'low'].includes(String(value)) ? value as TimingQuality : undefined;
-}
-
-function boundedNumber(value: unknown, min: number, max: number, fallback: number) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
-}
-
-function hexColor(value: unknown, fallback: string) {
-  const raw = String(value || '').trim().toUpperCase();
-  return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
-}
-
-function normalizeCaptionAppearance(value: unknown): CaptionAppearance {
-  const raw = value && typeof value === 'object' ? value as Partial<CaptionAppearance> : {};
-  return {
-    fontFamily: String(raw.fontFamily || DEFAULT_CAPTION_APPEARANCE.fontFamily).trim().slice(0, 80) || DEFAULT_CAPTION_APPEARANCE.fontFamily,
-    fontSize1080: boundedNumber(raw.fontSize1080, 22, 120, DEFAULT_CAPTION_APPEARANCE.fontSize1080),
-    bold: raw.bold !== false,
-    textColor: hexColor(raw.textColor, DEFAULT_CAPTION_APPEARANCE.textColor),
-    outlineColor: hexColor(raw.outlineColor, DEFAULT_CAPTION_APPEARANCE.outlineColor),
-    outlineWidth1080: boundedNumber(raw.outlineWidth1080, 0, 12, DEFAULT_CAPTION_APPEARANCE.outlineWidth1080),
-    shadowWidth1080: boundedNumber(raw.shadowWidth1080, 0, 12, DEFAULT_CAPTION_APPEARANCE.shadowWidth1080),
-    backgroundEnabled: raw.backgroundEnabled === true,
-    backgroundColor: hexColor(raw.backgroundColor, DEFAULT_CAPTION_APPEARANCE.backgroundColor),
-    backgroundOpacity: boundedNumber(raw.backgroundOpacity, 0.05, 1, DEFAULT_CAPTION_APPEARANCE.backgroundOpacity),
-    backgroundPadding1080: boundedNumber(raw.backgroundPadding1080, 0, 28, DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080),
-    alignment: ['left', 'center', 'right'].includes(String(raw.alignment)) ? raw.alignment! : DEFAULT_CAPTION_APPEARANCE.alignment,
-    positionBottomPct: boundedNumber(raw.positionBottomPct, 3, 82, DEFAULT_CAPTION_APPEARANCE.positionBottomPct),
-    maxWidthPct: boundedNumber(raw.maxWidthPct, 45, 96, DEFAULT_CAPTION_APPEARANCE.maxWidthPct),
-  };
 }
 
 function normalizeProfile(value: unknown): AppProfile {
@@ -275,23 +245,52 @@ async function load(): Promise<AppProfile> {
   try {
     serialized = await fs.readFile(config.profileFile, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return initializeMissingProfile();
-    return initialProfile(true);
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return structuredClone(await initializeMissingProfile());
+    return structuredClone(initialProfile(true));
   }
   try {
-    return normalizeProfile(JSON.parse(serialized));
+    return structuredClone(normalizeProfile(JSON.parse(serialized)));
   } catch {
     // A malformed existing profile is prior-use evidence, but do not overwrite it
     // merely to show the introduction. A later explicit profile write can repair it.
-    return initialProfile(true);
+    return structuredClone(initialProfile(true));
   }
 }
 
-async function save(profile: AppProfile) {
+async function atomicWrite(targetPath: string, content: string) {
+  const dir = path.dirname(targetPath);
+  await fs.mkdir(dir, { recursive: true });
+  const tempPath = path.join(dir, `.${path.basename(targetPath)}.${nanoid(8)}.tmp`);
+  try {
+    await fs.writeFile(tempPath, content, 'utf8');
+    await fs.rename(tempPath, targetPath);
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+let writeQueue = Promise.resolve();
+
+function queueProfileMutation<T>(
+  mutation: (current: AppProfile) => Promise<{ next: AppProfile; result: T }> | { next: AppProfile; result: T },
+): Promise<T> {
+  const run = async () => {
+    const current = await load();
+    const cloned = structuredClone(current);
+    const outcome = await mutation(cloned);
+    const saved = await save(outcome.next);
+    return outcome.result !== undefined ? outcome.result : (structuredClone(saved) as unknown as T);
+  };
+  const execution = writeQueue.then(run, run);
+  writeQueue = execution.then(() => {}, () => {});
+  return execution;
+}
+
+async function save(profile: AppProfile): Promise<AppProfile> {
   const normalized = normalizeProfile({ ...profile, updatedAt: new Date().toISOString() });
-  await fs.mkdir(path.dirname(config.profileFile), { recursive: true });
-  await fs.writeFile(config.profileFile, JSON.stringify(normalized, null, 2), 'utf8');
-  return normalized;
+  await atomicWrite(config.profileFile, JSON.stringify(normalized, null, 2));
+  return structuredClone(normalized);
 }
 
 function looksKhmer(value: string) {
@@ -347,108 +346,131 @@ function ruleFromEvent(event: CorrectionEvent): CorrectionRule {
 export const profileStore = {
   get: load,
 
-  async patch(value: unknown) {
-    const current = await load();
-    const raw = value && typeof value === 'object' ? value as Partial<AppProfile> : {};
-    return save({
-      ...current,
-      defaultVocabulary: raw.defaultVocabulary == null ? current.defaultVocabulary : uniqueLines(raw.defaultVocabulary),
-      styles: raw.styles == null ? current.styles : normalizeProfile({ ...current, styles: raw.styles }).styles,
-      captionAppearances: raw.captionAppearances == null ? current.captionAppearances : normalizeProfile({ ...current, captionAppearances: raw.captionAppearances }).captionAppearances,
-      topicPacks: raw.topicPacks == null ? current.topicPacks : normalizeProfile({ ...current, topicPacks: raw.topicPacks }).topicPacks,
-      preferences: raw.preferences == null
-        ? current.preferences
-        : normalizeProfile({ ...current, preferences: { ...current.preferences, ...raw.preferences } }).preferences,
+  async patch(value: unknown): Promise<AppProfile> {
+    const raw = structuredClone(value) as Partial<AppProfile> | null;
+    return queueProfileMutation((current) => {
+      const input = raw && typeof raw === 'object' ? raw : {};
+      const next: AppProfile = {
+        ...current,
+        defaultVocabulary: input.defaultVocabulary == null ? current.defaultVocabulary : uniqueLines(input.defaultVocabulary),
+        styles: input.styles == null ? current.styles : normalizeProfile({ ...current, styles: input.styles }).styles,
+        captionAppearances: input.captionAppearances == null ? current.captionAppearances : normalizeProfile({ ...current, captionAppearances: input.captionAppearances }).captionAppearances,
+        topicPacks: input.topicPacks == null ? current.topicPacks : normalizeProfile({ ...current, topicPacks: input.topicPacks }).topicPacks,
+        preferences: input.preferences == null
+          ? current.preferences
+          : normalizeProfile({ ...current, preferences: { ...current.preferences, ...input.preferences } }).preferences,
+      };
+      return { next, result: next };
     });
   },
 
-  async replace(value: unknown) {
-    const current = await load();
-    const imported = normalizeProfile(value);
-    // Privacy consent and the upgrade-introduction marker are installation-specific.
-    // Profile transfer never opts another machine in or replays a handled notice.
-    imported.preferences = {
-      ...imported.preferences,
-      analyticsConsent: 'unset',
-      khmerContributionConsent: 'unset',
-      privacyUpgradeNoticeVersion: current.preferences.privacyUpgradeNoticeVersion,
-    };
-    return save(imported);
+  async replace(value: unknown): Promise<AppProfile> {
+    const raw = structuredClone(value);
+    return queueProfileMutation((current) => {
+      const imported = normalizeProfile(raw);
+      // Privacy consent and the upgrade-introduction marker are installation-specific.
+      // Profile transfer never opts another machine in or replays a handled notice.
+      imported.preferences = {
+        ...imported.preferences,
+        analyticsConsent: 'unset',
+        khmerContributionConsent: 'unset',
+        privacyUpgradeNoticeVersion: current.preferences.privacyUpgradeNoticeVersion,
+      };
+      return { next: imported, result: imported };
+    });
   },
 
   async recordCaptionChanges(project: CaptionProject, before: CaptionSegment[], after: CaptionSegment[]) {
-    const profile = await load();
-    const byId = new Map(before.map((caption) => [caption.id, caption]));
-    const created: CorrectionEvent[] = [];
+    const projectClone = structuredClone(project);
+    const beforeClone = structuredClone(before);
+    const afterClone = structuredClone(after);
 
-    after.forEach((caption, index) => {
-      const old = byId.get(caption.id);
-      if (!old) return;
-      const originalText = old.text.trim();
-      const correctedText = caption.text.trim();
-      if (!originalText || !correctedText || originalText === correctedText) return;
-      if (originalText.replace(/\s+/g, ' ') === correctedText.replace(/\s+/g, ' ')) return;
+    return queueProfileMutation((current) => {
+      const byId = new Map(beforeClone.map((caption) => [caption.id, caption]));
+      const created: CorrectionEvent[] = [];
 
-      const duplicate = profile.correctionEvents.some((event) =>
-        event.projectId === project.id
-        && event.captionId === caption.id
-        && event.originalText === originalText
-        && event.correctedText === correctedText,
-      );
-      if (duplicate) return;
+      afterClone.forEach((caption, index) => {
+        const old = byId.get(caption.id);
+        if (!old) return;
+        const originalText = old.text.trim();
+        const correctedText = caption.text.trim();
+        if (!originalText || !correctedText || originalText === correctedText) return;
+        if (originalText.replace(/\s+/g, ' ') === correctedText.replace(/\s+/g, ' ')) return;
 
-      const suggestion = suggestCorrection(originalText, correctedText);
-      created.push({
-        id: nanoid(12),
-        projectId: project.id,
-        projectTitle: project.title,
-        captionId: caption.id,
-        startMs: caption.startMs,
-        endMs: caption.endMs,
-        originalText,
-        correctedText,
-        contextBefore: after[index - 1]?.text,
-        contextAfter: after[index + 1]?.text,
-        suggestionKind: suggestion.kind,
-        suggestedVocabularyLine: suggestion.line,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        sourceTimingSource: old.timingSource,
-        sourceTimingQuality: old.timingQuality,
-        sourceConfidence: old.confidence,
-        sourceTextModel: project.transcript?.textModel,
-        sourceEngineVersion: APP_VERSION,
+        const duplicate = current.correctionEvents.some((event) =>
+          event.projectId === projectClone.id
+          && event.captionId === caption.id
+          && event.originalText === originalText
+          && event.correctedText === correctedText,
+        );
+        if (duplicate) return;
+
+        const suggestion = suggestCorrection(originalText, correctedText);
+        created.push({
+          id: nanoid(12),
+          projectId: projectClone.id,
+          projectTitle: projectClone.title,
+          captionId: caption.id,
+          startMs: caption.startMs,
+          endMs: caption.endMs,
+          originalText,
+          correctedText,
+          contextBefore: afterClone[index - 1]?.text,
+          contextAfter: afterClone[index + 1]?.text,
+          suggestionKind: suggestion.kind,
+          suggestedVocabularyLine: suggestion.line,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          sourceTimingSource: old.timingSource,
+          sourceTimingQuality: old.timingQuality,
+          sourceConfidence: old.confidence,
+          sourceTextModel: projectClone.transcript?.textModel,
+          sourceEngineVersion: APP_VERSION,
+        });
       });
-    });
 
-    if (!created.length) return { profile, created };
-    profile.correctionEvents = [...profile.correctionEvents, ...created].slice(-500);
-    return { profile: await save(profile), created };
+      if (!created.length) return { next: current, result: { profile: current, created } };
+      const next: AppProfile = {
+        ...current,
+        correctionEvents: [...current.correctionEvents, ...created].slice(-500),
+      };
+      return { next, result: { profile: next, created } };
+    });
   },
 
   async actOnCorrection(id: string, action: 'remember-global' | 'add-project' | 'ignore') {
-    const profile = await load();
-    const index = profile.correctionEvents.findIndex((event) => event.id === id);
-    if (index < 0) throw new Error('Correction event not found.');
-    const event = profile.correctionEvents[index];
-    const now = new Date().toISOString();
+    return queueProfileMutation((current) => {
+      const index = current.correctionEvents.findIndex((event) => event.id === id);
+      if (index < 0) throw new Error('Correction event not found.');
+      const event = current.correctionEvents[index];
+      const now = new Date().toISOString();
+      const nextEvents = [...current.correctionEvents];
+      let nextVocabulary = current.defaultVocabulary;
+      const nextRules = [...current.correctionRules];
 
-    if (action === 'remember-global') {
-      profile.defaultVocabulary = addVocabularyLine(profile.defaultVocabulary, event.suggestedVocabularyLine);
-      const nextRule = ruleFromEvent(event);
-      const ruleKey = `${nextRule.kind}:${nextRule.canonical.toLocaleLowerCase('en')}:${nextRule.aliases.join('|').toLocaleLowerCase('en')}`;
-      const already = profile.correctionRules.some((rule) =>
-        `${rule.kind}:${rule.canonical.toLocaleLowerCase('en')}:${rule.aliases.join('|').toLocaleLowerCase('en')}` === ruleKey,
-      );
-      if (!already) profile.correctionRules.push(nextRule);
-      profile.correctionEvents[index] = { ...event, status: 'remembered-global', decidedAt: now };
-    } else if (action === 'add-project') {
-      profile.correctionEvents[index] = { ...event, status: 'added-project', decidedAt: now };
-    } else {
-      profile.correctionEvents[index] = { ...event, status: 'ignored', decidedAt: now };
-    }
+      if (action === 'remember-global') {
+        nextVocabulary = addVocabularyLine(nextVocabulary, event.suggestedVocabularyLine);
+        const nextRule = ruleFromEvent(event);
+        const ruleKey = `${nextRule.kind}:${nextRule.canonical.toLocaleLowerCase('en')}:${nextRule.aliases.join('|').toLocaleLowerCase('en')}`;
+        const already = nextRules.some((rule) =>
+          `${rule.kind}:${rule.canonical.toLocaleLowerCase('en')}:${rule.aliases.join('|').toLocaleLowerCase('en')}` === ruleKey,
+        );
+        if (!already) nextRules.push(nextRule);
+        nextEvents[index] = { ...event, status: 'remembered-global', decidedAt: now };
+      } else if (action === 'add-project') {
+        nextEvents[index] = { ...event, status: 'added-project', decidedAt: now };
+      } else {
+        nextEvents[index] = { ...event, status: 'ignored', decidedAt: now };
+      }
 
-    return { profile: await save(profile), event: profile.correctionEvents[index] };
+      const next: AppProfile = {
+        ...current,
+        defaultVocabulary: nextVocabulary,
+        correctionRules: nextRules,
+        correctionEvents: nextEvents,
+      };
+      return { next, result: { profile: next, event: nextEvents[index] } };
+    });
   },
 
   addVocabularyLine,

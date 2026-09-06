@@ -55,14 +55,14 @@ Creators may style captions before export while watching the real video evidence
   creator can judge it against their footage while styling **and** while moving
   through Review, Fine timing, Accuracy, Caption grouping, and Details. Appearance
   is where the look is edited; it is not a temporary visual mode.
-- Preview/export **layout parity is a contract**. Studio uses the same deterministic
-  Khmer-grapheme line plan for the editor and finished-video render, and derives
-  preview size, maximum-width region and bottom position from the actual displayed
-  video rectangle. A caption planned as one line must not unexpectedly become two
-  lines after export, and the relative size/alignment/position must remain stable.
-- Browser CSS and libass are different rasterizers, so tiny antialiasing or glyph-
-  metric differences can remain. The **Layout-locked appearance preview** badge
-  communicates that distinction without excusing changed line count or geometry.
+- Preview/export **layout parity is a contract**. Studio uses a native caption
+  preview pipeline powered directly by local FFmpeg and libass (`shaping=complex`),
+  generating transparent RGBA PNG frames rather than approximating layout via
+  browser CSS. Preview geometry is projected onto the contained video rectangle
+  via `containedVideoFrame`, ensuring that Khmer complex shaping, line count,
+  relative font size, outlines, shadows, and bottom positioning match the exported
+  MP4 frame-for-frame across responsive viewports. Interactive controls and dialog
+  buttons maintain accessible >= 44px touch targets on mobile viewports.
 - Project appearance saves automatically and survives leaving/reopening the
   workspace. Reusable presets remain local creator-profile conveniences.
 - An unavailable saved font is preserved and disclosed; Studio must not silently
