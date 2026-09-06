@@ -214,4 +214,3 @@ test('export settings grid and preset selector preserve unified field wrappers a
   expect(bitrateInputBox.x).toBeGreaterThanOrEqual(bitrateLabelBox.x - 2);
   expect(bitrateInputBox.x + bitrateInputBox.width).toBeLessThanOrEqual(bitrateLabelBox.x + bitrateLabelBox.width + 2);
 });
-

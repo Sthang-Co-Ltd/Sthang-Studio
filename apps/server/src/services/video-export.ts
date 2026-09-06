@@ -22,6 +22,8 @@ import {
 import { config } from '../config.js';
 import { runCommand } from './media.js';
 import { buildAssDocument, buildAssCaptionFilter, fontCapabilities, requireCaptionFont, prepareCaptionFonts } from './caption-renderer.js';
+import { supportsComplexAssFilterHelp } from './caption-preview.js';
+export { supportsComplexAssFilterHelp };
 
 interface ProbeStream {
   codec_type?: string;
@@ -193,8 +195,7 @@ async function probeMedia(inputPath: string): Promise<VideoExportSourceInfo> {
 async function hasComplexAssFilter() {
   try {
     const { stdout, stderr } = await runCommand(config.ffmpegPath, ['-hide_banner', '-h', 'filter=ass'], 'FFmpeg ASS shaping probe', 12_000);
-    const details = `${stdout}\n${stderr}`;
-    return /\bfontsdir\b/i.test(details) && /\bshaping\b/i.test(details) && /\bcomplex\b/i.test(details);
+    return supportsComplexAssFilterHelp(`${stdout}\n${stderr}`);
   } catch {
     return false;
   }

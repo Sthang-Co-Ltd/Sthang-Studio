@@ -4,6 +4,7 @@ import type { DoctorCheck, DoctorCheckStatus, SystemDoctorReport } from '@kcs/sh
 import { config, rootDir } from '../config.js';
 import { runCommand } from './media.js';
 import { resolveGeminiSettings } from './llm-settings.js';
+import { supportsComplexAssFilterHelp } from './caption-preview.js';
 
 function check(id: string, label: string, status: DoctorCheckStatus, detail: string, fix?: string): DoctorCheck {
   return { id, label, status, detail, fix };
@@ -37,7 +38,7 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
 
   if (ffmpeg.ok) {
     const assProbe = await probe(config.ffmpegPath, ['-hide_banner', '-h', 'filter=ass'], 'FFmpeg ASS filter probe');
-    const hasComplexAss = assProbe.ok && /\bfontsdir\b/i.test(assProbe.text) && /\bshaping\b/i.test(assProbe.text) && /\bcomplex\b/i.test(assProbe.text);
+    const hasComplexAss = assProbe.ok && supportsComplexAssFilterHelp(assProbe.text);
     checks.push(hasComplexAss
       ? check('ffmpeg-ass', 'FFmpeg native subtitle filter', 'ok', 'libass with complex shaping available')
       : check('ffmpeg-ass', 'FFmpeg native subtitle filter', 'warning', 'Missing complex libass shaping. Video export and caption preview require complex shaping.', 'Install the reviewed FFmpeg essentials build or point FFMPEG_PATH to a compatible build.'));

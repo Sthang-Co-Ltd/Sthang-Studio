@@ -344,4 +344,3 @@ test('recordCaptionChanges() with no material correction does not alter the prof
   assert.equal(profileAfter.updatedAt, profileBefore.updatedAt);
   assert.deepEqual(fileBytesAfter, fileBytesBefore);
 });
-

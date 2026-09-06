@@ -47,6 +47,13 @@ export function resetSetparamsAlphaModeCache() {
   alphaModeSupportCache.clear();
 }
 
+/** Inspect FFmpeg filter=ass help text for complex shaping and fontsdir support. */
+export function supportsComplexAssFilterHelp(details: string): boolean {
+  return /\bfontsdir\b/i.test(details)
+    && /\bshaping\b/i.test(details)
+    && /\bcomplex\b/i.test(details);
+}
+
 /** Validate at the local API boundary; never interpolate client strings into a filtergraph. */
 export function parseCaptionPreviewInput(value: unknown) {
   const input = value as { captions?: unknown; timesMs?: unknown; resolution?: unknown; focusIndices?: unknown; appearance?: Partial<CaptionAppearance> } | null;
