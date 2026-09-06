@@ -84,7 +84,7 @@ During this audit, all 222 tracked files were accounted for, analyzed against ar
 | `.github/ISSUE_TEMPLATE/feature_request.yml` | `23a160c120` | GitHub Actions workflow or issue/PR automation template. | GitHub automation | `npm run check:public` | **Retained**: Audited. Free of external telemetry or unapproved credentials. Retained. |
 | `.github/dependabot.yml` | `9929876529` | GitHub Actions workflow or issue/PR automation template. | GitHub automation | `npm run check:public` | **Retained**: Audited. Free of external telemetry or unapproved credentials. Retained. |
 | `.github/pull_request_template.md` | `a4ff4265a5` | GitHub Actions workflow or issue/PR automation template. | GitHub automation | `Documentation / check:public review` | **Retained**: Audited. Free of external telemetry or unapproved credentials. Retained. |
-| `.github/workflows/caption-rendering.yml` | `a7a1d9882c` | GitHub Actions workflow or issue/PR automation template. | GitHub automation | `npm run check:public` | **Retained**: Audited. Free of external telemetry or unapproved credentials. Retained. |
+| `.github/workflows/caption-rendering.yml` | `806b8b5291` | GitHub Actions workflow or issue/PR automation template. | GitHub automation | `npm run check:public` | **Changed & Verified**: Changed to provision Microsoft's Khmer Supplemental Fonts on Windows native-caption validation rather than weakening/skipping the renderer test. |
 | `.github/workflows/ci.yml` | `00b1889a92` | GitHub Actions workflow or issue/PR automation template. | GitHub automation | `npm run check:public` | **Retained**: Audited. Free of external telemetry or unapproved credentials. Retained. |
 
 ### Release Manifest & Governance (1 file)
