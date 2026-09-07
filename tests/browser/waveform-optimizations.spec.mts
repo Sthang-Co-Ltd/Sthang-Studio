@@ -297,7 +297,7 @@ test('playhead movement within a fixed viewport does not repaint the waveform ba
   await page.clock.install();
   await openProject(page);
   await openTimeline(page);
-  await page.getByTitle('Pause follow', { exact: true }).click();
+  await page.locator('.waveform-card').getByTitle('Pause follow', { exact: true }).click();
   // Count actual painting on the data layer. Ignore the transparent cursor layer.
   await page.locator('.waveform-data-canvas').evaluate((canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d')!;
