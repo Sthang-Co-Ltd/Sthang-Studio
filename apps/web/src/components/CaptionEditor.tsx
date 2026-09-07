@@ -125,6 +125,19 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     return map;
   }, [captions]);
 
+  const isShiftPressed = useRef(false);
+  const isShiftPointer = useRef(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Shift') isShiftPressed.current = true; };
+    const onKeyUp = (event: KeyboardEvent) => { if (event.key === 'Shift') isShiftPressed.current = false; };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
   useEffect(() => setOpenMenuId(null), [reviewMode, captions.length]);
   useEffect(() => {
     if (!openMenuId) return;
@@ -351,8 +364,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
           data-caption-id={caption.id}
           className={`caption-row ${active === caption.id ? 'active' : ''} ${selected.has(caption.id) ? 'selected-range' : ''} ${caption.approved ? 'approved' : ''} ${destructiveLocked ? 'locked' : ''}`}
           key={caption.id}
-          onFocusCapture={() => onSelect(caption.id, false)}
-          onClick={(event) => { onSelect(caption.id, event.shiftKey); onSeek(caption.startMs); }}
+          onPointerDownCapture={(event) => { isShiftPointer.current = event.shiftKey; }}
+          onFocusCapture={() => { if (!isShiftPointer.current && !isShiftPressed.current) onSelect(caption.id, false); }}
+          onClick={(event) => { isShiftPointer.current = false; onSelect(caption.id, event.shiftKey); onSeek(caption.startMs); }}
         >
           <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} title={qualityTitle(caption)}>{qualityLabel(caption)}</span>
           <span className="row-index">{String(index + 1).padStart(2, '0')}</span>

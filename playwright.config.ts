@@ -1,27 +1,6 @@
 import { defineConfig } from '@playwright/test';
-import fs from 'node:fs';
-import path from 'node:path';
 
-function findChromiumExecutable(): string | undefined {
-  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
-    return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-  }
-  const localAppData = process.env.LOCALAPPDATA || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Local') : '');
-  if (!localAppData) return undefined;
-  const playwrightDir = path.join(localAppData, 'ms-playwright');
-  const candidates = [
-    path.join(playwrightDir, 'chromium-1223', 'chrome-win64', 'chrome.exe'),
-    path.join(playwrightDir, 'chromium-1208', 'chrome-win64', 'chrome.exe'),
-    path.join(playwrightDir, 'chromium_headless_shell-1223', 'chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
-    path.join(playwrightDir, 'chromium_headless_shell-1208', 'chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return undefined;
-}
-
-const executablePath = findChromiumExecutable();
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
 
 export default defineConfig({
   testDir: './tests/browser',

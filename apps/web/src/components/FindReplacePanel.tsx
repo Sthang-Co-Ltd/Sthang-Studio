@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { Replace, Search, ShieldPlus, X } from 'lucide-react';
 
@@ -28,10 +28,13 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
   const [scope, setScope] = useState<Scope>('project');
   const [remember, setRemember] = useState<'none' | 'project' | 'global'>('none');
   const [error, setError] = useState('');
+  const hasUserTyped = useRef(false);
 
   useEffect(() => {
     if (!open) return;
-    if (initialSearch) setQuery(initialSearch);
+    if (!hasUserTyped.current && initialSearch) {
+      setQuery(initialSearch);
+    }
     setError('');
   }, [open, initialSearch]);
 
@@ -49,7 +52,9 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
       const regex = buildRegex(query, mode);
       let count = 0;
       let locked = 0;
-      (window as unknown as { __STHANG_TEST_HOOKS__?: { onFindReplaceScan?: (captionCount: number) => void } }).__STHANG_TEST_HOOKS__?.onFindReplaceScan?.(captions.length);
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onFindReplaceScan?: (captionCount: number) => void } }).__STHANG_TEST_HOOKS__?.onFindReplaceScan?.(captions.length);
+      }
       const matched = captions.filter((caption) => {
         if (targetIds && !targetIds.has(caption.id)) return false;
         regex.lastIndex = 0;
@@ -98,7 +103,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
     <section className="modal find-replace-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head"><div><Search size={18}/><div><strong>Find & Correct Everywhere</strong><span>Preview every occurrence before changing it. Text locks are always respected.</span></div></div><button onClick={onClose}><X size={17}/></button></div>
       <div className="find-grid">
-        <label><span>Find</span><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
+        <label><span>Find</span><input autoFocus value={query} onChange={(event) => { setQuery(event.target.value); hasUserTyped.current = true; }} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
         <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Terra or GPT 5.6 Luna"/></label>
         <label><span>Match</span><select value={mode} onChange={(event) => setMode(event.target.value as MatchMode)}><option value="literal">Exact literal</option><option value="case-insensitive">Ignore Latin case</option><option value="regex">Regular expression</option></select></label>
         <label><span>Scope</span><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option value="project">Entire project</option><option value="selection" disabled={!selectedIds.length}>Selected captions ({selectedIds.length})</option></select></label>

@@ -163,7 +163,7 @@ test('computeSpectrum handles silent buffer without division by zero or NaN', ()
 // Item 3: FindReplacePanel closed state work suppression
 // ---------------------------------------------------------------------------
 
-test('FindReplacePanel returns null and suppresses work when open is false', () => {
+test('FindReplacePanel rendering smoke check: returns null markup when open is false', () => {
   const captions: CaptionSegment[] = [
     makeCaption('c-1', 'Hello world', 0, 1000),
     makeCaption('c-2', 'Foo bar', 1000, 2000),
@@ -184,7 +184,7 @@ test('FindReplacePanel returns null and suppresses work when open is false', () 
   assert.equal(html, '', 'Closed FindReplacePanel renders empty HTML');
 });
 
-test('FindReplacePanel renders modal and correctly previews matches when open is true', () => {
+test('FindReplacePanel rendering smoke check: renders modal markup structure when open is true', () => {
   const captions: CaptionSegment[] = [
     makeCaption('c-1', 'Hello world', 0, 1000),
     makeCaption('c-2', 'Another hello', 1000, 2000),

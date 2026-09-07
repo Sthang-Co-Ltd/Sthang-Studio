@@ -168,10 +168,26 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       spectrumCacheHitCount: 0,
       audioCacheHitCount: 0,
       findReplaceScanCount: 0,
+      scheduledSpectrumCount: 0,
+      publishedSpectrumCount: 0,
+      spectrumDelayMs: 0,
       computedSpectrumKeys: [] as string[],
+      publishedSpectra: [] as Array<{ key: string; bands: number; columns: number; values: number[] }>,
+      onScheduleSpectrum(key: string) {
+        this.scheduledSpectrumCount++;
+      },
       onComputeSpectrum(key: string) {
         this.spectrumComputeCount++;
         this.computedSpectrumKeys.push(key);
+      },
+      onPublishSpectrum(key: string, spectrum: { bands: number; columns: number; values: ArrayLike<number> }) {
+        this.publishedSpectrumCount++;
+        this.publishedSpectra.push({
+          key,
+          bands: spectrum.bands,
+          columns: spectrum.columns,
+          values: Array.from(spectrum.values),
+        });
       },
       onSpectrumCacheHit() {
         this.spectrumCacheHitCount++;

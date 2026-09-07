@@ -200,7 +200,9 @@ export function WaveformEditor({
     if (reloadKey === 0) {
       const remembered = recalledWaveform(memoryKey);
       if (remembered) {
-        (window as unknown as { __STHANG_TEST_HOOKS__?: { onAudioCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onAudioCacheHit?.(memoryKey);
+        if (import.meta.env.DEV) {
+          (window as unknown as { __STHANG_TEST_HOOKS__?: { onAudioCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onAudioCacheHit?.(memoryKey);
+        }
         samplesRef.current = remembered.samples;
         setDurationMs(remembered.durationMs);
         setSpectrum(remembered.spectrum);
@@ -275,15 +277,23 @@ export function WaveformEditor({
 
     const remembered = recalledWaveform(memoryKey);
     if (remembered?.spectrum) {
-      (window as unknown as { __STHANG_TEST_HOOKS__?: { onSpectrumCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onSpectrumCacheHit?.(memoryKey);
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onSpectrumCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onSpectrumCacheHit?.(memoryKey);
+      }
       setSpectrum(remembered.spectrum);
       return;
     }
 
+    if (import.meta.env.DEV) {
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onScheduleSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onScheduleSpectrum?.(memoryKey);
+    }
+    const delay = (import.meta.env.DEV && (window as unknown as { __STHANG_TEST_HOOKS__?: { spectrumDelayMs?: number } }).__STHANG_TEST_HOOKS__?.spectrumDelayMs) || 0;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       if (cancelled) return;
-      (window as unknown as { __STHANG_TEST_HOOKS__?: { onComputeSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onComputeSpectrum?.(memoryKey);
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onComputeSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onComputeSpectrum?.(memoryKey);
+      }
       const computed = computeSpectrum(samples);
       if (cancelled) return;
       setSpectrum(computed);
@@ -294,7 +304,10 @@ export function WaveformEditor({
         spectrum: computed,
         touchedAt: Date.now(),
       });
-    }, 0);
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onPublishSpectrum?: (key: string, spectrum: Spectrum) => void } }).__STHANG_TEST_HOOKS__?.onPublishSpectrum?.(memoryKey, computed);
+      }
+    }, delay);
 
     return () => {
       cancelled = true;
