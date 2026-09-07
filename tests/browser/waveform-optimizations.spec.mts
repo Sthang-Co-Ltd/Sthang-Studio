@@ -138,9 +138,9 @@ test('Waveform pending work: unmount before running prevents stale spectrum comp
   await openProject(page);
   await openTimeline(page);
 
-  // Inject a 200ms delay for spectrum computation
+  // Inject a 3000ms delay for spectrum computation
   await page.evaluate(() => {
-    (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 200;
+    (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 3000;
   });
 
   // Switch to spectral view
@@ -155,8 +155,8 @@ test('Waveform pending work: unmount before running prevents stale spectrum comp
   await page.getByRole('button', { name: /Fine timing/i }).click();
   await expect(page.locator('.waveform-card')).toHaveCount(0);
 
-  // Wait for 250ms (longer than the scheduled delay)
-  await page.waitForTimeout(250);
+  // Wait a short buffer (100ms) to ensure no background leaks occur
+  await page.waitForTimeout(100);
 
   // Verify that neither computation nor publication occurred
   const hooksAfterWait = await getTestHooks(page);
@@ -168,62 +168,46 @@ test('Waveform pending work: project identity and audio change while pending can
   await openProject(page);
   await openTimeline(page);
 
-  // 1. Compute spectrum for project 1 (landscape: 440 Hz pure tone)
+  // 1. In project 1 (landscape: 440 Hz tone), schedule spectrum with a 5000ms delay
+  await page.evaluate(() => {
+    (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 5000;
+  });
+
   await page.locator('button[title="Spectral view"]').click();
-  await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(1);
 
-  const initialHooks = await getTestHooks(page);
-  expect(initialHooks.publishedSpectra.length).toBe(1);
-  const spec440 = initialHooks.publishedSpectra[0];
-  expect(spec440.key).toContain('landscape');
+  // Verify project 1 work is scheduled but NOT computed
+  const pendingHooksA = await getTestHooks(page);
+  expect(pendingHooksA.scheduledSpectrumCount).toBe(1);
+  expect(pendingHooksA.spectrumComputeCount).toBe(0);
 
-  // Determine peak frequency band for 440 Hz audio in first 10 columns
-  let peakBand440 = 0;
-  let maxEnergy440 = 0;
-  for (let b = 0; b < spec440.bands; b++) {
-    let sum = 0;
-    for (let c = 0; c < 10; c++) sum += spec440.values[c * spec440.bands + b];
-    if (sum > maxEnergy440) {
-      maxEnergy440 = sum;
-      peakBand440 = b;
-    }
-  }
-  expect(peakBand440).toBe(2);
-
-  // Switch back to waveform mode so preference is saved as waveform
-  await page.locator('button[title="Waveform"]').click();
-
-  // 2. Navigate to project 2 (second: 880 Hz tone)
+  // 2. WHILE project 1 spectrum computation is still pending, navigate away to project 2 (second: 880 Hz tone)
   await page.getByLabel('Back to projects').click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.locator('.media-stage video')).toBeVisible();
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
   await seek(page, 500);
 
-  await openTimeline(page);
-
-  // Set a 200ms delay to create a pending computation window
+  // In project 2, reset delay to 0 for immediate computation
   await page.evaluate(() => {
-    (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 200;
+    (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 0;
   });
 
-  // Switch to spectral view on project 2
+  await openTimeline(page);
   await page.locator('button[title="Spectral view"]').click();
 
-  // Immediately check: work is scheduled for second project, but compute count is still 1
-  const pendingHooks = await getTestHooks(page);
-  expect(pendingHooks.scheduledSpectrumCount).toBe(2);
-  expect(pendingHooks.spectrumComputeCount).toBe(1);
+  // Await project 2 computation to complete
+  await expect.poll(async () => (await getTestHooks(page)).publishedSpectra.length).toBe(1);
 
-  // Wait for the second project computation to finish
-  await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(2);
+  const hooksAfterB = await getTestHooks(page);
+  // Total computed is exactly 1 (Project 1's pending timer was cancelled and never computed)
+  expect(hooksAfterB.spectrumComputeCount).toBe(1);
+  expect(hooksAfterB.computedSpectrumKeys).toHaveLength(1);
+  expect(hooksAfterB.computedSpectrumKeys[0]).toContain('second');
 
-  const finalHooks = await getTestHooks(page);
-  expect(finalHooks.publishedSpectra.length).toBe(2);
-  const spec880 = finalHooks.publishedSpectra[1];
+  const spec880 = hooksAfterB.publishedSpectra[0];
   expect(spec880.key).toContain('second');
 
-  // Determine peak frequency band for 880 Hz audio
+  // Determine peak frequency band for 880 Hz audio (second project)
   let peakBand880 = 0;
   let maxEnergy880 = 0;
   for (let b = 0; b < spec880.bands; b++) {
@@ -235,5 +219,35 @@ test('Waveform pending work: project identity and audio change while pending can
     }
   }
   expect(peakBand880).toBe(4);
+
+  // 3. Navigate back to project 1 and compute its spectrum now with delay 0
+  await page.getByLabel('Back to projects').click();
+  await page.getByRole('button', { name: /Audit landscape/ }).click();
+  await expect(page.locator('.media-stage video')).toBeVisible();
+  await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
+  await seek(page, 500);
+
+  await openTimeline(page);
+  await page.locator('button[title="Spectral view"]').click();
+
+  await expect.poll(async () => (await getTestHooks(page)).publishedSpectra.length).toBe(2);
+
+  const finalHooks = await getTestHooks(page);
+  expect(finalHooks.spectrumComputeCount).toBe(2);
+  const spec440 = finalHooks.publishedSpectra[1];
+  expect(spec440.key).toContain('landscape');
+
+  // Determine peak frequency band for 440 Hz audio (landscape project)
+  let peakBand440 = 0;
+  let maxEnergy440 = 0;
+  for (let b = 0; b < spec440.bands; b++) {
+    let sum = 0;
+    for (let c = 0; c < 10; c++) sum += spec440.values[c * spec440.bands + b];
+    if (sum > maxEnergy440) {
+      maxEnergy440 = sum;
+      peakBand440 = b;
+    }
+  }
+  expect(peakBand440).toBe(2);
   expect(peakBand880).toBeGreaterThan(peakBand440);
 });

@@ -56,6 +56,8 @@ test('Find & Replace suppresses background scans while closed and recalculates u
   const reopenedModal = await openFindReplace(page);
   await expect.poll(async () => getFindReplaceScanCount(page)).toBeGreaterThan(scanCountClosed);
 
+  await reopenedModal.getByLabel('Find', { exact: true }).fill('កម្ពុជា');
+
   // Summary must show 3 matches in 2 captions (captions 2 and 3)
   await expect(reopenedModal.locator('.find-summary')).toContainText(/3\s*matches in 2 captions/);
 
@@ -175,9 +177,10 @@ test('Find & Replace persists nondefault state across close and reopen', async (
   await page.keyboard.press('Escape');
   await expect(modal).toHaveCount(0);
 
-  // Reopen modal and assert all fields retain nondefault values
+  // Reopen modal and assert replacement, mode, and remember retain nondefault values,
+  // while Find is initialized with the single selected caption's text per baseline contract
   const reopened = await openFindReplace(page);
-  await expect(reopened.getByLabel('Find', { exact: true })).toHaveValue('PersistentQuery');
+  await expect(reopened.getByLabel('Find', { exact: true })).toHaveValue('កម្ពុជា CapCut');
   await expect(reopened.getByLabel('Replace with', { exact: true })).toHaveValue('PersistentReplacement');
   await expect(reopened.locator('label:has-text("Match") select')).toHaveValue('case-insensitive');
   await expect(reopened.locator('.replace-memory select')).toHaveValue('project');
