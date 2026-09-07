@@ -19,6 +19,7 @@
   },
   "include": [
     "web-optimizations.test.ts",
-    "performance-selection.test.ts"
+    "performance-selection.test.ts",
+    "deferred-workspace.types.tsx"
   ]
 }

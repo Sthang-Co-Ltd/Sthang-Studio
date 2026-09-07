@@ -6,9 +6,22 @@ test.afterAll(cleanFixtures);
 let state: FixtureState;
 test.beforeEach(async ({ page }) => { state = await installFixture(page); });
 
-async function openTimeline(page: Page) {
+async function openTimeline(page: Page, clockPaused = false) {
   const button = page.getByRole('button', { name: /Fine timing/i });
   await button.click();
+  if (clockPaused) {
+    // A deferred tool can need Suspense scheduler time before mounting. Advance
+    // explicitly, never resume real time while proving pending-work cancellation.
+    // Stay below project A's 5000ms deadline; it is crossed explicitly afterward.
+    let advancedMs = 0;
+    await expect.poll(async () => {
+      if (advancedMs < 1000) {
+        await page.clock.runFor(50);
+        advancedMs += 50;
+      }
+      return page.locator('.waveform-card').isVisible();
+    }).toBe(true);
+  }
   await expect(page.locator('.waveform-card')).toBeVisible();
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
 }
@@ -121,7 +134,7 @@ test('Waveform pending work: schedules without executing immediately and flushes
   });
 
   // Pause the clock BEFORE requesting the pending spectrum
-  await page.clock.pauseAt(Date.now() + 200);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
 
   // Switch to spectral view while paused
   await page.locator('button[title="Spectral view"]').click();
@@ -152,7 +165,7 @@ test('Waveform pending work: unmount before running prevents stale spectrum comp
   });
 
   // Pause the clock BEFORE requesting the pending spectrum
-  await page.clock.pauseAt(Date.now() + 200);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
 
   // Switch to spectral view while paused
   await page.locator('button[title="Spectral view"]').click();
@@ -187,7 +200,7 @@ test('Waveform pending work: project identity and audio change while pending can
   });
 
   // Pause the clock BEFORE requesting spectrum on project 1
-  await page.clock.pauseAt(Date.now() + 200);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
   await page.locator('button[title="Spectral view"]').click();
 
   // Verify project 1 work is scheduled while paused, but NOT computed
@@ -208,7 +221,7 @@ test('Waveform pending work: project identity and audio change while pending can
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 0;
   });
 
-  await openTimeline(page);
+  await openTimeline(page, true);
   await page.locator('button[title="Spectral view"]').click();
 
   // Execute project 2 work under controlled virtual time (advance 50ms)
@@ -252,7 +265,7 @@ test('Waveform pending work: project identity and audio change while pending can
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
   await seek(page, 500);
 
-  await openTimeline(page);
+  await openTimeline(page, true);
   await page.evaluate(() => {
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 0;
   });
