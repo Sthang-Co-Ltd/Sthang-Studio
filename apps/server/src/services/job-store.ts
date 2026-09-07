@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { nanoid } from 'nanoid';
 import type {
   CaptionAppearance,
@@ -18,6 +17,7 @@ import { withProcessingRun } from './run-context.js';
 import { removeRunCheckpoints } from './run-checkpoints.js';
 import { renderCaptionedVideo } from './video-export.js';
 import { cleanupStaleVideoExportWork } from './export-maintenance.js';
+import { atomicJobWrite, createJobPersistence } from './job-persistence.js';
 
 interface JobPayload {
   transcriptionContext?: TranscriptionContext;
@@ -64,6 +64,11 @@ let jobs: StoredJob[] = [];
 const pumping: Record<JobLane, boolean> = { caption: false, export: false };
 const performanceStates = new Map<string, RuntimePerformanceState>();
 const subscribers = new Set<JobSubscriber>();
+const persistence = createJobPersistence(
+  () => jobs.slice(0, 80),
+  (contents) => atomicJobWrite(config.jobsFile, contents),
+  () => console.warn('[jobs] Progress snapshot could not be saved; the next update will retry.'),
+);
 
 function laneFor(type: ProcessingJobType): JobLane {
   return type === 'export-video' ? 'export' : 'caption';
@@ -137,8 +142,7 @@ async function load() {
 }
 
 async function persist() {
-  await fs.mkdir(path.dirname(config.jobsFile), { recursive: true });
-  await fs.writeFile(config.jobsFile, JSON.stringify(jobs.slice(0, 80), null, 2), 'utf8');
+  await persistence.flush();
 }
 
 function publicJob(job: StoredJob): ProcessingJob {
@@ -165,11 +169,12 @@ function notifySubscribers() {
   }
 }
 
-async function patch(id: string, value: Partial<StoredJob>) {
+async function patch(id: string, value: Partial<StoredJob>, progressOnly = false) {
   const index = jobs.findIndex((job) => job.id === id);
   if (index < 0) return null;
   jobs[index] = { ...jobs[index], ...value, updatedAt: new Date().toISOString() };
-  await persist();
+  if (progressOnly) persistence.progress();
+  else await persist();
   notifySubscribers();
   return jobs[index];
 }
@@ -184,7 +189,7 @@ async function report(id: string, stage: string, progress: number, message: stri
     progress: Math.max(0, Math.min(100, Math.round(progress))),
     message,
     ...(performance ? { performance } : {}),
-  });
+  }, stage === job.stage);
 }
 
 async function completeJob(job: StoredJob, value: Partial<StoredJob>, captionCount?: number) {

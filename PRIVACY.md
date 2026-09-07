@@ -26,7 +26,7 @@ Khmer Caption Contributor program described below:
 - correction memory and profile data;
 - project history, proposals, processing-job metadata, and resumable job checkpoints;
 - project-scoped KFA acoustic-emission caches and deterministic local timing-result caches;
-- browser-memory waveform/spectrum data while Studio remains open;
+- browser-memory waveform/spectrum data and derived min/max waveform peaks while Studio remains open;
 - SRT exports and captioned MP4 video exports;
 - transient native caption preview frames and render scratch files in `exports/.working`;
 - local timing/alignment using KFA, with faster-whisper as a local fallback;
@@ -96,6 +96,18 @@ Caption preview and captioned-video rendering are local operations:
 - **Local FFmpeg execution**: Transparent preview frames and burned-in video rendering are generated on-device by a local FFmpeg installation exposing libass with complex shaping (`shaping=complex`).
 - **Temporary working files and cleanup**: Preview requests generate transient PNG frames and ASS subtitle files in a local working directory (`exports/.working/preview-*`). These scratch files are temporary and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal. Video renders output to `exports/` with temporary working files removed on a best-effort basis upon completion or cancellation.
 - **SRT styling boundary**: SRT exports contain only UTF-8 caption text and timing coordinates. Caption appearance styling (colors, fonts, outlines, backgrounds) is purely local project metadata for the on-device renderer and is never embedded in or leaked through SRT files.
+
+### Development-source font staging
+
+The unreleased performance work described in `docs/PERFORMANCE-VALIDATION.md`
+may reuse copies of already-installed regular/bold font files between local
+preview requests. This font-only staging is bounded to four sets and 16 MiB under
+`exports/.working/preview-fonts-*`. It contains no caption text, ASS documents,
+PNG frames, source audio or video, and is not served to the browser or uploaded.
+Active previews keep their font files until native rendering finishes; idle sets
+can be evicted, and server startup attempts to remove stale working directories.
+Filesystem errors or abnormal termination can leave scratch files for later cleanup.
+Per-render caption/frame scratch retains the separate cleanup behavior above.
 
 ## Khmer Caption Contributor
 

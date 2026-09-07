@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — performance batches 2 and 3
+
+- Added an opt-in project-summary response for the launcher, independent startup loading with targeted retries, and latest-request protection when opening projects. The existing full-project API remains available.
+- Stabilized explicit caption selection during playback and deferred four advanced workspace modules without changing caption matching or privacy-panel mounting.
+- Added exact, bounded waveform extrema reuse and separate playhead drawing; native preview can reuse bounded, leased font-only staging with a per-render fallback.
+- Serialized atomic job snapshots and sampled same-stage progress while retaining awaited lifecycle writes and exact failed-export snapshots.
+- Added differential, failure/concurrency and browser regressions plus a synthetic measurement command. Windows/native performance and full validation remain acceptance gates, not claims implied by these source changes. See `docs/PERFORMANCE-VALIDATION.md`.
+
 ## 0.8.0 — Public Beta
 
 ### Khmer Caption Contributor and privacy-safe product analytics

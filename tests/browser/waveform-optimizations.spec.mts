@@ -54,7 +54,7 @@ test('Waveform mode avoids spectrum computation on standard load and stays compu
   expect(hooks.scheduledSpectrumCount).toBe(0);
 
   // Waveform canvas is active
-  await expect(page.locator('.waveform-card canvas')).toBeVisible();
+  await expect(page.locator('.waveform-data-canvas')).toBeVisible();
   await expect(page.locator('button[title="Waveform"]')).toHaveClass(/selected/);
   await expect(page.locator('button[title="Spectral view"]')).not.toHaveClass(/selected/);
 
@@ -291,4 +291,27 @@ test('Waveform pending work: project identity and audio change while pending can
   }
   expect(peakBand440).toBe(2);
   expect(peakBand880).toBeGreaterThan(peakBand440);
+});
+
+test('playhead movement within a fixed viewport does not repaint the waveform background', async ({ page }) => {
+  await page.clock.install();
+  await openProject(page);
+  await openTimeline(page);
+  await page.getByTitle('Pause follow', { exact: true }).click();
+  // Count actual painting on the data layer. Ignore the transparent cursor layer.
+  await page.locator('.waveform-data-canvas').evaluate((canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d')!;
+    const fillRect = ctx.fillRect.bind(ctx);
+    (canvas as any).__paints = 0;
+    ctx.fillRect = (...args: Parameters<typeof ctx.fillRect>) => { (canvas as any).__paints++; fillRect(...args); };
+  });
+  // Peak preparation may complete once and legitimately redraw. Wait for its
+  // bounded preparation tasks using controlled time before taking the baseline.
+  await page.clock.runFor(1000);
+  const before = await page.locator('.waveform-data-canvas').evaluate((canvas) => (canvas as any).__paints);
+  await seek(page, 500); await seek(page, 700);
+  await page.clock.runFor(1000);
+  const after = await page.locator('.waveform-data-canvas').evaluate((canvas) => (canvas as any).__paints);
+  expect(after).toBe(before);
+  await expect(page.locator('.waveform-card canvas[aria-hidden="true"]')).toBeVisible();
 });

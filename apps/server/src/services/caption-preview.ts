@@ -7,7 +7,7 @@ import {
   type VideoExportCapabilities, type VideoResolutionPreset,
 } from '@kcs/shared';
 import { config } from '../config.js';
-import { buildAssDocument, buildAssCaptionFilter, prepareCaptionFonts, requireCaptionFont } from './caption-renderer.js';
+import { buildAssDocument, buildAssCaptionFilter, preparePreviewFonts, requireCaptionFont } from './caption-renderer.js';
 
 let activeRenders = 0;
 const maxConcurrentRenders = 2;
@@ -92,6 +92,7 @@ export async function renderCaptionPreview(
   if (activeRenders >= maxConcurrentRenders) throw new Error('Caption preview is busy. Try again shortly.');
   activeRenders += 1;
   let workDir: string | undefined;
+  let fontLease: Awaited<ReturnType<typeof preparePreviewFonts>> | undefined;
   try {
     const { width, height } = resolveVideoDimensions(capabilities.source.displayWidth, capabilities.source.displayHeight, input.resolution);
     // Guard decoded-frame allocation, not output choices. Unusually large sources can select a
@@ -100,7 +101,8 @@ export async function renderCaptionPreview(
     const parent = path.join(config.exportDir, '.working');
     await fs.mkdir(parent, { recursive: true });
     workDir = await fs.mkdtemp(path.join(parent, 'preview-'));
-    const fonts = await prepareCaptionFonts(workDir, input.appearance);
+    fontLease = await preparePreviewFonts(workDir, input.appearance);
+    const fonts = fontLease.directory;
     const assPath = path.join(workDir, 'captions.ass');
     await fs.writeFile(assPath, buildAssDocument(input.captions, input.appearance, width, height), 'utf8');
     signal?.throwIfAborted();
@@ -146,6 +148,7 @@ export async function renderCaptionPreview(
   } finally {
     // Wait for process close before touching its files, particularly on Windows.
     if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    fontLease?.release();
     activeRenders -= 1;
   }
 }

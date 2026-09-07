@@ -20,6 +20,10 @@
   "include": [
     "web-optimizations.test.ts",
     "performance-selection.test.ts",
+    "waveform-peaks.test.ts",
+    "job-persistence.test.mts",
+    "preview-font-cache.test.mts",
+    "../scripts/benchmark-performance.mts",
     "deferred-workspace.types.tsx"
   ]
 }

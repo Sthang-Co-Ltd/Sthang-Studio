@@ -40,7 +40,8 @@
     "test:caption-renderer": "npm run build --workspace @kcs/shared && node --import tsx --test tests/caption-renderer-native.test.mts",
     "test:web-optimizations": "node --import tsx --test tests/web-optimizations.test.ts",
     "test:browser": "npm run build --workspace @kcs/shared && node ./node_modules/@playwright/test/cli.js test",
-    "test:performance": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-selection.test.ts"
+    "test:performance": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-selection.test.ts tests/waveform-peaks.test.ts tests/job-persistence.test.mts tests/preview-font-cache.test.mts",
+    "benchmark:performance": "node --import tsx scripts/benchmark-performance.mts"
   },
   "allowScripts": {
     "@google/genai": true,
