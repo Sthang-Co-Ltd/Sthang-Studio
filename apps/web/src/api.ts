@@ -3,6 +3,7 @@ import type {
   CaptionAppearance,
   CaptionMode,
   CaptionProject,
+  CaptionProjectSummary,
   CaptionSegment,
   ContributionStatus,
   ProcessingJob,
@@ -164,7 +165,8 @@ export const api = {
   }),
   forgetLlmKey: () => request<LlmSettingsStatus>('/api/system/llm-settings/key', { method: 'DELETE' }),
   list: () => request<CaptionProject[]>('/api/projects'),
-  get: (id: string) => request<CaptionProject>(`/api/projects/${id}`),
+  listSummaries: () => request<CaptionProjectSummary[]>('/api/projects?summary=1'),
+  get: (id: string, signal?: AbortSignal) => request<CaptionProject>(`/api/projects/${encodeURIComponent(id)}`, { signal }),
   create: (file: File, title: string) => {
     const fd = new FormData();
     fd.append('media', file);

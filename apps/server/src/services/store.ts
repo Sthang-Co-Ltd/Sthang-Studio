@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptionAppearance, CaptionProject } from '@kcs/shared';
+import { summarizeProject, type CaptionAppearance, type CaptionProject } from '@kcs/shared';
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
 
@@ -65,15 +65,18 @@ function queueOrderUpdate(transform: (current: string[]) => string[]) {
 async function loadProjectFiles() {
   const names = await fs.readdir(projectDir).catch(() => [] as string[]);
   const projectNames = names.filter((name) => name.endsWith('.json') && name !== 'order.json');
-  for (const name of projectNames) {
-    const project = await readJson<CaptionProject>(path.join(projectDir, name));
-    if (project?.id) projects.set(project.id, project);
+  // Bound outstanding I/O and publish in file order, preserving duplicate-ID precedence.
+  for (let start = 0; start < projectNames.length; start += 4) {
+    const batch = await Promise.all(projectNames.slice(start, start + 4)
+      .map((name) => readJson<CaptionProject>(path.join(projectDir, name))));
+    for (const project of batch) if (project?.id) projects.set(project.id, project);
   }
 }
 
 function newestMissingIds() {
+  const ordered = new Set(order);
   return [...projects.values()]
-    .filter((project) => !order.includes(project.id))
+    .filter((project) => !ordered.has(project.id))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .map((project) => project.id);
 }
@@ -150,6 +153,14 @@ async function persistProject(stored: CaptionProject) {
 }
 
 export const store = {
+  async listSummaries() {
+    await ensureInitialized();
+    return order
+      .map((id) => projects.get(id))
+      .filter((project): project is CaptionProject => Boolean(project))
+      .map(summarizeProject);
+  },
+
   async list() {
     await ensureInitialized();
     return order

@@ -41,7 +41,8 @@ const upload = multer({
 });
 const router = Router();
 
-router.get('/', async (_req, res) => res.json(await store.list()));
+// Opt-in projection preserves the existing full-project API for other callers.
+router.get('/', async (req, res) => res.json(req.query.summary === '1' ? await store.listSummaries() : await store.list()));
 router.get('/:id', async (req, res) => {
   const item = await store.get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Project not found' });

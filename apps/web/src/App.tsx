@@ -4,6 +4,7 @@ import type {
   CaptionAppearance,
   CaptionMode,
   CaptionProject,
+  CaptionProjectSummary,
   CaptionSegment,
   CorrectionEvent,
   ProcessingJob,
@@ -54,22 +55,28 @@ import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from 
 import { CorrectionInbox } from './components/CorrectionInbox';
 import { ProfileDoctor, type SettingsTab } from './components/ProfileDoctor';
 import { StudioBrand } from './components/Brand';
-import { WaveformEditor } from './components/WaveformEditor';
 import { FindReplacePanel } from './components/FindReplacePanel';
-import { RegenerationReviewDock } from './components/RegenerationReviewDock';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
 import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
-import { ExportWorkspace } from './components/ExportWorkspace';
-import { isVideoProject, normalizeCaptionAppearance } from '@kcs/shared';
+import { isVideoProject, normalizeCaptionAppearance, summarizeProject } from '@kcs/shared';
 import { NativeCaptionPreview } from './components/NativeCaptionPreview';
-import { CaptionAppearanceWorkspace } from './components/CaptionAppearanceWorkspace';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
+import { useCaptionSelection } from './hooks/useCaptionSelection';
+import { deferWorkspace } from './components/DeferredWorkspace';
 import './styles.css';
+
+const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
+
+const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })));
+
+const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })));
+
+const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })));
 
 const modes: Array<{ id: CaptionMode; label: string; desc: string }> = [
   { id: 'dynamic', label: 'Dynamic', desc: 'Fast TikTok rhythm' },
@@ -139,7 +146,12 @@ function distributePreviewText(text: string, slots: CaptionSegment[]) {
 }
 
 export default function App() {
-  const [projects, setProjects] = useState<CaptionProject[]>([]);
+  const [projects, setProjects] = useState<CaptionProjectSummary[]>([]);
+  const [startupAttempt, setStartupAttempt] = useState(0);
+  const [startupErrors, setStartupErrors] = useState<string[]>([]);
+  const startupLoaded = useRef(new Set<string>());
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
   const [busy, setBusy] = useState('');
@@ -198,24 +210,42 @@ export default function App() {
   const reviewPlaybackPass = useRef<ReviewPlaybackPass>('focus');
 
   useEffect(() => {
-    Promise.all([api.list(), api.health(), api.profile(), api.jobs(), api.llmSettings()])
-      .then(([projectList, healthResult, profileResult, jobList, llmResult]) => {
-        setProjects(projectList);
-        setHealth(healthResult);
-        setProfile(profileResult);
-        setJobs(jobList);
-        setLlmSettings(llmResult);
-        jobList.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status)).forEach((job) => trackedJobIds.current.add(job.id));
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : 'App startup failed'));
-  }, []);
+    let disposed = false;
+    setStartupErrors([]);
+    const load = <T,>(label: string, operation: () => Promise<T>, publish: (value: T) => void) => {
+      // Retry only missing state; never overwrite preferences/settings already edited.
+      if (startupLoaded.current.has(label)) return;
+      void operation().then((value) => {
+        if (!disposed) { publish(value); startupLoaded.current.add(label); }
+      }).catch(() => {
+        if (!disposed) setStartupErrors((current) => [...current, label]);
+      });
+    };
+    // Independent requests publish independently. Preferences remain required before
+    // opening/uploading a project, so late profile hydration cannot reset an edit.
+    load('Recent projects', api.listSummaries, (items) => setProjects((current) => {
+      const localIds = new Set(current.map((item) => item.id));
+      return [...current, ...items.filter((item) => !localIds.has(item.id))];
+    }));
+    load('System status', api.health, setHealth);
+    load('Preferences', api.profile, setProfile);
+    load('Activity', api.jobs, (items) => {
+      items.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status))
+        .forEach((job) => trackedJobIds.current.add(job.id));
+      setJobs(items);
+    });
+    load('AI connection', api.llmSettings, setLlmSettings);
+    return () => { disposed = true; };
+  }, [startupAttempt]);
+
+  useEffect(() => () => projectOpen.current?.abort(), []);
 
   useEffect(() => {
-    if (!llmSettings || llmSettings.configured || aiOnboardingShown.current) return;
+    if (!llmSettings || llmSettings.configured || aiOnboardingShown.current || project || busy) return;
     aiOnboardingShown.current = true;
     setSettingsTab('ai');
     setShowProfile(true);
-  }, [llmSettings]);
+  }, [llmSettings, project, busy]);
 
   useEffect(() => {
     if (!profile) return;
@@ -298,8 +328,11 @@ export default function App() {
   }, [proposal?.id]);
 
   const applyProject = (next: CaptionProject, replaceDraft = true) => {
+    projectOpen.current?.abort();
+    projectOpen.current = null;
+    setOpeningProjectId(null);
     setProject(next);
-    setProjects((items) => [next, ...items.filter((item) => item.id !== next.id)]);
+    setProjects((items) => [summarizeProject(next), ...items.filter((item) => item.id !== next.id)]);
     if (replaceDraft) {
       setDraft(next.captions);
       draftRef.current = next.captions;
@@ -347,20 +380,7 @@ export default function App() {
   const currentProjectToastJob = currentProjectActiveJob || activeExportJob;
   const refinementJob = project ? activeJobs.find((job) => job.projectId === project.id && job.type === 'refine-proposal') : undefined;
 
-  const selection = useMemo(() => {
-    if (!draft.length) return { ids: [] as string[], captions: [] as CaptionSegment[], startMs: 0, endMs: 0 };
-    const playheadMs = time * 1000;
-    const nearestIndexRaw = draft.findIndex((caption) => playheadMs < caption.endMs);
-    const nearestIndex = nearestIndexRaw >= 0 ? nearestIndexRaw : draft.length - 1;
-    const firstIndexRaw = draft.findIndex((caption) => caption.id === selectionAnchor);
-    const firstIndex = firstIndexRaw >= 0 ? firstIndexRaw : nearestIndex;
-    const lastIndexRaw = draft.findIndex((caption) => caption.id === selectionEnd);
-    const lastIndex = lastIndexRaw >= 0 ? lastIndexRaw : firstIndex;
-    const start = Math.min(firstIndex, lastIndex);
-    const end = Math.max(firstIndex, lastIndex);
-    const captions = draft.slice(start, end + 1);
-    return { ids: captions.map((caption) => caption.id), captions, startMs: captions[0]?.startMs || 0, endMs: captions.at(-1)?.endMs || 0 };
-  }, [draft, selectionAnchor, selectionEnd, time]);
+  const selection = useCaptionSelection(draft, selectionAnchor, selectionEnd, time * 1000);
 
   const active = useMemo(() => draft.find((caption) => time * 1000 >= caption.startMs && time * 1000 < caption.endMs) ?? null, [draft, time]);
   const proposedPreviewRange = useMemo(() => {
@@ -414,6 +434,9 @@ export default function App() {
   }, [draft, selectionAnchor, selectionEnd, active, time]);
 
   const runProject = async (label: string, operation: () => Promise<CaptionProject>) => {
+    projectOpen.current?.abort();
+    projectOpen.current = null;
+    setOpeningProjectId(null);
     setBusy(label);
     setError('');
     try {
@@ -449,7 +472,7 @@ export default function App() {
         if (unchanged) applyProject(result.project, true);
         else {
           setProject((current) => current?.id === result.project.id ? { ...result.project, captions: draftRef.current } : current);
-          setProjects((items) => [result.project, ...items.filter((item) => item.id !== result.project.id)]);
+          setProjects((items) => [summarizeProject(result.project), ...items.filter((item) => item.id !== result.project.id)]);
         }
         if (result.correctionsCreated > 0) {
           await refreshProfile();
@@ -685,6 +708,25 @@ export default function App() {
   const changePlaybackRate = (rate: number) => {
     setPlaybackRate(rate);
     if (media.current) media.current.playbackRate = rate;
+  };
+
+  const openRecentProject = async (id: string) => {
+    if (!profile || busy) return;
+    projectOpen.current?.abort();
+    const request = new AbortController();
+    projectOpen.current = request;
+    setOpeningProjectId(id);
+    setError('');
+    try {
+      const value = await api.get(id, request.signal);
+      if (projectOpen.current === request && !request.signal.aborted) applyProject(value);
+    } catch (reason) {
+      if (projectOpen.current === request && !request.signal.aborted) {
+        setError(reason instanceof Error ? reason.message : 'Could not open project. Try again.');
+      }
+    } finally {
+      if (projectOpen.current === request) { projectOpen.current = null; setOpeningProjectId(null); }
+    }
   };
 
   const upload = async (file: File, title: string) => runProject('Uploading…', () => api.create(file, title));
@@ -924,7 +966,7 @@ export default function App() {
       const result = await api.correctionAction(event.id, action);
       setProfile(result.profile);
       if (result.project) {
-        setProjects((items) => [result.project!, ...items.filter((item) => item.id !== result.project!.id)]);
+        setProjects((items) => [summarizeProject(result.project!), ...items.filter((item) => item.id !== result.project!.id)]);
         if (project?.id === result.project.id) {
           setProject(result.project);
           setVocabularyText(uniqueLines(result.profile.defaultVocabulary, result.project.transcriptionContext?.vocabulary).join('\n'));
@@ -1123,9 +1165,11 @@ export default function App() {
       <button className={llmSettings?.configured ? '' : 'setup-needed'} title="Connection, profile, and system check" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
     </div>
     {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI once</strong><span>Paste your key in Settings. Studio saves it securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
-    <Upload onUpload={upload} busy={!!busy} beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+    <Upload onUpload={upload} busy={!!busy || !profile} beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
     {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing is not ready yet. Open Settings → System check for the exact next step.</span></div>}
-    {projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><span>Continue where you left off</span></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} onClick={() => setProject(item)}><span>{item.title}</span><small>{item.captions.length ? `${item.captions.length} captions` : 'Not generated yet'}</small></button>)}</div></section>}
+    {startupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {startupErrors.join(', ')}. Other available tools can still be used.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
+    {!profile && startupErrors.length === 0 && <div className="setup-warning" role="status">Loading preferences…</div>}
+    {projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><span>Continue where you left off</span></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {statusToasts}
     {overlays}
   </main>;
