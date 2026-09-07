@@ -124,3 +124,15 @@ test('rapid short-caption transitions share pending render work instead of starv
   await expect(page.locator('.native-caption-image')).toHaveAttribute('alt', 'Caption 8');
   expect(state.requests.filter((item) => item.path.endsWith('/preview')).length).toBeLessThanOrEqual(3);
 });
+
+test('Find & Correct modal opens from tools menu, searches matches, and closes cleanly', async ({ page }) => {
+  await openProject(page);
+  await page.getByLabel('Open project tools', { exact: true }).click();
+  await page.getByRole('menuitem', { name: /Correct everywhere/ }).click();
+  const modal = page.locator('.find-replace-modal');
+  await expect(modal).toBeVisible();
+  const findInput = modal.getByLabel('Find', { exact: true });
+  await findInput.fill('caption');
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+});

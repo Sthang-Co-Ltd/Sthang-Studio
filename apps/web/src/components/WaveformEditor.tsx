@@ -50,7 +50,7 @@ function nearestBoundary(tokens: TimedToken[], value: number) {
   return distance <= 220 ? result : value;
 }
 
-function computeSpectrum(samples: Float32Array, columns = 320, bands = 28) {
+export function computeSpectrum(samples: Float32Array, columns = 320, bands = 28) {
   const result = new Float32Array(columns * bands);
   const windowSize = 192;
   const usefulBins = Math.min(72, Math.floor(windowSize / 2));
@@ -200,6 +200,9 @@ export function WaveformEditor({
     if (reloadKey === 0) {
       const remembered = recalledWaveform(memoryKey);
       if (remembered) {
+        if (import.meta.env.DEV) {
+          (window as unknown as { __STHANG_TEST_HOOKS__?: { onAudioCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onAudioCacheHit?.(memoryKey);
+        }
         samplesRef.current = remembered.samples;
         setDurationMs(remembered.durationMs);
         setSpectrum(remembered.spectrum);
@@ -253,17 +256,6 @@ export function WaveformEditor({
           spectrum: null,
           touchedAt: Date.now(),
         });
-        window.setTimeout(() => {
-          if (cancelled) return;
-          const computed = computeSpectrum(decoded.samples);
-          setSpectrum(computed);
-          rememberWaveform(memoryKey, {
-            samples: decoded.samples,
-            durationMs: decoded.durationMs,
-            spectrum: computed,
-            touchedAt: Date.now(),
-          });
-        }, 50);
       } catch (reason) {
         if (!cancelled) {
           setLoadError(reason instanceof Error ? reason.message : 'Waveform could not load');
@@ -275,10 +267,53 @@ export function WaveformEditor({
     void load();
     return () => {
       cancelled = true;
-      const remembered = waveformMemory.get(memoryKey);
-      if (remembered && !remembered.spectrum) waveformMemory.delete(memoryKey);
     };
   }, [projectId, memoryKey, reloadKey]);
+
+  useEffect(() => {
+    if (mode !== 'spectrum' || spectrum) return;
+    const samples = samplesRef.current;
+    if (!samples || !durationMs) return;
+
+    const remembered = recalledWaveform(memoryKey);
+    if (remembered?.spectrum) {
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onSpectrumCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onSpectrumCacheHit?.(memoryKey);
+      }
+      setSpectrum(remembered.spectrum);
+      return;
+    }
+
+    if (import.meta.env.DEV) {
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onScheduleSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onScheduleSpectrum?.(memoryKey);
+    }
+    const delay = (import.meta.env.DEV && (window as unknown as { __STHANG_TEST_HOOKS__?: { spectrumDelayMs?: number } }).__STHANG_TEST_HOOKS__?.spectrumDelayMs) || 0;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onComputeSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onComputeSpectrum?.(memoryKey);
+      }
+      const computed = computeSpectrum(samples);
+      if (cancelled) return;
+      setSpectrum(computed);
+      const existing = recalledWaveform(memoryKey);
+      rememberWaveform(memoryKey, {
+        samples: existing?.samples ?? samples,
+        durationMs: existing?.durationMs ?? durationMs,
+        spectrum: computed,
+        touchedAt: Date.now(),
+      });
+      if (import.meta.env.DEV) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onPublishSpectrum?: (key: string, spectrum: Spectrum) => void } }).__STHANG_TEST_HOOKS__?.onPublishSpectrum?.(memoryKey, computed);
+      }
+    }, delay);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mode, spectrum, memoryKey, durationMs]);
 
   useEffect(() => {
     if (!follow || !durationMs) return;

@@ -114,6 +114,16 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     () => reviewMode ? captions.filter((caption) => issueMap.has(caption.id) && !caption.approved) : captions,
     [captions, issueMap, reviewMode],
   );
+  const captionIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < captions.length; i++) {
+      const id = captions[i]?.id;
+      if (id !== undefined && !map.has(id)) {
+        map.set(id, i);
+      }
+    }
+    return map;
+  }, [captions]);
 
   useEffect(() => setOpenMenuId(null), [reviewMode, captions.length]);
   useEffect(() => {
@@ -332,8 +342,8 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onScroll={() => { if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
       {visible.length === 0 && <div className="review-empty">You're all caught up. No unapproved captions need attention.</div>}
-      {visible.map((caption) => {
-        const index = captions.findIndex((item) => item.id === caption.id);
+      {visible.map((caption, visibleIndex) => {
+        const index = captionIndexMap.get(caption.id) ?? -1;
         const issue = issueMap.get(caption.id);
         const destructiveLocked = caption.textLocked || caption.timingLocked;
         return <div
@@ -395,7 +405,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => current === caption.id ? null : caption.id); }}
               title="More actions"
             ><MoreHorizontal size={16}/></button>
-            {openMenuId === caption.id && <div className={`caption-action-menu ${visible.indexOf(caption) > visible.length - 4 ? 'menu-up' : ''}`} role="menu">
+            {openMenuId === caption.id && <div className={`caption-action-menu ${visibleIndex > visible.length - 4 ? 'menu-up' : ''}`} role="menu">
               <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { textLocked: !caption.textLocked }, 'metadata'); setOpenMenuId(null); }}><LockKeyhole size={14}/><span>{caption.textLocked ? 'Unlock text' : 'Lock text'}</span></button>
               <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { timingLocked: !caption.timingLocked }, 'metadata'); setOpenMenuId(null); }}><Clock3 size={14}/><span>{caption.timingLocked ? 'Unlock timing' : 'Lock timing'}</span></button>
               <div className="caption-menu-divider"/>
