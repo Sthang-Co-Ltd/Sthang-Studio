@@ -111,52 +111,64 @@ test('Initial spectrum preference computes spectrum on initial mount', async ({ 
 });
 
 test('Waveform pending work: schedules without executing immediately and flushes on timer', async ({ page }) => {
+  await page.clock.install();
   await openProject(page);
   await openTimeline(page);
 
-  // Inject a 150ms delay for spectrum computation
+  // Configure a 150ms delay for spectrum computation
   await page.evaluate(() => {
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 150;
   });
 
-  // Switch to spectral view
+  // Pause the clock BEFORE requesting the pending spectrum
+  await page.clock.pauseAt(Date.now() + 200);
+
+  // Switch to spectral view while paused
   await page.locator('button[title="Spectral view"]').click();
 
-  // Immediately check hooks: work must be scheduled without executing yet
-  const hooksImmediately = await getTestHooks(page);
-  expect(hooksImmediately.scheduledSpectrumCount).toBe(1);
-  expect(hooksImmediately.spectrumComputeCount).toBe(0);
-  expect(hooksImmediately.publishedSpectrumCount).toBe(0);
+  // Assert scheduled without executing yet
+  const hooksScheduled = await getTestHooks(page);
+  expect(hooksScheduled.scheduledSpectrumCount).toBe(1);
+  expect(hooksScheduled.spectrumComputeCount).toBe(0);
+  expect(hooksScheduled.publishedSpectrumCount).toBe(0);
 
-  // Wait for the delay to expire and work to complete
-  await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(1);
+  // Advance virtual time beyond the configured delay
+  await page.clock.runFor(151);
+
+  // Assert computation and publication occurred upon timer flush
   const hooksFlushed = await getTestHooks(page);
+  expect(hooksFlushed.spectrumComputeCount).toBe(1);
   expect(hooksFlushed.publishedSpectrumCount).toBe(1);
 });
 
 test('Waveform pending work: unmount before running prevents stale spectrum computation and publication', async ({ page }) => {
+  await page.clock.install();
   await openProject(page);
   await openTimeline(page);
 
-  // Inject a 3000ms delay for spectrum computation
+  // Configure a 3000ms delay for spectrum computation
   await page.evaluate(() => {
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 3000;
   });
 
-  // Switch to spectral view
+  // Pause the clock BEFORE requesting the pending spectrum
+  await page.clock.pauseAt(Date.now() + 200);
+
+  // Switch to spectral view while paused
   await page.locator('button[title="Spectral view"]').click();
 
-  // Verify scheduled but not yet computed
+  // Verify scheduled but not yet computed while paused
   const hooksScheduled = await getTestHooks(page);
   expect(hooksScheduled.scheduledSpectrumCount).toBe(1);
   expect(hooksScheduled.spectrumComputeCount).toBe(0);
+  expect(hooksScheduled.publishedSpectrumCount).toBe(0);
 
-  // Immediately unmount before the timer expires
+  // Unmount WaveformEditor before the timer expires
   await page.getByRole('button', { name: /Fine timing/i }).click();
   await expect(page.locator('.waveform-card')).toHaveCount(0);
 
-  // Wait a short buffer (100ms) to ensure no background leaks occur
-  await page.waitForTimeout(100);
+  // Advance virtual time beyond the original 3000ms deadline
+  await page.clock.runFor(3001);
 
   // Verify that neither computation nor publication occurred
   const hooksAfterWait = await getTestHooks(page);
@@ -165,29 +177,33 @@ test('Waveform pending work: unmount before running prevents stale spectrum comp
 });
 
 test('Waveform pending work: project identity and audio change while pending cancels stale work and publishes 880Hz vs 440Hz spectrum', async ({ page }) => {
+  await page.clock.install();
   await openProject(page);
   await openTimeline(page);
 
-  // 1. In project 1 (landscape: 440 Hz tone), schedule spectrum with a 5000ms delay
+  // 1. In project 1 (landscape: 440 Hz tone), configure a 5000ms delay for spectrum computation
   await page.evaluate(() => {
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 5000;
   });
 
+  // Pause the clock BEFORE requesting spectrum on project 1
+  await page.clock.pauseAt(Date.now() + 200);
   await page.locator('button[title="Spectral view"]').click();
 
-  // Verify project 1 work is scheduled but NOT computed
+  // Verify project 1 work is scheduled while paused, but NOT computed
   const pendingHooksA = await getTestHooks(page);
   expect(pendingHooksA.scheduledSpectrumCount).toBe(1);
   expect(pendingHooksA.spectrumComputeCount).toBe(0);
+  expect(pendingHooksA.publishedSpectrumCount).toBe(0);
 
-  // 2. WHILE project 1 spectrum computation is still pending, navigate away to project 2 (second: 880 Hz tone)
+  // 2. Switch to project 2 (second: 880 Hz tone) BEFORE project 1 runs
   await page.getByLabel('Back to projects').click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.locator('.media-stage video')).toBeVisible();
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
   await seek(page, 500);
 
-  // In project 2, reset delay to 0 for immediate computation
+  // In project 2, configure immediate execution (delay 0)
   await page.evaluate(() => {
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 0;
   });
@@ -195,11 +211,11 @@ test('Waveform pending work: project identity and audio change while pending can
   await openTimeline(page);
   await page.locator('button[title="Spectral view"]').click();
 
-  // Await project 2 computation to complete
-  await expect.poll(async () => (await getTestHooks(page)).publishedSpectra.length).toBe(1);
+  // Execute project 2 work under controlled virtual time (advance 50ms)
+  await page.clock.runFor(50);
 
   const hooksAfterB = await getTestHooks(page);
-  // Total computed is exactly 1 (Project 1's pending timer was cancelled and never computed)
+  expect(hooksAfterB.publishedSpectra.length).toBe(1);
   expect(hooksAfterB.spectrumComputeCount).toBe(1);
   expect(hooksAfterB.computedSpectrumKeys).toHaveLength(1);
   expect(hooksAfterB.computedSpectrumKeys[0]).toContain('second');
@@ -220,7 +236,16 @@ test('Waveform pending work: project identity and audio change while pending can
   }
   expect(peakBand880).toBe(4);
 
-  // 3. Navigate back to project 1 and compute its spectrum now with delay 0
+  // 3. Advance virtual time past project 1's ORIGINAL 5000ms deadline
+  await page.clock.runFor(5000);
+
+  // Assert old project 1 task never computed or published; project 2 state remains pristine
+  const hooksAfterDeadline = await getTestHooks(page);
+  expect(hooksAfterDeadline.spectrumComputeCount).toBe(1);
+  expect(hooksAfterDeadline.computedSpectrumKeys).toHaveLength(1);
+  expect(hooksAfterDeadline.publishedSpectra.length).toBe(1);
+
+  // 4. Navigate back to project 1 and deliberately run a fresh project 1 spectrum task
   await page.getByLabel('Back to projects').click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(page.locator('.media-stage video')).toBeVisible();
@@ -228,12 +253,15 @@ test('Waveform pending work: project identity and audio change while pending can
   await seek(page, 500);
 
   await openTimeline(page);
+  await page.evaluate(() => {
+    (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 0;
+  });
   await page.locator('button[title="Spectral view"]').click();
-
-  await expect.poll(async () => (await getTestHooks(page)).publishedSpectra.length).toBe(2);
+  await page.clock.runFor(50);
 
   const finalHooks = await getTestHooks(page);
   expect(finalHooks.spectrumComputeCount).toBe(2);
+  expect(finalHooks.publishedSpectra.length).toBe(2);
   const spec440 = finalHooks.publishedSpectra[1];
   expect(spec440.key).toContain('landscape');
 
