@@ -49,6 +49,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
       const regex = buildRegex(query, mode);
       let count = 0;
       let locked = 0;
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onFindReplaceScan?: (captionCount: number) => void } }).__STHANG_TEST_HOOKS__?.onFindReplaceScan?.(captions.length);
       const matched = captions.filter((caption) => {
         if (targetIds && !targetIds.has(caption.id)) return false;
         regex.lastIndex = 0;

@@ -72,6 +72,17 @@ export async function prepareFixtures() {
       res.end(media);
       return;
     }
+    if (req.url?.includes('/normalized-audio.wav')) {
+      const isSecond = req.url.includes('/second');
+      const wav = isSecond ? createSyntheticWav(4.0, 880) : createSyntheticWav(4.0, 440);
+      res.writeHead(200, {
+        'Content-Type': 'audio/wav',
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(wav.length),
+      });
+      res.end(wav);
+      return;
+    }
     if (req.url?.startsWith('/media/')) {
       const range = req.headers['range'];
       if (range) {
@@ -115,14 +126,81 @@ export async function cleanFixtures() {
   if (scratch) await fs.rm(scratch, { recursive: true, force: true });
 }
 
+export function createSyntheticWav(durationSeconds: number, frequency = 440, sampleRate = 44100): Buffer {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const dataSize = numSamples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(1, 22); // Mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const sample = Math.sin(2 * Math.PI * frequency * t);
+    const int16 = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)));
+    buffer.writeInt16LE(int16, 44 + i * 2);
+  }
+
+  return buffer;
+}
+
 export async function installFixture(page: Page): Promise<FixtureState> {
   const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '' };
   await page.addInitScript(() => {
     for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
     // A deterministic polling fallback: no unbounded SSE reconnect loop in a test fixture.
     (window as any).EventSource = undefined;
+    (window as any).__STHANG_TEST_HOOKS__ = {
+      spectrumComputeCount: 0,
+      spectrumCacheHitCount: 0,
+      audioCacheHitCount: 0,
+      findReplaceScanCount: 0,
+      computedSpectrumKeys: [] as string[],
+      onComputeSpectrum(key: string) {
+        this.spectrumComputeCount++;
+        this.computedSpectrumKeys.push(key);
+      },
+      onSpectrumCacheHit() {
+        this.spectrumCacheHitCount++;
+      },
+      onAudioCacheHit() {
+        this.audioCacheHitCount++;
+      },
+      onFindReplaceScan() {
+        this.findReplaceScanCount++;
+      },
+    };
   });
   await page.route('https://**/*', (route) => route.abort());
+  const wavA = createSyntheticWav(4.0, 440);
+  const wavB = createSyntheticWav(4.0, 880);
+  await page.route('**/media/*/audio**', (route) => {
+    const url = route.request().url();
+    const isSecond = url.includes('/second/');
+    const body = isSecond ? wavB : wavA;
+    return route.fulfill({
+      status: 200,
+      contentType: 'audio/wav',
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(body.length),
+      },
+      body,
+    });
+  });
   await page.route('**/media/*.mp4', (route) => {
     const range = route.request().headers()['range'];
     if (range) {
@@ -160,6 +238,19 @@ export async function installFixture(page: Page): Promise<FixtureState> {
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
     const id = url.pathname.split('/')[3];
     const current = state.projects.find((item) => item.id === id);
+    if (url.pathname.endsWith('/normalized-audio.wav')) {
+      const isSecond = url.pathname.includes('/second');
+      const body = isSecond ? wavB : wavA;
+      return route.fulfill({
+        status: 200,
+        contentType: 'audio/wav',
+        headers: {
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(body.length),
+        },
+        body,
+      });
+    }
     if (url.pathname === '/api/projects') return json(state.projects);
     if (url.pathname === '/api/profile') {
       if (method === 'PATCH') state.profile = { ...state.profile, ...body, preferences: { ...state.profile.preferences, ...body.preferences } };

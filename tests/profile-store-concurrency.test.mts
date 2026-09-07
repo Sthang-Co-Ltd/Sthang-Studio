@@ -11,7 +11,7 @@ process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'absent.env');
 const { config } = await import('../apps/server/src/config.js');
 const { profileStore } = await import('../apps/server/src/services/profile-store.js');
 
-after(() => fs.rm(root, { recursive: true, force: true }));
+after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 function dummyProject(id: string): CaptionProject {
   return {

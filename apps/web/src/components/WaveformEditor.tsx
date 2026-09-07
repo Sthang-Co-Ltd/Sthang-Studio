@@ -200,6 +200,7 @@ export function WaveformEditor({
     if (reloadKey === 0) {
       const remembered = recalledWaveform(memoryKey);
       if (remembered) {
+        (window as unknown as { __STHANG_TEST_HOOKS__?: { onAudioCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onAudioCacheHit?.(memoryKey);
         samplesRef.current = remembered.samples;
         setDurationMs(remembered.durationMs);
         setSpectrum(remembered.spectrum);
@@ -274,6 +275,7 @@ export function WaveformEditor({
 
     const remembered = recalledWaveform(memoryKey);
     if (remembered?.spectrum) {
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onSpectrumCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onSpectrumCacheHit?.(memoryKey);
       setSpectrum(remembered.spectrum);
       return;
     }
@@ -281,6 +283,7 @@ export function WaveformEditor({
     let cancelled = false;
     const timer = window.setTimeout(() => {
       if (cancelled) return;
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onComputeSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onComputeSpectrum?.(memoryKey);
       const computed = computeSpectrum(samples);
       if (cancelled) return;
       setSpectrum(computed);

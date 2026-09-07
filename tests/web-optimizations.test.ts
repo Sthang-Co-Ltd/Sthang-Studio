@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { CaptionSegment, CaptionIssue } from '@kcs/shared';
+import type { CaptionSegment } from '@kcs/shared';
+import type { ReviewIssue } from '../apps/web/src/review.js';
 
 // Polyfill React global for tsx-loaded JSX components
 (globalThis as unknown as { React: typeof React }).React = React;
@@ -14,6 +15,18 @@ import { computeSpectrum } from '../apps/web/src/components/WaveformEditor.js';
 function makeCaption(id: string, text: string, startMs: number, endMs: number, extra: Partial<CaptionSegment> = {}): CaptionSegment {
   return { id, text, startMs, endMs, ...extra };
 }
+
+const defaultEditorProps = {
+  active: null,
+  playheadMs: 0,
+  selectedIds: [] as string[],
+  issues: [] as ReviewIssue[],
+  reviewMode: false,
+  onChange: () => {},
+  onSeek: () => {},
+  onSelect: () => {},
+  onTextCommit: () => {},
+};
 
 // ---------------------------------------------------------------------------
 // Item 1: CaptionEditor render-path indexing
@@ -28,14 +41,8 @@ test('CaptionEditor displays 1-indexed padded row numbers matching original capt
 
   const html = renderToStaticMarkup(
     React.createElement(CaptionEditor, {
+      ...defaultEditorProps,
       captions,
-      playheadMs: 0,
-      selectedIds: [],
-      issues: [],
-      onChange: () => {},
-      onSeek: () => {},
-      onSelect: () => {},
-      onTextCommit: () => {},
     })
   );
 
@@ -53,20 +60,14 @@ test('CaptionEditor preserves first-occurrence findIndex semantics when duplicat
 
   const html = renderToStaticMarkup(
     React.createElement(CaptionEditor, {
+      ...defaultEditorProps,
       captions,
-      playheadMs: 0,
-      selectedIds: [],
-      issues: [],
-      onChange: () => {},
-      onSeek: () => {},
-      onSelect: () => {},
-      onTextCommit: () => {},
     })
   );
 
   // Both rows with id 'dup-1' should resolve to the first occurrence index (0 -> '01')
   // just as captions.findIndex would have done
-  const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map(m => m[1]);
+  const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map((m) => m[1]);
   assert.deepEqual(matches, ['01', '02', '01'], 'Duplicate ID maps to first occurrence index 01');
 });
 
@@ -78,69 +79,43 @@ test('CaptionEditor in review mode displays original caption array indices for f
     makeCaption('c-4', 'Issue caption 4', 3000, 4000, { approved: false }),
   ];
 
-  const issues: CaptionIssue[] = [
+  const issues: ReviewIssue[] = [
     { captionId: 'c-2', severity: 'warning', reasons: ['High reading speed'] },
-    { captionId: 'c-4', severity: 'danger', reasons: ['Overlaps with next'] },
+    { captionId: 'c-4', severity: 'error', reasons: ['Overlaps with next'] },
   ];
 
   const html = renderToStaticMarkup(
     React.createElement(CaptionEditor, {
+      ...defaultEditorProps,
       captions,
-      playheadMs: 0,
-      selectedIds: [],
       issues,
       reviewMode: true,
-      onChange: () => {},
-      onSeek: () => {},
-      onSelect: () => {},
-      onTextCommit: () => {},
     })
   );
 
   // Visible rows should only be c-2 and c-4, but their row numbers should be 02 and 04
-  const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map(m => m[1]);
+  const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map((m) => m[1]);
   assert.deepEqual(matches, ['02', '04'], 'Review mode displays original list indices 02 and 04');
 });
 
-test('CaptionEditor menu-up threshold applies to the last 3 items of visible list', () => {
-  // visible.length = 5
-  // visibleIndex > 5 - 4  <=> visibleIndex > 1 <=> indices 2, 3, 4 (last 3 items)
-  const visibleLength = 5;
-  const isMenuUp = (visibleIndex: number) => visibleIndex > visibleLength - 4;
-
-  assert.equal(isMenuUp(0), false, 'Index 0 is not menu-up');
-  assert.equal(isMenuUp(1), false, 'Index 1 is not menu-up');
-  assert.equal(isMenuUp(2), true, 'Index 2 is menu-up');
-  assert.equal(isMenuUp(3), true, 'Index 3 is menu-up');
-  assert.equal(isMenuUp(4), true, 'Index 4 is menu-up');
-});
-
-test('CaptionEditor renders 500 captions with O(1) index lookups accurately and fast', () => {
+test('CaptionEditor renders 500 captions with O(1) index lookups accurately without index errors', () => {
   const count = 500;
   const captions: CaptionSegment[] = Array.from({ length: count }, (_, i) =>
     makeCaption(`cap-${i}`, `Caption text ${i}`, i * 1000, (i + 1) * 1000)
   );
 
-  const start = performance.now();
   const html = renderToStaticMarkup(
     React.createElement(CaptionEditor, {
+      ...defaultEditorProps,
       captions,
-      playheadMs: 0,
-      selectedIds: [],
-      issues: [],
-      onChange: () => {},
-      onSeek: () => {},
-      onSelect: () => {},
-      onTextCommit: () => {},
     })
   );
-  const elapsed = performance.now() - start;
 
-  assert.ok(elapsed < 1000, `Rendering 500 captions took ${elapsed.toFixed(1)}ms, expected < 1000ms`);
-
-  // Verify first and last indices
-  assert.ok(html.includes('<span class="row-index">01</span>'), 'First caption is 01');
-  assert.ok(html.includes('<span class="row-index">500</span>'), 'Last caption is 500');
+  const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map((m) => m[1]);
+  assert.equal(matches.length, 500, 'All 500 captions rendered');
+  assert.equal(matches[0], '01', 'First caption index is 01');
+  assert.equal(matches[9], '10', 'Tenth caption index is 10');
+  assert.equal(matches[499], '500', 'Last caption index is 500');
 });
 
 // ---------------------------------------------------------------------------

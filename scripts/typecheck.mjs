@@ -8,6 +8,7 @@ for (const args of [
   [tsc,'-p',path.join(root,'packages','shared','tsconfig.json'),'--emitDeclarationOnly'],
   [tsc,'-p',path.join(root,'apps','server','tsconfig.json'),'--noEmit'],
   [tsc,'-b',path.join(root,'apps','web','tsconfig.json'),'--pretty','false'],
+  [tsc,'-p',path.join(root,'tests','tsconfig.json'),'--noEmit'],
 ]) {
   const r=spawnSync(node,args,{cwd:root,stdio:'inherit',shell:false});
   if(r.status!==0) process.exit(r.status??1);
