@@ -50,6 +50,9 @@ function concatNormalized<T>(items: T[], start: number, len: number, get: (x: T)
 function alignSequences(gemini: ReturnType<typeof tokenizeText>, timingWords: TimingWord[], equivalents: Map<string, string>): MatchGroup[] {
   const n = gemini.length;
   const m = timingWords.length;
+  // Reuse deterministic normalization only within this alignment call. Matching
+  // costs, traversal order, ties and backtracking still use the same algorithm.
+  const normalizedTiming = timingWords.map((word) => normalizeForMatch(word.text));
   const width = m + 1;
   const size = (n + 1) * (m + 1);
   const costs = new Float64Array(size);
@@ -76,7 +79,7 @@ function alignSequences(gemini: ReturnType<typeof tokenizeText>, timingWords: Ti
       for (let gl = 1; gl <= 3 && i + gl <= n; gl++) {
         const ga = concatNormalized(gemini, i, gl, (x) => x.normalized);
         for (let sl = 1; sl <= 3 && j + sl <= m; sl++) {
-          const sb = concatNormalized(timingWords, j, sl, (x) => normalizeForMatch(x.text));
+          const sb = concatNormalized(normalizedTiming, j, sl, (text) => text);
           const sim = similarity(ga, sb, equivalents);
           // Merges are allowed for Khmer tokenizer-boundary differences, but they carry a
           // meaningful cost so a truly missing Gemini/STT token is left for interpolation
@@ -107,7 +110,7 @@ function alignSequences(gemini: ReturnType<typeof tokenizeText>, timingWords: Ti
       const gs = i - gl;
       const ss = j - sl;
       const ga = concatNormalized(gemini, gs, gl, (t) => t.normalized);
-      const sb = concatNormalized(timingWords, ss, sl, (t) => normalizeForMatch(t.text));
+      const sb = concatNormalized(normalizedTiming, ss, sl, (text) => text);
       const score = similarity(ga, sb, equivalents);
       // Don't treat very poor forced matches as anchors; interpolation is safer.
       if (score >= 0.34) groups.push({ gStart: gs, gLen: gl, sStart: ss, sLen: sl, score });

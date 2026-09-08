@@ -65,7 +65,11 @@ def emission_cache_path(cache_dir, key: str):
     if not cache_dir:
         return None
     directory = Path(str(cache_dir))
-    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        log(f"KFA emission cache unavailable ({type(error).__name__}); continuing without disk cache.")
+        return None
     return directory / f"{key}.npz"
 
 
@@ -127,9 +131,11 @@ def get_kfa_session():
 
 
 def load_disk_emission(cache_path):
-    if cache_path is None or not cache_path.exists():
+    if cache_path is None:
         return None
     try:
+        if not cache_path.exists():
+            return None
         import numpy as np
 
         with np.load(str(cache_path), allow_pickle=False) as stored:
@@ -165,6 +171,10 @@ def save_disk_emission(cache_path, emission, sample_count: int, sample_rate: int
             np.savez(handle, emission=emission, sample_count=sample_count, sample_rate=sample_rate)
         os.replace(temp, cache_path)
         trim_disk_emission_cache(cache_path.parent, keep_path=cache_path)
+    except OSError as error:
+        # Cache persistence is optional; do not discard usable acoustic evidence
+        # or select Whisper just because the disk is full, locked or unavailable.
+        log(f"KFA emission cache write skipped ({type(error).__name__}); keeping acoustic results in memory.")
     finally:
         try:
             temp.unlink(missing_ok=True)

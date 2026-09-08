@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react';
 import { normalizeCaptionAppearance, planCaptionRenderStates, type CaptionAppearance, type CaptionPreviewFrame, type CaptionPreviewResult, type CaptionProject, type CaptionSegment, type VideoResolutionPreset } from '@kcs/shared';
-import { captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
+import { captionPreviewLookahead, captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
 import './native-caption-preview.css';
 
 interface Props {
@@ -74,7 +74,7 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
       current.cancel(); // a seek beyond the pending batch makes that work obsolete
     }
     if (current.error) return;
-    const wanted = states.slice(start).filter((item) => item.key).slice(0, 8);
+    const wanted = captionPreviewLookahead(states, start);
     const missing = wanted.filter((item) => !current.cache.has(item.key));
     if (!missing.length || (key && current.cache.has(key) && missing.length < 4)) return;
     const controller = new AbortController();

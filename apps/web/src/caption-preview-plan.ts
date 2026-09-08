@@ -12,6 +12,18 @@ export function captionPreviewStateIndex(states: CaptionRenderState[], timeMs: n
   return -1;
 }
 
+/** Collect at most eight drawable states from a nonnegative state index.
+ * Preserve gaps/order and object identity without copying/filtering the whole suffix.
+ */
+export function captionPreviewLookahead(states: readonly CaptionRenderState[], start: number) {
+  const wanted: CaptionRenderState[] = [];
+  for (let index = start; index < states.length && wanted.length < 8; index += 1) {
+    const state = states[index];
+    if (state.key) wanted.push(state);
+  }
+  return wanted;
+}
+
 /** Pixels occupied by object-fit: contain video, excluding letterbox/pillarbox space. */
 export function containedVideoFrame(width: number, height: number, videoWidth: number, videoHeight: number) {
   if (![width, height, videoWidth, videoHeight].every((value) => Number.isFinite(value) && value > 0)) return null;

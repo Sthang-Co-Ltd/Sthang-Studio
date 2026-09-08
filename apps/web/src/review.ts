@@ -84,7 +84,9 @@ export function resolveQaProfile(id: QaProfileId | undefined, custom?: Partial<Q
 
 const hasKhmer = (value: string) => /\p{Script=Khmer}/u.test(value);
 const hasLatin = (value: string) => /[A-Za-z]/.test(value);
-const graphemeLength = (value: string) => [...new Intl.Segmenter('km', { granularity: 'grapheme' }).segment(value)].length;
+// Initialize on first use, not at module import; empty projects need no segmenter.
+let graphemes: Intl.Segmenter | undefined;
+const graphemeLength = (value: string) => [...(graphemes ??= new Intl.Segmenter('km', { granularity: 'grapheme' })).segment(value)].length;
 
 function vocabularyAliases(lines: string[]) {
   return lines.flatMap((line) => {
@@ -111,9 +113,12 @@ export function analyzeCaptions(
   mediaDurationMs?: number,
 ): ReviewIssue[] {
   const issues = new Map<string, ReviewIssue>();
+  const firstIndex = new Map<string, number>();
   const aliases = vocabularyAliases(vocabularyLines);
 
   captions.forEach((caption, index) => {
+    // Keep findIndex's first-occurrence ordering even for duplicate IDs.
+    if (!firstIndex.has(caption.id)) firstIndex.set(caption.id, index);
     const text = caption.text.trim();
     const durationMs = caption.endMs - caption.startMs;
     const durationSeconds = Math.max(0.05, durationMs / 1000);
@@ -159,7 +164,7 @@ export function analyzeCaptions(
     const rank: Record<ReviewSeverity, number> = { error: 0, warning: 1, info: 2 };
     const severity = rank[a.severity] - rank[b.severity];
     if (severity) return severity;
-    return captions.findIndex((c) => c.id === a.captionId) - captions.findIndex((c) => c.id === b.captionId);
+    return (firstIndex.get(a.captionId) ?? -1) - (firstIndex.get(b.captionId) ?? -1);
   });
 }
 
