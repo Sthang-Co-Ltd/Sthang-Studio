@@ -36,6 +36,9 @@
    differentiates the choices without changing their hierarchy or anatomy. */
 .privacy-settings {
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  min-height: 0;
   gap: 14px;
   padding: 18px;
   overflow: auto;
