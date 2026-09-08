@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { PreviewFontCache, type FontLease } from './preview-font-cache.js';
 import {
   normalizeCaptionAppearance, captionRenderTime, wrapCaptionText, planCaptionRenderStates,
   type CaptionAppearance, type CaptionSegment, type VideoExportFontCapability,
@@ -66,6 +67,25 @@ export async function prepareCaptionFonts(workDir: string, appearance: CaptionAp
   await fs.copyFile(font.regularPath, path.join(directory, `regular${path.extname(font.regularPath)}`));
   if (appearance.bold && font.boldPath) await fs.copyFile(font.boldPath, path.join(directory, `bold${path.extname(font.boldPath)}`));
   return directory;
+}
+
+const previewFontCache = new PreviewFontCache();
+
+/** Reuse font-only staging across preview batches; native layout math is unchanged. */
+export async function preparePreviewFonts(workDir: string, appearance: CaptionAppearance): Promise<FontLease> {
+  try {
+    const fonts = await fontCapabilities();
+    requireCaptionFont(fonts, appearance);
+    const font = fonts.find((item) => item.name === appearance.fontFamily)!;
+    const faces = [{ source: font.regularPath, name: `regular${path.extname(font.regularPath)}` }];
+    if (appearance.bold && font.boldPath) faces.push({ source: font.boldPath, name: `bold${path.extname(font.boldPath)}` });
+    const lease = await previewFontCache.acquire(path.dirname(workDir), faces);
+    if (lease) return lease;
+  } catch {
+    // Optional staging reuse may fail. The original isolated path still performs
+    // the authoritative availability/weight checks and supplies actionable errors.
+  }
+  return { directory: await prepareCaptionFonts(workDir, appearance), release() {} };
 }
 
 function assTimestamp(ms: number) {

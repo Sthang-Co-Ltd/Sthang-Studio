@@ -1,5 +1,6 @@
 import type { CaptionAppearance } from './caption-settings.js';
 export * from './caption-settings.js';
+export { summarizeProject, type CaptionProjectSummary } from './project-summary.js';
 export { wrapCaptionText, planCaptionRenderStates, type CaptionRenderState } from './caption-layout.js';
 
 export type CaptionMode = 'dynamic' | 'word' | 'phrase' | 'single-line';

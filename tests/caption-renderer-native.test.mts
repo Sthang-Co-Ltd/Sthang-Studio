@@ -123,7 +123,12 @@ test('cancelled and rejected previews clean up after the native child has actual
   assert.equal(nativeStarted, true, 'must exercise a running native child');
   await assert.rejects(renderCaptionPreview({ ...input, appearance: { ...appearance, fontFamily: 'Missing Font' } }, capabilities), /unavailable/);
   const remaining = await fs.readdir(path.join(config.exportDir, '.working')).catch(() => []);
-  assert.deepEqual(remaining, []);
+  assert.deepEqual(remaining.filter((name) => !name.startsWith('preview-fonts-')), []);
+  assert.ok(remaining.length <= 4, 'only bounded font staging may survive a preview');
+  for (const name of remaining) {
+    const staged = await fs.readdir(path.join(config.exportDir, '.working', name));
+    assert.ok(staged.every((file) => /^(regular|bold)\.(ttf|otf)$/.test(file)), 'retained scratch contains fonts only');
+  }
 });
 
 test('real MP4 export uses the selected native look and accepts valid small files without modifying the source', async () => {

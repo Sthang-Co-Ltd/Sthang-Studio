@@ -9,6 +9,7 @@ import {
   ScanLine,
 } from 'lucide-react';
 import { decodeWaveformAudio } from '../audio/wav';
+import { buildWaveformPeaks, waveformExtrema, type WaveformPeaks } from '../audio/peaks';
 
 interface WaveformEditorProps {
   projectId: string;
@@ -83,6 +84,7 @@ interface WaveformMemoryEntry {
   samples: Float32Array;
   durationMs: number;
   spectrum: Spectrum | null;
+  peaks?: WaveformPeaks | null;
   touchedAt: number;
 }
 
@@ -104,12 +106,12 @@ function waveformIdentity(projectId: string, tokens: TimedToken[]) {
 }
 
 function entryBytes(entry: WaveformMemoryEntry) {
-  return entry.samples.byteLength + (entry.spectrum?.values.byteLength || 0);
+  return entry.samples.byteLength + (entry.spectrum?.values.byteLength || 0) + (entry.peaks?.byteLength || 0);
 }
 
 function trimWaveformMemory(keepKey: string) {
   const entries = [...waveformMemory.entries()]
-    .sort((a, b) => b[1].touchedAt - a[1].touchedAt);
+    .sort((a, b) => a[0] === keepKey ? -1 : b[0] === keepKey ? 1 : b[1].touchedAt - a[1].touchedAt);
   let keptBytes = 0;
   let keptEntries = 0;
   for (const [key, entry] of entries) {
@@ -157,6 +159,7 @@ export function WaveformEditor({
   onPreferenceChange,
 }: WaveformEditorProps) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
+  const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
   const samplesRef = useRef<Float32Array | null>(null);
   const [durationMs, setDurationMs] = useState(0);
@@ -170,6 +173,7 @@ export function WaveformEditor({
   const [snap, setSnap] = useState<'word' | 'silence' | 'off'>('word');
   const [drag, setDrag] = useState<DragState | null>(null);
   const [spectrum, setSpectrum] = useState<Spectrum | null>(null);
+  const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const memoryKey = useMemo(() => waveformIdentity(projectId, tokens), [projectId, tokens]);
@@ -193,6 +197,7 @@ export function WaveformEditor({
     let cancelled = false;
     setLoading(true);
     setLoadError('');
+    setPeaks(null);
     setSpectrum(null);
     setDurationMs(0);
     samplesRef.current = null;
@@ -206,6 +211,7 @@ export function WaveformEditor({
         samplesRef.current = remembered.samples;
         setDurationMs(remembered.durationMs);
         setSpectrum(remembered.spectrum);
+        setPeaks(remembered.peaks || null);
         setViewStartMs(0);
         setLoading(false);
         return () => { cancelled = true; };
@@ -271,12 +277,26 @@ export function WaveformEditor({
   }, [projectId, memoryKey, reloadKey]);
 
   useEffect(() => {
-    if (mode !== 'spectrum' || spectrum) return;
+    const samples = samplesRef.current;
+    if (loading || mode !== 'waveform' || !samples || peaks?.samples === samples) return;
+    let cancelled = false;
+    void buildWaveformPeaks(samples, () => cancelled || samplesRef.current !== samples).then((value) => {
+      if (!value || cancelled || samplesRef.current !== samples) return;
+      setPeaks(value);
+      const entry = waveformMemory.get(memoryKey);
+      // Do not resurrect an evicted project or replace concurrently computed spectrum.
+      if (entry?.samples === samples) rememberWaveform(memoryKey, { ...entry, peaks: value });
+    }).catch(() => { /* Optional peaks: exact raw PCM drawing remains the fallback. */ });
+    return () => { cancelled = true; };
+  }, [loading, mode, memoryKey, reloadKey, durationMs, peaks]);
+
+  useEffect(() => {
+    if (loading || mode !== 'spectrum' || spectrum) return;
     const samples = samplesRef.current;
     if (!samples || !durationMs) return;
 
     const remembered = recalledWaveform(memoryKey);
-    if (remembered?.spectrum) {
+    if (remembered?.samples === samples && remembered.spectrum) {
       if (import.meta.env.DEV) {
         (window as unknown as { __STHANG_TEST_HOOKS__?: { onSpectrumCacheHit?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onSpectrumCacheHit?.(memoryKey);
       }
@@ -290,7 +310,7 @@ export function WaveformEditor({
     const delay = (import.meta.env.DEV && (window as unknown as { __STHANG_TEST_HOOKS__?: { spectrumDelayMs?: number } }).__STHANG_TEST_HOOKS__?.spectrumDelayMs) || 0;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      if (cancelled) return;
+      if (cancelled || samplesRef.current !== samples) return;
       if (import.meta.env.DEV) {
         (window as unknown as { __STHANG_TEST_HOOKS__?: { onComputeSpectrum?: (key: string) => void } }).__STHANG_TEST_HOOKS__?.onComputeSpectrum?.(memoryKey);
       }
@@ -299,8 +319,9 @@ export function WaveformEditor({
       setSpectrum(computed);
       const existing = recalledWaveform(memoryKey);
       rememberWaveform(memoryKey, {
-        samples: existing?.samples ?? samples,
-        durationMs: existing?.durationMs ?? durationMs,
+        samples,
+        durationMs,
+        peaks: existing?.samples === samples ? existing.peaks : null,
         spectrum: computed,
         touchedAt: Date.now(),
       });
@@ -313,7 +334,7 @@ export function WaveformEditor({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mode, spectrum, memoryKey, durationMs]);
+  }, [mode, spectrum, memoryKey, durationMs, loading, reloadKey]);
 
   useEffect(() => {
     if (!follow || !durationMs) return;
@@ -399,9 +420,7 @@ export function WaveformEditor({
       for (let x = 0; x < width; x += 1) {
         const from = Math.floor(startIndex + x * samplesPerPixel);
         const to = Math.min(samples.length, Math.ceil(from + samplesPerPixel));
-        let min = 0;
-        let max = 0;
-        for (let i = from; i < to; i += 1) { min = Math.min(min, samples[i]); max = Math.max(max, samples[i]); }
+        const { min, max } = waveformExtrema(samples, peaks, from, to);
         ctx.moveTo(x + 0.5, middle + min * 54);
         ctx.lineTo(x + 0.5, middle + max * 54);
       }
@@ -435,6 +454,24 @@ export function WaveformEditor({
       }
     }
 
+  }, [width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, captions, tokens, selected]);
+
+  // The moving cursor has its own transparent layer; it never invalidates the
+  // expensive waveform/spectrum, word anchors, or caption background drawing.
+  useEffect(() => {
+    const target = playheadCanvas.current;
+    if (!target) return;
+    const ratio = window.devicePixelRatio || 1;
+    const height = 168;
+    target.width = Math.round(width * ratio);
+    target.height = Math.round(height * ratio);
+    target.style.width = `${width}px`;
+    target.style.height = `${height}px`;
+    const ctx = target.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(ratio, ratio);
+    ctx.clearRect(0, 0, width, height);
+    if (!durationMs || loading) return;
     const playheadX = timeToX(playheadMs);
     if (playheadX >= 0 && playheadX <= width) {
       ctx.strokeStyle = '#d7ff4f';
@@ -443,7 +480,7 @@ export function WaveformEditor({
       ctx.fillStyle = '#d7ff4f';
       ctx.beginPath(); ctx.moveTo(playheadX - 5, 0); ctx.lineTo(playheadX + 5, 0); ctx.lineTo(playheadX, 7); ctx.closePath(); ctx.fill();
     }
-  }, [width, durationMs, mode, spectrum, viewStartMs, viewDurationMs, viewEndMs, captions, tokens, selected, playheadMs]);
+  }, [width, durationMs, loading, viewStartMs, viewDurationMs, playheadMs]);
 
   const pointerTime = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -524,6 +561,7 @@ export function WaveformEditor({
       </div>}
       <canvas
         ref={canvas}
+        className="waveform-data-canvas"
         onPointerDown={(event: React.PointerEvent<HTMLCanvasElement>) => {
           if (!durationMs) return;
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -547,6 +585,8 @@ export function WaveformEditor({
         }}
         onPointerCancel={() => setDrag(null)}
       />
+      <canvas ref={playheadCanvas} aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}/>
+
     </div>
     <div className="waveform-navigation">
       <span>{formatMs(viewStartMs)}</span>

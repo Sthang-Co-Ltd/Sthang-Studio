@@ -29,7 +29,7 @@ test('runtime activation keeps rollback material until the new version is health
     assert.equal(rollback.active.version, '0.8.0');
     await assert.rejects(fs.access(path.join(updates, 'transaction.json')));
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -51,7 +51,7 @@ test('runtime health failure stops the failed process and restores the prior poi
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(updates, 'active.json'), 'utf8')), previous);
     await assert.rejects(fs.access(path.join(updates, 'transaction.json')));
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -69,7 +69,7 @@ test('startup recovery rolls back an interrupted activation and records a safe n
     assert.match(failure.message, /rolled back/i);
     await assert.rejects(fs.access(path.join(updates, 'transaction.json')));
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -78,7 +78,7 @@ test('runtime recovery is non-destructive when no transaction exists', async () 
   try {
     assert.equal(await recoverInterruptedActivation(root), false);
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -97,7 +97,7 @@ test('atomic JSON replacement never exposes partial JSON to readers', async () =
     assert.match(parsed.version, /^0\.8\.\d+$/);
     assert.deepEqual((await fs.readdir(path.dirname(file))).sort(), ['active.json']);
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 

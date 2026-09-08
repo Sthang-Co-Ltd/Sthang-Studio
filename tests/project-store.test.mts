@@ -60,6 +60,15 @@ test('a failed disk write does not publish its appearance or poison a later save
   assert.deepEqual(saved?.captions, before.captions);
 });
 
+test('home summaries match stored projects without sharing or returning full payloads', async () => {
+  const full = (await store.get(original.id))!;
+  const list = await store.listSummaries();
+  assert.deepEqual(list, [{ id: full.id, title: full.title, createdAt: full.createdAt, updatedAt: full.updatedAt, captionCount: full.captions.length }]);
+  list[0].title = 'external mutation';
+  assert.equal((await store.get(original.id))!.title, full.title);
+  assert.deepEqual((await store.list())[0], full, 'the original full-list API is preserved');
+});
+
 test('deletion and queued appearance writes cannot recreate a removed project', async () => {
   await Promise.all([store.remove(original.id), store.setCaptionAppearance(original.id, DEFAULT_CAPTION_APPEARANCE)]);
   assert.equal(await store.get(original.id), null);

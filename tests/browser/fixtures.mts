@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { DEFAULT_CAPTION_APPEARANCE, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, summarizeProject, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities } from '@kcs/shared';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -267,7 +267,7 @@ export async function installFixture(page: Page): Promise<FixtureState> {
         body,
       });
     }
-    if (url.pathname === '/api/projects') return json(state.projects);
+    if (url.pathname === '/api/projects') return json(url.searchParams.get('summary') === '1' ? state.projects.map(summarizeProject) : state.projects);
     if (url.pathname === '/api/profile') {
       if (method === 'PATCH') state.profile = { ...state.profile, ...body, preferences: { ...state.profile.preferences, ...body.preferences } };
       return json(state.profile);
