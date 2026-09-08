@@ -61,7 +61,7 @@ test('background appearance keeps independent outline, shadow, color, opacity an
   assert.equal(style('Background').OutlineColour, '&H000000FF', 'ASS opaque-box color is OutlineColour');
   assert.equal(style('Background').Outline, '12');
   assert.equal(style('Background').Shadow, '0');
-  assert.ok(doc.includes('WrapStyle: 2'), 'native layout must not independently reflow planned lines');
+  assert.ok(doc.includes('WrapStyle: 0'), 'native layout should keep words intact and wrap only when measured geometry requires it');
 });
 
 test('preview input rejects unbounded/unsorted samples and malformed captions before native execution', () => {

@@ -122,6 +122,17 @@ test('ASS rendering scales style to output and wraps long Khmer on grapheme boun
   assert.ok(document.includes(longKhmer.slice(0, 4)), 'Khmer graphemes should remain in the render document');
 });
 
+test('ASS gives ordinary mixed-language captions a real single-line layout attempt', () => {
+  const document = buildAssDocument([
+    { id: '1', startMs: 0, endMs: 2500, text: 'កម្ពុជាខ្មែរ CapCut caption generate' },
+  ], DEFAULT_CAPTION_APPEARANCE, 1080, 1920);
+
+  assert.match(document, /WrapStyle: 0/);
+  const dialogue = document.split('\n').find((line) => line.startsWith('Dialogue:')) || '';
+  assert.ok(dialogue.includes('កម្ពុជាខ្មែរ CapCut caption generate'));
+  assert.doesNotMatch(dialogue, /\\N/, 'ordinary words must not be split before native glyph layout');
+});
+
 test('native ASS renderer explicitly requests complex shaping for Khmer', () => {
   const filter = buildAssCaptionFilter('C:\\work\\captions.ass', 'C:\\Windows\\Fonts');
   assert.match(filter, /^ass=/);

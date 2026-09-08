@@ -9,11 +9,28 @@ import { captionRenderTime } from './caption-settings.js';
 export function wrapCaptionText(text: string, maxGraphemesPerLine: number) {
   const lines = String(text || '').split(/\r?\n/);
   const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('km', { granularity: 'grapheme' }) : null;
+  const graphemesFor = (value: string) => segmenter ? Array.from(segmenter.segment(value), (item) => item.segment) : Array.from(value);
+  const hardWrap = (value: string) => {
+    const graphemes = graphemesFor(value);
+    if (graphemes.length <= maxGraphemesPerLine) return value;
+    const chunks: string[] = [];
+    for (let cursor = 0; cursor < graphemes.length; cursor += maxGraphemesPerLine) {
+      chunks.push(graphemes.slice(cursor, cursor + maxGraphemesPerLine).join(''));
+    }
+    return chunks.join('\n');
+  };
   const output: string[] = [];
   for (const line of lines) {
-    const graphemes = segmenter ? Array.from(segmenter.segment(line), (item) => item.segment) : Array.from(line);
+    const graphemes = graphemesFor(line);
     if (graphemes.length <= maxGraphemesPerLine) {
       output.push(line);
+      continue;
+    }
+    // Keep ordinary word-spaced captions intact so libass can measure the real
+    // glyph widths and keep them on one line when they fit. Only an individual
+    // unbroken run needs a render-only hard wrap.
+    if (/\s/u.test(line)) {
+      output.push(line.split(/(\s+)/u).map((part) => /\s/u.test(part) ? part : hardWrap(part)).join(''));
       continue;
     }
     let cursor = 0;
@@ -69,4 +86,3 @@ export function planCaptionRenderStates(captions: CaptionSegment[]): CaptionRend
     return { atMs: time, endMs: times[index + 1], key: ids.join(','), text: ids.map((id) => captions[id].text).join('\n') };
   });
 }
-

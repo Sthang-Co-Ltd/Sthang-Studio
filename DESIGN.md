@@ -69,6 +69,11 @@ before they reach Export.
 - Keep the common path small: **Preset, Khmer font, text color, size, position**.
   Put weight, outline, shadow, max width, alignment and background-box controls
   behind **More appearance**.
+- With untouched appearance defaults, keep a caption on one line whenever its
+  measured glyphs fit the available caption region. Do not pre-split ordinary
+  mixed Khmer/Latin words with approximate character counts. Explicit line
+  breaks and creator changes such as a narrower **Max width** may produce a
+  multi-line layout.
 - Project appearance saves automatically and must surface saving/failure state.
   Leaving the workspace must not silently discard the creator's latest change.
 - Reusable appearance presets are local creator-profile conveniences. Preset

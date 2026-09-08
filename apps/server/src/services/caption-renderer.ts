@@ -143,7 +143,7 @@ export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Pa
     const event = (layer: number, name: string) => `Dialogue: ${layer},${assTimestamp(c.atMs)},${assTimestamp(c.endMs)},${name},,0,0,0,,${text}`;
     return a.backgroundEnabled ? [event(0, 'Background'), event(1, 'Default')] : [event(0, 'Default')];
   });
-  return `\uFEFF[Script Info]\nScriptType: v4.00+\nLanguage: km\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\nYCbCr Matrix: None\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`;
+  return `\uFEFF[Script Info]\nScriptType: v4.00+\nLanguage: km\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: None\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`;
 }
 
 function filterPath(filePath: string) {

@@ -99,6 +99,21 @@ test('native batch seeks respect gaps, overlaps and literal ASS-looking creator 
   assert.ok(result.frames[2].bounds!.height > result.frames[1].bounds!.height, 'overlapping captions are both rendered, not just the first match');
 });
 
+test('default mixed Khmer and Latin captions stay on one line until appearance narrows the layout', async () => {
+  const portraitCaps = { ...capabilities, source: { ...source, displayWidth: 360, displayHeight: 640 } };
+  for (const text of ['កម្ពុជាខ្មែរ CapCut', 'កម្ពុជាខ្មែរ caption', 'កម្ពុជាខ្មែរ generate']) {
+    const oneLine = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(text), timesMs: [200], appearance, resolution: 'source' }), portraitCaps);
+    const explicitTwoLines = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(text.replace(' ', '\n')), timesMs: [200], appearance, resolution: 'source' }), portraitCaps);
+    assert.ok(oneLine.frames[0].bounds && explicitTwoLines.frames[0].bounds);
+    assert.ok(oneLine.frames[0].bounds!.height < explicitTwoLines.frames[0].bounds!.height * 0.75, `${text}: default appearance should keep measured text on one line when it fits`);
+  }
+
+  const narrowed = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue('កម្ពុជាខ្មែរ CapCut'), timesMs: [200], appearance: { ...appearance, maxWidthPct: 45 }, resolution: 'source' }), portraitCaps);
+  const defaultWidth = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue('កម្ពុជាខ្មែរ CapCut'), timesMs: [200], appearance, resolution: 'source' }), portraitCaps);
+  assert.ok(narrowed.frames[0].bounds && defaultWidth.frames[0].bounds);
+  assert.ok(narrowed.frames[0].bounds!.height > defaultWidth.frames[0].bounds!.height * 1.35, 'reducing Max width should still allow the creator to produce a wrapped layout');
+});
+
 test('native filter paths survive apostrophes, spaces and filtergraph punctuation', async () => {
   const dir = path.join(root, "creator's [captions], v2;");
   await fs.mkdir(dir);
