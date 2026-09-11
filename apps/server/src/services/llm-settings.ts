@@ -53,9 +53,13 @@ export interface LlmConnectionTest {
 const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const settingsDir = process.platform === 'win32'
   ? path.join(localAppData, 'Sthang Studio')
-  : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'sthang-studio');
+  : process.platform === 'darwin'
+    ? path.join(os.homedir(), 'Library', 'Application Support', 'Sthang Studio')
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'sthang-studio');
 const metadataFile = path.join(settingsDir, 'llm-settings.json');
 const secretFile = path.join(settingsDir, 'gemini-key.dpapi');
+const macKeychainService = 'com.sthang.studio.gemini';
+const macKeychainAccount = 'gemini-api-key';
 const resolvedSettingsCacheTtlMs = 5 * 60 * 1000;
 let resolvedSettingsCache: { value: ResolvedGeminiSettings; expiresAt: number } | null = null;
 
@@ -156,31 +160,85 @@ function runPowerShell(script: string, input: string): Promise<string> {
   });
 }
 
+function runMacSecurity(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/security', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('exit', (code) => resolve({ stdout, stderr, code }));
+  });
+}
+
+function writeMacKeychain(apiKey: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const hexKey = Buffer.from(apiKey, 'utf8').toString('hex');
+    const command = `add-generic-password -U -a "${macKeychainAccount}" -s "${macKeychainService}" -X "${hexKey}"\n`;
+    if (Buffer.byteLength(command, 'utf8') >= 4000) {
+      reject(new Error('The Gemini API key is too large for the macOS Keychain command.'));
+      return;
+    }
+    const child = spawn('/usr/bin/security', ['-i'], { stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`macOS Keychain exited with code ${code}.`));
+    });
+    child.stdin.end(command);
+  });
+}
+
+async function deleteMacKeychainKey() {
+  const result = await runMacSecurity(['delete-generic-password', '-a', macKeychainAccount, '-s', macKeychainService]);
+  if (result.code === 0 || /could not be found|specified item.*not be found/i.test(result.stderr)) return;
+  throw new Error(result.stderr.trim() || `macOS Keychain exited with code ${result.code}.`);
+}
+
 async function readSecureKey(): Promise<string | null> {
-  if (process.platform !== 'win32') return null;
-  let encrypted: string;
-  try {
-    encrypted = (await fs.readFile(secretFile, 'utf8')).trim();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
+  if (process.platform === 'darwin') {
+    const result = await runMacSecurity(['find-generic-password', '-a', macKeychainAccount, '-s', macKeychainService, '-w']);
+    if (result.code !== 0) {
+      if (/could not be found|specified item.*not be found/i.test(result.stderr)) return null;
+      throw new Error(result.stderr.trim() || `macOS Keychain exited with code ${result.code}.`);
+    }
+    const key = result.stdout.trim();
+    return validConfiguredKey(key) ? key : null;
   }
-  if (!encrypted) return null;
-  const decrypted = (await runPowerShell(decryptScript, encrypted)).trim();
-  return validConfiguredKey(decrypted) ? decrypted : null;
+  if (process.platform === 'win32') {
+    let encrypted: string;
+    try {
+      encrypted = (await fs.readFile(secretFile, 'utf8')).trim();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    if (!encrypted) return null;
+    const decrypted = (await runPowerShell(decryptScript, encrypted)).trim();
+    return validConfiguredKey(decrypted) ? decrypted : null;
+  }
+  return null;
 }
 
 async function writeSecureKey(apiKey: string) {
-  if (process.platform !== 'win32') {
-    throw new Error('Secure in-app API key storage is currently available on Windows. Use GEMINI_API_KEY in the server environment on this platform.');
-  }
   const key = validateKeyInput(apiKey);
-  const encrypted = await runPowerShell(encryptScript, key);
-  if (!encrypted) throw new Error('Windows returned an empty encrypted secret. The API key was not saved.');
-  await fs.mkdir(settingsDir, { recursive: true });
-  const temp = `${secretFile}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(temp, encrypted, { encoding: 'utf8', mode: 0o600 });
-  await fs.rename(temp, secretFile);
+  if (process.platform === 'darwin') {
+    await writeMacKeychain(key);
+    return;
+  }
+  if (process.platform === 'win32') {
+    const encrypted = await runPowerShell(encryptScript, key);
+    if (!encrypted) throw new Error('Windows returned an empty encrypted secret. The API key was not saved.');
+    await fs.mkdir(settingsDir, { recursive: true });
+    const temp = `${secretFile}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(temp, encrypted, { encoding: 'utf8', mode: 0o600 });
+    await fs.rename(temp, secretFile);
+    return;
+  }
+  throw new Error('Secure in-app API key storage is unavailable on this platform. Use GEMINI_API_KEY in the server environment.');
 }
 
 export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
@@ -192,7 +250,7 @@ export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
   try {
     secureKey = await readSecureKey();
   } catch (error) {
-    console.warn('[AI settings] Windows could not decrypt the saved Gemini key. Falling back to GEMINI_API_KEY if available:', error instanceof Error ? error.message : error);
+    console.warn('[AI settings] Secure credential storage could not read the saved Gemini key. Falling back to GEMINI_API_KEY if available:', error instanceof Error ? error.message : error);
   }
   const environmentKey = validConfiguredKey(config.geminiApiKey) ? config.geminiApiKey.trim() : '';
   const apiKey = secureKey || environmentKey;
@@ -203,10 +261,12 @@ export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
     keySource: secureKey ? 'secure-store' : environmentKey ? 'environment' : 'none',
     model: normalizeModel(metadata.model, config.geminiModel),
     fallbackModel: normalizeModel(metadata.fallbackModel, config.geminiFallbackModel, true),
-    secureStorageAvailable: process.platform === 'win32',
+    secureStorageAvailable: process.platform === 'win32' || process.platform === 'darwin',
     secureStorageLabel: process.platform === 'win32'
       ? 'Windows user-protected storage (DPAPI)'
-      : 'Environment variable only on this platform',
+      : process.platform === 'darwin'
+        ? 'macOS Keychain'
+        : 'Environment variable only on this platform',
     environmentFallbackAvailable: Boolean(environmentKey),
   };
   resolvedSettingsCache = { value: resolved, expiresAt: Date.now() + resolvedSettingsCacheTtlMs };
@@ -255,6 +315,7 @@ export async function saveLlmSettings(input: { apiKey?: unknown; model?: unknown
 
 export async function forgetSecureGeminiKey(): Promise<PublicLlmSettings> {
   if (process.platform === 'win32') await fs.rm(secretFile, { force: true });
+  if (process.platform === 'darwin') await deleteMacKeychainKey();
   const metadata = await readMetadata();
   await writeMetadata({ ...metadata, keyLast4: undefined, updatedAt: new Date().toISOString() });
   invalidateResolvedSettingsCache();

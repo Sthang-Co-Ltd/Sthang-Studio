@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-khmer-contributor-analytics-v0-8-0', 'manifest.change.id');
+  equal(change.id, 'studio-macos-source-beta-dependency-refresh-v0-8-0', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Publish Studio 0.8.0 Public Beta with explicit opt-in Khmer Caption Contributor and privacy-safe product analytics provisioned and default-off, while keeping OTA promotion and HQ/Distribution synchronization separately gated.',
+    'Add Apple Silicon macOS source-beta support and refresh the reviewed runtime dependency baseline while keeping packaged public distribution Windows-only and documenting macOS Keychain storage.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -273,6 +273,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     equal(provider.credentialOwner, 'user', 'Gemini credentialOwner');
     exactStringArray(provider.keyStorage, 'Gemini keyStorage', [
       'Windows user-protected in-app storage',
+      'macOS Keychain for Apple Silicon source builds',
       'Advanced GEMINI_API_KEY environment or .env fallback',
     ]);
     equal(provider.interactionStore, false, 'Gemini interactionStore');

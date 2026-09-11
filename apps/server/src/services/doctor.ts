@@ -28,6 +28,11 @@ async function probe(command: string, args: string[], label: string) {
 
 export async function runSystemDoctor(): Promise<SystemDoctorReport> {
   const checks: DoctorCheck[] = [];
+  const timingSetupFix = process.platform === 'win32'
+    ? 'Run setup-local-timing-windows.bat.'
+    : process.platform === 'darwin'
+      ? 'Run bash ./setup-local-timing-macos.sh.'
+      : 'Install the local timing Python dependencies for this platform.';
 
   checks.push(check('node', 'Node.js runtime', 'ok', process.version));
 
@@ -52,13 +57,14 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
   const python = await probe(config.localTimingPython, ['--version'], 'Python timing runtime');
   checks.push(python.ok
     ? check('python', 'Python timing runtime', 'ok', python.text)
-    : check('python', 'Python timing runtime', 'error', python.text, 'Run setup-local-timing-windows.bat.'));
+    : check('python', 'Python timing runtime', 'error', python.text, timingSetupFix));
 
   if (python.ok) {
     const pythonCheck = [
       'import importlib.util, json, os',
-      "base=os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')",
-      "model=os.path.join(base,'kfa','wav2vec2-km-base-1500.onnx')",
+      "appdirs_spec=importlib.util.find_spec('appdirs')",
+      "base=__import__('appdirs').user_cache_dir() if appdirs_spec else ''",
+      "model=os.path.join(base,'kfa','wav2vec2-km-base-1500.onnx') if base else ''",
       "print(json.dumps({'kfa':bool(importlib.util.find_spec('kfa')),'whisper':bool(importlib.util.find_spec('faster_whisper')),'onnx':bool(importlib.util.find_spec('onnxruntime')),'model':os.path.exists(model),'model_path':model}))",
     ].join(';');
     const packages = await probe(config.localTimingPython, ['-c', pythonCheck], 'Local timing package probe');
@@ -67,27 +73,27 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
         const parsed = JSON.parse(packages.text) as { kfa: boolean; whisper: boolean; onnx: boolean; model: boolean; model_path: string };
         checks.push(parsed.kfa
           ? check('kfa', 'KFA Khmer aligner', 'ok', 'Python package installed')
-          : check('kfa', 'KFA Khmer aligner', 'error', 'Python package is missing', 'Run setup-local-timing-windows.bat.'));
+          : check('kfa', 'KFA Khmer aligner', 'error', 'Python package is missing', timingSetupFix));
         checks.push(parsed.onnx
           ? check('onnx', 'ONNX Runtime', 'ok', 'Installed')
-          : check('onnx', 'ONNX Runtime', 'error', 'Missing', 'Run setup-local-timing-windows.bat.'));
+          : check('onnx', 'ONNX Runtime', 'error', 'Missing', timingSetupFix));
         checks.push(parsed.model
           ? check('kfa-model', 'KFA Khmer model', 'ok', parsed.model_path)
           : check('kfa-model', 'KFA Khmer model', 'warning', 'Not cached yet. It will download on first KFA import/generation.', 'Run the KFA import test or generate captions once while online.'));
         checks.push(parsed.whisper
           ? check('whisper', 'Local Whisper fallback', 'ok', 'Installed')
-          : check('whisper', 'Local Whisper fallback', 'warning', 'Not installed. KFA can still work, but there is no local fallback.', 'Run setup-local-timing-windows.bat.'));
+          : check('whisper', 'Local Whisper fallback', 'warning', 'Not installed. KFA can still work, but there is no local fallback.', timingSetupFix));
       } catch {
         checks.push(check('python-packages', 'Local timing packages', 'warning', `Could not parse package probe: ${packages.text}`));
       }
     } else {
-      checks.push(check('python-packages', 'Local timing packages', 'error', packages.text, 'Run setup-local-timing-windows.bat.'));
+      checks.push(check('python-packages', 'Local timing packages', 'error', packages.text, timingSetupFix));
     }
   }
 
   const llm = await resolveGeminiSettings();
   checks.push(llm.configured
-    ? check('gemini-key', 'Gemini API key', 'ok', `Configured via ${llm.keySource === 'secure-store' ? 'Windows protected storage' : 'environment'} (value hidden)`)
+    ? check('gemini-key', 'Gemini API key', 'ok', `Configured via ${llm.keySource === 'secure-store' ? llm.secureStorageLabel : 'environment'} (value hidden)`)
     : check('gemini-key', 'Gemini API key', 'error', 'Not configured yet', 'Open Settings → AI connection and paste your Gemini API key.'));
   checks.push(check(
     'gemini-storage',

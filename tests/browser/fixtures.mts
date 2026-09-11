@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 export const source = { width: 640, height: 360, displayWidth: 640, displayHeight: 360, rotation: 0, durationMs: 4000, frameRate: 25, variableFrameRate: false, videoCodec: 'h264', pixelFormat: 'yuv420p', bitDepth: 8, hdr: 'sdr' as const, audioCodecs: [], audioStreams: 0 };
 export const appearance = { ...DEFAULT_CAPTION_APPEARANCE, fontFamily: process.platform === 'win32' ? 'Khmer UI' : 'Noto Sans Khmer' };
 export const capabilities: VideoExportCapabilities = { supported: true, source, subtitlesFilter: true, availableDiskBytes: 10_000_000_000, warnings: [], fonts: [
-  { name: appearance.fontFamily, available: true, boldAvailable: true, source: process.platform === 'win32' ? 'windows-system' : 'linux-system' },
+  { name: appearance.fontFamily, available: true, boldAvailable: true, source: process.platform === 'win32' ? 'windows-system' : process.platform === 'darwin' ? 'macos-system' : 'linux-system' },
   { name: 'Regular-only fixture', available: true, boldAvailable: false, source: 'user-installed' },
 ], encoders: [{ id: 'software', label: 'Software', encoder: 'libx264', codec: 'h264', hardware: false, available: true }], resolutions: [
   { id: 'source', label: 'Original', width: 640, height: 360, upscaled: false },

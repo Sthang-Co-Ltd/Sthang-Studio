@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { PreviewFontCache, type FontLease } from './preview-font-cache.js';
 import {
@@ -33,6 +34,32 @@ export async function fontCapabilities() {
         const bold = names.find((name) => /^NotoSansKhmer-Bold\.(?:ttf|otf)$/i.test(name));
         if (regular) fonts.push(await candidateFont('Noto Sans Khmer', path.join(userFonts, regular), bold ? path.join(userFonts, bold) : undefined, 'user-installed'));
       } catch { /* optional user font directory */ }
+    }
+  } else if (process.platform === 'darwin') {
+    for (const regular of [
+      '/System/Library/Fonts/Supplemental/Khmer MN.ttc',
+      '/Library/Fonts/Khmer MN.ttc',
+    ]) {
+      const item = await candidateFont('Khmer MN', regular, regular, 'macos-system');
+      if (item.available) { fonts.push(item); break; }
+    }
+    for (const regular of [
+      '/System/Library/Fonts/Supplemental/Khmer Sangam MN.ttf',
+      '/Library/Fonts/Khmer Sangam MN.ttf',
+    ]) {
+      const item = await candidateFont('Khmer Sangam MN', regular, undefined, 'macos-system');
+      if (item.available) { fonts.push(item); break; }
+    }
+    for (const fontDir of [path.join(os.homedir(), 'Library', 'Fonts'), '/Library/Fonts']) {
+      try {
+        const names = await fs.readdir(fontDir);
+        const regular = names.find((name) => /^NotoSansKhmer(?:-Regular)?\.(?:ttf|otf)$/i.test(name));
+        const bold = names.find((name) => /^NotoSansKhmer-Bold\.(?:ttf|otf)$/i.test(name));
+        if (regular) {
+          fonts.push(await candidateFont('Noto Sans Khmer', path.join(fontDir, regular), bold ? path.join(fontDir, bold) : undefined, 'user-installed'));
+          break;
+        }
+      } catch { /* optional macOS font directory */ }
     }
   } else {
     const linuxCandidates = [

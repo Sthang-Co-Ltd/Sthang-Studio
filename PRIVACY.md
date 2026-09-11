@@ -227,14 +227,17 @@ identity, and the contribution service does not receive it.
 ## API keys
 
 On Windows, the preferred in-app setup stores the Gemini API key using Windows
-user-protected storage (DPAPI) under `%LOCALAPPDATA%\Sthang Studio`. The browser
-receives only a masked representation. An `apps/server/.env` `GEMINI_API_KEY`
-remains supported as an advanced fallback and is ignored by Git.
+user-protected storage (DPAPI) under `%LOCALAPPDATA%\Sthang Studio`. On macOS
+source builds, the same in-app flow stores the key in the macOS Keychain and
+keeps settings metadata under `~/Library/Application Support/Sthang Studio`.
+The browser receives only a masked representation. An `apps/server/.env`
+`GEMINI_API_KEY` remains supported as an advanced fallback and is ignored by Git.
 
-To avoid repeatedly starting PowerShell/DPAPI for every AI pass, Studio may keep
-the already-resolved key and model settings in server process memory for a short
-period. The plaintext key is not written to an unencrypted cache or returned to
-the browser; in-app Save/Forget actions invalidate that memory cache immediately.
+To avoid repeatedly reopening the operating-system credential store for every AI
+pass, Studio may keep the already-resolved key and model settings in server
+process memory for a short period. The plaintext key is not written to an
+unencrypted cache or returned to the browser; in-app Save/Forget actions
+invalidate that memory cache immediately.
 
 Never commit, paste into issues, or publish a real API key. If a key is exposed,
 revoke/rotate it with the provider immediately.
@@ -287,7 +290,7 @@ gates.
 
 Because projects and caches are local files, removing an installation does not
 necessarily remove data stored elsewhere on the same computer (for example the
-Windows-protected Gemini key, random analytics identity, or Contributor withdrawal
+OS-protected Gemini key, random analytics identity, or Contributor withdrawal
 credential under the Studio state root). Use the application's available
 delete/forget/privacy actions and remove local runtime folders deliberately when
 you no longer need them.

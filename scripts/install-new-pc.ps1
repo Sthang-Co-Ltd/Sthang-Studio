@@ -83,7 +83,7 @@ function Download-File([string]$Url, [string]$Destination, [string]$Label) {
 function Test-Node {
   try {
     $node = Get-Command node -ErrorAction Stop
-    & $node.Source -e "process.exit(Number(process.versions.node.split('.')[0]) >= 20 ? 0 : 1)" *> $null
+    & $node.Source -e "process.exit(Number(process.versions.node.split('.')[0]) >= 24 ? 0 : 1)" *> $null
     return $LASTEXITCODE -eq 0
   } catch {
     return $false
@@ -144,7 +144,7 @@ function Try-WingetPackage([string]$PackageId, [string]$Label, [scriptblock]$Ver
 }
 
 function Install-NodeFallback {
-  $version = '22.22.0'
+  $version = '24.21.0'
   $archiveName = "node-v$version-win-x64.zip"
   $archive = Join-Path $TempRoot $archiveName
   $sums = Join-Path $TempRoot "node-v$version-SHASUMS256.txt"
@@ -228,11 +228,11 @@ function Install-PythonFallback {
 }
 
 function Install-FFmpegFallback {
-  $version = '8.1.2'
+  $version = '9.0.1'
   $archiveName = "ffmpeg-$version-essentials_build.zip"
   $archive = Join-Path $TempRoot $archiveName
   $target = Join-Path $ToolsRoot 'ffmpeg'
-  $expectedSha256 = 'db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec'
+  $expectedSha256 = 'fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9'
   $ffmpegExe = $null
 
   if (Test-Path $target) {

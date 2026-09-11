@@ -1,0 +1,14 @@
+# Apple Silicon macOS runtime dependencies for KFA 0.2.0.
+# KFA and khmercut are installed with --no-deps by setup-local-timing-macos.sh
+# so macOS can use the arm64 python-crfsuite wheel available in 0.9.11.
+numpy>=1.26,<2.0
+sosap==0.4.3
+python-crfsuite==0.9.11
+khmernormalizer==0.0.4
+chardet>=5.2,<6
+onnxruntime>=1.20,<2.0
+librosa>=0.10
+scipy>=1.10
+tqdm==4.65.0
+requests>=2.31
+appdirs>=1.4.4

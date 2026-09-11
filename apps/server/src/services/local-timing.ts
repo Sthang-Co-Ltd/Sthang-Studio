@@ -430,7 +430,12 @@ export async function alignTimingLocally(wavPath: string, workDir: string, gemin
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         if (/ENOENT|could not start/i.test(message)) {
-          throw new Error(`Local timing is not installed. Run setup-local-timing-windows.bat once, then restart the app. ${message}`);
+          const setup = process.platform === 'win32'
+            ? 'Run setup-local-timing-windows.bat once'
+            : process.platform === 'darwin'
+              ? 'Run bash ./setup-local-timing-macos.sh once'
+              : 'Install the local timing Python dependencies';
+          throw new Error(`Local timing is not installed. ${setup}, then restart the app. ${message}`);
         }
         throw new Error(`Local timing failed. No Google Cloud timing API was called. ${message}`);
       }

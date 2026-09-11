@@ -112,7 +112,7 @@ export interface VideoExportFontCapability {
   name: string;
   available: boolean;
   boldAvailable: boolean;
-  source: 'windows-system' | 'user-installed' | 'linux-system';
+  source: 'windows-system' | 'macos-system' | 'user-installed' | 'linux-system';
 }
 
 export interface VideoExportCapabilities {

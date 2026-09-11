@@ -69,7 +69,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       setApiKey('');
       setShowKey(false);
       setMessage(updated.keySource === 'secure-store'
-        ? 'Connected and saved securely for this Windows user. No restart is needed.'
+        ? 'Connected and saved securely on this computer. No restart is needed.'
         : 'Connection verified and model settings saved. The environment key remains active.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not verify and save AI settings.');
@@ -92,7 +92,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   };
 
   const forget = async () => {
-    if (!window.confirm('Forget the API key saved by Sthang Studio on this Windows account? Your Google AI Studio key itself will not be deleted.')) return;
+    if (!window.confirm('Forget the API key saved securely by Sthang Studio on this computer? Your Google AI Studio key itself will not be deleted.')) return;
     resetFeedback();
     setWorking('forget');
     try {
@@ -109,7 +109,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   };
 
   const sourceLabel = settings.keySource === 'secure-store'
-    ? 'Windows protected storage'
+    ? settings.secureStorageLabel
     : settings.keySource === 'environment'
       ? 'apps/server/.env or environment'
       : 'No key configured';
@@ -144,7 +144,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
             <button type="button" title="Paste from clipboard" onClick={() => void pasteKey()}><ClipboardPaste size={15}/></button>
           </div>
         </label>
-        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'The saved secret is tied to your Windows user account. Profile exports never include it.' : 'Use a server environment variable on this platform.'}</span></div></div>
+        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'The saved secret is protected by your operating-system account. Profile exports never include it.' : 'Use a server environment variable on this platform.'}</span></div></div>
       </section>
 
       <section className="ai-settings-section">

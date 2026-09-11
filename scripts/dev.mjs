@@ -30,7 +30,13 @@ for (const [port, label] of [[8787, 'backend'], [5188, 'web app']]) {
     console.error(`\nERROR: Port ${port} is already in use, so the ${label} cannot start.`);
     const owner = windowsPortOwner(port);
     if (owner) console.error(`Owner: ${owner}`);
-    console.error('Close the older Sthang Studio terminal. If needed, run taskkill /PID <PID> /T /F.\n');
+    if (process.platform === 'win32') {
+      console.error('Close the older Sthang Studio terminal. If needed, run taskkill /PID <PID> /T /F.\n');
+    } else if (process.platform === 'darwin') {
+      console.error(`Close the older Sthang Studio terminal. If needed, run lsof -nP -iTCP:${port} -sTCP:LISTEN to find the process.\n`);
+    } else {
+      console.error('Close the older Sthang Studio terminal, then stop the process that owns this port.\n');
+    }
     process.exit(1);
   }
 }
@@ -158,12 +164,22 @@ function openWindowsBrowser(url) {
   }
 }
 
-if (process.platform === 'win32' && process.env.KCS_OPEN_BROWSER !== 'false') {
+function openMacBrowser(url) {
+  console.log(`Sthang Studio is ready. Opening ${url} in your default browser...`);
+  const result = spawnSync('/usr/bin/open', [url], { stdio: 'ignore' });
+  if (result.status !== 0) {
+    console.warn(`Could not open a browser automatically. Open ${url} in your preferred browser.`);
+  }
+}
+
+if ((process.platform === 'win32' || process.platform === 'darwin') && process.env.KCS_OPEN_BROWSER !== 'false') {
   void Promise.all([
     urlReady('http://127.0.0.1:8787/api/health'),
     urlReady('http://127.0.0.1:5188/'),
   ]).then(([backendReady, webReady]) => {
     if (!backendReady || !webReady || stopping) return;
-    openWindowsBrowser('http://127.0.0.1:5188/');
+    const url = 'http://127.0.0.1:5188/';
+    if (process.platform === 'win32') openWindowsBrowser(url);
+    else openMacBrowser(url);
   });
 }

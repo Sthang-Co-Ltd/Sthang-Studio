@@ -30,7 +30,7 @@ available without crowding the main editing flow.
 - Precision waveform timing for difficult captions.
 - Dual export paths: portable UTF-8 SRT for video editors, and local MP4 rendering with baked-in captions.
 - Local projects, history, caches, proposals, and exports.
-- Windows-protected in-app storage for a Gemini API key.
+- OS-protected in-app Gemini key storage on Windows, plus macOS Keychain support in Apple Silicon source builds.
 - Version 0.8.0 adds a default-private **Khmer Caption Contributor** program and
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
@@ -139,7 +139,7 @@ Sthang Studio provides two distinct export workflows:
 - **Layout parity**: Studio's native caption preview is powered directly by local FFmpeg and libass (`shaping=complex`), generating transparent RGBA PNG frames rather than approximating layout through browser CSS. Preview and export share the same native caption layout and rasterization contract before video encoding; lossy encoding and display scaling may soften pixel edges without changing the intended typography, line layout, alignment, position, or effects.
 - **Local rendering operations**: Studio does not upload rendered video frames or the resulting captioned MP4 as part of that rendering process. Caption generation/regeneration has a separate data flow involving normalized audio and related context, as described in the Gemini and Contributor sections.
 - **Runtime prerequisites**: Captioned-video export and native preview require an FFmpeg build with the native ASS/libass capabilities Studio checks locally (including complex shaping). Studio also detects whether the runtime exposes the alpha-mode metadata used by its preferred preview compositing path and selects the compatible rendering path automatically. If required complex shaping is unavailable, video export is safely blocked with actionable guidance rather than outputting distorted Khmer script. Validated against the exact local builds recorded in the release evidence.
-- **Typography and fonts**: Khmer text requires complex shaping. Windows Khmer UI and Linux Noto Sans Khmer are the default supported fonts. If a regular-only font is chosen while bold is requested, Studio clearly indicates the bold mismatch and never silently drops styling.
+- **Typography and fonts**: Khmer text requires complex shaping. Windows Khmer UI, macOS Khmer MN / Khmer Sangam MN, and Linux Noto Sans Khmer are supported local fonts. Studio also detects a user-installed Noto Sans Khmer on macOS. If a regular-only font is chosen while bold is requested, Studio clearly indicates the bold mismatch and never silently drops styling.
 - **Temporary working files and cleanup**: Preview and render scratch files in `exports/.working` are temporary, and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal.
 
 ## Contributor development setup
@@ -168,7 +168,30 @@ The first local timing setup can download a Khmer alignment model (roughly a few
 hundred MB). The local Whisper fallback downloads its selected model only if it
 is needed.
 
-### Requirements
+### Install from source on Apple Silicon macOS
+
+The first macOS implementation is a source beta for Apple Silicon (`arm64`) on
+macOS 14 Sonoma or newer. It does not yet have a public macOS GitHub Release
+asset, Intel Mac support, or the signed Windows OTA updater.
+
+1. Clone or check out this repository into a stable folder.
+2. In Terminal, run `bash ./INSTALL-MACOS.sh`. The script requires macOS 14
+   Sonoma or newer on Apple Silicon, Node.js 24+, Python 3.12, and FFmpeg with
+   libass complex shaping. If Homebrew is already installed, it can install a
+   missing Node.js 24, Python 3.12, or `ffmpeg-full` package; it never installs
+   Homebrew itself.
+3. Start Studio with `bash ./run-macos.sh`. After both local services are
+   healthy, Studio opens in the registered default macOS browser.
+4. Open **Settings → AI connection** and add your Gemini API key. Source builds
+   store it in the macOS Keychain; the browser receives only a masked value.
+5. Upload media, generate captions, review, and export as on Windows.
+
+macOS runtime state is kept under `~/Library/Application Support/Sthang Studio`
+by the macOS launcher, while the Python environment and source dependencies stay
+inside the checkout. Run `bash ./INSTALL-MACOS.sh` again to repair local source
+dependencies after changing the checkout.
+
+### Windows public-release requirements
 
 - Windows 10/11 x64.
 - WinGet recommended but not required for the one-click installer.
@@ -176,9 +199,9 @@ is needed.
 - A Gemini Developer API key for AI caption wording.
 - Enough local disk space for local timing resources and your media.
 
-macOS/Linux contributors may run the source with compatible Node/Python/FFmpeg
-setups, but the installer, desktop shortcut, and protected in-app key storage are
-currently Windows-first.
+Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
+The curated public installer and signed updater remain Windows-only while the
+Apple Silicon macOS source beta is validated on real Mac hardware.
 
 ## Local and cloud data flow
 
@@ -242,11 +265,14 @@ Those two identities and data flows are intentionally separate.
 
 On Windows, the recommended **Settings → AI connection** flow stores the Gemini
 key using Windows user-protected storage under `%LOCALAPPDATA%\Sthang Studio`.
+On Apple Silicon macOS source builds, the same flow stores the key in the macOS
+Keychain and keeps settings metadata under `~/Library/Application Support/Sthang Studio`.
 The browser receives only a masked key. An `apps/server/.env` key remains
 supported as an advanced fallback and is excluded from Git.
 
 Current source builds may keep the already-decrypted key/model settings in
-process memory briefly to avoid starting PowerShell/DPAPI for every AI pass.
+process memory briefly to avoid reopening the operating-system credential store
+for every AI pass.
 Save/Forget actions invalidate that memory immediately; the plaintext key is
 never written to an unencrypted cache.
 
