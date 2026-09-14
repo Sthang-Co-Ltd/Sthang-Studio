@@ -39,7 +39,7 @@ test('narrow reads share initialization and preserve exact missing-id semantics'
 test('narrow reads never clone a full project and return detached media only', async (t) => {
   const clone = globalThis.structuredClone;
   let clones = 0;
-  const spy = t.mock.method(globalThis, 'structuredClone', <T>(value: T): T => {
+  const spy = t.mock.method(globalThis, 'structuredClone', <T,>(value: T): T => {
     assert.ok(!(value && typeof value === 'object' && ('captions' in value || 'transcript' in value)), 'no full-project clone');
     clones += 1;
     return clone(value);
