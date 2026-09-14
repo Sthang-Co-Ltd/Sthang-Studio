@@ -25,6 +25,7 @@
     "preview-font-cache.test.mts",
     "../scripts/benchmark-performance.mts",
     "deferred-workspace.types.tsx",
-    "performance-batch4.test.mts"
+    "performance-batch4.test.mts",
+    "project-store.test.mts"
   ]
 }
