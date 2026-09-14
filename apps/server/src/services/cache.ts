@@ -5,6 +5,9 @@ import type { CaptionProject } from '@kcs/shared';
 import { config } from '../config.js';
 import { normalizeAudioFile, probeDurationMs, waveDurationMs } from './media.js';
 
+// Audio preparation needs no caption, transcript, appearance, or context payload.
+type ProjectMedia = Pick<CaptionProject, 'id' | 'media'>;
+
 interface AudioCacheMeta {
   mediaFingerprint: string;
   durationMs: number;
@@ -20,7 +23,7 @@ interface StageCacheEnvelope<T> {
 type NormalizedAudioResult = Awaited<ReturnType<typeof ensureNormalizedAudioInternal>>;
 const normalizedAudioInFlight = new Map<string, { fingerprint: string; promise: Promise<NormalizedAudioResult> }>();
 
-export function mediaFingerprint(project: CaptionProject) {
+export function mediaFingerprint(project: ProjectMedia) {
   return crypto
     .createHash('sha256')
     .update(`${project.media.filename}:${project.media.size}:${project.media.originalName}`)
@@ -49,7 +52,7 @@ async function validatedWaveDuration(outputPath: string) {
   }
 }
 
-async function ensureNormalizedAudioInternal(project: CaptionProject, options: { force?: boolean } = {}) {
+async function ensureNormalizedAudioInternal(project: ProjectMedia, options: { force?: boolean } = {}) {
   const dir = projectCacheDir(project.id);
   const outputPath = path.join(dir, 'normalized.wav');
   const metaPath = path.join(dir, 'audio-meta.json');
@@ -97,7 +100,7 @@ async function ensureNormalizedAudioInternal(project: CaptionProject, options: {
   return { dir, outputPath, durationMs: verifiedDuration, fingerprint, cacheHit: false, cachedAt: nextMeta.cachedAt };
 }
 
-export async function ensureNormalizedAudio(project: CaptionProject, options: { force?: boolean } = {}) {
+export async function ensureNormalizedAudio(project: ProjectMedia, options: { force?: boolean } = {}) {
   const fingerprint = mediaFingerprint(project);
   const existing = normalizedAudioInFlight.get(project.id);
   if (existing) {

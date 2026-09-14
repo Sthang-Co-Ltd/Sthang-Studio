@@ -183,7 +183,7 @@ router.post('/:id/regeneration-proposals/:proposalId/refine', async (req, res) =
 
 router.get('/:id/normalized-audio.wav', async (req, res, next) => {
   try {
-    const project = await store.get(req.params.id);
+    const project = await store.getMedia(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const force = ['1', 'true', 'yes'].includes(String(req.query.refresh || '').toLowerCase());
     const normalized = await ensureNormalizedAudio(project, { force });
@@ -206,9 +206,8 @@ router.get('/:id/normalized-audio.wav', async (req, res, next) => {
 });
 
 router.get('/:id/history', async (req, res) => {
-  const project = await store.get(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  res.json(await historyStore.list(project.id));
+  if (!await store.has(req.params.id)) return res.status(404).json({ error: 'Project not found' });
+  res.json(await historyStore.list(req.params.id));
 });
 
 router.post('/:id/history/:historyId/restore', async (req, res) => {

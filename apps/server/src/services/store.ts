@@ -175,6 +175,19 @@ export const store = {
     return project ? structuredClone(project) : null;
   },
 
+  /** Read the published in-memory state without cloning caption/transcript payloads. */
+  async has(id: string): Promise<boolean> {
+    await ensureInitialized();
+    return projects.has(id);
+  },
+
+  /** Detached source metadata; never return a live reference into the stored project. */
+  async getMedia(id: string): Promise<Pick<CaptionProject, 'id' | 'media'> | null> {
+    await ensureInitialized();
+    const project = projects.get(id);
+    return project ? { id: project.id, media: structuredClone(project.media) } : null;
+  },
+
   async upsert(project: CaptionProject) {
     const snapshot = structuredClone(project);
     await ensureInitialized();
