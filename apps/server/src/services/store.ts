@@ -200,6 +200,31 @@ export const store = {
     });
   },
 
+  async withProjectWrite<T>(
+    id: string,
+    operation: (
+      current: CaptionProject | null,
+      persist: (next: CaptionProject) => Promise<CaptionProject>,
+    ) => Promise<T>,
+  ): Promise<T> {
+    await ensureInitialized();
+    return queueProjectWrite(id, async () => {
+      const current = projects.get(id);
+      const detached = current ? structuredClone(current) : null;
+      let persisted = false;
+      const persist = async (next: CaptionProject) => {
+        if (next.id !== id) throw new Error('Project write cannot change project id');
+        if (persisted) throw new Error('Project write already persisted');
+        const snapshot = structuredClone(next);
+        const published = projects.get(id);
+        if (published) snapshot.captionAppearance = published.captionAppearance;
+        persisted = true;
+        return persistProject(snapshot);
+      };
+      return operation(detached, persist);
+    });
+  },
+
   async setCaptionAppearance(id: string, appearance: CaptionAppearance) {
     const snapshot = structuredClone(appearance);
     await ensureInitialized();

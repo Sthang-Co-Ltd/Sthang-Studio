@@ -26,6 +26,8 @@
     "../scripts/benchmark-performance.mts",
     "deferred-workspace.types.tsx",
     "performance-batch4.test.mts",
-    "project-store.test.mts"
+    "project-store.test.mts",
+    "playback-grouping.test.mts",
+    "playback-grouping-server.test.mts"
   ]
 }

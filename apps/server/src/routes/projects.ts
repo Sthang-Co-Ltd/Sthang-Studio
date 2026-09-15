@@ -21,6 +21,7 @@ import {
   createRangeRegenerationProposal,
   refineRegenerationProposal,
   postprocessProjectTiming,
+  StaleProjectMediaError,
   transcribeProject,
 } from '../services/project-processing.js';
 import { historyStore } from '../services/history-store.js';
@@ -40,6 +41,13 @@ const upload = multer({
   limits: { fileSize: config.maxUploadMb * 1024 * 1024 },
 });
 const router = Router();
+
+function expectedMedia(value: unknown): Pick<CaptionProject['media'], 'filename' | 'size'> | null {
+  const candidate = value as { filename?: unknown; size?: unknown } | null | undefined;
+  return candidate && typeof candidate.filename === 'string' && Number.isFinite(candidate.size)
+    ? { filename: candidate.filename, size: Number(candidate.size) }
+    : null;
+}
 
 // Opt-in projection preserves the existing full-project API for other callers.
 router.get('/', async (req, res) => res.json(req.query.summary === '1' ? await store.listSummaries() : await store.list()));
@@ -85,40 +93,65 @@ router.post('/', upload.single('media'), async (req, res) => {
 });
 
 router.post('/:id/replace-media', upload.single('media'), async (req, res) => {
+  let replacementPath: string | null = null;
+  let replacementPublished = false;
   try {
     const rawProjectId = req.params.id;
     const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId;
     if (!projectId) return res.status(400).json({ error: 'Project id is required.' });
-    const project = await store.get(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (!req.file) return res.status(400).json({ error: 'Choose a replacement video or audio file.' });
-    if (jobStore.hasActiveForProject(project.id)) {
-      await fs.rm(req.file.path, { force: true });
+    const uploaded = req.file;
+    if (!uploaded) return res.status(400).json({ error: 'Choose a replacement video or audio file.' });
+    const ext = path.extname(uploaded.originalname);
+    const result = await store.withProjectWrite(projectId, async (project, persist) => {
+      if (!project) return { status: 'missing' as const };
+      if (jobStore.hasActiveForProject(project.id)) return { status: 'busy' as const };
+
+      const filename = `${project.id}-${Date.now()}-${nanoid(6)}${ext}`;
+      replacementPath = path.join(config.uploadDir, filename);
+      await fs.rename(uploaded.path, replacementPath);
+      await invalidateProjectCache(project.id);
+      const now = new Date().toISOString();
+      const updatedAt = now === project.updatedAt ? new Date(Date.parse(now) + 1).toISOString() : now;
+      const saved = await persist({
+        ...project,
+        media: {
+          filename,
+          originalName: uploaded.originalname,
+          mimeType: uploaded.mimetype || 'application/octet-stream',
+          size: uploaded.size,
+          url: `/media/${encodeURIComponent(filename)}`,
+        },
+        transcript: null,
+        captions: [],
+        pipelineCache: undefined,
+        transcriptNeedsSync: false,
+        engineVersion: '0.7.10',
+        updatedAt,
+      });
+      replacementPublished = true;
+      const cleanupWarnings: Array<'history' | 'proposals' | 'old-media'> = [];
+      try { await historyStore.clear(project.id); } catch { cleanupWarnings.push('history'); }
+      try {
+        const proposalCleanup = await proposalStore.removeProject(project.id);
+        if (proposalCleanup.failed > 0) cleanupWarnings.push('proposals');
+      } catch { cleanupWarnings.push('proposals'); }
+      try { await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true }); }
+      catch { cleanupWarnings.push('old-media'); }
+      return { status: 'saved' as const, project: saved, cleanupWarnings };
+    });
+
+    if (result.status === 'missing') {
+      await fs.rm(uploaded.path, { force: true });
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    if (result.status === 'busy') {
+      await fs.rm(uploaded.path, { force: true });
       return res.status(409).json({ error: 'A processing job is still running for this project. Finish or cancel it before replacing the media.' });
     }
-    const ext = path.extname(req.file.originalname);
-    const filename = `${project.id}-${Date.now()}${ext}`;
-    await fs.rename(req.file.path, path.join(config.uploadDir, filename));
-    await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true });
-    await invalidateProjectCache(project.id);
-    await historyStore.clear(project.id);
-    await proposalStore.removeProject(project.id);
-    project.media = {
-      filename,
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype || 'application/octet-stream',
-      size: req.file.size,
-      url: `/media/${encodeURIComponent(filename)}`,
-    };
-    project.transcript = null;
-    project.captions = [];
-    project.pipelineCache = undefined;
-    project.transcriptNeedsSync = false;
-    project.engineVersion = '0.7.10';
-    project.updatedAt = new Date().toISOString();
-    await store.upsert(project);
-    res.json(project);
+    res.json({ ...result.project, replacementCleanupWarnings: result.cleanupWarnings });
   } catch (error) {
+    if (req.file) await fs.rm(req.file.path, { force: true }).catch(() => {});
+    if (replacementPath && !replacementPublished) await fs.rm(replacementPath, { force: true }).catch(() => {});
     res.status(500).json({ error: error instanceof Error ? error.message : 'Media replacement failed' });
   }
 });
@@ -129,6 +162,7 @@ router.post('/:id/transcribe', async (req, res) => {
     res.json(await transcribeProject(req.params.id, req.body?.transcriptionContext, req.body?.force === true));
   } catch (error) {
     console.error('Local hybrid transcription failed:', error);
+    if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
     res.status(500).json({ error: error instanceof Error ? error.message : 'Local hybrid transcription failed' });
   }
 });
@@ -153,7 +187,9 @@ router.get('/:id/regeneration-proposals/:proposalId', async (req, res) => {
   const project = await store.get(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const proposal = await proposalStore.get(req.params.proposalId);
-  if (!proposal || proposal.summary.projectId !== project.id) return res.status(404).json({ error: 'Proposal expired or not found' });
+  if (!proposal || proposal.summary.projectId !== project.id || proposal.sourceUpdatedAt !== project.updatedAt) {
+    return res.status(404).json({ error: 'Proposal expired or not found' });
+  }
   res.json(proposal.summary);
 });
 
@@ -206,145 +242,211 @@ router.get('/:id/normalized-audio.wav', async (req, res, next) => {
 });
 
 router.get('/:id/history', async (req, res) => {
-  if (!await store.has(req.params.id)) return res.status(404).json({ error: 'Project not found' });
-  res.json(await historyStore.list(req.params.id));
+  const current = await store.getMedia(req.params.id);
+  if (!current) return res.status(404).json({ error: 'Project not found' });
+  res.json(await historyStore.list(current.id, current.media));
 });
 
 router.post('/:id/history/:historyId/restore', async (req, res) => {
   try {
-    const current = await store.get(req.params.id);
-    if (!current) return res.status(404).json({ error: 'Project not found' });
-    const entry = await historyStore.get(current.id, req.params.historyId);
-    if (!entry) return res.status(404).json({ error: 'History checkpoint not found' });
-    await historyStore.checkpoint(current, 'Before restoring an earlier version', 'restore');
-    const restored: CaptionProject = {
-      ...entry.snapshot,
-      id: current.id,
-      media: current.media,
-      captionAppearance: current.captionAppearance,
-      createdAt: current.createdAt,
-      updatedAt: new Date().toISOString(),
-      engineVersion: '0.7.10',
-    };
-    await store.upsert(restored);
-    res.json(restored);
+    const result = await store.withProjectWrite(req.params.id, async (current, persist) => {
+      if (!current) return { status: 'missing-project' as const };
+      const entry = await historyStore.get(current.id, req.params.historyId, current.media);
+      if (!entry) return { status: 'missing-history' as const };
+      await historyStore.checkpoint(current, 'Before restoring an earlier version', 'restore');
+      const restored: CaptionProject = {
+        ...entry.snapshot,
+        id: current.id,
+        media: current.media,
+        captionAppearance: current.captionAppearance,
+        createdAt: current.createdAt,
+        updatedAt: new Date().toISOString(),
+        engineVersion: '0.7.10',
+      };
+      return { status: 'restored' as const, project: await persist(restored) };
+    });
+    if (result.status === 'missing-project') return res.status(404).json({ error: 'Project not found' });
+    if (result.status === 'missing-history') return res.status(404).json({ error: 'History checkpoint not found' });
+    res.json(result.project);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Restore failed' });
   }
 });
 
 router.put('/:id/context', async (req, res) => {
-  const project = await store.get(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  project.transcriptionContext = normalizeTranscriptionContext(req.body?.transcriptionContext);
-  project.updatedAt = new Date().toISOString();
-  await store.upsert(project);
-  res.json(project);
+  try {
+    const project = await store.withProjectWrite(req.params.id, async (current, persist) => {
+      if (!current) return null;
+      return persist({
+        ...current,
+        transcriptionContext: normalizeTranscriptionContext(req.body?.transcriptionContext),
+        updatedAt: new Date().toISOString(),
+      });
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    res.json(project);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Context save failed' });
+  }
 });
 
 router.put('/:id/captions', async (req, res) => {
-  const project = await store.get(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
   const captions = Array.isArray(req.body.captions) ? req.body.captions as CaptionSegment[] : null;
   if (!captions) return res.status(400).json({ error: 'captions must be an array' });
-  const before = project.captions;
-  const source = String(req.body?.source || 'manual-save') as 'manual-save' | 'autosave' | 'text-edit';
-  const changed = JSON.stringify(before) !== JSON.stringify(captions);
-  if (changed) {
-    await historyStore.checkpoint(
-      project,
-      source === 'autosave' ? 'Autosave' : source === 'text-edit' ? 'Before text correction' : 'Before manual save',
-      source,
-      source === 'autosave' ? { dedupeWindowMs: 15_000 } : undefined,
-    );
+  const expectedMedia = req.body?.expectedMedia;
+  if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
+    return res.status(428).json({ error: 'Caption save requires the media version it was edited against.' });
   }
-  project.captions = captions;
-  project.updatedAt = new Date().toISOString();
-  project.engineVersion = '0.7.10';
-  const saved = await store.upsert(project);
+  const source = String(req.body?.source || 'manual-save') as 'manual-save' | 'autosave' | 'text-edit';
   const recordCorrections = req.body?.recordCorrections !== false;
-  const corrections = recordCorrections ? await profileStore.recordCaptionChanges(project, before, captions) : { created: [] };
-  await contributionStore.captureApprovedCorrections(project, before, captions).catch((error) => {
-    console.warn('[contribution] Local candidate capture failed without affecting caption save:', error instanceof Error ? error.message : error);
-  });
-  const beforeById = new Map(before.map((caption) => [caption.id, caption]));
-  const approvedNow = captions.filter((caption) => caption.approved === true && beforeById.get(caption.id)?.approved !== true).length;
-  if (approvedNow > 0) void captureAnalytics('caption_approved', { approval_count_bucket: analyticsBuckets.approvals(approvedNow) });
-  res.json({ project: saved, correctionsCreated: corrections.created.length });
+  try {
+    const result = await store.withProjectWrite(req.params.id, async (project, persist) => {
+      if (!project) return { status: 'missing' as const };
+      if (project.media.filename !== expectedMedia.filename || project.media.size !== expectedMedia.size) {
+        return { status: 'stale' as const };
+      }
+
+      const before = project.captions;
+      const changed = JSON.stringify(before) !== JSON.stringify(captions);
+      if (changed) {
+        await historyStore.checkpoint(
+          project,
+          source === 'autosave' ? 'Autosave' : source === 'text-edit' ? 'Before text correction' : 'Before manual save',
+          source,
+          source === 'autosave' ? { dedupeWindowMs: 15_000 } : undefined,
+        );
+      }
+      const saved = await persist({
+        ...project,
+        captions,
+        updatedAt: new Date().toISOString(),
+        engineVersion: '0.7.10',
+      });
+      const corrections = recordCorrections ? await profileStore.recordCaptionChanges(saved, before, captions) : { created: [] };
+      await contributionStore.captureApprovedCorrections(saved, before, captions).catch((error) => {
+        console.warn('[contribution] Local candidate capture failed without affecting caption save:', error instanceof Error ? error.message : error);
+      });
+      const beforeById = new Map(before.map((caption) => [caption.id, caption]));
+      const approvedNow = captions.filter((caption) => caption.approved === true && beforeById.get(caption.id)?.approved !== true).length;
+      if (approvedNow > 0) void captureAnalytics('caption_approved', { approval_count_bucket: analyticsBuckets.approvals(approvedNow) });
+      return { status: 'saved' as const, project: saved, correctionsCreated: corrections.created.length };
+    });
+
+    if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
+    if (result.status === 'stale') {
+      return res.status(409).json({ error: 'These captions belong to an older media version. Reload the project before saving.' });
+    }
+    res.json({ project: result.project, correctionsCreated: result.correctionsCreated });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Caption save failed' });
+  }
 });
 
 router.post('/:id/normalize-khmer-spacing', async (req, res) => {
+  const preparedFor = expectedMedia(req.body?.expectedMedia);
+  if (!preparedFor) {
+    return res.status(428).json({ error: 'Khmer spacing cleanup requires the media version it was prepared against.' });
+  }
   try {
-    const project = await store.get(req.params.id);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    await historyStore.checkpoint(project, 'Before Khmer spacing cleanup', 'cleanup');
-    project.captions = project.captions.map((caption) => caption.textLocked ? caption : ({
-      ...caption,
-      text: normalizeKhmerDisplayText(caption.text),
-    }));
+    const result = await store.withProjectWrite(req.params.id, async (project, persist) => {
+      if (!project) return { status: 'missing' as const };
+      if (project.media.filename !== preparedFor.filename || project.media.size !== preparedFor.size) {
+        return { status: 'stale' as const };
+      }
+      await historyStore.checkpoint(project, 'Before Khmer spacing cleanup', 'cleanup');
+      project.captions = project.captions.map((caption) => caption.textLocked ? caption : ({
+        ...caption,
+        text: normalizeKhmerDisplayText(caption.text),
+      }));
 
-    if (project.transcript?.tokens?.length) {
-      const tokens = normalizeKhmerTokenSpacing(project.transcript.tokens);
-      project.transcript = {
-        ...project.transcript,
-        tokens,
-        fullText: transcriptText(tokens),
-        segments: segmentTimedTokens(tokens, {
-          mode: 'single-line',
-          protectedPhrases: project.transcript.vocabularyTerms,
-        }),
-      };
-    } else if (project.transcript) {
-      project.transcript = {
-        ...project.transcript,
-        fullText: normalizeKhmerDisplayText(project.transcript.fullText),
-        segments: project.transcript.segments.map((segment) => ({
-          ...segment,
-          text: normalizeKhmerDisplayText(segment.text),
-        })),
-      };
+      if (project.transcript?.tokens?.length) {
+        const tokens = normalizeKhmerTokenSpacing(project.transcript.tokens);
+        project.transcript = {
+          ...project.transcript,
+          tokens,
+          fullText: transcriptText(tokens),
+          segments: segmentTimedTokens(tokens, {
+            mode: 'single-line',
+            protectedPhrases: project.transcript.vocabularyTerms,
+          }),
+        };
+      } else if (project.transcript) {
+        project.transcript = {
+          ...project.transcript,
+          fullText: normalizeKhmerDisplayText(project.transcript.fullText),
+          segments: project.transcript.segments.map((segment) => ({
+            ...segment,
+            text: normalizeKhmerDisplayText(segment.text),
+          })),
+        };
+      }
+
+      project.engineVersion = '0.7.10';
+      project.updatedAt = new Date().toISOString();
+      return { status: 'saved' as const, project: await persist(project) };
+    });
+    if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
+    if (result.status === 'stale') {
+      return res.status(409).json({ error: 'This Khmer spacing cleanup belongs to an older media version. Reload the project and try again.' });
     }
-
-    project.engineVersion = '0.7.10';
-    project.updatedAt = new Date().toISOString();
-    await store.upsert(project);
-    res.json(project);
+    res.json(result.project);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Khmer spacing cleanup failed' });
   }
 });
 
 router.post('/:id/resegment', async (req, res) => {
+  const expectedMedia = req.body?.expectedMedia;
+  if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
+    return res.status(428).json({ error: 'Caption regrouping requires the media version it was prepared against.' });
+  }
   try {
-    const project = await store.get(req.params.id);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (!project.transcript) return res.status(400).json({ error: 'Transcribe this project first.' });
-    await historyStore.checkpoint(project, 'Before caption regrouping', 'regroup');
-    const tokens = requireTimedTokens(project.transcript.tokens);
-    const mode = String(req.body.mode || 'dynamic') as CaptionMode;
-    project.mode = mode;
-    const generated = segmentTimedTokens(tokens, {
-      mode,
-      maxChars: Number(req.body.maxChars || 0) || undefined,
-      maxDurationMs: Number(req.body.maxDurationMs || 0) || undefined,
-      protectedPhrases: project.transcript.vocabularyTerms,
+    const result = await store.withProjectWrite(req.params.id, async (project, persist) => {
+      if (!project) return { status: 'missing' as const };
+      if (project.media.filename !== expectedMedia.filename || project.media.size !== expectedMedia.size) {
+        return { status: 'stale' as const };
+      }
+      if (!project.transcript) return { status: 'untranscribed' as const };
+      await historyStore.checkpoint(project, 'Before caption regrouping', 'regroup');
+      const tokens = requireTimedTokens(project.transcript.tokens);
+      const mode = String(req.body.mode || 'dynamic') as CaptionMode;
+      const generated = segmentTimedTokens(tokens, {
+        mode,
+        maxChars: Number(req.body.maxChars || 0) || undefined,
+        maxDurationMs: Number(req.body.maxDurationMs || 0) || undefined,
+        protectedPhrases: project.transcript.vocabularyTerms,
+      });
+      const saved = await persist({
+        ...project,
+        mode,
+        captions: preserveCaptionLocks(project.captions, generated),
+        engineVersion: '0.7.10',
+        updatedAt: new Date().toISOString(),
+      });
+      return { status: 'saved' as const, project: saved };
     });
-    project.captions = preserveCaptionLocks(project.captions, generated);
-    project.engineVersion = '0.7.10';
-    project.updatedAt = new Date().toISOString();
-    await store.upsert(project);
-    res.json(project);
+    if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
+    if (result.status === 'stale') {
+      return res.status(409).json({ error: 'This grouping request belongs to an older media version. Reload the project before regrouping.' });
+    }
+    if (result.status === 'untranscribed') return res.status(400).json({ error: 'Transcribe this project first.' });
+    res.json(result.project);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Regrouping failed' });
   }
 });
 
 router.post('/:id/postprocess-timing', async (req, res) => {
+  const preparedFor = expectedMedia(req.body?.expectedMedia);
+  if (!preparedFor) {
+    return res.status(428).json({ error: 'Timing cleanup requires the media version it was prepared against.' });
+  }
   try {
     const settings = req.body?.settings as QaProfileSettings;
     if (!settings || typeof settings !== 'object') return res.status(400).json({ error: 'QA timing settings are required.' });
-    res.json(await postprocessProjectTiming(req.params.id, settings));
+    res.json(await postprocessProjectTiming(req.params.id, settings, preparedFor));
   } catch (error) {
+    if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Timing post-processing failed' });
   }
 });

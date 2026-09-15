@@ -61,13 +61,17 @@ router.post('/corrections/:id/action', async (req, res) => {
     let project: CaptionProject | null = null;
 
     if (action === 'add-project') {
-      project = await store.get(result.event.projectId);
+      project = await store.withProjectWrite(result.event.projectId, async (current, persist) => {
+        if (!current) return null;
+        const context = normalizeTranscriptionContext(current.transcriptionContext);
+        context.vocabulary = profileStore.addVocabularyLine(context.vocabulary, result.event.suggestedVocabularyLine);
+        return persist({
+          ...current,
+          transcriptionContext: context,
+          updatedAt: new Date().toISOString(),
+        });
+      });
       if (!project) return res.status(404).json({ error: 'The correction project no longer exists.' });
-      const context = normalizeTranscriptionContext(project.transcriptionContext);
-      context.vocabulary = profileStore.addVocabularyLine(context.vocabulary, result.event.suggestedVocabularyLine);
-      project.transcriptionContext = context;
-      project.updatedAt = new Date().toISOString();
-      await store.upsert(project);
     }
 
     res.json({ profile: result.profile, project });

@@ -73,16 +73,30 @@ export const proposalStore = {
 
 
   async removeProject(projectId: string) {
+    let files: string[];
     try {
-      const files = await fs.readdir(config.proposalDir);
-      await Promise.all(files.filter((file) => file.endsWith('.json')).map(async (file) => {
-        try {
-          const full = path.join(config.proposalDir, file);
-          const value = JSON.parse(await fs.readFile(full, 'utf8')) as StoredRegenerationProposal;
-          if (value.summary.projectId === projectId) await fs.rm(full, { force: true });
-        } catch { /* ignore malformed/vanished proposal */ }
-      }));
-    } catch { /* directory optional */ }
+      files = await fs.readdir(config.proposalDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { removed: 0, failed: 0 };
+      return { removed: 0, failed: 1 };
+    }
+    let removed = 0;
+    let failed = 0;
+    await Promise.all(files.filter((file) => file.endsWith('.json')).map(async (file) => {
+      const full = path.join(config.proposalDir, file);
+      let value: StoredRegenerationProposal;
+      try {
+        value = JSON.parse(await fs.readFile(full, 'utf8')) as StoredRegenerationProposal;
+      } catch { return; /* malformed/vanished proposals are already unusable */ }
+      if (value.summary.projectId !== projectId) return;
+      try {
+        await fs.rm(full, { force: true });
+        removed += 1;
+      } catch {
+        failed += 1;
+      }
+    }));
+    return { removed, failed };
   },
 
   async cleanup() {

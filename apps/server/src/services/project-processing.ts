@@ -32,6 +32,18 @@ import { historyStore } from './history-store.js';
 import { resolveGeminiSettings } from './llm-settings.js';
 
 export type ProgressReporter = (stage: string, progress: number, message: string) => Promise<void> | void;
+type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
+
+export class StaleProjectMediaError extends Error {
+  constructor(message = 'This operation belongs to an older media version. Reload the project and try again.') {
+    super(message);
+    this.name = 'StaleProjectMediaError';
+  }
+}
+
+function matchesMedia(project: CaptionProject, expectedMedia: ExpectedMedia) {
+  return project.media.filename === expectedMedia.filename && project.media.size === expectedMedia.size;
+}
 
 function uniqueVocabulary(...groups: Array<string[] | undefined>) {
   const seen = new Set<string>();
@@ -80,10 +92,8 @@ export async function transcribeProject(
 ) {
   const project = await store.get(projectId);
   if (!project) throw new Error('Project not found');
+  const expectedMedia = { filename: project.media.filename, size: project.media.size };
   const previousCaptions = structuredClone(project.captions);
-  if (project.captions.length || project.transcript) {
-    await historyStore.checkpoint(project, 'Before full regeneration', 'regeneration');
-  }
 
   await progress('audio', 8, 'Preparing normalized audio…');
   const normalized = await ensureNormalizedAudio(project);
@@ -159,9 +169,18 @@ export async function transcribeProject(
   project.engineVersion = '0.7.10';
   project.transcriptNeedsSync = false;
   project.updatedAt = new Date().toISOString();
-  await store.upsert(project);
+  const saved = await store.withProjectWrite(projectId, async (current, persist) => {
+    if (!current) throw new Error('Project not found');
+    if (!matchesMedia(current, expectedMedia)) {
+      throw new StaleProjectMediaError('The media changed while caption generation was running. The older result was not applied.');
+    }
+    if (current.captions.length || current.transcript) {
+      await historyStore.checkpoint(current, 'Before full regeneration', 'regeneration');
+    }
+    return persist({ ...project, media: current.media, createdAt: current.createdAt });
+  });
   await progress('complete', 100, 'Captions are ready for review.');
-  return project;
+  return saved;
 }
 
 function center(caption: CaptionSegment) {
@@ -641,76 +660,77 @@ export async function applyRegenerationProposal(
   mode: RegenerationApplyMode,
   editedText?: string,
 ) {
-  const project = await store.get(projectId);
-  if (!project) throw new Error('Project not found');
-  const proposal = await proposalStore.get(proposalId);
-  if (!proposal || proposal.summary.projectId !== project.id) throw new Error('Regeneration proposal expired or was not found.');
-  if (mode === 'reject') {
-    await proposalStore.remove(proposalId);
-    return project;
-  }
-  if (proposal.sourceUpdatedAt !== project.updatedAt) {
-    throw new Error('The project changed after this preview was created. Generate a fresh preview so newer edits are not overwritten.');
-  }
+  return store.withProjectWrite(projectId, async (project, persist) => {
+    if (!project) throw new Error('Project not found');
+    const proposal = await proposalStore.get(proposalId);
+    if (!proposal || proposal.summary.projectId !== project.id) throw new Error('Regeneration proposal expired or was not found.');
+    if (mode === 'reject') {
+      await proposalStore.remove(proposalId);
+      return project;
+    }
+    if (proposal.sourceUpdatedAt !== project.updatedAt) {
+      throw new Error('The project changed after this preview was created. Generate a fresh preview so newer edits are not overwritten.');
+    }
 
-  await historyStore.checkpoint(project, `Before applying regeneration (${mode})`, 'regeneration');
-  const { startMs, endMs } = proposal.summary;
-  const originalRange = captionsInRange(project.captions, startMs, endMs);
-  const proposedRange = captionsInRange(proposal.proposedCaptions, startMs, endMs);
-  const outside = project.captions.filter((caption) => caption.endMs <= startMs || caption.startMs >= endMs);
-  let acceptedRange: CaptionSegment[];
-  const normalizedEditedText = normalizeKhmerDisplayText(editedText || '').trim();
+    await historyStore.checkpoint(project, `Before applying regeneration (${mode})`, 'regeneration');
+    const { startMs, endMs } = proposal.summary;
+    const originalRange = captionsInRange(project.captions, startMs, endMs);
+    const proposedRange = captionsInRange(proposal.proposedCaptions, startMs, endMs);
+    const outside = project.captions.filter((caption) => caption.endMs <= startMs || caption.startMs >= endMs);
+    let acceptedRange: CaptionSegment[];
+    const normalizedEditedText = normalizeKhmerDisplayText(editedText || '').trim();
 
-  if (mode === 'all') {
-    acceptedRange = proposedRange;
-    project.transcript = proposal.proposedTranscript;
-    project.transcriptNeedsSync = false;
-    if (normalizedEditedText) {
-      const alignedProposalText = normalizeKhmerDisplayText(proposedRange.map((caption) => caption.text).join(' ')).trim();
-      const texts = redistributeText(normalizedEditedText, acceptedRange);
-      acceptedRange = acceptedRange.map((caption, index) => caption.textLocked ? caption : {
+    if (mode === 'all') {
+      acceptedRange = proposedRange;
+      project.transcript = proposal.proposedTranscript;
+      project.transcriptNeedsSync = false;
+      if (normalizedEditedText) {
+        const alignedProposalText = normalizeKhmerDisplayText(proposedRange.map((caption) => caption.text).join(' ')).trim();
+        const texts = redistributeText(normalizedEditedText, acceptedRange);
+        acceptedRange = acceptedRange.map((caption, index) => caption.textLocked ? caption : {
+          ...caption,
+          text: texts[index] || caption.text,
+          approved: false,
+        });
+        // The exact manual text is safe in captions, but canonical token regrouping
+        // should not pretend it has been word-aligned unless the user chose Realign exact wording.
+        project.transcriptNeedsSync = normalizedEditedText !== alignedProposalText;
+      }
+    } else if (mode === 'text-only') {
+      const sourceText = normalizedEditedText || proposedRange.map((caption) => caption.text).join(' ');
+      const texts = redistributeText(sourceText, originalRange);
+      acceptedRange = originalRange.map((caption, index) => caption.textLocked ? caption : {
         ...caption,
         text: texts[index] || caption.text,
         approved: false,
       });
-      // The exact manual text is safe in captions, but canonical token regrouping
-      // should not pretend it has been word-aligned unless the user chose Realign exact wording.
-      project.transcriptNeedsSync = normalizedEditedText !== alignedProposalText;
+      project.transcriptNeedsSync = true;
+    } else {
+      const texts = redistributeText(originalRange.map((caption) => caption.text).join(' '), proposedRange);
+      acceptedRange = proposedRange.map((caption, index) => {
+        const original = originalRange[index];
+        return {
+          ...caption,
+          id: original?.id || caption.id,
+          text: original?.textLocked ? original.text : texts[index] || original?.text || caption.text,
+          textLocked: original?.textLocked,
+          timingLocked: original?.timingLocked,
+          approved: false,
+        };
+      });
+      acceptedRange = preserveCaptionLocks(originalRange, acceptedRange);
+      project.transcriptNeedsSync = true;
     }
-  } else if (mode === 'text-only') {
-    const sourceText = normalizedEditedText || proposedRange.map((caption) => caption.text).join(' ');
-    const texts = redistributeText(sourceText, originalRange);
-    acceptedRange = originalRange.map((caption, index) => caption.textLocked ? caption : {
-      ...caption,
-      text: texts[index] || caption.text,
-      approved: false,
-    });
-    project.transcriptNeedsSync = true;
-  } else {
-    const texts = redistributeText(originalRange.map((caption) => caption.text).join(' '), proposedRange);
-    acceptedRange = proposedRange.map((caption, index) => {
-      const original = originalRange[index];
-      return {
-        ...caption,
-        id: original?.id || caption.id,
-        text: original?.textLocked ? original.text : texts[index] || original?.text || caption.text,
-        textLocked: original?.textLocked,
-        timingLocked: original?.timingLocked,
-        approved: false,
-      };
-    });
-    acceptedRange = preserveCaptionLocks(originalRange, acceptedRange);
-    project.transcriptNeedsSync = true;
-  }
 
-  project.captions = [...outside, ...acceptedRange].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
-  project.transcriptionContext = proposal.context;
-  project.pipelineCache = { ...project.pipelineCache, lastRangeRegeneratedAt: new Date().toISOString() } as CaptionProject['pipelineCache'];
-  project.engineVersion = '0.7.10';
-  project.updatedAt = new Date().toISOString();
-  await store.upsert(project);
-  await proposalStore.remove(proposalId);
-  return project;
+    project.captions = [...outside, ...acceptedRange].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    project.transcriptionContext = proposal.context;
+    project.pipelineCache = { ...project.pipelineCache, lastRangeRegeneratedAt: new Date().toISOString() } as CaptionProject['pipelineCache'];
+    project.engineVersion = '0.7.10';
+    project.updatedAt = new Date().toISOString();
+    const saved = await persist(project);
+    await proposalStore.remove(proposalId);
+    return saved;
+  });
 }
 
 function nearestTokenBoundary(tokens: NonNullable<CaptionProject['transcript']>['tokens'], value: number, tolerance: number, edge: 'start' | 'end') {
@@ -725,49 +745,50 @@ function nearestTokenBoundary(tokens: NonNullable<CaptionProject['transcript']>[
   return distance <= tolerance ? nearest : value;
 }
 
-export async function postprocessProjectTiming(projectId: string, settings: QaProfileSettings) {
-  const project = await store.get(projectId);
-  if (!project) throw new Error('Project not found');
-  if (!project.captions.length) throw new Error('There are no captions to process.');
-  await historyStore.checkpoint(project, `Before timing cleanup: ${settings.name}`, 'timing-fix');
-  const tokens = project.transcript?.tokens;
-  const mediaLimit = project.transcript?.timing?.audioDurationMs ?? Number.POSITIVE_INFINITY;
-  const captions = project.captions.map((caption) => ({ ...caption })).sort((a, b) => a.startMs - b.startMs);
+export async function postprocessProjectTiming(projectId: string, settings: QaProfileSettings, expectedMedia: ExpectedMedia) {
+  return store.withProjectWrite(projectId, async (project, persist) => {
+    if (!project) throw new Error('Project not found');
+    if (!matchesMedia(project, expectedMedia)) throw new StaleProjectMediaError();
+    if (!project.captions.length) throw new Error('There are no captions to process.');
+    await historyStore.checkpoint(project, `Before timing cleanup: ${settings.name}`, 'timing-fix');
+    const tokens = project.transcript?.tokens;
+    const mediaLimit = project.transcript?.timing?.audioDurationMs ?? Number.POSITIVE_INFINITY;
+    const captions = project.captions.map((caption) => ({ ...caption })).sort((a, b) => a.startMs - b.startMs);
 
-  for (let index = 0; index < captions.length; index += 1) {
-    const caption = captions[index];
-    if (caption.timingLocked) continue;
-    let start = nearestTokenBoundary(tokens, caption.startMs, settings.snapToleranceMs, 'start');
-    let end = nearestTokenBoundary(tokens, caption.endMs, settings.snapToleranceMs, 'end');
-    const previous = captions[index - 1];
-    const next = captions[index + 1];
-    const previousLimit = previous ? previous.endMs + settings.minGapMs : 0;
-    const nextLimit = Math.min(next ? next.startMs - settings.minGapMs : mediaLimit, mediaLimit);
+    for (let index = 0; index < captions.length; index += 1) {
+      const caption = captions[index];
+      if (caption.timingLocked) continue;
+      let start = nearestTokenBoundary(tokens, caption.startMs, settings.snapToleranceMs, 'start');
+      let end = nearestTokenBoundary(tokens, caption.endMs, settings.snapToleranceMs, 'end');
+      const previous = captions[index - 1];
+      const next = captions[index + 1];
+      const previousLimit = previous ? previous.endMs + settings.minGapMs : 0;
+      const nextLimit = Math.min(next ? next.startMs - settings.minGapMs : mediaLimit, mediaLimit);
 
-    // When locked/overlapping neighbours leave no legal room, do not invent a
-    // new overlap. Preserve the current caption and let QA explain the conflict.
-    if (nextLimit <= previousLimit + 40) continue;
+      // When locked/overlapping neighbours leave no legal room, do not invent a
+      // new overlap. Preserve the current caption and let QA explain the conflict.
+      if (nextLimit <= previousLimit + 40) continue;
 
-    start = Math.max(previousLimit, Math.min(nextLimit - 40, start - settings.leadInMs));
-    end = Math.min(nextLimit, Math.max(start + 40, end + settings.leadOutMs));
-    if (end - start < settings.minDurationMs) {
-      const missing = settings.minDurationMs - (end - start);
-      const extendLeft = Math.min(missing / 2, Math.max(0, start - previousLimit));
-      start -= extendLeft;
-      end = Math.min(nextLimit, end + (missing - extendLeft));
+      start = Math.max(previousLimit, Math.min(nextLimit - 40, start - settings.leadInMs));
+      end = Math.min(nextLimit, Math.max(start + 40, end + settings.leadOutMs));
+      if (end - start < settings.minDurationMs) {
+        const missing = settings.minDurationMs - (end - start);
+        const extendLeft = Math.min(missing / 2, Math.max(0, start - previousLimit));
+        start -= extendLeft;
+        end = Math.min(nextLimit, end + (missing - extendLeft));
+      }
+      if (end - start > settings.maxDurationMs) end = Math.min(nextLimit, start + settings.maxDurationMs);
+      if (end <= start + 40) continue;
+      caption.startMs = Math.max(0, Math.round(start));
+      caption.endMs = Math.min(Math.round(end), Number.isFinite(mediaLimit) ? Math.round(mediaLimit) : Math.round(end));
+      caption.timingSource = 'manual';
+      caption.timingQuality = caption.timingQuality === 'low' ? 'medium' : caption.timingQuality || 'medium';
+      caption.approved = false;
     }
-    if (end - start > settings.maxDurationMs) end = Math.min(nextLimit, start + settings.maxDurationMs);
-    if (end <= start + 40) continue;
-    caption.startMs = Math.max(0, Math.round(start));
-    caption.endMs = Math.min(Math.round(end), Number.isFinite(mediaLimit) ? Math.round(mediaLimit) : Math.round(end));
-    caption.timingSource = 'manual';
-    caption.timingQuality = caption.timingQuality === 'low' ? 'medium' : caption.timingQuality || 'medium';
-    caption.approved = false;
-  }
 
-  project.captions = captions;
-  project.engineVersion = '0.7.10';
-  project.updatedAt = new Date().toISOString();
-  await store.upsert(project);
-  return project;
+    project.captions = captions;
+    project.engineVersion = '0.7.10';
+    project.updatedAt = new Date().toISOString();
+    return persist(project);
+  });
 }

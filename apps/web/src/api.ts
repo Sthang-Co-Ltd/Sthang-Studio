@@ -119,6 +119,9 @@ export interface SaveCaptionsResponse {
   correctionsCreated: number;
 }
 
+export type ReplacementCleanupWarning = 'history' | 'proposals' | 'old-media';
+export type ReplaceMediaResponse = CaptionProject & { replacementCleanupWarnings?: ReplacementCleanupWarning[] };
+
 export interface CorrectionActionResponse {
   profile: AppProfile;
   project: CaptionProject | null;
@@ -176,7 +179,7 @@ export const api = {
   replaceMedia: (id: string, file: File) => {
     const fd = new FormData();
     fd.append('media', file);
-    return request<CaptionProject>(`/api/projects/${id}/replace-media`, { method: 'POST', body: fd });
+    return request<ReplaceMediaResponse>(`/api/projects/${id}/replace-media`, { method: 'POST', body: fd });
   },
   startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, force = false) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force }),
@@ -204,15 +207,27 @@ export const api = {
   saveContext: (id: string, transcriptionContext: TranscriptionContext) => request<CaptionProject>(`/api/projects/${id}/context`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcriptionContext }),
   }),
-  saveCaptions: (id: string, captions: CaptionSegment[], options?: { source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean }) => request<SaveCaptionsResponse>(`/api/projects/${id}/captions`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captions, ...options }),
+  saveCaptions: (
+    id: string,
+    captions: CaptionSegment[],
+    expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+    options?: { source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean },
+  ) => request<SaveCaptionsResponse>(`/api/projects/${id}/captions`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captions, expectedMedia, ...options }),
   }),
-  resegment: (id: string, mode: CaptionMode, maxChars?: number) => request<CaptionProject>(`/api/projects/${id}/resegment`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, maxChars }),
+  resegment: (
+    id: string,
+    mode: CaptionMode,
+    maxChars: number | undefined,
+    expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+  ) => request<CaptionProject>(`/api/projects/${id}/resegment`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, maxChars, expectedMedia }),
   }),
-  normalizeKhmerSpacing: (id: string) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, { method: 'POST' }),
-  postprocessTiming: (id: string, settings: QaProfileSettings) => request<CaptionProject>(`/api/projects/${id}/postprocess-timing`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings }),
+  normalizeKhmerSpacing: (id: string, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia }),
+  }),
+  postprocessTiming: (id: string, settings: QaProfileSettings, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>) => request<CaptionProject>(`/api/projects/${id}/postprocess-timing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, expectedMedia }),
   }),
   history: (id: string) => request<ProjectHistoryEntry[]>(`/api/projects/${id}/history`),
   restoreHistory: (id: string, historyId: string) => request<CaptionProject>(`/api/projects/${id}/history/${historyId}/restore`, { method: 'POST' }),

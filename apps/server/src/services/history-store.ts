@@ -10,7 +10,8 @@ interface StoredHistoryEntry extends ProjectHistoryEntry {
   snapshot: CaptionProject;
 }
 
-type HistoryIndexEntry = Omit<StoredHistoryEntry, 'snapshot'>;
+type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
+type HistoryIndexEntry = Omit<StoredHistoryEntry, 'snapshot'> & { media?: ExpectedMedia };
 
 const MAX_ENTRIES = 36;
 const historyQueues = new Map<string, Promise<void>>();
@@ -57,18 +58,35 @@ function fingerprint(project: CaptionProject) {
   })).digest('hex');
 }
 
+function mediaVersion(media: CaptionProject['media']): ExpectedMedia {
+  return { filename: media.filename, size: media.size };
+}
+
 function toIndex(entry: StoredHistoryEntry): HistoryIndexEntry {
   const { snapshot: _snapshot, ...index } = entry;
-  return index;
+  return { ...index, media: mediaVersion(entry.snapshot.media) };
 }
 
 function summary(entry: HistoryIndexEntry | StoredHistoryEntry): ProjectHistoryEntry {
-  const { fingerprint: _fingerprint, ...rest } = entry;
+  const { fingerprint: _fingerprint, media: _media, ...rest } = entry as HistoryIndexEntry & Partial<StoredHistoryEntry>;
   if ('snapshot' in rest) {
     const { snapshot: _snapshot, ...publicEntry } = rest;
-    return publicEntry;
+    return publicEntry as ProjectHistoryEntry;
   }
-  return rest;
+  return rest as ProjectHistoryEntry;
+}
+
+function sameMedia(actual: ExpectedMedia, expected: ExpectedMedia) {
+  return actual.filename === expected.filename && actual.size === expected.size;
+}
+
+function matchesMedia(entry: StoredHistoryEntry, expectedMedia?: ExpectedMedia) {
+  return !expectedMedia
+    || sameMedia(mediaVersion(entry.snapshot.media), expectedMedia);
+}
+
+function matchesIndexMedia(entry: HistoryIndexEntry, expectedMedia?: ExpectedMedia) {
+  return !expectedMedia || Boolean(entry.media && sameMedia(entry.media, expectedMedia));
 }
 
 async function readJson<T>(filePath: string): Promise<T | null> {
@@ -96,7 +114,25 @@ async function migrateLegacy(projectId: string) {
 
 async function loadIndex(projectId: string): Promise<HistoryIndexEntry[]> {
   const existing = await readJson<HistoryIndexEntry[]>(indexFile(projectId));
-  if (Array.isArray(existing)) return existing.slice(0, MAX_ENTRIES);
+  if (Array.isArray(existing)) {
+    const index = existing.slice(0, MAX_ENTRIES);
+    const missing = index.filter((entry) => !entry.media);
+    if (!missing.length) return index;
+
+    // v0.7.10 indexes did not record media ownership. Enrich only those legacy
+    // summaries once, then future current-generation lists remain index-only.
+    const byId = new Map(index.map((entry) => [entry.id, entry]));
+    let changed = false;
+    await Promise.all(missing.map(async (entry) => {
+      const stored = await readJson<StoredHistoryEntry>(entryFile(projectId, entry.id));
+      if (!stored?.snapshot?.media) return;
+      byId.set(entry.id, { ...entry, media: mediaVersion(stored.snapshot.media) });
+      changed = true;
+    }));
+    const enriched = index.map((entry) => byId.get(entry.id) || entry);
+    if (changed) await persistIndex(projectId, enriched);
+    return enriched;
+  }
   return migrateLegacy(projectId);
 }
 
@@ -104,7 +140,7 @@ async function persistIndex(projectId: string, index: HistoryIndexEntry[]) {
   await atomicWrite(indexFile(projectId), JSON.stringify(index.slice(0, MAX_ENTRIES)));
 }
 
-function queueCheckpoint<T>(projectId: string, operation: () => Promise<T>) {
+function queueHistory<T>(projectId: string, operation: () => Promise<T>) {
   const previous = historyQueues.get(projectId) || Promise.resolve();
   const task = previous.then(operation);
   const tracked = task.then(() => undefined, () => undefined);
@@ -118,7 +154,8 @@ function queueCheckpoint<T>(projectId: string, operation: () => Promise<T>) {
 async function checkpointInternal(project: CaptionProject, label: string, source: HistorySource, options?: { dedupeWindowMs?: number }) {
   const index = await loadIndex(project.id);
   const hash = fingerprint(project);
-  const newest = index[0];
+  const newestIndex = index.findIndex((entry) => matchesIndexMedia(entry, project.media));
+  const newest = newestIndex >= 0 ? index[newestIndex] : undefined;
   const dedupeWindowMs = options?.dedupeWindowMs ?? 0;
   if (newest?.fingerprint === hash) return summary(newest);
 
@@ -134,7 +171,7 @@ async function checkpointInternal(project: CaptionProject, label: string, source
       textLockedCount: project.captions.filter((caption) => caption.textLocked).length,
       timingLockedCount: project.captions.filter((caption) => caption.timingLocked).length,
     };
-    index[0] = toIndex(updated);
+    index[newestIndex] = toIndex(updated);
     await atomicWrite(entryFile(project.id, updated.id), JSON.stringify(updated));
     await persistIndex(project.id, index);
     return summary(updated);
@@ -163,29 +200,34 @@ async function checkpointInternal(project: CaptionProject, label: string, source
 
 export const historyStore = {
   checkpoint(project: CaptionProject, label: string, source: HistorySource, options?: { dedupeWindowMs?: number }) {
-    return queueCheckpoint(project.id, () => checkpointInternal(project, label, source, options));
+    return queueHistory(project.id, () => checkpointInternal(project, label, source, options));
   },
 
-  async list(projectId: string) {
-    const pending = historyQueues.get(projectId);
-    if (pending) await pending;
-    return (await loadIndex(projectId)).map(summary);
+  list(projectId: string, expectedMedia?: ExpectedMedia) {
+    return queueHistory(projectId, async () => {
+      const index = await loadIndex(projectId);
+      return index.filter((entry) => matchesIndexMedia(entry, expectedMedia)).map(summary);
+    });
   },
 
-  async get(projectId: string, historyId: string) {
-    const pending = historyQueues.get(projectId);
-    if (pending) await pending;
-    const index = await loadIndex(projectId);
-    if (!index.some((entry) => entry.id === historyId)) return null;
-    return readJson<StoredHistoryEntry>(entryFile(projectId, historyId));
+  get(projectId: string, historyId: string, expectedMedia?: ExpectedMedia) {
+    return queueHistory(projectId, async () => {
+      const index = await loadIndex(projectId);
+      const indexed = index.find((entry) => entry.id === historyId);
+      if (!indexed || (expectedMedia && indexed.media && !matchesIndexMedia(indexed, expectedMedia))) return null;
+      const entry = await readJson<StoredHistoryEntry>(entryFile(projectId, historyId));
+      return entry && matchesMedia(entry, expectedMedia) ? entry : null;
+    });
   },
 
-  async clear(projectId: string) {
-    const pending = historyQueues.get(projectId);
-    if (pending) await pending;
-    await Promise.all([
-      fs.rm(projectDir(projectId), { recursive: true, force: true }),
-      fs.rm(legacyFile(projectId), { force: true }),
-    ]);
+  clear(projectId: string) {
+    return queueHistory(projectId, async () => {
+      const settled = await Promise.allSettled([
+        fs.rm(projectDir(projectId), { recursive: true, force: true }),
+        fs.rm(legacyFile(projectId), { force: true }),
+      ]);
+      const failed = settled.find((result) => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
+    });
   },
 };
