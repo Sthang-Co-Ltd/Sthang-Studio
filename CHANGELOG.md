@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — earlier Apple Silicon macOS compatibility
+
+- Lowered the source-beta target from macOS 14 to macOS 12.3 Monterey, with one
+  shared platform/runtime policy across installation, timing setup and launch.
+- Added Node 22.12+ compatibility, a Monterey/Ventura native timing dependency
+  profile, explicit Rosetta/wrong-Python rejection, and legacy/manual dependency
+  setup without requiring Homebrew support for old macOS.
+- Kept Windows runtime installation unchanged and pinned the production browser
+  build target to include Safari 17. Native Mac install, caption, Keychain and
+  render acceptance remain required; this does not publish a macOS release.
+- Added local shell-policy and timing-metadata regression coverage. See
+  `docs/MACOS-COMPATIBILITY.md` for the support boundary and validation procedure.
+
 ## Unreleased — performance batches 2 and 3
 
 - Added an opt-in project-summary response for the launcher, independent startup loading with targeted retries, and latest-request protection when opening projects. The existing full-project API remains available.

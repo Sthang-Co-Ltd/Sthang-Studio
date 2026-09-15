@@ -6,7 +6,8 @@ sosap==0.4.3
 python-crfsuite==0.9.11
 khmernormalizer==0.0.4
 chardet>=5.2,<6
-onnxruntime>=1.20,<2.0
+# Legacy macOS uses a separate profile; setup retains 1.20+ on macOS 14+.
+onnxruntime>=1.19.2,<2.0
 librosa>=0.10
 scipy>=1.10
 tqdm==4.65.0

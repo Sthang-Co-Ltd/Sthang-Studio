@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-macos-source-beta-dependency-refresh-v0-8-0",
+    "id": "studio-macos-monterey-compatibility-20260916",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Add Apple Silicon macOS source-beta support and refresh the reviewed runtime dependency baseline while keeping packaged public distribution Windows-only and documenting macOS Keychain storage."
+      "summary": "Extend the Apple Silicon source-beta compatibility target to macOS 12.3 Monterey using Node 22, a Monterey/Ventura timing profile and legacy dependency setup guidance. Native Mac acceptance remains outstanding; public packaged distribution and OTA claims remain unchanged and Windows-only."
     },
     "releaseImpact": "version"
   },
@@ -238,6 +238,7 @@
         "README.md",
         "packaging/windows/Read Me.txt",
         "docs/PUBLIC-RELEASE-CHECKLIST.md",
+        "docs/MACOS-COMPATIBILITY.md",
         "docs/OTA-UPDATES.md"
       ],
       "requiredTerms": [

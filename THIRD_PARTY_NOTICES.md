@@ -58,6 +58,15 @@ terms.
 
 ## FFmpeg and subtitle rendering
 
+The macOS source compatibility path has a Monterey/Ventura dependency profile in
+`local-timing/constraints-macos-legacy.txt`. It selects older compatible releases of
+the existing scientific/audio stack, including the MIT-licensed CTranslate2 and
+BSD-licensed PyAV dependencies of faster-whisper. Native packages use upstream
+wheels; the pure-Python emoji 2.6.0 dependency is built from its upstream source
+distribution. No wheels, model weights or FFmpeg binaries are committed or
+redistributed by this source change. See `docs/MACOS-COMPATIBILITY.md` for the
+version boundary and validation requirements.
+
 Sthang Studio expects `ffmpeg`/`ffprobe` to be installed on the user's system and
 does not commit FFmpeg binaries to this repository. Studio uses that local runtime
 for audio normalization/range work and, in the captioned-video source

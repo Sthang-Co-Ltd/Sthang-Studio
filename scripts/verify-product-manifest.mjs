@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-macos-source-beta-dependency-refresh-v0-8-0', 'manifest.change.id');
+  equal(change.id, 'studio-macos-monterey-compatibility-20260916', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Add Apple Silicon macOS source-beta support and refresh the reviewed runtime dependency baseline while keeping packaged public distribution Windows-only and documenting macOS Keychain storage.',
+    'Extend the Apple Silicon source-beta compatibility target to macOS 12.3 Monterey using Node 22, a Monterey/Ventura timing profile and legacy dependency setup guidance. Native Mac acceptance remains outstanding; public packaged distribution and OTA claims remain unchanged and Windows-only.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -445,7 +445,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   ]);
 
   const installation = exactKeys(evidence.installation, 'manifest.evidence.installation', ['paths', 'requiredTerms', 'forbiddenTerms']);
-  const installationPaths = ['README.md', 'packaging/windows/Read Me.txt', 'docs/PUBLIC-RELEASE-CHECKLIST.md', 'docs/OTA-UPDATES.md'];
+  const installationPaths = ['README.md', 'packaging/windows/Read Me.txt', 'docs/PUBLIC-RELEASE-CHECKLIST.md', 'docs/MACOS-COMPATIBILITY.md', 'docs/OTA-UPDATES.md'];
   exactStringArray(installation.paths, 'manifest.evidence.installation.paths', installationPaths);
   exactStringArray(installation.requiredTerms, 'manifest.evidence.installation.requiredTerms', [
     'Install Sthang Studio.bat',

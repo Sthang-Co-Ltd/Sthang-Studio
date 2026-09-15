@@ -10,8 +10,18 @@ import { captionPreviewLookahead } from '../apps/web/src/caption-preview-plan.js
 
 // Frozen output from the pre-Batch-4 source, not regenerated from the candidate.
 const golden = JSON.parse(readFileSync('tests/fixtures/performance-batch4.json', 'utf8')) as {
+  baseline: string;
   alignment: Array<{ name: string; fullText: string; duration: number; timing: TimingResult; vocabulary?: VocabularyEntry[]; expected?: unknown; error?: string }>;
   quality: { captions: CaptionSegment[]; vocabulary: string[]; duration: number; cases: Array<{ settings: QaProfileSettings; expected: ReviewIssue[] }> };
+};
+
+// Unicode 17 groups Khmer consonant clusters differently from Unicode 16.
+// Keep both frozen pre-Batch-4 results; never regenerate expected QA from the
+// candidate or change production segmentation merely to match one Node build.
+const unicode17Golden = JSON.parse(readFileSync('tests/fixtures/performance-batch4-unicode17.json', 'utf8')) as {
+  baseline: string;
+  probeSegments: string[];
+  cases: Array<{ id: string; expected: ReviewIssue[] }>;
 };
 
 function stableAlignment(result: ReturnType<typeof alignGeminiToTiming>) {
@@ -34,8 +44,15 @@ test('QA reuses segmentation setup and does not search the caption array while s
 
 test('QA preserves complete warning objects/order for Khmer, duplicates, locks and all profiles', () => {
   const { captions, vocabulary, duration, cases } = golden.quality;
+  const probe = [...new Intl.Segmenter('km', { granularity: 'grapheme' }).segment('ខ្មែរ')].map((part) => part.segment);
+  const useUnicode17 = JSON.stringify(probe) === JSON.stringify(unicode17Golden.probeSegments);
+  if (!useUnicode17) assert.deepEqual(probe, ['ខ្', 'មែ', 'រ'], 'Unreviewed native Khmer segmentation needs independent baseline evidence');
+  assert.equal(unicode17Golden.baseline, golden.baseline, 'Both goldens must come from the same unmodified source');
+  assert.deepEqual(unicode17Golden.cases.map(({ id }) => id), cases.map(({ settings }) => settings.id));
   const before = structuredClone(captions);
-  for (const { settings, expected } of cases) assert.deepEqual(analyzeCaptions(captions, vocabulary, settings, duration), expected, settings.id);
+  for (const [index, { settings, expected }] of cases.entries()) {
+    assert.deepEqual(analyzeCaptions(captions, vocabulary, settings, duration), useUnicode17 ? unicode17Golden.cases[index].expected : expected, settings.id);
+  }
   assert.deepEqual(captions, before, 'QA must not change caption data');
   assert.deepEqual(analyzeCaptions([], []), []);
 });

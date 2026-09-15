@@ -170,18 +170,23 @@ is needed.
 
 ### Install from source on Apple Silicon macOS
 
-The first macOS implementation is a source beta for Apple Silicon (`arm64`) on
-macOS 14 Sonoma or newer. It does not yet have a public macOS GitHub Release
-asset, Intel Mac support, or the signed Windows OTA updater.
+The macOS source beta now targets **macOS 12.3 Monterey or newer** on native
+Apple Silicon (`arm64`). This is a source compatibility target, not a claim of
+completed real-Mac release certification. There is no public macOS GitHub Release
+asset, Intel Mac support, or macOS implementation of the Windows OTA updater.
 
 1. Clone or check out this repository into a stable folder.
-2. In Terminal, run `bash ./INSTALL-MACOS.sh`. The script requires macOS 14
-   Sonoma or newer on Apple Silicon, Node.js 24+, Python 3.12, and FFmpeg with
-   libass complex shaping. If Homebrew is already installed, it can install a
-   missing Node.js 24, Python 3.12, or `ffmpeg-full` package; it never installs
-   Homebrew itself.
+2. Install native **Node.js 22.12+ within the 22.x LTS line**, Python 3.12, and
+   FFmpeg/ffprobe with libass complex shaping. Node 24+ is also accepted on
+   macOS 13.5 or newer; macOS 12.3 through 13.4 must use Node 22. Use current
+   security patches within the chosen runtime line. Run `bash ./INSTALL-MACOS.sh`.
+   Existing compatible dependencies take priority. Automatic Homebrew installation
+   is only attempted on macOS 15+ with Homebrew already installed; it is not a
+   prerequisite on older macOS. See the [legacy/manual setup guide](docs/MACOS-COMPATIBILITY.md).
 3. Start Studio with `bash ./run-macos.sh`. After both local services are
-   healthy, Studio opens in the registered default macOS browser.
+   healthy, Studio opens in the registered default macOS browser. Use Safari 17+
+   or a maintained browser version compatible with your OS, not Monterey's
+   original Safari 15.
 4. Open **Settings → AI connection** and add your Gemini API key. Source builds
    store it in the macOS Keychain; the browser receives only a masked value.
 5. Upload media, generate captions, review, and export as on Windows.
@@ -190,6 +195,12 @@ macOS runtime state is kept under `~/Library/Application Support/Sthang Studio`
 by the macOS launcher, while the Python environment and source dependencies stay
 inside the checkout. Run `bash ./INSTALL-MACOS.sh` again to repair local source
 dependencies after changing the checkout.
+
+Monterey and Ventura use a dedicated native-dependency compatibility profile so Whisper
+cannot upgrade its ONNX/PyAV runtime to a newer-macOS-only build. macOS 14+ and
+Windows retain their separate dependency paths. No chip-name allow-list blocks
+later Apple Silicon generations, but each Mac must run a macOS version supported
+by that hardware; this does not make new Macs capable of booting Monterey.
 
 ### Windows public-release requirements
 

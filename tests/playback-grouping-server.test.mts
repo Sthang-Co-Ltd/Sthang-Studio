@@ -93,7 +93,13 @@ async function readDiskProject(id: string) {
 async function replaceMedia(id: string, contents = 'replacement') {
   const form = new FormData();
   form.append('media', new Blob([contents], { type: 'video/mp4' }), 'replacement.mp4');
-  return fetch(`${baseUrl}/api/projects/${id}/replace-media`, { method: 'POST', body: form });
+  try {
+    return await fetch(`${baseUrl}/api/projects/${id}/replace-media`, { method: 'POST', body: form });
+  } finally {
+    // These state/API fixtures contain non-media bytes. Cancel preparation for
+    // committed-error responses too, so FFmpeg cannot race fixture teardown.
+    cancelScheduledProjectPrewarm(id);
+  }
 }
 
 async function saveCaptions(id: string, captions: CaptionSegment[], expectedMedia: CaptionProject['media']) {
