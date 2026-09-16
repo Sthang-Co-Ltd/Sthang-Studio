@@ -38,9 +38,10 @@ available without crowding the main editing flow.
 
 ## Distribution status
 
-Sthang Studio `0.85.2` is available as a public Beta with curated downloads for
-**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. Use the matching
-[0.85.2 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.2).
+Sthang Studio `0.85.3` is the current emergency Public Beta recovery identity for
+**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
+[0.85.3 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.3)
+is the governed recovery-download location after publication and byte verification.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -59,16 +60,28 @@ launches. The downloaded setup folder can then be deleted. This Beta uses a
 command-based installer rather than a signed/notarized `.app`; if Gatekeeper
 blocks the downloaded command on first open, Control-click it and choose **Open**.
 
-## Version 0.85.2
+## Version 0.85.3
 
-Version `0.85.2` is the Windows public signed-OTA rollout patch on top of the
-accepted `0.85.0` product behavior. Windows installs that already contain the
-`0.8.0`-or-newer updater can be offered `0.85.2` in Studio after the production
-signed `latest.json` pointer is promoted. Studio still requires the user to choose
-**Download & verify** and then **Install & restart**; it never silently downloads
-or installs an update. The curated GitHub package remains the manual recovery
-path. macOS continues to use the curated manual-download package and does not use
-the Windows updater.
+Version `0.85.3` is an emergency Windows signed-OTA activation hotfix that
+supersedes the `0.85.2` OTA offer. The immutable `0.85.2` signed release remains
+historical evidence, but an updater-capable `0.8.0` client fails safely while
+preparing it because the runtime payload intentionally excludes repository-only
+tests while its typecheck still required `tests/tsconfig.json`. That failure occurs
+before active-version activation, so the prior installed version remains active.
+
+`0.85.3` keeps normal source `npm run typecheck` complete, including repository
+tests. OTA preparation explicitly requests runtime-only TypeScript validation,
+which still checks shared, server, and web code before the production build. The
+existing signed staging, verification, health-check, rollback, and fail-closed
+behavior is preserved. Otherwise this hotfix carries the accepted `0.85.2`
+product behavior.
+
+Windows installs with the `0.8.0`-or-newer updater can be offered `0.85.3` only
+after the signed production `latest.json` pointer is deliberately promoted.
+Studio still requires **Download & verify** and then **Install & restart**; it
+never silently downloads or installs an update. Curated GitHub recovery packages
+remain available for Windows and Apple Silicon macOS 12.3+. macOS remains a
+manual-download path and does not implement the Windows updater.
 
 ## Version 0.85.0
 
@@ -112,7 +125,7 @@ once per browser session plus a manual **Check for updates** action, never polls
 continuously, and requires separate explicit confirmation before download and
 before installation.
 
-The planned public update origin is `updates.sthang.app`. Release metadata and
+The public update origin is `updates.sthang.app`. Release metadata and
 immutable version packages are verified with a Studio-only Ed25519 public trust
 root, staged before activation, prepared with version-local Node and Python
 dependencies, and health-checked after an atomic version switch. Failed or
@@ -123,10 +136,11 @@ stable state root.
 
 The production private signing key remains outside the repository behind the
 separately deployed signing service. Version 0.8.0 established the updater-capable
-bootstrap. Version 0.85.2 is the first release intended for deliberate promotion
-through the public signed Windows channel at `updates.sthang.app`; only a signed
-and verified `latest.json` can make the offer visible to installed clients. The
-curated GitHub Release remains the manual download and recovery path. See
+bootstrap. Version 0.85.2 became the first promoted public signed Windows offer,
+but its runtime preparation fails safely before activation as described above.
+Version 0.85.3 is the emergency successor and becomes visible to installed clients
+only after its own signed and verified `latest.json` is deliberately promoted.
+The curated GitHub Release remains the manual download and recovery path. See
 [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol, confirmation flow,
 and rollback guarantees.
 

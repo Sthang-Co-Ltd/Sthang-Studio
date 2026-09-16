@@ -1,10 +1,12 @@
-# Signed Studio updates (0.8 bootstrap; 0.85.2 public OTA rollout)
+# Signed Studio updates (0.8 bootstrap; 0.85.3 emergency OTA recovery)
 
-This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.2` is the first release prepared for deliberate public signed Windows OTA rollout. The curated GitHub Release remains the manual download and recovery path even after OTA is enabled.
+This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.2` became the first deliberately promoted public signed Windows OTA offer. Its signed immutable objects remain historical and must not be mutated.
 
 Version `0.8.0` carries the reviewed Studio public verification trust. No public signed `latest.json` pointer is promoted by the 0.8.0 GitHub Release.
 
-Version `0.85.2` becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, and rollback evidence have been verified and the signed `latest.json` pointer is deliberately promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live OTA offer.
+Real `0.8.0` client evidence for `0.85.2` exposed a preparation failure before active-version activation: the OTA runtime package intentionally excludes repository-only tests, while the preparation typecheck still required `tests/tsconfig.json`. Dependency setup and signed-package verification completed, then TypeScript validation failed closed and left the prior version active.
+
+Version `0.85.3` is the emergency successor. It keeps full source/repository typechecking while OTA preparation explicitly requests runtime-only validation that still checks shared, server, and web TypeScript. `0.85.3` becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, preparation/rollback evidence, and signed `latest.json` pointer are deliberately verified and promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live `0.85.3` OTA offer.
 
 ## User experience
 
@@ -50,7 +52,7 @@ The existing installation root remains `%LOCALAPPDATA%\Sthang Studio\app`. Runti
 
 A verified package is downloaded under `updates/staging/`. Immediately before install, Studio fetches and verifies the latest pointer and manifest again; a changed manifest cancels activation and requires the user to review the new offer.
 
-After Studio closes, the stable broker safely extracts the ZIP beneath the update area, rejects traversal/absolute/alternate-stream paths and expansion beyond the signed ceiling, rechecks package identity and dependency files, runs locked `npm ci`, prepares the version-local Python environment, and typechecks the staged source. Dependency/setup failure happens before the active pointer changes.
+After Studio closes, the stable broker safely extracts the ZIP beneath the update area, rejects traversal/absolute/alternate-stream paths and expansion beyond the signed ceiling, rechecks package identity and dependency files, runs locked `npm ci`, prepares the version-local Python environment, and runs explicit runtime-only TypeScript validation over shared/server/web before the production build. Normal source `npm run typecheck` still includes repository tests. Dependency/setup/build failure happens before the active pointer changes.
 
 Prepared source and dependencies move to immutable `versions/<version>/`. An atomic `updates/active.json` pointer chooses the version; the desktop shortcut continues targeting the stable root `run-windows.bat`, which preserves registered-default-browser behavior. The previous pointer and version are retained. The new API and web service must become healthy, and the API must report the offered version, before the transaction is accepted. Failure restores the prior pointer and relaunches the prior version. A power interruption after pointer change leaves a transaction marker; the next normal launch restores the previous pointer before starting.
 
@@ -62,9 +64,9 @@ Each immutable version owns its `node_modules` and `.venv`. This permits `packag
 
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
-## OTA production gates and 0.85.2 rollout
+## OTA production gates and 0.85.3 emergency recovery
 
-The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.2`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
+The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.3`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
 
 1. Build the ordinary Windows GitHub Release candidate and OTA candidate for that later version from the same exact accepted `main` commit, with committed bounded release notes.
 2. Stage and sign the exact OTA candidate through the production signer; independently verify the signature, package bytes, manifest, attestation, dependency declarations, and immutable R2 objects.

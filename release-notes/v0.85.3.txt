@@ -1,0 +1,27 @@
+Sthang Studio 0.85.3 - Public Beta
+
+0.85.3 is an emergency Windows signed-OTA activation hotfix that supersedes the 0.85.2 OTA offer.
+The 0.85.2 signed release verified correctly but failed safely during runtime preparation before active-version activation.
+The failure occurred because the OTA runtime payload intentionally excludes repository-only tests, while preparation still required tests/tsconfig.json.
+
+0.85.3 keeps normal source and repository typechecking complete, including tests/tsconfig.json.
+OTA preparation now explicitly requests runtime-only TypeScript validation while still checking packages/shared, apps/server, and apps/web.
+The signed staging, verification, activation, health-check, rollback, and fail-closed behavior remain unchanged.
+Otherwise, 0.85.3 carries the accepted 0.85.2 product behavior.
+
+Curated recovery downloads support Windows 10 or 11 x64 and Apple Silicon macOS 12.3+.
+The macOS package remains a manual recovery download and does not implement the Windows OTA updater.
+Windows updates still require two explicit user actions: Download & verify, then Install & restart.
+
+A Gemini Developer API key is still required for AI caption wording.
+Studio requests store: false for Gemini transcription interactions. Normalized WAV audio is uploaded separately through the Gemini Files API; Studio does not explicitly delete that remote file.
+Google currently documents Files API retention of up to 48 hours.
+Khmer Caption Contributor and optional product analytics remain separate privacy choices. Both are off by default and require explicit opt-in.
+
+Release assets:
+- Sthang-Studio-Windows-v0.85.3.zip
+- Sthang-Studio-Windows-v0.85.3.zip.sha256
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.3.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.3.zip.sha256
+
+Verify the matching SHA-256 checksum after download if you want to confirm the archive bytes.
