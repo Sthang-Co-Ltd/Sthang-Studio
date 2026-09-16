@@ -112,20 +112,18 @@ test('path checks reject siblings and treat Windows path casing as equivalent', 
   assert.equal(samePath('C:\\Users\\Creator\\App', 'c:\\users\\creator\\app\\', 'win32'), true);
 });
 
-test('runtime-only typecheck skips repository-only tests while full source still checks them', async () => {
+test('runtime-only typecheck is explicit and skips only repository tests', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-typecheck-'));
   try {
-    assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), true);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), false);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, ['--runtime-only']), true);
+
     const runtimeProjects = typecheckProjectArgs(root, { runtimeOnly: true }).flat().join('\n');
     assert.doesNotMatch(runtimeProjects, /tests[\\/]tsconfig\.json/);
     assert.match(runtimeProjects, /packages[\\/]shared[\\/]tsconfig\.json/);
     assert.match(runtimeProjects, /apps[\\/]server[\\/]tsconfig\.json/);
     assert.match(runtimeProjects, /apps[\\/]web[\\/]tsconfig\.json/);
 
-    await fs.mkdir(path.join(root, 'tests'), { recursive: true });
-    await fs.writeFile(path.join(root, 'tests', 'tsconfig.json'), '{}\n');
-    assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), false);
-    assert.equal(shouldUseRuntimeOnlyTypecheck(root, ['--runtime-only']), true);
     const fullProjects = typecheckProjectArgs(root).flat().join('\n');
     assert.match(fullProjects, /tests[\\/]tsconfig\.json/);
   } finally {
