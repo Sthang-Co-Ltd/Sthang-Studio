@@ -142,7 +142,7 @@ test('cancelled and rejected previews clean up after the native child has actual
   assert.ok(remaining.length <= 4, 'only bounded font staging may survive a preview');
   for (const name of remaining) {
     const staged = await fs.readdir(path.join(config.exportDir, '.working', name));
-    assert.ok(staged.every((file) => /^(regular|bold)\.(ttf|otf)$/.test(file)), 'retained scratch contains fonts only');
+    assert.ok(staged.every((file) => /^(regular|bold)\.(ttf|otf|ttc)$/.test(file)), 'retained scratch contains fonts only');
   }
 });
 

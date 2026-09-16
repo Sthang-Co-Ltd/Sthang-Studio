@@ -1,13 +1,75 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
+import multer from 'multer';
 import { isVideoProject, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
 import { requireCaptionFont } from '../services/caption-renderer.js';
 import { parseCaptionPreviewInput, renderCaptionPreview } from '../services/caption-preview.js';
+import {
+  discoverCaptionFonts,
+  importCaptionFonts,
+  invalidateCaptionFontCache,
+  publicCaptionFonts,
+  removeImportedCaptionFont,
+} from '../services/font-library.js';
 import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { jobStore } from '../services/job-store.js';
-import { probeVideoExportCapabilities } from '../services/video-export.js';
+import { invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 
 const router = Router();
+const fontUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 8, fileSize: 8 * 1024 * 1024 },
+});
+const receiveFontUploads: RequestHandler = (req, res, next) => {
+  fontUpload.array('fonts', 8)(req, res, (error) => {
+    if (!error) { next(); return; }
+    if (error instanceof multer.MulterError) {
+      const message = error.code === 'LIMIT_FILE_SIZE'
+        ? 'That font file is too large. Choose a .ttf or .otf file up to 8 MB.'
+        : error.code === 'LIMIT_FILE_COUNT'
+          ? 'Add up to 8 font files at a time.'
+          : `Could not read the selected font files. ${error.message}`;
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  });
+};
+
+router.get('/fonts', async (req, res) => {
+  try {
+    if (String(req.query.refresh || '') === '1') {
+      invalidateCaptionFontCache({ system: true });
+      invalidateVideoExportCapabilityCache();
+    }
+    res.json({ fonts: publicCaptionFonts(await discoverCaptionFonts()) });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not inspect local Khmer fonts.' });
+  }
+});
+
+router.post('/fonts', receiveFontUploads, async (req, res) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) return res.status(400).json({ error: 'Choose one or more .ttf or .otf Khmer font files.' });
+    const result = await importCaptionFonts(files.map((file) => ({ originalName: file.originalname, buffer: file.buffer })));
+    // Font changes must invalidate the project capability snapshot before the next preview/export probe.
+    invalidateVideoExportCapabilityCache();
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not add the selected font files.' });
+  }
+});
+
+router.delete('/fonts/:fontId', async (req, res) => {
+  try {
+    const fonts = await removeImportedCaptionFont(req.params.fontId);
+    invalidateVideoExportCapabilityCache();
+    res.json({ fonts });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not remove that font from Studio.' });
+  }
+});
 
 router.get('/location', (_req, res) => {
   res.json({ directory: config.exportDir });

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — local Khmer font library
+
+- Expanded caption typography from a fixed handful of known faces to compatible
+  Khmer families already installed on Windows, macOS and Linux, with local
+  metadata/coverage/shaping checks before a family is offered to the renderer.
+- Added an Appearance **Add font…** flow for creator-selected `.ttf`/`.otf` files,
+  local-only Studio storage, immediate selection, live large-list search results,
+  automatic Regular fallback for families without Bold, and secondary **Manage
+  added fonts** removal.
+- Kept the last valid native caption frame visible during continuous Appearance
+  edits so size, position and other styling controls update without the caption
+  blinking away while the newest native render is in flight.
+- Kept font handling local: Studio does not bundle a font catalog, install fonts
+  into the operating system, remove system fonts, or silently substitute a saved
+  typeface. The published v0.8.0 download and OTA availability are unchanged by
+  these source changes.
+
 ## Unreleased — earlier Apple Silicon macOS compatibility
 
 - Lowered the source-beta target from macOS 14 to macOS 12.3 Monterey, with one

@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-macos-monterey-compatibility-20260916', 'manifest.change.id');
+  equal(change.id, 'studio-local-khmer-fonts-20260916', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Extend the Apple Silicon source-beta compatibility target to macOS 12.3 Monterey using Node 22, a Monterey/Ventura timing profile and legacy dependency setup guidance. Native Mac acceptance remains outstanding; public packaged distribution and OTA claims remain unchanged and Windows-only.',
+    'Add local discovery of compatible installed Khmer fonts plus creator-directed .ttf/.otf import, local Studio storage and removal controls, and keep native caption pixels visible while continuous Appearance edits render their newest look. No font catalog is bundled or installed system-wide, font files remain local, and public packaged distribution and OTA claims remain unchanged until a separately approved release.',
     'manifest.change.documentationImpact.summary',
   );
 

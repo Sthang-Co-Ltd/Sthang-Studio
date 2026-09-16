@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-macos-monterey-compatibility-20260916",
+    "id": "studio-local-khmer-fonts-20260916",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Extend the Apple Silicon source-beta compatibility target to macOS 12.3 Monterey using Node 22, a Monterey/Ventura timing profile and legacy dependency setup guidance. Native Mac acceptance remains outstanding; public packaged distribution and OTA claims remain unchanged and Windows-only."
+      "summary": "Add local discovery of compatible installed Khmer fonts plus creator-directed .ttf/.otf import, local Studio storage and removal controls, and keep native caption pixels visible while continuous Appearance edits render their newest look. No font catalog is bundled or installed system-wide, font files remain local, and public packaged distribution and OTA claims remain unchanged until a separately approved release."
     },
     "releaseImpact": "version"
   },
