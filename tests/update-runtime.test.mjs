@@ -10,6 +10,10 @@ import {
   samePath,
   writeJsonAtomic,
 } from '../scripts/update-runtime.mjs';
+import {
+  shouldUseRuntimeOnlyTypecheck,
+  typecheckProjectArgs,
+} from '../scripts/typecheck.mjs';
 
 test('runtime activation keeps rollback material until the new version is healthy', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-runtime-'));
@@ -106,4 +110,25 @@ test('path checks reject siblings and treat Windows path casing as equivalent', 
   assert.equal(isInside(parent, path.join(parent, '0.8.0')), true);
   assert.equal(isInside(parent, path.resolve('/tmp/studio/versions-evil/0.8.0')), false);
   assert.equal(samePath('C:\\Users\\Creator\\App', 'c:\\users\\creator\\app\\', 'win32'), true);
+});
+
+test('runtime-only typecheck skips repository-only tests while full source still checks them', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-typecheck-'));
+  try {
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), true);
+    const runtimeProjects = typecheckProjectArgs(root, { runtimeOnly: true }).flat().join('\n');
+    assert.doesNotMatch(runtimeProjects, /tests[\\/]tsconfig\.json/);
+    assert.match(runtimeProjects, /packages[\\/]shared[\\/]tsconfig\.json/);
+    assert.match(runtimeProjects, /apps[\\/]server[\\/]tsconfig\.json/);
+    assert.match(runtimeProjects, /apps[\\/]web[\\/]tsconfig\.json/);
+
+    await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(root, 'tests', 'tsconfig.json'), '{}\n');
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), false);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, ['--runtime-only']), true);
+    const fullProjects = typecheckProjectArgs(root).flat().join('\n');
+    assert.match(fullProjects, /tests[\\/]tsconfig\.json/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 });
