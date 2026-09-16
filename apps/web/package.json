@@ -1,6 +1,6 @@
 {
   "name": "@kcs/web",
-  "version": "0.85.3",
+  "version": "0.85.4",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,7 @@
     "preview": "node ../../node_modules/vite/bin/vite.js preview"
   },
   "dependencies": {
-    "@kcs/shared": "0.85.3",
+    "@kcs/shared": "0.85.4",
     "lucide-react": "^1.44.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

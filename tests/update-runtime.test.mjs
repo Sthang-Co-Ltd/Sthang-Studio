@@ -15,6 +15,7 @@ import {
   shouldUseRuntimeOnlyTypecheck,
   typecheckProjectArgs,
 } from '../scripts/typecheck.mjs';
+import { ensureRuntimeWorkspaceLinks } from '../scripts/runtime-workspaces.mjs';
 
 test('runtime activation keeps rollback material until the new version is healthy', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-runtime-'));
@@ -84,6 +85,40 @@ test('runtime recovery is non-destructive when no transaction exists', async () 
     assert.equal(await recoverInterruptedActivation(root), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('runtime startup repairs npm workspace links after the prepared tree is relocated', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-runtime-links-'));
+  const work = path.join(root, 'updates', 'work', '0.85.4-fixture', 'source');
+  const target = path.join(root, 'versions', '0.85.4');
+  try {
+    for (const relative of ['apps/server', 'apps/web', 'packages/shared']) {
+      await fs.mkdir(path.join(work, ...relative.split('/')), { recursive: true });
+    }
+    for (const [name, relative] of [['server', 'apps/server'], ['shared', 'packages/shared'], ['web', 'apps/web']]) {
+      const link = path.join(work, 'node_modules', '@kcs', name);
+      await fs.mkdir(path.dirname(link), { recursive: true });
+      await fs.symlink(
+        path.join(work, ...relative.split('/')),
+        link,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+    }
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.rename(work, target);
+
+    await assert.rejects(fs.realpath(path.join(target, 'node_modules', '@kcs', 'shared')));
+    await ensureRuntimeWorkspaceLinks(target);
+
+    for (const [name, relative] of [['server', 'apps/server'], ['shared', 'packages/shared'], ['web', 'apps/web']]) {
+      assert.equal(
+        await fs.realpath(path.join(target, 'node_modules', '@kcs', name)),
+        await fs.realpath(path.join(target, ...relative.split('/'))),
+      );
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   }
 });
 

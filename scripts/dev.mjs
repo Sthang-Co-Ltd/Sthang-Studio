@@ -3,11 +3,14 @@ import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureRuntimeWorkspaceLinks } from './runtime-workspaces.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const node = process.execPath;
 const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
+
+await ensureRuntimeWorkspaceLinks(root);
 
 function portAvailable(port) {
   return new Promise((resolve) => {
