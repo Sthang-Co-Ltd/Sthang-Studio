@@ -7,9 +7,12 @@ relevant checks for each new release.
 
 The repository and the `v0.8.0` Public Beta release are public. Version `0.85.0`
 expanded curated distribution to Windows plus Apple Silicon macOS. Version
-`0.85.2` is the deliberate Windows public signed-OTA rollout patch and retains
-the same curated recovery-download model for both platforms. Historical `0.8.0`
-publication evidence remains intact.
+`0.85.2` became the first deliberately promoted Windows public signed-OTA offer,
+but real `0.8.0` preparation fails safely before activation because the runtime
+payload lacks repository-only tests while the old preparation typecheck still
+requires `tests/tsconfig.json`. Version `0.85.3` is the emergency activation
+hotfix and retains the same curated recovery-download model for both platforms.
+Historical publication evidence remains intact.
 
 The historical `v0.7.14` publication record remains below. On 2026-08-28, the
 public [Studio page](https://sthang.app/studio/) advertised `v0.7.14`; that dated
@@ -17,7 +20,7 @@ observation is preserved as history rather than rewritten as current website
 evidence. The owning HQ and Distribution repositories must establish the current
 public website/docs state through their separately governed synchronization flow.
 
-## Version 0.85.2 OTA rollout requirements
+## Version 0.85.3 emergency OTA recovery requirements
 
 - [ ] Run `npm run ci` on the exact accepted release commit.
 - [ ] Run `npm run test:update-powershell` on that exact release commit.
@@ -29,19 +32,44 @@ public website/docs state through their separately governed synchronization flow
       Silicon macOS 12.3+, the Gemini Developer API key, Gemini Files API/48-hour
       disclosure, optional Contributor/analytics boundaries, explicit in-app
       update confirmation, rollback behavior, and checksums.
-- [ ] Publish non-draft prerelease `v0.85.2` from the exact accepted commit with
+- [ ] Confirm normal `npm run typecheck` still includes `tests/tsconfig.json`,
+      while the OTA preparation path explicitly uses runtime-only validation and
+      still checks shared/server/web TypeScript before the production build.
+- [ ] Reproduce the previously failing preparation using the exact signed runtime
+      payload, which intentionally contains no repository `tests/` directory.
+- [ ] Publish non-draft prerelease `v0.85.3` from the exact accepted commit with
       both curated ZIPs and both checksum assets; verify the uploaded bytes/digests.
 - [ ] Stage and sign the exact Windows OTA ZIP for that same accepted commit,
       independently verify the immutable package, manifest, attestation, and public
       `updates.sthang.app` bytes, then promote the signed `latest.json` pointer.
-- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.2` as a newer
+- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.3` as a newer
       signed offer and still requires **Download & verify** then **Install & restart**.
+- [ ] Verify the real client prepares and activates `versions/0.85.3`, relaunches,
+      reports exact API version `0.85.3`, keeps the stable launcher working, and
+      preserves protected user/runtime state.
 - [ ] Complete the separately governed HQ intake and Distribution `/studio/`
-      synchronization for version `0.85.2` and the Windows public signed-OTA model.
+      synchronization for version `0.85.3` and the Windows public signed-OTA model.
 - [ ] Do not claim completed real-Mac native acceptance unless the remaining
       real-Apple-Silicon checklist in `MACOS-COMPATIBILITY.md` has actually run.
 - [ ] Do not claim public OTA availability unless the signed-release, public-origin,
       client-offer, and `latest.json` promotion gates are completed.
+
+## Version 0.85.2 OTA rollout record — superseded after preparation failure
+
+- [x] `v0.85.2` was published as a public GitHub prerelease with curated Windows
+      and Apple Silicon macOS recovery assets.
+- [x] The production signer created the immutable signed `0.85.2` OTA objects and
+      its signed `latest.json` pointer was deliberately promoted.
+- [x] A real updater-capable `0.8.0` client verified the signed `0.85.2` offer and
+      completed Node, Python 3.12, KFA, ONNX Runtime, faster-whisper, and KFA model
+      preparation before failing TypeScript validation on missing
+      `tests/tsconfig.json`.
+- [x] The `0.85.2` failure occurred before active-version activation, preserving
+      the prior `0.8.0` installation through the updater's fail-closed behavior.
+
+`0.85.2` must not be treated as a successful end-to-end OTA upgrade. Its immutable
+objects remain historical and are superseded by the `0.85.3` emergency recovery
+sequence.
 
 ## Version 0.85.0 public Beta record
 

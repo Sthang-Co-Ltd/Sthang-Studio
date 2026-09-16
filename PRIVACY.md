@@ -4,11 +4,12 @@ Sthang Studio is designed as a local-first desktop-style workspace served from
 your own computer. Caption wording currently uses Google's Gemini service;
 caption timing and project editing are handled locally.
 
-The public `v0.85.0` Beta includes two separate privacy-controlled Sthang cloud
-paths: Khmer Caption Contributor and optional product analytics. Both are **off
-by default** and require separate explicit opt-in. Their production services are
-provisioned, but neither choice is required for caption generation, review,
-editing, saving, or export.
+The `v0.85.x` Public Beta line includes two separate privacy-controlled Sthang
+cloud paths: Khmer Caption Contributor and optional product analytics. Both are
+**off by default** and require separate explicit opt-in. Their production services
+are provisioned, but neither choice is required for caption generation, review,
+editing, saving, or export. The `0.85.3` OTA activation hotfix does not change
+these data flows or consent boundaries.
 
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
@@ -287,12 +288,16 @@ not silently discarded as part of the migration itself.
 ## Update checks (Windows only)
 
 The public `0.8.0` Windows bootstrap introduced the Studio public verification key
-for the signed updater, and the `0.85.0` Windows package retains that trust and is
-configured for the Sthang-controlled metadata host `updates.sthang.app`.
-**No public signed `latest.json` pointer is promoted by the `0.85.0` GitHub
-Release, so this is not evidence that OTA updates are publicly available.** The
-curated GitHub Release remains the manual download and recovery path. The Apple
-Silicon macOS package does not implement this Windows OTA updater.
+for the signed updater. The `0.85.2` release became the first deliberately
+promoted public signed Windows offer at `updates.sthang.app`, but updater-capable
+`0.8.0` clients fail safely while preparing it because that runtime payload lacks
+repository-only tests while the old preparation path still required
+`tests/tsconfig.json`. The failure happens before active-version activation, so the
+previous installed version remains usable. `0.85.3` is the emergency successor;
+it becomes the public offer only when its own signed `latest.json` is deliberately
+promoted and verified. The curated GitHub Release remains the manual download and
+recovery path. The Apple Silicon macOS package does not implement this Windows OTA
+updater.
 
 A released build containing this provisioned public key may make one
 update-metadata request per browser session/startup and additional requests only

@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-v0-85-2-ota-rollout-20260916', 'manifest.change.id');
+  equal(change.id, 'studio-v0-85-3-ota-hotfix-20260916', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Release Sthang Studio 0.85.2 as the Windows public signed-OTA rollout patch while preserving curated Windows and Apple Silicon macOS recovery downloads. Updater-capable Windows 0.8.0+ installs may offer 0.85.2 after the signed latest pointer is deliberately promoted; download, verification, installation, and restart remain explicitly user-confirmed. macOS remains manual-download only.',
+    'Release Sthang Studio 0.85.3 as the emergency Windows signed-OTA activation hotfix that supersedes the 0.85.2 offer after runtime preparation incorrectly required repository-only tests/tsconfig.json. Preserve full source typechecking, runtime shared/server/web validation, rollback/fail-closed behavior, curated Windows and Apple Silicon macOS recovery downloads, and explicit Download & verify then Install & restart. macOS remains manual-download only.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -179,7 +179,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(visibilityRequest.status, 'approved', 'manifest.proposal.publicVisibilityRequest.status');
   equal(
     visibilityRequest.basis,
-    `Approved public repository and independently verified ${tag} prerelease evidence for the Studio beta`,
+    `Approved public repository; ${tag} publication is governed by the repository release gates and externally verified release evidence`,
     'manifest.proposal.publicVisibilityRequest.basis',
   );
 

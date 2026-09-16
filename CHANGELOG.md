@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.85.3 — Emergency OTA activation hotfix
+
+- Supersedes the `0.85.2` Windows signed-OTA offer after real updater preparation
+  exposed a runtime-package/source-check mismatch before activation.
+- Keeps normal repository `npm run typecheck` complete, including
+  `tests/tsconfig.json`, while the OTA preparation broker explicitly requests the
+  runtime-only path for a package that intentionally excludes repository tests.
+- Runtime-only validation still checks `packages/shared`, `apps/server`, and
+  `apps/web`, followed by the production build before any active-version switch.
+- Preserves signed staging, package verification, dependency preparation,
+  health-check, rollback, fail-closed behavior, stable user state, and the two
+  explicit **Download & verify** then **Install & restart** decisions.
+- Otherwise carries the accepted `0.85.2` product behavior, including curated
+  Windows 10/11 x64 and Apple Silicon macOS 12.3+ recovery packages. The macOS
+  package remains manual-download only and does not implement Windows OTA.
+- Preserves existing Gemini/Files API, Khmer Caption Contributor, and optional
+  analytics privacy disclosures and consent boundaries.
+
 ## 0.85.0 — Public Beta
 
 ### Caption appearance and finished-video export

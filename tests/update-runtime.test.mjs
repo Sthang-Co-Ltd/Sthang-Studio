@@ -118,6 +118,11 @@ test('runtime-only typecheck is explicit and skips only repository tests', async
     assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), false);
     assert.equal(shouldUseRuntimeOnlyTypecheck(root, ['--runtime-only']), true);
 
+    // This disposable root intentionally has no repository tests tree. Full
+    // source validation must still require tests/tsconfig.json instead of
+    // silently weakening itself when that file is absent.
+    await assert.rejects(fs.access(path.join(root, 'tests', 'tsconfig.json')));
+
     const runtimeProjects = typecheckProjectArgs(root, { runtimeOnly: true }).flat().join('\n');
     assert.doesNotMatch(runtimeProjects, /tests[\\/]tsconfig\.json/);
     assert.match(runtimeProjects, /packages[\\/]shared[\\/]tsconfig\.json/);
