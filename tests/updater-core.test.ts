@@ -125,7 +125,7 @@ async function withRoots(run: (roots: { root: string; updateRoot: string; versio
   try {
     await run({ root, updateRoot, versionsRoot });
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   }
 }
 
