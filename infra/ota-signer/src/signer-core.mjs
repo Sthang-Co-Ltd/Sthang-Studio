@@ -574,6 +574,21 @@ async function privateSigningStage(stage, operation) {
   }
 }
 
+async function signerRuntimeStage(operationName, stage, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!(error instanceof SignerError)) {
+      const name = error && typeof error === 'object' && 'name' in error ? String(error.name).slice(0, 80) : typeof error;
+      const message = error && typeof error === 'object' && 'message' in error
+        ? String(error.message).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 240)
+        : 'unexpected runtime failure';
+      console.error(JSON.stringify({ event: 'studio-ota-runtime-failure', operation: operationName, stage, name, message }));
+    }
+    throw error;
+  }
+}
+
 export async function signDocument(unsigned, key) {
   const payload = textEncoder.encode(canonicalJson(unsigned));
   const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', key, payload));
@@ -654,14 +669,14 @@ export function promotionIssueCommand(payload) {
 }
 
 async function processSigning(env, requestContext, deliveryId) {
-  const commit = await acceptedMain();
-  const staged = await stageObject(env.STUDIO_UPDATES, commit);
+  const commit = await signerRuntimeStage('sign', 'accepted-main', () => acceptedMain());
+  const staged = await signerRuntimeStage('sign', 'staged-package-load', () => stageObject(env.STUDIO_UPDATES, commit));
   const [source, stagedZip] = await Promise.all([
-    sourceArchive(commit),
-    parseZip(staged.bytes),
+    signerRuntimeStage('sign', 'accepted-source-archive', () => sourceArchive(commit)),
+    signerRuntimeStage('sign', 'staged-package-zip', () => parseZip(staged.bytes)),
   ]);
-  assertPackageMatchesSource(stagedZip.entries, source.entries);
-  const manifest = await buildManifest(source.entries, staged.bytes, stagedZip.totalUnpacked);
+  await signerRuntimeStage('sign', 'package-source-comparison', async () => assertPackageMatchesSource(stagedZip.entries, source.entries));
+  const manifest = await signerRuntimeStage('sign', 'release-manifest-build', () => buildManifest(source.entries, staged.bytes, stagedZip.totalUnpacked));
 
   await requireMain(commit, 'Accepted main changed before signing. Stage a new candidate from the new main commit.');
   const key = await privateSigningStage('key-import-and-self-check', () => signingKey(env));
