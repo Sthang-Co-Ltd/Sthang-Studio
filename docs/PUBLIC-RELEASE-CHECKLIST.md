@@ -6,9 +6,10 @@ settings or authorize another release. Inspect current settings and repeat the
 relevant checks for each new release.
 
 The repository and the `v0.8.0` Public Beta release are public. Version `0.85.0`
-is the next deliberate public Beta release and expands curated distribution to
-Windows plus Apple Silicon macOS. Its release-specific preparation record is
-below; historical `0.8.0` publication evidence remains intact.
+expanded curated distribution to Windows plus Apple Silicon macOS. Version
+`0.85.1` is the deliberate Windows public signed-OTA rollout patch and retains
+the same curated recovery-download model for both platforms. Historical `0.8.0`
+publication evidence remains intact.
 
 The historical `v0.7.14` publication record remains below. On 2026-08-28, the
 public [Studio page](https://sthang.app/studio/) advertised `v0.7.14`; that dated
@@ -16,7 +17,7 @@ observation is preserved as history rather than rewritten as current website
 evidence. The owning HQ and Distribution repositories must establish the current
 public website/docs state through their separately governed synchronization flow.
 
-## Version 0.85.0 release requirements
+## Version 0.85.1 OTA rollout requirements
 
 - [ ] Run `npm run ci` on the exact accepted release commit.
 - [ ] Run `npm run test:update-powershell` on that exact release commit.
@@ -25,17 +26,28 @@ public website/docs state through their separately governed synchronization flow
 - [ ] Run `npm run package:macos` and confirm the three-item Apple Silicon archive
       shape, executable `.command` entrypoint permissions, and matching SHA-256 file.
 - [ ] Confirm the release notes accurately describe Windows 10/11 x64, Apple
-      Silicon macOS 12.3+, the Gemini Files API/48-hour disclosure, optional
-      Contributor/analytics boundaries, captioned-video/font changes, checksums,
-      and the absence of a promoted public OTA pointer.
-- [ ] Publish non-draft prerelease `v0.85.0` from the exact accepted commit with
+      Silicon macOS 12.3+, the Gemini Developer API key, Gemini Files API/48-hour
+      disclosure, optional Contributor/analytics boundaries, explicit in-app
+      update confirmation, rollback behavior, and checksums.
+- [ ] Publish non-draft prerelease `v0.85.1` from the exact accepted commit with
       both curated ZIPs and both checksum assets; verify the uploaded bytes/digests.
+- [ ] Stage and sign the exact Windows OTA ZIP for that same accepted commit,
+      independently verify the immutable package, manifest, attestation, and public
+      `updates.sthang.app` bytes, then promote the signed `latest.json` pointer.
+- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.1` as a newer
+      signed offer and still requires **Download & verify** then **Install & restart**.
 - [ ] Complete the separately governed HQ intake and Distribution `/studio/`
-      synchronization so the public site reflects version 0.85.0 and both platforms.
+      synchronization for version `0.85.1` and the Windows public signed-OTA model.
 - [ ] Do not claim completed real-Mac native acceptance unless the remaining
       real-Apple-Silicon checklist in `MACOS-COMPATIBILITY.md` has actually run.
-- [ ] Do not claim public OTA availability unless the separate signed-release and
-      `latest.json` promotion gates are completed.
+- [ ] Do not claim public OTA availability unless the signed-release, public-origin,
+      client-offer, and `latest.json` promotion gates are completed.
+
+## Version 0.85.0 public Beta record
+
+Version `0.85.0` is the published Windows + Apple Silicon macOS Beta baseline.
+Its matching curated GitHub Release remains a valid manual recovery path, but it
+did not promote `latest.json` and therefore was never a public OTA offer.
 
 ## Version 0.8.0 GitHub publication verification
 

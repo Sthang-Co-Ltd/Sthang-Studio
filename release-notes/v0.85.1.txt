@@ -2,6 +2,7 @@ Sthang Studio 0.85.1 - Public Beta
 
 0.85.1 is the Windows public signed-OTA rollout patch on top of the accepted 0.85.0 product behavior.
 Curated recovery downloads remain available for Windows 10 or 11 x64 and Apple Silicon macOS 12.3+.
+A Gemini Developer API key is still required for AI caption wording.
 
 Windows installs with the updater bootstrap from 0.8.0 or newer can offer 0.85.1 through Studio once the signed production latest pointer is promoted.
 Studio checks at most once per browser session/startup plus the manual Check for updates action.

@@ -1,8 +1,10 @@
-# Signed Studio updates (0.8 bootstrap; OTA not public)
+# Signed Studio updates (0.8 bootstrap; 0.85.1 public OTA rollout)
 
-This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available**. The curated GitHub Release and its checksum remain the public manual download and recovery path until a later signed release completes the OTA production gates below.
+This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.1` is the first release prepared for deliberate public signed Windows OTA rollout. The curated GitHub Release remains the manual download and recovery path even after OTA is enabled.
 
 Version `0.8.0` carries the reviewed Studio public verification trust. No public signed `latest.json` pointer is promoted by the 0.8.0 GitHub Release.
+
+Version `0.85.1` becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, and rollback evidence have been verified and the signed `latest.json` pointer is deliberately promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live OTA offer.
 
 ## User experience
 
@@ -20,7 +22,7 @@ The public Studio updater requires no license, authentication, D1 enrollment, or
 device credential. It must never reuse ACO enrollment state, update credentials,
 or Tauri updater code.
 
-The planned Sthang-controlled endpoint is:
+The Sthang-controlled Windows update endpoint is:
 
 ```text
 https://updates.sthang.app/studio/windows/latest.json
@@ -40,7 +42,7 @@ The signer does not accept arbitrary messages, manifests, or upload URLs to sign
 
 The Worker rechecks accepted `main` immediately before private-key use and again before immutable release-object writes. If `main` changes, the signing request fails rather than signing stale source.
 
-The signing command never promotes `latest.json`. Public update availability still requires the matching immutable objects to be independently verified, the update-serving origin to be verified, clean-Windows release evidence, the matching GitHub recovery release, and deliberate latest-pointer promotion.
+The `/studio-ota-sign` command never promotes `latest.json`. Public update availability still requires the matching immutable objects to be independently verified, the update-serving origin to be verified, Windows upgrade/rollback evidence, the matching GitHub recovery release, and deliberate latest-pointer promotion. Promotion is a separate owner-bound `/studio-ota-promote` command that re-verifies those production inputs before signing and advancing the pointer.
 
 ## Staging, activation, and rollback
 
@@ -60,25 +62,24 @@ Each immutable version owns its `node_modules` and `.venv`. This permits `packag
 
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
-## OTA production gates
+## OTA production gates and 0.85.1 rollout
 
-The 0.8.0 GitHub Release provides the bootstrap trust only. Before OTA can be advertised or enabled for a later signed Studio release:
+The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.1`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
 
 1. Build the ordinary Windows GitHub Release candidate and OTA candidate for that later version from the same exact accepted `main` commit, with committed bounded release notes.
 2. Stage and sign the exact OTA candidate through the production signer; independently verify the signature, package bytes, manifest, attestation, dependency declarations, and immutable R2 objects.
 3. Verify the public `updates.sthang.app` serving layer and cache behavior without promoting `latest.json` yet.
 4. Run clean Windows installation and representative Khmer caption regression tests, plus dependency-change upgrade, failed setup, interrupted download, interruption before/after pointer swap, failed health, rollback, state preservation, shortcut/default-browser, and manual GitHub recovery tests.
 5. Publish and verify the matching deliberate GitHub Release for the offered version so users retain a manual recovery path.
-6. Advance signed `latest.json` only from matching verified immutable-release, GitHub Release, and clean-Windows evidence.
+6. Advance signed `latest.json` only from matching verified immutable-release, GitHub Release, and Windows upgrade/rollback evidence.
 7. Verify a real installed 0.8.0-or-later bootstrap client offers the intended newer signed version once per session and through the manual check action.
 8. Complete approved HQ intake and Distribution synchronization before changing public website/docs claims about OTA availability.
 
-HQ's current product schema can represent `manual-github-release` and
-`private-signed-ota`, but not public anonymous signed OTA. A future rollout
-therefore requires an approved schema/model extension and an updated Studio
-record; this release must not be mislabeled as private OTA. Distribution then
-needs matching `/studio/` installation, update, privacy, rollback,
-troubleshooting, and GitHub recovery documentation based on exact release and
-deployment evidence.
+The public anonymous signed OTA model is represented as `public-signed-ota` in
+Studio's product manifest. HQ and Distribution must accept and synchronize that
+public model before `sthang.app` or the public docs claim OTA availability.
+Distribution then needs matching `/studio/` installation, update, privacy,
+rollback, troubleshooting, and GitHub recovery documentation based on exact
+release and deployment evidence.
 
-The public verification key in 0.8.0 is not public OTA release evidence. No source branch, local build, signer deployment, private staged package, or successful signature is by itself proof that OTA is publicly available. The verified public distribution remains the matching curated GitHub Release until a later signed latest pointer is deliberately promoted after all required evidence is complete.
+The public verification key in 0.8.0 is not public OTA release evidence. No source branch, local build, signer deployment, private staged package, or successful signature is by itself proof that OTA is publicly available. A release is offered in-app only while the matching signed `latest.json` pointer is publicly available and verifies against Studio's committed trust root.
