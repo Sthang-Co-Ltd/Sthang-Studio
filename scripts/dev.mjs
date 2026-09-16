@@ -51,6 +51,7 @@ if (sharedBuild.status !== 0) process.exit(sharedBuild.status ?? 1);
 
 const children = [];
 let stopping = false;
+const startup = new AbortController();
 function terminateChildTree(child) {
   if (!child?.pid || child.killed) return;
   if (process.platform === 'win32') {
@@ -67,6 +68,7 @@ function terminateChildTree(child) {
 function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
+  startup.abort();
   for (const child of children) terminateChildTree(child);
   setTimeout(() => process.exit(code), 150);
 }
@@ -93,36 +95,73 @@ function launch(name, args, cwd) {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
-console.log('Starting backend on http://localhost:8787');
-// This is an end-user runtime, not a source-code development session.
-// Keep the backend stable during long transcription jobs.
-launch('server', ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
-console.log('Starting web app on http://localhost:5188');
-launch('web', [vite, '--host', '127.0.0.1'], path.join(root, 'apps', 'web'));
-
-function urlReady(url, timeoutMs = 30000) {
-  const startedAt = Date.now();
+/** A bounded local readiness probe, not a fixed startup sleep. HTTP errors,
+ * incomplete responses and a backend that reports ok:false are not readiness.
+ * Keep all timers/sockets cancellable so shutdown can never launch the next service.
+ */
+function urlReady(url, { health = false, signal, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve) => {
+    let settled = false;
+    let retryTimer;
+    let requestTimer;
+    let request;
+    let response;
+    const clearAttempt = () => {
+      clearTimeout(requestTimer);
+      response?.destroy();
+      request?.destroy();
+      response = undefined;
+      request = undefined;
+    };
+    const finish = (ready) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      clearTimeout(retryTimer);
+      signal?.removeEventListener('abort', abort);
+      clearAttempt();
+      resolve(ready);
+    };
+    const abort = () => finish(false);
+    // This deadline also bounds a server that accepts TCP but never finishes HTTP.
+    const deadline = setTimeout(() => finish(false), timeoutMs);
     const attempt = () => {
-      const request = http.get(url, (response) => {
-        response.resume();
-        if ((response.statusCode || 500) < 500) {
-          resolve(true);
-          return;
-        }
-        schedule();
+      if (settled) return;
+      let completed = false;
+      const complete = (ready) => {
+        if (completed || settled) return;
+        completed = true;
+        clearAttempt();
+        if (ready) finish(true);
+        else retryTimer = setTimeout(attempt, 250);
+      };
+      request = http.get(url, { agent: false }, (incoming) => {
+        if (completed || settled) { incoming.destroy(); return; }
+        response = incoming;
+        incoming.on('error', () => complete(false));
+        incoming.on('aborted', () => complete(false));
+        if (incoming.statusCode !== 200) { complete(false); return; }
+        let bytes = 0;
+        const chunks = [];
+        incoming.on('data', (chunk) => {
+          if (!health) return;
+          bytes += chunk.length;
+          if (bytes > 64 * 1024) { complete(false); return; }
+          chunks.push(chunk);
+        });
+        incoming.on('end', () => {
+          if (!health) { complete(true); return; }
+          try { complete(JSON.parse(Buffer.concat(chunks).toString('utf8'))?.ok === true); }
+          catch { complete(false); }
+        });
       });
-      request.setTimeout(1200, () => request.destroy());
-      request.on('error', schedule);
+      request.on('error', () => complete(false));
+      // A real per-attempt deadline, including body reads (not merely socket inactivity).
+      requestTimer = setTimeout(() => complete(false), 1200);
     };
-    const schedule = () => {
-      if (Date.now() - startedAt >= timeoutMs) {
-        resolve(false);
-        return;
-      }
-      setTimeout(attempt, 250);
-    };
-    attempt();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    else attempt();
   });
 }
 
@@ -172,14 +211,40 @@ function openMacBrowser(url) {
   }
 }
 
-if ((process.platform === 'win32' || process.platform === 'darwin') && process.env.KCS_OPEN_BROWSER !== 'false') {
-  void Promise.all([
-    urlReady('http://127.0.0.1:8787/api/health'),
-    urlReady('http://127.0.0.1:5188/'),
-  ]).then(([backendReady, webReady]) => {
-    if (!backendReady || !webReady || stopping) return;
-    const url = 'http://127.0.0.1:5188/';
-    if (process.platform === 'win32') openWindowsBrowser(url);
-    else openMacBrowser(url);
-  });
+async function startServices() {
+  console.log('Starting backend on http://localhost:8787');
+  // This is an end-user runtime, not a source-code development session.
+  // Keep the backend stable during long transcription jobs.
+  launch('server', ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
+  console.log('Waiting for the local backend to be ready...');
+  const backendReady = await urlReady('http://127.0.0.1:8787/api/health', { health: true, signal: startup.signal });
+  if (stopping) return;
+  if (!backendReady) {
+    console.error('ERROR: The local backend did not become ready within 30 seconds. The web app was not started. Close this window, check the error above, and try launching Studio again.');
+    shutdown(1);
+    return;
+  }
+
+  // Gate Vite itself, not just browser opening: an existing tab may reconnect to
+  // /api/jobs/events as soon as Vite listens. This also applies to manual/no-browser launches.
+  console.log('Starting web app on http://localhost:5188');
+  launch('web', [vite, '--host', '127.0.0.1'], path.join(root, 'apps', 'web'));
+  const webReady = await urlReady('http://127.0.0.1:5188/', { signal: startup.signal });
+  if (stopping) return;
+  if (!webReady) {
+    console.error('ERROR: The web app did not become ready within 30 seconds. Studio is stopping its local services. Close this window, check the error above, and try launching Studio again.');
+    shutdown(1);
+    return;
+  }
+
+  const url = 'http://127.0.0.1:5188/';
+  if (process.env.KCS_OPEN_BROWSER !== 'false' && process.platform === 'win32') openWindowsBrowser(url);
+  else if (process.env.KCS_OPEN_BROWSER !== 'false' && process.platform === 'darwin') openMacBrowser(url);
+  else console.log(`Sthang Studio is ready. Open ${url} in your preferred browser.`);
 }
+
+await startServices().catch(() => {
+  if (stopping) return;
+  console.error('ERROR: Studio could not finish startup. Close this window, check the error above, and try launching Studio again.');
+  shutdown(1);
+});
