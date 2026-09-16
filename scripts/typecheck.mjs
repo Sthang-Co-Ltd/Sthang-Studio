@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,7 +20,11 @@ const invoked = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPa
 if (invoked) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const node = process.execPath;
-  const runtimeOnly = process.argv.includes('--runtime-only');
+  // OTA/runtime packages intentionally exclude repository-only tests. Full source
+  // checkouts still include tests/tsconfig.json and therefore retain the existing
+  // test-suite typecheck unless --runtime-only is explicitly requested.
+  const runtimeOnly = process.argv.includes('--runtime-only')
+    || !fs.existsSync(path.join(root, 'tests', 'tsconfig.json'));
   for (const args of typecheckProjectArgs(root, { runtimeOnly })) {
     const result = spawnSync(node, args, { cwd: root, stdio: 'inherit', shell: false });
     if (result.status !== 0) process.exit(result.status ?? 1);
