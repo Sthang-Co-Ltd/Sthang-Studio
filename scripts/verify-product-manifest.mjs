@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-v0-85-public-release-20260916', 'manifest.change.id');
+  equal(change.id, 'studio-v0-85-1-ota-rollout-20260916', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Release Sthang Studio 0.85.0 as a public Beta for Windows 10/11 x64 and Apple Silicon macOS 12.3+, including caption appearance, local captioned-video export, local Khmer font discovery/addition, responsive native caption preview, accumulated performance improvements, and shared startup fixes. macOS uses a command-based per-user installer and Keychain credential storage; signed OTA remains Windows-only and is not promoted by this GitHub release.',
+    'Release Sthang Studio 0.85.1 as the Windows public signed-OTA rollout patch while preserving curated Windows and Apple Silicon macOS recovery downloads. Updater-capable Windows 0.8.0+ installs may offer 0.85.1 after the signed latest pointer is deliberately promoted; download, verification, installation, and restart remain explicitly user-confirmed. macOS remains manual-download only.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -218,7 +218,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(sourceAction.href, 'https://github.com/Sthang-Co-Ltd/Sthang-Studio', 'manifest.proposal.distribution.sourceAction.href');
 
   const updates = exactKeys(proposal.updates, 'manifest.proposal.updates', ['model', 'automaticPublication']);
-  equal(updates.model, 'manual-github-release', 'manifest.proposal.updates.model');
+  equal(updates.model, 'public-signed-ota', 'manifest.proposal.updates.model');
   equal(updates.automaticPublication, false, 'manifest.proposal.updates.automaticPublication');
 
   const release = exactKeys(proposal.release, 'manifest.proposal.release', [

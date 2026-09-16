@@ -8,8 +8,11 @@ import {
   STUDIO_SIGNING_ACTOR_ID,
   STUDIO_SIGNING_ACTOR_LOGIN,
   assertPackageMatchesSource,
+  compareStudioVersions,
   handleRequest,
+  latestPointerDocument,
   parseZip,
+  promotionIssueCommand,
   releaseIssueCommand,
   verifyGithubWebhook,
 } from '../infra/ota-signer/src/index.mjs';
@@ -158,6 +161,42 @@ test('release command is exact, owner-bound, and never accepts pull-request comm
   const pr = releasePayload();
   pr.issue.pull_request = { url: 'https://example.invalid/pr' };
   assert.throws(() => releaseIssueCommand(pr));
+});
+
+test('latest promotion command is separately exact and owner-bound', () => {
+  const payload = releasePayload();
+  payload.comment.body = '/studio-ota-promote';
+  assert.deepEqual(promotionIssueCommand(payload), {
+    issueNumber: 30,
+    commentId: 123,
+    actor: STUDIO_SIGNING_ACTOR_LOGIN,
+    actorId: STUDIO_SIGNING_ACTOR_ID,
+  });
+  assert.throws(() => releaseIssueCommand(payload));
+  const extra = releasePayload();
+  extra.comment.body = '/studio-ota-promote now';
+  assert.throws(() => promotionIssueCommand(extra));
+  const outsider = releasePayload();
+  outsider.comment.body = '/studio-ota-promote';
+  outsider.sender = { login: 'attacker', id: 9 };
+  assert.throws(() => promotionIssueCommand(outsider));
+});
+
+test('promotion pointer construction is version-ordered and immutable-manifest bound', () => {
+  assert.equal(compareStudioVersions('0.85.1', '0.85.0'), 1);
+  assert.equal(compareStudioVersions('0.85.1', '0.85.1'), 0);
+  assert.equal(compareStudioVersions('0.85.1-beta.1', '0.85.1'), -1);
+  const manifestSha256 = 'a'.repeat(64);
+  assert.deepEqual(latestPointerDocument('0.85.1', manifestSha256), {
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'windows-x64',
+    channel: 'preview',
+    version: '0.85.1',
+    manifestUrl: 'https://updates.sthang.app/studio/windows/v0.85.1/release.json',
+    manifestSha256,
+  });
+  assert.throws(() => latestPointerDocument('0.85.1', 'bad'));
 });
 
 test('GitHub webhook HMAC must match exact request body', async () => {

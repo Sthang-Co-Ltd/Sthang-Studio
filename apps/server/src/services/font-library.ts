@@ -62,6 +62,25 @@ async function unlinkFile(filePath: string) {
   }
 }
 
+async function cleanupRemovalTransaction(transactionId: string) {
+  const marker = `.${transactionId}.remove`.toLowerCase();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const entries = await fs.readdir(config.userFontDir).catch(() => [] as string[]);
+    const leftovers = entries.filter((entry) => {
+      const normalized = entry.toLowerCase();
+      return normalized.endsWith(marker) || normalized.endsWith(`${marker}.tmp`);
+    });
+    if (!leftovers.length) return;
+    await Promise.all(leftovers.map((entry) => unlinkFile(path.join(config.userFontDir, entry)).catch(() => {})));
+    if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+  }
+  const remaining = (await fs.readdir(config.userFontDir).catch(() => [] as string[])).filter((entry) => {
+    const normalized = entry.toLowerCase();
+    return normalized.endsWith(marker) || normalized.endsWith(`${marker}.tmp`);
+  });
+  if (remaining.length) throw new Error('Studio could not finish removing the selected font files. Close any program using the font and try again.');
+}
+
 function safeU16(buffer: Buffer, offset: number) {
   if (offset < 0 || offset + 2 > buffer.length) throw new Error('Font table is truncated.');
   return buffer.readUInt16BE(offset);
@@ -558,5 +577,6 @@ export async function removeImportedCaptionFont(id: string) {
   invalidateCaptionFontCache();
   const fonts = publicCaptionFonts(await discoverCaptionFonts());
   await Promise.all(staged.map((item) => unlinkFile(item.hidden).catch(() => {})));
+  await cleanupRemovalTransaction(transactionId);
   return fonts;
 }

@@ -12,7 +12,8 @@ Before that direct baseline write, review the complete `main...chatgpt/ota-signe
 - staged ZIPs are bounded, parsed without execution, and required to match the exact accepted source projection byte-for-byte;
 - the accepted `main` commit is rechecked immediately before private-key use and again before immutable release-object writes;
 - versioned R2 release objects are create-only;
-- the signing command does not publish a GitHub Release or promote `latest.json`;
+- `/studio-ota-sign` does not publish a GitHub Release or promote `latest.json`;
+- `/studio-ota-promote` is separately owner-bound and may advance only from the exact verified immutable release, matching GitHub recovery release, current accepted `main`, and publicly verified immutable update objects;
 - local repository-owned checks are run before staging a release candidate;
 - the accepted runtime trust root stays fail-closed until the deliberate bootstrap release provisions the public key.
 

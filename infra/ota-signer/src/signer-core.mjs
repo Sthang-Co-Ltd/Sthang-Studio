@@ -154,6 +154,73 @@ function exactVersion(value) {
   return value;
 }
 
+function exactObjectKeys(value, expected, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SignerError(`${label} is invalid.`);
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.join('\0') !== wanted.join('\0')) throw new SignerError(`${label} has unexpected fields.`);
+  return value;
+}
+
+function unsignedDocument(value) {
+  const copy = { ...value };
+  delete copy.signature;
+  return copy;
+}
+
+function strictBase64Bytes(value, label) {
+  if (typeof value !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new SignerError(`${label} is invalid.`);
+  }
+  let binary;
+  try { binary = atob(value); } catch { throw new SignerError(`${label} is invalid.`); }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  let roundTrip = '';
+  for (const byte of bytes) roundTrip += String.fromCharCode(byte);
+  if (btoa(roundTrip) !== value) throw new SignerError(`${label} is invalid.`);
+  return bytes;
+}
+
+async function verifySignedDocument(value, label) {
+  const signature = exactObjectKeys(value?.signature, ['algorithm', 'keyId', 'value'], `${label} signature`);
+  if (signature.algorithm !== 'ed25519' || signature.keyId !== STUDIO_SIGNING_KEY_ID) throw new SignerError(`${label} signature identity is invalid.`);
+  const signatureBytes = strictBase64Bytes(signature.value, `${label} signature`);
+  if (signatureBytes.byteLength !== 64) throw new SignerError(`${label} signature is invalid.`);
+  const publicKey = await crypto.subtle.importKey('raw', fromHex(STUDIO_PUBLIC_KEY_HEX), { name: 'Ed25519' }, false, ['verify']);
+  const valid = await crypto.subtle.verify('Ed25519', publicKey, signatureBytes, textEncoder.encode(canonicalJson(unsignedDocument(value))));
+  if (!valid) throw new SignerError(`${label} signature verification failed.`, 409);
+}
+
+function parsePrerelease(raw) {
+  return raw ? raw.split('.').map((part) => /^\d+$/.test(part) ? Number(part) : part) : [];
+}
+
+export function compareStudioVersions(left, right) {
+  const a = VERSION_PATTERN.exec(exactVersion(left));
+  const b = VERSION_PATTERN.exec(exactVersion(right));
+  for (let index = 1; index <= 3; index += 1) {
+    const difference = Number(a[index]) - Number(b[index]);
+    if (difference) return Math.sign(difference);
+  }
+  const leftPre = parsePrerelease(a[4]);
+  const rightPre = parsePrerelease(b[4]);
+  if (!leftPre.length && !rightPre.length) return 0;
+  if (!leftPre.length) return 1;
+  if (!rightPre.length) return -1;
+  for (let index = 0; index < Math.max(leftPre.length, rightPre.length); index += 1) {
+    const leftPart = leftPre[index];
+    const rightPart = rightPre[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    if (typeof leftPart === 'number' && typeof rightPart === 'string') return -1;
+    if (typeof leftPart === 'string' && typeof rightPart === 'number') return 1;
+    return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
+}
+
 function sanitizeReleaseNotes(value) {
   if (typeof value !== 'string') throw new SignerError('Release notes are invalid.');
   const normalized = value
@@ -435,7 +502,7 @@ function validateTrustRoot(entries) {
   return trust;
 }
 
-export async function buildManifest(sourceEntries, packageBytes, packageUnpackedSize) {
+export async function buildManifest(sourceEntries, packageBytes, packageUnpackedSize, { publishedAt = new Date().toISOString() } = {}) {
   const packageJson = sourceJson(sourceEntries, 'package.json');
   const version = exactVersion(packageJson?.version);
   const trust = validateTrustRoot(sourceEntries);
@@ -450,7 +517,7 @@ export async function buildManifest(sourceEntries, packageBytes, packageUnpacked
     platform: 'windows-x64',
     channel: 'preview',
     version,
-    publishedAt: new Date().toISOString(),
+    publishedAt,
     releaseNotes: notes,
     package: {
       url: `https://${STUDIO_UPDATE_HOST}/studio/windows/v${version}/Sthang-Studio-OTA-v${version}.zip`,
@@ -537,7 +604,7 @@ async function stageObject(bucket, commit) {
   return { key, bytes: new Uint8Array(await object.arrayBuffer()) };
 }
 
-export function releaseIssueCommand(payload) {
+function authorizedIssueCommand(payload, command) {
   if (
     payload?.action !== 'created'
     || payload?.repository?.full_name !== STUDIO_REPOSITORY
@@ -546,7 +613,7 @@ export function releaseIssueCommand(payload) {
     || Object.hasOwn(payload?.issue || {}, 'pull_request')
     || typeof payload?.issue?.title !== 'string'
     || !payload.issue.title.toLowerCase().startsWith('release:')
-    || payload?.comment?.body !== '/studio-ota-sign'
+    || payload?.comment?.body !== command
     || payload?.comment?.user?.login !== STUDIO_SIGNING_ACTOR_LOGIN
     || payload?.comment?.user?.id !== STUDIO_SIGNING_ACTOR_ID
     || payload?.sender?.login !== STUDIO_SIGNING_ACTOR_LOGIN
@@ -561,6 +628,14 @@ export function releaseIssueCommand(payload) {
     actor: payload.sender.login,
     actorId: payload.sender.id,
   };
+}
+
+export function releaseIssueCommand(payload) {
+  return authorizedIssueCommand(payload, '/studio-ota-sign');
+}
+
+export function promotionIssueCommand(payload) {
+  return authorizedIssueCommand(payload, '/studio-ota-promote');
 }
 
 async function processSigning(env, requestContext, deliveryId) {
@@ -635,6 +710,237 @@ async function processSigning(env, requestContext, deliveryId) {
   return status;
 }
 
+async function bucketBytes(bucket, key, label, maximumBytes = MAX_ARCHIVE_BYTES) {
+  const object = await bucket.get(key);
+  if (!object) throw new SignerError(`${label} is unavailable.`, 409);
+  if (object.size <= 0 || object.size > maximumBytes) throw new SignerError(`${label} size is invalid.`, 409);
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  if (bytes.byteLength <= 0 || bytes.byteLength > maximumBytes) throw new SignerError(`${label} size is invalid.`, 409);
+  return { object, bytes };
+}
+
+async function fetchExactPublic(url, expectedBytes, label) {
+  const response = await fetch(url, {
+    headers: { 'cache-control': 'no-cache', 'user-agent': 'Sthang-Studio-OTA-Signer' },
+    redirect: 'error',
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new SignerError(`${label} is not publicly available.`, 502);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!compareBytes(bytes, expectedBytes)) throw new SignerError(`${label} does not match verified immutable bytes.`, 502);
+}
+
+function validateReleaseStatus(value, issueNumber, commit, version) {
+  const status = exactObjectKeys(value, [
+    'schemaVersion', 'product', 'operation', 'issueNumber', 'version', 'sourceCommit',
+    'manifestSha256', 'packageSha256', 'packageSizeBytes', 'verifiedAt',
+  ], 'release signing status');
+  if (
+    status.schemaVersion !== 1
+    || status.product !== 'sthang-studio'
+    || status.operation !== 'release-signed'
+    || status.issueNumber !== issueNumber
+    || status.version !== version
+    || status.sourceCommit !== commit
+    || !/^[0-9a-f]{64}$/.test(status.manifestSha256)
+    || !/^[0-9a-f]{64}$/.test(status.packageSha256)
+    || !Number.isSafeInteger(status.packageSizeBytes)
+    || status.packageSizeBytes <= 0
+    || !Number.isFinite(Date.parse(status.verifiedAt))
+  ) throw new SignerError('Release signing status does not match the current accepted release.', 409);
+  return status;
+}
+
+function validateAttestation(value, { issueNumber, commit, version, manifestSha256, packageSha256, packageSizeBytes }) {
+  const attestation = exactObjectKeys(value, [
+    'schemaVersion', 'product', 'platform', 'channel', 'operation', 'source', 'version',
+    'manifestSha256', 'packageSha256', 'packageSizeBytes', 'verifiedAt', 'signature',
+  ], 'release attestation');
+  const source = exactObjectKeys(attestation.source, [
+    'repository', 'repositoryId', 'commit', 'sourceArchiveSha256', 'issueNumber', 'commentId',
+    'actor', 'actorId', 'webhookDeliveryId',
+  ], 'release attestation source');
+  if (
+    attestation.schemaVersion !== 1
+    || attestation.product !== 'sthang-studio'
+    || attestation.platform !== 'windows-x64'
+    || attestation.channel !== 'preview'
+    || attestation.operation !== 'release-attestation'
+    || attestation.version !== version
+    || attestation.manifestSha256 !== manifestSha256
+    || attestation.packageSha256 !== packageSha256
+    || attestation.packageSizeBytes !== packageSizeBytes
+    || !Number.isFinite(Date.parse(attestation.verifiedAt))
+    || source.repository !== STUDIO_REPOSITORY
+    || source.repositoryId !== STUDIO_REPOSITORY_ID
+    || source.commit !== commit
+    || source.issueNumber !== issueNumber
+    || source.actor !== STUDIO_SIGNING_ACTOR_LOGIN
+    || source.actorId !== STUDIO_SIGNING_ACTOR_ID
+    || !/^[0-9a-f]{64}$/.test(source.sourceArchiveSha256)
+  ) throw new SignerError('Release attestation does not match the current accepted release.', 409);
+  return attestation;
+}
+
+async function verifyGithubRecoveryRelease(version, commit) {
+  const [release, taggedCommit] = await Promise.all([
+    githubJson(`releases/tags/v${version}`),
+    githubJson(`commits/v${version}`),
+  ]);
+  if (
+    release?.tag_name !== `v${version}`
+    || release?.draft !== false
+    || release?.prerelease !== true
+    || String(taggedCommit?.sha || '').toLowerCase() !== commit
+  ) throw new SignerError('The matching GitHub recovery release is not published from the accepted commit.', 409);
+  const requiredAssets = [
+    `Sthang-Studio-Windows-v${version}.zip`,
+    `Sthang-Studio-Windows-v${version}.zip.sha256`,
+    `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip`,
+    `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip.sha256`,
+  ];
+  for (const name of requiredAssets) {
+    const asset = Array.isArray(release.assets) ? release.assets.find((candidate) => candidate?.name === name) : null;
+    if (!asset || asset.state !== 'uploaded' || !Number.isSafeInteger(asset.size) || asset.size <= 0 || !/^sha256:[0-9a-f]{64}$/i.test(String(asset.digest || ''))) {
+      throw new SignerError(`The matching GitHub recovery release asset is not verified: ${name}.`, 409);
+    }
+  }
+}
+
+export function latestPointerDocument(version, manifestSha256) {
+  const checkedVersion = exactVersion(version);
+  if (!/^[0-9a-f]{64}$/.test(manifestSha256)) throw new SignerError('Release manifest hash is invalid.');
+  return {
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'windows-x64',
+    channel: 'preview',
+    version: checkedVersion,
+    manifestUrl: `https://${STUDIO_UPDATE_HOST}/studio/windows/v${checkedVersion}/release.json`,
+    manifestSha256,
+  };
+}
+
+async function validateExistingLatest(bytes) {
+  const pointer = safeJsonParse(bytes, 'Current latest pointer');
+  exactObjectKeys(pointer, [
+    'schemaVersion', 'product', 'platform', 'channel', 'version', 'manifestUrl', 'manifestSha256', 'signature',
+  ], 'current latest pointer');
+  await verifySignedDocument(pointer, 'Current latest pointer');
+  const version = exactVersion(pointer.version);
+  if (
+    pointer.schemaVersion !== 1
+    || pointer.product !== 'sthang-studio'
+    || pointer.platform !== 'windows-x64'
+    || pointer.channel !== 'preview'
+    || pointer.manifestUrl !== `https://${STUDIO_UPDATE_HOST}/studio/windows/v${version}/release.json`
+    || !/^[0-9a-f]{64}$/.test(pointer.manifestSha256)
+  ) throw new SignerError('Current latest pointer identity is invalid.', 409);
+  return pointer;
+}
+
+async function verifyPromotionEvidence(env, requestContext) {
+  const commit = await acceptedMain();
+  const source = await sourceArchive(commit);
+  const version = exactVersion(sourceJson(source.entries, 'package.json')?.version);
+  const prefix = `studio/windows/v${version}`;
+  const [statusObject, packageObject, manifestObject, attestationObject] = await Promise.all([
+    bucketBytes(env.STUDIO_UPDATES, `status/issues/${requestContext.issueNumber}.json`, 'Release signing status', 32 * 1024),
+    bucketBytes(env.STUDIO_UPDATES, `${prefix}/Sthang-Studio-OTA-v${version}.zip`, 'Immutable OTA package'),
+    bucketBytes(env.STUDIO_UPDATES, `${prefix}/release.json`, 'Signed release manifest', 64 * 1024),
+    bucketBytes(env.STUDIO_UPDATES, `${prefix}/release-attestation.json`, 'Signed release attestation', 64 * 1024),
+  ]);
+  const status = validateReleaseStatus(safeJsonParse(statusObject.bytes, 'Release signing status'), requestContext.issueNumber, commit, version);
+  if (status.packageSizeBytes !== packageObject.bytes.byteLength || status.packageSha256 !== await sha256Hex(packageObject.bytes)) {
+    throw new SignerError('Immutable OTA package does not match release signing status.', 409);
+  }
+  const packageZip = await parseZip(packageObject.bytes);
+  assertPackageMatchesSource(packageZip.entries, source.entries);
+
+  const manifest = safeJsonParse(manifestObject.bytes, 'Signed release manifest');
+  await verifySignedDocument(manifest, 'Signed release manifest');
+  const manifestSha256 = await sha256Hex(manifestObject.bytes);
+  if (manifestSha256 !== status.manifestSha256) throw new SignerError('Signed release manifest does not match release signing status.', 409);
+  const expectedManifest = await buildManifest(source.entries, packageObject.bytes, packageZip.totalUnpacked, { publishedAt: manifest.publishedAt });
+  if (canonicalJson(unsignedDocument(manifest)) !== canonicalJson(expectedManifest)) {
+    throw new SignerError('Signed release manifest does not match current accepted source and package.', 409);
+  }
+
+  const attestation = safeJsonParse(attestationObject.bytes, 'Signed release attestation');
+  await verifySignedDocument(attestation, 'Signed release attestation');
+  validateAttestation(attestation, {
+    issueNumber: requestContext.issueNumber,
+    commit,
+    version,
+    manifestSha256,
+    packageSha256: status.packageSha256,
+    packageSizeBytes: status.packageSizeBytes,
+  });
+
+  await verifyGithubRecoveryRelease(version, commit);
+  await Promise.all([
+    fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/release.json`, manifestObject.bytes, 'Public immutable release manifest'),
+    fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/Sthang-Studio-OTA-v${version}.zip`, packageObject.bytes, 'Public immutable OTA package'),
+    fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/release-attestation.json`, attestationObject.bytes, 'Public immutable release attestation'),
+  ]);
+  return { commit, version, manifest, manifestBytes: manifestObject.bytes, manifestSha256, packageSha256: status.packageSha256 };
+}
+
+async function processPromotion(env, requestContext, deliveryId) {
+  const evidence = await verifyPromotionEvidence(env, requestContext);
+  const latestKey = 'studio/windows/latest.json';
+  const previous = await env.STUDIO_UPDATES.get(latestKey);
+  let previousBytes = null;
+  if (previous) {
+    previousBytes = new Uint8Array(await previous.arrayBuffer());
+    const current = await validateExistingLatest(previousBytes);
+    if (compareStudioVersions(evidence.version, current.version) <= 0) {
+      throw new SignerError('The latest pointer may only advance to a newer verified version.', 409);
+    }
+  }
+
+  await requireMain(evidence.commit, 'Accepted main changed before latest-pointer signing. Verify the new accepted release first.');
+  const key = await signingKey(env);
+  const signedPointer = await signDocument(latestPointerDocument(evidence.version, evidence.manifestSha256), key);
+  const pointerBytes = textEncoder.encode(`${JSON.stringify(signedPointer, null, 2)}\n`);
+  const latestSha256 = await sha256Hex(pointerBytes);
+  await requireMain(evidence.commit, 'Accepted main changed during latest-pointer promotion. No pointer was written.');
+
+  await env.STUDIO_UPDATES.put(latestKey, pointerBytes, {
+    httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
+    customMetadata: { sourceCommit: evidence.commit, manifestSha256: evidence.manifestSha256, deliveryId },
+  });
+  try {
+    const stored = await bucketBytes(env.STUDIO_UPDATES, latestKey, 'Promoted latest pointer', 32 * 1024);
+    if (!compareBytes(stored.bytes, pointerBytes)) throw new SignerError('Promoted latest pointer bytes could not be verified.', 502);
+    await validateExistingLatest(stored.bytes);
+    await fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/studio/windows/latest.json`, pointerBytes, 'Public latest pointer');
+  } catch (error) {
+    if (previousBytes) {
+      await env.STUDIO_UPDATES.put(latestKey, previousBytes, {
+        httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
+      }).catch(() => {});
+    } else {
+      await env.STUDIO_UPDATES.delete(latestKey).catch(() => {});
+    }
+    throw error;
+  }
+
+  const status = {
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    operation: 'latest-promoted',
+    issueNumber: requestContext.issueNumber,
+    version: evidence.version,
+    sourceCommit: evidence.commit,
+    manifestSha256: evidence.manifestSha256,
+    latestSha256,
+    promotedAt: new Date().toISOString(),
+  };
+  await writeStatus(env.STUDIO_UPDATES, requestContext.issueNumber, status);
+  return status;
+}
+
 async function handleWebhook(request, env) {
   const bodyBytes = await readBoundedBody(request, MAX_WEBHOOK_BYTES);
   await verifyGithubWebhook(request, bodyBytes, env.STUDIO_GITHUB_WEBHOOK_SECRET);
@@ -645,7 +951,10 @@ async function handleWebhook(request, env) {
   if (event !== 'issue_comment') return json({ ok: true, ignored: true });
 
   const payload = safeJsonParse(bodyBytes, 'Webhook payload');
-  const context = releaseIssueCommand(payload);
+  const command = payload?.comment?.body;
+  const operation = command === '/studio-ota-sign' ? 'sign' : command === '/studio-ota-promote' ? 'promote' : null;
+  if (!operation) throw new SignerError('This issue comment is not an authorized Studio signing request.', 403);
+  const context = operation === 'sign' ? releaseIssueCommand(payload) : promotionIssueCommand(payload);
   const replayKey = `audit/webhook/${deliveryId}.json`;
   const replayBytes = textEncoder.encode(`${JSON.stringify({ receivedAt: new Date().toISOString(), issueNumber: context.issueNumber, commentId: context.commentId })}\n`);
   const replay = await env.STUDIO_UPDATES.put(replayKey, replayBytes, {
@@ -655,15 +964,17 @@ async function handleWebhook(request, env) {
   if (!replay) return json({ ok: true, duplicate: true }, 202);
 
   try {
-    const status = await processSigning(env, context, deliveryId);
+    const status = operation === 'sign'
+      ? await processSigning(env, context, deliveryId)
+      : await processPromotion(env, context, deliveryId);
     await putCreateOrMatch(env.STUDIO_UPDATES, `audit/webhook/${deliveryId}.result.json`, textEncoder.encode(`${JSON.stringify(status)}\n`));
     return json({ ok: true, accepted: true, version: status.version }, 202);
   } catch (error) {
-    const message = error instanceof SignerError ? error.message : 'Signing request failed.';
+    const message = error instanceof SignerError ? error.message : operation === 'sign' ? 'Signing request failed.' : 'Latest-pointer promotion failed.';
     const status = {
       schemaVersion: 1,
       product: 'sthang-studio',
-      operation: 'release-signing-failed',
+      operation: operation === 'sign' ? 'release-signing-failed' : 'latest-promotion-failed',
       issueNumber: context.issueNumber,
       message,
       failedAt: new Date().toISOString(),

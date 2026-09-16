@@ -1,0 +1,28 @@
+Sthang Studio 0.85.1 - Public Beta
+
+0.85.1 is the Windows public signed-OTA rollout patch on top of the accepted 0.85.0 product behavior.
+Curated recovery downloads remain available for Windows 10 or 11 x64 and Apple Silicon macOS 12.3+.
+
+Windows installs with the updater bootstrap from 0.8.0 or newer can offer 0.85.1 through Studio once the signed production latest pointer is promoted.
+Studio checks at most once per browser session/startup plus the manual Check for updates action.
+It never silently downloads or installs an update: choose Download & verify, then Install & restart.
+
+The signed package is staged and fully verified before activation. Failed dependency setup, service health, or version verification leaves or restores the previous active version.
+Projects, source media, captions, history, correction memory, jobs, exports, compatible caches, Gemini key storage, and the .env fallback remain in the stable state root.
+
+The macOS package remains a manual-download Beta and does not implement the Windows OTA updater.
+
+0.85.1 otherwise carries the 0.85.0 caption Appearance editing, local captioned MP4 export, Khmer-safe native preview/export layout, local Khmer font discovery and Add font, performance improvements, and playback/grouping fixes.
+
+Studio requests store: false for Gemini transcription interactions. Normalized WAV audio is uploaded separately through the Gemini Files API; Studio does not explicitly delete that remote file.
+Google currently documents retention of up to 48 hours.
+
+Khmer Caption Contributor and optional product analytics remain separate privacy choices. Both are off by default and require explicit opt-in.
+
+Release assets:
+- Sthang-Studio-Windows-v0.85.1.zip
+- Sthang-Studio-Windows-v0.85.1.zip.sha256
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.1.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.1.zip.sha256
+
+Verify the matching SHA-256 checksum after download if you want to confirm the archive bytes.

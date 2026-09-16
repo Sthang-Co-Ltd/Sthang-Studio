@@ -50,7 +50,7 @@ audit/webhook/<delivery-id>.result.json
 status/issues/<issue-number>.json
 ```
 
-Staging is temporary release input. The versioned `studio/windows/v<version>/` namespace is immutable. `latest.json` is intentionally not created or promoted by this Worker command.
+Staging is temporary release input. The versioned `studio/windows/v<version>/` namespace is immutable. `/studio-ota-sign` intentionally does not create or promote `latest.json`; pointer promotion is a separate owner-commanded operation.
 
 ## Agent invocation without hosted runners
 
@@ -61,6 +61,23 @@ After a reviewed candidate is staged, ChatGPT chat mode or Codex can use the con
 ```
 
 to the authorized open release issue. GitHub sends the issue-comment webhook directly to Cloudflare. No GitHub Actions or Blacksmith runner is used for signing.
+
+After immutable signing, independent verification, the matching GitHub recovery
+release, and the required Windows upgrade/rollback evidence are complete, the
+same owner may add exactly:
+
+```text
+/studio-ota-promote
+```
+
+The promotion operation re-resolves current `main`, verifies the prior signing
+status, signed manifest and attestation, exact immutable OTA package bytes,
+matching GitHub release/tag and four recovery assets, and the public immutable
+update origin. It then uses the same Secrets Store key to sign `latest.json`,
+advances only to a newer version, writes it with a `no-store` cache policy, and
+verifies the exact bytes through the public update origin. If live-origin
+verification fails after the write, it restores the previous pointer (or removes
+the first pointer) before returning failure.
 
 A public, non-sensitive result can be read from:
 
@@ -85,4 +102,6 @@ That endpoint exposes only release status, version, accepted source commit, and 
 
 `scripts/stage-ota-candidate.ps1` is the local/Codex release-preparation path. It requires an exact clean checkout of current `main`, a provisioned public trust root, committed release notes, local repository-owned validation, and then uploads only the generated OTA ZIP to `staging/<commit>/package.zip`. The Cloudflare signer independently verifies it again.
 
-Neither script publishes a GitHub Release or promotes `latest.json`.
+Neither local deployment/staging script publishes a GitHub Release or promotes
+`latest.json`; public promotion remains the separate `/studio-ota-promote`
+owner command described above.
