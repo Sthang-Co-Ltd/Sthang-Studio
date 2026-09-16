@@ -223,7 +223,7 @@ export const historyStore = {
   clear(projectId: string) {
     return queueHistory(projectId, async () => {
       const settled = await Promise.allSettled([
-        fs.rm(projectDir(projectId), { recursive: true, force: true }),
+        fs.rm(projectDir(projectId), { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }),
         fs.rm(legacyFile(projectId), { force: true }),
       ]);
       const failed = settled.find((result) => result.status === 'rejected');
