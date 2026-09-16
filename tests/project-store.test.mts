@@ -21,7 +21,9 @@ await fs.writeFile(path.join(projectDir, 'reviewed.json'), JSON.stringify(origin
 await fs.writeFile(path.join(projectDir, 'order.json'), '["reviewed"]');
 await fs.writeFile(path.join(projectDir, '.per-project-v1'), 'fixture');
 const { store } = await import('../apps/server/src/services/store.js');
-after(() => fs.rm(root, { recursive: true, force: true }));
+after(async () => {
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+});
 
 test('narrow reads share initialization and preserve exact missing-id semantics', async () => {
   const [exists, media, missing] = await Promise.all([
