@@ -559,6 +559,21 @@ async function signingKey(env) {
   return privateKey;
 }
 
+async function privateSigningStage(stage, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!(error instanceof SignerError)) {
+      const name = error && typeof error === 'object' && 'name' in error ? String(error.name).slice(0, 80) : typeof error;
+      const message = error && typeof error === 'object' && 'message' in error
+        ? String(error.message).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 240)
+        : 'unexpected runtime failure';
+      console.error(JSON.stringify({ event: 'studio-ota-private-signing-failure', stage, name, message }));
+    }
+    throw error;
+  }
+}
+
 export async function signDocument(unsigned, key) {
   const payload = textEncoder.encode(canonicalJson(unsigned));
   const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', key, payload));
@@ -649,8 +664,8 @@ async function processSigning(env, requestContext, deliveryId) {
   const manifest = await buildManifest(source.entries, staged.bytes, stagedZip.totalUnpacked);
 
   await requireMain(commit, 'Accepted main changed before signing. Stage a new candidate from the new main commit.');
-  const key = await signingKey(env);
-  const signedManifest = await signDocument(manifest, key);
+  const key = await privateSigningStage('key-import-and-self-check', () => signingKey(env));
+  const signedManifest = await privateSigningStage('release-manifest-signature', () => signDocument(manifest, key));
   const signedManifestBytes = textEncoder.encode(`${JSON.stringify(signedManifest, null, 2)}\n`);
   const manifestSha256 = await sha256Hex(signedManifestBytes);
   const verifiedAt = new Date().toISOString();
@@ -677,7 +692,7 @@ async function processSigning(env, requestContext, deliveryId) {
     packageSizeBytes: manifest.package.sizeBytes,
     verifiedAt,
   };
-  const attestation = await signDocument(attestationUnsigned, key);
+  const attestation = await privateSigningStage('release-attestation-signature', () => signDocument(attestationUnsigned, key));
   const attestationBytes = textEncoder.encode(`${JSON.stringify(attestation, null, 2)}\n`);
 
   await requireMain(commit, 'Accepted main changed during signing. No immutable release objects were written.');
@@ -900,8 +915,8 @@ async function processPromotion(env, requestContext, deliveryId) {
   }
 
   await requireMain(evidence.commit, 'Accepted main changed before latest-pointer signing. Verify the new accepted release first.');
-  const key = await signingKey(env);
-  const signedPointer = await signDocument(latestPointerDocument(evidence.version, evidence.manifestSha256), key);
+  const key = await privateSigningStage('latest-key-import-and-self-check', () => signingKey(env));
+  const signedPointer = await privateSigningStage('latest-pointer-signature', () => signDocument(latestPointerDocument(evidence.version, evidence.manifestSha256), key));
   const pointerBytes = textEncoder.encode(`${JSON.stringify(signedPointer, null, 2)}\n`);
   const latestSha256 = await sha256Hex(pointerBytes);
   await requireMain(evidence.commit, 'Accepted main changed during latest-pointer promotion. No pointer was written.');
