@@ -45,7 +45,10 @@ try {
     'STOP-KHMER-CAPTION-STUDIO.bat','README.md','LICENSE','PRIVACY.md','SECURITY.md',
     'SUPPORT.md','THIRD_PARTY_NOTICES.md','TRADEMARKS.md'
   )
-  & git archive --format=zip "--output=$PayloadZip" HEAD -- @Paths
+  # GitHub's source archive is created with server-side LF defaults while still
+  # honoring explicit eol=crlf attributes for Windows scripts. Pin those Git
+  # settings here so this Windows checkout exports the same accepted bytes.
+  & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$PayloadZip" HEAD -- @Paths
   if ($LASTEXITCODE -ne 0) { throw 'Could not archive the reviewed OTA payload.' }
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $Source -Force
 
@@ -60,10 +63,9 @@ try {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Artifact = Join-Path $Output "Sthang-Studio-OTA-v$Version.zip"
   if (Test-Path $Artifact) { Remove-Item $Artifact -Force }
-  # Keep the exact git-archive ZIP as the release payload. Git writes canonical
-  # forward-slash entry names on every host, while ZipFile.CreateFromDirectory
-  # emits backslash entry names on Windows. The production signer deliberately
-  # rejects backslash paths so one archive path representation is authoritative.
+  # Keep the exact canonical Git archive as the release payload. The pinned Git
+  # EOL settings above make its file bytes match GitHub's accepted source archive
+  # while Git writes portable forward-slash ZIP entry names on every host.
   Copy-Item -LiteralPath $PayloadZip -Destination $Artifact
   $Archive = [IO.Compression.ZipFile]::OpenRead($Artifact)
   try {
