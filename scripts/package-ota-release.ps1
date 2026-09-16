@@ -60,7 +60,19 @@ try {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Artifact = Join-Path $Output "Sthang-Studio-OTA-v$Version.zip"
   if (Test-Path $Artifact) { Remove-Item $Artifact -Force }
-  [IO.Compression.ZipFile]::CreateFromDirectory($Source,$Artifact,[IO.Compression.CompressionLevel]::Optimal,$false)
+  # Keep the exact git-archive ZIP as the release payload. Git writes canonical
+  # forward-slash entry names on every host, while ZipFile.CreateFromDirectory
+  # emits backslash entry names on Windows. The production signer deliberately
+  # rejects backslash paths so one archive path representation is authoritative.
+  Copy-Item -LiteralPath $PayloadZip -Destination $Artifact
+  $Archive = [IO.Compression.ZipFile]::OpenRead($Artifact)
+  try {
+    foreach ($Entry in $Archive.Entries) {
+      if ($Entry.FullName.Contains('\')) { throw "OTA ZIP contains a non-canonical entry path: $($Entry.FullName)" }
+    }
+  } finally {
+    $Archive.Dispose()
+  }
 
   $Python = @()
   foreach ($File in Get-ChildItem (Join-Path $Source 'local-timing') -Filter 'requirements*.txt' | Sort-Object Name) {

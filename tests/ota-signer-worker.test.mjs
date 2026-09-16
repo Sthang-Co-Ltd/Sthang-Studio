@@ -129,6 +129,25 @@ test('ZIP parser rejects unsafe Windows paths, protected state, symlinks, and lo
   for (const entries of cases) await assert.rejects(() => parseZip(makeZip(entries)));
 });
 
+test('source-archive mode may inspect protected scaffolding without allowing it into the OTA payload', async () => {
+  const zip = makeZip([
+    { name: 'repo-abcd/package.json', content: '{}' },
+    { name: 'repo-abcd/data/.gitkeep', content: '' },
+    { name: 'repo-abcd/apps/server/src/index.ts', content: 'source' },
+  ]);
+  await assert.rejects(() => parseZip(zip, { stripFirstSegment: true }), /protected runtime state/i);
+  const parsed = await parseZip(zip, { stripFirstSegment: true, allowProtectedRuntimeState: true });
+  assert.equal(parsed.entries.has('data/.gitkeep'), true);
+  assert.equal(parsed.entries.has('apps/server/src/index.ts'), true);
+
+  const source = requiredSource();
+  source.set('data/.gitkeep', Buffer.from(''));
+  const exactPayload = new Map([...source].filter(([path]) => path !== 'data/.gitkeep'));
+  assert.doesNotThrow(() => assertPackageMatchesSource(exactPayload, source));
+  const protectedPackage = new Map(source);
+  assert.throws(() => assertPackageMatchesSource(protectedPackage, source), /file set/i);
+});
+
 test('package/source byte comparison requires critical files and rejects changed or extra files', () => {
   const source = requiredSource();
   const exact = new Map(source);

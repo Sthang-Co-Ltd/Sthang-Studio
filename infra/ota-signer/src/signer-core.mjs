@@ -237,7 +237,7 @@ function isAllowedPayloadPath(path) {
   return ALLOWED_TOP_LEVEL_FILES.has(path) || ALLOWED_ROOTS.some((root) => path.startsWith(root));
 }
 
-function assertSafeArchivePath(rawPath) {
+function assertSafeArchivePath(rawPath, { allowProtectedRuntimeState = false } = {}) {
   if (typeof rawPath !== 'string' || !rawPath || rawPath.length > 512) throw new SignerError('Archive contains an invalid path.');
   if (rawPath.includes('\\') || rawPath.startsWith('/') || /^[A-Za-z]:/.test(rawPath) || rawPath.includes('//') || /[\u0000-\u001F\u007F]/.test(rawPath)) {
     throw new SignerError('Archive contains an unsafe path.');
@@ -250,7 +250,7 @@ function assertSafeArchivePath(rawPath) {
     if (WINDOWS_RESERVED.test(base)) throw new SignerError('Archive contains a reserved Windows path.');
   }
   const lower = segments.map((segment) => segment.toLowerCase());
-  if (lower.some((segment) => FORBIDDEN_PACKAGE_PARTS.has(segment))) throw new SignerError('Archive contains protected runtime state.');
+  if (!allowProtectedRuntimeState && lower.some((segment) => FORBIDDEN_PACKAGE_PARTS.has(segment))) throw new SignerError('Archive contains protected runtime state.');
   return segments.join('/');
 }
 
@@ -306,7 +306,7 @@ function decodeZipName(decoder, bytes, start, end) {
   catch { throw new SignerError('Archive path encoding is invalid.'); }
 }
 
-export async function parseZip(inputBytes, { stripFirstSegment = false } = {}) {
+export async function parseZip(inputBytes, { stripFirstSegment = false, allowProtectedRuntimeState = false } = {}) {
   const bytes = inputBytes instanceof Uint8Array ? inputBytes : new Uint8Array(inputBytes);
   if (bytes.byteLength < 22 || bytes.byteLength > MAX_ARCHIVE_BYTES) throw new SignerError('Archive size is not supported.');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -358,11 +358,11 @@ export async function parseZip(inputBytes, { stripFirstSegment = false } = {}) {
     offset = nameEnd + extraLength + commentLength;
     if (rawName.endsWith('/')) continue;
 
-    let path = assertSafeArchivePath(rawName);
+    let path = assertSafeArchivePath(rawName, { allowProtectedRuntimeState });
     if (stripFirstSegment) {
       const slash = path.indexOf('/');
       if (slash < 0) continue;
-      path = assertSafeArchivePath(path.slice(slash + 1));
+      path = assertSafeArchivePath(path.slice(slash + 1), { allowProtectedRuntimeState });
     }
     const lower = path.toLowerCase();
     if (lowerPaths.has(lower)) throw new SignerError('Archive contains duplicate paths.');
@@ -471,7 +471,10 @@ async function requireMain(commit, message) {
 
 async function sourceArchive(commit) {
   const bytes = await fetchGithubArchive(commit);
-  const parsed = await parseZip(bytes, { stripFirstSegment: true });
+  // The public source tree may intentionally contain tracked runtime scaffolding
+  // such as data/.gitkeep. It is safe evidence to inspect, but expectedPayload()
+  // still excludes it and the staged OTA package parser still rejects it.
+  const parsed = await parseZip(bytes, { stripFirstSegment: true, allowProtectedRuntimeState: true });
   return { ...parsed, archiveSha256: await sha256Hex(bytes) };
 }
 
