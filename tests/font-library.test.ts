@@ -20,7 +20,9 @@ before(async () => {
   fontLibrary = await import('../apps/server/src/services/font-library.js');
 });
 
-after(async () => { if (root) await fs.rm(root, { recursive: true, force: true }); });
+after(async () => {
+  if (root) await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+});
 
 function utf16be(value: string) {
   const result = Buffer.alloc(value.length * 2);
