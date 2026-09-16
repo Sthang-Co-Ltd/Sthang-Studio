@@ -4,7 +4,7 @@ Sthang Studio is designed as a local-first desktop-style workspace served from
 your own computer. Caption wording currently uses Google's Gemini service;
 caption timing and project editing are handled locally.
 
-The public `v0.8.0` Beta includes two separate privacy-controlled Sthang cloud
+The public `v0.85.0` Beta includes two separate privacy-controlled Sthang cloud
 paths: Khmer Caption Contributor and optional product analytics. Both are **off
 by default** and require separate explicit opt-in. Their production services are
 provisioned, but neither choice is required for caption generation, review,
@@ -97,9 +97,9 @@ Caption preview and captioned-video rendering are local operations:
 - **Temporary working files and cleanup**: Preview requests generate transient PNG frames and ASS subtitle files in a local working directory (`exports/.working/preview-*`). These scratch files are temporary and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal. Video renders output to `exports/` with temporary working files removed on a best-effort basis upon completion or cancellation.
 - **SRT styling boundary**: SRT exports contain only UTF-8 caption text and timing coordinates. Caption appearance styling (colors, fonts, outlines, backgrounds) is purely local project metadata for the on-device renderer and is never embedded in or leaked through SRT files.
 
-### Local creator-added fonts (current source, unreleased)
+### Local creator-added fonts
 
-Current source builds can discover compatible Khmer fonts already installed on
+Current builds can discover compatible Khmer fonts already installed on
 the computer and let the creator choose **Add font…** for local `.ttf` or `.otf`
 files. A font explicitly added this way is copied into Studio's local runtime
 state under `data/fonts/` so preview and captioned-video export can use the exact
@@ -107,11 +107,11 @@ selected face. Studio does not upload these font files to Gemini, Contributor,
 analytics, or another hosted service as part of font discovery/import/rendering,
 and it does not install them into the operating system. Removing an added font
 deletes Studio's local copy only; installed system/user fonts are left unchanged.
-Studio does not ship a bundled font catalog as part of this source feature.
+Studio does not ship a bundled font catalog for this feature.
 
-### Development-source font staging
+### Native preview font staging
 
-The responsive-preview source work may also retain up to two local FFmpeg preview
+The responsive native preview may also retain up to two local FFmpeg preview
 processes and their last ASS documents in `exports/.working/preview-session-*`.
 These documents contain the requested caption state and styling, not source media.
 PNG output is streamed through local pipes and returned to the browser, not saved
@@ -123,8 +123,8 @@ for startup cleanup. No preview content or font files are uploaded, added to
 analytics or contributed by this rendering optimization. Browser preview images
 remain memory-only and project/look-scoped.
 
-The unreleased performance work described in `docs/PERFORMANCE-VALIDATION.md`
-may reuse copies of already-installed regular/bold font files between local
+The performance work described in `docs/PERFORMANCE-VALIDATION.md` may reuse
+copies of already-installed regular/bold font files between local
 preview requests. This font-only staging is bounded to four sets and 16 MiB under
 `exports/.working/preview-fonts-*`. It contains no caption text, ASS documents,
 PNG frames, source audio or video, and is not served to the browser or uploaded.
@@ -251,8 +251,8 @@ identity, and the contribution service does not receive it.
 ## API keys
 
 On Windows, the preferred in-app setup stores the Gemini API key using Windows
-user-protected storage (DPAPI) under `%LOCALAPPDATA%\Sthang Studio`. On macOS
-source builds, the same in-app flow stores the key in the macOS Keychain and
+user-protected storage (DPAPI) under `%LOCALAPPDATA%\Sthang Studio`. On Apple
+Silicon macOS installs and source builds, the same in-app flow stores the key in the macOS Keychain and
 keeps settings metadata under `~/Library/Application Support/Sthang Studio`.
 The browser receives only a masked representation. An `apps/server/.env`
 `GEMINI_API_KEY` remains supported as an advanced fallback and is ignored by Git.
@@ -284,14 +284,15 @@ layout into per-project atomic files to reduce repeated disk I/O. Existing proje
 data is preserved during migration; the legacy project source/history files are
 not silently discarded as part of the migration itself.
 
-## Update checks (0.8.0 bootstrap)
+## Update checks (Windows only)
 
-The public `0.8.0` bootstrap contains the Studio public verification key for the
-signed updater and is configured for the Sthang-controlled metadata host
-`updates.sthang.app`. **No public signed `latest.json` pointer is promoted by the
-0.8.0 GitHub Release, so this is not evidence that OTA updates are publicly
-available.** The curated GitHub Release remains the manual download and recovery
-path.
+The public `0.8.0` Windows bootstrap introduced the Studio public verification key
+for the signed updater, and the `0.85.0` Windows package retains that trust and is
+configured for the Sthang-controlled metadata host `updates.sthang.app`.
+**No public signed `latest.json` pointer is promoted by the `0.85.0` GitHub
+Release, so this is not evidence that OTA updates are publicly available.** The
+curated GitHub Release remains the manual download and recovery path. The Apple
+Silicon macOS package does not implement this Windows OTA updater.
 
 A released build containing this provisioned public key may make one
 update-metadata request per browser session/startup and additional requests only

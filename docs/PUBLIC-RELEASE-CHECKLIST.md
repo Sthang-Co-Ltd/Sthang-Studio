@@ -5,16 +5,37 @@ and publication evidence. Historical checkmarks do not verify today's GitHub
 settings or authorize another release. Inspect current settings and repeat the
 relevant checks for each new release.
 
-The repository and the `v0.8.0` Public Beta release are public. Its exact tag,
-curated Windows ZIP, checksum asset, release notes, and GitHub-recorded asset
-digest were independently verified on 2026-09-02. HQ intake and Distribution
-synchronization remain separately approval-gated.
+The repository and the `v0.8.0` Public Beta release are public. Version `0.85.0`
+is the next deliberate public Beta release and expands curated distribution to
+Windows plus Apple Silicon macOS. Its release-specific preparation record is
+below; historical `0.8.0` publication evidence remains intact.
 
 The historical `v0.7.14` publication record remains below. On 2026-08-28, the
 public [Studio page](https://sthang.app/studio/) advertised `v0.7.14`; that dated
 observation is preserved as history rather than rewritten as current website
 evidence. The owning HQ and Distribution repositories must establish the current
 public website/docs state through their separately governed synchronization flow.
+
+## Version 0.85.0 release requirements
+
+- [ ] Run `npm run ci` on the exact accepted release commit.
+- [ ] Run `npm run test:update-powershell` on that exact release commit.
+- [ ] Run `npm run package:windows` and confirm the three-item Windows archive
+      shape plus matching SHA-256 file.
+- [ ] Run `npm run package:macos` and confirm the three-item Apple Silicon archive
+      shape, executable `.command` entrypoint permissions, and matching SHA-256 file.
+- [ ] Confirm the release notes accurately describe Windows 10/11 x64, Apple
+      Silicon macOS 12.3+, the Gemini Files API/48-hour disclosure, optional
+      Contributor/analytics boundaries, captioned-video/font changes, checksums,
+      and the absence of a promoted public OTA pointer.
+- [ ] Publish non-draft prerelease `v0.85.0` from the exact accepted commit with
+      both curated ZIPs and both checksum assets; verify the uploaded bytes/digests.
+- [ ] Complete the separately governed HQ intake and Distribution `/studio/`
+      synchronization so the public site reflects version 0.85.0 and both platforms.
+- [ ] Do not claim completed real-Mac native acceptance unless the remaining
+      real-Apple-Silicon checklist in `MACOS-COMPATIBILITY.md` has actually run.
+- [ ] Do not claim public OTA availability unless the separate signed-release and
+      `latest.json` promotion gates are completed.
 
 ## Version 0.8.0 GitHub publication verification
 
@@ -262,7 +283,8 @@ website changes still require the maintainer coordination described in
 Recommended public flow:
 
 ```text
-https://sthang.app/ → Sthang Studio product page → Download for Windows → latest GitHub Release asset
+https://sthang.app/ → Sthang Studio product page → Download for Windows → matching GitHub Release asset
+                                                     ↘ Download for macOS → matching GitHub Release asset
                                                      ↘ View source on GitHub
 ```
 
@@ -270,6 +292,9 @@ https://sthang.app/ → Sthang Studio product page → Download for Windows → 
 - [x] Make **Download for Windows** the primary action for non-technical users.
 - [x] Point that action to the latest reviewed GitHub Release asset rather than
       the source-code ZIP.
+- [ ] Add a clearly labeled **Download for macOS** action when the v0.85.0 Apple
+      Silicon package is published and verified; state the Apple Silicon/macOS
+      12.3+ boundary and command-based Beta limitation alongside it.
 - [x] Provide a secondary **View source on GitHub** action for developers and
       contributors.
 - [x] Link to privacy, license/brand terms, and system requirements.

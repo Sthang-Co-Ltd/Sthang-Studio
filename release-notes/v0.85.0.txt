@@ -1,0 +1,29 @@
+Sthang Studio 0.85.0 - Public Beta
+
+Curated downloads are available for Windows 10 or 11 x64 and Apple Silicon macOS 12.3+.
+A Gemini Developer API key is required for AI caption wording.
+
+0.85.0 brings the accepted Studio work since 0.8.0 into one public release: caption Appearance editing on the video, local captioned MP4 export, Khmer-safe native preview/export layout,
+local Khmer font discovery and Add font, smoother live Appearance controls, performance improvements, and playback/grouping fixes.
+
+The macOS download uses a simple three-item ZIP with Install Sthang Studio.command, Read Me.txt, and Sthang Studio Files. It installs per-user and creates an Applications launcher.
+This Beta is command-based rather than a signed/notarized .app; Gatekeeper may require Control-click > Open on first launch.
+
+Khmer Caption Contributor and optional product analytics remain separate privacy choices. Both are off by default and require explicit opt-in; core caption features do not depend on either choice.
+
+Studio requests store: false for Gemini transcription interactions. Normalized WAV audio is uploaded separately through the Gemini Files API; Studio does not explicitly delete that remote file.
+Google currently documents retention of up to 48 hours.
+
+Caption timing, editing, projects, history, native preview/video rendering, creator-added fonts, and exports remain local.
+Gemini generation and the separately consented Contributor/analytics paths follow the disclosures in PRIVACY.md.
+
+Windows retains Studio's signed-updater verification trust, but this GitHub Release does not promote a public latest.json pointer.
+OTA availability is not enabled by this release. The macOS package does not implement the Windows OTA updater.
+
+Release assets:
+- Sthang-Studio-Windows-v0.85.0.zip
+- Sthang-Studio-Windows-v0.85.0.zip.sha256
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.0.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.0.zip.sha256
+
+Verify the matching SHA-256 checksum after download if you want to confirm the archive bytes.

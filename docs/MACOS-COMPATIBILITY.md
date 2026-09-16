@@ -1,19 +1,20 @@
-# Apple Silicon macOS source compatibility
+# Apple Silicon macOS compatibility and public Beta package
 
 ## Target and release boundary
 
-The source beta targets **macOS 12.3 Monterey or newer, native arm64**. The prior
-source gate was macOS 14, not 15. All three entrypoints now use
+The `v0.85.0` public Beta targets **macOS 12.3 Monterey or newer, native arm64**.
+The prior source gate was macOS 14, not 15. All three runtime entrypoints use
 `scripts/macos-common.sh`; neither installation nor launch may independently
 raise or lower that floor. The shell code stays within Apple's Bash 3.2 syntax.
 
-This change is not a public Mac installer, notarized app, or native-Mac acceptance
-record. Public curated downloads and the signed updater remain Windows-only.
-The source may be tested on any Apple Silicon generation without a chip-name
-allow-list, but a new Mac can only boot macOS versions supported by that hardware.
+The public GitHub Release now includes a curated Apple Silicon ZIP with a
+double-click `Install Sthang Studio.command` entrypoint. It is a command-based
+Beta installer, not a signed/notarized `.app` or `.dmg`, and it does not implement
+the Windows signed OTA updater. The compatibility target is backed by local policy,
+wheel/deployment-target inspection, and package validation; it is not a claim that
+every supported macOS/hardware combination has completed native acceptance.
 Intel and Rosetta execution are rejected rather than mixing x64 and arm64 Python
-extensions. Do not interpret future version-number acceptance as future hardware
-or OS certification.
+extensions.
 
 | macOS | Node runtime | Python timing profile | Dependency provisioning |
 | --- | --- | --- | --- |
@@ -70,12 +71,34 @@ Big Sur could be a separate source-build/custom-distribution investigation, but
 would need a reviewed native scientific stack and its own real-Mac evidence.
 This change deliberately does not promise it from a relaxed version check.
 
-## Manual setup, including older macOS
+## Curated v0.85.0 package
+
+The GitHub release asset `Sthang-Studio-macOS-Apple-Silicon-v0.85.0.zip` keeps its
+extracted top level to three items: **Install Sthang Studio.command**,
+**Read Me.txt**, and **Sthang Studio Files**. The installer copies the application
+into `~/Library/Application Support/Sthang Studio/app`, runs the same reviewed
+macOS dependency/timing setup used by source builds, preserves an existing advanced
+`apps/server/.env` fallback during upgrades, and creates
+`~/Applications/Sthang Studio.command` for normal launches. User projects, media,
+history, exports, privacy identities, and Keychain credentials remain in the stable
+macOS state locations rather than being replaced with the app source.
+
+The release ZIP preserves executable permission bits for `.command` and shell
+entrypoints. Because the package is not Apple-notarized, Gatekeeper may require a
+first-run Control-click → **Open** confirmation on the downloaded installer. Setup
+does not silently bypass macOS security controls.
+
+Existing compatible native dependencies are reused. On macOS 15+ with Homebrew
+already installed, setup may install missing supported Node/Python/FFmpeg packages.
+On older macOS or without a compatible package-manager path, the installer stops
+with dependency guidance; it does not install Homebrew or invoke `sudo` itself.
+
+## Manual/source setup, including older macOS
 
 Use a normal native Terminal session, not one opened with **Open using Rosetta**.
 Put the checkout in a stable folder and close an already-running Studio before
-repairing its dependencies. These are contributor/source instructions, not an
-ordinary-user download substitute.
+repairing its dependencies. These instructions are the recovery/source path when
+the curated package cannot provision a required dependency automatically.
 
 Install an official **arm64 Node 22 LTS** distribution and put its `bin` directory
 on `PATH` before any incompatible Node installation. Use the latest security
@@ -171,12 +194,14 @@ worktree on the developer's Windows computer; no hosted runner is used.
   from the same unmodified pre-optimization source at
   `5f9670b98a7783962c0f9b693ae701b58b5f1864`, not from this candidate.
 
-Raw local logs and downloaded binaries remain in ignored `release-artifacts/`;
-they are not release assets. The runtime dependency graph in `package-lock.json`
-is unchanged apart from the root Node engine declaration. Windows installation,
-timing pins, protected artwork, release assets and workflow files are unchanged.
+Raw local logs and downloaded validation binaries remain in ignored
+`release-artifacts/`; they are not bundled dependencies. The runtime dependency
+graph in `package-lock.json` is unchanged apart from the root Node engine
+declaration. Windows installation, timing pins, and protected artwork remain
+unchanged by the macOS compatibility layer.
 
-Before accepting a Mac release, run this checklist on real Apple Silicon:
+The following real-Apple-Silicon acceptance coverage remains useful evidence and
+must not be reported as completed unless it is actually run:
 
 - [ ] Clean Monterey install using Node 22 and Python 3.12; repeat setup and
       launch from a fresh Terminal so runtime PATH discovery is exercised.
@@ -196,19 +221,18 @@ alone do not prove that a library loads or captions are correct on that Mac.
 
 ## Public impact and maintainer handoff
 
-**Public impact: required.** The source minimum, runtime prerequisites, browser
-requirements and legacy installation instructions change. Product-owned evidence
-is `README.md`, this file, the three shell entrypoints, the legacy constraints,
-and `.sthang/product-manifest.json` change ID
-`studio-macos-monterey-compatibility-20260916`.
+**Public impact: required.** Version `0.85.0` adds a curated Apple Silicon macOS
+GitHub download and changes the public installation/platform contract. Product-owned
+evidence is `README.md`, this file, the macOS shell entrypoints and package templates,
+the legacy dependency constraints, `PRIVACY.md`, and `.sthang/product-manifest.json`
+change ID `studio-v0-85-public-release-20260916`.
 
-Proposed HQ intake: source platform/installation/limitation fields, with native
-Mac acceptance explicitly pending. Proposed Distribution follow-up: `/studio/`
-system requirements and source-install documentation. Keep the Windows download
-action, public release version, OTA availability and privacy/provider claims
-unchanged. HQ intake and Distribution synchronization each need their own plan
-digest and approval; this source change does not authorize cross-repository
-writes, a Mac release, a website deployment or an OTA promotion.
+HQ/Distribution synchronization must carry the new public version, Apple Silicon
+availability and installation limitation into `/studio/` and its documentation.
+The Windows direct-download action remains the HQ primary action; the website may
+also expose the matching macOS asset from the same verified `v0.85.0` GitHub
+Release. Signed OTA availability remains unchanged and must not be inferred from
+the Mac package or this release.
 
 ## Upstream compatibility evidence
 

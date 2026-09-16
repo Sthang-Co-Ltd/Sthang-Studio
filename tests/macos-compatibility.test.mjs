@@ -8,6 +8,7 @@ import test from 'node:test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entrypoints = ['INSTALL-MACOS.sh', 'setup-local-timing-macos.sh', 'run-macos.sh'];
+const releaseEntrypoints = ['packaging/macos/Install Sthang Studio.command', 'scripts/install-release-package-macos.sh'];
 const shell = process.env.STHANG_TEST_BASH || (process.platform === 'win32'
   ? path.resolve(path.dirname(spawnSync('where.exe', ['git.exe'], { encoding: 'utf8' }).stdout.trim().split(/\r?\n/)[0]), '../bin/bash.exe')
   : '/bin/bash');
@@ -76,6 +77,10 @@ for (const entry of entrypoints) {
       assert.equal(f.log(), '');
     });
   }
+}
+
+for (const entry of releaseEntrypoints) {
+  test(`${entry}: shell syntax`, () => success(spawnSync(shell, ['-n', path.join(root, entry)], { encoding: 'utf8', windowsHide: true })));
 }
 
 for (const [macos, node, arch, accepted] of [

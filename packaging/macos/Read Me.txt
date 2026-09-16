@@ -1,0 +1,35 @@
+STHANG STUDIO FOR APPLE SILICON MAC
+Version {{VERSION}}
+
+Accurate Khmer captions, styled and finished or ready for CapCut.
+
+INSTALL
+1. Extract the entire downloaded ZIP.
+2. Double-click "Install Sthang Studio.command".
+3. Keep the Terminal setup window open while Studio prepares its local dependencies and Khmer timing resources.
+4. When setup finishes, open "Sthang Studio.command" from your Applications folder.
+5. In Studio, open Settings > AI connection and add your Gemini API key.
+
+If macOS blocks the downloaded command the first time, Control-click it, choose Open, then confirm Open. This public Beta is distributed as a command-based installer rather than a signed/notarized .app bundle.
+
+After installation completes, you can delete the extracted setup folder. Sthang Studio is installed at ~/Library/Application Support/Sthang Studio/app and keeps projects/settings in the normal macOS application-support location.
+
+REQUIREMENTS
+- Apple Silicon Mac (M1 or newer), native arm64
+- macOS 12.3 Monterey or newer
+- Internet access during initial setup and AI transcription
+- A Gemini Developer API key for AI caption wording
+- Native Node.js 22.12+ within the Node 22 line; Node 24+ is also accepted on macOS 13.5+
+- Native Python 3.12
+- FFmpeg/ffprobe with ASS/libass complex shaping
+
+On current macOS with Homebrew already installed, setup can install missing supported Node/Python/FFmpeg packages automatically. On older macOS or a Mac without compatible dependencies, setup gives the exact dependency guidance instead of silently installing an unsupported toolchain.
+
+PRIVACY
+When you generate or regenerate AI wording, Studio sends normalized WAV audio and relevant context or wording to Gemini using your API key.
+Studio requests store:false for the interaction, uploads the WAV through the Gemini Files API, and does not explicitly delete that remote file.
+Google currently documents that Files API uploads are stored for up to 48 hours.
+
+Khmer Caption Contributor and product analytics are separate optional choices in Settings > Privacy. Both stay off unless you explicitly opt in. See PRIVACY.md inside "Sthang Studio Files" for the complete disclosure.
+
+The "Sthang Studio Files" folder is used automatically by setup. You do not need to open or edit anything inside it.

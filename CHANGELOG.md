@@ -1,59 +1,71 @@
 # Changelog
 
-## Unreleased — responsive native caption appearance
+## 0.85.0 — Public Beta
 
-- Added immediate position/size feedback by transforming the last matching native
-  caption image, explicitly labeled as an interactive approximation until the
-  exact native frame is decoded. Changed captions, output resolutions, clipped
-  images and other typography/effects never use a misleading transform.
-- Coalesced appearance updates per browser paint and native work with a 40 ms
-  minimum start interval during interaction, one in-flight request and latest-value
-  scheduling. Pointer release/cancel, keyboard release and blur flush the final look.
-- Reduced active-edit payloads to the visible caption state, including overlaps,
-  and deferred lookahead work until editing settles.
-- Added bounded persistent local FFmpeg preview processes with exact ASS reloads,
-  streamed PNGs, idle eviction, cancellation, project/media/font invalidation and
-  the existing one-shot native fallback. No new binary, font or cloud dependency.
-- Added native pixel, browser interaction and lifecycle regressions plus a local
-  synthetic benchmark. This source change does not publish a release or OTA update.
+### Caption appearance and finished-video export
 
-## Unreleased — local Khmer font library
+- Added a project Appearance workspace with saved caption styling visible directly
+  on the source video and carried consistently through editing, Review, history,
+  native preview, and export.
+- Added local captioned-video export with quality-aware MP4 rendering, persistent
+  jobs/progress, cancellation/recovery, output verification, fixed export-location
+  handoff, and Khmer complex shaping through FFmpeg/libass. Source media is never
+  overwritten, and rendered frames/video are not uploaded by this local render path.
+- Locked settled browser preview to the same native layout plan used by export so
+  typography, wrapping, alignment, position, and effects remain visually consistent
+  before encoding/display scaling.
+- Added immediate Size/Position interaction feedback from the last matching native
+  caption image while exact native pixels catch up, plus frame-coalesced/latest-value
+  scheduling and bounded persistent local FFmpeg preview processes. The caption
+  remains visible during continuous styling instead of disappearing between renders.
 
-- Expanded caption typography from a fixed handful of known faces to compatible
-  Khmer families already installed on Windows, macOS and Linux, with local
-  metadata/coverage/shaping checks before a family is offered to the renderer.
-- Added an Appearance **Add font…** flow for creator-selected `.ttf`/`.otf` files,
-  local-only Studio storage, immediate selection, live large-list search results,
-  automatic Regular fallback for families without Bold, and secondary **Manage
-  added fonts** removal.
-- Kept the last valid native caption frame visible during continuous Appearance
-  edits so size, position and other styling controls update without the caption
-  blinking away while the newest native render is in flight.
-- Kept font handling local: Studio does not bundle a font catalog, install fonts
-  into the operating system, remove system fonts, or silently substitute a saved
-  typeface. The published v0.8.0 download and OTA availability are unchanged by
-  these source changes.
+### Local Khmer font workflow
 
-## Unreleased — earlier Apple Silicon macOS compatibility
+- Expanded caption typography to compatible Khmer families already installed on
+  Windows, macOS, and Linux, with local coverage/shaping validation before use.
+- Added **Add font…** for creator-selected `.ttf`/`.otf` files, local Studio-owned
+  copies, immediate selection, live search results, **Manage added fonts**, and
+  automatic Regular fallback when a chosen family has no Bold face.
+- Font discovery/import/rendering stays local. Studio does not bundle a font catalog,
+  install/remove operating-system fonts, or upload added font files as part of the
+  font workflow.
 
-- Lowered the source-beta target from macOS 14 to macOS 12.3 Monterey, with one
-  shared platform/runtime policy across installation, timing setup and launch.
-- Added Node 22.12+ compatibility, a Monterey/Ventura native timing dependency
-  profile, explicit Rosetta/wrong-Python rejection, and legacy/manual dependency
-  setup without requiring Homebrew support for old macOS.
-- Kept Windows runtime installation unchanged and pinned the production browser
-  build target to include Safari 17. Native Mac install, caption, Keychain and
-  render acceptance remain required; this does not publish a macOS release.
-- Added local shell-policy and timing-metadata regression coverage. See
-  `docs/MACOS-COMPATIBILITY.md` for the support boundary and validation procedure.
+### Apple Silicon macOS public Beta
 
-## Unreleased — performance batches 2 and 3
+- Added the first curated Apple Silicon macOS GitHub Release package targeting
+  macOS 12.3 Monterey or newer on native arm64, while rejecting Intel/Rosetta mixes.
+- Added a three-item ordinary-user package with **Install Sthang Studio.command**,
+  **Read Me.txt**, and **Sthang Studio Files**. Setup installs under the user's
+  Application Support directory and creates `~/Applications/Sthang Studio.command`
+  for later launches.
+- Added Node 22.12+ compatibility, Monterey/Ventura native dependency constraints,
+  macOS Keychain-backed Gemini key storage, and a shared platform/runtime policy
+  across installation, local timing setup, and launch.
+- The macOS Beta remains command-based rather than a signed/notarized `.app` or
+  `.dmg`; the Windows signed OTA updater is not implemented on macOS.
 
-- Added an opt-in project-summary response for the launcher, independent startup loading with targeted retries, and latest-request protection when opening projects. The existing full-project API remains available.
-- Stabilized explicit caption selection during playback and deferred four advanced workspace modules without changing caption matching or privacy-panel mounting.
-- Added exact, bounded waveform extrema reuse and separate playhead drawing; native preview can reuse bounded, leased font-only staging with a per-render fallback.
-- Serialized atomic job snapshots and sampled same-stage progress while retaining awaited lifecycle writes and exact failed-export snapshots.
-- Added differential, failure/concurrency and browser regressions plus a synthetic measurement command. Windows/native performance and full validation remain acceptance gates, not claims implied by these source changes. See `docs/PERFORMANCE-VALIDATION.md`.
+### Responsiveness, playback, and project performance
+
+- Added project-summary loading, latest-request protection, deferred advanced
+  workspaces, memoized caption indexing, lazy spectrum work, waveform extrema reuse,
+  targeted project metadata reads, and reduced unnecessary project/history writes.
+- Added bounded deterministic timing/preview caches and same-job persistence work
+  while preserving fresh AI requests for Alternative takes and Deep Verify.
+- Stabilized playback ownership, caption selection/grouping, and shared launcher
+  readiness; fixed privacy/settings clipping and kept captions single-line by default.
+- Added extensive local regression/measurement coverage for timing, browser behavior,
+  rendering, cache invalidation, failure recovery, and macOS compatibility policy.
+
+### Distribution and privacy continuity
+
+- Bumped the public release identity to `0.85.0` and added curated Windows and
+  Apple Silicon macOS ZIPs with SHA-256 checksum assets.
+- Khmer Caption Contributor and optional product analytics remain separate,
+  default-off, explicit-opt-in choices. Gemini Files API disclosure and provider
+  retention guidance remain unchanged.
+- Windows retains the updater verification trust introduced in 0.8.0, but this
+  GitHub Release does not promote a public signed `latest.json`; OTA availability
+  is therefore not claimed by 0.85.0.
 
 ## 0.8.0 — Public Beta
 
