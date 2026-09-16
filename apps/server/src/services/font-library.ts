@@ -40,6 +40,7 @@ const MAX_IMPORT_FILES = 8;
 const SYSTEM_FONT_CACHE_MS = 5 * 60_000;
 const MAX_FONT_FILES = 4_000;
 const MAX_TABLE_BYTES = 4 * 1024 * 1024;
+const MANAGED_FONT_DEBRIS = /^[0-9a-f]{16}-(?:regular|bold)-[0-9a-f]{20}\.(?:ttf|otf)(?:\.tmp|\.\d+\.[0-9a-f]+\.tmp|\.\d+-\d+-[0-9a-f]+\.remove(?:\.tmp)?)$/i;
 const KHMER_COVERAGE_SAMPLE = [
   0x1780, 0x1781, 0x1782, 0x179f, 0x17a2,
   0x17b6, 0x17bb, 0x17c1, 0x17d2, 0x17e0,
@@ -59,6 +60,31 @@ async function unlinkFile(filePath: string) {
       if (!['EBUSY', 'EPERM', 'EACCES'].includes(code) || attempt === 4) throw error;
       await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
     }
+  }
+}
+
+async function cleanupManagedFontDebris() {
+  let cleanPasses = 0;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entries = await fs.readdir(config.userFontDir).catch(() => [] as string[]);
+    const leftovers = entries.filter((entry) => MANAGED_FONT_DEBRIS.test(entry));
+    if (!leftovers.length) {
+      cleanPasses += 1;
+      // Windows font/AV indexing can briefly materialize a managed-font .tmp
+      // sibling just after the application finishes its own rename/delete. Wait
+      // for one clean follow-up observation so import/remove never returns while
+      // that transaction debris is still appearing.
+      if (process.platform !== 'win32' || cleanPasses >= 2) return;
+    } else {
+      cleanPasses = 0;
+      await Promise.allSettled(leftovers.map((entry) => unlinkFile(path.join(config.userFontDir, entry))));
+    }
+    if (attempt < 7) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const remaining = (await fs.readdir(config.userFontDir).catch(() => [] as string[]))
+    .filter((entry) => MANAGED_FONT_DEBRIS.test(entry));
+  if (remaining.length) {
+    throw new Error('Studio could not finish cleaning temporary added-font files. Close any program using the font and try again.');
   }
 }
 
@@ -467,6 +493,7 @@ function importKind(face: ParsedFontFace) {
 
 export async function importCaptionFonts(files: Array<{ originalName: string; buffer: Buffer }>): Promise<CaptionFontImportResult> {
   await fs.mkdir(config.userFontDir, { recursive: true });
+  await cleanupManagedFontDebris();
   const warnings: string[] = [];
   const candidates: Array<{ face: ParsedFontFace; kind: 'regular' | 'bold'; extension: '.ttf' | '.otf'; buffer: Buffer; originalName: string }> = [];
   for (const file of files.slice(0, MAX_IMPORT_FILES)) {
@@ -545,6 +572,7 @@ export async function importCaptionFonts(files: Array<{ originalName: string; bu
   }
   const nextPaths = new Set(prepared.map((item) => item.destination));
   await Promise.all([...replacedPaths].filter((filePath) => !nextPaths.has(filePath)).map((filePath) => unlinkFile(filePath).catch(() => {})));
+  await cleanupManagedFontDebris();
   for (const item of prepared) importedNames.add(item.candidate.face.family);
 
   invalidateCaptionFontCache();
@@ -578,5 +606,6 @@ export async function removeImportedCaptionFont(id: string) {
   const fonts = publicCaptionFonts(await discoverCaptionFonts());
   await Promise.all(staged.map((item) => unlinkFile(item.hidden).catch(() => {})));
   await cleanupRemovalTransaction(transactionId);
+  await cleanupManagedFontDebris();
   return fonts;
 }

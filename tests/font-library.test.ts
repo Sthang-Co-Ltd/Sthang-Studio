@@ -20,7 +20,9 @@ before(async () => {
   fontLibrary = await import('../apps/server/src/services/font-library.js');
 });
 
-after(async () => { if (root) await fs.rm(root, { recursive: true, force: true }); });
+after(async () => {
+  if (root) await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+});
 
 function utf16be(value: string) {
   const result = Buffer.alloc(value.length * 2);
@@ -139,6 +141,12 @@ test('user font import is local, groups regular/bold, and removes only Studio co
   const files = await fs.readdir(config.userFontDir);
   assert.equal(files.length, 2);
   assert.ok(files.every((file) => /-(regular|bold)-[0-9a-f]{20}\.(ttf|otf)$/.test(file)));
+
+  // Windows font/AV indexing may briefly leave transaction-shaped siblings.
+  // Removal must clean only Studio-managed debris and still satisfy the existing
+  // contract that the imported family leaves no files behind.
+  await fs.writeFile(path.join(config.userFontDir, `${files[0]}.tmp`), 'synthetic managed debris');
+  await fs.writeFile(path.join(config.userFontDir, `${files[1]}.1234.abcd.tmp`), 'synthetic managed debris');
 
   const afterRemoval = await fontLibrary.removeImportedCaptionFont(imported.id!);
   assert.equal(afterRemoval.some((font) => font.name === family && font.source === 'studio-imported'), false);
