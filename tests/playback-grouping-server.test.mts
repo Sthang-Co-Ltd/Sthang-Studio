@@ -39,7 +39,7 @@ const baseUrl = `http://127.0.0.1:${address.port}`;
 
 after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
 });
 
 function caption(text: string): CaptionSegment {
