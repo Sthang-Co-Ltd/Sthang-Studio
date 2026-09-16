@@ -21,9 +21,20 @@ interface PreviewSession {
   signature: string;
   cache: Map<string, ImageFrame>;
   pending: Set<string>;
-  cancel?: () => void;
   error: string;
   retries: number;
+}
+
+interface ActivePreviewRequest {
+  signature: string;
+  continuityKey: string;
+  kind: 'current' | 'prefetch';
+  cancel(): void;
+}
+
+interface PresentedFrame {
+  continuityKey: string;
+  image: ImageFrame;
 }
 
 export function NativeCaptionPreview({ project, media, captions, appearance, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices }: Props) {
@@ -43,8 +54,13 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
   }), [captions, appearance, resolution, focusMask]);
   const signature = useMemo(() => JSON.stringify([project.id, project.media.filename, payload]), [project.id, project.media.filename, payload]);
   const session = useRef<PreviewSession | null>(null);
+  const activeRequest = useRef<ActivePreviewRequest | null>(null);
+  const lastPresented = useRef<PresentedFrame | null>(null);
   const [revision, redraw] = useReducer((value: number) => value + 1, 0);
   const [frame, setFrame] = useState<ReturnType<typeof containedVideoFrame>>(null);
+  const continuityKey = state?.key
+    ? JSON.stringify([project.id, project.media.filename, state.key, state.atMs, state.endMs, state.text])
+    : '';
 
   useEffect(() => {
     const video = media.current;
@@ -57,11 +73,10 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
     return () => { observer.disconnect(); video.removeEventListener('loadedmetadata', update); };
   }, [media, project.id, project.media.filename]);
 
-  useEffect(() => () => { session.current?.cancel?.(); session.current = null; }, []);
+  useEffect(() => () => { activeRequest.current?.cancel(); activeRequest.current = null; session.current = null; }, []);
 
   useEffect(() => {
     if (session.current?.signature !== signature) {
-      session.current?.cancel?.();
       session.current = { signature, cache: new Map(), pending: new Set(), error: '', retries: 0 };
     }
     const current = session.current;
@@ -69,17 +84,36 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
     // Gaps still prefetch the next caption, but never show a stale caption in that gap.
     const start = Math.max(0, index);
     if (index < 0 && timeMs >= (states.at(-1)?.endMs ?? 0)) return;
-    if (current.cancel) {
-      if (!key || current.cache.has(key) || current.pending.has(key)) return;
-      current.cancel(); // a seek beyond the pending batch makes that work obsolete
+    const active = activeRequest.current;
+    if (active) {
+      const sameCaption = Boolean(continuityKey && active.continuityKey === continuityKey);
+      const appearanceChanged = active.signature !== signature;
+      if (!sameCaption || (appearanceChanged && active.kind === 'prefetch')) {
+        active.cancel();
+        if (activeRequest.current === active) activeRequest.current = null;
+      } else {
+        // Keep one native current-frame render alive while the slider continues to
+        // move. The newest signature is rendered as soon as it finishes, avoiding
+        // cancel/restart starvation during continuous appearance input.
+        return;
+      }
     }
     if (current.error) return;
     const wanted = captionPreviewLookahead(states, start);
-    const missing = wanted.filter((item) => !current.cache.has(item.key));
+    const missingCurrent = key && !current.cache.has(key) && state ? [state] : [];
+    const missing = missingCurrent.length ? missingCurrent : wanted.filter((item) => !current.cache.has(item.key));
     if (!missing.length || (key && current.cache.has(key) && missing.length < 4)) return;
+    const kind: ActivePreviewRequest['kind'] = missingCurrent.length ? 'current' : 'prefetch';
     const controller = new AbortController();
     current.pending = new Set(missing.map((item) => item.key));
-    const delay = current.retries ? Math.min(1000, current.retries * 250) : media.current?.paused === false ? 0 : 120;
+    const retained = lastPresented.current?.continuityKey === continuityKey;
+    const delay = current.retries
+      ? Math.min(1000, current.retries * 250)
+      : kind === 'current' && retained
+        ? 0
+        : media.current?.paused === false
+          ? 0
+          : 120;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -92,10 +126,13 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
             if (response.status === 429 && current.retries < 3) { current.retries += 1; return; }
             throw new Error(result.error || 'Caption preview could not render.');
           }
-          if (controller.signal.aborted || session.current !== current) return;
+          if (controller.signal.aborted) return;
           for (const image of result.frames) {
             const target = missing.find((item) => item.atMs === image.atMs);
-            if (target) current.cache.set(target.key, { ...image, width: result.width, height: result.height });
+            if (!target) continue;
+            const rendered = { ...image, width: result.width, height: result.height };
+            current.cache.set(target.key, rendered);
+            if (target.key === key && continuityKey) lastPresented.current = { continuityKey, image: rendered };
           }
           // Only compressed caption images are retained, only for this project/look. They never
           // enter localStorage, exported project data, analytics, or the contribution queue.
@@ -110,17 +147,27 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
         } catch (error) {
           if (!controller.signal.aborted && session.current === current) current.error = error instanceof Error ? error.message : 'Caption preview is unavailable.';
         } finally {
-          if (!controller.signal.aborted && session.current === current) { current.cancel = undefined; current.pending.clear(); redraw(); }
+          if (activeRequest.current === request) activeRequest.current = null;
+          current.pending.clear();
+          if (!controller.signal.aborted) redraw();
         }
       })();
     }, delay);
-    current.cancel = () => { window.clearTimeout(timer); controller.abort(); current.pending.clear(); current.cancel = undefined; };
-    // An index change does not cancel a useful pending batch; word captions can be shorter
-    // than one render request. Only a new project/look, an out-of-batch seek or unmount does.
-  }, [signature, index, revision]);
+    const request: ActivePreviewRequest = {
+      signature,
+      continuityKey,
+      kind,
+      cancel: () => { window.clearTimeout(timer); controller.abort(); current.pending.clear(); },
+    };
+    activeRequest.current = request;
+    // An index change does not cancel a useful current-frame render; word captions can be
+    // shorter than one render request. A different caption/project or obsolete lookahead does.
+  }, [signature, index, revision, continuityKey]);
 
   const current = session.current?.signature === signature ? session.current : null;
-  const image = state?.key ? current?.cache.get(state.key) : undefined;
+  const exactImage = state?.key ? current?.cache.get(state.key) : undefined;
+  const retainedImage = continuityKey && lastPresented.current?.continuityKey === continuityKey ? lastPresented.current.image : undefined;
+  const image = exactImage || retainedImage;
   const error = current?.error;
   const box = focusMask ? image?.focusBounds : image?.bounds;
   const retry = () => { if (current) { current.error = ''; current.retries = 0; redraw(); } };
@@ -135,7 +182,7 @@ export function NativeCaptionPreview({ project, media, captions, appearance, res
         </div>
       </div>}
     </div>}
-    {state?.key && !image && <div className={`native-preview-status ${error ? 'error' : ''}`} role="status">
+    {state?.key && (!image || error) && <div className={`native-preview-status ${error ? 'error' : ''}`} role="status">
       <span>{error || 'Preparing caption preview…'}</span>{error && <button onClick={retry}>Retry preview</button>}
     </div>}
   </>;

@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => { state = await installFixture(page); });
 
 async function appearancePanel(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await expect(page.getByLabel('Khmer font')).toBeEnabled();
+  await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
 }
 
 test('native preview is the caption image at the contained video frame, including resize', async ({ page }) => {
@@ -52,6 +52,56 @@ test('appearance edits persist across tools and export sends the same saved sett
   expect(state.requests.find((r) => r.path.endsWith('/jobs') && r.method === 'POST')?.body.settings.resolution).toBe('720p');
 });
 
+test('appearance controls keep the last native caption visible while the newest look renders', async ({ page }) => {
+  await openProject(page); await appearancePanel(page);
+  const image = page.locator('.native-caption-image');
+  await expect(image).toBeVisible();
+  await page.getByText('More appearance', { exact: true }).click();
+
+  // Make each changed-look render slow enough that rapid slider input overlaps it.
+  // Studio should retain the last valid native frame and coalesce toward the newest look.
+  state.previewDelay = (body) => body.appearance.fontSize1080 === appearance.fontSize1080 ? 0 : 350;
+  const size = page.getByLabel(/^Size /);
+  const position = page.getByLabel(/^Position /);
+  const outline = page.locator('.appearance-more label.range-field').filter({ hasText: /^Outline / }).locator('input[type="range"]');
+  const shadow = page.locator('.appearance-more label.range-field').filter({ hasText: /^Shadow / }).locator('input[type="range"]');
+
+  await size.fill('66');
+  await expect.poll(() => state.requests.some((item) => item.path.endsWith('/preview') && item.body.appearance.fontSize1080 === 66)).toBe(true);
+  await page.waitForTimeout(35);
+  await expect(image).toBeVisible();
+  await expect(page.locator('.native-preview-status')).toHaveCount(0);
+
+  // A second movement of the same slider must not cancel/restart the first native
+  // render into starvation. It should stay visible and converge to the newest value.
+  await size.fill('78');
+  await page.waitForTimeout(35);
+  await expect(image).toBeVisible();
+  await expect(page.locator('.native-preview-status')).toHaveCount(0);
+
+  await position.fill('28');
+  await page.waitForTimeout(35);
+  await expect(image).toBeVisible();
+  await expect(page.locator('.native-preview-status')).toHaveCount(0);
+
+  await outline.fill('7');
+  await shadow.fill('5');
+  await page.waitForTimeout(35);
+  await expect(image).toBeVisible();
+  await expect(page.locator('.native-preview-status')).toHaveCount(0);
+
+  await expect.poll(() => {
+    const request = state.requests.filter((item) => item.path.endsWith('/preview')).at(-1);
+    return request ? [
+      request.body.appearance.fontSize1080,
+      request.body.appearance.positionBottomPct,
+      request.body.appearance.outlineWidth1080,
+      request.body.appearance.shadowWidth1080,
+    ] : [];
+  }, { timeout: 5000 }).toEqual([78, 28, 7, 5]);
+  await expect(image).toBeVisible();
+});
+
 test('failed appearance saves block export and recovery retries without losing the edited look', async ({ page }) => {
   await openProject(page); await appearancePanel(page);
   state.appearanceFailure = true;
@@ -68,18 +118,65 @@ test('failed appearance saves block export and recovery retries without losing t
   expect(state.projects[0].captionAppearance?.fontSize1080).toBe(90);
 });
 
-test('regular-only fonts never silently drop bold and allow the user to resolve the mismatch', async ({ page }) => {
+test('regular-only fonts automatically fall back to Regular without changing the rest of the appearance', async ({ page }) => {
   await openProject(page); await appearancePanel(page);
-  await page.getByLabel('Khmer font').selectOption('Regular-only fixture');
-  await expect(page.getByRole('alert').filter({ hasText: 'Bold Regular-only fixture is unavailable' })).toBeVisible();
-  await page.getByText('More appearance', { exact: true }).click();
-  const bold = page.getByRole('button', { name: 'Bold', exact: true });
-  await expect(bold).toHaveAttribute('aria-pressed', 'true');
-  await expect(bold).toBeEnabled();
-  await bold.click();
-  await expect(page.getByRole('button', { name: 'Regular', exact: true })).toBeDisabled();
+  await page.getByLabel(/^Size /).fill('74');
+  await page.getByLabel('Khmer font', { exact: true }).selectOption('Regular-only fixture');
+  await expect(page.getByText(/Studio switched Weight to Regular/)).toBeVisible();
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
+  expect(state.projects[0].captionAppearance?.fontSize1080).toBe(74);
   expect(state.projects[0].captionAppearance?.bold).toBe(false);
+  await page.getByText('More appearance', { exact: true }).click();
+  const regular = page.getByRole('button', { name: 'Regular', exact: true });
+  await expect(regular).toHaveAttribute('aria-pressed', 'false');
+  await expect(regular).toBeDisabled();
+});
+
+test('Add font is discoverable, selects the imported family, and Manage added fonts removes only the Studio copy', async ({ page }) => {
+  state.fonts.push(...Array.from({ length: 25 }, (_, index) => ({
+    name: `Installed Khmer ${String(index + 1).padStart(2, '0')}`,
+    available: true,
+    boldAvailable: index % 2 === 0,
+    source: 'windows-system' as const,
+  })));
+  await openProject(page); await appearancePanel(page);
+  await expect(page.getByRole('button', { name: 'Add font…', exact: true })).toBeVisible();
+  await expect(page.getByText(/compatible Khmer fonts installed on this computer are ready to use/i)).toBeVisible();
+  await expect(page.getByLabel('Khmer font', { exact: true }).locator('optgroup[label^="Installed on this computer"]')).toHaveCount(1);
+  const fontSearch = page.getByLabel('Find Khmer font');
+  await expect(fontSearch).toBeVisible();
+  await fontSearch.fill('Installed Khmer 17');
+  const liveResult = page.locator('.appearance-font-search-results').getByRole('button', { name: /Installed Khmer 17/ });
+  await expect(liveResult).toBeVisible();
+  await liveResult.click();
+  await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Installed Khmer 17');
+  await expect(fontSearch).toHaveValue('');
+
+  await page.locator('.appearance-font-file-input').setInputFiles({
+    name: 'creator-khmer.ttf',
+    mimeType: 'font/ttf',
+    buffer: Buffer.from('synthetic-font-fixture'),
+  });
+  await expect.poll(() => state.requests.filter((request) => request.path === '/api/video-export/fonts' && request.method === 'POST').length).toBe(1);
+  await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Creator Khmer');
+  await expect(page.getByText(/Added “Creator Khmer”/)).toBeVisible();
+  await expect(page.getByText(/Studio is using Regular/)).toBeVisible();
+  await expect.poll(() => state.projects[0].captionAppearance?.bold).toBe(false);
+  await expect(page.getByText('Manage added fonts', { exact: false })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const addButton = page.getByRole('button', { name: 'Add font…', exact: true });
+  expect((await addButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.getByText('Manage added fonts', { exact: false }).click();
+  const remove = page.getByRole('button', { name: 'Remove', exact: true });
+  expect((await remove.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await remove.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('This project will keep the font name');
+  await dialog.getByRole('button', { name: 'Remove font', exact: true }).click();
+  await expect(page.getByText(/Removed “Creator Khmer” from Studio/)).toBeVisible();
+  expect(state.fonts.some((font) => font.source === 'studio-imported')).toBe(false);
+  expect(state.fonts.some((font) => font.source !== 'studio-imported')).toBe(true);
 });
 
 test('newer appearance and project switches reject stale preview responses', async ({ page }) => {

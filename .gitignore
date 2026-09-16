@@ -36,6 +36,7 @@ data/profile.json
 data/jobs.json
 data/working/
 data/cache/
+data/fonts/
 data/history/
 data/proposals/
 data/contribution/

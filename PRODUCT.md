@@ -51,6 +51,12 @@ Creators may style captions before export while watching the real video evidence
 - The common path is deliberately small: preset, Khmer font, text color, size and
   position. Weight, outline, shadow, width, alignment and background styling stay
   progressively disclosed.
+- Studio discovers compatible Khmer families already installed on the creator's
+  computer. Creators may also choose **Add font…** and supply local `.ttf`/`.otf`
+  files; Studio stores those user-selected copies in local application state for
+  preview/export without installing them into the operating system or bundling a
+  font catalog with Studio. Added fonts remain removable from the secondary font
+  manager, while system fonts are never removed by Studio.
 - The actual editor caption overlay reflects the current project appearance so the
   creator can judge it against their footage while styling **and** while moving
   through Review, Fine timing, Accuracy, Caption grouping, and Details. Appearance
@@ -69,6 +75,10 @@ Creators may style captions before export while watching the real video evidence
 - An unavailable saved font is preserved and disclosed; Studio must not silently
   change the creator's typography. Captioned-video rendering requires an available
   local export font when the saved choice cannot be honored.
+- Font search reveals matching families while the creator types; finding a result
+  must not require opening the native font selector afterward. When a selected
+  family has no Bold face, Studio may fall back to Regular automatically, but only
+  that unsupported weight changes and the adjustment is disclosed to the creator.
 - Appearance never changes SRT serialization, caption text/timing, locks,
   correction eligibility, correction memory, Review behavior, or source media.
 

@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { DEFAULT_CAPTION_APPEARANCE, summarizeProject, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, summarizeProject, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities, type VideoExportFontCapability } from '@kcs/shared';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -29,6 +29,7 @@ export function project(id = 'landscape', style = appearance): CaptionProject {
 export interface FixtureState {
   projects: CaptionProject[];
   profile: AppProfile;
+  fonts: VideoExportFontCapability[];
   jobs: ProcessingJob[];
   requests: Array<{ path: string; method: string; body: any }>;
   previewDelay: (body: any) => number;
@@ -158,7 +159,7 @@ export function createSyntheticWav(durationSeconds: number, frequency = 440, sam
 }
 
 export async function installFixture(page: Page): Promise<FixtureState> {
-  const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '' };
+  const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, fonts: structuredClone(capabilities.fonts), jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '' };
   await page.addInitScript(() => {
     for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
     // A deterministic polling fallback: no unbounded SSE reconnect loop in a test fixture.
@@ -249,7 +250,9 @@ export async function installFixture(page: Page): Promise<FixtureState> {
   });
   await page.route('**/exports/*.mp4', (route) => route.fulfill({ contentType: 'video/mp4', body: media, headers: { 'Content-Disposition': 'attachment; filename="synthetic-captioned.mp4"' } }));
   await page.route('**/api/**', async (route) => {
-    const request = route.request(); const url = new URL(request.url()); const method = request.method(); const body = request.postDataJSON();
+    const request = route.request(); const url = new URL(request.url()); const method = request.method();
+    let body: any = null;
+    try { body = request.postDataJSON(); } catch { body = request.postData(); }
     state.requests.push({ path: url.pathname, method, body });
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
     const id = url.pathname.split('/')[3];
@@ -286,6 +289,17 @@ export async function installFixture(page: Page): Promise<FixtureState> {
     }
     if (url.pathname === '/api/contribution/status') return json({ consent: 'declined', endpointConfigured: false, contributorEnrolled: false, queued: 0, submitted: 0, verified: 0, rejected: 0, withdrawn: 0, verifiedAudioMs: 0, withdrawalPending: false });
     if (url.pathname === '/api/video-export/location') return json({ directory: 'C:\\Synthetic\\exports' });
+    if (url.pathname === '/api/video-export/fonts' && method === 'GET') return json({ fonts: state.fonts });
+    if (url.pathname === '/api/video-export/fonts' && method === 'POST') {
+      const added: VideoExportFontCapability = { id: 'studio:fixturefont0001', name: 'Creator Khmer', available: true, boldAvailable: false, source: 'studio-imported', removable: true };
+      state.fonts = [added, ...state.fonts.filter((font) => font.name !== added.name)];
+      return json({ fonts: state.fonts, imported: [added.name], warnings: [] });
+    }
+    if (url.pathname.startsWith('/api/video-export/fonts/') && method === 'DELETE') {
+      const fontId = decodeURIComponent(url.pathname.slice('/api/video-export/fonts/'.length));
+      state.fonts = state.fonts.filter((font) => font.id !== fontId);
+      return json({ fonts: state.fonts });
+    }
     if (current && url.pathname.endsWith('/capabilities')) return json(capabilities);
     if (current && url.pathname.endsWith('/preview')) {
       const delay = state.previewDelay(body); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));

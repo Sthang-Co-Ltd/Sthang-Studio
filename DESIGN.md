@@ -69,6 +69,23 @@ before they reach Export.
 - Keep the common path small: **Preset, Khmer font, text color, size, position**.
   Put weight, outline, shadow, max width, alignment and background-box controls
   behind **More appearance**.
+- Keep **Add font…** adjacent to the Khmer-font control. It opens the normal local
+  file picker for `.ttf`/`.otf`, validates Khmer compatibility, selects a
+  successfully added family immediately, and explains partial/rejected files in
+  plain language. When the installed Khmer list is large, typing in font search
+  reveals clickable matches immediately while the normal selector remains available
+  for browsing. Do not require a second selector click just to reveal search results.
+- If the chosen family has no Bold face, switch Weight to Regular automatically,
+  explain the small fallback, preserve all other appearance settings, and disable
+  the unavailable Bold choice rather than blocking preview/render.
+- Continuous Appearance input must keep the last valid native caption frame visible
+  while the newest native frame renders. Size, position, color, outline, shadow,
+  width, alignment, background, weight and font changes must not blink the caption
+  away between slider/input events. Retained pixels may bridge the same caption's
+  appearance renders only; a different caption/text state still requires fresh pixels.
+- Keep **Manage added fonts** secondary and show only font files the creator added
+  to Studio. Removing one requires confirmation, never changes operating-system
+  fonts, and never silently substitutes a different family for a saved project.
 - With untouched appearance defaults, keep a caption on one line whenever its
   measured glyphs fit the available caption region. Do not pre-split ordinary
   mixed Khmer/Latin words with approximate character counts. Explicit line

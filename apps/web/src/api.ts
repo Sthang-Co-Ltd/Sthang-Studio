@@ -1,6 +1,7 @@
 import type {
   AppProfile,
   CaptionAppearance,
+  CaptionFontImportResult,
   CaptionMode,
   CaptionProject,
   CaptionProjectSummary,
@@ -15,6 +16,7 @@ import type {
   SystemDoctorReport,
   TranscriptionContext,
   VideoExportCapabilities,
+  VideoExportFontCapability,
   VideoExportSettings,
 } from '@kcs/shared';
 
@@ -194,6 +196,13 @@ export const api = {
   resumeJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' })),
   cancelJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/cancel`, { method: 'POST' })),
   videoExportCapabilities: (projectId: string, refresh = false) => request<VideoExportCapabilities>(`/api/video-export/${projectId}/capabilities${refresh ? '?refresh=1' : ''}`),
+  captionFonts: (refresh = false) => request<{ fonts: VideoExportFontCapability[] }>(`/api/video-export/fonts${refresh ? '?refresh=1' : ''}`),
+  addCaptionFonts: (files: File[]) => {
+    const fd = new FormData();
+    files.forEach((file) => fd.append('fonts', file));
+    return request<CaptionFontImportResult>('/api/video-export/fonts', { method: 'POST', body: fd });
+  },
+  removeCaptionFont: (fontId: string) => request<{ fonts: VideoExportFontCapability[] }>(`/api/video-export/fonts/${encodeURIComponent(fontId)}`, { method: 'DELETE' }),
   saveCaptionAppearance: (projectId: string, appearance: CaptionAppearance) => request<CaptionProject>(`/api/video-export/${projectId}/appearance`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appearance }),
   }),

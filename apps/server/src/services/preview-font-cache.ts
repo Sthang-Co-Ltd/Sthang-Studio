@@ -25,7 +25,7 @@ export class PreviewFontCache {
     // Hash the bytes, not only mtime/size: replacing a font with equal metadata
     // must never make an older face silently stand in for the selected one.
     for (const face of faces) {
-      if (!/^(regular|bold)\.(ttf|otf)$/i.test(face.name)) throw new Error('Invalid staged font name.');
+      if (!/^(regular|bold)\.(ttf|otf|ttc)$/i.test(face.name)) throw new Error('Invalid staged font name.');
       const stat = await fs.stat(face.source);
       if (!stat.isFile() || bytes + stat.size > this.maxBytes) return null;
       const data = await fs.readFile(face.source);

@@ -22,6 +22,7 @@ import {
 import { config } from '../config.js';
 import { runCommand } from './media.js';
 import { buildAssDocument, buildAssCaptionFilter, fontCapabilities, requireCaptionFont, prepareCaptionFonts } from './caption-renderer.js';
+import { invalidateCaptionFontCache } from './font-library.js';
 import { supportsComplexAssFilterHelp } from './caption-preview.js';
 export { supportsComplexAssFilterHelp };
 
@@ -58,6 +59,10 @@ interface RenderCallbacks {
 const encoderProbeCache = new Map<string, Promise<boolean>>();
 const capabilityCache = new Map<string, { at: number; value: VideoExportCapabilities }>();
 const capabilityCacheMs = 30_000;
+
+export function invalidateVideoExportCapabilityCache() {
+  capabilityCache.clear();
+}
 
 const resolutionLabels: Record<VideoResolutionPreset, string> = {
   source: 'Original',
@@ -256,6 +261,7 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
   if (force) {
     capabilityCache.delete(cacheKey);
     encoderProbeCache.clear();
+    invalidateCaptionFontCache({ system: true });
   }
   const cached = capabilityCache.get(cacheKey);
   if (!force && cached && Date.now() - cached.at < capabilityCacheMs) return cached.value;
@@ -272,14 +278,14 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
   if (source.audioStreams > 1) warnings.push(`${source.audioStreams} audio tracks detected. Studio preserves all tracks, transcoding to AAC only when MP4 compatibility requires it.`);
   if (source.hdr !== 'sdr') warnings.push('HDR source detected. Captioned-video export is blocked until Studio can preserve HDR appearance without color damage.');
   if (!complexAssFilter) warnings.push('This FFmpeg build does not expose the native ASS/libass complex shaping required for correct Khmer captions.');
-  if (!fonts.some((font) => font.available)) warnings.push('No reviewed Khmer export font was found on this system.');
+  if (!fonts.some((font) => font.available)) warnings.push('No compatible Khmer caption font was found on this system.');
   if (!encoders.some((item) => item.codec === 'h264' && item.available)) warnings.push('No usable H.264 encoder was detected.');
   const blockingReason = source.hdr !== 'sdr'
     ? `This source is ${source.hdr === 'hlg' ? 'HLG HDR' : source.hdr === 'hdr10' ? 'HDR10/PQ' : source.hdr === 'dolby-vision' ? 'Dolby Vision' : 'HDR'}. Studio will not silently flatten HDR during caption rendering. Export SRT instead, or convert the source to SDR in a color-managed editor first.`
     : !complexAssFilter
       ? 'This FFmpeg installation cannot guarantee correct Khmer shaping. Studio requires the native ASS/libass filter with complex shaping; install the reviewed FFmpeg runtime or point FFMPEG_PATH to a compatible build.'
       : !fonts.some((font) => font.available)
-        ? 'No reviewed Khmer font is available to the local renderer. Windows Khmer UI is the default supported font.'
+        ? 'No compatible Khmer font is available to the local renderer. Install a Khmer font on this computer or add a .ttf/.otf font from Appearance.'
         : !encoders.some((item) => item.codec === 'h264' && item.available)
           ? 'No usable H.264 video encoder was detected in this FFmpeg installation.'
           : undefined;
@@ -289,7 +295,9 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
     source,
     resolutions: resolutionOptions(source),
     encoders,
-    fonts: fonts.map(({ name, available, boldAvailable, source }) => ({ name, available, boldAvailable, source })),
+    fonts: fonts.map(({ id, name, available, boldAvailable, source, removable }) => ({
+      ...(id ? { id } : {}), name, available, boldAvailable, source, ...(removable ? { removable: true } : {}),
+    })),
     subtitlesFilter: complexAssFilter,
     availableDiskBytes,
     warnings,

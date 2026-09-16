@@ -97,6 +97,18 @@ Caption preview and captioned-video rendering are local operations:
 - **Temporary working files and cleanup**: Preview requests generate transient PNG frames and ASS subtitle files in a local working directory (`exports/.working/preview-*`). These scratch files are temporary and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal. Video renders output to `exports/` with temporary working files removed on a best-effort basis upon completion or cancellation.
 - **SRT styling boundary**: SRT exports contain only UTF-8 caption text and timing coordinates. Caption appearance styling (colors, fonts, outlines, backgrounds) is purely local project metadata for the on-device renderer and is never embedded in or leaked through SRT files.
 
+### Local creator-added fonts (current source, unreleased)
+
+Current source builds can discover compatible Khmer fonts already installed on
+the computer and let the creator choose **Add font…** for local `.ttf` or `.otf`
+files. A font explicitly added this way is copied into Studio's local runtime
+state under `data/fonts/` so preview and captioned-video export can use the exact
+selected face. Studio does not upload these font files to Gemini, Contributor,
+analytics, or another hosted service as part of font discovery/import/rendering,
+and it does not install them into the operating system. Removing an added font
+deletes Studio's local copy only; installed system/user fonts are left unchanged.
+Studio does not ship a bundled font catalog as part of this source feature.
+
 ### Development-source font staging
 
 The unreleased performance work described in `docs/PERFORMANCE-VALIDATION.md`

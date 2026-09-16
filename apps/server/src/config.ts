@@ -103,6 +103,7 @@ export const config = {
   dataFile: path.join(stateRootDir, 'data', 'projects.json'),
   profileFile: path.join(stateRootDir, 'data', 'profile.json'),
   cacheDir: path.join(stateRootDir, 'data', 'cache'),
+  userFontDir: path.join(stateRootDir, 'data', 'fonts'),
   historyDir: path.join(stateRootDir, 'data', 'history'),
   proposalDir: path.join(stateRootDir, 'data', 'proposals'),
   jobsFile: path.join(stateRootDir, 'data', 'jobs.json'),

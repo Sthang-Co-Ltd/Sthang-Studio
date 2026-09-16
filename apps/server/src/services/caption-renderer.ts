@@ -1,77 +1,14 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { PreviewFontCache, type FontLease } from './preview-font-cache.js';
+import { discoverCaptionFonts } from './font-library.js';
 import {
   normalizeCaptionAppearance, captionRenderTime, wrapCaptionText, planCaptionRenderStates,
   type CaptionAppearance, type CaptionSegment, type VideoExportFontCapability,
 } from '@kcs/shared';
 
-interface LocalCaptionFont extends VideoExportFontCapability {
-  regularPath: string;
-  boldPath?: string;
-}
-
-async function candidateFont(name: string, regularPath: string, boldPath?: string, source: VideoExportFontCapability['source'] = 'windows-system') {
-  const available = await fs.stat(regularPath).then((stat) => stat.isFile()).catch(() => false);
-  const boldAvailable = boldPath ? await fs.stat(boldPath).then((stat) => stat.isFile()).catch(() => false) : false;
-  return { name, available, boldAvailable, source, regularPath, boldPath } satisfies LocalCaptionFont;
-}
-
 export async function fontCapabilities() {
-  const fonts: LocalCaptionFont[] = [];
-  if (process.platform === 'win32') {
-    const windows = process.env.WINDIR || 'C:\\Windows';
-    const systemFonts = path.join(windows, 'Fonts');
-    fonts.push(await candidateFont('Khmer UI', path.join(systemFonts, 'KhmerUI.ttf'), path.join(systemFonts, 'KhmerUIB.ttf')));
-    fonts.push(await candidateFont('DaunPenh', path.join(systemFonts, 'Daunpenh.ttf')));
-    fonts.push(await candidateFont('MoolBoran', path.join(systemFonts, 'Moolbor.ttf')));
-    const userFonts = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Windows', 'Fonts');
-    if (process.env.LOCALAPPDATA) {
-      try {
-        const names = await fs.readdir(userFonts);
-        const regular = names.find((name) => /^NotoSansKhmer(?:-Regular)?\.(?:ttf|otf)$/i.test(name));
-        const bold = names.find((name) => /^NotoSansKhmer-Bold\.(?:ttf|otf)$/i.test(name));
-        if (regular) fonts.push(await candidateFont('Noto Sans Khmer', path.join(userFonts, regular), bold ? path.join(userFonts, bold) : undefined, 'user-installed'));
-      } catch { /* optional user font directory */ }
-    }
-  } else if (process.platform === 'darwin') {
-    for (const regular of [
-      '/System/Library/Fonts/Supplemental/Khmer MN.ttc',
-      '/Library/Fonts/Khmer MN.ttc',
-    ]) {
-      const item = await candidateFont('Khmer MN', regular, regular, 'macos-system');
-      if (item.available) { fonts.push(item); break; }
-    }
-    for (const regular of [
-      '/System/Library/Fonts/Supplemental/Khmer Sangam MN.ttf',
-      '/Library/Fonts/Khmer Sangam MN.ttf',
-    ]) {
-      const item = await candidateFont('Khmer Sangam MN', regular, undefined, 'macos-system');
-      if (item.available) { fonts.push(item); break; }
-    }
-    for (const fontDir of [path.join(os.homedir(), 'Library', 'Fonts'), '/Library/Fonts']) {
-      try {
-        const names = await fs.readdir(fontDir);
-        const regular = names.find((name) => /^NotoSansKhmer(?:-Regular)?\.(?:ttf|otf)$/i.test(name));
-        const bold = names.find((name) => /^NotoSansKhmer-Bold\.(?:ttf|otf)$/i.test(name));
-        if (regular) {
-          fonts.push(await candidateFont('Noto Sans Khmer', path.join(fontDir, regular), bold ? path.join(fontDir, bold) : undefined, 'user-installed'));
-          break;
-        }
-      } catch { /* optional macOS font directory */ }
-    }
-  } else {
-    const linuxCandidates = [
-      ['/usr/share/fonts/truetype/noto/NotoSansKhmer-Regular.ttf', '/usr/share/fonts/truetype/noto/NotoSansKhmer-Bold.ttf'],
-      ['/usr/share/fonts/opentype/noto/NotoSansKhmer-Regular.ttf', '/usr/share/fonts/opentype/noto/NotoSansKhmer-Bold.ttf'],
-    ];
-    for (const [regular, bold] of linuxCandidates) {
-      const item = await candidateFont('Noto Sans Khmer', regular, bold, 'linux-system');
-      if (item.available) { fonts.push(item); break; }
-    }
-  }
-  return fonts.filter((font, index, all) => all.findIndex((item) => item.name === font.name) === index);
+  return discoverCaptionFonts();
 }
 
 /** Reject a changed typeface/weight rather than quietly restyling a creator's work. */

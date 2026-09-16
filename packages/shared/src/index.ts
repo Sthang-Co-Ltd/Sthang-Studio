@@ -109,10 +109,20 @@ export interface VideoExportEncoderCapability {
 }
 
 export interface VideoExportFontCapability {
+  /** Stable local identifier. Present for Studio-imported fonts so they can be removed safely. */
+  id?: string;
   name: string;
   available: boolean;
   boldAvailable: boolean;
-  source: 'windows-system' | 'macos-system' | 'user-installed' | 'linux-system';
+  source: 'windows-system' | 'macos-system' | 'user-installed' | 'linux-system' | 'studio-imported';
+  /** Only fonts copied into Studio by the user are removable from inside Studio. */
+  removable?: boolean;
+}
+
+export interface CaptionFontImportResult {
+  fonts: VideoExportFontCapability[];
+  imported: string[];
+  warnings: string[];
 }
 
 export interface VideoExportCapabilities {
