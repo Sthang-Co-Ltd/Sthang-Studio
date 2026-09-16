@@ -38,10 +38,11 @@ available without crowding the main editing flow.
 
 ## Distribution status
 
-Sthang Studio `0.85.3` is the current emergency Public Beta recovery identity for
+Sthang Studio `0.85.4` is the current emergency Public Beta recovery identity for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
-[0.85.3 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.3)
-is the governed recovery-download location after publication and byte verification.
+[0.85.4 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.4)
+becomes the governed recovery-download location only after publication and byte
+verification complete for this release.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -60,28 +61,33 @@ launches. The downloaded setup folder can then be deleted. This Beta uses a
 command-based installer rather than a signed/notarized `.app`; if Gatekeeper
 blocks the downloaded command on first open, Control-click it and choose **Open**.
 
-## Version 0.85.3
+## Version 0.85.4
 
-Version `0.85.3` is an emergency Windows signed-OTA activation hotfix that
-supersedes the `0.85.2` OTA offer. The immutable `0.85.2` signed release remains
-historical evidence, but an updater-capable `0.8.0` client fails safely while
-preparing it because the runtime payload intentionally excludes repository-only
-tests while its typecheck still required `tests/tsconfig.json`. That failure occurs
-before active-version activation, so the prior installed version remains active.
+Version `0.85.4` is the emergency Windows signed-OTA recovery for the broken
+`0.85.2` public offer. The immutable `0.85.2` release remains historical evidence:
+unchanged `0.8.0` clients fail safely while preparing it because the runtime payload
+intentionally excludes repository-only tests while the old broker still required
+`tests/tsconfig.json`. Version `0.85.3` was production-signed as immutable evidence
+but deliberately never promoted after the same unchanged-v0.8 broker path remained
+unable to prepare it.
 
-`0.85.3` keeps normal source `npm run typecheck` complete, including repository
-tests. OTA preparation explicitly requests runtime-only TypeScript validation,
-which still checks shared, server, and web code before the production build. The
-existing signed staging, verification, health-check, rollback, and fail-closed
-behavior is preserved. Otherwise this hotfix carries the accepted `0.85.2`
-product behavior.
+`0.85.4` supports that unchanged v0.8 broker through a narrowly bounded legacy
+preparation bridge that applies only inside its verified `updates/work/.../source`
+runtime context with the exact broker markers and repository tests absent. Current
+OTA preparation and curated/manual Windows setup explicitly request runtime-only
+TypeScript validation. Runtime validation still checks shared, server, and web
+code before the production build, while normal source `npm run typecheck` still
+includes `tests/tsconfig.json`.
 
-Windows installs with the `0.8.0`-or-newer updater can be offered `0.85.3` only
-after the signed production `latest.json` pointer is deliberately promoted.
-Studio still requires **Download & verify** and then **Install & restart**; it
-never silently downloads or installs an update. Curated GitHub recovery packages
-remain available for Windows and Apple Silicon macOS 12.3+. macOS remains a
-manual-download path and does not implement the Windows updater.
+Signed staging, verification, fail-closed preparation, transactional activation,
+health checks, rollback, and stable user-state preservation remain in force.
+Windows installs can be offered `0.85.4` only after its exact release evidence is
+verified and the signed production `latest.json` pointer is deliberately promoted.
+Studio still requires **Download & verify** and then **Install & restart**; it never
+silently downloads or installs an update. Curated GitHub recovery packages remain
+the recovery path for Windows and Apple Silicon macOS 12.3+. macOS remains a
+manual-download path and does not implement the Windows updater. Product and
+privacy behavior otherwise remains the accepted 0.85.x behavior.
 
 ## Version 0.85.0
 
@@ -138,8 +144,10 @@ The production private signing key remains outside the repository behind the
 separately deployed signing service. Version 0.8.0 established the updater-capable
 bootstrap. Version 0.85.2 became the first promoted public signed Windows offer,
 but its runtime preparation fails safely before activation as described above.
-Version 0.85.3 is the emergency successor and becomes visible to installed clients
-only after its own signed and verified `latest.json` is deliberately promoted.
+Version 0.85.3 was signed as immutable evidence but deliberately never promoted.
+Version 0.85.4 is the emergency recovery candidate and becomes visible to installed
+clients only after its own signed and verified `latest.json` is deliberately
+promoted.
 The curated GitHub Release remains the manual download and recovery path. See
 [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol, confirmation flow,
 and rollback guarantees.

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.85.4 — Windows OTA recovery
+
+- Supersedes the broken `0.85.2` public Windows OTA offer. Version `0.85.3` remains
+  signed immutable evidence and was deliberately never promoted.
+- Supports the unchanged `0.8.0` preparation broker through a tightly bounded
+  compatibility bridge that requires the legacy broker markers, the
+  `updates/work/.../source` runtime location, and absence of repository tests.
+- Keeps current OTA preparation and curated/manual Windows setup on explicit
+  runtime-only TypeScript validation. Runtime validation still checks
+  `packages/shared`, `apps/server`, and `apps/web`; normal source `npm run typecheck`
+  still checks `tests/tsconfig.json`.
+- Stabilizes Studio-managed Windows font transaction cleanup without weakening the
+  existing import/remove assertions or deleting unrelated files.
+- Preserves signed verification, fail-closed preparation, transactional activation,
+  health checks, rollback, stable user state, and explicit **Download & verify**
+  followed by **Install & restart**.
+- Keeps Apple Silicon macOS 12.3+ on the curated manual-download path and otherwise
+  preserves accepted 0.85.x product and privacy behavior.
+
 ## 0.85.3 — Emergency OTA activation hotfix
 
 - Supersedes the `0.85.2` Windows signed-OTA offer after real updater preparation

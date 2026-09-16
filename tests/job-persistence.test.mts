@@ -88,7 +88,9 @@ test('atomic replacement failure preserves the previous JSON and removes tempora
     assert.deepEqual(await fs.readdir(root), ['jobs.json']);
     await atomicJobWrite(file, '{"progress":3}');
     assert.equal(await fs.readFile(file, 'utf8'), '{"progress":3}');
-  } finally { await fs.rm(root, { recursive: true, force: true }); }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+  }
 });
 
 
