@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-smooth-native-preview-20260916', 'manifest.change.id');
+  equal(change.id, 'studio-v0-85-public-release-20260916', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Add labeled immediate position/size feedback from matching native caption pixels, frame-coalesced latest-value scheduling, visible-state payloads and bounded persistent local FFmpeg preview processes with one-shot native fallback. Exact decoded native frames remain the export-layout authority. Disclose up to two local preview sessions and 15-second idle scratch retention. No new binary, font, dependency or cloud transfer is introduced; public packaged distribution and OTA claims remain unchanged pending a separately approved release.',
+    'Release Sthang Studio 0.85.0 as a public Beta for Windows 10/11 x64 and Apple Silicon macOS 12.3+, including caption appearance, local captioned-video export, local Khmer font discovery/addition, responsive native caption preview, accumulated performance improvements, and shared startup fixes. macOS uses a command-based per-user installer and Keychain credential storage; signed OTA remains Windows-only and is not promoted by this GitHub release.',
     'manifest.change.documentationImpact.summary',
   );
 
@@ -195,9 +195,9 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     errors.push('manifest.proposal.publicSummary must be a non-empty string');
   }
   exactStringArray(proposal.publicClaims, 'manifest.proposal.publicClaims', [
-    'Khmer-first caption editing in the Captions workspace',
-    'Public source and a reviewed Beta download on GitHub',
-    'Timing, editing, projects, history, and exports remain local; Gemini and optional Contributor/analytics transfers are explicitly disclosed',
+    'Khmer-first caption editing, review, appearance styling, and local captioned-video export',
+    'Reviewed public Beta downloads for Windows and Apple Silicon macOS on GitHub',
+    'Timing, editing, projects, history, preview/render work, and exports remain local; Gemini and optional Contributor/analytics transfers are explicitly disclosed',
   ]);
 
   const distribution = exactKeys(proposal.distribution, 'manifest.proposal.distribution', [
@@ -273,7 +273,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     equal(provider.credentialOwner, 'user', 'Gemini credentialOwner');
     exactStringArray(provider.keyStorage, 'Gemini keyStorage', [
       'Windows user-protected in-app storage',
-      'macOS Keychain for Apple Silicon source builds',
+      'macOS Keychain for Apple Silicon installs and source builds',
       'Advanced GEMINI_API_KEY environment or .env fallback',
     ]);
     equal(provider.interactionStore, false, 'Gemini interactionStore');
@@ -400,6 +400,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
     `Sthang Studio ${publicVersion}`,
     'Public Beta',
     'Windows 10 or 11 x64',
+    'Apple Silicon macOS 12.3+',
     'Gemini Developer API key',
     'Files API',
     '48 hours',
@@ -445,13 +446,17 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   ]);
 
   const installation = exactKeys(evidence.installation, 'manifest.evidence.installation', ['paths', 'requiredTerms', 'forbiddenTerms']);
-  const installationPaths = ['README.md', 'packaging/windows/Read Me.txt', 'docs/PUBLIC-RELEASE-CHECKLIST.md', 'docs/MACOS-COMPATIBILITY.md', 'docs/OTA-UPDATES.md'];
+  const installationPaths = ['README.md', 'packaging/windows/Read Me.txt', 'packaging/macos/Read Me.txt', 'scripts/install-release-package-macos.sh', 'docs/PUBLIC-RELEASE-CHECKLIST.md', 'docs/MACOS-COMPATIBILITY.md', 'docs/OTA-UPDATES.md'];
   exactStringArray(installation.paths, 'manifest.evidence.installation.paths', installationPaths);
   exactStringArray(installation.requiredTerms, 'manifest.evidence.installation.requiredTerms', [
     'Install Sthang Studio.bat',
     '%LOCALAPPDATA%\\Sthang Studio\\app',
     'delete this extracted setup folder',
     'Windows 10 or 11',
+    'Install Sthang Studio.command',
+    'Apple Silicon',
+    'macOS 12.3',
+    '~/Library/Application Support/Sthang Studio/app',
     'Gemini API key',
     'updates.sthang.app',
     'GitHub Release',

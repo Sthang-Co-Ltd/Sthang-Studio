@@ -1,6 +1,6 @@
 {
   "name": "@kcs/shared",
-  "version": "0.8.0",
+  "version": "0.85.0",
   "private": true,
   "license": "MIT",
   "type": "module",

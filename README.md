@@ -2,7 +2,8 @@
 
 **Accurate Khmer captions, styled and finished or ready for CapCut.**
 
-Sthang Studio is a Windows-first caption workspace for Cambodian Khmer creators.
+Sthang Studio is a desktop caption workspace for Cambodian Khmer creators on
+Windows and Apple Silicon macOS.
 It combines AI-assisted Khmer transcription with local timing, fast review tools,
 visual caption styling, correction memory, and both CapCut-compatible SRT and
 burned-in captioned video export.
@@ -30,17 +31,16 @@ available without crowding the main editing flow.
 - Precision waveform timing for difficult captions.
 - Dual export paths: portable UTF-8 SRT for video editors, and local MP4 rendering with baked-in captions.
 - Local projects, history, caches, proposals, and exports.
-- OS-protected in-app Gemini key storage on Windows, plus macOS Keychain support in Apple Silicon source builds.
-- Version 0.8.0 adds a default-private **Khmer Caption Contributor** program and
+- OS-protected in-app Gemini key storage on Windows and macOS Keychain storage on Apple Silicon Macs.
+- The default-private **Khmer Caption Contributor** program and
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
 ## Distribution status
 
-Sthang Studio is available as a public Beta. Windows users should download the
-curated **Sthang Studio for Windows** ZIP from GitHub Releases. For this `0.8.0`
-source, use the matching
-[0.8.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.8.0).
+Sthang Studio `0.85.0` is available as a public Beta with curated downloads for
+**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. Use the matching
+[0.85.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.0).
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -50,13 +50,30 @@ the application into `%LOCALAPPDATA%\Sthang Studio\app`, so the downloaded setup
 folder can be deleted after installation while projects and local app state stay
 in the stable installed location.
 
-## Version 0.8.0
+The Apple Silicon macOS package uses the same simple three-item handoff:
+**Install Sthang Studio.command**, **Read Me.txt**, and one **Sthang Studio Files**
+folder. Double-clicking the installer places Studio at
+`~/Library/Application Support/Sthang Studio/app`, prepares the reviewed local
+dependencies, and creates `~/Applications/Sthang Studio.command` for later
+launches. The downloaded setup folder can then be deleted. This Beta uses a
+command-based installer rather than a signed/notarized `.app`; if Gatekeeper
+blocks the downloaded command on first open, Control-click it and choose **Open**.
 
-Version `0.8.0` adds performance-oriented pipeline work such as reusable
-normalized/range audio, warm local timing, transcript-independent KFA acoustic
-evidence caching, exact timing-result caching, resumable same-job AI checkpoints,
-concurrent Deep Verify listens, browser-memory waveform reuse, and per-project/
-history persistence that avoids rewriting unrelated projects.
+## Version 0.85.0
+
+Version `0.85.0` brings the accepted work since `0.8.0` into one public release:
+project caption appearance editing against the real video, local captioned-MP4
+export, native Khmer-safe preview/export layout, compatible local Khmer font
+discovery plus **Add font…**, smoother live appearance controls, broader local
+performance reuse, playback/grouping fixes, and the first curated Apple Silicon
+macOS download. Windows and macOS share the same caption workflow and local-first
+data boundary.
+
+The release also carries forward performance-oriented pipeline work such as
+reusable normalized/range audio, warm local timing, transcript-independent KFA
+acoustic evidence caching, exact timing-result caching, resumable same-job AI
+checkpoints, browser-memory waveform reuse, and per-project/history persistence
+that avoids rewriting unrelated projects.
 
 It also includes two new privacy-controlled features:
 
@@ -78,7 +95,7 @@ or analytics data is sent through them until the corresponding explicit opt-in.
 
 ### Signed updates — bootstrap trust included, OTA not public
 
-Version `0.8.0` contains a Studio-native signed Windows updater designed around
+The Windows build contains a Studio-native signed updater designed around
 the existing `%LOCALAPPDATA%\Sthang Studio\app` installation. It checks at most
 once per browser session plus a manual **Check for updates** action, never polls
 continuously, and requires separate explicit confirmation before download and
@@ -94,9 +111,9 @@ the `.env` fallback, and Windows-protected Gemini key storage remain in the
 stable state root.
 
 The production private signing key remains outside the repository behind the
-separately deployed signing service. Version 0.8.0 is the updater-capable
-bootstrap delivered through the curated GitHub Release path, but **no public
-`latest.json` pointer is promoted by this release**. This bootstrap is **not
+separately deployed signing service. Version 0.8.0 established the updater-capable
+bootstrap, and 0.85.0 retains that trust, but **no public `latest.json` pointer is
+promoted by this GitHub release**. The bundled updater capability is **not
 evidence that OTA updates are publicly available**. The curated GitHub Release
 remains the public manual download and recovery path. See
 [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol and remaining OTA
@@ -138,9 +155,9 @@ Sthang Studio provides two distinct export workflows:
 
 - **Settled native layout parity**: Studio's native caption preview is powered directly by local FFmpeg and libass (`shaping=complex`), generating transparent RGBA PNG frames rather than approximating text layout through browser CSS. Settled native preview and export share the same caption layout and rasterization contract before video encoding; lossy encoding and display scaling may soften pixel edges without changing the intended typography, line layout, alignment, position, or effects. Temporary interactive feedback is described separately below.
 - **Local rendering operations**: Studio does not upload rendered video frames or the resulting captioned MP4 as part of that rendering process. Caption generation/regeneration has a separate data flow involving normalized audio and related context, as described in the Gemini and Contributor sections.
-- **Interactive appearance (current source, unreleased)**: Size and Position can respond immediately by transforming the last matching native caption image while the newest native layout renders. The temporary result is labeled as refining and may differ in wrapping or effects; only the decoded native replacement is the exact layout reference. Other controls retain native pixels without browser re-typesetting. Requests prioritize the visible caption/overlap and coalesce intermediate edits instead of queuing them. Bounded local FFmpeg processes remain warm between requests, with the existing one-shot native renderer as fallback. See [`docs/SMOOTH-CAPTION-PREVIEW.md`](docs/SMOOTH-CAPTION-PREVIEW.md) for the architecture, limits and local validation. This does not change public release or OTA availability.
+- **Interactive appearance**: Size and Position can respond immediately by transforming the last matching native caption image while the newest native layout renders. The temporary result is labeled as refining and may differ in wrapping or effects; only the decoded native replacement is the exact layout reference. Other controls retain native pixels without browser re-typesetting. Requests prioritize the visible caption/overlap and coalesce intermediate edits instead of queuing them. Bounded local FFmpeg processes remain warm between requests, with the existing one-shot native renderer as fallback. See [`docs/SMOOTH-CAPTION-PREVIEW.md`](docs/SMOOTH-CAPTION-PREVIEW.md) for the architecture and local validation.
 - **Runtime prerequisites**: Captioned-video export and native preview require an FFmpeg build with the native ASS/libass capabilities Studio checks locally (including complex shaping). Studio also detects whether the runtime exposes the alpha-mode metadata used by its preferred preview compositing path and selects the compatible rendering path automatically. If required complex shaping is unavailable, video export is safely blocked with actionable guidance rather than outputting distorted Khmer script. Validated against the exact local builds recorded in the release evidence.
-- **Typography and fonts (current source, unreleased)**: Khmer text requires complex shaping. Studio discovers compatible Khmer families already installed on Windows, macOS, or Linux by checking the local font files for Khmer coverage and shaping support. Appearance also provides **Add font…** for creator-selected `.ttf`/`.otf` files; those copies stay in Studio's local state, are not installed into the operating system, and can be removed from **Manage added fonts** without touching system fonts. Studio does not bundle or redistribute a font catalog for this feature. Large local libraries expose clickable matches immediately while the creator types. If the selected family has no Bold face, Studio switches only Weight to Regular, explains the fallback, and leaves the remaining appearance settings unchanged. This source implementation does not change the currently published download or OTA availability by itself.
+- **Typography and fonts**: Khmer text requires complex shaping. Studio discovers compatible Khmer families already installed on Windows, macOS, or Linux by checking the local font files for Khmer coverage and shaping support. Appearance also provides **Add font…** for creator-selected `.ttf`/`.otf` files; those copies stay in Studio's local state, are not installed into the operating system, and can be removed from **Manage added fonts** without touching system fonts. Studio does not bundle or redistribute a font catalog for this feature. Large local libraries expose clickable matches immediately while the creator types. If the selected family has no Bold face, Studio switches only Weight to Regular, explains the fallback, and leaves the remaining appearance settings unchanged.
 - **Temporary working files and cleanup**: Preview and render scratch files in `exports/.working` are temporary, and Studio attempts to remove them when the operation completes, fails, or is cancelled. Abnormal process termination or filesystem errors can leave temporary local working files until later cleanup or manual removal.
 
 ## Contributor development setup
@@ -171,10 +188,9 @@ is needed.
 
 ### Install from source on Apple Silicon macOS
 
-The macOS source beta now targets **macOS 12.3 Monterey or newer** on native
-Apple Silicon (`arm64`). This is a source compatibility target, not a claim of
-completed real-Mac release certification. There is no public macOS GitHub Release
-asset, Intel Mac support, or macOS implementation of the Windows OTA updater.
+The source path targets the same **macOS 12.3 Monterey or newer** native Apple
+Silicon (`arm64`) boundary as the curated Beta package. Intel Mac support and a
+macOS implementation of the Windows signed OTA updater are not provided.
 
 1. Clone or check out this repository into a stable folder.
 2. Install native **Node.js 22.12+ within the 22.x LTS line**, Python 3.12, and
@@ -188,7 +204,7 @@ asset, Intel Mac support, or macOS implementation of the Windows OTA updater.
    healthy, Studio opens in the registered default macOS browser. Use Safari 17+
    or a maintained browser version compatible with your OS, not Monterey's
    original Safari 15.
-4. Open **Settings → AI connection** and add your Gemini API key. Source builds
+4. Open **Settings → AI connection** and add your Gemini API key. macOS builds
    store it in the macOS Keychain; the browser receives only a masked value.
 5. Upload media, generate captions, review, and export as on Windows.
 
@@ -212,15 +228,15 @@ by that hardware; this does not make new Macs capable of booting Monterey.
 - Enough local disk space for local timing resources and your media.
 
 Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
-The curated public installer and signed updater remain Windows-only while the
-Apple Silicon macOS source beta is validated on real Mac hardware.
+Curated public packages are available for Windows x64 and Apple Silicon macOS;
+the signed OTA updater remains Windows-only.
 
 ## Local and cloud data flow
 
 Sthang Studio is local-first, but it is **not fully offline** when generating AI
 caption wording.
 
-Version 0.8.0 includes the cache, prewarm, resumable-job, Contributor, and
+Version 0.85.0 includes the cache, prewarm, resumable-job, Contributor, and
 optional analytics behavior described below.
 
 **Local on your computer by default:**
@@ -277,12 +293,12 @@ Those two identities and data flows are intentionally separate.
 
 On Windows, the recommended **Settings → AI connection** flow stores the Gemini
 key using Windows user-protected storage under `%LOCALAPPDATA%\Sthang Studio`.
-On Apple Silicon macOS source builds, the same flow stores the key in the macOS
+On Apple Silicon macOS installs and source builds, the same flow stores the key in the macOS
 Keychain and keeps settings metadata under `~/Library/Application Support/Sthang Studio`.
 The browser receives only a masked key. An `apps/server/.env` key remains
 supported as an advanced fallback and is excluded from Git.
 
-Current source builds may keep the already-decrypted key/model settings in
+Current builds may keep the already-decrypted key/model settings in
 process memory briefly to avoid reopening the operating-system credential store
 for every AI pass.
 Save/Forget actions invalidate that memory immediately; the plaintext key is
@@ -292,7 +308,7 @@ Never commit or publish a real API key.
 
 ## Performance architecture
 
-Version 0.8.0 optimizes repeated caption work around a simple rule:
+Version 0.85.0 optimizes repeated caption work around a simple rule:
 **reuse deterministic prerequisites, never reuse a fresh AI opinion as though it
 were new.**
 
@@ -366,6 +382,21 @@ source ZIP is not.
 The release packager requires the packaged README and privacy guidance to match
 the current release version and public data-flow truth. Do not weaken that guard
 to package a stale or mismatched release.
+
+### Build the curated Apple Silicon macOS release ZIP
+
+On a clean checkout, run:
+
+```text
+npm run package:macos
+```
+
+The macOS packager reruns the macOS compatibility regressions, public-readiness,
+typecheck, and production build checks; requires a clean tracked working tree;
+and writes `Sthang-Studio-macOS-Apple-Silicon-v<version>.zip` plus its SHA-256
+file under ignored `release-artifacts/`. The archive preserves executable bits
+for its `.command`/shell entrypoints and keeps the extracted top level to the
+installer, read-me, and one payload folder.
 
 On Windows, `npm run package:ota` creates an **unsigned, local-only** OTA
 candidate and protocol metadata under ignored `release-artifacts/`. It does not

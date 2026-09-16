@@ -48,6 +48,20 @@ const KHMER_COVERAGE_SAMPLE = [
 let systemCache: { at: number; pending: Promise<LocalCaptionFont[]> } | null = null;
 let importedCache: Promise<LocalCaptionFont[]> | null = null;
 
+async function unlinkFile(filePath: string) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.unlink(filePath);
+      return;
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+      if (code === 'ENOENT') return;
+      if (!['EBUSY', 'EPERM', 'EACCES'].includes(code) || attempt === 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+    }
+  }
+}
+
 function safeU16(buffer: Buffer, offset: number) {
   if (offset < 0 || offset + 2 > buffer.length) throw new Error('Font table is truncated.');
   return buffer.readUInt16BE(offset);
@@ -506,12 +520,12 @@ export async function importCaptionFonts(files: Array<{ originalName: string; bu
       createdDestinations.push(item.destination);
     }
   } catch (error) {
-    await Promise.all(staged.map((item) => fs.rm(item.temporary, { force: true }).catch(() => {})));
-    await Promise.all(createdDestinations.map((filePath) => fs.rm(filePath, { force: true }).catch(() => {})));
+    await Promise.all(staged.map((item) => unlinkFile(item.temporary).catch(() => {})));
+    await Promise.all(createdDestinations.map((filePath) => unlinkFile(filePath).catch(() => {})));
     throw error;
   }
   const nextPaths = new Set(prepared.map((item) => item.destination));
-  await Promise.all([...replacedPaths].filter((filePath) => !nextPaths.has(filePath)).map((filePath) => fs.rm(filePath, { force: true }).catch(() => {})));
+  await Promise.all([...replacedPaths].filter((filePath) => !nextPaths.has(filePath)).map((filePath) => unlinkFile(filePath).catch(() => {})));
   for (const item of prepared) importedNames.add(item.candidate.face.family);
 
   invalidateCaptionFontCache();
@@ -543,6 +557,6 @@ export async function removeImportedCaptionFont(id: string) {
   }
   invalidateCaptionFontCache();
   const fonts = publicCaptionFonts(await discoverCaptionFonts());
-  await Promise.all(staged.map((item) => fs.rm(item.hidden, { force: true }).catch(() => {})));
+  await Promise.all(staged.map((item) => unlinkFile(item.hidden).catch(() => {})));
   return fonts;
 }

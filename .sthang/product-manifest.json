@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-smooth-native-preview-20260916",
+    "id": "studio-v0-85-public-release-20260916",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Add labeled immediate position/size feedback from matching native caption pixels, frame-coalesced latest-value scheduling, visible-state payloads and bounded persistent local FFmpeg preview processes with one-shot native fallback. Exact decoded native frames remain the export-layout authority. Disclose up to two local preview sessions and 15-second idle scratch retention. No new binary, font, dependency or cloud transfer is introduced; public packaged distribution and OTA claims remain unchanged pending a separately approved release."
+      "summary": "Release Sthang Studio 0.85.0 as a public Beta for Windows 10/11 x64 and Apple Silicon macOS 12.3+, including caption appearance, local captioned-video export, local Khmer font discovery/addition, responsive native caption preview, accumulated performance improvements, and shared startup fixes. macOS uses a command-based per-user installer and Keychain credential storage; signed OTA remains Windows-only and is not promoted by this GitHub release."
     },
     "releaseImpact": "version"
   },
@@ -23,7 +23,7 @@
     "lifecycle": "preview",
     "publicVisibilityRequest": {
       "status": "approved",
-      "basis": "Approved public repository and independently verified v0.8.0 prerelease evidence for the Studio beta"
+      "basis": "Approved public repository and independently verified v0.85.0 prerelease evidence for the Studio beta"
     },
     "source": {
       "visibility": "public",
@@ -36,7 +36,7 @@
       "downloadAuthority": "github-releases",
       "primaryAction": {
         "label": "Download for Windows",
-        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.8.0/Sthang-Studio-Windows-v0.8.0.zip"
+        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.85.0/Sthang-Studio-Windows-v0.85.0.zip"
       },
       "sourceAction": {
         "label": "View source on GitHub",
@@ -48,8 +48,8 @@
       "automaticPublication": false
     },
     "release": {
-      "sourceVersion": "0.8.0",
-      "publicVersion": "0.8.0",
+      "sourceVersion": "0.85.0",
+      "publicVersion": "0.85.0",
       "publicVersionStatus": "verified",
       "channel": "preview"
     },
@@ -62,11 +62,11 @@
       "assetSet": "studio",
       "accent": "#D7FF4F"
     },
-    "publicSummary": "Sthang Studio helps Khmer creators turn video and audio into timed captions, review the wording, and export UTF-8 SRT files for CapCut.",
+    "publicSummary": "Sthang Studio helps Khmer creators turn video and audio into timed captions, review and style them against the real footage, then export UTF-8 SRT or a locally rendered captioned MP4.",
     "publicClaims": [
-      "Khmer-first caption editing in the Captions workspace",
-      "Public source and a reviewed Beta download on GitHub",
-      "Timing, editing, projects, history, and exports remain local; Gemini and optional Contributor/analytics transfers are explicitly disclosed"
+      "Khmer-first caption editing, review, appearance styling, and local captioned-video export",
+      "Reviewed public Beta downloads for Windows and Apple Silicon macOS on GitHub",
+      "Timing, editing, projects, history, preview/render work, and exports remain local; Gemini and optional Contributor/analytics transfers are explicitly disclosed"
     ],
     "dataProcessing": {
       "providers": [
@@ -93,7 +93,7 @@
           "credentialOwner": "user",
           "keyStorage": [
             "Windows user-protected in-app storage",
-            "macOS Keychain for Apple Silicon source builds",
+            "macOS Keychain for Apple Silicon installs and source builds",
             "Advanced GEMINI_API_KEY environment or .env fallback"
           ],
           "interactionStore": false,
@@ -179,15 +179,16 @@
   "evidence": {
     "release": {
       "mode": "github-release",
-      "tag": "v0.8.0",
+      "tag": "v0.85.0",
       "expectedDraft": false,
       "expectedPrerelease": true,
-      "assetName": "Sthang-Studio-Windows-v0.8.0.zip",
-      "checksumAssetName": "Sthang-Studio-Windows-v0.8.0.zip.sha256",
+      "assetName": "Sthang-Studio-Windows-v0.85.0.zip",
+      "checksumAssetName": "Sthang-Studio-Windows-v0.85.0.zip.sha256",
       "notesRequiredTerms": [
-        "Sthang Studio 0.8.0",
+        "Sthang Studio 0.85.0",
         "Public Beta",
         "Windows 10 or 11 x64",
+        "Apple Silicon macOS 12.3+",
         "Gemini Developer API key",
         "Files API",
         "48 hours",
@@ -200,27 +201,27 @@
         "no public download"
       ],
       "package": {
-        "entrypoint": "Sthang Studio 0.8.0/Install Sthang Studio.bat",
+        "entrypoint": "Sthang Studio 0.85.0/Install Sthang Studio.bat",
         "requiredPaths": [
-          "Sthang Studio 0.8.0/Install Sthang Studio.bat",
-          "Sthang Studio 0.8.0/Read Me.txt",
-          "Sthang Studio 0.8.0/Sthang Studio Files/.env.example",
-          "Sthang Studio 0.8.0/Sthang Studio Files/.sthang/product-manifest.json",
-          "Sthang Studio 0.8.0/Sthang Studio Files/INSTALL-NEW-PC.bat",
-          "Sthang Studio 0.8.0/Sthang Studio Files/README.md",
-          "Sthang Studio 0.8.0/Sthang Studio Files/PRIVACY.md",
-          "Sthang Studio 0.8.0/Sthang Studio Files/package-lock.json",
-          "Sthang Studio 0.8.0/Sthang Studio Files/scripts/install-release-package.ps1"
+          "Sthang Studio 0.85.0/Install Sthang Studio.bat",
+          "Sthang Studio 0.85.0/Read Me.txt",
+          "Sthang Studio 0.85.0/Sthang Studio Files/.env.example",
+          "Sthang Studio 0.85.0/Sthang Studio Files/.sthang/product-manifest.json",
+          "Sthang Studio 0.85.0/Sthang Studio Files/INSTALL-NEW-PC.bat",
+          "Sthang Studio 0.85.0/Sthang Studio Files/README.md",
+          "Sthang Studio 0.85.0/Sthang Studio Files/PRIVACY.md",
+          "Sthang Studio 0.85.0/Sthang Studio Files/package-lock.json",
+          "Sthang Studio 0.85.0/Sthang Studio Files/scripts/install-release-package.ps1"
         ],
         "truth": {
           "paths": [
-            "Sthang Studio 0.8.0/Read Me.txt",
-            "Sthang Studio 0.8.0/Sthang Studio Files/README.md",
-            "Sthang Studio 0.8.0/Sthang Studio Files/PRIVACY.md"
+            "Sthang Studio 0.85.0/Read Me.txt",
+            "Sthang Studio 0.85.0/Sthang Studio Files/README.md",
+            "Sthang Studio 0.85.0/Sthang Studio Files/PRIVACY.md"
           ],
           "requiredTerms": [
             "public Beta",
-            "v0.8.0",
+            "v0.85.0",
             "Gemini Files API",
             "store: false",
             "48 hours"
@@ -237,6 +238,8 @@
       "paths": [
         "README.md",
         "packaging/windows/Read Me.txt",
+        "packaging/macos/Read Me.txt",
+        "scripts/install-release-package-macos.sh",
         "docs/PUBLIC-RELEASE-CHECKLIST.md",
         "docs/MACOS-COMPATIBILITY.md",
         "docs/OTA-UPDATES.md"
@@ -246,6 +249,10 @@
         "%LOCALAPPDATA%\\Sthang Studio\\app",
         "delete this extracted setup folder",
         "Windows 10 or 11",
+        "Install Sthang Studio.command",
+        "Apple Silicon",
+        "macOS 12.3",
+        "~/Library/Application Support/Sthang Studio/app",
         "Gemini API key",
         "updates.sthang.app",
         "GitHub Release",
