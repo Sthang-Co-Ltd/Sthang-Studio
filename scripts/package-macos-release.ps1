@@ -120,7 +120,10 @@ try {
 
     $InstallerEntry = $Archive.GetEntry("${ArchiveRoot}Install Sthang Studio.command")
     if ($null -eq $InstallerEntry) { throw 'macOS installer entry could not be inspected.' }
-    $UnixMode = ([uint32]$InstallerEntry.ExternalAttributes -shr 16) -band 0x1FF
+    # ZipArchive exposes ExternalAttributes as a signed Int32 on Windows. Shift
+    # the raw bit pattern first so entries with the Unix owner-execute bit set do
+    # not fail a checked UInt32 conversion before we inspect the mode bits.
+    $UnixMode = ($InstallerEntry.ExternalAttributes -shr 16) -band 0x1FF
     if (($UnixMode -band 0x49) -ne 0x49) {
       throw 'Install Sthang Studio.command is not executable in the generated ZIP.'
     }
