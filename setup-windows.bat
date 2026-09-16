@@ -38,7 +38,9 @@ if errorlevel 1 (echo ERROR: shared package build failed.& if not "%KCS_NONINTER
 
 echo.
 echo Verifying server and web TypeScript...
-node "scripts\typecheck.mjs"
+REM Curated runtime/install packages intentionally exclude repository-only tests.
+REM Full source validation remains `npm run typecheck`, which still includes tests.
+node "scripts\typecheck.mjs" --runtime-only
 if errorlevel 1 (echo ERROR: application typecheck failed.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)
 
 echo.
