@@ -15,6 +15,18 @@ function Invoke-Checked([string]$Label, [scriptblock]$Command) {
   }
 }
 
+function Get-Sha256Hex([string]$Path) {
+  $Stream = [IO.File]::OpenRead($Path)
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try {
+    $Bytes = $Hasher.ComputeHash($Stream)
+    return ([BitConverter]::ToString($Bytes)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $Hasher.Dispose()
+    $Stream.Dispose()
+  }
+}
+
 $Package = Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
 $Version = [string]$Package.version
 if (-not $Version) { throw 'package.json does not contain a release version.' }
@@ -131,7 +143,7 @@ try {
     $Archive.Dispose()
   }
 
-  $Hash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $Hash = Get-Sha256Hex $ArtifactPath
   $ChecksumPath = "$ArtifactPath.sha256"
   Set-Content -LiteralPath $ChecksumPath -Value "$Hash  $ArtifactName" -Encoding ASCII
   $SizeMb = [math]::Round((Get-Item -LiteralPath $ArtifactPath).Length / 1MB, 2)
