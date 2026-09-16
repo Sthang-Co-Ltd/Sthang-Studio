@@ -11,6 +11,7 @@ import {
   writeJsonAtomic,
 } from '../scripts/update-runtime.mjs';
 import {
+  isLegacyBrokerPreparation,
   shouldUseRuntimeOnlyTypecheck,
   typecheckProjectArgs,
 } from '../scripts/typecheck.mjs';
@@ -115,12 +116,12 @@ test('path checks reject siblings and treat Windows path casing as equivalent', 
 test('runtime-only typecheck is explicit and skips only repository tests', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-typecheck-'));
   try {
-    assert.equal(shouldUseRuntimeOnlyTypecheck(root, []), false);
-    assert.equal(shouldUseRuntimeOnlyTypecheck(root, ['--runtime-only']), true);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, [], {}), false);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(root, ['--runtime-only'], {}), true);
 
     // This disposable root intentionally has no repository tests tree. Full
     // source validation must still require tests/tsconfig.json instead of
-    // silently weakening itself when that file is absent.
+    // silently weakening itself merely because that file is absent.
     await assert.rejects(fs.access(path.join(root, 'tests', 'tsconfig.json')));
 
     const runtimeProjects = typecheckProjectArgs(root, { runtimeOnly: true }).flat().join('\n');
@@ -133,5 +134,36 @@ test('runtime-only typecheck is explicit and skips only repository tests', async
     assert.match(fullProjects, /tests[\\/]tsconfig\.json/);
   } finally {
     await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('legacy v0.8 broker preparation uses runtime-only typecheck only inside its update work tree', async () => {
+  const installRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-v08-broker-'));
+  try {
+    const runtimeRoot = path.join(installRoot, 'updates', 'work', '0.85.4-fixture', 'source');
+    const siblingRoot = path.join(installRoot, 'updates', 'work-evil', '0.85.4-fixture', 'source');
+    await fs.mkdir(runtimeRoot, { recursive: true });
+    await fs.mkdir(siblingRoot, { recursive: true });
+
+    const legacyEnv = {
+      KCS_NONINTERACTIVE: '1',
+      STHANG_STUDIO_BROKER_VERSION: '1.0.0',
+      STHANG_STUDIO_INSTALL_ROOT: installRoot,
+    };
+
+    assert.equal(isLegacyBrokerPreparation(runtimeRoot, legacyEnv), true);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(runtimeRoot, [], legacyEnv), true);
+    assert.equal(isLegacyBrokerPreparation(siblingRoot, legacyEnv), false);
+    assert.equal(isLegacyBrokerPreparation(runtimeRoot, { ...legacyEnv, KCS_NONINTERACTIVE: '0' }), false);
+    assert.equal(isLegacyBrokerPreparation(runtimeRoot, { ...legacyEnv, STHANG_STUDIO_BROKER_VERSION: '9.9.9' }), false);
+    assert.equal(isLegacyBrokerPreparation(runtimeRoot, { ...legacyEnv, STHANG_STUDIO_INSTALL_ROOT: '' }), false);
+
+    await fs.mkdir(path.join(runtimeRoot, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(runtimeRoot, 'tests', 'tsconfig.json'), '{}\n');
+    assert.equal(isLegacyBrokerPreparation(runtimeRoot, legacyEnv), false);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(runtimeRoot, [], legacyEnv), false);
+    assert.equal(shouldUseRuntimeOnlyTypecheck(runtimeRoot, ['--runtime-only'], legacyEnv), true);
+  } finally {
+    await fs.rm(installRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
