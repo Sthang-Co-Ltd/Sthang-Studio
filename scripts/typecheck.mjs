@@ -16,6 +16,10 @@ export function typecheckProjectArgs(root, { runtimeOnly = false } = {}) {
   return projects;
 }
 
+export function shouldUseRuntimeOnlyTypecheck(root, argv = process.argv.slice(2)) {
+  return argv.includes('--runtime-only') || !fs.existsSync(path.join(root, 'tests', 'tsconfig.json'));
+}
+
 const invoked = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invoked) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,8 +27,7 @@ if (invoked) {
   // OTA/runtime packages intentionally exclude repository-only tests. Full source
   // checkouts still include tests/tsconfig.json and therefore retain the existing
   // test-suite typecheck unless --runtime-only is explicitly requested.
-  const runtimeOnly = process.argv.includes('--runtime-only')
-    || !fs.existsSync(path.join(root, 'tests', 'tsconfig.json'));
+  const runtimeOnly = shouldUseRuntimeOnlyTypecheck(root);
   for (const args of typecheckProjectArgs(root, { runtimeOnly })) {
     const result = spawnSync(node, args, { cwd: root, stdio: 'inherit', shell: false });
     if (result.status !== 0) process.exit(result.status ?? 1);
