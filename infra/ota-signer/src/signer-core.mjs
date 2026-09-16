@@ -421,7 +421,7 @@ async function githubJson(path) {
       'user-agent': 'Sthang-Studio-OTA-Signer',
       'x-github-api-version': '2026-03-10',
     },
-    redirect: 'error',
+    redirect: 'manual',
     cache: 'no-store',
   });
   if (!response.ok) throw new SignerError('Could not verify accepted Studio source.', 502);
@@ -447,7 +447,7 @@ async function fetchGithubArchive(commit) {
   }
   const response = await fetch(url, {
     headers: { 'user-agent': 'Sthang-Studio-OTA-Signer' },
-    redirect: 'error',
+    redirect: 'manual',
     cache: 'no-store',
   });
   if (!response.ok) throw new SignerError('Could not retrieve accepted Studio source archive.', 502);
@@ -752,7 +752,7 @@ async function bucketBytes(bucket, key, label, maximumBytes = MAX_ARCHIVE_BYTES)
 async function fetchExactPublic(url, expectedBytes, label) {
   const response = await fetch(url, {
     headers: { 'cache-control': 'no-cache', 'user-agent': 'Sthang-Studio-OTA-Signer' },
-    redirect: 'error',
+    redirect: 'manual',
     cache: 'no-store',
   });
   if (!response.ok) throw new SignerError(`${label} is not publicly available.`, 502);
