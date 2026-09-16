@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — responsive native caption appearance
+
+- Added immediate position/size feedback by transforming the last matching native
+  caption image, explicitly labeled as an interactive approximation until the
+  exact native frame is decoded. Changed captions, output resolutions, clipped
+  images and other typography/effects never use a misleading transform.
+- Coalesced appearance updates per browser paint and native work with a 40 ms
+  minimum start interval during interaction, one in-flight request and latest-value
+  scheduling. Pointer release/cancel, keyboard release and blur flush the final look.
+- Reduced active-edit payloads to the visible caption state, including overlaps,
+  and deferred lookahead work until editing settles.
+- Added bounded persistent local FFmpeg preview processes with exact ASS reloads,
+  streamed PNGs, idle eviction, cancellation, project/media/font invalidation and
+  the existing one-shot native fallback. No new binary, font or cloud dependency.
+- Added native pixel, browser interaction and lifecycle regressions plus a local
+  synthetic benchmark. This source change does not publish a release or OTA update.
+
 ## Unreleased — local Khmer font library
 
 - Expanded caption typography from a fixed handful of known faces to compatible

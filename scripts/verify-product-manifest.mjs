@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-local-khmer-fonts-20260916', 'manifest.change.id');
+  equal(change.id, 'studio-smooth-native-preview-20260916', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Add local discovery of compatible installed Khmer fonts plus creator-directed .ttf/.otf import, local Studio storage and removal controls, and keep native caption pixels visible while continuous Appearance edits render their newest look. No font catalog is bundled or installed system-wide, font files remain local, and public packaged distribution and OTA claims remain unchanged until a separately approved release.',
+    'Add labeled immediate position/size feedback from matching native caption pixels, frame-coalesced latest-value scheduling, visible-state payloads and bounded persistent local FFmpeg preview processes with one-shot native fallback. Exact decoded native frames remain the export-layout authority. Disclose up to two local preview sessions and 15-second idle scratch retention. No new binary, font, dependency or cloud transfer is introduced; public packaged distribution and OTA claims remain unchanged pending a separately approved release.',
     'manifest.change.documentationImpact.summary',
   );
 

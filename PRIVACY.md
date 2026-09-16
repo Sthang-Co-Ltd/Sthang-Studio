@@ -111,6 +111,18 @@ Studio does not ship a bundled font catalog as part of this source feature.
 
 ### Development-source font staging
 
+The responsive-preview source work may also retain up to two local FFmpeg preview
+processes and their last ASS documents in `exports/.working/preview-session-*`.
+These documents contain the requested caption state and styling, not source media.
+PNG output is streamed through local pipes and returned to the browser, not saved
+as session PNG files. Workers expire after 15 seconds idle, are evicted as needed,
+and are stopped on project/media invalidation, font-library changes, cancellation
+or failure. Cleanup waits for native process closure before removing scratch and
+releasing font leases. Abnormal termination/filesystem errors can leave scratch
+for startup cleanup. No preview content or font files are uploaded, added to
+analytics or contributed by this rendering optimization. Browser preview images
+remain memory-only and project/look-scoped.
+
 The unreleased performance work described in `docs/PERFORMANCE-VALIDATION.md`
 may reuse copies of already-installed regular/bold font files between local
 preview requests. This font-only staging is bounded to four sets and 16 MiB under

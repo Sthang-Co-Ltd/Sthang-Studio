@@ -8,6 +8,7 @@ import {
 } from '@kcs/shared';
 import { config } from '../config.js';
 import { buildAssDocument, buildAssCaptionFilter, preparePreviewFonts, requireCaptionFont } from './caption-renderer.js';
+import { renderPersistentCaptionPreview, retireIdleCaptionPreviews, type PreviewScope } from './persistent-caption-preview.js';
 
 let activeRenders = 0;
 const maxConcurrentRenders = 2;
@@ -85,6 +86,7 @@ export async function renderCaptionPreview(
   input: ReturnType<typeof parseCaptionPreviewInput>,
   capabilities: VideoExportCapabilities,
   signal?: AbortSignal,
+  scope?: PreviewScope,
 ): Promise<CaptionPreviewResult> {
   signal?.throwIfAborted();
   if (!capabilities.subtitlesFilter) throw new Error('This local video runtime cannot render the caption preview. Run System check before exporting video.');
@@ -98,6 +100,11 @@ export async function renderCaptionPreview(
     // Guard decoded-frame allocation, not output choices. Unusually large sources can select a
     // supported output resolution; no hidden downscaling is used to claim an exact preview.
     if (width * height > 33_554_432) throw new Error('This preview exceeds the local 32-megapixel safety limit. Choose a smaller video output resolution in Export.');
+    if (scope) {
+      const warm = await renderPersistentCaptionPreview(input, width, height, await probeSetparamsAlphaMode(config.ffmpegPath), scope, signal);
+      if (warm) return warm;
+    }
+    await retireIdleCaptionPreviews();
     const parent = path.join(config.exportDir, '.working');
     await fs.mkdir(parent, { recursive: true });
     workDir = await fs.mkdtemp(path.join(parent, 'preview-'));

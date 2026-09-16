@@ -9,6 +9,7 @@ import {
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, Plus, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
+import { useAppearanceInteraction } from '../use-appearance-interaction';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import type { StudioConfirmOptions } from './ConfirmationDialog';
 import './caption-appearance.css';
@@ -18,6 +19,7 @@ type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 interface Props {
   project: CaptionProject;
   onAppearanceChange(appearance: CaptionAppearance): void;
+  onInteractionChange(active: boolean): void;
   onConfirm(options: StudioConfirmOptions): Promise<boolean>;
 }
 
@@ -28,7 +30,7 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
-export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConfirm }: Props) {
+export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onInteractionChange, onConfirm }: Props) {
   const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
@@ -130,9 +132,7 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
     };
   }, [project.id]);
 
-  useEffect(() => {
-    onAppearanceChange(appearance);
-  }, [appearance, onAppearanceChange]);
+  const interactionHandlers = useAppearanceInteraction(appearance, onAppearanceChange, onInteractionChange);
 
   useEffect(() => {
     if (!dirtyRef.current) return;
@@ -326,9 +326,9 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onConf
     }
   };
 
-  return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title">
+  return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title" {...interactionHandlers}>
     <div className="caption-appearance-head">
-      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions while watching the real video above. Preview and MP4 use the same local caption renderer. Video compression and display scaling can soften edges.</span></div>
+      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions while watching the video above. Size and position respond immediately when possible, then refine to the exact export layout. Video compression and display scaling can soften edges.</span></div>
       <div className={`appearance-save-state ${saveState}`} role="status" aria-live="polite">
         {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{saveStateCopy(saveState)}</span>{saveState === 'error' && <button onClick={() => void persistAppearance({ ...appearanceRef.current })}>Retry</button>}
       </div>

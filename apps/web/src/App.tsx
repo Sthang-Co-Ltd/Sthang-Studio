@@ -575,6 +575,8 @@ export default function App() {
   }, [draft, proposal, proposalPreviewMode, proposedPreviewRange]);
   const [liveAppearance, setLiveAppearance] = useState<{ projectId: string; appearance: CaptionAppearance } | null>(null);
   const [previewResolution, setPreviewResolution] = useState<VideoResolutionPreset>('source');
+  const [appearanceInteracting, setAppearanceInteracting] = useState(false);
+  useEffect(() => { setAppearanceInteracting(false); }, [project?.id, project?.media.filename, workspaceTool]);
   const changeAppearance = useCallback((appearance: CaptionAppearance) => {
     if (project) setLiveAppearance({ projectId: project.id, appearance });
   }, [project?.id]);
@@ -1682,7 +1684,7 @@ export default function App() {
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} video={isVideo} media={media}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
 
@@ -1728,7 +1730,7 @@ export default function App() {
             onStartVideoExport={startVideoExport}
           />}
 
-          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} onAppearanceChange={changeAppearance} onConfirm={confirmInStudio}/>}
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
           {workspaceTool === 'timeline' && hasHybrid && <WaveformEditor
             projectId={project.id}

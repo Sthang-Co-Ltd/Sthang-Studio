@@ -72,6 +72,15 @@ Creators may style captions before export while watching the real video evidence
   controls and dialog buttons maintain accessible >= 44px touch targets on mobile viewports.
 - Project appearance saves automatically and survives leaving/reopening the
   workspace. Reusable presets remain local creator-profile conveniences.
+- During size/position edits, an existing matching native frame may move/scale
+  immediately while the exact frame is being prepared. This temporary interactive
+  approximation is labeled and must never be presented as final layout parity.
+  Release, cancellation, keyboard release and blur flush the newest settings;
+  only a decoded native frame for those settings restores the exact-preview state.
+  Errors remain visible and retryable instead of silently certifying old pixels.
+- Active styling prioritizes the visible caption state (including overlaps), not
+  a full-project render. Native preview workers are local, bounded and disposable;
+  the established one-shot native renderer remains the compatibility fallback.
 - An unavailable saved font is preserved and disclosed; Studio must not silently
   change the creator's typography. Captioned-video rendering requires an available
   local export font when the saved choice cannot be honored.

@@ -3,6 +3,7 @@ import multer from 'multer';
 import { isVideoProject, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
 import { requireCaptionFont } from '../services/caption-renderer.js';
 import { parseCaptionPreviewInput, renderCaptionPreview } from '../services/caption-preview.js';
+import { disposePersistentCaptionPreviews, trackCaptionPreviewRequest } from '../services/persistent-caption-preview.js';
 import {
   discoverCaptionFonts,
   importCaptionFonts,
@@ -39,6 +40,8 @@ const receiveFontUploads: RequestHandler = (req, res, next) => {
 router.get('/fonts', async (req, res) => {
   try {
     if (String(req.query.refresh || '') === '1') {
+      // Inventory refresh alone must not cancel the frame rendering while the
+      // Appearance workspace opens. Font byte identity is rechecked per request.
       invalidateCaptionFontCache({ system: true });
       invalidateVideoExportCapabilityCache();
     }
@@ -53,6 +56,7 @@ router.post('/fonts', receiveFontUploads, async (req, res) => {
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ error: 'Choose one or more .ttf or .otf Khmer font files.' });
     const result = await importCaptionFonts(files.map((file) => ({ originalName: file.originalname, buffer: file.buffer })));
+    await disposePersistentCaptionPreviews();
     // Font changes must invalidate the project capability snapshot before the next preview/export probe.
     invalidateVideoExportCapabilityCache();
     res.json(result);
@@ -64,6 +68,7 @@ router.post('/fonts', receiveFontUploads, async (req, res) => {
 router.delete('/fonts/:fontId', async (req, res) => {
   try {
     const fonts = await removeImportedCaptionFont(req.params.fontId);
+    await disposePersistentCaptionPreviews();
     invalidateVideoExportCapabilityCache();
     res.json({ fonts });
   } catch (error) {
@@ -88,6 +93,7 @@ router.get('/:projectId/capabilities', async (req, res) => {
 
 router.post('/:projectId/preview', async (req, res) => {
   const controller = new AbortController();
+  const tracked = trackCaptionPreviewRequest(req.params.projectId);
   const close = () => { if (!res.writableEnded) controller.abort(); };
   res.on('close', close);
   res.setHeader('Cache-Control', 'private, no-store');
@@ -97,14 +103,21 @@ router.post('/:projectId/preview', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (!isVideoProject(project)) return res.status(409).json({ error: 'Caption preview requires a video project.' });
     const capabilities = await probeVideoExportCapabilities(project);
-    const result = await renderCaptionPreview(input, capabilities, controller.signal);
+    const result = await renderCaptionPreview(input, capabilities, AbortSignal.any([controller.signal, tracked.signal]), {
+      projectId: project.id, mediaIdentity: JSON.stringify([project.media.filename, project.media.size]),
+    });
     if (!controller.signal.aborted) res.json(result);
   } catch (error) {
+    if (tracked.signal.aborted && !controller.signal.aborted && !res.headersSent) {
+      res.status(409).json({ error: 'Caption preview changed. Retry preview to use the latest project and fonts.' });
+      return;
+    }
     if (!controller.signal.aborted && !res.headersSent) {
       const message = error instanceof Error ? error.message : 'Caption preview failed.';
       res.status(message.includes('preview is busy') ? 429 : 400).json({ error: message });
     }
   } finally {
+    tracked.release();
     res.off('close', close);
   }
 });

@@ -29,10 +29,14 @@ function caption(text: string) {
 }
 
 async function waitForServer() {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  // Cold tsx startup on Windows was measured at 10.3 seconds locally. The old
+  // six-second readiness gate failed before these history assertions could run.
+  // Bound startup separately; do not extend or weaken any interaction assertion.
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
     if (server?.exitCode != null) throw new Error(`Disk-backed test server exited early (${server.exitCode}).\n${serverOutput}`);
     try {
-      const response = await fetch('http://127.0.0.1:8787/api/projects?summary=1');
+      const response = await fetch('http://127.0.0.1:8787/api/projects?summary=1', { signal: AbortSignal.timeout(1000) });
       if (response.ok) return;
     } catch { /* startup */ }
     await new Promise((resolve) => setTimeout(resolve, 50));

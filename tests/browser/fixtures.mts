@@ -120,6 +120,8 @@ export async function prepareFixtures() {
 }
 export function fixtureMedia() { return Buffer.from(media); }
 export async function cleanFixtures() {
+  const { disposePersistentCaptionPreviews } = await import('../../apps/server/src/services/persistent-caption-preview.js');
+  await disposePersistentCaptionPreviews();
   if (mockServer) {
     await new Promise<void>((resolve) => mockServer!.close(() => resolve()));
     mockServer = null;
@@ -305,7 +307,7 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       const delay = state.previewDelay(body); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
       if (state.previewError) return json({ error: state.previewError }, 400);
       try {
-        const result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), capabilities) : {
+        const result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), capabilities, undefined, { projectId: current.id, mediaIdentity: current.media.filename }) : {
           width: 640, height: 360, frames: body.timesMs.map((atMs: number) => ({ atMs, png: transparentPng, bounds: { x: 160, y: 270, width: 320, height: 40 } })),
         };
         return await json(result);

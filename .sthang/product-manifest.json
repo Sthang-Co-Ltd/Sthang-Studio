@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-local-khmer-fonts-20260916",
+    "id": "studio-smooth-native-preview-20260916",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Add local discovery of compatible installed Khmer fonts plus creator-directed .ttf/.otf import, local Studio storage and removal controls, and keep native caption pixels visible while continuous Appearance edits render their newest look. No font catalog is bundled or installed system-wide, font files remain local, and public packaged distribution and OTA claims remain unchanged until a separately approved release."
+      "summary": "Add labeled immediate position/size feedback from matching native caption pixels, frame-coalesced latest-value scheduling, visible-state payloads and bounded persistent local FFmpeg preview processes with one-shot native fallback. Exact decoded native frames remain the export-layout authority. Disclose up to two local preview sessions and 15-second idle scratch retention. No new binary, font, dependency or cloud transfer is introduced; public packaged distribution and OTA claims remain unchanged pending a separately approved release."
     },
     "releaseImpact": "version"
   },

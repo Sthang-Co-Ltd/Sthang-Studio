@@ -53,7 +53,7 @@ before they reach Export.
   the current project appearance while the creator works across Review, Fine
   timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
   focused place for changing the look, not a temporary styling mode.
-- While Appearance is open, show the **Layout-locked appearance preview** badge.
+- Treat only a decoded frame for the current settings as layout-locked.
   The preview is rendered as native transparent RGBA PNG frames by the exact same
   FFmpeg and libass (`shaping=complex`) engine used for MP4 export, eliminating
   browser CSS font-metric and shaping divergence. A one-line preview remains one
@@ -83,6 +83,15 @@ before they reach Export.
   width, alignment, background, weight and font changes must not blink the caption
   away between slider/input events. Retained pixels may bridge the same caption's
   appearance renders only; a different caption/text state still requires fresh pixels.
+- Size/position may transform matching native pixels immediately around the ASS
+  alignment anchor, projected into the contained video's displayed size. Mark this
+  **Interactive preview · refining layout…**, not layout-locked. Width/font/effect
+  changes and clipped source/target images retain untransformed pixels until native
+  rendering completes. No browser text-layout fallback is permitted.
+- Coalesce input by animation frame; allow one native request at a time and never
+  build a queue of intermediate slider values. Defer lookahead during editing.
+  Flush on pointer release/cancel, keyboard release and blur, including switching
+  workspaces. Keep the temporary transform until the exact replacement is decoded.
 - Keep **Manage added fonts** secondary and show only font files the creator added
   to Studio. Removing one requires confirmation, never changes operating-system
   fonts, and never silently substitutes a different family for a saved project.
