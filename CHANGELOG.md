@@ -11,6 +11,9 @@
   runtime-only TypeScript validation. Runtime validation still checks
   `packages/shared`, `apps/server`, and `apps/web`; normal source `npm run typecheck`
   still checks `tests/tsconfig.json`.
+- Repairs npm's Windows workspace junctions when the prepared OTA tree moves from
+  `updates/work/.../source` into its immutable `versions/<version>` location, so
+  the activated runtime resolves shared/server/web workspaces from the final tree.
 - Stabilizes Studio-managed Windows font transaction cleanup without weakening the
   existing import/remove assertions or deleting unrelated files.
 - Preserves signed verification, fail-closed preparation, transactional activation,

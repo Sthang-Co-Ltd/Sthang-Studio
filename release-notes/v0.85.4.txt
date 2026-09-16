@@ -8,6 +8,7 @@ Current OTA brokers explicitly request runtime-only TypeScript validation.
 Curated/manual Windows setup also explicitly requests runtime-only TypeScript validation because runtime packages intentionally exclude repository tests.
 Normal source npm run typecheck remains complete and still includes tests/tsconfig.json.
 Runtime-only validation still checks packages/shared, apps/server, and apps/web before the production build.
+Activated OTA runtimes repair npm's Windows workspace links after the broker moves the prepared tree into versions/0.85.4, keeping runtime imports bound to the immutable final version.
 
 Signed package verification, fail-closed preparation, transactional activation, health checks, rollback, and stable user-state preservation remain unchanged.
 Windows updates still require Download & verify followed by Install & restart; Studio never silently downloads or installs an update.
