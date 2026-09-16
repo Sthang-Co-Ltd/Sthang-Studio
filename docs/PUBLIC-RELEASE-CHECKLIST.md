@@ -7,7 +7,7 @@ relevant checks for each new release.
 
 The repository and the `v0.8.0` Public Beta release are public. Version `0.85.0`
 expanded curated distribution to Windows plus Apple Silicon macOS. Version
-`0.85.1` is the deliberate Windows public signed-OTA rollout patch and retains
+`0.85.2` is the deliberate Windows public signed-OTA rollout patch and retains
 the same curated recovery-download model for both platforms. Historical `0.8.0`
 publication evidence remains intact.
 
@@ -17,7 +17,7 @@ observation is preserved as history rather than rewritten as current website
 evidence. The owning HQ and Distribution repositories must establish the current
 public website/docs state through their separately governed synchronization flow.
 
-## Version 0.85.1 OTA rollout requirements
+## Version 0.85.2 OTA rollout requirements
 
 - [ ] Run `npm run ci` on the exact accepted release commit.
 - [ ] Run `npm run test:update-powershell` on that exact release commit.
@@ -29,15 +29,15 @@ public website/docs state through their separately governed synchronization flow
       Silicon macOS 12.3+, the Gemini Developer API key, Gemini Files API/48-hour
       disclosure, optional Contributor/analytics boundaries, explicit in-app
       update confirmation, rollback behavior, and checksums.
-- [ ] Publish non-draft prerelease `v0.85.1` from the exact accepted commit with
+- [ ] Publish non-draft prerelease `v0.85.2` from the exact accepted commit with
       both curated ZIPs and both checksum assets; verify the uploaded bytes/digests.
 - [ ] Stage and sign the exact Windows OTA ZIP for that same accepted commit,
       independently verify the immutable package, manifest, attestation, and public
       `updates.sthang.app` bytes, then promote the signed `latest.json` pointer.
-- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.1` as a newer
+- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.2` as a newer
       signed offer and still requires **Download & verify** then **Install & restart**.
 - [ ] Complete the separately governed HQ intake and Distribution `/studio/`
-      synchronization for version `0.85.1` and the Windows public signed-OTA model.
+      synchronization for version `0.85.2` and the Windows public signed-OTA model.
 - [ ] Do not claim completed real-Mac native acceptance unless the remaining
       real-Apple-Silicon checklist in `MACOS-COMPATIBILITY.md` has actually run.
 - [ ] Do not claim public OTA availability unless the signed-release, public-origin,

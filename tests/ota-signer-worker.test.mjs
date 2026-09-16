@@ -7,12 +7,15 @@ import {
   STUDIO_REPOSITORY_ID,
   STUDIO_SIGNING_ACTOR_ID,
   STUDIO_SIGNING_ACTOR_LOGIN,
+  acceptedMainFromAtom,
+  assertExactSourceTree,
   assertPackageMatchesSource,
   compareStudioVersions,
   handleRequest,
   latestPointerDocument,
   parseZip,
   promotionIssueCommand,
+  releaseChecksum,
   releaseIssueCommand,
   verifyGithubWebhook,
 } from '../infra/ota-signer/src/index.mjs';
@@ -166,6 +169,35 @@ test('package/source byte comparison requires critical files and rejects changed
   assert.throws(() => assertPackageMatchesSource(missing, source));
 });
 
+test('GitHub commit feed parsing accepts only the first exact commit entry', () => {
+  const first = 'a'.repeat(40);
+  const second = 'b'.repeat(40);
+  const atom = `<?xml version="1.0"?><feed><entry><id>tag:github.com,2008:Grit::Commit/${first}</id></entry><entry><id>tag:github.com,2008:Grit::Commit/${second}</id></entry></feed>`;
+  assert.equal(acceptedMainFromAtom(atom), first);
+  assert.throws(() => acceptedMainFromAtom('<feed><entry><id>not-a-commit</id></entry></feed>'));
+});
+
+test('recovery tag source tree must exactly equal accepted source', () => {
+  const accepted = new Map([
+    ['package.json', Buffer.from('package')],
+    ['README.md', Buffer.from('readme')],
+  ]);
+  assert.doesNotThrow(() => assertExactSourceTree(new Map(accepted), accepted, 'fixture tag'));
+  const changed = new Map(accepted);
+  changed.set('README.md', Buffer.from('changed'));
+  assert.throws(() => assertExactSourceTree(changed, accepted, 'fixture tag'), /does not match/i);
+  const missing = new Map(accepted);
+  missing.delete('README.md');
+  assert.throws(() => assertExactSourceTree(missing, accepted, 'fixture tag'), /does not match/i);
+});
+
+test('GitHub recovery checksum parser binds the exact archive filename', () => {
+  const digest = 'c'.repeat(64);
+  assert.equal(releaseChecksum(`${digest}  Sthang-Studio-Windows-v0.85.2.zip\r\n`, 'Sthang-Studio-Windows-v0.85.2.zip'), digest);
+  assert.throws(() => releaseChecksum(`${digest}  other.zip\n`, 'Sthang-Studio-Windows-v0.85.2.zip'));
+  assert.throws(() => releaseChecksum('not-a-checksum', 'Sthang-Studio-Windows-v0.85.2.zip'));
+});
+
 test('release command is exact, owner-bound, and never accepts pull-request comments', () => {
   assert.deepEqual(releaseIssueCommand(releasePayload()), {
     issueNumber: 30,
@@ -202,20 +234,20 @@ test('latest promotion command is separately exact and owner-bound', () => {
 });
 
 test('promotion pointer construction is version-ordered and immutable-manifest bound', () => {
-  assert.equal(compareStudioVersions('0.85.1', '0.85.0'), 1);
-  assert.equal(compareStudioVersions('0.85.1', '0.85.1'), 0);
-  assert.equal(compareStudioVersions('0.85.1-beta.1', '0.85.1'), -1);
+  assert.equal(compareStudioVersions('0.85.2', '0.85.0'), 1);
+  assert.equal(compareStudioVersions('0.85.2', '0.85.2'), 0);
+  assert.equal(compareStudioVersions('0.85.2-beta.1', '0.85.2'), -1);
   const manifestSha256 = 'a'.repeat(64);
-  assert.deepEqual(latestPointerDocument('0.85.1', manifestSha256), {
+  assert.deepEqual(latestPointerDocument('0.85.2', manifestSha256), {
     schemaVersion: 1,
     product: 'sthang-studio',
     platform: 'windows-x64',
     channel: 'preview',
-    version: '0.85.1',
-    manifestUrl: 'https://updates.sthang.app/studio/windows/v0.85.1/release.json',
+    version: '0.85.2',
+    manifestUrl: 'https://updates.sthang.app/studio/windows/v0.85.2/release.json',
     manifestSha256,
   });
-  assert.throws(() => latestPointerDocument('0.85.1', 'bad'));
+  assert.throws(() => latestPointerDocument('0.85.2', 'bad'));
 });
 
 test('GitHub webhook HMAC must match exact request body', async () => {

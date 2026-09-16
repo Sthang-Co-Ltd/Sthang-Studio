@@ -12,6 +12,8 @@ export const MAX_WEBHOOK_BYTES = 1024 * 1024;
 export const MAX_ARCHIVE_BYTES = 8 * 1024 * 1024;
 export const MAX_ARCHIVE_ENTRIES = 4096;
 export const MAX_UNPACKED_BYTES = 24 * 1024 * 1024;
+const MAX_GITHUB_FEED_BYTES = 512 * 1024;
+const MAX_CHECKSUM_BYTES = 2048;
 
 const ALLOWED_TOP_LEVEL_FILES = new Set([
   '.env.example',
@@ -119,6 +121,32 @@ async function readBoundedBody(request, maximumBytes) {
     if (total > maximumBytes) {
       await reader.cancel().catch(() => {});
       throw new SignerError('Request body is too large.', 413);
+    }
+    chunks.push(value);
+  }
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+async function readBoundedResponse(response, maximumBytes, label) {
+  const length = Number(response.headers.get('content-length') || 0);
+  if (length > maximumBytes) throw new SignerError(`${label} is too large.`, 413);
+  if (!response.body) throw new SignerError(`${label} is unavailable.`, 502);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel().catch(() => {});
+      throw new SignerError(`${label} is too large.`, 413);
     }
     chunks.push(value);
   }
@@ -414,55 +442,47 @@ export function assertPackageMatchesSource(packageEntries, sourceEntries) {
   }
 }
 
-async function githubJson(path) {
-  const response = await fetch(`https://api.github.com/repos/${STUDIO_REPOSITORY}/${path}`, {
-    headers: {
-      accept: 'application/vnd.github+json',
-      'user-agent': 'Sthang-Studio-OTA-Signer',
-      'x-github-api-version': '2026-03-10',
-    },
-    redirect: 'manual',
-    cache: 'no-store',
-  });
-  if (!response.ok) throw new SignerError('Could not verify accepted Studio source.', 502);
-  return response.json();
-}
-
-async function fetchGithubArchive(commit) {
-  const first = await fetch(`https://api.github.com/repos/${STUDIO_REPOSITORY}/zipball/${commit}`, {
-    headers: {
-      accept: 'application/vnd.github+json',
-      'user-agent': 'Sthang-Studio-OTA-Signer',
-      'x-github-api-version': '2026-03-10',
-    },
-    redirect: 'manual',
-    cache: 'no-store',
-  });
-  if (![301, 302, 303, 307, 308].includes(first.status)) throw new SignerError('Accepted Studio source archive redirect is invalid.', 502);
-  const location = first.headers.get('location') || '';
-  let url;
-  try { url = new URL(location); } catch { throw new SignerError('Accepted Studio source archive location is invalid.', 502); }
-  if (url.protocol !== 'https:' || url.hostname !== 'codeload.github.com' || url.port || url.username || url.password) {
-    throw new SignerError('Accepted Studio source archive location is not trusted.', 502);
+export function acceptedMainFromAtom(atomText) {
+  if (typeof atomText !== 'string' || atomText.length > MAX_GITHUB_FEED_BYTES) {
+    throw new SignerError('Accepted Studio source identity is invalid.', 502);
   }
-  const response = await fetch(url, {
-    headers: { 'user-agent': 'Sthang-Studio-OTA-Signer' },
-    redirect: 'manual',
-    cache: 'no-store',
-  });
-  if (!response.ok) throw new SignerError('Could not retrieve accepted Studio source archive.', 502);
-  const length = Number(response.headers.get('content-length') || 0);
-  if (length > MAX_ARCHIVE_BYTES) throw new SignerError('Accepted Studio source archive is too large.', 413);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new SignerError('Accepted Studio source archive is too large.', 413);
-  return bytes;
+  const firstEntry = /<entry>[\s\S]*?<id>tag:github\.com,2008:Grit::Commit\/([0-9a-f]{40})<\/id>/i.exec(atomText);
+  const sha = String(firstEntry?.[1] || '').toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new SignerError('Accepted Studio source identity is invalid.', 502);
+  return sha;
 }
 
 async function acceptedMain() {
-  const branch = await githubJson('branches/main');
-  const sha = String(branch?.commit?.sha || '').toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(sha)) throw new SignerError('Accepted Studio source identity is invalid.', 502);
-  return sha;
+  const url = `https://github.com/${STUDIO_REPOSITORY}/commits/main.atom`;
+  const response = await fetch(url, {
+    headers: { 'user-agent': 'Sthang-Studio-OTA-Signer', 'cache-control': 'no-cache' },
+    redirect: 'manual',
+    cache: 'no-store',
+  });
+  if (!response.ok || new URL(response.url).hostname !== 'github.com') {
+    throw new SignerError('Could not verify accepted Studio source.', 502);
+  }
+  const bytes = await readBoundedResponse(response, MAX_GITHUB_FEED_BYTES, 'Accepted Studio commit feed');
+  return acceptedMainFromAtom(textDecoder.decode(bytes));
+}
+
+async function fetchCodeloadArchive(ref, label) {
+  const url = new URL(`https://codeload.github.com/${STUDIO_REPOSITORY}/zip/${ref}`);
+  if (url.protocol !== 'https:' || url.hostname !== 'codeload.github.com' || url.port || url.username || url.password) {
+    throw new SignerError(`${label} location is not trusted.`, 502);
+  }
+  const response = await fetch(url, {
+    headers: { 'user-agent': 'Sthang-Studio-OTA-Signer', 'cache-control': 'no-cache' },
+    redirect: 'manual',
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new SignerError(`Could not retrieve ${label.toLowerCase()}.`, 502);
+  return readBoundedResponse(response, MAX_ARCHIVE_BYTES, label);
+}
+
+async function fetchGithubArchive(commit) {
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new SignerError('Accepted Studio source identity is invalid.', 502);
+  return fetchCodeloadArchive(commit, 'Accepted Studio source archive');
 }
 
 async function requireMain(commit, message) {
@@ -487,6 +507,52 @@ function sourceText(entries, path) {
 function sourceJson(entries, path) {
   try { return JSON.parse(sourceText(entries, path)); }
   catch { throw new SignerError(`Accepted Studio source has invalid ${path}.`); }
+}
+
+export function assertExactSourceTree(candidateEntries, acceptedEntries, label = 'Source tree') {
+  if (!(candidateEntries instanceof Map) || !(acceptedEntries instanceof Map) || candidateEntries.size !== acceptedEntries.size) {
+    throw new SignerError(`${label} does not match accepted Studio source.`, 409);
+  }
+  for (const [path, acceptedBytes] of acceptedEntries.entries()) {
+    const candidateBytes = candidateEntries.get(path);
+    if (!candidateBytes || !compareBytes(candidateBytes, acceptedBytes)) {
+      throw new SignerError(`${label} does not match accepted Studio source.`, 409);
+    }
+  }
+}
+
+export function releaseChecksum(text, expectedName) {
+  if (typeof text !== 'string' || typeof expectedName !== 'string' || !expectedName || text.length > MAX_CHECKSUM_BYTES) {
+    throw new SignerError('GitHub recovery checksum is invalid.', 409);
+  }
+  const match = /^([0-9a-f]{64})[ \t]+\*?([^\r\n]+)\r?\n?$/i.exec(text.trimEnd());
+  if (!match || match[2] !== expectedName) throw new SignerError('GitHub recovery checksum is invalid.', 409);
+  return match[1].toLowerCase();
+}
+
+async function fetchGithubReleaseAsset(version, name, maximumBytes) {
+  exactVersion(version);
+  if (typeof name !== 'string' || !/^[A-Za-z0-9._+-]+$/.test(name)) throw new SignerError('GitHub recovery asset name is invalid.', 409);
+  const first = await fetch(`https://github.com/${STUDIO_REPOSITORY}/releases/download/v${version}/${name}`, {
+    headers: { 'user-agent': 'Sthang-Studio-OTA-Signer', 'cache-control': 'no-cache' },
+    redirect: 'manual',
+    cache: 'no-store',
+  });
+  if (![301, 302, 303, 307, 308].includes(first.status)) {
+    throw new SignerError(`The matching GitHub recovery release asset is unavailable: ${name}.`, 409);
+  }
+  let location;
+  try { location = new URL(first.headers.get('location') || ''); } catch { throw new SignerError('GitHub recovery asset location is invalid.', 502); }
+  if (location.protocol !== 'https:' || location.hostname !== 'release-assets.githubusercontent.com' || location.port || location.username || location.password) {
+    throw new SignerError('GitHub recovery asset location is not trusted.', 502);
+  }
+  const response = await fetch(location, {
+    headers: { 'user-agent': 'Sthang-Studio-OTA-Signer' },
+    redirect: 'manual',
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new SignerError(`The matching GitHub recovery release asset is unavailable: ${name}.`, 409);
+  return readBoundedResponse(response, maximumBytes, `GitHub recovery asset ${name}`);
 }
 
 function validateTrustRoot(entries) {
@@ -816,26 +882,23 @@ function validateAttestation(value, { issueNumber, commit, version, manifestSha2
 }
 
 async function verifyGithubRecoveryRelease(version, commit) {
-  const [release, taggedCommit] = await Promise.all([
-    githubJson(`releases/tags/v${version}`),
-    githubJson(`commits/v${version}`),
-  ]);
-  if (
-    release?.tag_name !== `v${version}`
-    || release?.draft !== false
-    || release?.prerelease !== true
-    || String(taggedCommit?.sha || '').toLowerCase() !== commit
-  ) throw new SignerError('The matching GitHub recovery release is not published from the accepted commit.', 409);
-  const requiredAssets = [
-    `Sthang-Studio-Windows-v${version}.zip`,
-    `Sthang-Studio-Windows-v${version}.zip.sha256`,
-    `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip`,
-    `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip.sha256`,
+  const source = await sourceArchive(commit);
+  const tagArchiveBytes = await fetchCodeloadArchive(`refs/tags/v${version}`, 'GitHub recovery tag archive');
+  const tagged = await parseZip(tagArchiveBytes, { stripFirstSegment: true, allowProtectedRuntimeState: true });
+  assertExactSourceTree(tagged.entries, source.entries, 'GitHub recovery tag');
+
+  const pairs = [
+    [`Sthang-Studio-Windows-v${version}.zip`, `Sthang-Studio-Windows-v${version}.zip.sha256`],
+    [`Sthang-Studio-macOS-Apple-Silicon-v${version}.zip`, `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip.sha256`],
   ];
-  for (const name of requiredAssets) {
-    const asset = Array.isArray(release.assets) ? release.assets.find((candidate) => candidate?.name === name) : null;
-    if (!asset || asset.state !== 'uploaded' || !Number.isSafeInteger(asset.size) || asset.size <= 0 || !/^sha256:[0-9a-f]{64}$/i.test(String(asset.digest || ''))) {
-      throw new SignerError(`The matching GitHub recovery release asset is not verified: ${name}.`, 409);
+  for (const [archiveName, checksumName] of pairs) {
+    const [archiveBytes, checksumBytes] = await Promise.all([
+      fetchGithubReleaseAsset(version, archiveName, MAX_ARCHIVE_BYTES),
+      fetchGithubReleaseAsset(version, checksumName, MAX_CHECKSUM_BYTES),
+    ]);
+    const expected = releaseChecksum(textDecoder.decode(checksumBytes), archiveName);
+    if (await sha256Hex(archiveBytes) !== expected) {
+      throw new SignerError(`The matching GitHub recovery release asset is not verified: ${archiveName}.`, 409);
     }
   }
 }

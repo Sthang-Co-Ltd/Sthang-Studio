@@ -38,9 +38,9 @@ available without crowding the main editing flow.
 
 ## Distribution status
 
-Sthang Studio `0.85.1` is available as a public Beta with curated downloads for
+Sthang Studio `0.85.2` is available as a public Beta with curated downloads for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. Use the matching
-[0.85.1 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.1).
+[0.85.2 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.2).
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -59,11 +59,11 @@ launches. The downloaded setup folder can then be deleted. This Beta uses a
 command-based installer rather than a signed/notarized `.app`; if Gatekeeper
 blocks the downloaded command on first open, Control-click it and choose **Open**.
 
-## Version 0.85.1
+## Version 0.85.2
 
-Version `0.85.1` is the Windows public signed-OTA rollout patch on top of the
+Version `0.85.2` is the Windows public signed-OTA rollout patch on top of the
 accepted `0.85.0` product behavior. Windows installs that already contain the
-`0.8.0`-or-newer updater can be offered `0.85.1` in Studio after the production
+`0.8.0`-or-newer updater can be offered `0.85.2` in Studio after the production
 signed `latest.json` pointer is promoted. Studio still requires the user to choose
 **Download & verify** and then **Install & restart**; it never silently downloads
 or installs an update. The curated GitHub package remains the manual recovery
@@ -123,7 +123,7 @@ stable state root.
 
 The production private signing key remains outside the repository behind the
 separately deployed signing service. Version 0.8.0 established the updater-capable
-bootstrap. Version 0.85.1 is the first release intended for deliberate promotion
+bootstrap. Version 0.85.2 is the first release intended for deliberate promotion
 through the public signed Windows channel at `updates.sthang.app`; only a signed
 and verified `latest.json` can make the offer visible to installed clients. The
 curated GitHub Release remains the manual download and recovery path. See

@@ -1,10 +1,10 @@
-# Signed Studio updates (0.8 bootstrap; 0.85.1 public OTA rollout)
+# Signed Studio updates (0.8 bootstrap; 0.85.2 public OTA rollout)
 
-This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.1` is the first release prepared for deliberate public signed Windows OTA rollout. The curated GitHub Release remains the manual download and recovery path even after OTA is enabled.
+This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.2` is the first release prepared for deliberate public signed Windows OTA rollout. The curated GitHub Release remains the manual download and recovery path even after OTA is enabled.
 
 Version `0.8.0` carries the reviewed Studio public verification trust. No public signed `latest.json` pointer is promoted by the 0.8.0 GitHub Release.
 
-Version `0.85.1` becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, and rollback evidence have been verified and the signed `latest.json` pointer is deliberately promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live OTA offer.
+Version `0.85.2` becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, and rollback evidence have been verified and the signed `latest.json` pointer is deliberately promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live OTA offer.
 
 ## User experience
 
@@ -62,9 +62,9 @@ Each immutable version owns its `node_modules` and `.venv`. This permits `packag
 
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
-## OTA production gates and 0.85.1 rollout
+## OTA production gates and 0.85.2 rollout
 
-The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.1`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
+The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.2`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
 
 1. Build the ordinary Windows GitHub Release candidate and OTA candidate for that later version from the same exact accepted `main` commit, with committed bounded release notes.
 2. Stage and sign the exact OTA candidate through the production signer; independently verify the signature, package bytes, manifest, attestation, dependency declarations, and immutable R2 objects.
