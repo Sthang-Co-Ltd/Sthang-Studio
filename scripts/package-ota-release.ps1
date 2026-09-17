@@ -52,13 +52,18 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Could not archive the reviewed OTA payload.' }
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $Source -Force
 
-  foreach ($Protected in @('data','uploads','exports','node_modules','.venv','versions','updates','release-artifacts','.sthang-update-version.json')) {
+  foreach ($Protected in @('data','uploads','exports','node_modules','.venv','versions','updates','broker-versions','release-artifacts','.sthang-update-version.json')) {
     if (Test-Path (Join-Path $Source $Protected)) { throw "OTA payload contains protected state: $Protected" }
   }
   if (Test-Path (Join-Path $Source 'apps\server\.env')) { throw 'OTA payload contains local environment data.' }
   foreach ($Required in @('config\update-trust-root.json','scripts\update-runtime.mjs','scripts\update-protocol.mjs','scripts\launch-studio.ps1','package-lock.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Source $Required))) { throw "OTA payload is missing: $Required" }
   }
+
+  # Check exact exported broker bytes even for a non-publishing test package.
+  # The production signer derives this same admission floor from the trust config.
+  $MinimumBroker = & node (Join-Path $Root 'scripts\verify-studio-broker.mjs') --root $Source --print-minimum
+  if ($LASTEXITCODE -ne 0 -or $MinimumBroker -notmatch '^\d+\.\d+\.\d+$') { throw 'The packaged broker or admission floor is invalid.' }
 
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Artifact = Join-Path $Output "Sthang-Studio-OTA-v$Version.zip"
@@ -108,7 +113,7 @@ try {
       sizeBytes = (Get-Item $Artifact).Length
       unpackedSizeBytes = [long](Get-ChildItem $Source -File -Recurse -Force | Measure-Object Length -Sum).Sum
     }
-    compatibility = [ordered]@{ minBrokerVersion='1.0.0'; stateSchema=1; manualInstallerRequired=$false }
+    compatibility = [ordered]@{ minBrokerVersion=$MinimumBroker; stateSchema=1; manualInstallerRequired=$false }
     setup = [ordered]@{
       strategy = 'npm-ci-and-local-timing'
       packageLockSha256 = Get-Sha256 (Join-Path $Source 'package-lock.json')

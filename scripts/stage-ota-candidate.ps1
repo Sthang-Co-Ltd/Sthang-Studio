@@ -45,6 +45,11 @@ if ($LASTEXITCODE -ne 0 -or $Version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|
 $Notes = Join-Path $Root "release-notes\v$Version.txt"
 if (-not (Test-Path -LiteralPath $Notes)) { throw "Missing committed release-notes/v$Version.txt." }
 
+# A transition release must disclose the helper change before private staging.
+# This does not authorize signing, promotion, or reuse of an immutable version.
+& node.exe (Join-Path $Root 'scripts\verify-studio-broker.mjs') --release
+if ($LASTEXITCODE -ne 0) { throw 'Broker release validation failed before staging.' }
+
 Write-Host 'Running local release validation (no hosted runner)...' -ForegroundColor Cyan
 foreach ($Command in @('test:public','check:public','test:updater','test:update-powershell','typecheck','build')) {
   & npm.cmd run $Command

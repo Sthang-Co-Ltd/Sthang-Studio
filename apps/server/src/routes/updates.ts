@@ -1,11 +1,32 @@
 import { Router, type Response } from 'express';
 import { APP_VERSION } from '../version.js';
+import { rootDir, stateRootDir } from '../config.js';
+import { brokerSessionNotice, maintainActiveBroker } from '../../../../scripts/broker-maintenance.mjs';
 import { UpdateError, createUpdateService, publicUpdateError, unsafeUpdateReasons, type UpdateSafetySnapshot } from '../updater.js';
 import { jobStore } from '../services/job-store.js';
 
 const router = Router();
 let servicePromise: ReturnType<typeof createUpdateService> | null = null;
-const service = () => servicePromise ||= createUpdateService();
+let brokerNotice: string | null = null;
+const service = () => servicePromise ||= (async () => {
+  // One shared initialization promise serializes maintenance with every update
+  // endpoint. It never runs before an earlier, explicitly accepted OTA settles.
+  try {
+    const result = await maintainActiveBroker({ installRoot: stateRootDir, sourceRoot: rootDir });
+    brokerNotice = brokerSessionNotice(result, process.env.STHANG_STUDIO_BROKER_VERSION);
+  } catch {
+    throw new UpdateError('UNSAFE', 'Studio could not verify its update helper. Keep using Studio and use the manual Windows recovery guidance before updating.', 409);
+  }
+  return createUpdateService();
+})();
+
+async function readyService() {
+  const current = await service();
+  // The old PowerShell launcher is still loaded in this session. Do not claim
+  // the new broker version or hand another install to that old process.
+  if (brokerNotice) throw new UpdateError('UNSAFE', brokerNotice, 409);
+  return current;
+}
 
 function noStore(res: Response) {
   res.setHeader('Cache-Control', 'no-store');
@@ -40,7 +61,9 @@ function sendFailure(res: Response, error: unknown) {
 
 router.get('/', async (_req, res) => {
   noStore(res);
-  try { res.json(await (await service()).check(APP_VERSION)); }
+  try {
+    res.json(await (await readyService()).check(APP_VERSION));
+  }
   catch (error) { sendFailure(res, error); }
 });
 
@@ -49,7 +72,7 @@ router.post('/download', async (req, res) => {
   try {
     assertSafe(req.body);
     const digest = typeof req.body?.manifestDigest === 'string' ? req.body.manifestDigest : '';
-    res.json(await (await service()).download(digest));
+    res.json(await (await readyService()).download(digest));
   } catch (error) { sendFailure(res, error); }
 });
 
@@ -58,7 +81,7 @@ router.post('/install', async (req, res) => {
   try {
     assertSafe(req.body);
     const digest = typeof req.body?.manifestDigest === 'string' ? req.body.manifestDigest : '';
-    const pending = await (await service()).prepareInstall(APP_VERSION, digest);
+    const pending = await (await readyService()).prepareInstall(APP_VERSION, digest);
     if (process.env.STHANG_STUDIO_DISABLE_UPDATE_EXIT !== '1') {
       res.once('finish', () => setTimeout(() => process.exit(42), 250).unref());
     }

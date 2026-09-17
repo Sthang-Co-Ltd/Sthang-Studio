@@ -1,15 +1,74 @@
-param()
+param([switch]$BrokerProbe)
 $ErrorActionPreference = 'Stop'
 $InstallRoot = Split-Path -Parent $PSScriptRoot
 $UpdateRoot = Join-Path $InstallRoot 'updates'
 $ActiveFile = Join-Path $UpdateRoot 'active.json'
 $PendingFile = Join-Path $UpdateRoot 'pending-install.json'
-$BrokerVersion = '1.0.0'
+$BrokerVersion = '1.0.1'
 $ActivationLaunch = [bool]$env:STHANG_STUDIO_UPDATE_ACTIVATION
 $ForceLegacy = $false
 
+# A broker upgrade stages a complete immutable bundle before atomically replacing
+# this one entrypoint. Never run a mixture of old and new broker scripts.
+$BrokerRoot = $InstallRoot
+$BundleRoot = Join-Path $InstallRoot ("broker-versions\$BrokerVersion")
+if (Test-Path -LiteralPath $BundleRoot) { $BrokerRoot = $BundleRoot }
+$BrokerScripts = Join-Path $BrokerRoot 'scripts'
+$BrokerDefinitionFile = Join-Path $BrokerRoot 'config\studio-broker.json'
+$BrokerFiles = @(
+  'scripts/launch-studio.ps1',
+  'scripts/update-runtime.mjs',
+  'scripts/update-protocol.mjs',
+  'scripts/prepare-studio-update.ps1'
+)
+
+function Assert-BrokerRegularPath([string]$FilePath) {
+  $Item = Get-Item -LiteralPath $FilePath -Force
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw 'The Studio update helper contains an unexpected file. Use the manual recovery package.'
+  }
+  $Directory = $Item.Directory
+  while ($Directory) {
+    if ($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+      throw 'The Studio update helper cannot run through redirected directories. Use the manual recovery package.'
+    }
+    $Directory = $Directory.Parent
+  }
+  return $Item
+}
+
+$DefinitionFile = Assert-BrokerRegularPath $BrokerDefinitionFile
+if ($DefinitionFile.Length -gt 32768) { throw 'The Studio update helper definition is invalid.' }
+$Definition = Get-Content -LiteralPath $BrokerDefinitionFile -Raw | ConvertFrom-Json
+if ($Definition.schemaVersion -ne 1 -or $Definition.product -cne 'sthang-studio' -or
+    $Definition.platform -cne 'windows-x64' -or $Definition.brokerVersion -cne $BrokerVersion -or
+    @($Definition.files.PSObject.Properties).Count -ne $BrokerFiles.Count) {
+  throw 'The Studio update helper identity is invalid. Use the manual recovery package.'
+}
+foreach ($Relative in $BrokerFiles) {
+  $Property = $Definition.files.PSObject.Properties[$Relative]
+  if (-not $Property -or [string]$Property.Value.sha256 -cnotmatch '^[0-9a-f]{64}$') {
+    throw 'The Studio update helper file list is invalid.'
+  }
+  $FilePath = Join-Path $BrokerRoot $Relative.Replace('/', '\')
+  $File = Assert-BrokerRegularPath $FilePath
+  if ($File.Length -ne $Property.Value.sizeBytes -or $File.Length -le 0 -or $File.Length -gt 262144 -or
+      (Get-FileHash -LiteralPath $FilePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Property.Value.sha256) {
+    throw 'The Studio update helper failed integrity checking. Use the manual recovery package.'
+  }
+}
+# When using a bundle, the stable entrypoint must be its exact reviewed launcher.
+$ExpectedLauncher = $Definition.files.PSObject.Properties['scripts/launch-studio.ps1'].Value.sha256
+if ((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedLauncher) {
+  throw 'The stable Studio launcher does not match its update helper.'
+}
+if ($BrokerProbe) {
+  Write-Output "STHANG_STUDIO_BROKER=$BrokerVersion"
+  exit 0
+}
+
 if (-not $ActivationLaunch) {
-  & node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') recover $InstallRoot
+  & node (Join-Path $BrokerScripts 'update-runtime.mjs') recover $InstallRoot
   if ($LASTEXITCODE -ne 0) {
     Write-Host 'Studio could not complete update recovery. The legacy installed version will be used.' -ForegroundColor Yellow
     $ForceLegacy = $true
@@ -92,7 +151,7 @@ if ($ExitCode -eq 42) {
     exit 1
   }
   Set-Location $InstallRoot
-  & node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') apply $PendingFile
+  & node (Join-Path $BrokerScripts 'update-runtime.mjs') apply $PendingFile
   if ($LASTEXITCODE -eq 0) { exit 42 }
   exit 1
 }
