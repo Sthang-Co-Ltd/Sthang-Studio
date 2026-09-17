@@ -58,6 +58,16 @@ Prepared source and dependencies move to immutable `versions/<version>/`. npm's 
 
 The old root installation is retained as the initial rollback/manual-recovery version. No OTA path uses the legacy delete-then-copy installer as its atomicity mechanism.
 
+### Maintainer-assisted repair for the affected stable Windows broker
+
+A known stable-broker revision can fail to restart Studio when the installation path contains command-shell metacharacters such as `&`. The affected `scripts/update-runtime.mjs` has SHA-256 `4785bd13a3c5e22623a4f9ccaadc93f1c7ea7f3e0540d83834d7a8cc77aba308`. The durable source correction launches the fixed filename `run-windows.bat` from the already verified installation `cwd`; it does not pass the absolute installation path to `cmd.exe` as command text.
+
+A maintainer-assisted repair is permitted only for an explicitly authorized installation whose stable broker is a regular file and matches that exact affected digest. First confirm Studio is quiescent and no update transaction is active. Save a byte-exact backup outside the public source worktree and verify the backup has the same digest. Prepare the candidate separately, replace exactly the one `path.join(installRoot, 'run-windows.bat')` argument inside `startStudio()` with `'run-windows.bat'`, preserve every other byte, and validate the candidate with Node syntax checking. Recheck the installed digest and quiescent state immediately before an atomic same-directory replacement. Verify the repaired bytes and syntax afterward; if replacement or verification fails, restore only the verified backup.
+
+This procedure changes only the stable installation-root `scripts/update-runtime.mjs`. It does not alter an immutable version directory, signed package or manifest, trust root, launcher, dependencies, update pointer, receipt, credentials, settings, or user data. It does not authorize forced activation or private `apply` invocation. After repair, the normal updater must still re-fetch the public offer and preserve both explicit **Download & verify** and **Install & restart** decisions, exact-version health checks, transaction cleanup, and rollback behavior.
+
+This is a bounded maintainer recovery procedure for matching installed brokers, not evidence that the source fix has been released or delivered fleet-wide. Other affected installations require a separately reviewed delivery mechanism that updates the stable broker before relying on a later OTA payload.
+
 ## Dependency and state policy
 
 Each immutable version owns its `node_modules` and `.venv`. This permits `package-lock.json`, npm packages, Python requirements, local timing setup, or supporting scripts to change without mutating the running version. The signed manifest declares those dependency inputs. Caches and all user state remain preserved; a future incompatible state/cache migration must be signed, staged, rollback-safe, and explicitly documented rather than deleting state during source refresh.

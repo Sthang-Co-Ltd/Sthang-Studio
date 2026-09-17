@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
   activateWithRollback,
+  buildStudioStartSpec,
   isInside,
   recoverInterruptedActivation,
   samePath,
@@ -16,6 +18,42 @@ import {
   typecheckProjectArgs,
 } from '../scripts/typecheck.mjs';
 import { ensureRuntimeWorkspaceLinks } from '../scripts/runtime-workspaces.mjs';
+
+test('Windows stable broker launches from cwd across command-sensitive install paths', { skip: process.platform !== 'win32' }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-start-command-'));
+  const cases = [
+    'ordinary',
+    'Desktop Code Script',
+    'Desktop Code & Script',
+    'Desktop (Code) Script',
+  ];
+  try {
+    for (const name of cases) {
+      const installRoot = path.join(root, name);
+      await fs.mkdir(installRoot, { recursive: true });
+      await fs.writeFile(path.join(installRoot, 'run-windows.bat'), [
+        '@echo off',
+        'if "%STHANG_STUDIO_UPDATE_ACTIVATION%"=="1" (echo MODE=activation) else (echo MODE=previous)',
+        'exit /b 0',
+        '',
+      ].join('\r\n'));
+
+      for (const [activation, expectedMode] of [[true, 'activation'], [false, 'previous']]) {
+        const spec = buildStudioStartSpec(installRoot, activation);
+        const result = spawnSync(spec.command, spec.args, {
+          cwd: spec.cwd,
+          env: spec.env,
+          encoding: 'utf8',
+          windowsHide: true,
+        });
+        assert.equal(result.status, 0, `${name} (${expectedMode}): ${result.stderr}`);
+        assert.match(result.stdout, new RegExp(`MODE=${expectedMode}`));
+      }
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
 
 test('runtime activation keeps rollback material until the new version is healthy', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-runtime-'));
