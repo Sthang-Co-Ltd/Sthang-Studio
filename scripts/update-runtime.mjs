@@ -190,17 +190,27 @@ function urlReady(url, expectedVersion, timeoutMs = 90_000) {
   });
 }
 
-function startStudio(installRoot, activation = false) {
+export function buildStudioStartSpec(installRoot, activation = false) {
   const command = process.env.ComSpec || 'cmd.exe';
   const environment = { ...process.env };
   if (activation) environment.STHANG_STUDIO_UPDATE_ACTIVATION = '1';
   else delete environment.STHANG_STUDIO_UPDATE_ACTIVATION;
-  const child = spawn(command, ['/d', '/c', path.join(installRoot, 'run-windows.bat')], {
+  return {
+    command,
+    args: ['/d', '/c', 'run-windows.bat'],
     cwd: installRoot,
+    env: environment,
+  };
+}
+
+function startStudio(installRoot, activation = false) {
+  const spec = buildStudioStartSpec(installRoot, activation);
+  const child = spawn(spec.command, spec.args, {
+    cwd: spec.cwd,
     detached: true,
     windowsHide: false,
     stdio: 'ignore',
-    env: environment,
+    env: spec.env,
   });
   child.unref();
   return child.pid;
