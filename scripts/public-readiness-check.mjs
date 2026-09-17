@@ -27,7 +27,7 @@ function forbiddenPublicPath(file) {
   if (base.startsWith('.env.') && base !== '.env.example') return true;
   if (/^(?:credentials.*|service-account.*)\.json$/i.test(base)) return true;
   if (segments.includes('node_modules') || segments.includes('.venv') || segments.includes('__pycache__')) return true;
-  if (segments.includes('dist')) return true;
+  if (segments.includes('dist') || segments.some((part) => part.toLowerCase() === 'broker-versions')) return true;
   if (/\.(?:pyc|pyo|pem|p12|pfx)$/i.test(base)) return true;
   if (/\.(?:key)$/i.test(base) && !/hotkey|keymap/i.test(base)) return true;
 
