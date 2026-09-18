@@ -7,12 +7,24 @@ import {
   Plus,
   RefreshCw,
   ScanLine,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Square,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 import { decodeWaveformAudio } from '../audio/wav';
 import { buildWaveformPeaks, waveformExtrema, type WaveformPeaks } from '../audio/peaks';
+import { TimestampInput } from './TimestampInput';
+import { editCaptionTiming, focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEdit, type TimingEditKind } from '../timing-edit';
+import type { TimingPlaybackRange } from '../timing-playback';
+import './waveform-editor.css';
 
 interface WaveformEditorProps {
   projectId: string;
+  mediaIdentity: string;
+  mediaDurationMs?: number;
   captions: CaptionSegment[];
   tokens: TimedToken[];
   selectedIds: string[];
@@ -22,14 +34,21 @@ interface WaveformEditorProps {
   initialZoom: number;
   onSeek(ms: number): void;
   onSelect(id: string): void;
-  onBoundaryChange(id: string, edge: 'start' | 'end', valueMs: number): void;
+  onTimingChange(before: CaptionSegment, after: CaptionSegment): boolean;
+  onPreview(range: TimingPlaybackRange): void;
+  onStopPreview(): void;
+  onNotice(message: string): void;
   onPlaybackRate(rate: number): void;
   onPreferenceChange(value: { waveformMode?: 'waveform' | 'spectrum'; waveformZoom?: number }): void;
 }
 
 interface DragState {
   captionId: string;
-  edge: 'start' | 'end';
+  edge: TimingEditKind;
+  before: CaptionSegment;
+  originMs: number;
+  originX: number;
+  pointerId: number;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -39,14 +58,13 @@ function formatMs(value: number) {
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
 }
 
-function nearestBoundary(tokens: TimedToken[], value: number) {
+function nearestBoundary(tokens: TimedToken[], value: number, edge: TimingEditKind) {
   let result = value;
   let distance = Number.POSITIVE_INFINITY;
   for (const token of tokens) {
-    for (const candidate of [token.startMs, token.endMs]) {
-      const next = Math.abs(candidate - value);
-      if (next < distance) { distance = next; result = candidate; }
-    }
+    const candidate = edge === 'end' ? token.endMs : token.startMs;
+    const next = Math.abs(candidate - value);
+    if (next < distance) { distance = next; result = candidate; }
   }
   return distance <= 220 ? result : value;
 }
@@ -92,17 +110,18 @@ const waveformMemory = new Map<string, WaveformMemoryEntry>();
 const maxWaveformMemoryEntries = 4;
 const maxWaveformMemoryBytes = 128 * 1024 * 1024;
 
-function waveformIdentity(projectId: string, tokens: TimedToken[]) {
+function waveformIdentity(projectId: string, mediaIdentity: string, tokens: TimedToken[]) {
   const first = tokens[0];
   const last = tokens.at(-1);
-  return [
+  return JSON.stringify([
     projectId,
+    mediaIdentity,
     tokens.length,
     first?.id || 'none',
     first?.startMs ?? 0,
     last?.id || 'none',
     last?.endMs ?? 0,
-  ].join(':');
+  ]);
 }
 
 function entryBytes(entry: WaveformMemoryEntry) {
@@ -145,6 +164,8 @@ function recalledWaveform(key: string) {
 
 export function WaveformEditor({
   projectId,
+  mediaIdentity,
+  mediaDurationMs,
   captions,
   tokens,
   selectedIds,
@@ -154,13 +175,17 @@ export function WaveformEditor({
   initialZoom,
   onSeek,
   onSelect,
-  onBoundaryChange,
+  onTimingChange,
+  onPreview,
+  onStopPreview,
+  onNotice,
   onPlaybackRate,
   onPreferenceChange,
 }: WaveformEditorProps) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
+  const canvasHost = useRef<HTMLDivElement | null>(null);
   const samplesRef = useRef<Float32Array | null>(null);
   const [durationMs, setDurationMs] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -170,15 +195,48 @@ export function WaveformEditor({
   const [zoom, setZoom] = useState(clamp(initialZoom || 2, 1, 24));
   const [viewStartMs, setViewStartMs] = useState(0);
   const [follow, setFollow] = useState(true);
-  const [snap, setSnap] = useState<'word' | 'silence' | 'off'>('word');
+  const [snap, setSnap] = useState<'word' | 'silence' | 'off'>(tokens.length ? 'word' : 'off');
   const [drag, setDrag] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const [dragPreview, setDragPreview] = useState<CaptionSegment | null>(null);
+  const [stepMs, setStepMs] = useState(50);
+  const [loop, setLoop] = useState(false);
+  const history = useRef<{ undo: TimingEdit[]; redo: TimingEdit[] }>({ undo: [], redo: [] });
+  const [, setHistoryRevision] = useState(0);
+  const focusIdentity = useRef('');
   const [spectrum, setSpectrum] = useState<Spectrum | null>(null);
   const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const memoryKey = useMemo(() => waveformIdentity(projectId, tokens), [projectId, tokens]);
+  const memoryKey = useMemo(() => waveformIdentity(projectId, mediaIdentity, tokens), [projectId, mediaIdentity, tokens]);
+  const captionIndex = captions.findIndex((caption) => caption.id === selectedIds[0]);
+  const selectedCaption = captions[captionIndex];
+  const currentCaption = dragPreview || selectedCaption;
+  const drawnCaptions = useMemo(() => dragPreview ? captions.map((caption) => caption.id === dragPreview.id ? dragPreview : caption) : captions, [captions, dragPreview]);
+  const maxZoom = Math.max(24, durationMs / 500);
   const viewDurationMs = durationMs ? durationMs / zoom : 1;
   const viewEndMs = viewStartMs + viewDurationMs;
+  const editLimitMs = mediaDurationMs && Number.isFinite(mediaDurationMs)
+    ? (durationMs ? Math.min(durationMs, mediaDurationMs) : mediaDurationMs) : durationMs;
+  const editingDisabled = !selectedCaption || Boolean(selectedCaption.timingLocked) || !editLimitMs;
+
+  const focusCaption = (caption = selectedCaption) => {
+    if (!caption || !durationMs) return;
+    const view = focusedTimingViewport(caption, durationMs);
+    setFollow(false);
+    setZoom(durationMs / view.spanMs);
+    setViewStartMs(view.startMs);
+  };
+
+  useEffect(() => {
+    if (!selectedCaption || !durationMs) return;
+    const identity = `${memoryKey}:${selectedCaption.id}`;
+    if (focusIdentity.current === identity) return;
+    focusIdentity.current = identity;
+    focusCaption(selectedCaption);
+  }, [memoryKey, selectedCaption?.id, durationMs]);
+
+  useEffect(() => () => onStopPreview(), []);
 
   useEffect(() => {
     setMode(initialMode);
@@ -186,15 +244,19 @@ export function WaveformEditor({
   }, [projectId]);
 
   useEffect(() => {
-    const element = host.current;
+    const element = canvasHost.current;
     if (!element) return;
-    const observer = new ResizeObserver((entries) => setWidth(Math.max(320, Math.round(entries[0].contentRect.width))));
+    const observer = new ResizeObserver((entries) => setWidth(Math.max(1, Math.round(entries[0].contentRect.width))));
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
     let cancelled = false;
+    for (const key of waveformMemory.keys()) {
+      const [cachedProject, cachedMedia] = JSON.parse(key) as [string, string];
+      if (cachedProject === projectId && cachedMedia !== mediaIdentity) waveformMemory.delete(key);
+    }
     setLoading(true);
     setLoadError('');
     setPeaks(null);
@@ -356,22 +418,30 @@ export function WaveformEditor({
     const windowSize = Math.max(8, Math.round(24 / durationMs * samples.length));
     let best = centerIndex;
     let bestEnergy = Number.POSITIVE_INFINITY;
+    let maximumEnergy = 0;
     for (let index = Math.max(windowSize, centerIndex - search); index < Math.min(samples.length - windowSize, centerIndex + search); index += Math.max(1, Math.floor(windowSize / 3))) {
       let energy = 0;
       for (let i = -windowSize; i <= windowSize; i += 1) energy += Math.abs(samples[index + i] || 0);
-      if (energy < bestEnergy) { bestEnergy = energy; best = index; }
+      energy /= windowSize * 2 + 1;
+      maximumEnergy = Math.max(maximumEnergy, energy);
+      if (energy < bestEnergy || (energy === bestEnergy && Math.abs(index - centerIndex) < Math.abs(best - centerIndex))) { bestEnergy = energy; best = index; }
     }
-    return best / samples.length * durationMs;
+    // A flat tone or uniformly quiet recording is not evidence of a speech gap.
+    return maximumEnergy > 0.003 && bestEnergy < maximumEnergy * 0.25 && bestEnergy < 0.015
+      ? best / samples.length * durationMs : value;
   };
 
-  const snapTime = (value: number) => snap === 'word' ? nearestBoundary(tokens, value) : snap === 'silence' ? nearestSilence(value) : value;
+  const snapTime = (value: number, edge: TimingEditKind) => {
+    const candidate = snap === 'word' ? nearestBoundary(tokens, value, edge) : snap === 'silence' ? nearestSilence(value) : value;
+    return Math.abs(candidate - value) <= Math.min(160, viewDurationMs / Math.max(1, width) * 10) ? candidate : value;
+  };
 
   useEffect(() => {
     const target = canvas.current;
     const samples = samplesRef.current;
     if (!target || !samples || !durationMs) return;
     const ratio = window.devicePixelRatio || 1;
-    const height = 168;
+    const height = 184;
     target.width = Math.round(width * ratio);
     target.height = Math.round(height * ratio);
     target.style.width = `${width}px`;
@@ -384,15 +454,15 @@ export function WaveformEditor({
     ctx.fillRect(0, 0, width, height);
 
     const secondsVisible = viewDurationMs / 1000;
-    const gridSeconds = secondsVisible > 90 ? 15 : secondsVisible > 40 ? 10 : secondsVisible > 16 ? 5 : secondsVisible > 7 ? 2 : 1;
+    const gridSeconds = secondsVisible > 90 ? 15 : secondsVisible > 40 ? 10 : secondsVisible > 16 ? 5 : secondsVisible > 7 ? 2 : secondsVisible > 2 ? 1 : 0.25;
     const firstGrid = Math.ceil(viewStartMs / 1000 / gridSeconds) * gridSeconds * 1000;
-    ctx.font = '9px Inter, sans-serif';
+    ctx.font = '11px ui-monospace, monospace';
     for (let value = firstGrid; value < viewEndMs; value += gridSeconds * 1000) {
       const x = timeToX(value);
       ctx.strokeStyle = '#20252c';
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-      ctx.fillStyle = '#59616c';
-      ctx.fillText(formatMs(value), x + 4, 11);
+      ctx.fillStyle = '#a6adb7';
+      ctx.fillText(formatMs(value), x + 4, 14);
     }
 
     if (mode === 'spectrum' && spectrum) {
@@ -429,16 +499,32 @@ export function WaveformEditor({
       ctx.beginPath(); ctx.moveTo(0, middle + 0.5); ctx.lineTo(width, middle + 0.5); ctx.stroke();
     }
 
-    for (const caption of captions) {
+    for (const caption of drawnCaptions) {
       if (caption.endMs < viewStartMs || caption.startMs > viewEndMs) continue;
       const x1 = timeToX(caption.startMs);
       const x2 = timeToX(caption.endMs);
       const isSelected = selected.has(caption.id);
       ctx.fillStyle = isSelected ? 'rgba(215,255,79,.15)' : caption.approved ? 'rgba(87,190,132,.08)' : 'rgba(126,138,154,.055)';
-      ctx.fillRect(x1, 126, Math.max(2, x2 - x1), 30);
+      ctx.fillRect(x1, 142, Math.max(2, x2 - x1), 32);
       ctx.strokeStyle = caption.timingLocked ? '#e7b95d' : isSelected ? '#d7ff4f' : '#48505b';
       ctx.lineWidth = isSelected ? 2 : 1;
-      ctx.strokeRect(x1 + 0.5, 126.5, Math.max(1, x2 - x1 - 1), 29);
+      ctx.strokeRect(x1 + 0.5, 142.5, Math.max(1, x2 - x1 - 1), 31);
+      if (isSelected) {
+        for (const x of [x1, x2]) {
+          ctx.fillStyle = caption.timingLocked ? '#e7b95d' : '#d7ff4f';
+          ctx.fillRect(x - 3, 139, 6, 38);
+          ctx.strokeStyle = 'rgba(215,255,79,.55)';
+          ctx.beginPath(); ctx.moveTo(x, 22); ctx.lineTo(x, 138); ctx.stroke();
+        }
+      }
+      if (x2 - x1 > 35) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(Math.max(0, x1 + 8), 144, Math.max(0, Math.min(width, x2 - 8) - Math.max(0, x1 + 8)), 28); ctx.clip();
+        ctx.fillStyle = isSelected ? '#ecf6ce' : '#adb5c0';
+        ctx.font = '12px "Noto Sans Khmer", sans-serif';
+        ctx.fillText(caption.text, Math.max(0, x1 + 8), 163);
+        ctx.restore();
+      }
     }
 
     const showWords = viewDurationMs <= 28_000;
@@ -448,13 +534,18 @@ export function WaveformEditor({
       ctx.strokeStyle = token.timingSource === 'interpolated' ? '#d56565' : '#697748';
       ctx.beginPath(); ctx.moveTo(x, 112); ctx.lineTo(x, 124); ctx.stroke();
       if (showWords) {
-        ctx.fillStyle = token.timingSource === 'interpolated' ? '#d78d8d' : '#a7b58b';
-        ctx.font = '9px "Noto Sans Khmer", Inter, sans-serif';
-        ctx.fillText(token.text.slice(0, 18), x + 2, 110);
+        ctx.font = '11px "Noto Sans Khmer", Inter, sans-serif';
+        ctx.save();
+        ctx.beginPath(); ctx.rect(x + 2, 96, Math.max(0, timeToX(token.endMs) - x - 4), 20); ctx.clip();
+        ctx.fillStyle = 'rgba(8,13,19,.88)';
+        ctx.fillRect(x + 2, 96, ctx.measureText(token.text).width + 5, 20);
+        ctx.fillStyle = token.timingSource === 'interpolated' ? '#ffc2c2' : '#dce8c9';
+        ctx.fillText(token.text, x + 2, 110);
+        ctx.restore();
       }
     }
 
-  }, [width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, captions, tokens, selected]);
+  }, [width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, drawnCaptions, tokens, selected]);
 
   // The moving cursor has its own transparent layer; it never invalidates the
   // expensive waveform/spectrum, word anchors, or caption background drawing.
@@ -462,7 +553,7 @@ export function WaveformEditor({
     const target = playheadCanvas.current;
     if (!target) return;
     const ratio = window.devicePixelRatio || 1;
-    const height = 168;
+    const height = 184;
     target.width = Math.round(width * ratio);
     target.height = Math.round(height * ratio);
     target.style.width = `${width}px`;
@@ -490,7 +581,7 @@ export function WaveformEditor({
   const chooseBoundary = (value: number) => {
     let best: { caption: CaptionSegment; edge: 'start' | 'end'; distance: number } | null = null;
     const tolerance = viewDurationMs / width * 10;
-    for (const caption of captions) {
+    for (const caption of [...captions].sort((a, b) => Number(selected.has(b.id)) - Number(selected.has(a.id)))) {
       if (caption.timingLocked) continue;
       for (const edge of ['start', 'end'] as const) {
         const distance = Math.abs(caption[edge === 'start' ? 'startMs' : 'endMs'] - value);
@@ -500,59 +591,127 @@ export function WaveformEditor({
     return best;
   };
 
-  const updateDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drag) return;
-    const caption = captions.find((item) => item.id === drag.captionId);
-    if (!caption) return;
-    const raw = snapTime(pointerTime(event));
-    const value = drag.edge === 'start'
-      ? clamp(raw, 0, caption.endMs - 40)
-      : clamp(raw, caption.startMs + 40, durationMs);
-    onBoundaryChange(caption.id, drag.edge, Math.round(value));
+  const commit = (before: CaptionSegment, after: CaptionSegment, record = true) => {
+    if (before.startMs === after.startMs && before.endMs === after.endMs) return false;
+    if (!sameTimingRevision(captions.find((caption) => caption.id === before.id), before) || !onTimingChange(before, after)) {
+      onNotice('This caption changed during the timing edit. Its newer edits were kept.');
+      return false;
+    }
+    onStopPreview();
+    if (record) {
+      history.current.undo = [...history.current.undo.slice(-49), { before, after }];
+      history.current.redo = [];
+    }
+    setHistoryRevision((value) => value + 1);
+    return true;
   };
+  const edit = (kind: TimingEditKind, value: number) => {
+    return selectedCaption ? commit(selectedCaption, editCaptionTiming(selectedCaption, kind, value, editLimitMs)) : false;
+  };
+  const restore = (direction: 'undo' | 'redo') => {
+    const stack = history.current[direction];
+    const entry = stack.at(-1);
+    if (!entry) return;
+    const before = direction === 'undo' ? entry.after : entry.before;
+    const after = direction === 'undo' ? entry.before : entry.after;
+    if (commit(before, after, false)) {
+      stack.pop();
+      history.current[direction === 'undo' ? 'redo' : 'undo'].push(entry);
+      onSelect(after.id);
+      focusCaption(after);
+    } else {
+      history.current = { undo: [], redo: [] };
+      setHistoryRevision((value) => value + 1);
+    }
+  };
+  const previewForPointer = (event: React.PointerEvent<HTMLCanvasElement>, gesture: DragState) => {
+    if (Math.abs(event.clientX - gesture.originX) < 2) return gesture.before;
+    const delta = pointerTime(event) - gesture.originMs;
+    const target = gesture.edge === 'move' ? gesture.before.startMs + delta
+      : gesture.before[gesture.edge === 'start' ? 'startMs' : 'endMs'] + delta;
+    const snapped = event.shiftKey ? target : snapTime(target, gesture.edge);
+    return editCaptionTiming(gesture.before, gesture.edge, gesture.edge === 'move' ? snapped - gesture.before.startMs : snapped, editLimitMs);
+  };
+  const cancelDrag = () => { dragRef.current = null; setDrag(null); setDragPreview(null); };
+  const updateDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const gesture = dragRef.current;
+    if (gesture?.pointerId === event.pointerId) setDragPreview(previewForPointer(event, gesture));
+  };
+  const navigateCaption = (delta: number) => {
+    const next = captions[clamp(captionIndex + delta, 0, captions.length - 1)];
+    if (!next) return;
+    onStopPreview(); onSelect(next.id); onSeek(next.startMs); focusCaption(next);
+  };
+  const audition = (part: 'caption' | 'start' | 'end') => {
+    if (currentCaption && editLimitMs) onPreview({ ...timingPreviewWindow(currentCaption, part, editLimitMs), loop });
+  };
+  const lastUndo = history.current.undo.at(-1);
+  const lastRedo = history.current.redo.at(-1);
+  const canUndo = Boolean(lastUndo && sameTimingRevision(captions.find((caption) => caption.id === lastUndo.after.id), lastUndo.after));
+  const canRedo = Boolean(lastRedo && sameTimingRevision(captions.find((caption) => caption.id === lastRedo.before.id), lastRedo.before));
 
   const setZoomValue = (value: number) => {
-    const next = clamp(value, 1, 24);
+    const next = clamp(value, 1, maxZoom);
     const previousDuration = durationMs / zoom;
     const center = viewStartMs + previousDuration / 2;
     const nextDuration = durationMs / next;
     setZoom(next);
+    setFollow(false);
     setViewStartMs(clamp(center - nextDuration / 2, 0, Math.max(0, durationMs - nextDuration)));
-    onPreferenceChange({ waveformZoom: next });
+    // Caption-focused zoom can exceed the legacy whole-video preference range.
+    if (next <= 24) onPreferenceChange({ waveformZoom: next });
   };
 
-  return <section className="waveform-card" ref={host}>
-    <div className="waveform-toolbar">
-      <div className="waveform-title"><AudioLines size={17}/><div><strong>Precision timeline</strong><span>Drag caption edges · word anchors stay tied to speech timing</span></div></div>
-      <div className="waveform-controls">
-        <button className={mode === 'waveform' ? 'selected' : ''} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} title="Waveform"><AudioLines size={14}/></button>
-        <button className={mode === 'spectrum' ? 'selected' : ''} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} title="Spectral view"><ScanLine size={14}/></button>
-        <button onClick={() => setZoomValue(zoom / 1.5)} title="Zoom out"><Minus size={14}/></button>
-        <span className="zoom-label">{zoom.toFixed(1)}×</span>
-        <button onClick={() => setZoomValue(zoom * 1.5)} title="Zoom in"><Plus size={14}/></button>
-        <button
-          className={follow ? 'selected' : ''}
-          onClick={() => setFollow((current) => {
-            const next = !current;
-            if (next) setViewStartMs(clamp(playheadMs - viewDurationMs * .4, 0, Math.max(0, durationMs - viewDurationMs)));
-            return next;
-          })}
-          title={follow ? 'Pause follow' : 'Follow playhead'}
-        ><LocateFixed size={14}/></button>
-        <select value={snap} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setSnap(event.target.value as typeof snap)} title="Boundary snapping">
-          <option value="word">Snap: words</option>
-          <option value="silence">Snap: silence</option>
-          <option value="off">Snap: off</option>
-        </select>
-        <select value={playbackRate} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => onPlaybackRate(Number(event.target.value))} title="Playback speed">
-          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
-        </select>
+  const handleTimingKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [aria-modal="true"]')) return;
+      if (dragRef.current) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault(); if (event.shiftKey ? canRedo : canUndo) restore(event.shiftKey ? 'redo' : 'undo');
+      } else if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault(); edit('move', (event.key === 'ArrowLeft' ? -1 : 1) * stepMs);
+      } else if (!event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'r') {
+        event.preventDefault(); audition('caption');
+      }
+  };
+  useEffect(() => {
+    // While this workspace is open, its shortcuts share the same bounded edit and undo path.
+    window.addEventListener('keydown', handleTimingKey, true);
+    return () => window.removeEventListener('keydown', handleTimingKey, true);
+  });
+
+  return <section className="waveform-card fine-timing" ref={host} aria-label="Fine timing editor">
+    <div className="timing-selection">
+      <div className="timing-caption-nav">
+        <button aria-label="Previous caption" disabled={captionIndex <= 0} onClick={() => navigateCaption(-1)}><ChevronLeft size={16}/><span>Previous</span></button>
+        <strong>{selectedCaption ? `Caption ${captionIndex + 1} / ${captions.length}` : 'Select a caption'}</strong>
+        <button aria-label="Next caption" disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>Next</span><ChevronRight size={16}/></button>
+      </div>
+      <p className="timing-caption-text">{currentCaption?.text || 'Choose a caption from the list to adjust its timing.'}</p>
+      {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next to time each caption individually.</p>}
+    </div>
+    <div className="timing-transport">
+      <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} title="Replay this caption (R)"><Play size={15}/>Replay caption</button>
+      <button onClick={onStopPreview} title="Stop timing preview"><Square size={14}/>Stop</button>
+      <label className="timing-loop"><input type="checkbox" checked={loop} onChange={(event) => { setLoop(event.target.checked); onStopPreview(); }}/>Loop</label>
+      <div className="timing-history">
+        <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} title="Undo timing edit (Ctrl+Z)"><Undo2 size={15}/>Undo</button>
+        <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} title="Redo timing edit (Ctrl+Shift+Z)"><Redo2 size={15}/>Redo</button>
       </div>
     </div>
-    <div className={`waveform-canvas-wrap ${drag ? 'dragging' : ''}`}>
+    <div className="timing-view-controls">
+      <button onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><LocateFixed size={15}/>Focus caption</button>
+      <button onClick={() => setZoomValue(1)} disabled={!durationMs}>Full clip</button>
+      <button onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs} title="Zoom out"><Minus size={15}/><span>Zoom out</span></button>
+      <button onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs} title="Zoom in"><Plus size={15}/><span>Zoom in</span></button>
+      <span className="timing-view-span">{(viewDurationMs / 1000).toFixed(1)} s visible</span>
+    </div>
+    <div ref={canvasHost} className={`waveform-canvas-wrap ${drag ? 'dragging' : ''}`}>
       {loading && <div className="waveform-loading">Preparing waveform…</div>}
       {loadError && <div className="waveform-loading error waveform-recovery">
-        <strong>Precision timeline could not decode its audio preview.</strong>
+        <strong>The audio preview could not load.</strong>
         <span>Your video and captions are safe. Rebuild only the waveform preview.</span>
         <button type="button" onClick={() => setReloadKey((value) => value + 1)}>
           <RefreshCw size={14}/> Rebuild waveform
@@ -562,28 +721,42 @@ export function WaveformEditor({
       <canvas
         ref={canvas}
         className="waveform-data-canvas"
+        tabIndex={0}
+        aria-label="Timing waveform. Click audio to seek. Drag a caption edge to trim or its middle to move. Use the labeled time controls below for keyboard editing."
         onPointerDown={(event: React.PointerEvent<HTMLCanvasElement>) => {
-          if (!durationMs) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
+          if (!durationMs || loading || loadError || event.button !== 0) return;
+          event.currentTarget.focus({ preventScroll: true });
           const value = pointerTime(event);
-          const boundary = chooseBoundary(value);
-          if (boundary) {
-            setDrag({ captionId: boundary.caption.id, edge: boundary.edge });
-            onSelect(boundary.caption.id);
+          const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
+          const inCaptionLane = y >= 136 && y <= 180;
+          const boundary = inCaptionLane ? chooseBoundary(value) : null;
+          const bodyCaption = inCaptionLane ? (captions.find((item) => selected.has(item.id) && value >= item.startMs && value < item.endMs)
+            || captions.find((item) => value >= item.startMs && value < item.endMs)) : undefined;
+          const target = boundary?.caption || bodyCaption;
+          setFollow(false);
+          onStopPreview();
+          if (target && !target.timingLocked) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            focusIdentity.current = `${memoryKey}:${target.id}`;
+            const gesture: DragState = { captionId: target.id, edge: boundary?.edge || 'move', before: target, originMs: value, originX: event.clientX, pointerId: event.pointerId };
+            dragRef.current = gesture;
+            setDrag(gesture);
+            setDragPreview(target);
+            onSelect(target.id);
           } else {
-            setFollow(false);
+            if (target) onSelect(target.id);
             onSeek(value);
-            const caption = captions.find((item) => value >= item.startMs && value < item.endMs);
-            if (caption) onSelect(caption.id);
           }
         }}
         onPointerMove={updateDrag}
         onPointerUp={(event: React.PointerEvent<HTMLCanvasElement>) => {
-          updateDrag(event);
-          setDrag(null);
-          event.currentTarget.releasePointerCapture(event.pointerId);
+          const gesture = dragRef.current;
+          if (gesture?.pointerId === event.pointerId) commit(gesture.before, previewForPointer(event, gesture));
+          cancelDrag();
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
         }}
-        onPointerCancel={() => setDrag(null)}
+        onPointerCancel={cancelDrag}
+        onLostPointerCapture={cancelDrag}
       />
       <canvas ref={playheadCanvas} aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}/>
 
@@ -592,6 +765,7 @@ export function WaveformEditor({
       <span>{formatMs(viewStartMs)}</span>
       <input
         type="range"
+        aria-label="Scroll timing waveform"
         min="0"
         max={Math.max(0, durationMs - viewDurationMs)}
         step="50"
@@ -600,5 +774,46 @@ export function WaveformEditor({
       />
       <span>{formatMs(viewEndMs)}</span>
     </div>
+    <p className="timing-hint">Click the audio to seek. Drag the caption edges to trim, or the middle to move. Hold Shift to ignore snapping.</p>
+    {currentCaption && <>
+      {currentCaption.timingLocked && <p className="timing-lock-status">Timing is locked. Unlock it in the caption menu to make changes; playback remains available.</p>}
+      <div className="timing-edge-grid">
+        {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
+          <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
+            <TimestampInput label={`Fine timing ${edge}`} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
+              minMs={edge === 'start' ? 0 : currentCaption.startMs + 40} maxMs={edge === 'start' ? currentCaption.endMs - 40 : editLimitMs}
+              disabled={editingDisabled || Boolean(drag)} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
+          </div>
+          <div className="timing-edge-actions">
+            <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={`Move ${edge} earlier by ${stepMs} milliseconds`}>−{stepMs} ms</button>
+            <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={`Move ${edge} later by ${stepMs} milliseconds`}>+{stepMs} ms</button>
+            <button disabled={editingDisabled || Boolean(drag) || (edge === 'start' ? playheadMs < 0 || playheadMs > currentCaption.endMs - 40 : playheadMs < currentCaption.startMs + 40 || playheadMs > editLimitMs)} onClick={() => edit(edge, playheadMs)} aria-label={`Set ${edge} to playhead`} title={`Set ${edge} to the current playback position`}>Set to playhead</button>
+            <button disabled={!editLimitMs || Boolean(drag)} onClick={() => audition(edge)}>Hear {edge}</button>
+          </div>
+        </div>)}
+      </div>
+      <div className="timing-move-controls">
+        <label>Step<select aria-label="Timing nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label>
+        <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', -stepMs)} title="Move the whole caption earlier (Alt+Left)">Move earlier</button>
+        <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', stepMs)} title="Move the whole caption later (Alt+Right)">Move later</button>
+        <span className="timing-duration">Duration {((currentCaption.endMs - currentCaption.startMs) / 1000).toFixed(3)} s</span>
+      </div>
+      {captions.some((caption) => caption.id !== currentCaption.id && caption.startMs < currentCaption.endMs && caption.endMs > currentCaption.startMs)
+        && <p className="timing-lock-status">This caption overlaps another caption. Adjust its edges to separate them; other captions stay in place.</p>}
+    </>}
+    <details className="timing-options"><summary>Snapping, playback speed and display</summary>
+      <div className="timing-options-controls">
+        <label>Snap<select value={snap} onChange={(event) => setSnap(event.target.value as typeof snap)} title="Boundary snapping" aria-label="Boundary snapping">
+          <option value="word" disabled={!tokens.length}>Words</option><option value="silence">Quiet gaps</option><option value="off">Off</option>
+        </select></label>
+        <label>Speed<select value={playbackRate} onChange={(event) => onPlaybackRate(Number(event.target.value))} title="Playback speed" aria-label="Timing playback speed">
+          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
+        </select></label>
+        <button className={mode === 'waveform' ? 'selected' : ''} aria-pressed={mode === 'waveform'} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} title="Waveform"><AudioLines size={15}/>Waveform</button>
+        <button className={mode === 'spectrum' ? 'selected' : ''} aria-pressed={mode === 'spectrum'} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} title="Spectral view"><ScanLine size={15}/>Spectrum overview</button>
+        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} title={follow ? 'Pause follow' : 'Follow playhead'}><LocateFixed size={15}/>Follow playhead</button>
+      </div>
+      <p className="timing-hint">Word marks are existing timing estimates. Quiet-gap snapping requires a clear drop in audio energy. Undo is available here until this workspace closes.</p>
+    </details>
   </section>;
 }

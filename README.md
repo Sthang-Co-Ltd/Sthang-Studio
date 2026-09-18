@@ -36,6 +36,18 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Development changes — unreleased
+
+The source Fine Timing workspace now focuses on one caption at a time, keeps
+playback visible, and provides precise start/end entry, bounded nudges, whole-cue
+movement, edge auditions, optional looping, and timing undo/redo. See the
+[Fine Timing guide](docs/FINE-TIMING.md) for controls, shortcuts, and limits.
+These source changes do not establish availability in the released downloads below.
+
+Deep Verify also starts its first local timing pass while the second independent
+listen is still running. This removes an avoidable ordering dependency; it does
+not change either listen or imply a measured end-to-end speedup on real media.
+
 ## Distribution status
 
 Sthang Studio `0.85.4` is the current emergency Public Beta recovery identity for

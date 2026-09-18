@@ -70,6 +70,8 @@ import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { deferWorkspace } from './components/DeferredWorkspace';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
+import { sameTimingRevision, timingFields } from './timing-edit';
+import { playTimingRange } from './timing-playback';
 import './styles.css';
 
 const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
@@ -179,6 +181,7 @@ export default function App() {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [doctor, setDoctor] = useState<SystemDoctorReport | null>(null);
   const [time, setTime] = useState(0);
+  const [loadedMediaDurationMs, setLoadedMediaDurationMs] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [maxChars, setMaxChars] = useState(18);
   const [groupingMode, setGroupingMode] = useState<CaptionMode>('dynamic');
@@ -202,6 +205,7 @@ export default function App() {
   const projectScope = useRef(createProjectScope());
   const proposalRead = useRef(0);
   const playbackTimers = useRef(new Set<number>());
+  const timingPreviewCancel = useRef<(() => void) | null>(null);
   const viewTicket = projectScope.current.capture();
   const proposal = proposalForProject(proposalEntry, viewTicket, project);
   const mediaKey = projectMediaKey(project);
@@ -273,8 +277,13 @@ export default function App() {
   }, []);
 
   function cancelPlayback() {
+    stopTimingPreview();
     for (const timer of playbackTimers.current) window.clearTimeout(timer);
     playbackTimers.current.clear();
+  }
+  function stopTimingPreview() {
+    timingPreviewCancel.current?.();
+    timingPreviewCancel.current = null;
   }
   function schedulePlayback(operation: () => void, delayMs = 0) {
     const ticket = projectScope.current.capture();
@@ -524,6 +533,9 @@ export default function App() {
   };
 
   const updateDraft = (next: CaptionSegment[], preferredSelectionId?: string, reason: DraftChangeReason = 'metadata') => {
+    if (workspaceTool === 'timeline') cancelPlayback();
+    // Export and review consume array order. Keep moved captions chronological.
+    if (reason === 'timing') next = [...next].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
     setDraft(next);
     draftRef.current = next;
     draftVersion.current += 1;
@@ -544,7 +556,8 @@ export default function App() {
   );
   const contextPayload = (): TranscriptionContext => ({ description: contextDescription.trim(), vocabulary: vocabularyLines });
   const qaSettings = useMemo(() => resolveQaProfile(profile?.preferences.qaProfileId, profile?.preferences.qaCustom), [profile?.preferences.qaProfileId, profile?.preferences.qaCustom]);
-  const mediaDurationMs = project?.transcript?.timing?.audioDurationMs;
+  const mediaDurationMs = loadedMediaDurationMs || project?.transcript?.timing?.audioDurationMs;
+  useEffect(() => { setLoadedMediaDurationMs(0); }, [mediaKey]);
   const issues = useMemo(() => analyzeCaptions(draft, vocabularyLines, qaSettings, mediaDurationMs), [draft, vocabularyLines, qaSettings, mediaDurationMs]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const riskyIds = useMemo(() => draft.filter((caption) => !caption.approved && issueMap.has(caption.id)).map((caption) => caption.id), [draft, issueMap]);
@@ -850,9 +863,14 @@ export default function App() {
   const shiftSelection = (delta: number) => {
     if (!selection.ids.length) return;
     const selected = new Set(selection.ids);
-    const minimum = Math.min(...selection.captions.map((caption) => caption.startMs));
-    const safeDelta = Math.max(delta, -minimum);
-    updateDraft(draft.map((caption) => selected.has(caption.id) && !caption.timingLocked
+    const targets = draftRef.current.filter((caption) => selected.has(caption.id));
+    if (!targets.length) return;
+    if (targets.some((caption) => caption.timingLocked)) { setNotice('Unlock the selected timing before moving these captions together.'); return; }
+    const minimum = Math.min(...targets.map((caption) => caption.startMs));
+    const maximum = Math.max(...targets.map((caption) => caption.endMs));
+    const safeDelta = Math.max(-minimum, Math.min(delta, mediaDurationMs ? mediaDurationMs - maximum : delta));
+    if (!safeDelta) return;
+    updateDraft(draftRef.current.map((caption) => selected.has(caption.id)
       ? { ...caption, startMs: caption.startMs + safeDelta, endMs: caption.endMs + safeDelta, timingSource: 'manual', timingQuality: 'medium', approved: false }
       : caption), undefined, 'timing');
   };
@@ -921,6 +939,7 @@ export default function App() {
   };
   const onLoadedMetadata = (element: HTMLMediaElement) => {
     if (media.current !== element || !projectScope.current.isCurrent(viewTicket)) return;
+    if (Number.isFinite(element.duration)) setLoadedMediaDurationMs(element.duration * 1000);
     if (media.current) media.current.playbackRate = playbackRate;
     if (queuedSeekMs == null || !media.current) return;
     const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
@@ -1593,6 +1612,10 @@ export default function App() {
       return;
     }
     setReviewMode(false);
+    if (tool === 'timeline' && workspaceTool !== 'timeline') {
+      const id = selection.ids[0] || draft[0]?.id;
+      if (id) { setSelectionAnchor(id); setSelectionEnd(id); }
+    }
     setWorkspaceTool((current) => current === tool ? null : tool);
   };
 
@@ -1679,7 +1702,7 @@ export default function App() {
     </header>
 
     <section className="editor-grid">
-      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'}`}>
+      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''}`}>
         <div className="media-stage">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} video={isVideo} media={media}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
@@ -1712,7 +1735,7 @@ export default function App() {
             <div className="workspace-tool-intro"><strong>{hasHybrid ? 'Choose one workspace tool' : 'Generate first, or add optional context'}</strong><span>{hasHybrid ? 'Advanced controls stay out of the way until you need them.' : 'The normal workflow works with the default settings.'}</span></div>
             <nav aria-label="Caption workspace tools">
               {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ShieldCheck size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
-              {hasHybrid && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
+              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
               <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><WandSparkles size={16}/><span>Accuracy</span><small>optional</small></button>
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption grouping</span></button>}
               {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
@@ -1732,8 +1755,10 @@ export default function App() {
 
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
-          {workspaceTool === 'timeline' && hasHybrid && <WaveformEditor
+          {workspaceTool === 'timeline' && draft.length > 0 && <WaveformEditor key={mediaKey}
             projectId={project.id}
+            mediaIdentity={mediaKey}
+            mediaDurationMs={mediaDurationMs}
             captions={draft}
             tokens={project.transcript?.tokens || []}
             selectedIds={selection.ids}
@@ -1742,8 +1767,23 @@ export default function App() {
             initialMode={profile?.preferences.waveformMode || 'waveform'}
             initialZoom={profile?.preferences.waveformZoom || 2}
             onSeek={seek}
-            onSelect={(id) => selectCaption(id, false)}
-            onBoundaryChange={(id, edge, valueMs) => updateDraft(draftRef.current.map((caption) => caption.id === id && !caption.timingLocked ? { ...caption, [edge === 'start' ? 'startMs' : 'endMs']: valueMs, timingSource: 'manual', timingQuality: 'medium', approved: false } : caption), id, 'timing')}
+            onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
+            onTimingChange={(before, after) => {
+              const current = draftRef.current.find((caption) => caption.id === before.id);
+              if (!projectScope.current.isCurrent(viewTicket) || !sameTimingRevision(current, before) || current?.timingLocked
+                || !Number.isFinite(after.startMs) || !Number.isFinite(after.endMs) || after.startMs < 0
+                || after.endMs - after.startMs < 40 || (mediaDurationMs && after.endMs > mediaDurationMs)) return false;
+              updateDraft(draftRef.current.map((caption) => caption.id === before.id ? { ...caption, ...timingFields(after) } : caption), before.id, 'timing');
+              return true;
+            }}
+            onPreview={(range) => {
+              cancelPlayback();
+              if (media.current && projectScope.current.isCurrent(viewTicket)) {
+                timingPreviewCancel.current = playTimingRange(media.current, range, () => setError('Playback could not start. Use the video controls to check the audio, then replay the caption.'));
+              }
+            }}
+            onStopPreview={stopTimingPreview}
+            onNotice={setNotice}
             onPlaybackRate={changePlaybackRate}
             onPreferenceChange={(value) => void saveWaveformPreference(value)}
           />}
@@ -1807,7 +1847,7 @@ export default function App() {
         </>}
       </div>
 
-      <CaptionEditor ref={editor} captions={draft} active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
+      <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
     </section>
 
     {statusToasts}

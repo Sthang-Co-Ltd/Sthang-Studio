@@ -30,6 +30,7 @@ import { captionsInRange, preserveCaptionLocks } from './caption-locks.js';
 import { proposalStore, type StoredRegenerationProposal } from './proposal-store.js';
 import { historyStore } from './history-store.js';
 import { resolveGeminiSettings } from './llm-settings.js';
+import { settlePairWithPrimaryFollowup } from './pipeline-overlap.js';
 
 export type ProgressReporter = (stage: string, progress: number, message: string) => Promise<void> | void;
 type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
@@ -460,8 +461,21 @@ async function buildRangeRegenerationProposal(
         { guidance: { ...guidanceBase, variant: 'acoustic' }, label: 'Strict acoustic pass' },
         { guidance: { ...guidanceBase, variant: 'contextual' }, label: 'Context-aware pass' },
       ];
-      const settled = await Promise.allSettled(specs.map((spec) =>
-        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label)));
+      const draftPromises = specs.map((spec) =>
+        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label));
+      const overlap = await settlePairWithPrimaryFollowup(
+        draftPromises[0],
+        draftPromises[1],
+        (draft) => alignGeminiCandidate(
+          draft,
+          chunkPath,
+          path.join(workDir, 'candidate-verify-0'),
+          chunkDuration,
+          context,
+          acceptedBaselineText,
+        ),
+      );
+      const settled = overlap.tasks;
       const failures: string[] = [];
       const drafts: GeminiCandidateDraft[] = [];
       settled.forEach((result, index) => {
@@ -481,14 +495,20 @@ async function buildRangeRegenerationProposal(
 
       let groupIndex = 0;
       for (const group of groups.values()) {
-        const aligned = await alignGeminiCandidate(
-          group[0],
-          chunkPath,
-          path.join(workDir, `candidate-verify-${groupIndex}`),
-          chunkDuration,
-          context,
-          acceptedBaselineText,
-        );
+        let aligned: ProposalCandidate;
+        if (settled[0].status === 'fulfilled' && group[0] === settled[0].value) {
+          if (overlap.primaryFollowup.status === 'rejected') throw overlap.primaryFollowup.reason;
+          aligned = overlap.primaryFollowup.value;
+        } else {
+          aligned = await alignGeminiCandidate(
+            group[0],
+            chunkPath,
+            path.join(workDir, `candidate-verify-${groupIndex}`),
+            chunkDuration,
+            context,
+            acceptedBaselineText,
+          );
+        }
         candidates.push(aligned);
         // If both independent listens returned effectively the same wording, keep
         // both evidence labels but do not run the local acoustic alignment twice.

@@ -1,0 +1,66 @@
+.waveform-card.fine-timing { padding: 14px; min-width: 0; color: #dce1e7; }
+.fine-timing button, .fine-timing select { min-height: 36px; border: 1px solid #3a424d; border-radius: 7px; background: #171d24; color: #dce1e7; padding: 7px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.fine-timing button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.fine-timing button:hover:not(:disabled) { background: #242d35; border-color: #89985e; }
+.fine-timing button:disabled { opacity: .45; cursor: default; }
+.fine-timing :is(button, input, select, summary, canvas):focus-visible { outline: 2px solid #d7ff4f; outline-offset: 3px; }
+.fine-timing .selected { border-color: #a3bb5a; background: #243019; color: #e4ff9a; }
+.timing-caption-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.timing-caption-nav strong { font-size: 13px; font-weight: 600; }
+.timing-caption-text { font-family: 'Noto Sans Khmer', sans-serif; font-size: 15px; line-height: 1.7; margin: 10px 0; overflow-wrap: anywhere; max-height: 5.1em; overflow-y: auto; }
+.timing-transport, .timing-view-controls, .timing-move-controls, .timing-options-controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.timing-transport { margin: 10px 0; }
+.fine-timing .timing-primary { color: #182108; border-color: #d7ff4f; background: #d7ff4f; font-weight: 650; }
+.fine-timing .timing-primary:hover:not(:disabled) { color: #111; background: #e3ff8c; }
+.timing-history { display: flex; gap: 6px; margin-left: auto; }
+.timing-loop { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; font-size: 13px; cursor: pointer; }
+.timing-loop input { width: 16px; height: 16px; accent-color: #d7ff4f; }
+.timing-view-controls { margin: 12px 0 8px; }
+.timing-view-span { margin-left: auto; color: #aeb7c4; font: 11px ui-monospace, monospace; }
+.fine-timing .waveform-canvas-wrap { height: 184px; width: 100%; }
+.fine-timing .waveform-navigation { grid-template-columns: 52px minmax(0, 1fr) 52px; font-size: 11px; color: #b3bdcb; margin-top: 3px; }
+.fine-timing .waveform-navigation input { min-width: 0; height: 28px; margin: 0; cursor: ew-resize; }
+.timing-hint { margin: 5px 0 10px; color: #a9b2c0; font-size: 11px; line-height: 1.6; }
+.timing-edge-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.timing-edge { padding: 10px; border: 1px solid #303a44; border-radius: 9px; background: #111820; min-width: 0; }
+.timing-edge-value { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.timing-edge-value > :first-child { flex: 0 0 35px; font-size: 13px; font-weight: 600; }
+.timing-edge-value .timestamp-input { flex: 1; min-width: 0; }
+.timing-edge-value input { width: 100%; min-width: 0; min-height: 36px; box-sizing: border-box; border: 1px solid #465261; border-radius: 6px; background: #080e14; color: #edf2f7; padding: 6px 9px; font: 14px ui-monospace, monospace; }
+.timing-edge-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.timing-edge-actions button { padding: 6px; }
+.timing-move-controls { margin: 10px 0 6px; }
+.timing-move-controls label, .timing-options-controls label { display: flex; gap: 6px; align-items: center; color: #bec7d3; font-size: 12px; }
+.timing-duration { margin-left: auto; color: #cbd4df; font: 11px ui-monospace, monospace; }
+.timing-lock-status { padding: 9px 10px; border-left: 3px solid #d5b578; background: #282216; color: #ebd4aa; font-size: 12px; line-height: 1.5; }
+.timing-options { margin-top: 9px; border-top: 1px solid #2e3742; padding-top: 6px; }
+.timing-options summary { cursor: pointer; padding: 8px 0; color: #c6cfda; font-size: 12px; }
+.timing-options-controls { margin: 6px 0 10px; }
+.fine-timing .waveform-recovery { padding: 12px; }
+.fine-timing .waveform-recovery strong { font-size: 13px; }
+.fine-timing-active .media-stage { height: min(25vh, 240px); min-height: 170px; flex: none; }
+.fine-timing-active .workspace-tool-intro { display: none; }
+.fine-timing-active .workspace-tool-strip { flex: none; padding: 7px; margin-top: 9px; }
+.fine-timing-active .workspace-tool-strip nav { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; width: 100%; }
+.fine-timing-active .workspace-tool-strip nav button { flex: none; }
+@media (min-width: 901px) {
+  .stage-column.fine-timing-active { display: flex; flex-direction: column; overflow: hidden; padding: 12px; }
+  .fine-timing-active .fine-timing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 900px) {
+  .stage-column.fine-timing-active { overflow: visible; }
+  .fine-timing-active .media-stage { position: sticky; top: 0; z-index: 5; height: min(25vh, 220px); box-shadow: 0 8px 14px #0008; }
+  .fine-timing :is(button, input, select, canvas) { scroll-margin-top: min(28vh, 245px); }
+}
+@media (max-width: 620px) {
+  .waveform-card.fine-timing { padding: 10px; }
+  .fine-timing button, .fine-timing select, .fine-timing .timing-edge-value input { min-height: 44px; font-size: 13px; }
+  .fine-timing .waveform-navigation input { height: 44px; }
+  .timing-caption-nav { gap: 5px; }
+  .timing-caption-nav button { padding: 6px; }
+  .timing-history { margin-left: 0; }
+  .timing-edge-grid { grid-template-columns: 1fr; }
+  .timing-loop, .timing-options summary { min-height: 44px; box-sizing: border-box; }
+  .timing-view-span, .timing-duration { margin-left: 0; }
+  .timing-edge-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

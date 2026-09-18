@@ -560,6 +560,7 @@ test('History restore publishes normally and preserves a newer local draft while
     await expect.poll(() => calls).toBe(2);
     await field.fill('NEWER EDIT DURING HISTORY RESTORE');
     await page.getByLabel('Caption 1 start time', { exact: true }).fill('00:00.888');
+    await page.getByLabel('Caption 1 start time', { exact: true }).press('Enter');
     release();
     await expect(field).toHaveValue('NEWER EDIT DURING HISTORY RESTORE');
     await expect(page.getByLabel('Caption 1 start time', { exact: true })).toHaveValue('00:00.888');

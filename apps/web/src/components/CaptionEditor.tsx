@@ -21,15 +21,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { ReviewIssue } from '../review';
-
-const fmt = (ms: number) => {
-  const seconds = ms / 1000;
-  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toFixed(3).padStart(6, '0')}`;
-};
-const parse = (value: string) => {
-  const [minutes, seconds] = value.split(':');
-  return Math.max(0, Math.round((Number(minutes || 0) * 60 + Number(seconds || 0)) * 1000));
-};
+import { MIN_CAPTION_MS } from '../timing-edit';
+import { TimestampInput } from './TimestampInput';
 
 const KHMER_WORD_START = /^[\u1780-\u17D3\u17DD]/u;
 const KHMER_WORD_END = /[\u1780-\u17D3\u17DD]$/u;
@@ -72,6 +65,7 @@ interface CaptionEditorProps {
   selectedIds: string[];
   issues: ReviewIssue[];
   reviewMode: boolean;
+  durationMs?: number;
   onChange(captions: CaptionSegment[], preferredSelectionId?: string, reason?: DraftChangeReason): void;
   onSeek(ms: number): void;
   onSelect(id: string, extend: boolean): void;
@@ -93,6 +87,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   selectedIds,
   issues,
   reviewMode,
+  durationMs,
   onChange,
   onSeek,
   onSelect,
@@ -295,8 +290,11 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const caption = captions[index];
     if (!caption || caption.timingLocked) return;
     const duration = Math.max(20, caption.endMs - caption.startMs);
-    const startMs = Math.max(0, caption.startMs + delta);
-    patchTime(index, { startMs, endMs: startMs + duration });
+    const mediaLimit = durationMs !== undefined && Number.isFinite(durationMs) ? Math.max(0, Math.floor(durationMs)) : undefined;
+    const maxStart = mediaLimit === undefined ? Number.POSITIVE_INFINITY : Math.max(0, mediaLimit - duration);
+    const startMs = Math.min(maxStart, Math.max(0, caption.startMs + delta));
+    const endMs = mediaLimit === undefined ? startMs + duration : Math.min(mediaLimit, startMs + duration);
+    patchTime(index, { startMs, endMs });
   };
 
   const add = () => {
@@ -357,8 +355,26 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
           <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} title={qualityTitle(caption)}>{qualityLabel(caption)}</span>
           <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
           <div className="time-stack">
-            <input aria-label={`Caption ${index + 1} start time`} disabled={caption.timingLocked} value={fmt(caption.startMs)} onClick={(event) => event.stopPropagation()} onFocus={() => setFollowPlayback(false)} onChange={(event) => patchTime(index, { startMs: parse(event.target.value) })} onBlur={() => onEditCommit?.()}/>
-            <input aria-label={`Caption ${index + 1} end time`} disabled={caption.timingLocked} value={fmt(caption.endMs)} onClick={(event) => event.stopPropagation()} onFocus={() => setFollowPlayback(false)} onChange={(event) => patchTime(index, { endMs: parse(event.target.value) })} onBlur={() => onEditCommit?.()}/>
+            <TimestampInput
+              valueMs={caption.startMs}
+              label={`Caption ${index + 1} start time`}
+              minMs={0}
+              maxMs={caption.endMs - MIN_CAPTION_MS}
+              disabled={caption.timingLocked}
+              onFocus={() => setFollowPlayback(false)}
+              onEditingChange={onEditingChange}
+              onCommit={(startMs) => { patchTime(index, { startMs }); onEditCommit?.(); }}
+            />
+            <TimestampInput
+              valueMs={caption.endMs}
+              label={`Caption ${index + 1} end time`}
+              minMs={caption.startMs + MIN_CAPTION_MS}
+              maxMs={durationMs}
+              disabled={caption.timingLocked}
+              onFocus={() => setFollowPlayback(false)}
+              onEditingChange={onEditingChange}
+              onCommit={(endMs) => { patchTime(index, { endMs }); onEditCommit?.(); }}
+            />
           </div>
           <div className="caption-text-cell">
             <textarea

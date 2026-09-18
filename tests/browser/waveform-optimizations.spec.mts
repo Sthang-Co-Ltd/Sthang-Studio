@@ -24,6 +24,7 @@ async function openTimeline(page: Page, clockPaused = false) {
   }
   await expect(page.locator('.waveform-card')).toBeVisible();
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
+  await page.locator('.timing-options > summary').click();
 }
 
 function getTestHooks(page: Page) {
@@ -297,7 +298,8 @@ test('playhead movement within a fixed viewport does not repaint the waveform ba
   await page.clock.install();
   await openProject(page);
   await openTimeline(page);
-  await page.locator('.waveform-card').getByTitle('Pause follow', { exact: true }).click();
+  // Fine Timing now opens focused on the selected caption, with follow paused.
+  await expect(page.locator('.waveform-card').getByTitle('Follow playhead', { exact: true })).toHaveAttribute('aria-pressed', 'false');
   // Count actual painting on the data layer. Ignore the transparent cursor layer.
   await page.locator('.waveform-data-canvas').evaluate((canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d')!;

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Focus Fine Timing on the selected caption independently of recording length.
+  Keep source playback visible while timing controls scroll, and provide labeled
+  timestamp fields, edge/whole-caption nudges, set-to-playhead actions, edge
+  auditions, optional bounded looping, and timing undo/redo.
+- Commit canvas drags once on release; cancel unfinished drags with Escape or
+  pointer cancellation. Validate typed timestamps on Enter/blur instead of saving
+  partial input. Preserve timing locks and keep moved captions chronological.
+- Allow manual timing without generated word anchors and retain numeric edits
+  and source playback when the waveform preview fails to load.
+- Start the first Deep Verify local alignment while its second independent listen
+  completes. Preserve fresh listens, candidate precedence, deduplication, failure
+  handling, timing accuracy, and existing cache boundaries.
+
 ## 0.85.4 — Windows OTA recovery
 
 - Supersedes the broken `0.85.2` public Windows OTA offer. Version `0.85.3` remains
