@@ -23,6 +23,7 @@
     "fine-timing.test.ts",
     "timestamp.test.ts",
     "timing-playback.test.ts",
+    "waveform-audio-route.test.mts",
     "waveform-peaks.test.ts",
     "job-persistence.test.mts",
     "preview-font-cache.test.mts",

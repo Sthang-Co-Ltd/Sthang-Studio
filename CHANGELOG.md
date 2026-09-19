@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix waveform delivery when the application or state folder has a dot-prefixed
+  ancestor, such as a development worktree. Keep delivery restricted to the
+  selected project's normalized audio, and exercise real HTTP delivery in tests.
+- Use UTF-8 for persistent local timing worker input, output, and diagnostics so
+  Windows pipe encoding cannot corrupt Khmer text or trigger avoidable recovery.
 - Focus Fine Timing on the selected caption independently of recording length.
   Keep source playback visible while timing controls scroll, and provide labeled
   timestamp fields, edge/whole-caption nudges, set-to-playhead actions, edge

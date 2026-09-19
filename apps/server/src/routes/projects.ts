@@ -228,7 +228,9 @@ router.get('/:id/normalized-audio.wav', async (req, res, next) => {
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('X-Sthang-Audio-Cache', normalized.cacheHit ? 'hit' : force ? 'rebuilt' : 'generated');
-    res.sendFile(normalized.outputPath, (error) => {
+    // Scope delivery to this project's cache. An absolute path makes Express
+    // reject legitimate dot-prefixed ancestors such as .sthang-worktrees.
+    res.sendFile(path.basename(normalized.outputPath), { root: normalized.dir, dotfiles: 'deny' }, (error) => {
       if (!error) return;
       if (res.headersSent) {
         res.destroy(error);
