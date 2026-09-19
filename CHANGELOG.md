@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add six original Studio Looks with independent font/layout, Motion and Word
+  emphasis controls, appearance Undo/Redo, Reset look and explicit replay.
+- Add bounded native Glow and caption-clock Fade in/out. Preserve full-text Khmer
+  shaping, original fade phase through word/overlap states, and separate Review
+  focus at transparent boundaries. Prepare a bounded native replay opening.
+- Preserve new effect settings in local presets and caption-data version 2;
+  continue reading version 1 and exporting legacy-compatible default-effect data.
 - Add destination-guided editable caption handoff: SRT, WebVTT, plain TTML,
   ready word-by-word SRT/VTT, styled ASS, Studio caption data and a ZIP guide kit.
   Explain CapCut Desktop/mobile import differences and per-format styling limits.

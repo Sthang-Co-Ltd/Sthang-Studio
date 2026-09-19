@@ -262,7 +262,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
         </section>
 
         <section className="export-appearance-summary" aria-labelledby="export-appearance-title">
-          <div className="export-appearance-copy"><Palette size={17}/><div><strong id="export-appearance-title">Caption appearance</strong><span><i className="export-color-swatch" style={{ background: appearance.textColor }} aria-hidden="true"/>{appearance.fontFamily} · {appearance.fontSize1080}px @1080p · {appearance.alignment} · {appearance.positionBottomPct}% from bottom</span></div></div>
+          <div className="export-appearance-copy"><Palette size={17}/><div><strong id="export-appearance-title">Caption appearance</strong><span><i className="export-color-swatch" style={{ background: appearance.textColor }} aria-hidden="true"/>{appearance.fontFamily} · {appearance.fontSize1080}px @1080p · {appearance.alignment} · {appearance.positionBottomPct}% from bottom{appearance.glowEnabled ? ' · Glow' : ''}{appearance.motionPreset === 'fade' ? ` · Fade ${appearance.motionDurationMs} ms` : ''}</span></div></div>
           <button onClick={onEditAppearance}>Edit appearance</button>
         </section>
 

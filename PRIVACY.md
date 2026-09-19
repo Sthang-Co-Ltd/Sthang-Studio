@@ -63,6 +63,19 @@ means cue/clip boundaries and the existing source timing/model/version fields;
 it does not include these new per-caption word tracks. The existing explicit
 consent rules and cloud payload projections remain unchanged.
 
+### Original appearance effects — unreleased source
+
+Look decoration, Glow and Fade settings persist with local project appearance
+and any creator-saved presets. Replay prepares bounded native image frames over
+the existing loopback API; it does not contact CapCut, a template service, Gemini,
+Contributor or analytics. No third-party effect library or new asset download is
+introduced. Preview frames and scratch use the existing bounded local lifecycle.
+
+Caption-data v2 can include the chosen effects as an explicit appearance reference
+when you download the file. Default-effect files remain compatible with the v1
+schema. Styled ASS and rendered MP4 can contain the effects; normal text subtitle
+formats do not. This does not change existing consent rules or remote payloads.
+
 ## Editable caption handoff — unreleased source
 
 The editable-file workflow creates local SRT, WebVTT, TTML, styled ASS, projected

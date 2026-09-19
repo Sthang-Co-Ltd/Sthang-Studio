@@ -1,4 +1,4 @@
-import type { CaptionAppearance } from './caption-settings.js';
+import { DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance } from './caption-settings.js';
 import type { CaptionSegment, TimingQuality, TimingSource } from './index.js';
 import { resolveCaptionWordTiming, type CaptionWordSource } from './word-timing.js';
 
@@ -79,7 +79,7 @@ export interface CaptionDataCue {
 
 export interface CaptionDataDocument {
   kind: 'sthang-caption-data';
-  version: 1;
+  version: 1 | 2;
   captions: CaptionDataCue[];
   appearance?: Partial<CaptionAppearance>;
   durationMs?: number;
@@ -99,10 +99,17 @@ const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const TIMING_QUALITY: readonly TimingQuality[] = ['high', 'medium', 'low'];
 const TIMING_SOURCE: readonly TimingSource[] = ['stt', 'stt-split', 'interpolated', 'manual'];
 const WORD_SOURCE: readonly CaptionWordSource[] = ['aligned', 'manual', 'estimated'];
-const APPEARANCE_KEYS = [
+const V1_APPEARANCE_KEYS = [
   'fontFamily', 'fontSize1080', 'bold', 'textColor', 'outlineColor', 'outlineWidth1080', 'shadowWidth1080',
   'backgroundEnabled', 'backgroundColor', 'backgroundOpacity', 'backgroundPadding1080', 'alignment',
   'positionBottomPct', 'maxWidthPct', 'highlightMode', 'highlightColor',
+] as const satisfies readonly (keyof CaptionAppearance)[];
+const EFFECT_APPEARANCE_KEYS = [
+  'glowEnabled', 'glowColor', 'glowWidth1080', 'glowOpacity', 'motionPreset', 'motionDurationMs',
+] as const satisfies readonly (keyof CaptionAppearance)[];
+const V2_APPEARANCE_KEYS = [
+  ...V1_APPEARANCE_KEYS,
+  ...EFFECT_APPEARANCE_KEYS,
 ] as const satisfies readonly (keyof CaptionAppearance)[];
 
 function fail(message: string): never {
@@ -359,20 +366,24 @@ export function serializeTtml(input: CaptionInterchangeInput): CaptionSerializat
   return { text: lines.join('\r\n'), mimeType: 'application/ttml+xml; charset=utf-8', extension: '.ttml', warnings };
 }
 
-function projectAppearance(value: Partial<CaptionAppearance> | undefined): Partial<CaptionAppearance> | undefined {
+function projectAppearance(
+  value: Partial<CaptionAppearance> | undefined,
+  keys: readonly (keyof CaptionAppearance)[] = V2_APPEARANCE_KEYS,
+): Partial<CaptionAppearance> | undefined {
   if (!value || !plainObject(value)) return undefined;
   const out: Partial<CaptionAppearance> = {};
-  for (const key of APPEARANCE_KEYS) {
+  for (const key of keys) {
     const item = value[key];
     if (item !== undefined) (out as Record<string, unknown>)[key] = item;
   }
   return Object.keys(out).length ? out : undefined;
 }
 
-function validateAppearance(value: unknown, path = 'appearance'): Partial<CaptionAppearance> | undefined {
+function validateAppearance(value: unknown, version: 1 | 2, path = 'appearance'): Partial<CaptionAppearance> | undefined {
   if (value === undefined) return undefined;
   if (!plainObject(value)) fail(`${path} must be an object.`);
-  assertAllowedKeys(value, APPEARANCE_KEYS, path);
+  const keys = version === 1 ? V1_APPEARANCE_KEYS : V2_APPEARANCE_KEYS;
+  assertAllowedKeys(value, keys, path);
   const stringColor = (key: keyof CaptionAppearance) => {
     if (value[key] !== undefined && (typeof value[key] !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(value[key] as string))) fail(`${path}.${String(key)} must be a six-digit hex color.`);
   };
@@ -380,15 +391,30 @@ function validateAppearance(value: unknown, path = 'appearance'): Partial<Captio
   const ranges: Array<[keyof CaptionAppearance, number, number]> = [
     ['fontSize1080', 22, 120], ['outlineWidth1080', 0, 12], ['shadowWidth1080', 0, 12],
     ['backgroundOpacity', 0.05, 1], ['backgroundPadding1080', 0, 28], ['positionBottomPct', 3, 82], ['maxWidthPct', 45, 96],
+    ['glowWidth1080', 0, 16], ['glowOpacity', 0, 1], ['motionDurationMs', 80, 400],
   ];
   for (const [key, min, max] of ranges) {
     if (value[key] !== undefined && (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || (value[key] as number) < min || (value[key] as number) > max)) fail(`${path}.${String(key)} is outside the supported range.`);
   }
-  for (const key of ['bold', 'backgroundEnabled'] as const) if (value[key] !== undefined && typeof value[key] !== 'boolean') fail(`${path}.${key} must be boolean.`);
+  for (const key of ['bold', 'backgroundEnabled', 'glowEnabled'] as const) if (value[key] !== undefined && typeof value[key] !== 'boolean') fail(`${path}.${key} must be boolean.`);
   if (value.alignment !== undefined && !['left', 'center', 'right'].includes(String(value.alignment))) fail(`${path}.alignment is invalid.`);
   if (value.highlightMode !== undefined && !['off', 'word'].includes(String(value.highlightMode))) fail(`${path}.highlightMode is invalid.`);
-  stringColor('textColor'); stringColor('outlineColor'); stringColor('backgroundColor'); stringColor('highlightColor');
-  return projectAppearance(value as Partial<CaptionAppearance>);
+  if (value.motionPreset !== undefined && !['none', 'fade'].includes(String(value.motionPreset))) fail(`${path}.motionPreset is invalid.`);
+  if (value.motionDurationMs !== undefined && (value.motionDurationMs as number) % 10 !== 0) fail(`${path}.motionDurationMs must use a 10 ms step.`);
+  stringColor('textColor'); stringColor('outlineColor'); stringColor('backgroundColor'); stringColor('highlightColor'); stringColor('glowColor');
+  return projectAppearance(value as Partial<CaptionAppearance>, keys);
+}
+
+function effectStateNeedsV2(appearance: Partial<CaptionAppearance> | undefined) {
+  if (!appearance) return false;
+  const glowColor = String(appearance.glowColor ?? DEFAULT_CAPTION_APPEARANCE.glowColor).toUpperCase();
+  const defaultGlowColor = String(DEFAULT_CAPTION_APPEARANCE.glowColor).toUpperCase();
+  return (appearance.glowEnabled ?? DEFAULT_CAPTION_APPEARANCE.glowEnabled) !== DEFAULT_CAPTION_APPEARANCE.glowEnabled
+    || glowColor !== defaultGlowColor
+    || (appearance.glowWidth1080 ?? DEFAULT_CAPTION_APPEARANCE.glowWidth1080) !== DEFAULT_CAPTION_APPEARANCE.glowWidth1080
+    || (appearance.glowOpacity ?? DEFAULT_CAPTION_APPEARANCE.glowOpacity) !== DEFAULT_CAPTION_APPEARANCE.glowOpacity
+    || (appearance.motionPreset ?? DEFAULT_CAPTION_APPEARANCE.motionPreset) !== DEFAULT_CAPTION_APPEARANCE.motionPreset
+    || (appearance.motionDurationMs ?? DEFAULT_CAPTION_APPEARANCE.motionDurationMs) !== DEFAULT_CAPTION_APPEARANCE.motionDurationMs;
 }
 
 function projectWordTiming(caption: CaptionSegment, captionIndex: number): CaptionDataWordTiming | undefined {
@@ -414,7 +440,10 @@ export function createCaptionData(input: CaptionInterchangeInput): CaptionDataDo
   if (!Array.isArray(input.captions)) fail('Caption interchange input must contain a captions array.');
   if (input.captions.length > CAPTION_DATA_LIMITS.maxCaptions) fail(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`);
   const durationMs = validateDuration(input.durationMs);
-  const appearance = validateAppearance(projectAppearance(input.appearance));
+  const projectedAppearance = projectAppearance(input.appearance);
+  const validatedAppearance = validateAppearance(projectedAppearance, 2);
+  const version: 1 | 2 = effectStateNeedsV2(validatedAppearance) ? 2 : 1;
+  const appearance = version === 2 ? validatedAppearance : projectAppearance(validatedAppearance, V1_APPEARANCE_KEYS);
   let totalWords = 0;
   let totalGraphemes = 0;
   const captions: CaptionDataCue[] = input.captions.map((caption, index) => {
@@ -435,7 +464,7 @@ export function createCaptionData(input: CaptionInterchangeInput): CaptionDataDo
   if (totalWords > CAPTION_DATA_LIMITS.maxTotalWords) fail('Word timing data exceeds the total interchange word limit.');
   return {
     kind: 'sthang-caption-data',
-    version: 1,
+    version,
     captions,
     ...(appearance ? { appearance } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
@@ -534,15 +563,16 @@ export function parseCaptionData(text: string): CaptionDataDocument {
   if (!plainObject(raw)) fail('Caption data must be a JSON object.');
   assertAllowedKeys(raw, ['kind', 'version', 'captions', 'appearance', 'durationMs'], 'caption data');
   if (raw.kind !== 'sthang-caption-data') fail('Unknown caption data file kind.');
-  if (raw.version !== 1) fail('Unsupported caption data version.');
+  if (raw.version !== 1 && raw.version !== 2) fail('Unsupported caption data version.');
+  const version = raw.version as 1 | 2;
   if (!Array.isArray(raw.captions)) fail('Caption data captions must be an array.');
   if (raw.captions.length > CAPTION_DATA_LIMITS.maxCaptions) fail(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`);
   const durationMs = validateDuration(raw.durationMs);
-  const appearance = validateAppearance(raw.appearance);
+  const appearance = validateAppearance(raw.appearance, version);
   const total = { graphemes: 0, words: 0 };
   const captions = raw.captions.map((cue, index) => parseDataCue(cue, index, durationMs, total));
   return {
-    kind: 'sthang-caption-data', version: 1, captions,
+    kind: 'sthang-caption-data', version, captions,
     ...(appearance ? { appearance } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
   };

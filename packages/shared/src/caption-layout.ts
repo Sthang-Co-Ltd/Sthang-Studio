@@ -1,4 +1,5 @@
 import type { CaptionSegment } from './index.js';
+import type { CaptionAppearance } from './caption-settings.js';
 import { captionRenderTime } from './caption-settings.js';
 import { resolveCaptionWordTiming } from './word-timing.js';
 
@@ -64,6 +65,8 @@ export interface CaptionRenderState {
   paintKey?: string;
   /** Ready spoken words active during this paint interval, expressed in caption UTF-16 offsets. */
   activeWordOffsets?: CaptionRenderWordOffset[];
+  /** Per-cue whole-caption opacity for bounded temporal paint. Geometry remains keyed by `key`. */
+  cueOpacities?: CaptionRenderCueOpacity[];
 }
 
 export interface CaptionRenderWordOffset {
@@ -72,8 +75,39 @@ export interface CaptionRenderWordOffset {
   endOffset: number;
 }
 
-/** Sweep caption/word boundaries once, not the entire project at every playback frame. */
-export function planCaptionRenderStates(captions: CaptionSegment[], highlightWords = false): CaptionRenderState[] {
+export interface CaptionRenderCueOpacity {
+  captionIndex: number;
+  opacity: number;
+}
+
+const FADE_LEVEL_MAX = 15;
+const DEFAULT_FADE_DURATION_MS = 160;
+const MAX_FADE_DURATION_MS = 400;
+
+function cueFadeDurationMs(startMs: number, endMs: number, appearance: Pick<CaptionAppearance, 'motionPreset' | 'motionDurationMs'> | undefined) {
+  if (appearance?.motionPreset !== 'fade') return 0;
+  const requested = Number.isFinite(Number(appearance.motionDurationMs)) ? Number(appearance.motionDurationMs) : DEFAULT_FADE_DURATION_MS;
+  const requestedOnGrid = Math.floor(Math.max(0, Math.min(MAX_FADE_DURATION_MS, requested)) / 10) * 10;
+  // Round down so neither side can consume more than half of a short cue. A 10ms
+  // cue therefore stays static; 20-40ms cues still get a full-opacity interval.
+  const halfCueOnGrid = Math.floor((endMs - startMs) / 20) * 10;
+  return Math.max(0, Math.min(requestedOnGrid, halfCueOnGrid));
+}
+
+function cueFadeLevel(atMs: number, startMs: number, endMs: number, durationMs: number) {
+  if (durationMs <= 0) return FADE_LEVEL_MAX;
+  const edgeDistance = Math.min(atMs - startMs, endMs - atMs);
+  if (edgeDistance >= durationMs) return FADE_LEVEL_MAX;
+  if (edgeDistance <= 0) return 0;
+  return Math.max(0, Math.min(FADE_LEVEL_MAX, Math.floor(edgeDistance * FADE_LEVEL_MAX / durationMs + 1e-9)));
+}
+
+/** Sweep caption/word/effect boundaries once, not the entire project at every playback frame. */
+export function planCaptionRenderStates(
+  captions: CaptionSegment[],
+  highlightWords = false,
+  appearance?: Pick<CaptionAppearance, 'motionPreset' | 'motionDurationMs'>,
+): CaptionRenderState[] {
   const events = new Map<number, { starts: number[]; ends: number[] }>();
   const boundary = (time: number) => {
     let value = events.get(time);
@@ -81,12 +115,28 @@ export function planCaptionRenderStates(captions: CaptionSegment[], highlightWor
     return value;
   };
   const readyWords = new Map<number, Array<CaptionRenderWordOffset & { startMs: number; endMs: number }>>();
+  const fadeDurations = new Map<number, number>();
   captions.forEach((caption, index) => {
     const start = captionRenderTime(caption.startMs);
     const end = captionRenderTime(caption.endMs);
     if (!caption.text.trim() || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
     boundary(start).starts.push(index);
     boundary(end).ends.push(index);
+    const fadeDuration = cueFadeDurationMs(start, end, appearance);
+    if (appearance?.motionPreset === 'fade') {
+      fadeDurations.set(index, fadeDuration);
+      if (fadeDuration > 0) {
+        // Bound the native state palette to 16 opacity levels. Every transition is
+        // snapped to ASS's 10ms clock, and the mirrored exit uses the same levels.
+        for (let level = 1; level <= FADE_LEVEL_MAX; level += 1) {
+          const threshold = Math.ceil((fadeDuration * level / FADE_LEVEL_MAX) / 10) * 10;
+          const fadeInAt = start + threshold;
+          const fadeOutAt = end - threshold + 10;
+          if (fadeInAt > start && fadeInAt < end) boundary(fadeInAt);
+          if (fadeOutAt > start && fadeOutAt < end) boundary(fadeOutAt);
+        }
+      }
+    }
     if (!highlightWords) return;
     const resolved = resolveCaptionWordTiming(caption);
     if (resolved.state !== 'ready') return;
@@ -117,15 +167,34 @@ export function planCaptionRenderStates(captions: CaptionSegment[], highlightWor
     const activeWordOffsets = highlightWords
       ? ids.flatMap((captionIndex) => readyWords.get(captionIndex)?.filter((word) => time >= word.startMs && time < word.endMs).map(({ startMs: _startMs, endMs: _endMs, ...word }) => word) || [])
       : [];
+    const opacityLevels = appearance?.motionPreset === 'fade'
+      ? ids.map((captionIndex) => {
+        const caption = captions[captionIndex];
+        const startMs = captionRenderTime(caption.startMs);
+        const endMs = captionRenderTime(caption.endMs);
+        return {
+          captionIndex,
+          level: cueFadeLevel(time, startMs, endMs, fadeDurations.get(captionIndex) || 0),
+        };
+      })
+      : [];
+    const cueOpacities = opacityLevels.map(({ captionIndex, level }) => ({ captionIndex, opacity: level / FADE_LEVEL_MAX }));
+    const hasWordPaint = highlightWords && ids.some((id) => readyWords.has(id));
+    const hasFadePaint = appearance?.motionPreset === 'fade' && ids.length > 0;
+    const paintParts = [
+      ...(hasWordPaint ? [activeWordOffsets.map((word) => `${word.captionIndex}:${word.startOffset}-${word.endOffset}`).join(';') || 'base'] : []),
+      ...(hasFadePaint ? [`fade:${opacityLevels.map(({ captionIndex, level }) => `${captionIndex}:${level}`).join(';')}`] : []),
+    ];
     return {
       atMs: time,
       endMs: times[index + 1],
       key,
       text: ids.map((id) => captions[id].text).join('\n'),
-      ...(highlightWords && ids.some((id) => readyWords.has(id)) ? {
-        paintKey: `${key}|${activeWordOffsets.map((word) => `${word.captionIndex}:${word.startOffset}-${word.endOffset}`).join(';') || 'base'}`,
+      ...(paintParts.length ? { paintKey: `${key}|${paintParts.join('|')}` } : {}),
+      ...(hasWordPaint ? {
         activeWordOffsets,
       } : {}),
+      ...(hasFadePaint ? { cueOpacities } : {}),
     };
   });
 }

@@ -13,6 +13,7 @@ import {
   serializeWordSrt,
   serializeWordVtt,
 } from '../packages/shared/src/caption-interchange.js';
+import { DEFAULT_CAPTION_APPEARANCE } from '../packages/shared/src/caption-settings.js';
 
 function cue(overrides: Partial<CaptionSegment> = {}): CaptionSegment {
   return {
@@ -197,6 +198,45 @@ test('data file roundtrips the safe projection exactly and uses CRLF physical li
   assert.deepEqual(parseCaptionData(file.text), expected);
 });
 
+test('caption data stays v1 and omits default effect keys for old-reader compatibility', () => {
+  const document = createCaptionData({
+    captions: [cue()],
+    appearance: { ...DEFAULT_CAPTION_APPEARANCE },
+  });
+  assert.equal(document.version, 1);
+  assert.ok(document.appearance);
+  for (const key of ['glowEnabled', 'glowColor', 'glowWidth1080', 'glowOpacity', 'motionPreset', 'motionDurationMs']) {
+    assert.equal(key in document.appearance!, false, `${key} must stay out of v1 caption data`);
+  }
+  assert.deepEqual(parseCaptionData(JSON.stringify(document)), document);
+});
+
+test('caption data uses v2 for nondefault effects and roundtrips the strict effect state', () => {
+  const document = createCaptionData({
+    captions: [cue()],
+    appearance: {
+      alignment: 'left',
+      glowEnabled: true,
+      glowColor: '#ABCDEF',
+      glowWidth1080: 12,
+      glowOpacity: 0.7,
+      motionPreset: 'fade',
+      motionDurationMs: 230,
+    },
+  });
+  assert.equal(document.version, 2);
+  assert.deepEqual(document.appearance, {
+    alignment: 'left',
+    glowEnabled: true,
+    glowColor: '#ABCDEF',
+    glowWidth1080: 12,
+    glowOpacity: 0.7,
+    motionPreset: 'fade',
+    motionDurationMs: 230,
+  });
+  assert.deepEqual(parseCaptionData(JSON.stringify(document)), document);
+});
+
 test('caption data preserves fractional cue, word and media duration milliseconds exactly', () => {
   const caption = readyLiteralCue();
   caption.startMs = 100.125;
@@ -216,7 +256,7 @@ test('caption data preserves fractional cue, word and media duration millisecond
 test('data parser rejects unknown file/version/fields and stale or malformed word maps', () => {
   const base = createCaptionData({ captions: [readyLiteralCue()] });
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, kind: 'other-caption-data' })), /unknown caption data file kind/i);
-  assert.throws(() => parseCaptionData(JSON.stringify({ ...base, version: 2 })), /unsupported caption data version/i);
+  assert.throws(() => parseCaptionData(JSON.stringify({ ...base, version: 3 })), /unsupported caption data version/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, localPath: 'C:\\secret' })), /unsupported field/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, captions: [{ ...base.captions[0], unknown: true }] })), /unsupported field/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, captions: [{ ...base.captions[0], id: 'imported-id' }] })), /unsupported field/i);
@@ -238,6 +278,34 @@ test('data parser rejects unknown file/version/fields and stale or malformed wor
   const malformed = structuredClone(base);
   malformed.captions[0].wordTiming!.words[0].endOffset = 1;
   assert.throws(() => parseCaptionData(JSON.stringify(malformed)), /stale or malformed/i);
+});
+
+test('caption data versions enforce effect allowlists, future fields and effect bounds', () => {
+  const base = createCaptionData({ captions: [cue()] });
+  assert.equal(base.version, 1);
+  assert.throws(() => parseCaptionData(JSON.stringify({
+    ...base,
+    appearance: { glowEnabled: false },
+  })), /unsupported field/i);
+
+  const v2 = createCaptionData({ captions: [cue()], appearance: { glowEnabled: true } });
+  assert.equal(v2.version, 2);
+  assert.throws(() => parseCaptionData(JSON.stringify({
+    ...v2,
+    appearance: { ...v2.appearance, glowBlendMode: 'future' },
+  })), /unsupported field/i);
+  assert.throws(() => parseCaptionData(JSON.stringify({
+    ...v2,
+    appearance: { ...v2.appearance, glowWidth1080: 17 },
+  })), /supported range/i);
+  assert.throws(() => parseCaptionData(JSON.stringify({
+    ...v2,
+    appearance: { ...v2.appearance, glowOpacity: -0.01 },
+  })), /supported range/i);
+  assert.throws(() => createCaptionData({
+    captions: [cue()],
+    appearance: { motionPreset: 'fade', motionDurationMs: 165 },
+  }), /10 ms step/i);
 });
 
 test('data parser enforces hard UTF-8 size, cue count and grapheme bounds before accepting content', () => {

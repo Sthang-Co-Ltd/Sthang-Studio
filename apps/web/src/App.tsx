@@ -62,7 +62,7 @@ import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
 import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming, createCaptionData } from '@kcs/shared';
-import { NativeCaptionPreview } from './components/NativeCaptionPreview';
+import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
@@ -250,6 +250,10 @@ export default function App() {
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
+  const nativeCaptionPreview = useRef<NativeCaptionPreviewHandle | null>(null);
+  const effectReplayController = useRef<AbortController | null>(null);
+  const effectPlaybackCancel = useRef<(() => void) | null>(null);
+  const appearanceFingerprint = useRef('');
   const replaceInput = useRef<HTMLInputElement | null>(null);
   const editor = useRef<CaptionEditorHandle | null>(null);
   const draftRef = useRef<CaptionSegment[]>([]);
@@ -309,9 +313,16 @@ export default function App() {
   }, []);
 
   function cancelPlayback() {
+    stopEffectReplay();
     stopTimingPreview();
     for (const timer of playbackTimers.current) window.clearTimeout(timer);
     playbackTimers.current.clear();
+  }
+  function stopEffectReplay() {
+    effectReplayController.current?.abort();
+    effectReplayController.current = null;
+    effectPlaybackCancel.current?.();
+    effectPlaybackCancel.current = null;
   }
   function stopTimingPreview() {
     timingPreviewCancel.current?.();
@@ -566,6 +577,7 @@ export default function App() {
   };
 
   const updateDraft = (next: CaptionSegment[], preferredSelectionId?: string, reason: DraftChangeReason = 'metadata') => {
+    stopEffectReplay();
     if (workspaceTool === 'timeline') cancelPlayback();
     const previous = new Map(draftRef.current.map((caption) => [caption.id, caption]));
     next = next.map((caption) => {
@@ -635,9 +647,47 @@ export default function App() {
   const [appearanceInteracting, setAppearanceInteracting] = useState(false);
   useEffect(() => { setAppearanceInteracting(false); }, [project?.id, project?.media.filename, workspaceTool]);
   const changeAppearance = useCallback((appearance: CaptionAppearance) => {
+    const fingerprint = JSON.stringify(normalizeCaptionAppearance(appearance));
+    if (appearanceFingerprint.current !== fingerprint) stopEffectReplay();
+    appearanceFingerprint.current = fingerprint;
     if (project) setLiveAppearance({ projectId: project.id, appearance });
   }, [project?.id]);
   const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.projectId === project?.id ? liveAppearance?.appearance : project?.captionAppearance), [project?.id, project?.captionAppearance, liveAppearance]);
+  useEffect(() => { stopEffectReplay(); }, [mediaKey, selectionAnchor, workspaceTool]);
+  const replayAppearanceEffect = async () => {
+    const element = media.current;
+    const preview = nativeCaptionPreview.current;
+    const caption = selection.captions[0] || active || draftRef.current[0];
+    if (!element || !preview || !caption || workspaceTool !== 'appearance') return;
+    cancelPlayback();
+    element.pause();
+    const ticket = projectScope.current.capture();
+    const editRevision = draftEditRevision.current;
+    const controller = new AbortController();
+    effectReplayController.current = controller;
+    const cancel = () => controller.abort();
+    element.addEventListener('seeking', cancel);
+    element.addEventListener('play', cancel);
+    const startMs = Math.max(0, caption.startMs - 120);
+    const endMs = Math.min(mediaDurationMs || caption.endMs + 120, caption.endMs + 120);
+    try {
+      const ready = await preview.prepareReplay(startMs, endMs, controller.signal);
+      if (!ready || controller.signal.aborted || !projectScope.current.isCurrent(ticket)
+        || media.current !== element || draftEditRevision.current !== editRevision) return;
+      element.removeEventListener('seeking', cancel);
+      element.removeEventListener('play', cancel);
+      effectPlaybackCancel.current = playTimingRange(element, { startMs, endMs, loop: false },
+        () => setError('Effect replay could not start. Check the source playback controls and try again.'));
+    } catch (reason) {
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) {
+        setError(reason instanceof Error ? reason.message : 'The effect preview could not be prepared.');
+      }
+    } finally {
+      element.removeEventListener('seeking', cancel);
+      element.removeEventListener('play', cancel);
+      if (effectReplayController.current === controller) effectReplayController.current = null;
+    }
+  };
   useEffect(() => { setPreviewResolution('source'); setLiveAppearance(null); }, [project?.id, project?.media.filename]);
   const videoActive = useMemo(() => videoCaptions.find((caption) => time * 1000 >= caption.startMs && time * 1000 < caption.endMs) ?? null, [videoCaptions, time]);
   const reviewFocusMode = profile?.preferences.reviewFocusMode || 'brackets-label';
@@ -1873,12 +1923,12 @@ export default function App() {
     </header>
 
     <section className="editor-grid">
-      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''}`}>
+      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''} ${workspaceTool === 'appearance' && !proposal ? 'appearance-workspace-active' : ''}`}>
         <div className="media-stage">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} video={isVideo} media={media}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
 
@@ -1935,6 +1985,8 @@ export default function App() {
 
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} captions={draft}
             onEditWordTiming={openWordTiming}
+            onReplayEffect={replayAppearanceEffect}
+            sampleCaptionText={(selection.captions[0] || active || draft[0])?.text}
             onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
           {workspaceTool === 'timeline' && draft.length > 0 && <WaveformEditor key={mediaKey}

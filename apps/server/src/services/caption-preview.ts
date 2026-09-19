@@ -128,7 +128,12 @@ export async function renderCaptionPreview(
     // Guard decoded-frame allocation, not output choices. Unusually large sources can select a
     // supported output resolution; no hidden downscaling is used to claim an exact preview.
     if (width * height > 33_554_432) throw new Error('This preview exceeds the local 32-megapixel safety limit. Choose a smaller video output resolution in Export.');
-    if (scope) {
+    // Replay prepares up to eight quantized fade paints at once. The established
+    // one-shot renderer handles that full batch in a single ASS load/process and
+    // is materially faster than reinitializing the persistent graph eight times.
+    // Keep ordinary/smaller requests on the warm worker where it remains faster.
+    const fullFadeBatch = input.appearance.motionPreset === 'fade' && input.timesMs.length === maxPreviewFrames;
+    if (scope && !fullFadeBatch) {
       const warm = await renderPersistentCaptionPreview(input, width, height, await probeSetparamsAlphaMode(config.ffmpegPath), scope, signal);
       if (warm) return warm;
     }

@@ -91,6 +91,29 @@ Creators may style captions before export while watching the real video evidence
 - Appearance never changes SRT serialization, caption text/timing, locks,
   correction eligibility, correction memory, Review behavior, or source media.
 
+## Original Looks and Fade contract — unreleased source
+
+Appearance separates starter **Look**, **Motion**, and **Word emphasis**. Six
+original Looks change decoration only; the creator's font, bold/regular choice,
+size, width, alignment, placement, motion and spoken-word color remain intact.
+Saved user presets intentionally contain the complete appearance. Scope is
+project-wide. Local appearance Undo/Redo covers one change or slider gesture;
+Reset look restores decoration without resetting the independent choices.
+
+Native Glow and Fade share the preview/ASS/MP4 recipe. Fade opacity derives from
+each original rounded caption interval, not split word/highlight events, and
+cannot leak between overlapping captions. Short fades remain bounded by the
+caption duration. Native word layout/shaping is never rebuilt as separate words
+to create these effects. Review focus stays separate and ignores visual fade.
+Replay is explicit, prepares only a bounded opening and then plays once. Missing
+or retained frames are labeled preparing/updating; only a decoded native frame
+for the current appearance and paint state is presented as exact.
+
+Settings and derived preview data remain local. Caption-data v2 retains nondefault
+effect settings; v1 stays supported and unknown versions fail explicitly. Normal
+subtitle handoff remains text/timing only. These additions do not establish a
+published package, CapCut-asset license or universal editor effect transfer.
+
 ## Word timing and spoken-word highlight contract — unreleased source
 
 Fine Timing separates **Caption edges** from **Word timing**. Caption edits

@@ -80,6 +80,23 @@ function assOverrideColor(hex: string) {
   return `&H${value.slice(4, 6)}${value.slice(2, 4)}${value.slice(0, 2)}&`;
 }
 
+function assOverrideAlpha(opacity: number) {
+  const bounded = Math.max(0, Math.min(1, opacity));
+  return `&H${Math.round((1 - bounded) * 255).toString(16).toUpperCase().padStart(2, '0')}&`;
+}
+
+type CaptionPaintLayer = 'default' | 'background' | 'glow';
+
+/** Compose cue fade with each layer's own opacity without revealing intentionally
+ * transparent glyph fills on Background/Glow or making their base alpha more opaque. */
+function temporalOpacityTag(layer: CaptionPaintLayer, opacity: number, appearance: CaptionAppearance) {
+  if (layer === 'default') {
+    return `{\\1a${assOverrideAlpha(opacity)}\\3a${assOverrideAlpha(opacity)}\\4a${assOverrideAlpha(0.88 * opacity)}}`;
+  }
+  const layerOpacity = layer === 'background' ? appearance.backgroundOpacity : (appearance.glowOpacity || 0);
+  return `{\\1a&HFF&\\3a${assOverrideAlpha(layerOpacity * opacity)}\\4a&HFF&}`;
+}
+
 /** Map trusted UTF-16 word offsets through render-only wrapping. The wrapper only
  * inserts line breaks (and canonicalizes CRLF), so visible code units stay ordered.
  */
@@ -175,6 +192,8 @@ export function buildAssDocument(
   const fontSize = Math.round(a.fontSize1080 * scale * 10) / 10;
   const outline = Math.round(a.outlineWidth1080 * scale * 10) / 10;
   const shadow = Math.round(a.shadowWidth1080 * scale * 10) / 10;
+  const glow = Math.round((a.glowWidth1080 || 0) * scale * 10) / 10;
+  const glowBlur = Math.round(Math.max(0.5, Math.min(8, glow * 0.5)) * 10) / 10;
   const padding = Math.round(a.backgroundPadding1080 * scale * 10) / 10;
   const side = Math.max(8, Math.round(width * (100 - a.maxWidthPct) / 200));
   const bottom = Math.max(8, Math.round(height * a.positionBottomPct / 100));
@@ -185,10 +204,15 @@ export function buildAssDocument(
   const styles = [style('Default', assColor(a.textColor), assColor(a.outlineColor), assColor('#000000', 0.88), 1, outline, shadow)];
   // An independent lower layer keeps background color/padding from replacing the glyph outline.
   if (a.backgroundEnabled) styles.unshift(style('Background', assColor(a.textColor, 0), assColor(a.backgroundColor, a.backgroundOpacity), assColor(a.backgroundColor, 0), 3, padding, 0));
+  // Glow is a paint-only lower glyph layer. A wider translucent outline plus a bounded
+  // native blur creates the halo without changing font metrics, wrapping, alignment,
+  // or the shaped text run. The blur itself is attached only to Glow events below.
+  const glowEnabled = Boolean(a.glowEnabled && glow > 0 && (a.glowOpacity || 0) > 0);
+  if (glowEnabled) styles.unshift(style('Glow', assColor(a.glowColor!, 0), assColor(a.glowColor!, a.glowOpacity), assColor(a.glowColor!, 0), 1, glow, 0));
   // A single block per active interval gives overlaps stable line layout after a seek.
   // Libass collision placement otherwise depends on which earlier frames were rendered.
   // Stored cue boundaries and SRT stay untouched; only the burned-in composition is grouped.
-  const plannedStates = planCaptionRenderStates(captions, highlightWords);
+  const plannedStates = planCaptionRenderStates(captions, highlightWords, a);
   const sampledState = sampleAtMs === undefined
     ? undefined
     : plannedStates.find((state) => sampleAtMs >= state.atMs && sampleAtMs < state.endMs);
@@ -196,19 +220,33 @@ export function buildAssDocument(
     ? plannedStates
     : sampledState ? [{ ...sampledState, atMs: 0, endMs: 1000 }] : [];
   const events = renderStates.filter((c) => c.key).flatMap((c) => {
-    const composeText = (forcedColor?: string) => c.key.split(',').map((key) => {
+    const cueOpacities = new Map((c.cueOpacities || []).map((cue) => [cue.captionIndex, cue.opacity]));
+    const temporalPaint = c.cueOpacities !== undefined;
+    const composeText = (layer: CaptionPaintLayer, forcedColor?: string) => c.key.split(',').map((key) => {
       const index = Number(key);
       const visible = styledCaptionText(captions[index], index, lineLimit, a, c.activeWordOffsets, forcedColor);
       // The editor may request a separate white-on-black focus mask. Alpha changes
       // paint only, never font metrics or line layout; this document is never exported.
       const mask = visibilityMask ? (visibilityMask.has(index) ? '{\\alpha&H00&\\1c&HFFFFFF&\\3c&HFFFFFF&\\4c&HFFFFFF&}' : '{\\alpha&HFF&}') : '';
-      return mask + visible;
+      // ASS overrides survive a \N line break. When temporal paint is active every
+      // cue chunk therefore carries an explicit alpha, including full opacity, so
+      // one cue can never inherit the previous cue's fade.
+      const temporal = visibilityMask || !temporalPaint ? '' : temporalOpacityTag(layer, cueOpacities.get(index) ?? 1, a);
+      return mask + temporal + visible;
     }).join('\\N');
-    const defaultText = composeText(visibilityMask ? '#FFFFFF' : undefined);
+    const defaultText = composeText('default', visibilityMask ? '#FFFFFF' : undefined);
     const event = (layer: number, name: string, text: string) => `Dialogue: ${layer},${assTimestamp(c.atMs)},${assTimestamp(c.endMs)},${name},,0,0,0,,${text}`;
-    return a.backgroundEnabled
-      ? [event(0, 'Background', composeText(visibilityMask ? '#FFFFFF' : a.textColor)), event(1, 'Default', defaultText)]
-      : [event(0, 'Default', defaultText)];
+    const output: string[] = [];
+    let layer = 0;
+    if (glowEnabled) {
+      const glowText = composeText('glow', visibilityMask ? '#FFFFFF' : a.glowColor);
+      // Review-focus documents measure caption geometry; decoration must not inflate
+      // their bounds. The visible preview/export Glow alone receives libass blur.
+      output.push(event(layer++, 'Glow', visibilityMask ? glowText : `{\\blur${glowBlur}}${glowText}`));
+    }
+    if (a.backgroundEnabled) output.push(event(layer++, 'Background', composeText('background', visibilityMask ? '#FFFFFF' : a.textColor)));
+    output.push(event(layer, 'Default', defaultText));
+    return output;
   });
   return `\uFEFF[Script Info]\nScriptType: v4.00+\nLanguage: km\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: None\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`;
 }

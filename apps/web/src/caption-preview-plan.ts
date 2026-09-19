@@ -39,6 +39,24 @@ export function captionPreviewLookahead(
   return wanted;
 }
 
+/** Prepare just the opening of an explicitly requested replay. The normal eight-
+ * frame request and 24-image cache bounds still apply; never preload a whole film.
+ */
+export function captionPreviewReplayStates(states: readonly CaptionRenderState[], startMs: number, endMs: number) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+  const selected: CaptionRenderState[] = [];
+  const seen = new Set<string>();
+  for (const state of states) {
+    if (state.atMs >= endMs || selected.length >= 16) break;
+    if (!state.key || state.endMs <= startMs) continue;
+    const key = captionPreviewPaintKey(state);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(state);
+  }
+  return selected;
+}
+
 /** Pixels occupied by object-fit: contain video, excluding letterbox/pillarbox space. */
 export function containedVideoFrame(width: number, height: number, videoWidth: number, videoHeight: number) {
   if (![width, height, videoWidth, videoHeight].every((value) => Number.isFinite(value) && value > 0)) return null;

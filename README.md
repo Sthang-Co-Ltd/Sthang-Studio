@@ -38,6 +38,12 @@ available without crowding the main editing flow.
 
 ## Development changes — unreleased
 
+**Appearance** now offers six original Studio Looks, optional native Glow, and
+caption-level Fade in/out. Look, Motion and Word emphasis are separate, with
+appearance Undo/Redo, Reset look and explicit Replay effect. Starter Looks keep
+your chosen font, size and placement. See [Caption effects](docs/CAPTION-EFFECTS.md)
+for controls, preview limits, and versioned caption-data compatibility.
+
 **Export → Captions file** now guides creators through editable handoff to CapCut
 Desktop/mobile and other editors. SRT remains the default; advanced choices add
 WebVTT, plain TTML, ready word-by-word SRT/VTT, styled ASS for compatible tools,

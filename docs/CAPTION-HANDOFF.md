@@ -113,11 +113,18 @@ Blank first/interior/last cue lines cannot be safely preserved in SRT/WebVTT and
 are rejected with a path to TTML or caption data; text is never silently dropped.
 WebVTT/XML text is escaped so creator wording cannot become control markup.
 
-Caption data requires `kind: "sthang-caption-data"` and `version: 1`, with bounded
+Caption data requires `kind: "sthang-caption-data"` and supported `version: 1` or
+`version: 2`, with bounded
 cue/word counts, a 4 MiB file limit, valid Unicode and timing, explicit field
 allowlists, and grapheme-safe exact-text word offsets. Unsupported versions and
 malformed/stale tracks fail validation. Valid partial/null word timing stays
 partial; a file does not automatically certify speech alignment.
+
+Version 2 preserves nondefault original Glow/Fade appearance settings. Files with
+default effects still export as version 1 without the newer fields. Older
+version-1 readers reject v2 rather than silently dropping those settings. Restore
+remains captions-only: the included appearance is a reference and the receiving
+project's current appearance stays unchanged. See [Caption effects](CAPTION-EFFECTS.md).
 
 ## Compatibility evidence
 

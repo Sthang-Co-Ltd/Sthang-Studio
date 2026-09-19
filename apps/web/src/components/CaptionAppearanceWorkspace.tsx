@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  applyCaptionLook,
   DEFAULT_CAPTION_APPEARANCE,
   normalizeCaptionAppearance,
   resolveCaptionWordTiming,
   type CaptionAppearance,
   type CaptionAppearancePreset,
+  type CaptionLookId,
   type CaptionProject,
   type CaptionSegment,
   type VideoExportFontCapability,
 } from '@kcs/shared';
-import { CheckCircle2, LoaderCircle, Plus, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, LoaderCircle, Play, Plus, Redo2, RotateCcw, Save, Trash2, TriangleAlert, Undo2 } from 'lucide-react';
 import { api } from '../api';
 import { useAppearanceInteraction } from '../use-appearance-interaction';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import { CaptionLooksGallery } from './CaptionLooksGallery';
 import type { StudioConfirmOptions } from './ConfirmationDialog';
 import './caption-appearance.css';
+import './caption-effects.css';
 import './word-highlight.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
@@ -26,6 +30,10 @@ interface Props {
   onAppearanceChange(appearance: CaptionAppearance): void;
   onInteractionChange(active: boolean): void;
   onConfirm(options: StudioConfirmOptions): Promise<boolean>;
+  onReplayEffect?: () => Promise<void>;
+  replayPreparing?: boolean;
+  replayDisabled?: boolean;
+  sampleCaptionText?: string;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -35,7 +43,18 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
-export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming, onAppearanceChange, onInteractionChange, onConfirm }: Props) {
+export function CaptionAppearanceWorkspace({
+  project,
+  captions,
+  onEditWordTiming,
+  onAppearanceChange,
+  onInteractionChange,
+  onConfirm,
+  onReplayEffect,
+  replayPreparing = false,
+  replayDisabled = false,
+  sampleCaptionText,
+}: Props) {
   const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
@@ -52,10 +71,16 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
   const [presetName, setPresetName] = useState('');
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetError, setPresetError] = useState('');
+  const [undoAppearance, setUndoAppearance] = useState<CaptionAppearance | null>(null);
+  const [redoAppearance, setRedoAppearance] = useState<CaptionAppearance | null>(null);
+  const [replayPending, setReplayPending] = useState(false);
   const appearanceRef = useRef<CaptionAppearance>(initial);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const dirtyRef = useRef(false);
   const isRecoveringRef = useRef(false);
+  const rangeHistoryActiveRef = useRef(false);
+  const replayRequestRef = useRef(0);
+  const mountedRef = useRef(true);
   const wordReadiness = useMemo(() => {
     const spoken = captions.filter((caption) => caption.text.trim());
     return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
@@ -85,6 +110,11 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
     setSaveState('saved');
     setSelectedPresetId('');
     setPresetName('');
+    setUndoAppearance(null);
+    setRedoAppearance(null);
+    setReplayPending(false);
+    rangeHistoryActiveRef.current = false;
+    replayRequestRef.current += 1;
     setLoadingFonts(true);
     setFontError('');
     setFontNotice('');
@@ -141,6 +171,23 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
     };
   }, [project.id]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    const finishRangeHistory = () => { rangeHistoryActiveRef.current = false; };
+    window.addEventListener('pointerup', finishRangeHistory);
+    window.addEventListener('pointercancel', finishRangeHistory);
+    window.addEventListener('keyup', finishRangeHistory);
+    window.addEventListener('blur', finishRangeHistory);
+    return () => {
+      mountedRef.current = false;
+      replayRequestRef.current += 1;
+      window.removeEventListener('pointerup', finishRangeHistory);
+      window.removeEventListener('pointercancel', finishRangeHistory);
+      window.removeEventListener('keyup', finishRangeHistory);
+      window.removeEventListener('blur', finishRangeHistory);
+    };
+  }, []);
+
   const interactionHandlers = useAppearanceInteraction(appearance, onAppearanceChange, onInteractionChange);
 
   useEffect(() => {
@@ -180,20 +227,88 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
       .slice(0, 10);
   }, [addedFontOptions, installedFonts, normalizedFontQuery]);
 
-  const updateAppearance = (change: (current: CaptionAppearance) => CaptionAppearance) => {
-    setSelectedPresetId('');
-    const next = change(appearanceRef.current);
+  const commitAppearance = (
+    next: CaptionAppearance,
+    options: { history?: 'discrete' | 'range' | 'none'; clearPreset?: boolean } = {},
+  ) => {
+    const current = appearanceRef.current;
+    if (JSON.stringify(current) === JSON.stringify(next)) return false;
+    replayRequestRef.current += 1;
+    setReplayPending(false);
+    const history = options.history || 'discrete';
+    if (history === 'discrete') {
+      rangeHistoryActiveRef.current = false;
+      setUndoAppearance({ ...current });
+      setRedoAppearance(null);
+    } else if (history === 'range' && !rangeHistoryActiveRef.current) {
+      rangeHistoryActiveRef.current = true;
+      setUndoAppearance({ ...current });
+      setRedoAppearance(null);
+    }
+    if (options.clearPreset !== false) setSelectedPresetId('');
     appearanceRef.current = next;
     dirtyRef.current = true;
     setSaveState('pending');
     setAppearance(next);
+    return true;
+  };
+
+  const updateAppearance = (
+    change: (current: CaptionAppearance) => CaptionAppearance,
+    options?: { history?: 'discrete' | 'range' | 'none'; clearPreset?: boolean },
+  ) => {
+    return commitAppearance(change(appearanceRef.current), options);
+  };
+
+  const undoAppearanceChange = () => {
+    if (!undoAppearance) return;
+    const current = { ...appearanceRef.current };
+    rangeHistoryActiveRef.current = false;
+    setRedoAppearance(current);
+    setUndoAppearance(null);
+    setSelectedPresetId('');
+    commitAppearance({ ...undoAppearance }, { history: 'none', clearPreset: false });
+  };
+
+  const redoAppearanceChange = () => {
+    if (!redoAppearance) return;
+    const current = { ...appearanceRef.current };
+    rangeHistoryActiveRef.current = false;
+    setUndoAppearance(current);
+    setRedoAppearance(null);
+    setSelectedPresetId('');
+    commitAppearance({ ...redoAppearance }, { history: 'none', clearPreset: false });
+  };
+
+  const replayEffect = async () => {
+    if (!onReplayEffect || replayPreparing || replayDisabled || replayPending) return;
+    const request = ++replayRequestRef.current;
+    setReplayPending(true);
+    try {
+      onAppearanceChange({ ...appearanceRef.current });
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      if (!mountedRef.current || replayRequestRef.current !== request) return;
+      await onReplayEffect();
+    } catch {
+      // App owns replay failure messaging; the workspace only clears its busy state.
+    } finally {
+      if (mountedRef.current && replayRequestRef.current === request) setReplayPending(false);
+    }
+  };
+
+  const applyLook = (look: CaptionLookId) => {
+    updateAppearance((current) => applyCaptionLook(current, look));
+  };
+
+  const resetLook = () => {
+    updateAppearance((current) => applyCaptionLook(current, null));
   };
 
   useEffect(() => {
     if (loadingFonts || !appearanceRef.current.bold) return;
     const font = fonts.find((item) => item.name === appearanceRef.current.fontFamily);
     if (!font || font.boldAvailable) return;
-    updateAppearance((current) => ({ ...current, bold: false }));
+    updateAppearance((current) => ({ ...current, bold: false }), { history: 'none' });
     setFontNotice(`${font.name} does not include a Bold face, so Studio switched Weight to Regular. Your other appearance settings were kept.`);
   }, [loadingFonts, fonts, project.id]);
 
@@ -276,10 +391,7 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
     const presetFont = fonts.find((font) => font.name === requested.fontFamily);
     const fallbackToRegular = Boolean(presetFont && requested.bold && !presetFont.boldAvailable);
     const next = fallbackToRegular ? { ...requested, bold: false } : requested;
-    appearanceRef.current = next;
-    dirtyRef.current = true;
-    setSaveState('pending');
-    setAppearance(next);
+    commitAppearance(next, { clearPreset: false });
     setFontQuery('');
     setFontWarnings([]);
     setFontNotice(fallbackToRegular
@@ -343,6 +455,13 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
       </div>
     </div>
 
+    <div className="appearance-effect-toolbar" aria-label="Appearance history">
+      <div className="appearance-history">
+        <button type="button" disabled={!undoAppearance} onClick={undoAppearanceChange}><Undo2 size={14}/>Undo</button>
+        <button type="button" disabled={!redoAppearance} onClick={redoAppearanceChange}><Redo2 size={14}/>Redo</button>
+      </div>
+    </div>
+
     <div className="appearance-preset-bar">
       <label htmlFor="appearance-preset-select">
         <span>Preset</span>
@@ -367,16 +486,60 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
     {fontNotice && <div className="appearance-font-notice" role="status"><CheckCircle2 size={15}/><span>{fontNotice}</span></div>}
     {!loadingFonts && !currentFontAvailable && <div className="appearance-inline-warning"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is not available on this PC. Choose an available Khmer font before previewing or rendering. The saved font has not been substituted.</span></div>}
 
+    <CaptionLooksGallery
+      appearance={appearance}
+      sampleCaptionText={sampleCaptionText}
+      onSelect={applyLook}
+      onReset={resetLook}
+    />
+
     <div className="appearance-essential-grid">
       <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <div className="appearance-font-search-wrap"><input className="appearance-font-search" type="search" aria-label="Find Khmer font" aria-expanded={Boolean(normalizedFontQuery)} aria-controls="appearance-font-search-results" value={fontQuery} onChange={(event) => setFontQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFontQuery(''); else if (event.key === 'Enter' && fontSearchResults[0]) { event.preventDefault(); chooseFont(fontSearchResults[0].name); } }} placeholder={`Find among ${installedFonts.length} installed Khmer fonts…`}/>{normalizedFontQuery && <div id="appearance-font-search-results" className="appearance-font-search-results" aria-label="Matching Khmer fonts">{fontSearchResults.length > 0 ? fontSearchResults.map((font) => <button type="button" key={`${font.source}:${font.name}`} className={font.name === appearance.fontFamily ? 'selected' : ''} onClick={() => chooseFont(font.name)}><span>{font.name}</span><small>{font.source === 'studio-imported' ? 'Added to Studio' : 'Installed'} · {font.boldAvailable ? 'Regular + Bold' : 'Regular only'}</small></button>) : <div className="appearance-font-search-empty">No matching Khmer fonts</div>}</div>}</div>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts installed on this computer are ready to use. ` : 'Compatible Khmer fonts installed on this computer appear automatically. '}Add your own .ttf or .otf files only to Studio.</small></div>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
-      <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }))}/></label>
-      <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }))}/></label>
+      <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }), { history: 'range' })}/></label>
+      <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }), { history: 'range' })}/></label>
     </div>
 
     {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={removingFontId === font.id} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
 
+    <section className="caption-effects-section appearance-motion-section" aria-labelledby="appearance-motion-title">
+      <div className="caption-effects-section-head">
+        <div>
+          <strong id="appearance-motion-title">Motion</strong>
+          <span>Choose how the whole caption fades in and out. Motion does not change caption timing or word emphasis.</span>
+        </div>
+      </div>
+      <div className="appearance-motion-controls">
+        <div className="appearance-motion-choice">
+          <span>Entrance &amp; exit</span>
+          <div className="appearance-segmented" role="group" aria-label="Caption motion">
+            <button type="button" aria-pressed={(appearance.motionPreset || 'none') === 'none'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}>None</button>
+            <button type="button" aria-pressed={appearance.motionPreset === 'fade'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'fade' }))}>Fade</button>
+          </div>
+        </div>
+        {appearance.motionPreset === 'fade' && <label className="appearance-motion-duration range-field">
+          <span>Fade duration <b>{appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs} ms</b></span>
+          <input type="range" min="80" max="400" step="10" value={appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs}
+            onChange={(event) => updateAppearance((current) => ({ ...current, motionDurationMs: Number(event.target.value) }), { history: 'range' })}/>
+        </label>}
+      </div>
+      <div className="appearance-motion-actions">
+        {onReplayEffect && <button
+          type="button"
+          className="primary-effect-action"
+          disabled={appearance.motionPreset !== 'fade' || replayPreparing || replayDisabled || replayPending}
+          onClick={() => void replayEffect()}
+        >
+          {replayPreparing || replayPending ? <LoaderCircle className="spin" size={14}/> : <Play size={14}/>}
+          {replayPreparing || replayPending ? 'Preparing…' : 'Replay effect'}
+        </button>}
+        {appearance.motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
+      </div>
+      <span className="appearance-motion-help">Replay the selected caption once. Studio prepares its opening first; later frames are prepared as needed.</span>
+    </section>
+
     <section className="appearance-word-highlight" aria-label="Spoken word highlight">
+      <div className="appearance-word-emphasis-title"><strong>Word emphasis</strong><span>Optional timing-aware emphasis for the word currently being spoken.</span></div>
       <div className="appearance-word-highlight-head">
         <div><strong>Spoken word highlight</strong><p>Keep the whole caption visible and color the word being spoken.</p></div>
         <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
@@ -401,15 +564,19 @@ export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming
       <div className="appearance-grid">
         <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} title={chosenFont && !chosenFont.boldAvailable ? `${chosenFont.name} includes Regular only.` : undefined} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
         <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
-        <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }))}/></label>
-        <label className="range-field"><span>Shadow <b>{appearance.shadowWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.shadowWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, shadowWidth1080: Number(event.target.value) }))}/></label>
-        <label className="range-field"><span>Max width <b>{appearance.maxWidthPct}%</b></span><input type="range" min="45" max="96" value={appearance.maxWidthPct} onChange={(event) => updateAppearance((current) => ({ ...current, maxWidthPct: Number(event.target.value) }))}/></label>
+        <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }), { history: 'range' })}/></label>
+        <label className="range-field"><span>Shadow <b>{appearance.shadowWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.shadowWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, shadowWidth1080: Number(event.target.value) }), { history: 'range' })}/></label>
+        <label className="range-field"><span>Max width <b>{appearance.maxWidthPct}%</b></span><input type="range" min="45" max="96" value={appearance.maxWidthPct} onChange={(event) => updateAppearance((current) => ({ ...current, maxWidthPct: Number(event.target.value) }), { history: 'range' })}/></label>
         <label><span>Alignment</span><select value={appearance.alignment} onChange={(event) => updateAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
         <div className="toggle-field"><span>Background box</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? 'On' : 'Off'}</button></div>
-        {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Background opacity <b>{Math.round(appearance.backgroundOpacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(appearance.backgroundOpacity * 100)} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundOpacity: Number(event.target.value) / 100 }))}/></label><label className="range-field"><span>Box padding <b>{appearance.backgroundPadding1080}px</b></span><input type="range" min="0" max="28" value={appearance.backgroundPadding1080} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundPadding1080: Number(event.target.value) }))}/></label></>}
+        {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Background opacity <b>{Math.round(appearance.backgroundOpacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(appearance.backgroundOpacity * 100)} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundOpacity: Number(event.target.value) / 100 }), { history: 'range' })}/></label><label className="range-field"><span>Box padding <b>{appearance.backgroundPadding1080}px</b></span><input type="range" min="0" max="28" value={appearance.backgroundPadding1080} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundPadding1080: Number(event.target.value) }), { history: 'range' })}/></label></>}
+        <div className="appearance-glow-group">
+          <div className="toggle-field"><span>Glow</span><button aria-pressed={appearance.glowEnabled === true} className={appearance.glowEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, glowEnabled: !current.glowEnabled }))}>{appearance.glowEnabled ? 'On' : 'Off'}</button></div>
+          {appearance.glowEnabled && <><label><span>Glow color</span><input type="color" value={appearance.glowColor || DEFAULT_CAPTION_APPEARANCE.glowColor} onChange={(event) => updateAppearance((current) => ({ ...current, glowColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Glow width <b>{(appearance.glowWidth1080 || 0).toFixed(1)}</b></span><input type="range" min="0" max="16" step="0.5" value={appearance.glowWidth1080 || 0} onChange={(event) => updateAppearance((current) => ({ ...current, glowWidth1080: Number(event.target.value) }), { history: 'range' })}/></label><label className="range-field"><span>Glow opacity <b>{Math.round((appearance.glowOpacity || 0) * 100)}%</b></span><input type="range" min="0" max="100" value={Math.round((appearance.glowOpacity || 0) * 100)} onChange={(event) => updateAppearance((current) => ({ ...current, glowOpacity: Number(event.target.value) / 100 }), { history: 'range' })}/></label></>}
+        </div>
       </div>
     </details>
 
-    <div className="appearance-workspace-footer"><span>Appearance is project styling. It never changes caption text, timing, locks, correction memory, source media, or SRT output.</span><button className="quiet-action" onClick={() => updateAppearance(() => ({ ...DEFAULT_CAPTION_APPEARANCE, fontFamily: fonts[0]?.name || DEFAULT_CAPTION_APPEARANCE.fontFamily, bold: fonts[0] ? fonts[0].boldAvailable && DEFAULT_CAPTION_APPEARANCE.bold : DEFAULT_CAPTION_APPEARANCE.bold }))}><RotateCcw size={14}/>Reset appearance</button></div>
+    <div className="appearance-workspace-footer"><span>Appearance is project styling. It never changes caption text, timing, locks, correction memory, source media, or SRT output.</span></div>
   </section>;
 }

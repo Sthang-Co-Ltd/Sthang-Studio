@@ -112,6 +112,25 @@ before they reach Export.
   correction eligibility, caption text/timing, locks, Review focus, correction
   memory, history semantics, or source media.
 
+### Original Looks and Motion — unreleased source
+
+Keep three distinct choices: **Look**, **Motion**, and **Word emphasis**. Present
+six static labeled Look samples, a selected/Custom state, and **Reset look**.
+Applying a Look changes decoration only. Retain full user presets separately and
+label the scope as all project captions. Samples are illustrative; the native
+video remains the final layout reference. Never animate the entire gallery.
+
+Motion starts with **None / Fade**, a bounded duration and explicit **Replay
+effect**. Explain Fade in/out and that opening frames are prepared first; do not
+promise full pre-rendering of all word/overlap states. Keep **Turn motion off**
+separate from Look reset. New changes cancel pending replay. Effects expose one
+appearance Undo/Redo step, with continuous slider input grouped into one gesture.
+
+Keep source playback visible during desktop editing and bounded on narrow
+screens. Touch targets and descriptive labels survive responsive layouts. Word
+emphasis retains readiness and its direct timing-repair path; an unresolved word
+track does not remove the caption's base Look or caption-level Fade.
+
 ### Export workspace
 
 For the unreleased editable-handoff path, **Captions file** opens one compact
