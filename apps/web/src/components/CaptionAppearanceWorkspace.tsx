@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CAPTION_APPEARANCE,
   normalizeCaptionAppearance,
+  resolveCaptionWordTiming,
   type CaptionAppearance,
   type CaptionAppearancePreset,
   type CaptionProject,
+  type CaptionSegment,
   type VideoExportFontCapability,
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, Plus, RotateCcw, Save, Trash2, TriangleAlert } from 'lucide-react';
@@ -13,11 +15,14 @@ import { useAppearanceInteraction } from '../use-appearance-interaction';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import type { StudioConfirmOptions } from './ConfirmationDialog';
 import './caption-appearance.css';
+import './word-highlight.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 
 interface Props {
   project: CaptionProject;
+  captions: CaptionSegment[];
+  onEditWordTiming(id?: string): void;
   onAppearanceChange(appearance: CaptionAppearance): void;
   onInteractionChange(active: boolean): void;
   onConfirm(options: StudioConfirmOptions): Promise<boolean>;
@@ -30,7 +35,7 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
-export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onInteractionChange, onConfirm }: Props) {
+export function CaptionAppearanceWorkspace({ project, captions, onEditWordTiming, onAppearanceChange, onInteractionChange, onConfirm }: Props) {
   const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
@@ -51,6 +56,10 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onInte
   const fontInputRef = useRef<HTMLInputElement>(null);
   const dirtyRef = useRef(false);
   const isRecoveringRef = useRef(false);
+  const wordReadiness = useMemo(() => {
+    const spoken = captions.filter((caption) => caption.text.trim());
+    return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
+  }, [captions]);
 
   const persistAppearance = async (snapshot: CaptionAppearance): Promise<boolean> => {
     const snapshotKey = JSON.stringify(snapshot);
@@ -366,6 +375,26 @@ export function CaptionAppearanceWorkspace({ project, onAppearanceChange, onInte
     </div>
 
     {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={removingFontId === font.id} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
+
+    <section className="appearance-word-highlight" aria-label="Spoken word highlight">
+      <div className="appearance-word-highlight-head">
+        <div><strong>Spoken word highlight</strong><p>Keep the whole caption visible and color the word being spoken.</p></div>
+        <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
+          onClick={() => updateAppearance((current) => ({ ...current, highlightMode: current.highlightMode === 'word' ? 'off' : 'word' }))}>
+          {appearance.highlightMode === 'word' ? 'On' : 'Off'}
+        </button>
+      </div>
+      {appearance.highlightMode === 'word' && <>
+        <label className="appearance-highlight-color"><span>Highlight color</span><input type="color" aria-label="Word highlight color" value={appearance.highlightColor || '#D7FF4F'}
+          onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
+        <div className="appearance-highlight-readiness" role="status">
+          <span>{wordReadiness.total - wordReadiness.unresolved.length} of {wordReadiness.total} captions have usable word timing.
+            {wordReadiness.unresolved.length > 0 ? ` ${wordReadiness.unresolved.length} will stay plain until their words are synced or confirmed.` : ' Pauses keep the normal text color.'}</span>
+          <button type="button" onClick={() => onEditWordTiming(wordReadiness.unresolved[0]?.id)}>{wordReadiness.unresolved.length ? 'Review word timing' : 'Edit word timing'}</button>
+        </div>
+        <p className="appearance-highlight-note">Word highlights are included in captioned video. SRT keeps plain caption text and timing.</p>
+      </>}
+    </section>
 
     <details className="appearance-more">
       <summary>More appearance</summary>

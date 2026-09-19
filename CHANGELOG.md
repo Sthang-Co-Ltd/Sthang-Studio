@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add optional spoken-word highlighting to native preview and captioned MP4.
+  Keep the full caption visible and restore its normal color between words.
+  Incomplete, stale, or uncertain word timing leaves that caption plain; SRT
+  continues to contain only caption text and cue start/end times.
+- Add editable per-caption word timing, word edge/move controls, local exact-text
+  Sync words proposals, explicit apply/discard, and undo. Preserve provable word
+  timings through corrections, caption movement, splitting, merging, and History;
+  mark ambiguous or changed words for review instead of stretching old timings.
+- Prevent new or increased caption overlaps by default. Offer explicit overlap
+  and shared-edge modes, with atomic two-caption undo and timing-lock protection.
+- Preserve the full combined time span when merging overlapping or nested
+  captions, without moving their retained word intervals.
+- Keep Khmer glyph shaping and layout stable across highlight states using the
+  native whole-text shaping path. Word offsets respect grapheme boundaries.
 - Fix waveform delivery when the application or state folder has a dot-prefixed
   ancestor, such as a development worktree. Keep delivery restricted to the
   selected project's normalized audio, and exercise real HTTP delivery in tests.

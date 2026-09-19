@@ -40,7 +40,17 @@ available without crowding the main editing flow.
 
 The source Fine Timing workspace now focuses on one caption at a time, keeps
 playback visible, and provides precise start/end entry, bounded nudges, whole-cue
-movement, edge auditions, optional looping, and timing undo/redo. See the
+movement, edge auditions, optional looping, and timing undo/redo. Neighbor
+protection prevents accidental overlaps; an explicit shared-edge option adjusts
+the transition between two captions without shifting later speech.
+
+**Word timing** lets creators adjust one word inside a caption. **Sync words**
+aligns the current corrected wording locally and offers a candidate to review
+before applying. Changed or ambiguous words remain reviewable rather than
+receiving invented timings. **Appearance → Spoken word highlight** optionally
+colors the current spoken word while keeping the entire caption visible. Captions
+with unresolved word timing stay plain. The effect is included in native preview
+and captioned MP4; SRT remains plain caption text and cue timing. See the
 [Fine Timing guide](docs/FINE-TIMING.md) for controls, shortcuts, and limits.
 These source changes do not establish availability in the released downloads below.
 

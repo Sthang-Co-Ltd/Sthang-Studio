@@ -70,8 +70,36 @@ export function parseCaptionPreviewInput(value: unknown) {
       || !Number.isFinite(item.startMs) || !Number.isFinite(item.endMs) || item.startMs < 0 || item.endMs < item.startMs || item.endMs > 1_000_000_000) {
       throw new Error('Invalid caption in preview request.');
     }
+    const rawTiming = (item as { wordTiming?: unknown }).wordTiming;
+    let wordTiming: CaptionSegment['wordTiming'];
+    if (rawTiming !== undefined) {
+      const timing = rawTiming as CaptionSegment['wordTiming'];
+      if (!timing || timing.version !== 1 || typeof timing.text !== 'string' || !Array.isArray(timing.words)) {
+        throw new Error('Invalid caption word timing in preview request.');
+      }
+      const validTime = (time: unknown) => time === null || (typeof time === 'number' && Number.isFinite(time));
+      const words = timing.words.map((word) => {
+        if (!word || typeof word.id !== 'string' || !word.id
+          || !Number.isInteger(word.startOffset) || !Number.isInteger(word.endOffset)
+          || !['aligned', 'manual', 'estimated'].includes(String(word.source))
+          || !validTime(word.startMs) || !validTime(word.endMs)
+          || word.needsReview !== undefined && typeof word.needsReview !== 'boolean') {
+          throw new Error('Invalid caption word timing in preview request.');
+        }
+        return {
+          id: word.id,
+          startOffset: word.startOffset,
+          endOffset: word.endOffset,
+          startMs: word.startMs,
+          endMs: word.endMs,
+          source: word.source,
+          ...(word.needsReview === true ? { needsReview: true } : {}),
+        };
+      });
+      wordTiming = { version: 1, text: timing.text, words };
+    }
     // Only appearance evidence is needed: approval, locks, confidence and private context stay out.
-    return { id: String(index), text: item.text, startMs: item.startMs, endMs: item.endMs };
+    return { id: String(index), text: item.text, startMs: item.startMs, endMs: item.endMs, ...(wordTiming ? { wordTiming } : {}) };
   });
   if (!['source', '720p', '1080p', '1440p', '2160p'].includes(String(input.resolution))) throw new Error('Invalid preview resolution.');
   const focusIndices = input.focusIndices;

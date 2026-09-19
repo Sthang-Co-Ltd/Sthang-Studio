@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { CaptionSegment, SegmentOptions, TimedToken, TimingQuality, TimingSource } from '@kcs/shared';
+import { buildCaptionWordTiming, type CaptionSegment, type SegmentOptions, type TimedToken, type TimingQuality, type TimingSource } from '@kcs/shared';
 import { joinTokens, normalizeKhmerTokenSpacing, tokenizeText } from './tokenizer.js';
 
 const STRONG_END = /[។៕!?…]$/u;
@@ -18,7 +18,7 @@ function dominantSource(tokens: TimedToken[]): TimingSource {
 
 function makeCaption(tokens: TimedToken[]): CaptionSegment {
   const confidenceValues = tokens.map((x) => x.confidence).filter((x): x is number => typeof x === 'number');
-  return {
+  const caption: CaptionSegment = {
     id: nanoid(8),
     startMs: tokens[0].startMs,
     endMs: tokens[tokens.length - 1].endMs,
@@ -27,6 +27,8 @@ function makeCaption(tokens: TimedToken[]): CaptionSegment {
     timingQuality: quality(tokens),
     timingSource: dominantSource(tokens),
   };
+  const wordTiming = buildCaptionWordTiming(caption, tokens);
+  return wordTiming ? { ...caption, wordTiming } : caption;
 }
 
 function visibleLength(tokens: TimedToken[]) {

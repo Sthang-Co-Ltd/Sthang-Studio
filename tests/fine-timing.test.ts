@@ -107,6 +107,7 @@ test('timingFields exposes only the transaction fields App is allowed to merge',
     timingSource: 'stt',
     timingQuality: 'high',
     approved: true,
+    wordTiming: undefined,
   });
   assert.equal('timingLocked' in timingFields(source), false);
   assert.equal('textLocked' in timingFields(source), false);
@@ -134,4 +135,18 @@ test('undo revision guard accepts only the exact timing revision and rejects int
   // Optional booleans intentionally normalize undefined and false to one revision state.
   const optionalFalse = caption({ approved: undefined, timingLocked: undefined, textLocked: undefined });
   assert.equal(sameTimingRevision({ ...optionalFalse, approved: false, timingLocked: false, textLocked: false }, optionalFalse), true);
+
+  const withWords = caption({
+    textLocked: false,
+    timingLocked: false,
+    wordTiming: { version: 1, text: expected.text, words: [] },
+  });
+  assert.equal(sameTimingRevision(structuredClone(withWords), withWords), true);
+  assert.equal(sameTimingRevision({
+    ...withWords,
+    wordTiming: {
+      ...withWords.wordTiming!,
+      words: [{ id: 'changed-word', startOffset: 0, endOffset: 1, startMs: 1_050, endMs: 1_250, source: 'manual' }],
+    },
+  }, withWords), false);
 });

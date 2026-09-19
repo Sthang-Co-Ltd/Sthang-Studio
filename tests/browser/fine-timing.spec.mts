@@ -161,11 +161,18 @@ test('global timing shortcuts use bounded movement and the timing undo history',
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
   await page.locator('video').evaluate((video: HTMLVideoElement) => { video.currentTime = 3; video.dispatchEvent(new Event('timeupdate')); });
   await expect(page.getByRole('button', { name: 'Set start to playhead', exact: true })).toBeDisabled();
+  // A later cue now protects this boundary by default. Explicit overlaps retain
+  // the original media-bounds behavior when the user deliberately enables them.
+  await expect(page.getByRole('button', { name: 'Set end to playhead', exact: true })).toBeDisabled();
+  await page.locator('.timing-options > summary').click();
+  await page.getByLabel('Allow overlaps', { exact: true }).check();
   await expect(page.getByRole('button', { name: 'Set end to playhead', exact: true })).toBeEnabled();
 });
 
 test('moving a caption past another keeps the list and saved export order chronological', async ({ page }) => {
   await openTiming(page);
+  await page.locator('.timing-options > summary').click();
+  await page.getByLabel('Allow overlaps', { exact: true }).check();
   await page.getByLabel('Timing nudge step').selectOption('100');
   for (let step = 0; step < 13; step++) await page.getByRole('button', { name: 'Move later', exact: true }).click();
   await expect.poll(() => state.projects[0].captions.map((caption) => caption.id)).toEqual(['c2', 'c1', 'c3']);

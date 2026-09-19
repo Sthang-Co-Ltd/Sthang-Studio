@@ -61,7 +61,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
-import { isVideoProject, normalizeCaptionAppearance, summarizeProject } from '@kcs/shared';
+import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming } from '@kcs/shared';
 import { NativeCaptionPreview } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
@@ -71,6 +71,7 @@ import { deferWorkspace } from './components/DeferredWorkspace';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
 import { sameTimingRevision, timingFields } from './timing-edit';
+import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
 import './styles.css';
 
@@ -93,6 +94,10 @@ const LEGACY_GLOSSARY_KEY = 'kcs:default-protected-vocabulary:v1';
 const LEGACY_STYLE_KEY = 'kcs:my-tiktok-style:v1';
 const PROFILE_MIGRATION_KEY = 'kcs:profile-migrated:v1';
 const FIRST_RUN_DISMISSED_KEY = 'sthang:first-run-dismissed:v1';
+
+function withCaptionWordTimings(project: CaptionProject): CaptionProject {
+  return hydrateCaptionWordTimings(project);
+}
 const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
 type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
@@ -172,6 +177,7 @@ export default function App() {
   const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
+  const [wordTimingPreview, setWordTimingPreview] = useState<{ mediaKey: string; basis: CaptionSegment; caption: CaptionSegment } | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -215,6 +221,7 @@ export default function App() {
   const [proposalAccuracyHint, setProposalAccuracyHint] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
+  const [requestedTimingMode, setRequestedTimingMode] = useState<'caption' | 'words'>('caption');
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
   });
@@ -387,7 +394,7 @@ export default function App() {
 
   useEffect(() => {
     if (!project) return;
-    const initialDraft = project.captions || [];
+    const initialDraft = withCaptionWordTimings(project).captions || [];
     setDraft(initialDraft);
     draftRef.current = initialDraft;
     draftVersion.current += 1;
@@ -432,6 +439,7 @@ export default function App() {
   }, [proposal?.id, mediaKey]);
 
   const applyProject = (next: CaptionProject, replaceDraft = true) => {
+    next = withCaptionWordTimings(next);
     projectOpen.current?.abort();
     projectOpen.current = null;
     setOpeningProjectId(null);
@@ -534,6 +542,11 @@ export default function App() {
 
   const updateDraft = (next: CaptionSegment[], preferredSelectionId?: string, reason: DraftChangeReason = 'metadata') => {
     if (workspaceTool === 'timeline') cancelPlayback();
+    const previous = new Map(draftRef.current.map((caption) => [caption.id, caption]));
+    next = next.map((caption) => {
+      const before = previous.get(caption.id);
+      return before ? reconcileCaptionWordTiming(before, caption) : caption;
+    });
     // Export and review consume array order. Keep moved captions chronological.
     if (reason === 'timing') next = [...next].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
     setDraft(next);
@@ -582,10 +595,16 @@ export default function App() {
     return distributePreviewText(proposalEditedText, proposal.proposedCaptions);
   }, [proposal, proposalEditedText]);
   const videoCaptions = useMemo(() => {
-    if (!proposal || proposalPreviewMode === 'current') return draft;
+    if (!proposal || proposalPreviewMode === 'current') {
+      if (workspaceTool === 'timeline' && wordTimingPreview?.mediaKey === mediaKey
+        && sameTimingRevision(draft.find((caption) => caption.id === wordTimingPreview.basis.id), wordTimingPreview.basis)) {
+        return draft.map((caption) => caption.id === wordTimingPreview.basis.id ? wordTimingPreview.caption : caption);
+      }
+      return draft;
+    }
     const outside = draft.filter((caption) => caption.endMs <= proposal.startMs || caption.startMs >= proposal.endMs);
     return [...outside, ...proposedPreviewRange].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
-  }, [draft, proposal, proposalPreviewMode, proposedPreviewRange]);
+  }, [draft, proposal, proposalPreviewMode, proposedPreviewRange, wordTimingPreview, mediaKey, workspaceTool]);
   const [liveAppearance, setLiveAppearance] = useState<{ projectId: string; appearance: CaptionAppearance } | null>(null);
   const [previewResolution, setPreviewResolution] = useState<VideoResolutionPreset>('source');
   const [appearanceInteracting, setAppearanceInteracting] = useState(false);
@@ -716,6 +735,30 @@ export default function App() {
     const timer = window.setTimeout(() => { void saveDraft(true, 'autosave', false); }, delay);
     return () => window.clearTimeout(timer);
   }, [draft, dirty, textEditing, groupingApplying, project?.id, profile?.preferences.autosaveDelayMs]);
+
+  const syncCaptionWords = async (caption: CaptionSegment, signal?: AbortSignal) => {
+    if (!project || busy || currentProjectActiveJob || caption.timingLocked) return null;
+    const ticket = projectScope.current.capture();
+    if (!sameTimingRevision(draftRef.current.find((item) => item.id === caption.id), caption)) return null;
+    const editRevision = draftEditRevision.current;
+    const hadEdits = dirtyRef.current;
+    const saved = await saveDraft(true, 'manual-save', true);
+    if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
+    if (hadEdits && !saved) throw new Error('Save the caption successfully before syncing its words.');
+    if (editRevision !== draftEditRevision.current || dirtyRef.current) throw new Error('The caption changed while saving. Sync its words again when the edit is ready.');
+    const basis = draftRef.current.find((item) => item.id === caption.id);
+    if (!basis || basis.timingLocked) return null;
+    setBusy('Syncing word timing…');
+    try {
+      const candidate = await api.syncCaptionWords(project.id, basis, { filename: project.media.filename, size: project.media.size }, signal);
+      if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
+      if (!sameTimingRevision(draftRef.current.find((item) => item.id === basis.id), basis)) {
+        setNotice('The caption changed during word sync. Your newer edits were kept.');
+        return null;
+      }
+      return candidate;
+    } finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
+  };
 
   const refreshJobs = async () => {
     try { setJobs(await api.jobs()); } catch { /* queue is optional during startup */ }
@@ -868,7 +911,16 @@ export default function App() {
     if (targets.some((caption) => caption.timingLocked)) { setNotice('Unlock the selected timing before moving these captions together.'); return; }
     const minimum = Math.min(...targets.map((caption) => caption.startMs));
     const maximum = Math.max(...targets.map((caption) => caption.endMs));
-    const safeDelta = Math.max(-minimum, Math.min(delta, mediaDurationMs ? mediaDurationMs - maximum : delta));
+    const outsiders = draftRef.current.filter((caption) => !selected.has(caption.id));
+    let lower = -minimum;
+    let upper = mediaDurationMs ? mediaDurationMs - maximum : Number.MAX_SAFE_INTEGER;
+    for (const caption of targets) {
+      const limits = captionNeighborLimits([...outsiders, caption], caption.id, mediaDurationMs || Number.MAX_SAFE_INTEGER);
+      lower = Math.max(lower, limits.lower - caption.startMs);
+      upper = Math.min(upper, limits.upper - caption.endMs);
+    }
+    const safeDelta = Math.max(lower, Math.min(delta, upper));
+    if (safeDelta !== delta) setNotice('Reached a caption outside the selection. Other captions stayed in place.');
     if (!safeDelta) return;
     updateDraft(draftRef.current.map((caption) => selected.has(caption.id)
       ? { ...caption, startMs: caption.startMs + safeDelta, endMs: caption.endMs + safeDelta, timingSource: 'manual', timingQuality: 'medium', approved: false }
@@ -1604,6 +1656,7 @@ export default function App() {
   };
   const chooseWorkspaceTool = (tool: Exclude<WorkspaceTool, null>) => {
     cancelPlayback();
+    if (tool === 'timeline') setRequestedTimingMode('caption');
     if (tool === 'review') {
       if (workspaceTool === 'review') {
         setWorkspaceTool(null);
@@ -1617,6 +1670,14 @@ export default function App() {
       if (id) { setSelectionAnchor(id); setSelectionEnd(id); }
     }
     setWorkspaceTool((current) => current === tool ? null : tool);
+  };
+  const openWordTiming = (id?: string) => {
+    cancelPlayback();
+    setReviewMode(false);
+    const target = draftRef.current.find((caption) => caption.id === id) || selection.captions[0] || draftRef.current[0];
+    if (target) { setSelectionAnchor(target.id); setSelectionEnd(target.id); editor.current?.revealCaption(target.id); }
+    setRequestedTimingMode('words');
+    setWorkspaceTool('timeline');
   };
 
   const overlays = <>
@@ -1745,15 +1806,18 @@ export default function App() {
 
           {workspaceTool === 'export' && <ExportWorkspace key={`${project.id}:${project.media.filename}`}
             onPreviewResolution={setPreviewResolution}
-            project={project}
+            project={{ ...project, captions: draft }}
             busy={Boolean(busy)}
             activeExportJob={activeExportJob}
             onExportSrt={() => void exportSrt()}
             onEditAppearance={() => chooseWorkspaceTool('appearance')}
+            onEditWordTiming={openWordTiming}
             onStartVideoExport={startVideoExport}
           />}
 
-          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} captions={draft}
+            onEditWordTiming={openWordTiming}
+            onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
           {workspaceTool === 'timeline' && draft.length > 0 && <WaveformEditor key={mediaKey}
             projectId={project.id}
@@ -1766,15 +1830,33 @@ export default function App() {
             playbackRate={playbackRate}
             initialMode={profile?.preferences.waveformMode || 'waveform'}
             initialZoom={profile?.preferences.waveformZoom || 2}
+            initialEditMode={requestedTimingMode}
             onSeek={seek}
             onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
             onTimingChange={(before, after) => {
-              const current = draftRef.current.find((caption) => caption.id === before.id);
-              if (!projectScope.current.isCurrent(viewTicket) || !sameTimingRevision(current, before) || current?.timingLocked
-                || !Number.isFinite(after.startMs) || !Number.isFinite(after.endMs) || after.startMs < 0
-                || after.endMs - after.startMs < 40 || (mediaDurationMs && after.endMs > mediaDurationMs)) return false;
-              updateDraft(draftRef.current.map((caption) => caption.id === before.id ? { ...caption, ...timingFields(after) } : caption), before.id, 'timing');
+              if (!projectScope.current.isCurrent(viewTicket) || !before.length || before.length !== after.length
+                || new Set(before.map((caption) => caption.id)).size !== before.length) return false;
+              for (let index = 0; index < before.length; index++) {
+                const prior = before[index];
+                const next = after[index];
+                const current = draftRef.current.find((caption) => caption.id === prior.id);
+                if (prior.id !== next.id || !sameTimingRevision(current, prior) || current?.timingLocked
+                  || !Number.isFinite(next.startMs) || !Number.isFinite(next.endMs) || next.startMs < 0
+                  || next.endMs - next.startMs < 40 || (mediaDurationMs && next.endMs > mediaDurationMs)) return false;
+              }
+              const replacements = new Map(after.map((caption) => [caption.id, caption]));
+              updateDraft(draftRef.current.map((caption) => replacements.has(caption.id) ? { ...caption, ...timingFields(replacements.get(caption.id)!) } : caption), selection.ids[0] || before[0].id, 'timing');
               return true;
+            }}
+            onSyncWords={syncCaptionWords}
+            syncDisabled={Boolean(busy || currentProjectActiveJob || !timingConfigured)}
+            highlightEnabled={previewAppearance.highlightMode === 'word'}
+            onOpenAppearance={() => chooseWorkspaceTool('appearance')}
+            onEditCaptionText={() => { if (selection.ids[0]) editor.current?.focusCaption(selection.ids[0]); }}
+            onWordPreview={(basis, preview) => {
+              if (preview && projectScope.current.isCurrent(viewTicket) && sameTimingRevision(draftRef.current.find((caption) => caption.id === basis.id), basis)) {
+                setWordTimingPreview({ mediaKey, basis, caption: preview });
+              } else setWordTimingPreview((current) => current?.basis.id === basis.id ? null : current);
             }}
             onPreview={(range) => {
               cancelPlayback();
@@ -1847,7 +1929,8 @@ export default function App() {
         </>}
       </div>
 
-      <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
+      <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} highlightEnabled={previewAppearance.highlightMode === 'word'} onWordTiming={openWordTiming} onNotice={setNotice}
+        active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
     </section>
 
     {statusToasts}

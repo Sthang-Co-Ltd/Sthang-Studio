@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CaptionSegment, TimedToken } from '@kcs/shared';
+import { resolveCaptionWordTiming } from '@kcs/shared';
 import {
   AudioLines,
   LocateFixed,
@@ -17,8 +18,11 @@ import {
 import { decodeWaveformAudio } from '../audio/wav';
 import { buildWaveformPeaks, waveformExtrema, type WaveformPeaks } from '../audio/peaks';
 import { TimestampInput } from './TimestampInput';
-import { editCaptionTiming, focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEdit, type TimingEditKind } from '../timing-edit';
+import { focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEditKind } from '../timing-edit';
+import { captionNeighborLimits, planCaptionTimingEdit, type CaptionTimingOptions, type CaptionTimingTransaction } from '../caption-timing-transaction';
 import type { TimingPlaybackRange } from '../timing-playback';
+import { WordTimingPanel, type WordTimingCandidate } from './WordTimingPanel';
+import { changeWordTiming } from '../word-timing-edit';
 import './waveform-editor.css';
 
 interface WaveformEditorProps {
@@ -32,9 +36,16 @@ interface WaveformEditorProps {
   playbackRate: number;
   initialMode: 'waveform' | 'spectrum';
   initialZoom: number;
+  initialEditMode?: 'caption' | 'words';
+  onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
+  syncDisabled: boolean;
+  highlightEnabled: boolean;
+  onOpenAppearance(): void;
+  onEditCaptionText(): void;
+  onWordPreview(basis: CaptionSegment, preview: CaptionSegment | null): void;
   onSeek(ms: number): void;
   onSelect(id: string): void;
-  onTimingChange(before: CaptionSegment, after: CaptionSegment): boolean;
+  onTimingChange(before: CaptionSegment[], after: CaptionSegment[]): boolean;
   onPreview(range: TimingPlaybackRange): void;
   onStopPreview(): void;
   onNotice(message: string): void;
@@ -46,9 +57,12 @@ interface DragState {
   captionId: string;
   edge: TimingEditKind;
   before: CaptionSegment;
+  basis: CaptionSegment[];
+  options: CaptionTimingOptions;
   originMs: number;
   originX: number;
   pointerId: number;
+  wordId?: string;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -173,6 +187,13 @@ export function WaveformEditor({
   playbackRate,
   initialMode,
   initialZoom,
+  initialEditMode = 'caption',
+  onSyncWords,
+  syncDisabled,
+  highlightEnabled,
+  onOpenAppearance,
+  onEditCaptionText,
+  onWordPreview,
   onSeek,
   onSelect,
   onTimingChange,
@@ -198,10 +219,16 @@ export function WaveformEditor({
   const [snap, setSnap] = useState<'word' | 'silence' | 'off'>(tokens.length ? 'word' : 'off');
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
-  const [dragPreview, setDragPreview] = useState<CaptionSegment | null>(null);
+  const [dragPreview, setDragPreview] = useState<CaptionSegment[] | null>(null);
+  const [allowOverlap, setAllowOverlap] = useState(false);
+  const [sharedBoundary, setSharedBoundary] = useState(false);
+  const [editMode, setEditMode] = useState<'caption' | 'words'>(initialEditMode);
+  const [selectedWordId, setSelectedWordId] = useState<string | null>(null);
+  const [wordCandidate, setWordCandidate] = useState<{ basis: CaptionSegment; preview: CaptionSegment } | null>(null);
+  const [showReferenceWords, setShowReferenceWords] = useState(false);
   const [stepMs, setStepMs] = useState(50);
   const [loop, setLoop] = useState(false);
-  const history = useRef<{ undo: TimingEdit[]; redo: TimingEdit[] }>({ undo: [], redo: [] });
+  const history = useRef<{ undo: CaptionTimingTransaction[]; redo: CaptionTimingTransaction[] }>({ undo: [], redo: [] });
   const [, setHistoryRevision] = useState(0);
   const focusIdentity = useRef('');
   const [spectrum, setSpectrum] = useState<Spectrum | null>(null);
@@ -211,14 +238,35 @@ export function WaveformEditor({
   const memoryKey = useMemo(() => waveformIdentity(projectId, mediaIdentity, tokens), [projectId, mediaIdentity, tokens]);
   const captionIndex = captions.findIndex((caption) => caption.id === selectedIds[0]);
   const selectedCaption = captions[captionIndex];
-  const currentCaption = dragPreview || selectedCaption;
-  const drawnCaptions = useMemo(() => dragPreview ? captions.map((caption) => caption.id === dragPreview.id ? dragPreview : caption) : captions, [captions, dragPreview]);
+  const validCandidate = wordCandidate && sameTimingRevision(selectedCaption, wordCandidate.basis) ? wordCandidate.preview : null;
+  const currentCaption = dragPreview?.find((caption) => caption.id === selectedCaption?.id) || validCandidate || selectedCaption;
+  const drawnCaptions = useMemo(() => dragPreview ? captions.map((caption) => dragPreview.find((preview) => preview.id === caption.id) || caption) : captions, [captions, dragPreview]);
   const maxZoom = Math.max(24, durationMs / 500);
   const viewDurationMs = durationMs ? durationMs / zoom : 1;
   const viewEndMs = viewStartMs + viewDurationMs;
   const editLimitMs = mediaDurationMs && Number.isFinite(mediaDurationMs)
     ? (durationMs ? Math.min(durationMs, mediaDurationMs) : mediaDurationMs) : durationMs;
   const editingDisabled = !selectedCaption || Boolean(selectedCaption.timingLocked) || !editLimitMs;
+  const wordResolution = useMemo(() => currentCaption ? resolveCaptionWordTiming(currentCaption) : null, [currentCaption]);
+  const editableWords = wordResolution?.state === 'stale' ? [] : wordResolution?.words || [];
+  const selectedWord = editableWords.find((word) => word.id === selectedWordId) || editableWords[0];
+  const neighbourLimits = captionNeighborLimits(captions, selectedCaption?.id || '', editLimitMs);
+  const edgeBounds = (edge: 'start' | 'end') => {
+    if (!currentCaption) return { min: 0, max: editLimitMs, blocked: true };
+    if (sharedBoundary) {
+      const other = edge === 'start' ? neighbourLimits.previous : neighbourLimits.next;
+      return {
+        min: edge === 'start' ? (other?.startMs ?? 0) + 40 : currentCaption.startMs + 40,
+        max: edge === 'start' ? currentCaption.endMs - 40 : (other?.endMs ?? editLimitMs) - 40,
+        blocked: !other || Boolean(other.timingLocked),
+      };
+    }
+    return {
+      min: edge === 'start' ? allowOverlap ? 0 : neighbourLimits.lower : currentCaption.startMs + 40,
+      max: edge === 'start' ? currentCaption.endMs - 40 : allowOverlap ? editLimitMs : neighbourLimits.upper,
+      blocked: false,
+    };
+  };
 
   const focusCaption = (caption = selectedCaption) => {
     if (!caption || !durationMs) return;
@@ -237,6 +285,13 @@ export function WaveformEditor({
   }, [memoryKey, selectedCaption?.id, durationMs]);
 
   useEffect(() => () => onStopPreview(), []);
+
+  useEffect(() => {
+    setSelectedWordId(null);
+    setWordCandidate(null);
+    onStopPreview();
+  }, [selectedCaption?.id]);
+  useEffect(() => { setEditMode(initialEditMode); }, [initialEditMode]);
 
   useEffect(() => {
     setMode(initialMode);
@@ -528,7 +583,7 @@ export function WaveformEditor({
     }
 
     const showWords = viewDurationMs <= 28_000;
-    for (const token of tokens) {
+    for (const token of showReferenceWords && editMode === 'caption' ? tokens : []) {
       if (token.endMs < viewStartMs || token.startMs > viewEndMs) continue;
       const x = timeToX(token.startMs);
       ctx.strokeStyle = token.timingSource === 'interpolated' ? '#d56565' : '#697748';
@@ -545,7 +600,31 @@ export function WaveformEditor({
       }
     }
 
-  }, [width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, drawnCaptions, tokens, selected]);
+    if (editMode === 'words' && currentCaption) {
+      for (const word of editableWords) {
+        if (word.startMs === null || word.endMs === null || word.endMs < viewStartMs || word.startMs > viewEndMs) continue;
+        const x1 = timeToX(word.startMs);
+        const x2 = timeToX(word.endMs);
+        const activeWord = word.id === selectedWord?.id;
+        const tentative = word.needsReview || word.source === 'estimated';
+        ctx.fillStyle = tentative ? 'rgba(112,76,25,.92)' : activeWord ? '#314619' : '#151e29';
+        ctx.fillRect(x1, 100, Math.max(2, x2 - x1), 33);
+        ctx.strokeStyle = tentative ? '#f0c179' : activeWord ? '#d7ff4f' : '#8d9aa9';
+        ctx.lineWidth = activeWord ? 2 : 1;
+        ctx.strokeRect(x1 + .5, 100.5, Math.max(1, x2 - x1 - 1), 32);
+        if (activeWord) for (const x of [x1, x2]) {
+          ctx.fillStyle = '#d7ff4f'; ctx.fillRect(x - 3, 98, 6, 36);
+        }
+        ctx.save();
+        ctx.beginPath(); ctx.rect(Math.max(0, x1 + 7), 102, Math.max(0, Math.min(width, x2 - 6) - Math.max(0, x1 + 7)), 28); ctx.clip();
+        ctx.font = '12px "Noto Sans Khmer", sans-serif';
+        ctx.fillStyle = '#f5f7ea';
+        ctx.fillText(currentCaption.text.slice(word.startOffset, word.endOffset), Math.max(0, x1 + 7), 122);
+        ctx.restore();
+      }
+    }
+
+  }, [width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, drawnCaptions, tokens, selected, currentCaption, editMode, showReferenceWords, selectedWord?.id]);
 
   // The moving cursor has its own transparent layer; it never invalidates the
   // expensive waveform/spectrum, word anchors, or caption background drawing.
@@ -591,9 +670,11 @@ export function WaveformEditor({
     return best;
   };
 
-  const commit = (before: CaptionSegment, after: CaptionSegment, record = true) => {
-    if (before.startMs === after.startMs && before.endMs === after.endMs) return false;
-    if (!sameTimingRevision(captions.find((caption) => caption.id === before.id), before) || !onTimingChange(before, after)) {
+  const commit = (transaction: CaptionTimingTransaction, record = true) => {
+    const { before, after, limited } = transaction;
+    if (limited) onNotice(limited);
+    if (!after.length || after.every((caption, index) => sameTimingRevision(caption, before[index]))) return false;
+    if (!before.every((expected) => sameTimingRevision(captions.find((caption) => caption.id === expected.id), expected)) || !onTimingChange(before, after)) {
       onNotice('This caption changed during the timing edit. Its newer edits were kept.');
       return false;
     }
@@ -606,7 +687,7 @@ export function WaveformEditor({
     return true;
   };
   const edit = (kind: TimingEditKind, value: number) => {
-    return selectedCaption ? commit(selectedCaption, editCaptionTiming(selectedCaption, kind, value, editLimitMs)) : false;
+    return selectedCaption ? commit(planCaptionTimingEdit(captions, selectedCaption.id, kind, value, editLimitMs, { allowOverlap, sharedBoundary })) : false;
   };
   const restore = (direction: 'undo' | 'redo') => {
     const stack = history.current[direction];
@@ -614,28 +695,36 @@ export function WaveformEditor({
     if (!entry) return;
     const before = direction === 'undo' ? entry.after : entry.before;
     const after = direction === 'undo' ? entry.before : entry.after;
-    if (commit(before, after, false)) {
+    if (commit({ before, after }, false)) {
       stack.pop();
       history.current[direction === 'undo' ? 'redo' : 'undo'].push(entry);
-      onSelect(after.id);
-      focusCaption(after);
+      const target = after.find((caption) => caption.id === selectedCaption?.id) || after[0];
+      onSelect(target.id);
+      focusCaption(target);
     } else {
       history.current = { undo: [], redo: [] };
       setHistoryRevision((value) => value + 1);
     }
   };
   const previewForPointer = (event: React.PointerEvent<HTMLCanvasElement>, gesture: DragState) => {
-    if (Math.abs(event.clientX - gesture.originX) < 2) return gesture.before;
+    if (Math.abs(event.clientX - gesture.originX) < 2) return { before: [], after: [] } as CaptionTimingTransaction;
     const delta = pointerTime(event) - gesture.originMs;
+    if (gesture.wordId) {
+      const word = gesture.before.wordTiming?.words.find((item) => item.id === gesture.wordId);
+      if (word?.startMs == null || word.endMs == null) return { before: [], after: [] };
+      const value = gesture.edge === 'move' ? delta : (gesture.edge === 'start' ? word.startMs : word.endMs) + delta;
+      const after = changeWordTiming(gesture.before, gesture.wordId, gesture.edge, value);
+      return after === gesture.before ? { before: [], after: [] } : { before: [gesture.before], after: [after] };
+    }
     const target = gesture.edge === 'move' ? gesture.before.startMs + delta
       : gesture.before[gesture.edge === 'start' ? 'startMs' : 'endMs'] + delta;
     const snapped = event.shiftKey ? target : snapTime(target, gesture.edge);
-    return editCaptionTiming(gesture.before, gesture.edge, gesture.edge === 'move' ? snapped - gesture.before.startMs : snapped, editLimitMs);
+    return planCaptionTimingEdit(gesture.basis, gesture.before.id, gesture.edge, gesture.edge === 'move' ? snapped - gesture.before.startMs : snapped, editLimitMs, gesture.options);
   };
   const cancelDrag = () => { dragRef.current = null; setDrag(null); setDragPreview(null); };
   const updateDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const gesture = dragRef.current;
-    if (gesture?.pointerId === event.pointerId) setDragPreview(previewForPointer(event, gesture));
+    if (gesture?.pointerId === event.pointerId) setDragPreview(previewForPointer(event, gesture).after);
   };
   const navigateCaption = (delta: number) => {
     const next = captions[clamp(captionIndex + delta, 0, captions.length - 1)];
@@ -647,8 +736,8 @@ export function WaveformEditor({
   };
   const lastUndo = history.current.undo.at(-1);
   const lastRedo = history.current.redo.at(-1);
-  const canUndo = Boolean(lastUndo && sameTimingRevision(captions.find((caption) => caption.id === lastUndo.after.id), lastUndo.after));
-  const canRedo = Boolean(lastRedo && sameTimingRevision(captions.find((caption) => caption.id === lastRedo.before.id), lastRedo.before));
+  const canUndo = Boolean(lastUndo && lastUndo.after.every((expected) => sameTimingRevision(captions.find((caption) => caption.id === expected.id), expected)));
+  const canRedo = Boolean(lastRedo && lastRedo.before.every((expected) => sameTimingRevision(captions.find((caption) => caption.id === expected.id), expected)));
 
   const setZoomValue = (value: number) => {
     const next = clamp(value, 1, maxZoom);
@@ -671,7 +760,14 @@ export function WaveformEditor({
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault(); if (event.shiftKey ? canRedo : canUndo) restore(event.shiftKey ? 'redo' : 'undo');
       } else if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
-        event.preventDefault(); edit('move', (event.key === 'ArrowLeft' ? -1 : 1) * stepMs);
+        event.preventDefault();
+        const delta = (event.key === 'ArrowLeft' ? -1 : 1) * stepMs;
+        if (editMode === 'words') {
+          if (selectedCaption && selectedWord && !validCandidate) {
+            const after = changeWordTiming(selectedCaption, selectedWord.id, 'move', delta);
+            if (after !== selectedCaption) commit({ before: [selectedCaption], after: [after] });
+          }
+        } else edit('move', delta);
       } else if (!event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'r') {
         event.preventDefault(); audition('caption');
       }
@@ -701,6 +797,11 @@ export function WaveformEditor({
         <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} title="Redo timing edit (Ctrl+Shift+Z)"><Redo2 size={15}/>Redo</button>
       </div>
     </div>
+    <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
+      <button aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('caption'); }}>Caption edges</button>
+      <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('words'); }}>Word timing</button>
+      {editMode === 'words' && <span className="timing-hint">{wordResolution?.state === 'ready' ? 'Timing ready' : 'Word timing needs review'}</span>}
+    </div>
     <div className="timing-view-controls">
       <button onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><LocateFixed size={15}/>Focus caption</button>
       <button onClick={() => setZoomValue(1)} disabled={!durationMs}>Full clip</button>
@@ -728,6 +829,26 @@ export function WaveformEditor({
           event.currentTarget.focus({ preventScroll: true });
           const value = pointerTime(event);
           const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
+          if (editMode === 'words' && y >= 96 && y < 136 && selectedCaption) {
+            const tolerance = viewDurationMs / width * 10;
+            const possible = editableWords.filter((word) => word.startMs !== null && word.endMs !== null);
+            let wordEdge: { id: string; edge: 'start' | 'end'; distance: number } | undefined;
+            for (const word of possible) for (const edge of ['start', 'end'] as const) {
+              const distance = Math.abs(value - (edge === 'start' ? word.startMs! : word.endMs!));
+              if (distance <= tolerance && (!wordEdge || distance < wordEdge.distance)) wordEdge = { id: word.id, edge, distance };
+            }
+            const word = wordEdge ? possible.find((item) => item.id === wordEdge!.id) : possible.find((item) => value >= item.startMs! && value < item.endMs!);
+            setFollow(false); onStopPreview();
+            if (word) {
+              setSelectedWordId(word.id);
+              if (!selectedCaption.timingLocked && !validCandidate) {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                const gesture: DragState = { captionId: selectedCaption.id, edge: wordEdge?.edge || 'move', wordId: word.id, before: selectedCaption, basis: captions, options: {}, originMs: value, originX: event.clientX, pointerId: event.pointerId };
+                dragRef.current = gesture; setDrag(gesture); setDragPreview([selectedCaption]);
+              }
+            } else onSeek(value);
+            return;
+          }
           const inCaptionLane = y >= 136 && y <= 180;
           const boundary = inCaptionLane ? chooseBoundary(value) : null;
           const bodyCaption = inCaptionLane ? (captions.find((item) => selected.has(item.id) && value >= item.startMs && value < item.endMs)
@@ -735,13 +856,13 @@ export function WaveformEditor({
           const target = boundary?.caption || bodyCaption;
           setFollow(false);
           onStopPreview();
-          if (target && !target.timingLocked) {
+          if (target && !target.timingLocked && editMode === 'caption') {
             event.currentTarget.setPointerCapture(event.pointerId);
             focusIdentity.current = `${memoryKey}:${target.id}`;
-            const gesture: DragState = { captionId: target.id, edge: boundary?.edge || 'move', before: target, originMs: value, originX: event.clientX, pointerId: event.pointerId };
+            const gesture: DragState = { captionId: target.id, edge: boundary?.edge || 'move', before: target, basis: captions, options: { allowOverlap, sharedBoundary }, originMs: value, originX: event.clientX, pointerId: event.pointerId };
             dragRef.current = gesture;
             setDrag(gesture);
-            setDragPreview(target);
+            setDragPreview([target]);
             onSelect(target.id);
           } else {
             if (target) onSelect(target.id);
@@ -751,7 +872,7 @@ export function WaveformEditor({
         onPointerMove={updateDrag}
         onPointerUp={(event: React.PointerEvent<HTMLCanvasElement>) => {
           const gesture = dragRef.current;
-          if (gesture?.pointerId === event.pointerId) commit(gesture.before, previewForPointer(event, gesture));
+          if (gesture?.pointerId === event.pointerId) commit(previewForPointer(event, gesture));
           cancelDrag();
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
         }}
@@ -774,24 +895,25 @@ export function WaveformEditor({
       />
       <span>{formatMs(viewEndMs)}</span>
     </div>
-    <p className="timing-hint">Click the audio to seek. Drag the caption edges to trim, or the middle to move. Hold Shift to ignore snapping.</p>
-    {currentCaption && <>
+    <p className="timing-hint">{editMode === 'words' ? 'Click a word above the caption bar. Drag its edges to trim, or its middle to move; other words stay in place.' : 'Click the audio to seek. Drag the caption edges to trim, or the middle to move. Hold Shift to ignore snapping.'}</p>
+    {currentCaption && editMode === 'caption' && <>
       {currentCaption.timingLocked && <p className="timing-lock-status">Timing is locked. Unlock it in the caption menu to make changes; playback remains available.</p>}
       <div className="timing-edge-grid">
         {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
           <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
             <TimestampInput label={`Fine timing ${edge}`} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
-              minMs={edge === 'start' ? 0 : currentCaption.startMs + 40} maxMs={edge === 'start' ? currentCaption.endMs - 40 : editLimitMs}
-              disabled={editingDisabled || Boolean(drag)} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
+              minMs={edgeBounds(edge).min} maxMs={edgeBounds(edge).max}
+              disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
           </div>
           <div className="timing-edge-actions">
-            <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={`Move ${edge} earlier by ${stepMs} milliseconds`}>−{stepMs} ms</button>
-            <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={`Move ${edge} later by ${stepMs} milliseconds`}>+{stepMs} ms</button>
-            <button disabled={editingDisabled || Boolean(drag) || (edge === 'start' ? playheadMs < 0 || playheadMs > currentCaption.endMs - 40 : playheadMs < currentCaption.startMs + 40 || playheadMs > editLimitMs)} onClick={() => edit(edge, playheadMs)} aria-label={`Set ${edge} to playhead`} title={`Set ${edge} to the current playback position`}>Set to playhead</button>
+            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={`Move ${edge} earlier by ${stepMs} milliseconds`}>−{stepMs} ms</button>
+            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={`Move ${edge} later by ${stepMs} milliseconds`}>+{stepMs} ms</button>
+            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max} onClick={() => edit(edge, playheadMs)} aria-label={`Set ${edge} to playhead`} title={`Set ${edge} to the current playback position`}>Set to playhead</button>
             <button disabled={!editLimitMs || Boolean(drag)} onClick={() => audition(edge)}>Hear {edge}</button>
           </div>
         </div>)}
       </div>
+      <p className="timing-hint">{sharedBoundary ? 'Shared edges: changing Start also changes the previous caption’s End; changing End also changes the next caption’s Start.' : allowOverlap ? 'Overlaps allowed. Other captions stay in place.' : 'Neighbor protection is on. Edits stop before creating or increasing an overlap.'}</p>
       <div className="timing-move-controls">
         <label>Step<select aria-label="Timing nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label>
         <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', -stepMs)} title="Move the whole caption earlier (Alt+Left)">Move earlier</button>
@@ -801,8 +923,17 @@ export function WaveformEditor({
       {captions.some((caption) => caption.id !== currentCaption.id && caption.startMs < currentCaption.endMs && caption.endMs > currentCaption.startMs)
         && <p className="timing-lock-status">This caption overlaps another caption. Adjust its edges to separate them; other captions stay in place.</p>}
     </>}
+    {selectedCaption && editMode === 'words' && <WordTimingPanel key={selectedCaption.id} caption={selectedCaption} selectedWordId={selectedWordId}
+      playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop} highlightEnabled={highlightEnabled}
+      onSelectWord={setSelectedWordId} onChange={(before, after) => commit({ before: [before], after: [after] })} onSync={onSyncWords}
+      onCandidatePreview={(basis, preview) => { setWordCandidate(preview ? { basis, preview } : null); onWordPreview(basis, preview); }}
+      onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText}/>}
+    {editMode === 'words' && <div className="timing-move-controls"><label>Step<select aria-label="Word nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}
     <details className="timing-options"><summary>Snapping, playback speed and display</summary>
       <div className="timing-options-controls">
+        <label><input type="checkbox" checked={allowOverlap} onChange={(event) => setAllowOverlap(event.target.checked)}/>Allow overlaps</label>
+        <label><input type="checkbox" checked={sharedBoundary} onChange={(event) => setSharedBoundary(event.target.checked)}/>Move adjoining edge too</label>
+        <label><input type="checkbox" checked={showReferenceWords} onChange={(event) => setShowReferenceWords(event.target.checked)}/>Show original word estimates</label>
         <label>Snap<select value={snap} onChange={(event) => setSnap(event.target.value as typeof snap)} title="Boundary snapping" aria-label="Boundary snapping">
           <option value="word" disabled={!tokens.length}>Words</option><option value="silence">Quiet gaps</option><option value="off">Off</option>
         </select></label>

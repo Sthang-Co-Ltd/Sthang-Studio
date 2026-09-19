@@ -6,6 +6,7 @@ import type {
   CaptionProject,
   CaptionProjectSummary,
   CaptionSegment,
+  CaptionWordTiming,
   ContributionStatus,
   ProcessingJob,
   ProjectHistoryEntry,
@@ -121,6 +122,13 @@ export interface SaveCaptionsResponse {
   correctionsCreated: number;
 }
 
+export interface CaptionWordTimingCandidate {
+  basis: CaptionSegment;
+  wordTiming: CaptionWordTiming;
+  sourceRevision?: string;
+  warnings?: string[];
+}
+
 export type ReplacementCleanupWarning = 'history' | 'proposals' | 'old-media';
 export type ReplaceMediaResponse = CaptionProject & { replacementCleanupWarnings?: ReplacementCleanupWarning[] };
 
@@ -223,6 +231,17 @@ export const api = {
     options?: { source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean },
   ) => request<SaveCaptionsResponse>(`/api/projects/${id}/captions`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captions, expectedMedia, ...options }),
+  }),
+  syncCaptionWords: (
+    projectId: string,
+    caption: CaptionSegment,
+    expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+    signal?: AbortSignal,
+  ) => request<CaptionWordTimingCandidate>(`/api/projects/${projectId}/caption-word-timing`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ caption, expectedMedia }),
+    signal,
   }),
   resegment: (
     id: string,

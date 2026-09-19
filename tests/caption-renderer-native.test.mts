@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance, type CaptionProject, type CaptionSegment, type VideoExportCapabilities } from '@kcs/shared';
+import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance, type CaptionProject, type CaptionSegment, type TimedToken, type VideoExportCapabilities } from '@kcs/shared';
 
 // Only synthetic media, isolated state, no API keys/network/Gemini calls. This suite is
 // deliberately separate from portable unit tests and fails if native prerequisites are absent.
@@ -33,11 +33,11 @@ function decodePng(png: string) {
   return ffmpeg(['-i', 'pipe:0', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'], Buffer.from(png, 'base64'));
 }
 
-async function referenceFrame(captions: CaptionSegment[], style: CaptionAppearance, width: number, height: number, atMs: number) {
+async function referenceFrame(captions: CaptionSegment[], style: CaptionAppearance, width: number, height: number, atMs: number, visibilityMask?: ReadonlySet<number>) {
   const dir = await fs.mkdtemp(path.join(root, 'reference-'));
   try {
     const file = path.join(dir, 'captions.ass');
-    await fs.writeFile(file, buildAssDocument(captions, style, width, height));
+    await fs.writeFile(file, buildAssDocument(captions, style, width, height, visibilityMask));
     const fontsDir = await prepareCaptionFonts(dir, style);
     return ffmpeg(['-f', 'lavfi', '-i', `color=0x204060:s=${width}x${height}:r=1,format=rgba`, '-vf', `settb=1/1000,setpts=${atMs},${buildAssCaptionFilter(file, fontsDir)}`, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-']);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
@@ -69,6 +69,31 @@ function compareComposite(png: Buffer, direct: Buffer, label: string) {
 
 const sample = 'កម្ពុជា CapCut 2026\nខ្មែរជាភាសារបស់យើង';
 const cue = (text = sample): CaptionSegment[] => [{ id: 'first', startMs: 100, endMs: 2000, text }];
+function spokenWordCue(): CaptionSegment[] {
+  const caption: CaptionSegment = { id: 'spoken', startMs: 100, endMs: 900, text: 'ខ្មែរកម្ពុជា' };
+  const tokens: TimedToken[] = [
+    { id: 'khmer', text: 'ខ្មែរ', startMs: 180, endMs: 400, spaceBefore: false, timingSource: 'stt' },
+    { id: 'cambodia', text: 'កម្ពុជា', startMs: 500, endMs: 780, spaceBefore: false, timingSource: 'stt' },
+  ];
+  const wordTiming = buildCaptionWordTiming(caption, tokens);
+  assert.ok(wordTiming, 'native spoken-word fixture requires exact Khmer word offsets');
+  return [{ ...caption, wordTiming }];
+}
+
+function assertSameAlpha(left: Buffer, right: Buffer, label: string) {
+  assert.equal(left.length, right.length, label);
+  let changed = 0;
+  let maxDelta = 0;
+  let totalDelta = 0;
+  for (let offset = 3; offset < left.length; offset += 4) {
+    const delta = Math.abs(left[offset] - right[offset]);
+    if (!delta) continue;
+    changed += 1;
+    maxDelta = Math.max(maxDelta, delta);
+    totalDelta += delta;
+  }
+  assert.equal(changed, 0, `${label}: ${changed} alpha pixels differ, max delta ${maxDelta}, total delta ${totalDelta}`);
+}
 
 test('native preview matches ASS rasterization across fonts, sizes, layouts and every appearance control', async () => {
   const styles: CaptionAppearance[] = [
@@ -97,6 +122,48 @@ test('native batch seeks respect gaps, overlaps and literal ASS-looking creator 
   assert.equal(result.frames[4].bounds, null);
   for (const frame of result.frames.slice(1, 4)) compareComposite(decodePng(frame.png), await referenceFrame(captions, appearance, 640, 360, frame.atMs), `seek-${frame.atMs}`);
   assert.ok(result.frames[2].bounds!.height > result.frames[1].bounds!.height, 'overlapping captions are both rendered, not just the first match');
+});
+
+test('spoken-word highlight keeps full unspaced Khmer geometry static and changes paint only for the active word', async () => {
+  const captions = spokenWordCue();
+  const style = { ...appearance, highlightMode: 'word' as const, highlightColor: '#D7FF4F' };
+  const highlighted = await renderCaptionPreview(parseCaptionPreviewInput({
+    captions,
+    timesMs: [120, 220, 450, 600, 820],
+    appearance: style,
+    resolution: 'source',
+    focusIndices: [0],
+  }), capabilities);
+  const plain = await renderCaptionPreview(parseCaptionPreviewInput({
+    captions,
+    timesMs: [120],
+    appearance,
+    resolution: 'source',
+    focusIndices: [0],
+  }), capabilities);
+
+  const baseline = decodePng(plain.frames[0].png);
+  const frames = highlighted.frames.map((frame) => decodePng(frame.png));
+  assert.deepEqual(highlighted.frames[0].focusBounds, plain.frames[0].focusBounds, 'enabling word paint must preserve native Khmer geometry');
+  for (const frame of highlighted.frames) assert.deepEqual(frame.focusBounds, highlighted.frames[0].focusBounds, 'word paint must not move the forced-white native glyph mask');
+  assertSameAlpha(frames[0], baseline, 'enabling word paint must preserve the native Khmer mask before speech');
+  const maskBase = await referenceFrame(captions, style, 640, 360, 120, new Set([0]));
+  const maskFirst = await referenceFrame(captions, style, 640, 360, 220, new Set([0]));
+  const maskSecond = await referenceFrame(captions, style, 640, 360, 600, new Set([0]));
+  assert.deepEqual(maskFirst, maskBase, 'first-word color must not change the native whole-text glyph mask');
+  assert.deepEqual(maskSecond, maskBase, 'second-word color must not change the native whole-text glyph mask');
+
+  assert.notEqual(highlighted.frames[1].png, highlighted.frames[0].png, 'first spoken word should change native paint');
+  assert.equal(highlighted.frames[2].png, highlighted.frames[0].png, 'pause should restore the base caption paint');
+  assert.notEqual(highlighted.frames[3].png, highlighted.frames[1].png, 'second spoken word should move the highlight without moving glyphs');
+  assert.equal(highlighted.frames[4].png, highlighted.frames[0].png, 'after the final word the full cue should return to base paint');
+
+  const document = buildAssDocument(captions, style, 640, 360);
+  const dialogue = document.split('\n').filter((line) => line.startsWith('Dialogue:'));
+  assert.ok(dialogue.length >= 5, 'word starts, ends and pauses should be explicit native paint intervals');
+  assert.ok(dialogue.every((line) => line.includes('ខ្មែរ') && line.includes('កម្ពុជា')), 'every paint interval keeps the full caption block visible');
+  assert.match(document, /\\1c&H4FFFD7&/);
+  assert.doesNotMatch(document, /\\k(?:f|o)?\d/i, 'highlight uses static color spans, not karaoke fill/sweep tags');
 });
 
 test('default mixed Khmer and Latin captions stay on one line until appearance narrows the layout', async () => {
@@ -146,20 +213,22 @@ test('cancelled and rejected previews clean up after the native child has actual
   }
 });
 
-test('real MP4 export uses the selected native look and accepts valid small files without modifying the source', async () => {
+test('real MP4 export matches spoken-word native preview and accepts valid small files without modifying the source', async () => {
   await fs.mkdir(config.uploadDir, { recursive: true });
   const filename = 'synthetic.mp4';
   const input = path.join(config.uploadDir, filename);
   ffmpeg(['-f', 'lavfi', '-i', 'color=0x204060:s=640x360:r=25:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', input]);
   const original = await fs.readFile(input);
-  const project: CaptionProject = { id: 'native-fixture', title: 'Synthetic renderer test', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), media: { filename, originalName: filename, mimeType: 'video/mp4', size: original.length, url: `/media/${filename}` }, transcript: null, captions: cue(), mode: 'phrase', captionAppearance: appearance };
+  const captions = spokenWordCue();
+  const style = { ...appearance, highlightMode: 'word' as const, highlightColor: '#D7FF4F' };
+  const project: CaptionProject = { id: 'native-fixture', title: 'Synthetic renderer test', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), media: { filename, originalName: filename, mimeType: 'video/mp4', size: original.length, url: `/media/${filename}` }, transcript: null, captions, mode: 'phrase', captionAppearance: style };
   const caps = await probeVideoExportCapabilities(project);
   assert.ok(caps.supported, caps.blockingReason);
-  const rendered = await renderCaptionedVideo(project, cue(), appearance, { encoder: 'software', quality: 'high' });
+  const rendered = await renderCaptionedVideo(project, captions, style, { encoder: 'software', quality: 'high' });
   assert.ok(rendered.sizeBytes > 0 && rendered.sizeBytes < 16_384, 'fixture exercises valid small-file verification');
   assert.equal(createHash('sha256').update(await fs.readFile(input)).digest('hex'), createHash('sha256').update(original).digest('hex'));
   const raw = ffmpeg(['-ss', '0.2', '-i', path.join(config.exportDir, rendered.filename), '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-']);
-  const preview = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(), timesMs: [200], appearance, resolution: 'source' }), caps);
+  const preview = await renderCaptionPreview(parseCaptionPreviewInput({ captions, timesMs: [200], appearance: style, resolution: 'source' }), caps);
   const pixels = decodePng(preview.frames[0].png);
   const box = preview.frames[0].bounds!;
   let error = 0, count = 0;

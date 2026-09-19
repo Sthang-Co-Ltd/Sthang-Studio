@@ -1,5 +1,6 @@
 import type { CaptionSegment } from './index.js';
 import { captionRenderTime } from './caption-settings.js';
+import { resolveCaptionWordTiming } from './word-timing.js';
 
 /**
  * Render-only line wrapping for the native preview and video renderer.
@@ -59,22 +60,51 @@ export interface CaptionRenderState {
   endMs: number;
   key: string;
   text: string;
+  /** Paint-only identity. Caption key remains the comma-separated active cue indices. */
+  paintKey?: string;
+  /** Ready spoken words active during this paint interval, expressed in caption UTF-16 offsets. */
+  activeWordOffsets?: CaptionRenderWordOffset[];
 }
 
-/** Sweep caption boundaries once, not the entire project at every playback frame. */
-export function planCaptionRenderStates(captions: CaptionSegment[]): CaptionRenderState[] {
+export interface CaptionRenderWordOffset {
+  captionIndex: number;
+  startOffset: number;
+  endOffset: number;
+}
+
+/** Sweep caption/word boundaries once, not the entire project at every playback frame. */
+export function planCaptionRenderStates(captions: CaptionSegment[], highlightWords = false): CaptionRenderState[] {
   const events = new Map<number, { starts: number[]; ends: number[] }>();
   const boundary = (time: number) => {
     let value = events.get(time);
     if (!value) { value = { starts: [], ends: [] }; events.set(time, value); }
     return value;
   };
+  const readyWords = new Map<number, Array<CaptionRenderWordOffset & { startMs: number; endMs: number }>>();
   captions.forEach((caption, index) => {
     const start = captionRenderTime(caption.startMs);
     const end = captionRenderTime(caption.endMs);
     if (!caption.text.trim() || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
     boundary(start).starts.push(index);
     boundary(end).ends.push(index);
+    if (!highlightWords) return;
+    const resolved = resolveCaptionWordTiming(caption);
+    if (resolved.state !== 'ready') return;
+    const words = resolved.words.flatMap((word) => {
+      const wordStart = Math.max(start, captionRenderTime(word.startMs!));
+      const wordEnd = Math.min(end, captionRenderTime(word.endMs!));
+      if (wordEnd <= wordStart) return [];
+      boundary(wordStart);
+      boundary(wordEnd);
+      return [{
+        captionIndex: index,
+        startOffset: word.startOffset,
+        endOffset: word.endOffset,
+        startMs: wordStart,
+        endMs: wordEnd,
+      }];
+    });
+    if (words.length) readyWords.set(index, words);
   });
   const times = [...events.keys()].sort((a, b) => a - b);
   const active = new Set<number>();
@@ -83,6 +113,19 @@ export function planCaptionRenderStates(captions: CaptionSegment[]): CaptionRend
     event.ends.forEach((id) => active.delete(id));
     event.starts.forEach((id) => active.add(id));
     const ids = [...active].sort((a, b) => a - b);
-    return { atMs: time, endMs: times[index + 1], key: ids.join(','), text: ids.map((id) => captions[id].text).join('\n') };
+    const key = ids.join(',');
+    const activeWordOffsets = highlightWords
+      ? ids.flatMap((captionIndex) => readyWords.get(captionIndex)?.filter((word) => time >= word.startMs && time < word.endMs).map(({ startMs: _startMs, endMs: _endMs, ...word }) => word) || [])
+      : [];
+    return {
+      atMs: time,
+      endMs: times[index + 1],
+      key,
+      text: ids.map((id) => captions[id].text).join('\n'),
+      ...(highlightWords && ids.some((id) => readyWords.has(id)) ? {
+        paintKey: `${key}|${activeWordOffsets.map((word) => `${word.captionIndex}:${word.startOffset}-${word.endOffset}`).join(';') || 'base'}`,
+        activeWordOffsets,
+      } : {}),
+    };
   });
 }

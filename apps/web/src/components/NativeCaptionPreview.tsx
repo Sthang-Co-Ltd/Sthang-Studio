@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react';
 import { normalizeCaptionAppearance, planCaptionRenderStates, type CaptionAppearance, type CaptionPreviewFrame, type CaptionPreviewResult, type CaptionProject, type CaptionSegment, type VideoResolutionPreset } from '@kcs/shared';
-import { captionPreviewLookahead, captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
+import { captionPreviewLookahead, captionPreviewPaintKey, captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
 import { captionPreviewSelection, captionPreviewTransform } from '../caption-preview-interaction';
 import './native-caption-preview.css';
 
@@ -42,7 +42,9 @@ interface PresentedFrame {
 }
 
 export function NativeCaptionPreview({ project, media, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices }: Props) {
-  const states = useMemo(() => planCaptionRenderStates(captions), [captions]);
+  const normalizedAppearance = useMemo(() => normalizeCaptionAppearance(appearance), [appearance]);
+  const highlightWords = normalizedAppearance.highlightMode === 'word';
+  const states = useMemo(() => planCaptionRenderStates(captions, highlightWords), [captions, highlightWords]);
   const index = captionPreviewStateIndex(states, timeMs);
   const state = states[index];
   const focusMask = useMemo(() => {
@@ -52,8 +54,8 @@ export function NativeCaptionPreview({ project, media, captions, appearance, int
       return active.some((id) => selected.has(id)) && active.some((id) => !selected.has(id));
     }) ? focusIndices : undefined;
   }, [states, focusIndices]);
-  const captionSignature = useMemo(() => JSON.stringify(captions.map(({ text, startMs, endMs }) => [text, startMs, endMs])), [captions]);
-  const payload = useMemo(() => ({ resolution, appearance: normalizeCaptionAppearance(appearance) }), [appearance, resolution]);
+  const captionSignature = useMemo(() => JSON.stringify(captions.map(({ text, startMs, endMs, wordTiming }) => [text, startMs, endMs, wordTiming])), [captions]);
+  const payload = useMemo(() => ({ resolution, appearance: normalizedAppearance }), [normalizedAppearance, resolution]);
   const contentSignature = useMemo(() => JSON.stringify([project.id, project.media.filename, captionSignature, focusMask]), [project.id, project.media.filename, captionSignature, focusMask]);
   const signature = useMemo(() => `${contentSignature}\n${JSON.stringify(payload)}`, [contentSignature, payload]);
   const session = useRef<PreviewSession | null>(null);
@@ -64,8 +66,9 @@ export function NativeCaptionPreview({ project, media, captions, appearance, int
   if (changedAt.current.signature !== signature) changedAt.current = { signature, time: performance.now() };
   const [revision, redraw] = useReducer((value: number) => value + 1, 0);
   const [frame, setFrame] = useState<ReturnType<typeof containedVideoFrame>>(null);
+  const renderKey = state?.key ? captionPreviewPaintKey(state) : '';
   const continuityKey = state?.key
-    ? JSON.stringify([project.id, project.media.filename, state.key, state.atMs, state.endMs, state.text])
+    ? JSON.stringify([project.id, project.media.filename, renderKey, state.text])
     : '';
 
   useEffect(() => {
@@ -91,11 +94,13 @@ export function NativeCaptionPreview({ project, media, captions, appearance, int
       session.current = { signature, cache: new Map(), pending: new Set(), error: '', retries: 0 };
     }
     const current = session.current;
-    const key = states[index]?.key;
+    const currentState = states[index];
+    const key = currentState?.key ? captionPreviewPaintKey(currentState) : '';
     // Gaps still prefetch the next caption, but never show a stale caption in that gap.
     const start = Math.max(0, index);
     const active = activeRequest.current;
     if (active) {
+      if (key && active.signature === signature && current.pending.has(key)) return;
       const sameCaption = Boolean(continuityKey && active.continuityKey === continuityKey);
       const appearanceChanged = active.signature !== signature;
       if (!sameCaption || (appearanceChanged && (!active.started || active.kind === 'prefetch'))
@@ -111,14 +116,19 @@ export function NativeCaptionPreview({ project, media, captions, appearance, int
     }
     if (index < 0 && timeMs >= (states.at(-1)?.endMs ?? 0)) return;
     if (current.error) return;
-    const wanted = captionPreviewLookahead(states, start);
-    const missingCurrent = key && !current.cache.has(key) && state ? [state] : [];
+    const wanted = highlightWords && currentState?.key
+      ? captionPreviewLookahead(states, start, new Set(current.cache.keys()), currentState.key)
+      : captionPreviewLookahead(states, start);
+    const missingCurrent = key && !current.cache.has(key) && currentState ? [currentState] : [];
     if (!missingCurrent.length && (interacting || performance.now() - changedAt.current.time < 150)) return;
-    const missing = missingCurrent.length ? missingCurrent : wanted.filter((item) => !current.cache.has(item.key));
-    if (!missing.length || (key && current.cache.has(key) && missing.length < 4)) return;
+    const cacheBytes = [...current.cache.values()].reduce((sum, item) => sum + item.png.length, 0);
+    if (!missingCurrent.length && highlightWords && (current.cache.size >= 24 || cacheBytes >= 24 * 1024 * 1024)) return;
+    const wantedMissing = wanted.filter((item) => !current.cache.has(captionPreviewPaintKey(item)));
+    const missing = missingCurrent.length && !highlightWords ? missingCurrent : wantedMissing;
+    if (!missing.length || (key && current.cache.has(key) && !highlightWords && missing.length < 4)) return;
     const kind: ActivePreviewRequest['kind'] = missingCurrent.length ? 'current' : 'prefetch';
     const controller = new AbortController();
-    current.pending = new Set(missing.map((item) => item.key));
+    current.pending = new Set(missing.map(captionPreviewPaintKey));
     const retained = lastPresented.current?.continuityKey === continuityKey;
     const delay = current.retries
       ? Math.min(1000, current.retries * 250)
@@ -154,8 +164,9 @@ export function NativeCaptionPreview({ project, media, captions, appearance, int
             await decoded.decode();
             if (controller.signal.aborted) return;
             const rendered = { ...image, width: result.width, height: result.height, appearance: payload.appearance, resolution };
-            current.cache.set(target.key, rendered);
-            if (target.key === key && continuityKey) lastPresented.current = { continuityKey, image: rendered };
+            const targetKey = captionPreviewPaintKey(target);
+            current.cache.set(targetKey, rendered);
+            if (targetKey === key && continuityKey) lastPresented.current = { continuityKey, image: rendered };
           }
           // Only compressed caption images are retained, only for this project/look. They never
           // enter localStorage, exported project data, analytics, or the contribution queue.
@@ -187,10 +198,10 @@ export function NativeCaptionPreview({ project, media, captions, appearance, int
     activeRequest.current = request;
     // An index change does not cancel a useful current-frame render; word captions can be
     // shorter than one render request. A different caption/project or obsolete lookahead does.
-  }, [signature, index, revision, continuityKey, interacting]);
+  }, [signature, index, revision, continuityKey, interacting, highlightWords]);
 
   const current = session.current?.signature === signature ? session.current : null;
-  const exactImage = state?.key ? current?.cache.get(state.key) : undefined;
+  const exactImage = renderKey ? current?.cache.get(renderKey) : undefined;
   useEffect(() => {
     if (exactImage && continuityKey) lastPresented.current = { continuityKey, image: exactImage };
   }, [exactImage, continuityKey]);

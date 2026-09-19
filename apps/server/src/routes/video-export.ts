@@ -14,7 +14,7 @@ import {
 import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { jobStore } from '../services/job-store.js';
-import { invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
+import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 
 const router = Router();
 const fontUpload = multer({
@@ -151,7 +151,7 @@ router.post('/:projectId/jobs', async (req, res) => {
     const job = await jobStore.create('export-video', project.id, {
       exportSettings: settings,
       exportAppearance: appearance,
-      exportCaptions: saved.captions.map((caption) => ({ ...caption })),
+      exportCaptions: createVideoExportCaptionSnapshot(saved),
       exportMediaFilename: project.media.filename,
       exportMediaSize: project.media.size,
     });

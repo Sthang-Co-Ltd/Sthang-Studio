@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
+import { reconcileCaptionWordTiming, resolveCaptionWordTiming } from '@kcs/shared';
 import {
   CheckCircle2,
   Clock3,
@@ -23,21 +24,8 @@ import {
 import type { ReviewIssue } from '../review';
 import { MIN_CAPTION_MS } from '../timing-edit';
 import { TimestampInput } from './TimestampInput';
-
-const KHMER_WORD_START = /^[\u1780-\u17D3\u17DD]/u;
-const KHMER_WORD_END = /[\u1780-\u17D3\u17DD]$/u;
-const NO_SPACE_BEFORE = /^[,.;:!?%…។៕៘៙៚\)\]\}»”’]/u;
-const NO_SPACE_AFTER = /[\(\[\{«“‘]$/u;
-
-function joinCaptionText(leftValue: string, rightValue: string) {
-  const left = leftValue.trimEnd();
-  const right = rightValue.trimStart();
-  if (!left) return right;
-  if (!right) return left;
-  if (NO_SPACE_BEFORE.test(right) || NO_SPACE_AFTER.test(left)) return `${left}${right}`;
-  if (KHMER_WORD_END.test(left) && KHMER_WORD_START.test(right)) return `${left}${right}`;
-  return `${left} ${right}`;
-}
+import { captionNeighborLimitMap, planCaptionTimingEdit } from '../caption-timing-transaction';
+import { splitCaptionForEditing, mergeCaptionsForEditing } from '../caption-word-structure';
 
 const qualityLabel = (caption: CaptionSegment) => caption.timingSource === 'manual'
   ? '•'
@@ -66,6 +54,9 @@ interface CaptionEditorProps {
   issues: ReviewIssue[];
   reviewMode: boolean;
   durationMs?: number;
+  highlightEnabled?: boolean;
+  onWordTiming?(id: string): void;
+  onNotice?(message: string): void;
   onChange(captions: CaptionSegment[], preferredSelectionId?: string, reason?: DraftChangeReason): void;
   onSeek(ms: number): void;
   onSelect(id: string, extend: boolean): void;
@@ -88,6 +79,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   issues,
   reviewMode,
   durationMs,
+  highlightEnabled,
+  onWordTiming,
+  onNotice,
   onChange,
   onSeek,
   onSelect,
@@ -99,11 +93,17 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   const rows = useRef<Record<string, HTMLDivElement | null>>({});
   const textareas = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const focusText = useRef<Record<string, string>>({});
+  const focusTimingBasis = useRef<Record<string, CaptionSegment>>({});
   const pendingViewportRestore = useRef<PendingViewportRestore | null>(null);
   const autoScrollingUntil = useRef(0);
   const [followPlayback, setFollowPlayback] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const actionMenu = useRef<HTMLDivElement | null>(null);
+  const [menuPlacement, setMenuPlacement] = useState({ up: false, height: 400 });
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const mediaLimit = durationMs && Number.isFinite(durationMs) ? durationMs : Number.MAX_SAFE_INTEGER;
+  const neighborLimits = useMemo(() => captionNeighborLimitMap(captions, mediaLimit), [captions, mediaLimit]);
+  const wordsNeedingReview = useMemo(() => new Set(highlightEnabled ? captions.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready').map((caption) => caption.id) : []), [captions, highlightEnabled]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const visible = useMemo(
     () => reviewMode ? captions.filter((caption) => issueMap.has(caption.id) && !caption.approved) : captions,
@@ -121,6 +121,25 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   }, [captions]);
 
   useEffect(() => setOpenMenuId(null), [reviewMode, captions.length]);
+  useLayoutEffect(() => {
+    if (!openMenuId) return;
+    const position = () => {
+      const menu = actionMenu.current;
+      const button = rows.current[openMenuId]?.querySelector('.row-more');
+      const container = list.current;
+      if (!menu || !button || !container) return;
+      const buttonBox = button.getBoundingClientRect();
+      const listBox = container.getBoundingClientRect();
+      const above = Math.max(0, buttonBox.top - Math.max(0, listBox.top) - 8);
+      const below = Math.max(0, Math.min(window.innerHeight, listBox.bottom) - buttonBox.bottom - 8);
+      const up = below < menu.scrollHeight && above > below;
+      const height = Math.max(40, Math.floor(up ? above : below));
+      setMenuPlacement((current) => current.up === up && current.height === height ? current : { up, height });
+    };
+    position();
+    window.addEventListener('resize', position);
+    return () => window.removeEventListener('resize', position);
+  }, [openMenuId, visible.length]);
   useEffect(() => {
     if (!openMenuId) return;
     const close = (event: PointerEvent) => {
@@ -237,8 +256,21 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   };
   const patchTime = (index: number, value: Partial<CaptionSegment>) => {
     const caption = captions[index];
-    if (caption?.timingLocked) return;
-    patch(index, { ...value, timingSource: 'manual', timingQuality: 'medium', approved: false }, 'timing');
+    if (!caption || caption.timingLocked) return false;
+    const edge = value.startMs !== undefined ? 'start' : 'end';
+    const result = planCaptionTimingEdit(captions, caption.id, edge, value.startMs ?? value.endMs!, mediaLimit);
+    if (result.limited) onNotice?.(result.limited);
+    if (!result.after.length) return false;
+    onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
+    return true;
+  };
+  const patchText = (caption: CaptionSegment, text: string) => {
+    if (caption.textLocked) return;
+    // Reconcile against the stable focus snapshot, not transient IME/composition
+    // text, so an unfinished Khmer cluster cannot erase good surrounding timings.
+    const basis = focusTimingBasis.current[caption.id] || caption;
+    const after = reconcileCaptionWordTiming(basis, { ...caption, text, wordTiming: basis.wordTiming, approved: false });
+    onChange(captions.map((item) => item.id === caption.id ? after : item), undefined, 'text');
   };
 
   const remove = (index: number) => {
@@ -256,11 +288,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     setFollowPlayback(false);
     const caption = captions[index];
     if (!caption || caption.textLocked || caption.timingLocked) return;
-    const middle = Math.round((caption.startMs + caption.endMs) / 2);
-    const graphemes = [...new Intl.Segmenter('km', { granularity: 'grapheme' }).segment(caption.text)].map((item) => item.segment);
-    const half = Math.ceil(graphemes.length / 2);
-    const first = { ...caption, id: crypto.randomUUID(), endMs: middle, text: graphemes.slice(0, half).join('').trim(), timingSource: 'manual' as const, timingQuality: 'medium' as const, approved: false };
-    const second = { ...caption, id: crypto.randomUUID(), startMs: middle, text: graphemes.slice(half).join('').trim(), timingSource: 'manual' as const, timingQuality: 'medium' as const, approved: false };
+    const divided = splitCaptionForEditing(caption, crypto.randomUUID(), crypto.randomUUID());
+    if (!divided) { onNotice?.('This caption is too short to split safely.'); return; }
+    const [first, second] = divided;
     preserveViewport(caption.id, first.id, () => {
       onChange([...captions.slice(0, index), first, second, ...captions.slice(index + 1)], selected.has(caption.id) ? first.id : undefined, 'structure');
     });
@@ -271,15 +301,8 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const first = captions[index];
     const second = captions[index + 1];
     if (!first || !second || first.textLocked || first.timingLocked || second.textLocked || second.timingLocked) return;
-    const merged = {
-      ...first,
-      id: crypto.randomUUID(),
-      endMs: second.endMs,
-      text: joinCaptionText(first.text, second.text),
-      timingSource: 'manual' as const,
-      timingQuality: 'medium' as const,
-      approved: false,
-    };
+    const merged = mergeCaptionsForEditing(first, second, crypto.randomUUID());
+    if (!merged) return;
     preserveViewport(first.id, merged.id, () => {
       onChange([...captions.slice(0, index), merged, ...captions.slice(index + 2)], selected.has(first.id) || selected.has(second.id) ? merged.id : undefined, 'structure');
     });
@@ -289,12 +312,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     setFollowPlayback(false);
     const caption = captions[index];
     if (!caption || caption.timingLocked) return;
-    const duration = Math.max(20, caption.endMs - caption.startMs);
-    const mediaLimit = durationMs !== undefined && Number.isFinite(durationMs) ? Math.max(0, Math.floor(durationMs)) : undefined;
-    const maxStart = mediaLimit === undefined ? Number.POSITIVE_INFINITY : Math.max(0, mediaLimit - duration);
-    const startMs = Math.min(maxStart, Math.max(0, caption.startMs + delta));
-    const endMs = mediaLimit === undefined ? startMs + duration : Math.min(mediaLimit, startMs + duration);
-    patchTime(index, { startMs, endMs });
+    const result = planCaptionTimingEdit(captions, caption.id, 'move', delta, mediaLimit);
+    if (result.limited) onNotice?.(result.limited);
+    if (result.after.length) onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
   };
 
   const add = () => {
@@ -340,7 +360,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onScroll={() => { if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
       {visible.length === 0 && <div className="review-empty">You're all caught up. No unapproved captions need attention.</div>}
-      {visible.map((caption, visibleIndex) => {
+      {visible.map((caption) => {
         const index = captionIndexMap.get(caption.id) ?? -1;
         const issue = issueMap.get(caption.id);
         const destructiveLocked = caption.textLocked || caption.timingLocked;
@@ -358,22 +378,22 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
             <TimestampInput
               valueMs={caption.startMs}
               label={`Caption ${index + 1} start time`}
-              minMs={0}
+              minMs={neighborLimits.get(caption.id)?.lower ?? 0}
               maxMs={caption.endMs - MIN_CAPTION_MS}
               disabled={caption.timingLocked}
               onFocus={() => setFollowPlayback(false)}
               onEditingChange={onEditingChange}
-              onCommit={(startMs) => { patchTime(index, { startMs }); onEditCommit?.(); }}
+              onCommit={(startMs) => { const accepted = patchTime(index, { startMs }); if (accepted) onEditCommit?.(); return accepted; }}
             />
             <TimestampInput
               valueMs={caption.endMs}
               label={`Caption ${index + 1} end time`}
               minMs={caption.startMs + MIN_CAPTION_MS}
-              maxMs={durationMs}
+              maxMs={neighborLimits.get(caption.id)?.upper ?? durationMs}
               disabled={caption.timingLocked}
               onFocus={() => setFollowPlayback(false)}
               onEditingChange={onEditingChange}
-              onCommit={(endMs) => { patchTime(index, { endMs }); onEditCommit?.(); }}
+              onCommit={(endMs) => { const accepted = patchTime(index, { endMs }); if (accepted) onEditCommit?.(); return accepted; }}
             />
           </div>
           <div className="caption-text-cell">
@@ -387,19 +407,23 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               onClick={(event) => event.stopPropagation()}
               onFocus={() => {
                 focusText.current[caption.id] = caption.text;
+                focusTimingBasis.current[caption.id] = caption;
                 setFollowPlayback(false);
                 onEditingChange?.(true);
               }}
-              onChange={(event) => patch(index, { text: event.target.value, approved: false }, 'text')}
+              onChange={(event) => patchText(caption, event.target.value)}
+              onCompositionEnd={(event) => patchText(caption, event.currentTarget.value)}
               onBlur={(event) => {
                 onEditingChange?.(false);
                 if ((focusText.current[caption.id] ?? caption.text) !== event.target.value) { onTextCommit(); onEditCommit?.(); }
+                delete focusTimingBasis.current[caption.id];
               }}
             />
             <div className="caption-state-line">
               {caption.approved && <span className="state-approved"><CheckCircle2 size={11}/>Approved</span>}
               {caption.textLocked && <span><LockKeyhole size={10}/>Text locked</span>}
               {caption.timingLocked && <span><Clock3 size={10}/>Timing locked</span>}
+              {wordsNeedingReview.has(caption.id) && selected.has(caption.id) && <button type="button" onClick={(event) => { event.stopPropagation(); onWordTiming?.(caption.id); }}>Word timing needs review</button>}
             </div>
             {issue && <div className={`risk-reasons risk-${issue.severity} ${selected.has(caption.id) ? 'expanded' : ''}`}>
               <span>{selected.has(caption.id) ? issue.reasons[0] : `Review suggested · ${issue.reasons.length}`}</span>
@@ -421,14 +445,15 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => current === caption.id ? null : caption.id); }}
               title="More actions"
             ><MoreHorizontal size={16}/></button>
-            {openMenuId === caption.id && <div className={`caption-action-menu ${visibleIndex > visible.length - 4 ? 'menu-up' : ''}`} role="menu">
+            {openMenuId === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" style={{ maxHeight: menuPlacement.height, overflowY: 'auto' }}>
+              {onWordTiming && <button role="menuitem" onClick={(event) => { event.stopPropagation(); setOpenMenuId(null); onWordTiming(caption.id); }}><Clock3 size={14}/><span>Edit word timing</span></button>}
               <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { textLocked: !caption.textLocked }, 'metadata'); setOpenMenuId(null); }}><LockKeyhole size={14}/><span>{caption.textLocked ? 'Unlock text' : 'Lock text'}</span></button>
               <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { timingLocked: !caption.timingLocked }, 'metadata'); setOpenMenuId(null); }}><Clock3 size={14}/><span>{caption.timingLocked ? 'Unlock timing' : 'Lock timing'}</span></button>
               <div className="caption-menu-divider"/>
               <button role="menuitem" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, -100); setOpenMenuId(null); }}><span className="menu-micro">−100 ms</span><span>Move earlier</span></button>
               <button role="menuitem" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, 100); setOpenMenuId(null); }}><span className="menu-micro">+100 ms</span><span>Move later</span></button>
               <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); split(index); setOpenMenuId(null); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
-              {index < captions.length - 1 && <button role="menuitem" disabled={destructiveLocked || captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><span className="menu-micro">⇢</span><span>Merge with next</span></button>}
+              {index < captions.length - 1 && <button role="menuitem" disabled={destructiveLocked || captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><span className="menu-micro" aria-hidden="true">⇢</span><span>Merge with next</span></button>}
               <div className="caption-menu-divider"/>
               <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); remove(index); setOpenMenuId(null); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
             </div>}

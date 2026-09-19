@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject,
+  normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
   type CaptionAppearance,
   type CaptionProject,
   type ProcessingJob,
@@ -23,6 +23,7 @@ interface Props {
   activeExportJob?: ProcessingJob;
   onExportSrt(): void;
   onEditAppearance(): void;
+  onEditWordTiming?(id?: string): void;
   onPreviewResolution(resolution: VideoResolutionPreset): void;
   onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null>;
 }
@@ -71,7 +72,7 @@ function elapsedLabel(job: ProcessingJob) {
   return `${seconds}s elapsed`;
 }
 
-export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport, onPreviewResolution }: Props) {
+export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
@@ -144,6 +145,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
   const hevcAvailable = Boolean(capabilities?.encoders.some((encoder) => encoder.codec === 'hevc' && encoder.available));
   const source = capabilities?.source;
   const appearanceFontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily && (!appearance.bold || font.boldAvailable)));
+  const plainWordCaptions = useMemo(() => appearance.highlightMode === 'word'
+    ? project.captions.filter((caption) => caption.text.trim() && resolveCaptionWordTiming(caption).state !== 'ready') : [], [project.captions, appearance.highlightMode]);
   const exportBlocked = Boolean(!videoProject || !capabilities?.supported || appearanceSaveBlocked || appearanceFontUnavailable || activeExportJob || busy || startingExport || !project.captions.length);
 
   const startExport = async () => {
@@ -254,6 +257,12 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
           <div className="export-appearance-copy"><Palette size={17}/><div><strong id="export-appearance-title">Caption appearance</strong><span><i className="export-color-swatch" style={{ background: appearance.textColor }} aria-hidden="true"/>{appearance.fontFamily} · {appearance.fontSize1080}px @1080p · {appearance.alignment} · {appearance.positionBottomPct}% from bottom</span></div></div>
           <button onClick={onEditAppearance}>Edit appearance</button>
         </section>
+
+        {appearance.highlightMode === 'word' && <div className="export-warnings" role="status">
+          <div><Palette size={14}/><span>Spoken-word highlights are enabled for captioned video.
+            {plainWordCaptions.length > 0 ? ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.` : ' All nonempty captions have usable word timing.'}</span></div>
+          {plainWordCaptions.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(plainWordCaptions[0].id)}>Review word timing</button>}
+        </div>}
 
         {appearanceFontUnavailable && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Choose an available caption font</strong><span>{appearance.fontFamily} is not available on this PC. Edit appearance and select an available Khmer font before rendering so the export does not silently substitute typography.</span></div></div>}
 

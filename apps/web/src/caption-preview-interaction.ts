@@ -38,8 +38,8 @@ export function captionPreviewSelection(captions: CaptionSegment[], states: Capt
   const selected = new Set(focusIndices);
   return {
     captions: indices.map((index) => {
-      const { text, startMs, endMs } = captions[index];
-      return { text, startMs, endMs };
+      const { text, startMs, endMs, wordTiming } = captions[index];
+      return { text, startMs, endMs, ...(wordTiming ? { wordTiming } : {}) };
     }),
     focusIndices: focusIndices ? indices.flatMap((index, compact) => selected.has(index) ? [compact] : []) : undefined,
   };

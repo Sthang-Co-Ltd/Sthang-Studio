@@ -24,6 +24,8 @@ Khmer Caption Contributor program described below:
 - imported source media and normalized working audio;
 - reusable selected-range PCM WAVs created from that normalized audio;
 - caption projects and edits;
+- per-caption word intervals, exact wording snapshots, and highlight preferences
+  in the unreleased word-timing source implementation;
 - correction memory and profile data;
 - project history, proposals, processing-job metadata, and resumable job checkpoints;
 - project-scoped KFA acoustic-emission caches and deterministic local timing-result caches;
@@ -40,6 +42,26 @@ memory-only and disappear when the browser page/process is closed.
 
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.
+
+### Local word timing and highlighting — unreleased source
+
+**Sync words** processes a bounded clip from the existing project audio and the
+caption's current wording on this computer. It does not call Gemini or add a new
+cloud transfer. The candidate stays in the local browser until applied; accepted
+word intervals persist with the caption and its local History. Existing model
+setup/download behavior is unchanged.
+
+Spoken-word highlighting uses those intervals in local native preview and
+captioned-video rendering. Preview requests travel only over the existing
+loopback API. Browser paint caches and local active export snapshots may contain
+the per-word track. The generated MP4 contains the visual effect; SRT contains
+plain caption text and cue start/end times, without the per-word track.
+
+Per-word tracks and highlight preferences are not added to Gemini, Contributor,
+or analytics requests by this feature. Contributor's existing timing evidence
+means cue/clip boundaries and the existing source timing/model/version fields;
+it does not include these new per-caption word tracks. The existing explicit
+consent rules and cloud payload projections remain unchanged.
 
 ## Local preparation before Generate
 

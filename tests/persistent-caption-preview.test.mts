@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { DEFAULT_CAPTION_APPEARANCE, type VideoExportCapabilities } from '@kcs/shared';
+import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionSegment, type TimedToken, type VideoExportCapabilities } from '@kcs/shared';
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-warm-preview-'));
 process.env.STHANG_STUDIO_STATE_ROOT = root;
@@ -19,6 +19,16 @@ const fonts = await fontCapabilities();
 const font = fonts.find((item) => item.available && item.boldAvailable);
 assert.ok(font, 'A local Khmer regular/bold font is required.');
 const appearance = { ...DEFAULT_CAPTION_APPEARANCE, fontFamily: font.name };
+function spokenWordCue(): CaptionSegment {
+  const caption: CaptionSegment = { id: 'spoken', text: 'ខ្មែរកម្ពុជា', startMs: 100, endMs: 900 };
+  const tokens: TimedToken[] = [
+    { id: 'khmer', text: 'ខ្មែរ', startMs: 180, endMs: 400, spaceBefore: false, timingSource: 'stt' },
+    { id: 'cambodia', text: 'កម្ពុជា', startMs: 500, endMs: 780, spaceBefore: false, timingSource: 'stt' },
+  ];
+  const wordTiming = buildCaptionWordTiming(caption, tokens);
+  assert.ok(wordTiming);
+  return { ...caption, wordTiming };
+}
 const capabilities: VideoExportCapabilities = {
   supported: true, fonts, subtitlesFilter: true, encoders: [], resolutions: [], availableDiskBytes: 0, warnings: [],
   source: { width: 640, height: 360, displayWidth: 640, displayHeight: 360, rotation: 0, durationMs: 4000, frameRate: 25, variableFrameRate: false, videoCodec: 'h264', pixelFormat: 'yuv420p', bitDepth: 8, hdr: 'sdr', audioCodecs: [], audioStreams: 0 },
@@ -42,6 +52,23 @@ test('a real FFmpeg process survives appearance changes with byte-identical nati
   assert.equal(after.starts - before.starts, 1);
   assert.equal(after.fallbacks - before.fallbacks, 0);
   assert.equal(after.frames - before.frames, 3);
+});
+
+test('persistent native preview preserves exact spoken-word paint states, pauses and Khmer pixels', async () => {
+  await disposePersistentCaptionPreviews();
+  const input = parseCaptionPreviewInput({
+    captions: [spokenWordCue()],
+    timesMs: [120, 179, 180, 400, 450, 499, 500, 820],
+    resolution: 'source',
+    appearance: { ...appearance, highlightMode: 'word', highlightColor: '#D7FF4F' },
+  });
+  const expected = await renderCaptionPreview(input, capabilities);
+  const before = persistentPreviewDiagnostics();
+  const actual = await renderCaptionPreview(input, capabilities, undefined, { projectId: 'spoken-word', mediaIdentity: 'v1' });
+  assert.deepEqual(actual, expected);
+  assert.equal(persistentPreviewDiagnostics().starts - before.starts, 1);
+  assert.equal(persistentPreviewDiagnostics().frames - before.frames, input.timesMs.length);
+  assert.equal(persistentPreviewDiagnostics().fallbacks - before.fallbacks, 0);
 });
 
 test('persistent native frames preserve gaps, overlaps, focus, wrapping and transparent effects at portrait, square and 4K sizes', async () => {

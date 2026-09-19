@@ -1,5 +1,9 @@
 import type { CaptionRenderState } from '@kcs/shared';
 
+export function captionPreviewPaintKey(state: CaptionRenderState) {
+  return state.paintKey || state.key;
+}
+
 export function captionPreviewStateIndex(states: CaptionRenderState[], timeMs: number) {
   let low = 0;
   let high = states.length - 1;
@@ -12,14 +16,25 @@ export function captionPreviewStateIndex(states: CaptionRenderState[], timeMs: n
   return -1;
 }
 
-/** Collect at most eight drawable states from a nonnegative state index.
- * Preserve gaps/order and object identity without copying/filtering the whole suffix.
+/** Collect at most eight missing drawable paint states from a nonnegative state index.
+ * An optional cue key bounds spoken-word prefetch to the currently visible block.
  */
-export function captionPreviewLookahead(states: readonly CaptionRenderState[], start: number) {
+export function captionPreviewLookahead(
+  states: readonly CaptionRenderState[],
+  start: number,
+  skipKeys: ReadonlySet<string> = new Set(),
+  cueKey?: string,
+) {
   const wanted: CaptionRenderState[] = [];
+  const seen = new Set(skipKeys);
   for (let index = start; index < states.length && wanted.length < 8; index += 1) {
     const state = states[index];
-    if (state.key) wanted.push(state);
+    if (cueKey !== undefined && state.key !== cueKey) break;
+    if (!state.key) continue;
+    const paintKey = captionPreviewPaintKey(state);
+    if (seen.has(paintKey)) continue;
+    seen.add(paintKey);
+    wanted.push(state);
   }
   return wanted;
 }

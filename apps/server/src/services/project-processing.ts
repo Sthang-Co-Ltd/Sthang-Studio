@@ -13,6 +13,7 @@ import type {
   RegenerationStrategy,
   TranscriptionContext,
 } from '@kcs/shared';
+import { reconcileCaptionWordTiming } from '@kcs/shared';
 import { config } from '../config.js';
 import { store } from './store.js';
 import { profileStore } from './profile-store.js';
@@ -707,10 +708,13 @@ export async function applyRegenerationProposal(
       if (normalizedEditedText) {
         const alignedProposalText = normalizeKhmerDisplayText(proposedRange.map((caption) => caption.text).join(' ')).trim();
         const texts = redistributeText(normalizedEditedText, acceptedRange);
-        acceptedRange = acceptedRange.map((caption, index) => caption.textLocked ? caption : {
-          ...caption,
-          text: texts[index] || caption.text,
-          approved: false,
+        acceptedRange = acceptedRange.map((caption, index) => {
+          if (caption.textLocked) return caption;
+          return reconcileCaptionWordTiming(caption, {
+            ...caption,
+            text: texts[index] || caption.text,
+            approved: false,
+          });
         });
         // The exact manual text is safe in captions, but canonical token regrouping
         // should not pretend it has been word-aligned unless the user chose Realign exact wording.
@@ -719,24 +723,28 @@ export async function applyRegenerationProposal(
     } else if (mode === 'text-only') {
       const sourceText = normalizedEditedText || proposedRange.map((caption) => caption.text).join(' ');
       const texts = redistributeText(sourceText, originalRange);
-      acceptedRange = originalRange.map((caption, index) => caption.textLocked ? caption : {
-        ...caption,
-        text: texts[index] || caption.text,
-        approved: false,
+      acceptedRange = originalRange.map((caption, index) => {
+        if (caption.textLocked) return caption;
+        return reconcileCaptionWordTiming(caption, {
+          ...caption,
+          text: texts[index] || caption.text,
+          approved: false,
+        });
       });
       project.transcriptNeedsSync = true;
     } else {
       const texts = redistributeText(originalRange.map((caption) => caption.text).join(' '), proposedRange);
       acceptedRange = proposedRange.map((caption, index) => {
         const original = originalRange[index];
-        return {
+        const next = {
           ...caption,
           id: original?.id || caption.id,
           text: original?.textLocked ? original.text : texts[index] || original?.text || caption.text,
           textLocked: original?.textLocked,
           timingLocked: original?.timingLocked,
           approved: false,
-        };
+        } satisfies CaptionSegment;
+        return original ? reconcileCaptionWordTiming(original, next) : next;
       });
       acceptedRange = preserveCaptionLocks(originalRange, acceptedRange);
       project.transcriptNeedsSync = true;
@@ -778,6 +786,7 @@ export async function postprocessProjectTiming(projectId: string, settings: QaPr
     for (let index = 0; index < captions.length; index += 1) {
       const caption = captions[index];
       if (caption.timingLocked) continue;
+      const beforeCaption = structuredClone(caption);
       let start = nearestTokenBoundary(tokens, caption.startMs, settings.snapToleranceMs, 'start');
       let end = nearestTokenBoundary(tokens, caption.endMs, settings.snapToleranceMs, 'end');
       const previous = captions[index - 1];
@@ -804,6 +813,7 @@ export async function postprocessProjectTiming(projectId: string, settings: QaPr
       caption.timingSource = 'manual';
       caption.timingQuality = caption.timingQuality === 'low' ? 'medium' : caption.timingQuality || 'medium';
       caption.approved = false;
+      captions[index] = reconcileCaptionWordTiming(beforeCaption, caption);
     }
 
     project.captions = captions;

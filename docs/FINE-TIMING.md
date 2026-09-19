@@ -1,94 +1,163 @@
-# Fine Timing
+# Fine Timing and spoken-word highlights
 
 Status: source implementation, unreleased. The existing `0.85.4` release identity
-and download/update evidence do not establish that these changes are installed.
+and download/update evidence do not establish availability of these changes.
 
-## Adjust a caption
+## Choose the timing you need to change
 
 Open **Fine timing** below the source player. Select a caption in the list or use
-**Previous** and **Next**. The waveform focuses on a few seconds around that
-caption, even in a long recording. **Full clip**, **Focus caption**, and the zoom
-controls switch between orientation and close timing work. The navigation slider
-scrolls the displayed time range without changing captions.
+**Previous** and **Next**. The waveform focuses around that caption even in a
+long recording. **Focus caption**, **Full clip**, and zoom controls switch between
+orientation and close editing. Clicking the audio moves the playhead; it does not
+change the caption.
 
-Click the audio area to move the playhead. Drag a caption's left or right handle
-to change its start or end; drag the middle of its bar to move it without changing
-its duration. A drag previews locally and becomes one edit when released.
-**Escape**, pointer cancellation, or lost pointer capture cancels an unfinished
-drag. Clicking without dragging does not create a timing edit.
+**Caption edges** edits when the entire caption appears and disappears.
+**Word timing** edits the words inside that caption. These are separate levels:
+changing one word does not move the entire sentence, and trimming a sentence does
+not stretch its internal word timings.
 
-Start and End accept seconds (for example `12.375`), `m:ss.mmm`, or
-`h:mm:ss.mmm`. Fractions can contain one to three digits. Press **Enter** or leave
-the field to commit a valid value. **Escape** restores the accepted value. Invalid
-or out-of-range text stays uncommitted and shows a recovery hint. The caption-list
-timestamp fields follow the same rules.
+## Caption edges and neighboring captions
 
-Use **− / +** on either edge, or **Move earlier / Move later** for the whole
-caption. The step can be **10**, **50**, or **100 ms**. Movement stays within the
-source duration and preserves at least 40 ms between a caption's edges. Moving
-captions past one another also updates their list/save order chronologically;
-neighbouring timings are not silently changed. Overlap is shown explicitly.
-**Set to playhead** is enabled only when that position is legal for the edge.
+Drag the caption bar's left/right handle to change Start/End. Drag its middle or
+use **Move earlier / Move later** to shift the caption while preserving its
+duration. Owned word timings move by the same amount. A drag previews locally and
+commits once on release; **Escape**, pointer cancellation, or lost pointer capture
+cancels the unfinished gesture.
 
-## Listen and compare
+The **− / +** controls use the selected **10**, **50**, or **100 ms** step. Start
+and End also accept seconds (`12.375`), `m:ss.mmm`, or `h:mm:ss.mmm`, with one to
+three fractional digits. **Enter** or blur commits valid input; **Escape** restores
+the accepted value. Invalid text stays uncommitted and explains the required
+range. **Set to playhead** is available only at a legal position for that edge.
 
-**Replay caption** plays the caption with a short 120 ms margin on each side,
-bounded by the source. **Hear start** and **Hear end** play 500 ms on either side
-of the respective edge. **Loop** repeats that chosen audition until stopped.
-Changing caption, editing, seeking through Studio, leaving the workspace, or
-changing project/media cancels the timing audition. Ordinary source-player
-playback and sequential Review remain separate.
+Neighbor protection is on by default: moves and trims stop before creating or
+increasing an overlap with another caption. Existing overlaps can be repaired
+gradually without a surprise jump. No later caption is silently pushed along.
 
-On desktop, source playback stays above the independently scrolling timing
-controls. On narrow screens it remains visible while scrolling the timing area.
-Playback speed is under **Snapping, playback speed and display**.
+Under **Snapping, playback speed and display**:
 
-## Snapping, locks, and recovery
+- **Allow overlaps** permits an intentional independent overlap or crossing.
+  The list/save order remains chronological and the overlap is shown.
+- **Move adjoining edge too** makes an edge edit a shared transition: Start also
+  changes the previous caption's End, or End also changes the next caption's
+  Start. The two outer edges and all other captions stay put. A locked neighbor
+  blocks the entire operation; Undo restores both captions together.
 
-Word snapping uses existing start estimates for starts/moves and existing end
-estimates for ends, with a small screen-distance tolerance. Those marks are
-estimates, not a fresh transcription or a guaranteed caption-to-word mapping.
-Quiet-gap snapping requires a clear, sufficiently quiet energy drop; flat audio
-does not force a jump. Hold **Shift** while dragging to bypass snapping, or turn
-it off in the options. Spectrum remains an overview of the recording; use the
-waveform and source playback for close boundary work.
+Caption intervals retain at least 40 ms and stay inside the source. That is a
+technical minimum, not a recommendation for comfortable reading. Trimming across
+an owned word marks its timing for review instead of compressing the word.
 
-Timing locks disable edits while retaining playback and navigation. Unlock timing
-from the caption's menu. Numeric timing and source auditions remain usable when
-waveform loading fails and the source duration is known; the preview can be
-retried independently.
+## Correct one word
 
-**Undo / Redo** retains the latest 50 Fine Timing edits while this workspace is
-open. Undo restores timing and its review metadata, never overwrites a subsequent
-text/lock/approval edit, and does not reverse unrelated work. Closing the workspace
-clears this local undo stack; ordinary project autosave and History remain the
-persistent recovery path. A new timing change marks the caption unapproved.
+Choose **Word timing**, then click a word chip or its bar above the caption bar.
+The selected word has its own Start, End, **Hear word**, and movement controls.
+Drag its edges to trim or its middle to move; other words and the caption's outer
+edges stay in place. Word edits stop at neighboring word intervals and use 10 ms
+precision, matching the native subtitle timing grid.
 
-While Fine Timing is open, **R** replays the caption, **Alt+Left/Right** moves it by
-the chosen step, and **Ctrl/Cmd+Z** / **Ctrl/Cmd+Shift+Z** undo/redo timing. Text
-fields keep their own typing/undo behavior. These shortcuts do not change Review
-auto-advance or enable a background playback loop elsewhere.
+For example, when “I love you” is already synchronized but “very” is late in
+“I love you very much”, select **very** and move just that word earlier. Replay
+the full caption afterward to check the result.
+
+The word bars represent this caption's editable, owned timings. **Show original
+word estimates** optionally exposes older transcript reference marks in Caption
+edges mode; those marks are not independently editable and do not move when a
+caption is edited. The text printed inside the larger caption bar is a label,
+not a spatial map of its words.
+
+## Correct wording and sync it to speech
+
+Correct the caption text first. Punctuation/spacing changes can preserve timing
+when the same spoken units are provably retained. A spelling or lexical
+replacement may retain a tentative interval with a review marker. Inserting,
+deleting, splitting, merging, or ambiguously repeating words does not assign
+timings by proportional distribution. Unchanged surrounding words are preserved
+only where their correspondence is safe.
+
+Merging overlapping captions preserves their full combined time span and the
+retained word intervals. Overlapping word intervals still require review; the
+merge does not invent a new speech sequence.
+
+**Sync words** listens locally to the existing caption interval and a small
+margin, aligning the exact current wording without rewriting it or calling
+Gemini. The result is a proposal: inspect/listen, then choose **Use timing** or
+**Keep current**. It can still contain uncertain words. A newer text, word,
+caption-edge, lock, or media change invalidates an in-flight result. Applying a
+candidate participates in Fine Timing undo and normal autosave/History.
+
+For manual correction, adjust a tentative word and/or choose **Confirm this
+word** after listening. An untimed word has editable local Start/End fields and
+an explicit **Apply word timing** action; the offered available gap is not a
+claimed alignment. **Set words manually** starts an untimed track when no usable
+one exists. A phrase the speaker never said may not align meaningfully; correct
+the wording or leave it plain rather than treating generated timestamps as fact.
+
+Sync is bounded to one active local word-sync operation and captions no longer
+than 60 seconds/2,000 Unicode code points. Active caption processing must finish
+first. Canceling the client discards its pending result; already-started local
+alignment can finish cleanup before another sync is available.
+
+Khmer word segmentation does not always match a reader's preferred lexical
+division. A unit that cannot safely be separated without cutting a grapheme is
+kept together. Timing a displayed word/unit does not promise syllable-level
+highlighting. Text composition uses a stable edit basis so temporary unfinished
+Khmer input does not progressively erase valid surrounding anchors.
+
+## Enable spoken-word highlighting
+
+Open **Appearance → Spoken word highlight**, turn it **On**, and choose a color.
+The full caption stays visible. Only the currently timed word changes color;
+pauses and the interval after the last word use the normal text color. There is
+no cumulative fill, bouncing word, or syllable animation in this implementation.
+
+Appearance shows how many captions have usable word timing and links directly to
+the first one needing attention. Every spoken span in a caption must be ready for
+that caption to highlight. Missing, stale, overlapping, out-of-range, estimated,
+or review-needed timings leave the entire caption plain. Correcting the text
+therefore cannot silently highlight the wrong old word.
+
+Native preview and captioned MP4 consume the same word intervals, whole-text
+layout, and color states. **SRT has no word-highlight or per-word timing metadata**;
+the destination editor controls SRT styling. Export lists any captions that will
+remain plain. Per-word tracks and highlight settings remain local and are not
+added to Contributor or analytics payloads.
+
+## Listen, undo, and recover
+
+**Replay caption** includes a 120 ms margin on each side. **Hear start / Hear end**
+plays 500 ms around a caption edge; **Hear word** uses 120 ms around that word.
+**Loop** repeats the chosen audition. Editing, selecting another caption, seeking
+through Studio, changing workspace/project/media, or stopping ends that audition.
+Speed is under the secondary options. Check the result at normal speed even
+when a slower pass helps locate a boundary.
+
+The source player remains visible while timing controls scroll on desktop and
+narrow layouts. Timing locks block caption/word edits and sync but preserve
+playback. Numeric edits can still work if the waveform preview fails and source
+duration is available. Rebuild waveform retries the audio preview independently.
+
+**Undo / Redo** retains up to 50 Fine Timing transactions while the workspace is
+open, including word edits, applied sync candidates, and shared edges. It cannot
+overwrite intervening text/lock/approval edits. Closing the workspace clears this
+local stack; autosave and History remain persistent recovery paths. Text fields
+keep their own text undo behavior.
+
+**R** replays the caption. **Alt+Left/Right** moves the selected caption in Caption
+edges mode or the selected word in Word timing mode. **Ctrl/Cmd+Z** and
+**Ctrl/Cmd+Shift+Z** undo/redo timing outside text fields. These actions do not
+enable Review auto-advance or move unrelated captions.
 
 ## Validation and public handoff
 
-Run `npm run test:fine-timing`, `npm run test:performance`, `npm run typecheck`,
-and `npm run build`. The browser suite covers interactive timing, waveform reuse,
-project/media replacement, keyboard edits, locks, playback, and narrow layouts.
-Tests use synthetic fixtures and make no paid AI requests.
+Relevant checks are `test:fine-timing`, `test:word-timing`, `test:video-export`,
+`test:caption-renderer`, `test:browser`, `test:playback-grouping`, `test:performance`,
+`typecheck`, and `build`. Automated fixtures use synthetic inputs and no paid AI.
+Native tests exercise real Khmer shaping, highlight-state geometry, persistent
+preview, and MP4 output. Local sync accuracy still depends on the speech and the
+installed timing runtime; a successful fixture is not a universal accuracy claim.
 
-Public impact: required for the changed timing workflow. Proposed change ID:
-`studio-fine-timing-generation-20260918`. Product-owned evidence is this guide,
-the README development section, the Unreleased changelog, `WaveformEditor.tsx`,
-`CaptionEditor.tsx`, and the timing helpers/tests. The existing product manifest's
-release version, verified release claims, download actions, brand assets, and
-data-processing declarations remain unchanged.
-
-Before advertising the new controls as released, maintainers must run the governed
-HQ intake and Distribution synchronization for Studio's `/studio/` website/docs
-representation using reviewed release evidence. The corresponding downstream
-checkout files and approval digests have not been inspected or authorized by this
-local implementation task. Proposed documentation updates cover selection-focused
-timing, committed timestamp entry, bounded replay, and undo scope. Do not promise
-a general generation-speed percentage or an automatic caption-to-word retiming
-feature. There is no new provider, cloud transfer, dependency, telemetry category,
-installer, updater, or branding change in this implementation.
+Public impact: required. The source-only proposal
+`studio-word-timing-highlights-20260919` extends the earlier Fine Timing work.
+See [the public handoff](WORD-HIGHLIGHT-HANDOFF.md) for affected evidence and
+downstream approvals. The governed current release manifest, verified download
+claims, protected identity, services, and release approvals remain unchanged.

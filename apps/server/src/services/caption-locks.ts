@@ -1,4 +1,4 @@
-import type { CaptionSegment } from '@kcs/shared';
+import { reconcileCaptionWordTiming, type CaptionSegment } from '@kcs/shared';
 import { normalizeKhmerDisplayText } from './tokenizer.js';
 
 function overlapMs(a: Pick<CaptionSegment, 'startMs' | 'endMs'>, b: Pick<CaptionSegment, 'startMs' | 'endMs'>) {
@@ -74,12 +74,16 @@ export function preserveCaptionLocks(existing: CaptionSegment[], generated: Capt
     const nextText = lock.textLocked || ambiguous || !matches.length ? lock.text : generatedText;
     const textUnchanged = normalizeKhmerDisplayText(nextText) === normalizeKhmerDisplayText(lock.text);
     const timingUnchanged = sameTiming(lock, nextStart, nextEnd);
+    const matchingWordTiming = !lock.timingLocked && !ambiguous && matches.length === 1 && matches[0].text === nextText
+      ? matches[0].wordTiming
+      : lock.wordTiming;
 
-    return {
+    const nextCaption = {
       ...lock,
       startMs: nextStart,
       endMs: nextEnd,
       text: nextText,
+      wordTiming: matchingWordTiming,
       timingSource: lock.timingLocked || ambiguous || !matches.length
         ? lock.timingSource || 'manual'
         : matches[0]?.timingSource || lock.timingSource,
@@ -88,6 +92,7 @@ export function preserveCaptionLocks(existing: CaptionSegment[], generated: Capt
         : matches[0]?.timingQuality || lock.timingQuality,
       approved: Boolean(lock.approved && textUnchanged && timingUnchanged),
     } satisfies CaptionSegment;
+    return reconcileCaptionWordTiming(lock, nextCaption);
   });
 
   return [

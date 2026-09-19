@@ -177,6 +177,35 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - After a text or timing edit is committed in Review, replay the selected caption with the tight focus pass so the user can verify the change immediately.
 - Keep **Play with context** available under advanced Review controls for deliberate re-checking of neighboring speech.
 
+### Fine Timing and word highlighting — unreleased source
+
+Keep **Caption edges** and **Word timing** visibly separate inside the single
+Fine Timing workspace. Caption-edge drag handles and editable word handles occupy
+distinct lanes. The larger caption bar is a text label plus cue duration; original
+transcript word estimates are optional, explicitly named reference marks.
+
+Start with neighbor protection and no ripple. **Allow overlaps** is explicit.
+**Move adjoining edge too** changes the shared transition of two captions, honors
+both timing locks, and undoes atomically. A prevented move explains the boundary.
+
+For word edits, keep the selected word name, Hear word, Start/End, and simple
+movement controls together. Untimed fields are only a local draft until **Apply
+word timing**; tentative times require adjustment or **Confirm this word**.
+Corrected text is reconciled against a stable editing/composition basis so
+unfinished Khmer input cannot progressively destroy surrounding timing evidence.
+
+**Sync words** uses the current exact wording and proposes timing without changing
+the saved caption. Keep **Use timing / Keep current** visible while that candidate
+is previewed. Newer text/timing/lock/media edits invalidate it. Do not let an old
+highlight bitmap remain labeled exact during a word transition or text correction.
+
+Put the optional **Spoken word highlight** toggle and color under Appearance, with
+counts of usable and unresolved captions and a direct **Review word timing** link.
+Do not animate or reshape words to communicate timing. The full sentence stays
+visible, only the active word changes color, and pauses restore base color. Export
+discloses any captions that remain plain; SRT copy explains that it carries no
+word-highlight metadata. Setup/provider names stay out of normal controls.
+
 ### Caption rows
 
 - Text and timing remain immediately editable.

@@ -6,6 +6,7 @@ export interface TimestampInputProps {
   label: string;
   minMs?: number;
   maxMs?: number;
+  roundingMs?: number;
   disabled?: boolean;
   onCommit(ms: number): boolean | void;
   onEditingChange?(editing: boolean): void;
@@ -38,6 +39,7 @@ export function TimestampInput({
   label,
   minMs,
   maxMs,
+  roundingMs = 1,
   disabled = false,
   onCommit,
   onEditingChange,
@@ -64,10 +66,16 @@ export function TimestampInput({
       return false;
     }
 
-    const result = validate(candidate);
+    let result = validate(candidate);
     if (!result.ok) {
       setError(result.error);
       return false;
+    }
+    const precision = Number.isFinite(roundingMs) && roundingMs >= 1 ? roundingMs : 1;
+    if (precision > 1) {
+      result = validate(formatTimestamp(Math.round(result.valueMs / precision) * precision));
+      if (!result.ok) { setError(result.error); return false; }
+      if (result.valueMs === currentValue.current) { setText(formatTimestamp(result.valueMs)); setError(null); return false; }
     }
 
     const accepted = onCommit(result.valueMs);

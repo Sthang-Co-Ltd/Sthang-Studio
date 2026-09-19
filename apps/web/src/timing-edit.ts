@@ -1,4 +1,5 @@
 import type { CaptionSegment } from '@kcs/shared';
+import { reconcileCaptionWordTiming } from '@kcs/shared';
 
 export type TimingEditKind = 'start' | 'end' | 'move';
 export interface TimingEdit { before: CaptionSegment; after: CaptionSegment }
@@ -11,6 +12,7 @@ export function timingFields(caption: CaptionSegment) {
     startMs: caption.startMs, endMs: caption.endMs,
     timingSource: caption.timingSource, timingQuality: caption.timingQuality,
     approved: caption.approved,
+    wordTiming: caption.wordTiming,
   };
 }
 
@@ -21,7 +23,8 @@ export function sameTimingRevision(current: CaptionSegment | undefined, expected
     && current.timingSource === expected.timingSource && current.timingQuality === expected.timingQuality
     && Boolean(current.approved) === Boolean(expected.approved)
     && Boolean(current.timingLocked) === Boolean(expected.timingLocked)
-    && Boolean(current.textLocked) === Boolean(expected.textLocked));
+    && Boolean(current.textLocked) === Boolean(expected.textLocked)
+    && JSON.stringify(current.wordTiming ?? null) === JSON.stringify(expected.wordTiming ?? null));
 }
 
 /** Move preserves duration; edge edits preserve the other edge. Never mutate a neighbour. */
@@ -43,7 +46,7 @@ export function editCaptionTiming(caption: CaptionSegment, kind: TimingEditKind,
     endMs = clamp(Math.round(value), startMs + MIN_CAPTION_MS, limit);
   }
   if (startMs === caption.startMs && endMs === caption.endMs) return caption;
-  return { ...caption, startMs, endMs, timingSource: 'manual', timingQuality: 'medium', approved: false };
+  return reconcileCaptionWordTiming(caption, { ...caption, startMs, endMs, timingSource: 'manual', timingQuality: 'medium', approved: false });
 }
 
 export function focusedTimingViewport(caption: Pick<CaptionSegment, 'startMs' | 'endMs'>, durationMs: number) {
