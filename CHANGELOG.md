@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add destination-guided editable caption handoff: SRT, WebVTT, plain TTML,
+  ready word-by-word SRT/VTT, styled ASS, Studio caption data and a ZIP guide kit.
+  Explain CapCut Desktop/mobile import differences and per-format styling limits.
+- Add bounded, previewed captions-only JSON restore with History, exact snapshot
+  and candidate guards, fresh caption identities, lock protection and no imported
+  correction/Contributor lineage. Preserve source media and current appearance.
 - Add optional spoken-word highlighting to native preview and captioned MP4.
   Keep the full caption visible and restore its normal color between words.
   Incomplete, stale, or uncertain word timing leaves that caption plain; SRT

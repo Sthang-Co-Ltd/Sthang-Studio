@@ -114,6 +114,19 @@ before they reach Export.
 
 ### Export workspace
 
+For the unreleased editable-handoff path, **Captions file** opens one compact
+destination selector, a short import guide, and **Download SRT**. Keep advanced
+formats behind a labeled disclosure. Show what each format retains and what the
+destination must style again; a word-per-cue file must never be labeled a portable
+full-sentence highlight effect. Explain CapCut mobile's manual Desktop/Web sync
+route and its external cloud boundary without offering a fake direct import.
+
+Studio caption-data import opens an inline review of count, timing, sample text,
+warnings and replacement scope. **Keep current captions** and **Replace captions**
+are explicit. Newer text or media invalidates that preview. Block incompatible
+word exports with a direct word-timing review path. File creation and restore use
+the existing shared error/toast language, keyboard focus and mobile touch sizing.
+
 Export is an output decision, not another always-visible editing panel. Opening the
 header action temporarily uses the same focused workspace region and keeps the
 video/caption evidence visible.

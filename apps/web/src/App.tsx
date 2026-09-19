@@ -61,7 +61,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
-import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming } from '@kcs/shared';
+import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming, createCaptionData } from '@kcs/shared';
 import { NativeCaptionPreview } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
@@ -73,6 +73,8 @@ import { SourceMedia } from './components/SourceMedia';
 import { sameTimingRevision, timingFields } from './timing-edit';
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
+import { waitForCaptionAppearanceSaves } from './caption-appearance-save';
+import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
 
 const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
@@ -101,6 +103,16 @@ function withCaptionWordTimings(project: CaptionProject): CaptionProject {
 const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
 type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
+
+interface PendingCaptionImport {
+  filename: string;
+  data: string;
+  preview: HandoffRestorePreview;
+  basis: HandoffPrecondition;
+  ticket: ProjectTicket;
+  editRevision: number;
+  captionSnapshot: string;
+}
 type ReviewPlaybackPass = 'context' | 'focus';
 
 type ReviewUndoState = {
@@ -222,6 +234,11 @@ export default function App() {
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
   const [requestedTimingMode, setRequestedTimingMode] = useState<'caption' | 'words'>('caption');
+  const [captionHandoffWorking, setCaptionHandoffWorking] = useState(false);
+  const [pendingCaptionImport, setPendingCaptionImport] = useState<PendingCaptionImport | null>(null);
+  const handoffRequest = useRef<AbortController | null>(null);
+  const handoffWorkspace = useRef(workspaceTool);
+  handoffWorkspace.current = workspaceTool;
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
   });
@@ -247,6 +264,14 @@ export default function App() {
   const lastChangeReason = useRef<DraftChangeReason>('metadata');
   const aiOnboardingShown = useRef(false);
   const reviewPlaybackPass = useRef<ReviewPlaybackPass>('focus');
+
+  useEffect(() => {
+    handoffRequest.current?.abort();
+    handoffRequest.current = null;
+    setCaptionHandoffWorking(false);
+    setPendingCaptionImport(null);
+  }, [mediaKey, workspaceTool]);
+  useEffect(() => () => { handoffRequest.current?.abort(); }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -1411,32 +1436,117 @@ export default function App() {
     setNotice('Approval undone.');
   };
 
-  const exportSrt = async () => {
-    if (!project) return;
-    const targetProject = project;
+  const prepareCaptionHandoff = async (target: CaptionProject, ticket: ProjectTicket, editRevision: number, signal: AbortSignal, needsAppearance = false) => {
+    const active = () => !signal.aborted && projectScope.current.isCurrent(ticket) && handoffWorkspace.current === 'export';
+    const hadEdits = dirtyRef.current;
+    const saved = await saveDraft(true, 'manual-save', true);
+    await saveQueue.current;
+    if (!active()) return null;
+    if (hadEdits && !saved) throw new Error('Save your captions successfully before transferring them.');
+    if (dirtyRef.current || draftEditRevision.current !== editRevision) throw new Error('The captions changed while saving. Review the latest version and try again.');
+    const captionSnapshot = JSON.stringify(draftRef.current);
+    if (needsAppearance && !await waitForCaptionAppearanceSaves(target.id)) throw new Error('Your latest appearance could not be saved. Retry its save before transferring styled captions or appearance data.');
+    if (!active()) return null;
+    const summary = await captionHandoffApi.summary(target.id, signal);
+    if (!active()) return null;
+    if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== captionSnapshot) {
+      throw new Error('The captions changed during export preparation. Your newer edits were kept.');
+    }
+    const expected = createCaptionData({ captions: draftRef.current }).captions;
+    if (summary.media.filename !== target.media.filename || summary.media.size !== target.media.size
+      || JSON.stringify(summary.snapshot.captions) !== JSON.stringify(expected)) {
+      throw new Error('The saved captions changed in another operation. Reopen the project before transferring them.');
+    }
+    return { summary, captionSnapshot, basis: { expectedMedia: summary.media, expectedRevision: summary.revision } };
+  };
+
+  const exportCaptionFile = async (format: CaptionFileFormat): Promise<boolean> => {
+    if (!project || busy || handoffRequest.current || !draftRef.current.length) return false;
+    const target = project;
     const ticket = projectScope.current.capture();
     const editRevision = draftEditRevision.current;
-    const severe = issues.filter((issue) => issue.severity !== 'info').length;
-    if (severe > 0) {
-      const confirmed = await confirmInStudio({
-        title: 'Export with review warnings?',
-        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. SRT can still be exported with the current text and timing.`,
-        confirmLabel: 'Export SRT',
-      });
-      if (!confirmed || !projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return;
-    }
-    setBusy('Saving & exporting…'); setError('');
+    const controller = new AbortController();
+    handoffRequest.current = controller;
+    setCaptionHandoffWorking(true);
+    setError('');
     try {
-      const hadUnsavedEdits = dirtyRef.current;
-      const saved = await saveDraft(true, 'manual-save', true);
-      if (hadUnsavedEdits && !saved) return;
-      if (!projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return;
-      const anchor = document.createElement('a');
-      anchor.href = `/api/projects/${targetProject.id}/export.srt`; anchor.download = '';
-      document.body.appendChild(anchor); anchor.click(); anchor.remove();
-      setNotice('SRT export started. It includes caption text and timing; visual styling is set in your editing app.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Export failed'); }
-    finally { setBusy(''); }
+      const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal, ['ass', 'data', 'bundle'].includes(format));
+      if (!prepared) return false;
+      const result = await captionHandoffApi.export(target.id, format, prepared.basis, controller.signal);
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || handoffWorkspace.current !== 'export') return false;
+      if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
+        throw new Error('The captions changed while the file was being prepared. Export again to include the latest edits.');
+      }
+      saveHandoffDownload(result.blob, result.filename);
+      setNotice(result.warnings || 'Caption file prepared for download. Your Studio project stays editable; follow the destination’s import instructions.');
+      return true;
+    } catch (reason) {
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Caption export failed.');
+      return false;
+    } finally {
+      if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
+    }
+  };
+
+  const previewCaptionImport = async (file: File): Promise<void> => {
+    if (!project || busy || handoffRequest.current) return;
+    const target = project;
+    const ticket = projectScope.current.capture();
+    const editRevision = draftEditRevision.current;
+    const controller = new AbortController();
+    handoffRequest.current = controller;
+    setCaptionHandoffWorking(true);
+    setPendingCaptionImport(null);
+    setError('');
+    try {
+      if (file.size > 4 * 1024 * 1024) throw new Error('Choose a Studio caption-data file smaller than 4 MB.');
+      const data = await file.text();
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket)) return;
+      const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal);
+      if (!prepared) return;
+      const preview = await captionHandoffApi.previewRestore(target.id, data, prepared.basis, controller.signal);
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || handoffWorkspace.current !== 'export') return;
+      if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
+        throw new Error('The captions changed while reading the file. Open it again to review the latest state.');
+      }
+      setPendingCaptionImport({ filename: file.name, data, preview, basis: prepared.basis, ticket, editRevision, captionSnapshot: prepared.captionSnapshot });
+    } catch (reason) {
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not read caption data.');
+    } finally {
+      if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
+    }
+  };
+
+  const applyCaptionImport = async () => {
+    const pending = pendingCaptionImport;
+    if (!project || !pending || handoffRequest.current || busy || currentProjectActiveJob) return;
+    const target = project;
+    const valid = () => projectScope.current.isCurrent(pending.ticket) && handoffWorkspace.current === 'export'
+      && !dirtyRef.current && draftEditRevision.current === pending.editRevision
+      && JSON.stringify(draftRef.current) === pending.captionSnapshot;
+    if (!valid()) { setNotice('The project changed. Open the caption-data file again before replacing captions.'); return; }
+    const controller = new AbortController();
+    handoffRequest.current = controller;
+    setCaptionHandoffWorking(true);
+    setError('');
+    try {
+      // Reuse the History/save acknowledgement lane. Once a replacement has been
+      // submitted, finish reconciling it even if the preview is dismissed.
+      await queueSameMediaMutation(pending.ticket, async () => {
+        if (!valid() || controller.signal.aborted) return;
+        const result = await captionHandoffApi.restore(target.id, pending.data, pending.basis, pending.preview.candidateDigest);
+        const published = publishSameMediaMutation(result, pending.ticket, pending.editRevision, false,
+          'Caption data was restored on disk. Your newer edits are still kept in the editor.');
+        if (published !== 'stale') {
+          setPendingCaptionImport(null);
+          if (published === 'applied') setNotice('Caption data restored. Current appearance and source media were kept. The previous captions are in History.');
+        }
+      });
+    } catch (reason) {
+      if (projectScope.current.isCurrent(pending.ticket)) setError(reason instanceof Error ? reason.message : 'Caption restore failed.');
+    } finally {
+      if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
+    }
   };
 
 
@@ -1763,7 +1873,7 @@ export default function App() {
     </header>
 
     <section className="editor-grid">
-      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''}`}>
+      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''}`}>
         <div className="media-stage">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} video={isVideo} media={media}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
@@ -1807,9 +1917,17 @@ export default function App() {
           {workspaceTool === 'export' && <ExportWorkspace key={`${project.id}:${project.media.filename}`}
             onPreviewResolution={setPreviewResolution}
             project={{ ...project, captions: draft }}
-            busy={Boolean(busy)}
+            busy={Boolean(busy) || captionHandoffWorking}
             activeExportJob={activeExportJob}
-            onExportSrt={() => void exportSrt()}
+            onExportCaptions={exportCaptionFile}
+            onImportCaptionData={previewCaptionImport}
+            captionImportPreview={pendingCaptionImport && projectScope.current.isCurrent(pendingCaptionImport.ticket) ? {
+              filename: pendingCaptionImport.filename, preview: pendingCaptionImport.preview, currentCount: draft.length,
+              stale: dirty || pendingCaptionImport.editRevision !== draftEditRevision.current
+                || pendingCaptionImport.captionSnapshot !== JSON.stringify(draftRef.current),
+            } : undefined}
+            onApplyCaptionImport={() => void applyCaptionImport()}
+            onCancelCaptionImport={() => setPendingCaptionImport(null)}
             onEditAppearance={() => chooseWorkspaceTool('appearance')}
             onEditWordTiming={openWordTiming}
             onStartVideoExport={startVideoExport}

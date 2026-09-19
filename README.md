@@ -38,6 +38,14 @@ available without crowding the main editing flow.
 
 ## Development changes — unreleased
 
+**Export → Captions file** now guides creators through editable handoff to CapCut
+Desktop/mobile and other editors. SRT remains the default; advanced choices add
+WebVTT, plain TTML, ready word-by-word SRT/VTT, styled ASS for compatible tools,
+Studio caption-data backup/restore, and a ZIP kit with import guidance. These are
+different preservation levels, not a universal editable-highlight guarantee.
+See [Continue editing elsewhere](docs/CAPTION-HANDOFF.md), including CapCut
+mobile's documented Desktop/Web plus manual project-sync requirement.
+
 The source Fine Timing workspace now focuses on one caption at a time, keeps
 playback visible, and provides precise start/end entry, bounded nudges, whole-cue
 movement, edge auditions, optional looping, and timing undo/redo. Neighbor

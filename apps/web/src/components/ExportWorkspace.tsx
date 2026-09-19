@@ -15,13 +15,20 @@ import {
 import { Download, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import { CaptionHandoffPanel } from './CaptionHandoffPanel';
+import { CaptionRestoreReview, type CaptionRestoreReviewState } from './CaptionRestoreReview';
+import type { CaptionFileFormat } from '../caption-handoff-client';
 import './video-export.css';
 
 interface Props {
   project: CaptionProject;
   busy: boolean;
   activeExportJob?: ProcessingJob;
-  onExportSrt(): void;
+  onExportCaptions(format: CaptionFileFormat): Promise<boolean>;
+  onImportCaptionData(file: File): Promise<void>;
+  captionImportPreview?: CaptionRestoreReviewState;
+  onApplyCaptionImport(): void;
+  onCancelCaptionImport(): void;
   onEditAppearance(): void;
   onEditWordTiming?(id?: string): void;
   onPreviewResolution(resolution: VideoResolutionPreset): void;
@@ -72,7 +79,8 @@ function elapsedLabel(job: ProcessingJob) {
   return `${seconds}s elapsed`;
 }
 
-export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution }: Props) {
+export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
+  onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
@@ -185,15 +193,15 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
       <button aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
-      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><Download size={16}/><span>Captions file</span><small>SRT</small></button>
+      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><Download size={16}/><span>Captions file</span><small>SRT + more</small></button>
     </div>
 
-    {!videoProject && <p className="export-mode-help">This project contains audio only, so SRT is the available export path.</p>}
+    {!videoProject && <p className="export-mode-help">This audio project can export editable caption files. Captioned-video export requires a video source.</p>}
 
-    {outputMode === 'captions' && <section className="export-srt-panel" aria-labelledby="export-srt-title">
-      <div><strong id="export-srt-title">Captions file (SRT)</strong><span>Caption text + timing. Visual styling stays controlled by the destination editing app.</span></div>
-      <button disabled={!project.captions.length || busy} onClick={onExportSrt}><Download size={14}/>Download SRT</button>
-    </section>}
+    {outputMode === 'captions' && (captionImportPreview
+      ? <CaptionRestoreReview review={captionImportPreview} busy={busy} onApply={onApplyCaptionImport} onCancel={onCancelCaptionImport}/>
+      : <CaptionHandoffPanel project={project} busy={busy} onExport={onExportCaptions} onImport={onImportCaptionData}
+          onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => setOutputMode('video') : undefined}/>)}
 
     {outputMode === 'video' && <>
       {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · you can keep editing while this saved snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}

@@ -123,6 +123,28 @@ reports how many captions will remain plain before a render.
 
 ## Export contract
 
+### Editable handoff — unreleased source
+
+Export separates finished captioned video from editable caption files. SRT remains
+the default for documented major-editor imports. A destination selector explains
+CapCut Desktop/mobile and other editor routes; it does not assert universal
+native editable-highlight transfer. CapCut mobile's current import route requires
+Desktop/Web first and the creator's separate CapCut cloud-sync action.
+
+WebVTT, plain TTML, ready word-by-word SRT/VTT, styled ASS, projected Studio caption
+data and a fixed-name ZIP kit stay progressively disclosed. Plain files contain
+text/timing; word files change grouping and require complete usable word timing;
+ASS is a compatible-renderer reference with font/layout dependencies. No media or
+font files are packaged. Times remain relative to source zero without silent
+overlap repair, speed conversion or proportional retiming.
+
+Caption-data restore is explicit preview then replace. It validates a bounded
+versioned allowlist, preserves valid partial word tracks without promoting them,
+checks the current source and snapshot, honors existing locks, checkpoints
+History, and restores captions with new identities/unapproved state. Current
+media and appearance remain unchanged. Import is not fresh correction evidence
+for local learning or Contributor capture.
+
 Sthang Studio has two deliberately different output paths:
 
 - **SRT** remains the portable, editable caption handoff. It contains caption text

@@ -63,6 +63,27 @@ means cue/clip boundaries and the existing source timing/model/version fields;
 it does not include these new per-caption word tracks. The existing explicit
 consent rules and cloud payload projections remain unchanged.
 
+## Editable caption handoff — unreleased source
+
+The editable-file workflow creates local SRT, WebVTT, TTML, styled ASS, projected
+caption-data JSON or a ZIP handoff kit only after a download request. Files contain
+the caption wording/timing appropriate to the selected format. Caption data can
+also contain per-word intervals, review/lock metadata and appearance reference.
+It excludes source-media identity/paths, project titles and identifiers, account
+credentials, context, transcripts, correction memory and History. ZIP entries are
+fixed caption/guide filenames; source media and fonts are never bundled.
+
+Studio does not upload handoff files to editing software or cloud accounts.
+Opening a third-party import-help link visits that publisher's website. Choosing
+CapCut Web or CapCut project cloud sync is a separate creator action subject to
+CapCut's service and privacy terms; it is not an automatic Studio transfer.
+
+Restoring a selected Studio caption-data file uses the local loopback API, previews
+before replacement, and creates local History. It restores caption data only,
+leaving the source and current appearance unchanged, and does not run the ordinary
+correction-memory or Contributor candidate-capture paths. This feature introduces
+no analytics event or new automatic category of cloud transfer.
+
 ## Local preparation before Generate
 
 After new or replacement media is saved, Studio may begin local-only preparation
