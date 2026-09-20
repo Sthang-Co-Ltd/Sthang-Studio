@@ -94,6 +94,18 @@ export function CaptionAppearanceWorkspace({
     const spoken = captions.filter((caption) => caption.text.trim());
     return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
   }, [captions]);
+  const hasOverlappingCaptions = useMemo(() => {
+    const visible = captions
+      .filter((caption) => caption.text.trim() && Number.isFinite(caption.startMs) && Number.isFinite(caption.endMs) && caption.endMs > caption.startMs)
+      .slice()
+      .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    let furthestEndMs = Number.NEGATIVE_INFINITY;
+    for (const caption of visible) {
+      if (caption.startMs < furthestEndMs) return true;
+      furthestEndMs = Math.max(furthestEndMs, caption.endMs);
+    }
+    return false;
+  }, [captions]);
 
   const persistAppearance = async (snapshot: CaptionAppearance): Promise<boolean> => {
     const snapshotKey = JSON.stringify(snapshot);
@@ -262,9 +274,18 @@ export function CaptionAppearanceWorkspace({
         ? 'Choose an available Khmer font before replaying this appearance.'
         : explicitReplayTargetMissing
           ? 'Choose a caption with text before replaying this appearance.'
-          : replayDisabled
-            ? 'Replay is unavailable for the current selection.'
-            : '';
+            : replayDisabled
+              ? 'Replay is unavailable for the current selection.'
+              : '';
+  const motionPreset = appearance.motionPreset || 'none';
+  const motionDescription = motionPreset === 'rise'
+    ? 'Rise brings the whole caption upward into its saved position, then fades out.'
+    : motionPreset === 'soft-pop'
+      ? 'Soft Pop gently scales the whole caption into place, then fades out.'
+      : motionPreset === 'fade'
+        ? 'Fade softly brings the whole caption in and out.'
+        : 'No caption motion is applied.';
+  const motionDurationLabel = motionPreset === 'fade' ? 'Fade duration' : 'Motion duration';
 
   const commitAppearance = (
     next: CaptionAppearance,
@@ -571,20 +592,27 @@ export function CaptionAppearanceWorkspace({
       <div className="caption-effects-section-head">
         <div>
           <strong id="appearance-motion-title">Motion</strong>
-          <span>Choose how the whole caption fades in and out. Motion does not change caption timing or word emphasis.</span>
+          <span>Choose a simple whole-caption motion. Motion does not change caption timing or word emphasis.</span>
         </div>
       </div>
       <div className="appearance-motion-controls">
         <div className="appearance-motion-choice">
           <span>Entrance &amp; exit</span>
           <div className="appearance-segmented" role="group" aria-label="Caption motion">
-            <button type="button" aria-pressed={(appearance.motionPreset || 'none') === 'none'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}>None</button>
-            <button type="button" aria-pressed={appearance.motionPreset === 'fade'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'fade' }))}>Fade</button>
+            <button type="button" aria-pressed={motionPreset === 'none'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}>None</button>
+            <button type="button" aria-pressed={motionPreset === 'fade'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'fade' }))}>Fade</button>
+            <button type="button" aria-pressed={motionPreset === 'rise'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'rise' }))}>Rise</button>
+            <button type="button" aria-pressed={motionPreset === 'soft-pop'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'soft-pop' }))}>Soft Pop</button>
           </div>
+          <span className="appearance-motion-selection-note">{motionDescription}</span>
+          {motionPreset !== 'none' && <span className="appearance-motion-selection-note">Very short captions appear without animation to stay visible.</span>}
+          {(motionPreset === 'rise' || motionPreset === 'soft-pop') && hasOverlappingCaptions
+            && <span className="appearance-motion-overlap-note">Overlapping captions stay still and fade to keep both readable.</span>}
         </div>
-        {appearance.motionPreset === 'fade' && <label className="appearance-motion-duration range-field">
-          <span>Fade duration <b>{appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs} ms</b></span>
+        {motionPreset !== 'none' && <label className="appearance-motion-duration range-field">
+          <span>{motionDurationLabel} <b>{appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs} ms</b></span>
           <input type="range" min="80" max="400" step="10" value={appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs}
+            aria-label={motionDurationLabel}
             onChange={(event) => updateAppearance((current) => ({ ...current, motionDurationMs: Number(event.target.value) }), { history: 'range' })}/>
         </label>}
       </div>
@@ -601,7 +629,7 @@ export function CaptionAppearanceWorkspace({
         </button>}
         {onCancelReplayEffect && replayIsPreparing && <button type="button" onClick={cancelReplayEffect}>Cancel preparation</button>}
         {onCancelReplayEffect && replayPlaying && <button type="button" onClick={cancelReplayEffect}>Stop replay</button>}
-        {appearance.motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
+        {motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
       </div>
       {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label="Replay target caption"><span>Replay target</span><b>{sampleCaptionText.trim()}</b></div>}
       <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay the selected caption once to judge Look, Motion and word emphasis. Studio prepares its opening first; later frames are prepared as needed.'}</span>

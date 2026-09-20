@@ -237,6 +237,24 @@ test('caption data uses v2 for nondefault effects and roundtrips the strict effe
   assert.deepEqual(parseCaptionData(JSON.stringify(document)), document);
 });
 
+test('caption data uses v3 only for rise and soft-pop motion and roundtrips both presets', () => {
+  for (const motionPreset of ['rise', 'soft-pop'] as const) {
+    const document = createCaptionData({
+      captions: [cue()],
+      appearance: {
+        alignment: 'right',
+        glowEnabled: true,
+        motionPreset,
+        motionDurationMs: 240,
+      },
+    });
+    assert.equal(document.version, 3);
+    assert.equal(document.appearance?.motionPreset, motionPreset);
+    assert.equal(document.appearance?.motionDurationMs, 240);
+    assert.deepEqual(parseCaptionData(JSON.stringify(document)), document);
+  }
+});
+
 test('caption data preserves fractional cue, word and media duration milliseconds exactly', () => {
   const caption = readyLiteralCue();
   caption.startMs = 100.125;
@@ -256,7 +274,7 @@ test('caption data preserves fractional cue, word and media duration millisecond
 test('data parser rejects unknown file/version/fields and stale or malformed word maps', () => {
   const base = createCaptionData({ captions: [readyLiteralCue()] });
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, kind: 'other-caption-data' })), /unknown caption data file kind/i);
-  assert.throws(() => parseCaptionData(JSON.stringify({ ...base, version: 3 })), /unsupported caption data version/i);
+  assert.throws(() => parseCaptionData(JSON.stringify({ ...base, version: 4 })), /unsupported caption data version/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, localPath: 'C:\\secret' })), /unsupported field/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, captions: [{ ...base.captions[0], unknown: true }] })), /unsupported field/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, captions: [{ ...base.captions[0], id: 'imported-id' }] })), /unsupported field/i);
@@ -306,6 +324,41 @@ test('caption data versions enforce effect allowlists, future fields and effect 
     captions: [cue()],
     appearance: { motionPreset: 'fade', motionDurationMs: 165 },
   }), /10 ms step/i);
+});
+
+test('v1 and v2 readers reject newer motion while v2 fade compatibility stays unchanged', () => {
+  const defaultDocument = createCaptionData({ captions: [cue()] });
+  assert.equal(defaultDocument.version, 1);
+  assert.throws(() => parseCaptionData(JSON.stringify({
+    ...defaultDocument,
+    appearance: { motionPreset: 'rise' },
+  })), /unsupported field/i);
+
+  const fade = createCaptionData({
+    captions: [cue()],
+    appearance: { motionPreset: 'fade', motionDurationMs: 220 },
+  });
+  assert.equal(fade.version, 2);
+  assert.deepEqual(parseCaptionData(JSON.stringify(fade)), fade);
+
+  for (const motionPreset of ['rise', 'soft-pop'] as const) {
+    assert.throws(() => parseCaptionData(JSON.stringify({
+      ...fade,
+      appearance: { ...fade.appearance, motionPreset },
+    })), /invalid for caption data version 2/i);
+  }
+  assert.throws(() => parseCaptionData(JSON.stringify({
+    ...fade,
+    version: 3,
+    appearance: { ...fade.appearance, motionPreset: 'future-motion' },
+  })), /invalid for caption data version 3/i);
+  for (const version of [2, 3]) {
+    assert.throws(() => parseCaptionData(JSON.stringify({
+      ...fade,
+      version,
+      appearance: { ...fade.appearance, motionPreset: [version === 2 ? 'fade' : 'rise'] },
+    })), /motionPreset is invalid/i, 'an array must not masquerade as a supported preset through string coercion');
+  }
 });
 
 test('data parser enforces hard UTF-8 size, cue count and grapheme bounds before accepting content', () => {

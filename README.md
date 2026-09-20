@@ -39,7 +39,7 @@ available without crowding the main editing flow.
 ## Development changes — unreleased
 
 **Appearance** now offers six original Studio Looks, optional native Glow, and
-caption-level Fade in/out. Look, Motion and Word emphasis are separate, with
+caption-level Fade, Rise, and Soft Pop. Look, Motion and Word emphasis are separate, with
 appearance Undo/Redo, Reset look and explicit Replay effect. Starter Looks keep
 your chosen font, size and placement. Replay also works for static Looks, shows
 the selected caption, and offers Cancel preparation / Stop replay. Font recovery

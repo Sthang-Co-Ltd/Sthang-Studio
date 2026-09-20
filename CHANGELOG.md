@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add native Rise and Soft Pop beside Fade, sharing the original caption clock,
+  saved presets, explicit replay and preview/export rendering. Keep overlap
+  geometry steady with disclosed per-caption fades; preserve native wrapping
+  through proportional Soft Pop width compensation.
+- Preserve Rise/Soft Pop in caption-data version 3; retain version-1/default and
+  version-2/Glow/Fade compatibility and explicit rejection by older readers.
 - Polish appearance replay with a visible target, static-Look replay, Cancel
   preparation and Stop controls; native player seeking releases replay ownership.
 - Prevent obsolete preview requests from clearing a replacement's pending frames.

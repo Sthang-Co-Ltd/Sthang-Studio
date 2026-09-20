@@ -1,4 +1,4 @@
-import type { CaptionAppearance, CaptionPreviewFrame, CaptionRenderState, CaptionSegment } from '@kcs/shared';
+import { captionMotionContextIndices, type CaptionAppearance, type CaptionPreviewFrame, type CaptionRenderState, type CaptionSegment } from '@kcs/shared';
 
 /** Only resample already-native pixels. Font/effect/width changes require fresh
  * pixels; there is deliberately no browser text-layout or font-metric fallback.
@@ -33,8 +33,12 @@ export function captionPreviewTransform(
 /** Send only evidence contributing to the requested states, including overlaps.
  * Original timecodes and original-index cache keys stay intact in the editor.
  */
-export function captionPreviewSelection(captions: CaptionSegment[], states: CaptionRenderState[], focusIndices?: number[]) {
-  const indices = [...new Set(states.flatMap((state) => state.key ? state.key.split(',').map(Number) : []))].sort((a, b) => a - b);
+export function captionPreviewSelection(captions: CaptionSegment[], states: CaptionRenderState[], focusIndices?: number[], appearance?: Pick<CaptionAppearance, 'motionPreset' | 'motionDurationMs'>) {
+  const activeIndices = [...new Set(states.flatMap((state) => state.key ? state.key.split(',').map(Number) : []))].sort((a, b) => a - b);
+  // A cue that overlapped the entrance may already have ended at the requested
+  // frame. Keep that bounded context so a compact native request cannot restart
+  // geometry that the full timeline correctly suppressed.
+  const indices = captionMotionContextIndices(captions, activeIndices, appearance);
   const selected = new Set(focusIndices);
   return {
     captions: indices.map((index) => {

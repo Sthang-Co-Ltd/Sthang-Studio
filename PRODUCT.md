@@ -91,7 +91,7 @@ Creators may style captions before export while watching the real video evidence
 - Appearance never changes SRT serialization, caption text/timing, locks,
   correction eligibility, correction memory, Review behavior, or source media.
 
-## Original Looks and Fade contract — unreleased source
+## Original Looks and Motion contract — unreleased source
 
 Appearance separates starter **Look**, **Motion**, and **Word emphasis**. Six
 original Looks change decoration only; the creator's font, bold/regular choice,
@@ -117,9 +117,25 @@ Preset saves capture their click-time appearance and never label later edits as
 belonging to the saved preset.
 
 Settings and derived preview data remain local. Caption-data v2 retains nondefault
-effect settings; v1 stays supported and unknown versions fail explicitly. Normal
+Glow/Fade settings; v1 stays supported and unknown versions fail explicitly. Normal
 subtitle handoff remains text/timing only. These additions do not establish a
 published package, CapCut-asset license or universal editor effect transfer.
+
+Rise and Soft Pop extend the same clock and native render path. Rise is a small
+vertical entrance; Soft Pop scales the entire caption from approximately 94% to
+100% with proportionally compensated native wrapping width. Both fade out without
+exit travel or scale. Geometry stays neutral during overlapping intervals, with
+that constraint disclosed in Appearance. An entrance that intersects any other
+caption stays geometry-neutral throughout, preventing jumps around brief overlaps.
+Each caption retains its own opacity phase. Review masks follow geometric motion and ignore visual opacity.
+The final resting layout is the existing untransformed native layout. Captions
+lasting 80 ms or less bypass motion at full opacity/geometry, so a transparent
+entrance cannot hide the only video frame that contains a brief caption.
+
+Caption-data v3 is emitted for Rise/Soft Pop. Existing Glow/Fade settings retain
+v2, defaults retain v1, and the current reader accepts all three; v2 explicitly
+rejects the new motion values. Acceptance includes decoded MP4 comparisons at
+entrance, middle, exit and after caption end with caption-region/visibility checks.
 
 ## Word timing and spoken-word highlight contract — unreleased source
 

@@ -64,6 +64,13 @@ export class PreviewPngReader {
  * without mutating the stored cue/timing data.
  */
 export function previewSample(input: FrameInput, atMs: number) {
+  if (input.appearance.motionPreset === 'rise' || input.appearance.motionPreset === 'soft-pop') {
+    return {
+      captions: input.captions,
+      focus: new Set(input.focusIndices),
+      sampleAtMs: atMs,
+    };
+  }
   const state = planCaptionRenderStates(input.captions).find((item) => atMs >= item.atMs && atMs < item.endMs);
   const indices = state?.key ? state.key.split(',').map(Number) : [];
   const selected = new Set(input.focusIndices);

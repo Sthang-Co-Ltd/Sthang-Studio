@@ -5,7 +5,7 @@ export * from './caption-looks.js';
 export * from './word-timing.js';
 export * from './caption-interchange.js';
 export { summarizeProject, type CaptionProjectSummary } from './project-summary.js';
-export { wrapCaptionText, planCaptionRenderStates, type CaptionRenderState } from './caption-layout.js';
+export { wrapCaptionText, planCaptionRenderStates, captionMotionContextIndices, type CaptionRenderState } from './caption-layout.js';
 
 export type CaptionMode = 'dynamic' | 'word' | 'phrase' | 'single-line';
 export type TimingSource = 'stt' | 'stt-split' | 'interpolated' | 'manual';

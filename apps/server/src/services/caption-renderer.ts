@@ -201,7 +201,7 @@ export function buildAssDocument(
   // Fade and decorative layers repaint the same plain caption text many times. Cache
   // that pure wrap/escape result per cue; spoken-word paint still takes the dynamic
   // path below because its inline color spans change with the active word.
-  const repeatedPlainPaint = !highlightWords && (a.motionPreset === 'fade' || a.glowEnabled || a.backgroundEnabled);
+  const repeatedPlainPaint = !highlightWords && (a.motionPreset !== 'none' || a.glowEnabled || a.backgroundEnabled);
   const plainTextCache = repeatedPlainPaint ? new Array<string | undefined>(captions.length) : undefined;
   const alignment = a.alignment === 'left' ? 1 : a.alignment === 'right' ? 3 : 2;
   const style = (name: string, text: string, edge: string, back: string, border: number, edgeWidth: number, shadowWidth: number) =>
@@ -242,7 +242,32 @@ export function buildAssDocument(
       return mask + temporal + visible;
     }).join('\\N');
     const defaultText = composeText('default', visibilityMask ? '#FFFFFF' : undefined);
-    const event = (layer: number, name: string, text: string) => `Dialogue: ${layer},${assTimestamp(c.atMs)},${assTimestamp(c.endMs)},${name},,0,0,0,,${text}`;
+    const requestedRisePixels = Math.max(0, Math.round((c.motionTranslateY1080 || 0) * scale));
+    const decorationBottomClearance = Math.ceil(Math.max(
+      outline + shadow,
+      a.backgroundEnabled ? padding : 0,
+      glowEnabled ? glow + glowBlur : 0,
+    ));
+    const risePixels = Math.min(requestedRisePixels, Math.max(0, bottom - decorationBottomClearance - 1));
+    const motionMarginV = risePixels > 0 ? Math.max(1, bottom - risePixels) : 0;
+    const motionScale = c.motionScale ?? 1;
+    const baseAvailableWidth = width - side * 2;
+    const scaledAvailableWidth = baseAvailableWidth > 0 ? Math.round(baseAvailableWidth * motionScale) : baseAvailableWidth;
+    const softPopActive = motionScale < 0.999999 && baseAvailableWidth > 0 && scaledAvailableWidth > 0 && scaledAvailableWidth < baseAvailableWidth;
+    const motionMarginL = softPopActive ? Math.floor((width - scaledAvailableWidth) / 2) : 0;
+    const motionMarginR = softPopActive ? Math.ceil((width - scaledAvailableWidth) / 2) : 0;
+    const motionAnchorX = a.alignment === 'left' ? side : a.alignment === 'right' ? width - side : width / 2;
+    const motionAnchorY = height - bottom;
+    const actualMotionScale = softPopActive ? scaledAvailableWidth / baseAvailableWidth : 1;
+    const motionScalePct = Number((actualMotionScale * 100).toFixed(8));
+    // Scaling text without shrinking libass's available line width can reflow a
+    // near-threshold caption. The proportional margin budget keeps the original
+    // 100% line plan while \pos pins the saved alignment anchor/baseline. At 100%
+    // no overrides are emitted, preserving the exact established rasterization.
+    const geometryText = (text: string) => softPopActive
+      ? `{\\pos(${motionAnchorX},${motionAnchorY})\\fscx${motionScalePct}\\fscy${motionScalePct}}${text}`
+      : text;
+    const event = (layer: number, name: string, text: string) => `Dialogue: ${layer},${assTimestamp(c.atMs)},${assTimestamp(c.endMs)},${name},,${motionMarginL},${motionMarginR},${motionMarginV},,${geometryText(text)}`;
     const output: string[] = [];
     let layer = 0;
     if (glowEnabled) {

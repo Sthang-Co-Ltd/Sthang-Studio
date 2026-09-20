@@ -37,6 +37,12 @@ test('caption effect defaults keep old projects visually unchanged and normalize
   assert.equal(bounded.motionDurationMs, 260);
   assert.equal(normalizeCaptionAppearance({ motionDurationMs: 1 }).motionDurationMs, 80);
   assert.equal(normalizeCaptionAppearance({ motionDurationMs: 999 }).motionDurationMs, 400);
+  assert.equal(normalizeCaptionAppearance({ motionPreset: 'rise' }).motionPreset, 'rise');
+  assert.equal(normalizeCaptionAppearance({ motionPreset: 'soft-pop' }).motionPreset, 'soft-pop');
+  assert.equal(normalizeCaptionAppearance({
+    // @ts-expect-error Runtime input may arrive from malformed JSON.
+    motionPreset: ['rise'],
+  }).motionPreset, 'none');
 });
 
 test('six original Looks have stable ids and each applied recipe matches exactly', () => {
@@ -63,7 +69,7 @@ test('applying and resetting Looks changes decoration only', () => {
     alignment: 'right',
     positionBottomPct: 24,
     maxWidthPct: 70,
-    motionPreset: 'fade',
+    motionPreset: 'soft-pop',
     motionDurationMs: 240,
     highlightMode: 'word',
     highlightColor: '#AABBCC',
@@ -109,4 +115,14 @@ test('matching ignores creator-owned fields but returns null after a decoration 
     highlightMode: 'word',
   }), 'bold-outline');
   assert.equal(matchingCaptionLook({ ...applied, outlineWidth1080: 5 }), null);
+});
+
+test('Looks preserve rise and soft-pop motion independently of decoration matching', () => {
+  for (const motionPreset of ['rise', 'soft-pop'] as const) {
+    const current = normalizeCaptionAppearance({ motionPreset, motionDurationMs: 280 });
+    const applied = applyCaptionLook(current, 'solid-box');
+    assert.equal(applied.motionPreset, motionPreset);
+    assert.equal(applied.motionDurationMs, 280);
+    assert.equal(matchingCaptionLook(applied), 'solid-box');
+  }
 });

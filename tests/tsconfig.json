@@ -34,6 +34,8 @@
     "caption-effects-preview.test.ts",
     "caption-effects-native.test.mts",
     "caption-effects-performance.test.mts",
+    "caption-motion-plan.test.ts",
+    "caption-motion-native.test.mts",
     "timestamp.test.ts",
     "timing-playback.test.ts",
     "waveform-audio-route.test.mts",

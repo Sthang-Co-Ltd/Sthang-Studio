@@ -52,20 +52,21 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
   const highlightWords = normalizedAppearance.highlightMode === 'word';
   const motionPreset = normalizedAppearance.motionPreset;
   const motionDurationMs = normalizedAppearance.motionDurationMs;
-  const temporalPaint = highlightWords || motionPreset === 'fade';
+  const motionActive = Boolean(motionPreset && motionPreset !== 'none');
+  const temporalPaint = highlightWords || motionActive;
   const states = useMemo(() => planCaptionRenderStates(captions, highlightWords, { motionPreset, motionDurationMs }), [captions, highlightWords, motionPreset, motionDurationMs]);
   const index = captionPreviewStateIndex(states, timeMs);
   const state = states[index];
   const focusMask = useMemo(() => {
     // Review brackets identify the decision target even at the transparent start
     // of a fade. Native focus masks ignore opacity without changing caption pixels.
-    if (motionPreset === 'fade' && focusIndices.length) return focusIndices;
+    if (motionActive && focusIndices.length) return focusIndices;
     const selected = new Set(focusIndices);
     return states.some((item) => {
       const active = item.key ? item.key.split(',').map(Number) : [];
       return active.some((id) => selected.has(id)) && active.some((id) => !selected.has(id));
     }) ? focusIndices : undefined;
-  }, [states, focusIndices, motionPreset]);
+  }, [states, focusIndices, motionActive]);
   const captionSignature = useMemo(() => JSON.stringify(captions.map(({ text, startMs, endMs, wordTiming }) => [text, startMs, endMs, wordTiming])), [captions]);
   const payload = useMemo(() => ({ resolution, appearance: normalizedAppearance }), [normalizedAppearance, resolution]);
   const contentSignature = useMemo(() => JSON.stringify([project.id, project.media.filename, captionSignature, focusMask, fontRevision]), [project.id, project.media.filename, captionSignature, focusMask, fontRevision]);
@@ -133,7 +134,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
           const batch = missing.slice(offset, offset + 8);
           const response = await fetch(`/api/video-export/${encodeURIComponent(project.id)}/preview`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-            body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, batch, focusMask), timesMs: batch.map((item) => item.atMs) }),
+            body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, batch, focusMask, payload.appearance), timesMs: batch.map((item) => item.atMs) }),
           });
           const result = await response.json() as CaptionPreviewResult & { error?: string };
           if (!response.ok) throw new Error(result.error || 'The effect preview could not be prepared. Try Replay effect again.');
@@ -246,7 +247,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         try {
           const response = await fetch(`/api/video-export/${encodeURIComponent(project.id)}/preview`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-            body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, missing, focusMask), timesMs: missing.map((item) => item.atMs) }),
+            body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, missing, focusMask, payload.appearance), timesMs: missing.map((item) => item.atMs) }),
           });
           const result = await response.json() as CaptionPreviewResult & { error?: string };
           if (!response.ok) {

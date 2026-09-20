@@ -24,11 +24,26 @@ check captions close to the picture's edges on the actual preview.
 
 ## Motion and Replay effect
 
-**Motion → Fade** fades each caption in and out. Choose 80–400 ms for each side.
-Short captions automatically use shorter fades so the two sides cannot exceed
-the caption duration. **None** or **Turn motion off** disables motion without
-resetting the Look or word emphasis. This first version provides Fade only; it
-does not implement Rise, Pop, per-word scale/bounce, texture or 3D animation.
+**Motion** offers **None**, **Fade**, **Rise**, and **Soft Pop**. Fade changes
+opacity in and out. Rise brings the caption gently upward into its saved
+position; Soft Pop grows the complete caption from approximately 94% to its saved
+size without overshoot. Rise and Soft Pop settle during the entrance and fade
+out at the end; they do not move or shrink again during the exit.
+
+Choose 80–400 ms using **Fade duration** or **Motion duration**. Captions lasting
+80 ms or less appear immediately at normal opacity and geometry: a one-frame
+caption must not disappear because its only frame was a transparent entrance.
+Other short captions automatically shorten the transitions. **None** or **Turn motion off** disables motion without resetting the
+Look or word emphasis. The scope is the whole caption, not separate bouncing
+words. Per-word scale/bounce, texture and 3D animation are not included.
+
+While multiple captions overlap, Rise and Soft Pop keep the combined layout
+still and apply each caption's own fade. If any part of a caption's entrance
+overlaps another caption, that entire entrance stays still, including before and
+after the brief overlap. This prevents a jump from a steady layout back into
+partial motion. Appearance displays the overlap constraint when it applies.
+The original caption clock still controls opacity, preserving readable
+simultaneous captions and the existing seek-stable line arrangement.
 
 **Replay effect** prepares the selected caption's opening and plays it once with
 a short listening margin. It also works with **Motion → None**, so you can judge
@@ -56,12 +71,19 @@ to 24 images and approximately 32 MiB of encoded image data. This is not a promi
 of real-time rendering on every computer or a guarantee that an entire caption
 has been pre-rendered before replay.
 
-Fades use a shared palette of at most 16 opacity levels on the native subtitle
-10 ms timing grid. Their clock is the original caption start/end, not a word
-highlight event's start. A new spoken word or an overlapping caption must not
-restart another caption's entrance. Normal caption text remains one fully shaped
-run; Review focus is a separate non-exported mask and remains identifiable even
-at a transparent fade boundary.
+Motions use at most 16 entrance levels and 16 opacity levels on the native
+subtitle 10 ms timing grid. Their clock is the original caption start/end, not a
+word-highlight event's start. Rise has a maximum travel of 12 pixels at 1080px
+frame height. Soft Pop compensates the available native line width in proportion
+to its scale, avoiding the line-wrap changes caused by simply making text
+smaller. It keeps the original alignment anchor. At the resting size/position,
+neither effect adds geometry overrides. Decoration widths remain the existing
+native style values; this is not a promise that every glow/shadow pixel scales
+as a single bitmap.
+
+Normal caption text remains a complete shaped run. Review focus is a separate
+non-exported mask: it follows the same motion geometry while ignoring opacity,
+and remains identifiable at transparent entrance boundaries.
 
 ## Word emphasis and corrected wording
 
@@ -95,10 +117,12 @@ plain TTML still carry editable caption text/timing without these effects. Other
 editors can discard ASS styling, so an accepted import is not an effect-fidelity
 guarantee. See [Caption handoff](CAPTION-HANDOFF.md).
 
-Studio caption-data **version 2** preserves nondefault Glow/Fade settings as an
-appearance reference. New readers accept versions 1 and 2. Default-effect data
-continues to export as version 1 without the newer fields; old version-1 readers
-reject version 2 explicitly. Never relabel a v2 file as v1 to bypass that guard.
+Studio caption-data **version 3** preserves Rise/Soft Pop as an appearance
+reference. Glow/Fade data still uses version 2, and default-effect data still
+uses version 1 without the newer fields. The updated reader accepts all three
+versions. Earlier readers reject newer versions explicitly; version 2 cannot
+contain the new motion names. Never change a file's version number to bypass
+those checks.
 The existing captions-only restore keeps the receiving project's appearance;
 the included reference does not silently replace it.
 
@@ -109,6 +133,15 @@ The shared recipe/settings live in `packages/shared/src/caption-looks.ts` and
 `caption-renderer.ts` composes layer opacity explicitly for every caption so ASS
 overrides cannot leak across line breaks. Snapshot preview preserves original
 timecodes and freezes the requested state; it does not reset fade phase to zero.
+
+Rise changes the native vertical margin during entrance states only. Soft Pop
+uses the original anchor and a proportionally compensated horizontal margin
+budget, scaling the full native text run uniformly. The renderer adjusts the
+scale to the integer available-width budget, including unequal left/right margins
+when needed, so rounding cannot change the intended wrap ratio. The same geometry
+is applied to Glow, Background, text and Review masks. Overlapping captions keep
+their established single-block layout, with geometry neutral and opacity local
+to each cue. Native syntax reference: https://aegisub.org/docs/latest/ass_tags/.
 
 Relevant checks: `test:caption-effects`, `test:caption-effects-native`,
 `test:caption-renderer`, `test:caption-handoff`, `test:video-export`,
@@ -162,11 +195,48 @@ Fine Timing/playback tests, 29 handoff/schema tests, type checking and productio
 build. Desktop, 390px, 320px and 768px layouts were inspected. A final independent
 read-only review found no remaining material issue in the scoped changes.
 
+## Rise / Soft Pop validation — 20 September 2026
+
+The complete browser run covered 145 scenarios, with 144 passing immediately.
+The remaining new overlap-context assertion incorrectly required a fresh request
+at one timestamp despite valid cached paint reuse. It now checks that every
+relevant request retains the entrance blocker. After that test correction and
+the final short-cue safeguard, all 19 targeted Motion/Effects browser cases
+passed, including all nine new motion cases. Phone layouts at 320/390px and a
+768px tablet layout were inspected.
+
+Final checks passed: 19 Look/planning/preparation tests, 16 native effects/motion
+tests, 64 export/font/persistence tests, 31 caption-handoff/schema tests, type
+checking and production build. The existing renderer/persistent-preview suite
+passed 19 tests, with its optional FFmpeg 7.1 fixture skipped because it is not
+installed. An initial Node test-runner transport error in the font suite cleared
+when the unchanged file ran alone; the final complete 64-test export suite passed.
+
+The native suite renders actual MP4 files and compares decoded caption regions
+against the exact native preview at **160 ms entrance**, **400 ms middle**,
+**840 ms exit**, and **920 ms after the cue ends** for Fade, Rise and Soft Pop.
+Caption visibility and exit paint energy are checked as well as pixel differences
+within a union of entrance/resting bounds, with a tolerance for video encoding.
+Post-end preview is transparent and the decoded MP4 returns to the background.
+
+A separate real 25fps test exposed the one-frame case: a 0–40 ms caption had
+1,306 painted pixels with no motion but none with the previous transparent
+entrance. The 80 ms instant policy fixes it for all three motions; the regression
+now checks visible encoded frame zero, unchanged resting geometry, and a blank
+next frame. Native checks also cover short overlap blockers, saved anchors,
+odd-width portrait layout, hard-wrapped unspaced Khmer, word-boundary seeking,
+Review-mask geometry, and minimum-bottom-position decoration clearance.
+
+These are local source validations using synthetic media and installed native
+runtimes. They do not establish public release availability, universal frame-rate
+or hardware performance, or effect fidelity in another editor.
+
 ## Public impact and publication handoff
 
 Public impact: **required**. Change ID: `studio-original-looks-fade-20260920`.
 The follow-up replay/preset/font polish uses change ID
-`studio-effects-polish-20260920`; both remain unreleased source work.
+`studio-effects-polish-20260920`. The Rise/Soft Pop and encoded-exit validation
+extension uses `studio-rise-soft-pop-20260920`. All remain unreleased source work.
 Product evidence includes this guide, README's Development changes, CHANGELOG's
 Unreleased section, PRODUCT/DESIGN, PRIVACY, and the caption-data schema notes.
 The `.sthang/product-manifest.json` still describes the separately governed

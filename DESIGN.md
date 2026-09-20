@@ -120,11 +120,19 @@ Applying a Look changes decoration only. Retain full user presets separately and
 label the scope as all project captions. Samples are illustrative; the native
 video remains the final layout reference. Never animate the entire gallery.
 
-Motion starts with **None / Fade**, a bounded duration and explicit **Replay
-effect**. Explain Fade in/out and that opening frames are prepared first; do not
+Motion offers **None / Fade / Rise / Soft Pop**, a bounded duration and explicit
+**Replay effect**. Keep all four choices labeled in a two-column layout on narrow
+screens. Explain the selected effect and that opening frames are prepared first; do not
 promise full pre-rendering of all word/overlap states. Keep **Turn motion off**
 separate from Look reset. New changes cancel pending replay. Effects expose one
 appearance Undo/Redo step, with continuous slider input grouped into one gesture.
+
+Rise moves the entire caption into its saved position; Soft Pop scales the complete
+caption into place. Both fade out after settling. When these presets are selected
+and captions overlap, explain that simultaneous captions stay still and fade to
+preserve their readable layout. No new per-word movement or hidden timeline edit
+is implied. Use **Fade duration** for Fade and **Motion duration** for the new
+presets, retaining the existing bounded range and short-caption handling.
 
 Replay is also available with Motion=None. Show the selected target, provide
 Cancel preparation while waiting and Stop replay while playing, and preserve

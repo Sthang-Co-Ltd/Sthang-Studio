@@ -79,7 +79,7 @@ export interface CaptionDataCue {
 
 export interface CaptionDataDocument {
   kind: 'sthang-caption-data';
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   captions: CaptionDataCue[];
   appearance?: Partial<CaptionAppearance>;
   durationMs?: number;
@@ -379,7 +379,7 @@ function projectAppearance(
   return Object.keys(out).length ? out : undefined;
 }
 
-function validateAppearance(value: unknown, version: 1 | 2, path = 'appearance'): Partial<CaptionAppearance> | undefined {
+function validateAppearance(value: unknown, version: 1 | 2 | 3, path = 'appearance'): Partial<CaptionAppearance> | undefined {
   if (value === undefined) return undefined;
   if (!plainObject(value)) fail(`${path} must be an object.`);
   const keys = version === 1 ? V1_APPEARANCE_KEYS : V2_APPEARANCE_KEYS;
@@ -399,7 +399,8 @@ function validateAppearance(value: unknown, version: 1 | 2, path = 'appearance')
   for (const key of ['bold', 'backgroundEnabled', 'glowEnabled'] as const) if (value[key] !== undefined && typeof value[key] !== 'boolean') fail(`${path}.${key} must be boolean.`);
   if (value.alignment !== undefined && !['left', 'center', 'right'].includes(String(value.alignment))) fail(`${path}.alignment is invalid.`);
   if (value.highlightMode !== undefined && !['off', 'word'].includes(String(value.highlightMode))) fail(`${path}.highlightMode is invalid.`);
-  if (value.motionPreset !== undefined && !['none', 'fade'].includes(String(value.motionPreset))) fail(`${path}.motionPreset is invalid.`);
+  const motionPresets = version === 3 ? ['none', 'fade', 'rise', 'soft-pop'] : ['none', 'fade'];
+  if (value.motionPreset !== undefined && (typeof value.motionPreset !== 'string' || !motionPresets.includes(value.motionPreset))) fail(`${path}.motionPreset is invalid for caption data version ${version}.`);
   if (value.motionDurationMs !== undefined && (value.motionDurationMs as number) % 10 !== 0) fail(`${path}.motionDurationMs must use a 10 ms step.`);
   stringColor('textColor'); stringColor('outlineColor'); stringColor('backgroundColor'); stringColor('highlightColor'); stringColor('glowColor');
   return projectAppearance(value as Partial<CaptionAppearance>, keys);
@@ -441,9 +442,12 @@ export function createCaptionData(input: CaptionInterchangeInput): CaptionDataDo
   if (input.captions.length > CAPTION_DATA_LIMITS.maxCaptions) fail(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`);
   const durationMs = validateDuration(input.durationMs);
   const projectedAppearance = projectAppearance(input.appearance);
-  const validatedAppearance = validateAppearance(projectedAppearance, 2);
-  const version: 1 | 2 = effectStateNeedsV2(validatedAppearance) ? 2 : 1;
-  const appearance = version === 2 ? validatedAppearance : projectAppearance(validatedAppearance, V1_APPEARANCE_KEYS);
+  const validatedAppearance = validateAppearance(projectedAppearance, 3);
+  const motionPreset = validatedAppearance?.motionPreset ?? DEFAULT_CAPTION_APPEARANCE.motionPreset;
+  const version: 1 | 2 | 3 = motionPreset === 'rise' || motionPreset === 'soft-pop'
+    ? 3
+    : effectStateNeedsV2(validatedAppearance) ? 2 : 1;
+  const appearance = version === 1 ? projectAppearance(validatedAppearance, V1_APPEARANCE_KEYS) : validatedAppearance;
   let totalWords = 0;
   let totalGraphemes = 0;
   const captions: CaptionDataCue[] = input.captions.map((caption, index) => {
@@ -563,8 +567,8 @@ export function parseCaptionData(text: string): CaptionDataDocument {
   if (!plainObject(raw)) fail('Caption data must be a JSON object.');
   assertAllowedKeys(raw, ['kind', 'version', 'captions', 'appearance', 'durationMs'], 'caption data');
   if (raw.kind !== 'sthang-caption-data') fail('Unknown caption data file kind.');
-  if (raw.version !== 1 && raw.version !== 2) fail('Unsupported caption data version.');
-  const version = raw.version as 1 | 2;
+  if (raw.version !== 1 && raw.version !== 2 && raw.version !== 3) fail('Unsupported caption data version.');
+  const version = raw.version as 1 | 2 | 3;
   if (!Array.isArray(raw.captions)) fail('Caption data captions must be an array.');
   if (raw.captions.length > CAPTION_DATA_LIMITS.maxCaptions) fail(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`);
   const durationMs = validateDuration(raw.durationMs);

@@ -44,12 +44,17 @@ const previewCapabilities: VideoExportCapabilities = {
   source: { width, height, displayWidth: width, displayHeight: height, rotation: 0, durationMs: 2000, frameRate: 25, variableFrameRate: false, videoCodec: 'h264', pixelFormat: 'yuv420p', bitDepth: 8, hdr: 'sdr', audioCodecs: [], audioStreams: 0 },
 };
 
-function ffmpeg(args: string[]) {
+function ffmpeg(args: string[], input?: Buffer) {
   return execFileSync(config.ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args], {
+    input,
     maxBuffer: 160 * 1024 * 1024,
     windowsHide: true,
     timeout: 30_000,
   });
+}
+
+function decodePng(png: string) {
+  return ffmpeg(['-i', 'pipe:0', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'], Buffer.from(png, 'base64'));
 }
 
 const fontDir = await prepareCaptionFonts(root, baseAppearance);
@@ -123,6 +128,53 @@ function meanAbsoluteError(left: Buffer, right: Buffer) {
     for (let channel = 0; channel < 3; channel += 1) error += Math.abs(left[offset + channel] - right[offset + channel]);
   }
   return error / (left.length / 4 * 3);
+}
+
+function unionBounds(left: { x: number; y: number; width: number; height: number }, right: { x: number; y: number; width: number; height: number }) {
+  const x = Math.min(left.x, right.x), y = Math.min(left.y, right.y);
+  const endX = Math.max(left.x + left.width, right.x + right.width), endY = Math.max(left.y + left.height, right.y + right.height);
+  return { x, y, width: endX - x, height: endY - y };
+}
+
+function previewPaintedPixels(frame: Buffer) {
+  let count = 0;
+  for (let offset = 3; offset < frame.length; offset += 4) if (frame[offset] > 4) count += 1;
+  return count;
+}
+
+function previewAlphaEnergy(frame: Buffer) {
+  let energy = 0;
+  for (let offset = 3; offset < frame.length; offset += 4) energy += frame[offset] / 255;
+  return energy;
+}
+
+function roiCompositeError(encoded: Buffer, preview: Buffer, bounds: { x: number; y: number; width: number; height: number }) {
+  let error = 0, count = 0;
+  for (let y = bounds.y; y < bounds.y + bounds.height; y += 1) for (let x = bounds.x; x < bounds.x + bounds.width; x += 1) {
+    const offset = (y * width + x) * 4, alpha = preview[offset + 3] / 255;
+    for (let channel = 0; channel < 3; channel += 1) {
+      error += Math.abs(encoded[offset + channel] - (preview[offset + channel] * alpha + background[channel] * (1 - alpha)));
+      count += 1;
+    }
+  }
+  return count ? error / count : Infinity;
+}
+
+function roiPaintEnergy(encoded: Buffer, bounds: { x: number; y: number; width: number; height: number }) {
+  let energy = 0;
+  for (let y = bounds.y; y < bounds.y + bounds.height; y += 1) for (let x = bounds.x; x < bounds.x + bounds.width; x += 1) {
+    const offset = (y * width + x) * 4;
+    energy += Math.abs(encoded[offset] - background[0]) + Math.abs(encoded[offset + 1] - background[1]) + Math.abs(encoded[offset + 2] - background[2]);
+  }
+  return energy;
+}
+
+function fullFrameBackgroundError(encoded: Buffer) {
+  let error = 0, count = 0;
+  for (let offset = 0; offset < encoded.length; offset += 4) for (let channel = 0; channel < 3; channel += 1) {
+    error += Math.abs(encoded[offset + channel] - background[channel]); count += 1;
+  }
+  return error / count;
 }
 
 test('fade planner uses at most 16 opacity levels, reuses symmetric paint keys, and keeps short cues visible', () => {
@@ -281,7 +333,7 @@ test('native glow paints a halo without moving the white Khmer glyph core', asyn
   assert.ok(limeLift > 50, 'halo must use the configured lime glow paint');
 });
 
-test('actual MP4 preserves the same fade/glow paint at entry and full-opacity samples', async () => {
+test('actual MP4 matches exact Fade/Glow preview at entry, middle, exit and post-end with visible ROI evidence', async () => {
   await fs.mkdir(config.uploadDir, { recursive: true });
   const filename = 'effects-synthetic.mp4';
   const sourcePath = path.join(config.uploadDir, filename);
@@ -307,11 +359,24 @@ test('actual MP4 preserves the same fade/glow paint at entry and full-opacity sa
   assert.ok(capabilities.supported, capabilities.blockingReason);
   const rendered = await renderCaptionedVideo(project, captions, style, { encoder: 'software', quality: 'high' });
   const outputPath = path.join(config.exportDir, rendered.filename);
-
-  for (const atMs of [120, 400]) {
-    const encoded = ffmpeg(['-ss', String(atMs / 1000), '-i', outputPath, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-']);
-    const native = await renderFull(captions, style, atMs);
-    assert.ok(meanAbsoluteError(encoded, native) < 3.5, `MP4 at ${atMs}ms should preserve native fade/glow paint`);
+  const preview = await renderCaptionPreview(parseCaptionPreviewInput({ captions, timesMs: [160, 400, 840, 920], appearance: style, resolution: 'source', focusIndices: [0] }), capabilities);
+  const comparisonRoi = unionBounds(preview.frames[0].focusBounds!, preview.frames[1].focusBounds!);
+  const previewEnergy: number[] = [], mp4Energy: number[] = [];
+  for (const frame of preview.frames.slice(0, 3)) {
+    assert.ok(frame.bounds && frame.focusBounds, `Fade/${frame.atMs}: preview must contain visible caption paint`);
+    const transparent = decodePng(frame.png);
+    assert.ok(previewPaintedPixels(transparent) > 20, `Fade/${frame.atMs}: preview cannot pass as a blank frame`);
+    const encoded = ffmpeg(['-ss', String(frame.atMs / 1000), '-i', outputPath, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-']);
+    assert.ok(roiCompositeError(encoded, transparent, comparisonRoi) < 8, `Fade/${frame.atMs}: MP4 union ROI must match exact preview paint`);
+    previewEnergy.push(previewAlphaEnergy(transparent));
+    mp4Energy.push(roiPaintEnergy(encoded, comparisonRoi));
   }
-  assert.notDeepEqual(await renderFull(captions, style, 120), await renderFull(captions, style, 400), 'entry fade must visibly differ from the full-opacity state');
+  assert.ok(previewEnergy[2] > 0 && previewEnergy[2] < previewEnergy[1], 'Fade exit preview stays visible but below middle paint energy');
+  assert.ok(mp4Energy[2] > 0 && mp4Energy[2] < mp4Energy[1], 'Fade exit MP4 stays visible but below middle paint energy');
+  const post = preview.frames[3];
+  assert.equal(post.bounds, null);
+  assert.equal(post.focusBounds, null);
+  assert.equal(previewPaintedPixels(decodePng(post.png)), 0, 'Fade post-end preview must be truly blank');
+  const postEncoded = ffmpeg(['-ss', String(post.atMs / 1000), '-i', outputPath, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-']);
+  assert.ok(fullFrameBackgroundError(postEncoded) < 5, 'Fade post-end MP4 full frame must return to source background');
 });

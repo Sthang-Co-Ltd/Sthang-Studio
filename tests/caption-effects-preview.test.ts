@@ -47,3 +47,25 @@ test('each native motion request stays within eight distinct missing paint state
   // Both halves of the fade use one palette, not a new cache entry for every frame.
   assert.ok(new Set(states.map(captionPreviewPaintKey)).size <= 16);
 });
+
+for (const preset of ['rise', 'soft-pop'] as const) {
+  test(`${preset} keeps bounded replay requests and identical original-clock geometry after preview compaction`, () => {
+    const captions = [cue('past', 0, 600), cue('moving', 1037, 2418), cue('following', 2600, 3400)];
+    const setting = { ...motion, motionPreset: preset };
+    const all = planCaptionRenderStates(captions, false, setting);
+    const opening = captionPreviewReplayStates(all, 1040, 2400);
+    assert.ok(opening.length > 1 && opening.length <= 16);
+    const selected = captionPreviewSelection(captions, opening);
+    assert.equal(selected.captions.length, 1);
+    const compact = planCaptionRenderStates(selected.captions as CaptionSegment[], false, setting);
+    for (const state of opening) {
+      const sample = compact[captionPreviewStateIndex(compact, state.atMs)];
+      assert.equal(sample.motionScale, state.motionScale);
+      assert.equal(sample.motionTranslateY1080, state.motionTranslateY1080);
+      assert.deepEqual(sample.cueOpacities?.map((c) => c.opacity), state.cueOpacities?.map((c) => c.opacity));
+    }
+    const keys = new Set(opening.slice(0, 8).map(captionPreviewPaintKey));
+    const continuation = captionPreviewLookahead(all, captionPreviewStateIndex(all, 1040), keys, '1');
+    assert.ok(continuation.length <= 8 && continuation.every((state) => !keys.has(captionPreviewPaintKey(state))));
+  });
+}

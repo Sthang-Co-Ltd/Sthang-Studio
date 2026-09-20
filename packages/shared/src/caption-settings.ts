@@ -6,7 +6,7 @@ import {
 
 export type CaptionHorizontalAlignment = 'left' | 'center' | 'right';
 export type CaptionHighlightMode = 'off' | 'word';
-export type CaptionMotionPreset = 'none' | 'fade';
+export type CaptionMotionPreset = 'none' | 'fade' | 'rise' | 'soft-pop';
 
 export interface CaptionAppearance {
   /** Font family resolved against reviewed local/system Khmer fonts at export time. */
@@ -116,7 +116,7 @@ export function normalizeCaptionAppearance(value: Partial<CaptionAppearance> | n
     glowColor: safeHex(raw.glowColor, DEFAULT_CAPTION_APPEARANCE.glowColor!),
     glowWidth1080: clamp(Number(raw.glowWidth1080), 0, 16, DEFAULT_CAPTION_APPEARANCE.glowWidth1080!),
     glowOpacity: clamp(Number(raw.glowOpacity), 0, 1, DEFAULT_CAPTION_APPEARANCE.glowOpacity!),
-    motionPreset: raw.motionPreset === 'fade' ? 'fade' : 'none',
+    motionPreset: typeof raw.motionPreset === 'string' && ['fade', 'rise', 'soft-pop'].includes(raw.motionPreset) ? raw.motionPreset : 'none',
     motionDurationMs: roundedStep(Number(raw.motionDurationMs), 80, 400, DEFAULT_CAPTION_APPEARANCE.motionDurationMs!, 10),
   };
 }
