@@ -198,6 +198,11 @@ export function buildAssDocument(
   const side = Math.max(8, Math.round(width * (100 - a.maxWidthPct) / 200));
   const bottom = Math.max(8, Math.round(height * a.positionBottomPct / 100));
   const lineLimit = Math.max(6, Math.floor(width * a.maxWidthPct / 100 / Math.max(1, fontSize * 0.72)));
+  // Fade and decorative layers repaint the same plain caption text many times. Cache
+  // that pure wrap/escape result per cue; spoken-word paint still takes the dynamic
+  // path below because its inline color spans change with the active word.
+  const repeatedPlainPaint = !highlightWords && (a.motionPreset === 'fade' || a.glowEnabled || a.backgroundEnabled);
+  const plainTextCache = repeatedPlainPaint ? new Array<string | undefined>(captions.length) : undefined;
   const alignment = a.alignment === 'left' ? 1 : a.alignment === 'right' ? 3 : 2;
   const style = (name: string, text: string, edge: string, back: string, border: number, edgeWidth: number, shadowWidth: number) =>
     `Style: ${name},${a.fontFamily.replace(/[\r\n,]/g, ' ')},${fontSize},${text},${text},${edge},${back},${a.bold ? -1 : 0},0,0,0,100,100,0,0,${border},${edgeWidth},${shadowWidth},${alignment},${side},${side},${bottom},${highlightWords ? -1 : 1}`;
@@ -224,7 +229,9 @@ export function buildAssDocument(
     const temporalPaint = c.cueOpacities !== undefined;
     const composeText = (layer: CaptionPaintLayer, forcedColor?: string) => c.key.split(',').map((key) => {
       const index = Number(key);
-      const visible = styledCaptionText(captions[index], index, lineLimit, a, c.activeWordOffsets, forcedColor);
+      const visible = plainTextCache
+        ? (plainTextCache[index] ??= escapeAssText(wrapCaptionText(captions[index].text, lineLimit)))
+        : styledCaptionText(captions[index], index, lineLimit, a, c.activeWordOffsets, forcedColor);
       // The editor may request a separate white-on-black focus mask. Alpha changes
       // paint only, never font metrics or line layout; this document is never exported.
       const mask = visibilityMask ? (visibilityMask.has(index) ? '{\\alpha&H00&\\1c&HFFFFFF&\\3c&HFFFFFF&\\4c&HFFFFFF&}' : '{\\alpha&HFF&}') : '';

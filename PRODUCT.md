@@ -109,6 +109,13 @@ Replay is explicit, prepares only a bounded opening and then plays once. Missing
 or retained frames are labeled preparing/updating; only a decoded native frame
 for the current appearance and paint state is presented as exact.
 
+Replay works with static Looks as well as Motion, identifies its selected caption,
+and exposes Cancel preparation / Stop replay. A manual seek releases playback
+ownership without snapping back. Font-library changes invalidate both cached
+pixels and preview errors; late discovery responses cannot undo those changes.
+Preset saves capture their click-time appearance and never label later edits as
+belonging to the saved preset.
+
 Settings and derived preview data remain local. Caption-data v2 retains nondefault
 effect settings; v1 stays supported and unknown versions fail explicitly. Normal
 subtitle handoff remains text/timing only. These additions do not establish a

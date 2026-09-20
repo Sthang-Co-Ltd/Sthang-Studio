@@ -16,6 +16,7 @@ interface Props {
   focusLabel: boolean;
   focusKey: string;
   focusIndices: number[];
+  fontRevision?: number;
 }
 
 type ImageFrame = CaptionPreviewFrame & { width: number; height: number; appearance: CaptionAppearance; resolution: VideoResolutionPreset };
@@ -46,7 +47,7 @@ export interface NativeCaptionPreviewHandle {
   prepareReplay(startMs: number, endMs: number, signal: AbortSignal): Promise<boolean>;
 }
 
-export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices }, ref) {
+export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0 }, ref) {
   const normalizedAppearance = useMemo(() => normalizeCaptionAppearance(appearance), [appearance]);
   const highlightWords = normalizedAppearance.highlightMode === 'word';
   const motionPreset = normalizedAppearance.motionPreset;
@@ -67,7 +68,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
   }, [states, focusIndices, motionPreset]);
   const captionSignature = useMemo(() => JSON.stringify(captions.map(({ text, startMs, endMs, wordTiming }) => [text, startMs, endMs, wordTiming])), [captions]);
   const payload = useMemo(() => ({ resolution, appearance: normalizedAppearance }), [normalizedAppearance, resolution]);
-  const contentSignature = useMemo(() => JSON.stringify([project.id, project.media.filename, captionSignature, focusMask]), [project.id, project.media.filename, captionSignature, focusMask]);
+  const contentSignature = useMemo(() => JSON.stringify([project.id, project.media.filename, captionSignature, focusMask, fontRevision]), [project.id, project.media.filename, captionSignature, focusMask, fontRevision]);
   const signature = useMemo(() => `${contentSignature}\n${JSON.stringify(payload)}`, [contentSignature, payload]);
   const session = useRef<PreviewSession | null>(null);
   const activeRequest = useRef<ActivePreviewRequest | null>(null);
@@ -221,7 +222,13 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     if (!missing.length || (key && current.cache.has(key) && !temporalPaint && missing.length < 4)) return;
     const kind: ActivePreviewRequest['kind'] = missingCurrent.length ? 'current' : 'prefetch';
     const controller = new AbortController();
-    current.pending = new Set(missing.map(captionPreviewPaintKey));
+    const pendingKeys = new Set(missing.map(captionPreviewPaintKey));
+    current.pending = pendingKeys;
+    const clearOwnedPending = () => {
+      // An aborted fetch can settle after its replacement has installed a new
+      // batch. Only the request that owns that set may clear it.
+      if (current.pending === pendingKeys) pendingKeys.clear();
+    };
     const retained = lastPresented.current?.continuityKey === continuityKey;
     const delay = current.retries
       ? Math.min(1000, current.retries * 250)
@@ -275,7 +282,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
           if (!controller.signal.aborted && session.current === current) current.error = error instanceof Error ? error.message : 'Caption preview is unavailable.';
         } finally {
           if (activeRequest.current === request) activeRequest.current = null;
-          current.pending.clear();
+          clearOwnedPending();
           if (!controller.signal.aborted) redraw();
         }
       })();
@@ -286,7 +293,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       kind,
       started: false,
       interactive: interacting,
-      cancel: () => { window.clearTimeout(timer); controller.abort(); current.pending.clear(); },
+      cancel: () => { window.clearTimeout(timer); controller.abort(); clearOwnedPending(); },
     };
     activeRequest.current = request;
     // An index change does not cancel a useful current-frame render; word captions can be

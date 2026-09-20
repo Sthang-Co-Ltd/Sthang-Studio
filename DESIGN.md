@@ -126,6 +126,12 @@ promise full pre-rendering of all word/overlap states. Keep **Turn motion off**
 separate from Look reset. New changes cancel pending replay. Effects expose one
 appearance Undo/Redo step, with continuous slider input grouped into one gesture.
 
+Replay is also available with Motion=None. Show the selected target, provide
+Cancel preparation while waiting and Stop replay while playing, and preserve
+manual source-player seeks. Explain a missing or unchecked font before replay
+instead of offering an action that cannot render. Saving a preset while the user
+keeps editing must preserve both the clicked snapshot and the newer Custom state.
+
 Keep source playback visible during desktop editing and bounded on narrow
 screens. Touch targets and descriptive labels survive responsive layouts. Word
 emphasis retains readiness and its direct timing-repair path; an unresolved word

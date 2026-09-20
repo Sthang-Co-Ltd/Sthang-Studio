@@ -33,6 +33,7 @@
     "caption-looks.test.ts",
     "caption-effects-preview.test.ts",
     "caption-effects-native.test.mts",
+    "caption-effects-performance.test.mts",
     "timestamp.test.ts",
     "timing-playback.test.ts",
     "waveform-audio-route.test.mts",

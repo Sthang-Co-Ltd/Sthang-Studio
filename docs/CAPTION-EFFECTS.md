@@ -31,10 +31,21 @@ resetting the Look or word emphasis. This first version provides Fade only; it
 does not implement Rise, Pop, per-word scale/bounce, texture or 3D animation.
 
 **Replay effect** prepares the selected caption's opening and plays it once with
-a short listening margin. It does not loop the gallery or start merely because
-you selected a Look. New appearance/caption edits, project/media changes, or
-leaving the workspace cancel pending replay work. Ordinary preview follows the
-source clock during playback and paused seeks.
+a short listening margin. It also works with **Motion → None**, so you can judge
+a static Look or word emphasis. The target caption is shown beside the replay
+controls. **Cancel preparation** stops a pending replay before it starts;
+**Stop replay** ends its playback. It does not loop the gallery or start merely
+because you selected a Look. New appearance/caption edits, changes to the selected
+range, project/media changes, or leaving the workspace cancel pending replay work.
+Seeking with the source player's controls ends replay ownership and preserves your
+chosen position and playback. Ordinary preview follows the source clock during
+playback and paused seeks.
+
+Replay waits for a confirmed compatible font and caption text. Font-discovery
+errors are distinguished from a font being unavailable. Adding or removing a
+font refreshes the preview's cache and error state automatically, including when
+you re-add the same font family. An older discovery response cannot replace the
+new inventory or leave the workspace permanently loading.
 
 Preparation is bounded to 16 distinct opening paint states, requested in batches
 of at most eight. Later states are prepared as needed. Combining fades, word
@@ -72,6 +83,9 @@ reverse wording/timing edits. Leaving Appearance clears that local undo state.
 **Manage presets** saves the complete current appearance, including typography,
 placement, Glow, Fade and word emphasis. Applying a saved preset intentionally
 restores that full appearance; applying a starter Look changes only decoration.
+Save captures the appearance when clicked. Changes made while that save is in
+progress remain your current appearance and are not falsely labeled as the saved
+preset. A delayed initial preset list cannot erase newly saved entries.
 An unavailable font remains explicitly unavailable, and a missing Bold face uses
 the established disclosed Regular fallback.
 
@@ -107,7 +121,17 @@ reloads. Routing changes only for a full eight-frame Fade request; one-to-seven
 samples retain the persistent path. These measurements concern this local
 preview fixture, not generation speed or representative 4K performance.
 
-Validation recorded for this source change:
+The polish pass also caches plain wrapped/escaped caption text inside one ASS
+document construction, reusing it across Fade, Glow and background layers. It
+does not cache AI results, change subtitle events, or alter word-highlighting
+paint. In a 1,000-cue synthetic comparison on the same machine, document
+construction changed from about 610 to 118 ms for Fade and from about 1,633 to
+198 ms for Fade+Glow+Box. The compared ASS fixture remained byte-identical.
+These are script-preparation timings, not whole-video export times or a claim
+about every device. The timing-state planner was measured and left unchanged
+because its proposed rewrite did not provide a meaningful improvement.
+
+Validation recorded for the initial effects implementation (`2f0d1a8`):
 
 | Check | Result |
 | --- | --- |
@@ -128,9 +152,21 @@ Glow, readable sample strokes and bounded mobile playback. These fixtures verify
 the supported behavior; they do not establish universal real-speech alignment,
 all-editor style compatibility or a new public release.
 
+The follow-up polish validation covered 136 distinct browser scenarios: 135
+passed in the full run, and the long-Khmer phone/tablet case passed after its
+assertion was corrected to use the browser's own grapheme segmentation rather
+than the test runner's different ICU. All eight new polish scenarios passed.
+The same source passed eight Look/planning/preparation tests, seven native
+effects tests including actual MP4 output, 64 export/persistence tests, 28
+Fine Timing/playback tests, 29 handoff/schema tests, type checking and production
+build. Desktop, 390px, 320px and 768px layouts were inspected. A final independent
+read-only review found no remaining material issue in the scoped changes.
+
 ## Public impact and publication handoff
 
 Public impact: **required**. Change ID: `studio-original-looks-fade-20260920`.
+The follow-up replay/preset/font polish uses change ID
+`studio-effects-polish-20260920`; both remain unreleased source work.
 Product evidence includes this guide, README's Development changes, CHANGELOG's
 Unreleased section, PRODUCT/DESIGN, PRIVACY, and the caption-data schema notes.
 The `.sthang/product-manifest.json` still describes the separately governed

@@ -5,7 +5,8 @@ export function playTimingRange(
   media: HTMLMediaElement,
   range: TimingPlaybackRange,
   onError: () => void,
-): () => void {
+  onFinish?: () => void,
+): (pause?: boolean) => void {
   const durationMs = Number.isFinite(media.duration) ? media.duration * 1000 : range.endMs;
   const start = Math.max(0, range.startMs) / 1000;
   const end = Math.min(durationMs, range.endMs) / 1000;
@@ -14,10 +15,12 @@ export function playTimingRange(
   let frame = 0;
   let restarting = false;
   const cleanup = () => {
+    if (!active) return;
     active = false;
     cancelAnimationFrame(frame);
     media.removeEventListener('pause', paused);
     media.removeEventListener('ended', ended);
+    onFinish?.();
   };
   const stop = () => { cleanup(); media.pause(); };
   const play = () => { void media.play().catch(() => { if (active) { stop(); onError(); } }); };
@@ -29,6 +32,8 @@ export function playTimingRange(
     restarting = false;
   };
   const paused = () => {
+    // A pause event queued by an older playback can arrive after replay starts.
+    if (!media.paused) return;
     // The browser pauses before dispatching `ended`; keep a requested end-of-media loop alive.
     if (!restarting && !(range.loop && media.ended)) cleanup();
   };
@@ -46,6 +51,7 @@ export function playTimingRange(
   media.currentTime = start;
   play();
   frame = requestAnimationFrame(tick);
-  // Calling an old disposer must not interrupt a newer ordinary playback session.
-  return () => { if (active) stop(); };
+  // Releasing range ownership after a user's seek must leave their new position
+  // and playback untouched. An old disposer cannot interrupt later playback.
+  return (pause = true) => { if (active) { if (pause) stop(); else cleanup(); } };
 }

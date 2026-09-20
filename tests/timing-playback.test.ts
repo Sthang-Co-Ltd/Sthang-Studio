@@ -265,3 +265,45 @@ test('play rejection after explicit disposal is ignored by the retired timing se
     raf.restore();
   }
 });
+
+test('releasing preview ownership keeps the user seek and reports completion once', async () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let finished = 0;
+    const release = playTimingRange(asMedia(media), { startMs: 1000, endMs: 2000, loop: false },
+      () => assert.fail('release should not report an error'), () => { finished += 1; });
+    media.currentTime = 6;
+    release(false);
+    assert.equal(finished, 1);
+    assert.equal(media.currentTime, 6);
+    assert.equal(media.paused, false);
+    assert.equal(media.pauseCalls, 0);
+    assert.equal(raf.pending(), 0);
+    assert.equal(media.listenerCount('pause'), 0);
+    assert.equal(media.listenerCount('ended'), 0);
+    release();
+    assert.equal(finished, 1);
+    assert.equal(media.pauseCalls, 0);
+    await settlePromises();
+  } finally { raf.restore(); }
+});
+
+test('a delayed pause event from earlier playback does not retire the current replay', () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let finished = 0;
+    const release = playTimingRange(asMedia(media), { startMs: 1000, endMs: 2000, loop: false },
+      () => assert.fail('no playback error'), () => { finished += 1; });
+    media.emit('pause');
+    assert.equal(finished, 0);
+    assert.equal(raf.pending(), 1);
+    media.currentTime = 2.1;
+    raf.runOneFrame();
+    assert.equal(finished, 1);
+    assert.equal(media.currentTime, 2);
+    release();
+    assert.equal(finished, 1);
+  } finally { raf.restore(); }
+});

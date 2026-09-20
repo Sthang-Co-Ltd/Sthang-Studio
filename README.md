@@ -41,7 +41,9 @@ available without crowding the main editing flow.
 **Appearance** now offers six original Studio Looks, optional native Glow, and
 caption-level Fade in/out. Look, Motion and Word emphasis are separate, with
 appearance Undo/Redo, Reset look and explicit Replay effect. Starter Looks keep
-your chosen font, size and placement. See [Caption effects](docs/CAPTION-EFFECTS.md)
+your chosen font, size and placement. Replay also works for static Looks, shows
+the selected caption, and offers Cancel preparation / Stop replay. Font recovery
+and delayed preset saves preserve newer editing choices. See [Caption effects](docs/CAPTION-EFFECTS.md)
 for controls, preview limits, and versioned caption-data compatibility.
 
 **Export → Captions file** now guides creators through editable handoff to CapCut

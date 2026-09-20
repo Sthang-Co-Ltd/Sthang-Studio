@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Polish appearance replay with a visible target, static-Look replay, Cancel
+  preparation and Stop controls; native player seeking releases replay ownership.
+- Prevent obsolete preview requests from clearing a replacement's pending frames.
+  Refresh preview caches after font changes and preserve newer font/preset edits
+  when older loading or saving responses arrive.
+- Reuse identical plain text wrapping across native Fade/Glow/background paint
+  states, reducing repeated preparation without changing the rendered output.
 - Add six original Studio Looks with independent font/layout, Motion and Word
   emphasis controls, appearance Undo/Redo, Reset look and explicit replay.
 - Add bounded native Glow and caption-clock Fade in/out. Preserve full-text Khmer

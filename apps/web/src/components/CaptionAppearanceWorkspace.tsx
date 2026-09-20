@@ -31,7 +31,10 @@ interface Props {
   onInteractionChange(active: boolean): void;
   onConfirm(options: StudioConfirmOptions): Promise<boolean>;
   onReplayEffect?: () => Promise<void>;
+  onCancelReplayEffect?: () => void;
+  onFontLibraryChange?: () => void;
   replayPreparing?: boolean;
+  replayPlaying?: boolean;
   replayDisabled?: boolean;
   sampleCaptionText?: string;
 }
@@ -51,7 +54,10 @@ export function CaptionAppearanceWorkspace({
   onInteractionChange,
   onConfirm,
   onReplayEffect,
+  onCancelReplayEffect,
+  onFontLibraryChange,
   replayPreparing = false,
+  replayPlaying = false,
   replayDisabled = false,
   sampleCaptionText,
 }: Props) {
@@ -61,6 +67,7 @@ export function CaptionAppearanceWorkspace({
   const [fonts, setFonts] = useState<VideoExportFontCapability[]>([]);
   const [loadingFonts, setLoadingFonts] = useState(true);
   const [fontError, setFontError] = useState('');
+  const [fontDiscoveryFailed, setFontDiscoveryFailed] = useState(false);
   const [fontNotice, setFontNotice] = useState('');
   const [fontWarnings, setFontWarnings] = useState<string[]>([]);
   const [fontQuery, setFontQuery] = useState('');
@@ -81,6 +88,8 @@ export function CaptionAppearanceWorkspace({
   const rangeHistoryActiveRef = useRef(false);
   const replayRequestRef = useRef(0);
   const mountedRef = useRef(true);
+  const fontGenerationRef = useRef(0);
+  const presetGenerationRef = useRef(0);
   const wordReadiness = useMemo(() => {
     const spoken = captions.filter((caption) => caption.text.trim());
     return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
@@ -110,6 +119,7 @@ export function CaptionAppearanceWorkspace({
     setSaveState('saved');
     setSelectedPresetId('');
     setPresetName('');
+    setPresetError('');
     setUndoAppearance(null);
     setRedoAppearance(null);
     setReplayPending(false);
@@ -117,6 +127,7 @@ export function CaptionAppearanceWorkspace({
     replayRequestRef.current += 1;
     setLoadingFonts(true);
     setFontError('');
+    setFontDiscoveryFailed(false);
     setFontNotice('');
     setFontWarnings([]);
     setFontQuery('');
@@ -146,18 +157,30 @@ export function CaptionAppearanceWorkspace({
       }
     })();
 
+    const fontGeneration = fontGenerationRef.current;
     void api.captionFonts(true)
       .then((result) => {
-        if (active) setFonts(result.fonts.filter((font) => font.available));
+        if (active && fontGenerationRef.current === fontGeneration) {
+          setFonts(result.fonts.filter((font) => font.available));
+          setFontDiscoveryFailed(false);
+        }
       })
       .catch((error) => {
-        if (active) setFontError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
+        if (active && fontGenerationRef.current === fontGeneration) {
+          setFontDiscoveryFailed(true);
+          setFontError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
+        }
       })
-      .finally(() => { if (active) setLoadingFonts(false); });
+      .finally(() => { if (active && fontGenerationRef.current === fontGeneration) setLoadingFonts(false); });
 
+    const presetGeneration = presetGenerationRef.current;
     void api.profile().then((profile) => {
-      if (active) setPresets(profile.captionAppearances || []);
-    }).catch(() => {});
+      if (active && presetGenerationRef.current === presetGeneration) setPresets(profile.captionAppearances || []);
+    }).catch((error) => {
+      if (active && presetGenerationRef.current === presetGeneration) {
+        setPresetError(error instanceof Error ? error.message : 'Could not load saved appearance presets');
+      }
+    });
 
     return () => { active = false; };
   }, [project.id, project.media.filename]);
@@ -226,6 +249,22 @@ export function CaptionAppearanceWorkspace({
       })
       .slice(0, 10);
   }, [addedFontOptions, installedFonts, normalizedFontQuery]);
+  const confirmedFontUnavailable = !loadingFonts && !fontDiscoveryFailed && !currentFontAvailable;
+  const explicitReplayTargetMissing = sampleCaptionText !== undefined && !sampleCaptionText.trim();
+  const replayFontUnavailable = loadingFonts || !currentFontAvailable;
+  const replayUnavailable = replayDisabled || replayFontUnavailable || explicitReplayTargetMissing;
+  const replayIsPreparing = !replayPlaying && (replayPreparing || replayPending);
+  const replayUnavailableCopy = loadingFonts && replayFontUnavailable
+    ? 'Studio is checking this Khmer font before replay.'
+    : fontDiscoveryFailed && replayFontUnavailable
+      ? 'Studio could not confirm this Khmer font for replay. Your saved font choice is unchanged.'
+      : confirmedFontUnavailable
+        ? 'Choose an available Khmer font before replaying this appearance.'
+        : explicitReplayTargetMissing
+          ? 'Choose a caption with text before replaying this appearance.'
+          : replayDisabled
+            ? 'Replay is unavailable for the current selection.'
+            : '';
 
   const commitAppearance = (
     next: CaptionAppearance,
@@ -233,6 +272,7 @@ export function CaptionAppearanceWorkspace({
   ) => {
     const current = appearanceRef.current;
     if (JSON.stringify(current) === JSON.stringify(next)) return false;
+    if (replayPending || replayPreparing || replayPlaying) onCancelReplayEffect?.();
     replayRequestRef.current += 1;
     setReplayPending(false);
     const history = options.history || 'discrete';
@@ -281,7 +321,7 @@ export function CaptionAppearanceWorkspace({
   };
 
   const replayEffect = async () => {
-    if (!onReplayEffect || replayPreparing || replayDisabled || replayPending) return;
+    if (!onReplayEffect || replayPreparing || replayPlaying || replayUnavailable || replayPending) return;
     const request = ++replayRequestRef.current;
     setReplayPending(true);
     try {
@@ -294,6 +334,13 @@ export function CaptionAppearanceWorkspace({
     } finally {
       if (mountedRef.current && replayRequestRef.current === request) setReplayPending(false);
     }
+  };
+
+  const cancelReplayEffect = () => {
+    if (!onCancelReplayEffect) return;
+    replayRequestRef.current += 1;
+    setReplayPending(false);
+    onCancelReplayEffect();
   };
 
   const applyLook = (look: CaptionLookId) => {
@@ -327,15 +374,20 @@ export function CaptionAppearanceWorkspace({
 
   const addFonts = async (files: FileList | File[] | null) => {
     const selected = Array.from(files || []);
-    if (!selected.length) return;
+    if (!selected.length || addingFonts || removingFontId) return;
     setAddingFonts(true);
     setFontError('');
     setFontNotice('');
     setFontWarnings([]);
     try {
       const result = await api.addCaptionFonts(selected);
+      fontGenerationRef.current += 1;
       const available = result.fonts.filter((font) => font.available);
       setFonts(available);
+      setLoadingFonts(false);
+      setFontDiscoveryFailed(false);
+      setFontError('');
+      if (result.imported.length > 0) onFontLibraryChange?.();
       setFontWarnings(result.warnings);
       const firstName = result.imported[0];
       const first = firstName ? available.find((font) => font.name === firstName) : undefined;
@@ -356,7 +408,7 @@ export function CaptionAppearanceWorkspace({
   };
 
   const removeAddedFont = async (font: VideoExportFontCapability) => {
-    if (!font.id || !font.removable) return;
+    if (!font.id || !font.removable || addingFonts || removingFontId) return;
     const selectedHere = appearanceRef.current.fontFamily === font.name;
     const confirmed = await onConfirm({
       title: `Remove “${font.name}” from Studio?`,
@@ -373,7 +425,12 @@ export function CaptionAppearanceWorkspace({
     setFontWarnings([]);
     try {
       const result = await api.removeCaptionFont(font.id);
+      fontGenerationRef.current += 1;
       setFonts(result.fonts.filter((item) => item.available));
+      setLoadingFonts(false);
+      setFontDiscoveryFailed(false);
+      setFontError('');
+      onFontLibraryChange?.();
       setFontNotice(`Removed “${font.name}” from Studio. Fonts installed on your computer were not changed.`);
     } catch (error) {
       setFontError(error instanceof Error ? error.message : 'Could not remove that font from Studio');
@@ -402,6 +459,9 @@ export function CaptionAppearanceWorkspace({
   const savePreset = async () => {
     const name = presetName.trim();
     if (!name) return;
+    const appearanceSnapshot = { ...appearanceRef.current };
+    const appearanceSnapshotKey = JSON.stringify(appearanceSnapshot);
+    const selectedPresetAtStart = selectedPresetId;
     setSavingPreset(true);
     setPresetError('');
     try {
@@ -409,13 +469,15 @@ export function CaptionAppearanceWorkspace({
       const now = new Date().toISOString();
       const existing = (profile.captionAppearances || []).find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
       const next: CaptionAppearancePreset = existing
-        ? { ...existing, name, appearance: { ...appearanceRef.current }, updatedAt: now }
-        : { id: crypto.randomUUID(), name, appearance: { ...appearanceRef.current }, createdAt: now, updatedAt: now };
+        ? { ...existing, name, appearance: appearanceSnapshot, updatedAt: now }
+        : { id: crypto.randomUUID(), name, appearance: appearanceSnapshot, createdAt: now, updatedAt: now };
       const captionAppearances = [next, ...(profile.captionAppearances || []).filter((preset) => preset.id !== next.id)].slice(0, 20);
       const updated = await api.patchProfile({ captionAppearances });
+      presetGenerationRef.current += 1;
       setPresets(updated.captionAppearances || []);
-      setSelectedPresetId(next.id);
-      setPresetName('');
+      setPresetError('');
+      setSelectedPresetId((current) => JSON.stringify(appearanceRef.current) === appearanceSnapshotKey && current === selectedPresetAtStart ? next.id : current);
+      setPresetName((current) => current.trim() === name ? '' : current);
     } catch (error) {
       setPresetError(error instanceof Error ? error.message : 'Could not save appearance preset');
     } finally {
@@ -425,7 +487,8 @@ export function CaptionAppearanceWorkspace({
 
   const deletePreset = async () => {
     if (!selectedPresetId) return;
-    const target = presets.find((item) => item.id === selectedPresetId);
+    const targetId = selectedPresetId;
+    const target = presets.find((item) => item.id === targetId);
     const confirmed = await onConfirm({
       title: `Delete “${target?.name || 'Preset'}”?`,
       message: 'This removes the preset from your profile. Existing projects that use this appearance are not changed.',
@@ -437,9 +500,11 @@ export function CaptionAppearanceWorkspace({
     setPresetError('');
     try {
       const profile = await api.profile();
-      const updated = await api.patchProfile({ captionAppearances: (profile.captionAppearances || []).filter((preset) => preset.id !== selectedPresetId) });
+      const updated = await api.patchProfile({ captionAppearances: (profile.captionAppearances || []).filter((preset) => preset.id !== targetId) });
+      presetGenerationRef.current += 1;
       setPresets(updated.captionAppearances || []);
-      setSelectedPresetId('');
+      setPresetError('');
+      setSelectedPresetId((current) => current === targetId ? '' : current);
     } catch (error) {
       setPresetError(error instanceof Error ? error.message : 'Could not delete appearance preset');
     } finally {
@@ -484,7 +549,7 @@ export function CaptionAppearanceWorkspace({
     {fontError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{fontError}. Your current appearance remains unchanged.</span></div>}
     {fontWarnings.length > 0 && <div className="appearance-inline-warning" role="status"><TriangleAlert size={15}/><span>{fontWarnings.join(' ')}</span></div>}
     {fontNotice && <div className="appearance-font-notice" role="status"><CheckCircle2 size={15}/><span>{fontNotice}</span></div>}
-    {!loadingFonts && !currentFontAvailable && <div className="appearance-inline-warning"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is not available on this PC. Choose an available Khmer font before previewing or rendering. The saved font has not been substituted.</span></div>}
+    {confirmedFontUnavailable && <div className="appearance-inline-warning"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is not available on this PC. Choose an available Khmer font before previewing or rendering. The saved font has not been substituted.</span></div>}
 
     <CaptionLooksGallery
       appearance={appearance}
@@ -494,13 +559,13 @@ export function CaptionAppearanceWorkspace({
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <div className="appearance-font-search-wrap"><input className="appearance-font-search" type="search" aria-label="Find Khmer font" aria-expanded={Boolean(normalizedFontQuery)} aria-controls="appearance-font-search-results" value={fontQuery} onChange={(event) => setFontQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFontQuery(''); else if (event.key === 'Enter' && fontSearchResults[0]) { event.preventDefault(); chooseFont(fontSearchResults[0].name); } }} placeholder={`Find among ${installedFonts.length} installed Khmer fonts…`}/>{normalizedFontQuery && <div id="appearance-font-search-results" className="appearance-font-search-results" aria-label="Matching Khmer fonts">{fontSearchResults.length > 0 ? fontSearchResults.map((font) => <button type="button" key={`${font.source}:${font.name}`} className={font.name === appearance.fontFamily ? 'selected' : ''} onClick={() => chooseFont(font.name)}><span>{font.name}</span><small>{font.source === 'studio-imported' ? 'Added to Studio' : 'Installed'} · {font.boldAvailable ? 'Regular + Bold' : 'Regular only'}</small></button>) : <div className="appearance-font-search-empty">No matching Khmer fonts</div>}</div>}</div>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts installed on this computer are ready to use. ` : 'Compatible Khmer fonts installed on this computer appear automatically. '}Add your own .ttf or .otf files only to Studio.</small></div>
+      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <div className="appearance-font-search-wrap"><input className="appearance-font-search" type="search" aria-label="Find Khmer font" aria-expanded={Boolean(normalizedFontQuery)} aria-controls="appearance-font-search-results" value={fontQuery} onChange={(event) => setFontQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFontQuery(''); else if (event.key === 'Enter' && fontSearchResults[0]) { event.preventDefault(); chooseFont(fontSearchResults[0].name); } }} placeholder={`Find among ${installedFonts.length} installed Khmer fonts…`}/>{normalizedFontQuery && <div id="appearance-font-search-results" className="appearance-font-search-results" aria-label="Matching Khmer fonts">{fontSearchResults.length > 0 ? fontSearchResults.map((font) => <button type="button" key={`${font.source}:${font.name}`} className={font.name === appearance.fontFamily ? 'selected' : ''} onClick={() => chooseFont(font.name)}><span>{font.name}</span><small>{font.source === 'studio-imported' ? 'Added to Studio' : 'Installed'} · {font.boldAvailable ? 'Regular + Bold' : 'Regular only'}</small></button>) : <div className="appearance-font-search-empty">No matching Khmer fonts</div>}</div>}</div>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts installed on this computer are ready to use. ` : 'Compatible Khmer fonts installed on this computer appear automatically. '}Add your own .ttf or .otf files only to Studio.</small></div>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
       <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }), { history: 'range' })}/></label>
       <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }), { history: 'range' })}/></label>
     </div>
 
-    {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={removingFontId === font.id} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
+    {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={addingFonts || Boolean(removingFontId)} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
 
     <section className="caption-effects-section appearance-motion-section" aria-labelledby="appearance-motion-title">
       <div className="caption-effects-section-head">
@@ -527,15 +592,19 @@ export function CaptionAppearanceWorkspace({
         {onReplayEffect && <button
           type="button"
           className="primary-effect-action"
-          disabled={appearance.motionPreset !== 'fade' || replayPreparing || replayDisabled || replayPending}
+          disabled={replayIsPreparing || replayPlaying || replayUnavailable}
+          title={replayUnavailableCopy || undefined}
           onClick={() => void replayEffect()}
         >
-          {replayPreparing || replayPending ? <LoaderCircle className="spin" size={14}/> : <Play size={14}/>}
-          {replayPreparing || replayPending ? 'Preparing…' : 'Replay effect'}
+          {replayIsPreparing ? <LoaderCircle className="spin" size={14}/> : <Play size={14}/>}
+          {replayIsPreparing ? 'Preparing…' : 'Replay effect'}
         </button>}
+        {onCancelReplayEffect && replayIsPreparing && <button type="button" onClick={cancelReplayEffect}>Cancel preparation</button>}
+        {onCancelReplayEffect && replayPlaying && <button type="button" onClick={cancelReplayEffect}>Stop replay</button>}
         {appearance.motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
       </div>
-      <span className="appearance-motion-help">Replay the selected caption once. Studio prepares its opening first; later frames are prepared as needed.</span>
+      {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label="Replay target caption"><span>Replay target</span><b>{sampleCaptionText.trim()}</b></div>}
+      <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay the selected caption once to judge Look, Motion and word emphasis. Studio prepares its opening first; later frames are prepared as needed.'}</span>
     </section>
 
     <section className="appearance-word-highlight" aria-label="Spoken word highlight">

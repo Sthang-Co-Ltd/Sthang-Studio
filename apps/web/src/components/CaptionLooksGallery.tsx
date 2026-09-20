@@ -15,6 +15,11 @@ interface Props {
   onReset(): void;
 }
 
+const SAMPLE_GRAPHEME_LIMIT = 72;
+const sampleSegmenter = typeof Intl.Segmenter === 'function'
+  ? new Intl.Segmenter('km', { granularity: 'grapheme' })
+  : null;
+
 function rgba(hex: string, opacity: number) {
   const match = /^#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})$/i.exec(hex);
   if (!match) return hex;
@@ -48,10 +53,23 @@ function sampleStyle(look: CaptionLook): CSSProperties {
   };
 }
 
+function boundedSampleText(value?: string) {
+  const source = value?.trim() || 'សួស្តី ពី Sthang Studio';
+  if (source.length <= 160 || !sampleSegmenter) return source;
+  let sample = '';
+  let count = 0;
+  for (const part of sampleSegmenter.segment(source)) {
+    if (count >= SAMPLE_GRAPHEME_LIMIT) return `${sample.trimEnd()}…`;
+    sample += part.segment;
+    count += 1;
+  }
+  return sample;
+}
+
 export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, onReset }: Props) {
   const activeLook = matchingCaptionLook(appearance);
   const activeLookLabel = CAPTION_LOOKS.find((look) => look.id === activeLook)?.label || 'Custom';
-  const sample = sampleCaptionText?.trim() || 'សួស្តី ពី Sthang Studio';
+  const sample = boundedSampleText(sampleCaptionText);
 
   return <section className="caption-effects-section appearance-look-section" aria-labelledby="appearance-look-title">
     <div className="caption-effects-section-head">

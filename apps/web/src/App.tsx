@@ -201,6 +201,8 @@ export default function App() {
   const [time, setTime] = useState(0);
   const [loadedMediaDurationMs, setLoadedMediaDurationMs] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [effectReplayPlaying, setEffectReplayPlaying] = useState(false);
+  const [captionFontRevision, setCaptionFontRevision] = useState(0);
   const [maxChars, setMaxChars] = useState(18);
   const [groupingMode, setGroupingMode] = useState<CaptionMode>('dynamic');
   const [groupingApplying, setGroupingApplying] = useState(false);
@@ -323,6 +325,7 @@ export default function App() {
     effectReplayController.current = null;
     effectPlaybackCancel.current?.();
     effectPlaybackCancel.current = null;
+    setEffectReplayPlaying(false);
   }
   function stopTimingPreview() {
     timingPreviewCancel.current?.();
@@ -652,8 +655,12 @@ export default function App() {
     appearanceFingerprint.current = fingerprint;
     if (project) setLiveAppearance({ projectId: project.id, appearance });
   }, [project?.id]);
+  const changeCaptionFontLibrary = useCallback(() => {
+    stopEffectReplay();
+    setCaptionFontRevision((value) => value + 1);
+  }, []);
   const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.projectId === project?.id ? liveAppearance?.appearance : project?.captionAppearance), [project?.id, project?.captionAppearance, liveAppearance]);
-  useEffect(() => { stopEffectReplay(); }, [mediaKey, selectionAnchor, workspaceTool]);
+  useEffect(() => { stopEffectReplay(); }, [mediaKey, selectionAnchor, selectionEnd, workspaceTool]);
   const replayAppearanceEffect = async () => {
     const element = media.current;
     const preview = nativeCaptionPreview.current;
@@ -671,13 +678,32 @@ export default function App() {
     const startMs = Math.max(0, caption.startMs - 120);
     const endMs = Math.min(mediaDurationMs || caption.endMs + 120, caption.endMs + 120);
     try {
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        throw new Error('This caption is outside the source playback range. Adjust its timing in Fine timing before replaying.');
+      }
       const ready = await preview.prepareReplay(startMs, endMs, controller.signal);
       if (!ready || controller.signal.aborted || !projectScope.current.isCurrent(ticket)
         || media.current !== element || draftEditRevision.current !== editRevision) return;
       element.removeEventListener('seeking', cancel);
       element.removeEventListener('play', cancel);
-      effectPlaybackCancel.current = playTimingRange(element, { startMs, endMs, loop: false },
-        () => setError('Effect replay could not start. Check the source playback controls and try again.'));
+      let initialSeek = true;
+      const finish = () => {
+        element.removeEventListener('seeking', onUserSeek);
+        if (effectPlaybackCancel.current === stop) {
+          effectPlaybackCancel.current = null;
+          setEffectReplayPlaying(false);
+        }
+      };
+      const onUserSeek = () => {
+        if (initialSeek && Math.abs(element.currentTime * 1000 - startMs) < 50) { initialSeek = false; return; }
+        release(false);
+      };
+      const stop = () => release();
+      const release = playTimingRange(element, { startMs, endMs, loop: false },
+        () => setError('Effect replay could not start. Check the source playback controls and try again.'), finish);
+      effectPlaybackCancel.current = stop;
+      element.addEventListener('seeking', onUserSeek);
+      setEffectReplayPlaying(true);
     } catch (reason) {
       if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) {
         setError(reason instanceof Error ? reason.message : 'The effect preview could not be prepared.');
@@ -1928,7 +1954,7 @@ export default function App() {
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} video={isVideo} media={media}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
 
@@ -1986,6 +2012,9 @@ export default function App() {
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} captions={draft}
             onEditWordTiming={openWordTiming}
             onReplayEffect={replayAppearanceEffect}
+            onCancelReplayEffect={stopEffectReplay}
+            replayPlaying={effectReplayPlaying}
+            onFontLibraryChange={changeCaptionFontLibrary}
             sampleCaptionText={(selection.captions[0] || active || draft[0])?.text}
             onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
