@@ -36,6 +36,44 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Development changes — unreleased
+
+**Appearance** now offers six original Studio Looks, optional native Glow, and
+caption-level Fade, Rise, and Soft Pop. Look, Motion and Word emphasis are separate, with
+appearance Undo/Redo, Reset look and explicit Replay effect. Starter Looks keep
+your chosen font, size and placement. Replay also works for static Looks, shows
+the selected caption, and offers Cancel preparation / Stop replay. Font recovery
+and delayed preset saves preserve newer editing choices. See [Caption effects](docs/CAPTION-EFFECTS.md)
+for controls, preview limits, and versioned caption-data compatibility.
+
+**Export → Captions file** now guides creators through editable handoff to CapCut
+Desktop/mobile and other editors. SRT remains the default; advanced choices add
+WebVTT, plain TTML, ready word-by-word SRT/VTT, styled ASS for compatible tools,
+Studio caption-data backup/restore, and a ZIP kit with import guidance. These are
+different preservation levels, not a universal editable-highlight guarantee.
+See [Continue editing elsewhere](docs/CAPTION-HANDOFF.md), including CapCut
+mobile's documented Desktop/Web plus manual project-sync requirement.
+
+The source Fine Timing workspace now focuses on one caption at a time, keeps
+playback visible, and provides precise start/end entry, bounded nudges, whole-cue
+movement, edge auditions, optional looping, and timing undo/redo. Neighbor
+protection prevents accidental overlaps; an explicit shared-edge option adjusts
+the transition between two captions without shifting later speech.
+
+**Word timing** lets creators adjust one word inside a caption. **Sync words**
+aligns the current corrected wording locally and offers a candidate to review
+before applying. Changed or ambiguous words remain reviewable rather than
+receiving invented timings. **Appearance → Spoken word highlight** optionally
+colors the current spoken word while keeping the entire caption visible. Captions
+with unresolved word timing stay plain. The effect is included in native preview
+and captioned MP4; SRT remains plain caption text and cue timing. See the
+[Fine Timing guide](docs/FINE-TIMING.md) for controls, shortcuts, and limits.
+These source changes do not establish availability in the released downloads below.
+
+Deep Verify also starts its first local timing pass while the second independent
+listen is still running. This removes an avoidable ordering dependency; it does
+not change either listen or imply a measured end-to-end speedup on real media.
+
 ## Distribution status
 
 Sthang Studio `0.85.4` is the current emergency Public Beta recovery identity for

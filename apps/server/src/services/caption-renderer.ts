@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PreviewFontCache, type FontLease } from './preview-font-cache.js';
 import { discoverCaptionFonts } from './font-library.js';
 import {
-  normalizeCaptionAppearance, captionRenderTime, wrapCaptionText, planCaptionRenderStates,
+  normalizeCaptionAppearance, captionRenderTime, wrapCaptionText, planCaptionRenderStates, resolveCaptionWordTiming,
   type CaptionAppearance, type CaptionSegment, type VideoExportFontCapability,
 } from '@kcs/shared';
 
@@ -75,37 +75,210 @@ function assColor(hex: string, opacity = 1) {
   return `&H${alpha}${value.slice(4, 6)}${value.slice(2, 4)}${value.slice(0, 2)}`;
 }
 
+function assOverrideColor(hex: string) {
+  const value = hex.slice(1);
+  return `&H${value.slice(4, 6)}${value.slice(2, 4)}${value.slice(0, 2)}&`;
+}
+
+function assOverrideAlpha(opacity: number) {
+  const bounded = Math.max(0, Math.min(1, opacity));
+  return `&H${Math.round((1 - bounded) * 255).toString(16).toUpperCase().padStart(2, '0')}&`;
+}
+
+type CaptionPaintLayer = 'default' | 'background' | 'glow';
+
+/** Compose cue fade with each layer's own opacity without revealing intentionally
+ * transparent glyph fills on Background/Glow or making their base alpha more opaque. */
+function temporalOpacityTag(layer: CaptionPaintLayer, opacity: number, appearance: CaptionAppearance) {
+  if (layer === 'default') {
+    return `{\\1a${assOverrideAlpha(opacity)}\\3a${assOverrideAlpha(opacity)}\\4a${assOverrideAlpha(0.88 * opacity)}}`;
+  }
+  const layerOpacity = layer === 'background' ? appearance.backgroundOpacity : (appearance.glowOpacity || 0);
+  return `{\\1a&HFF&\\3a${assOverrideAlpha(layerOpacity * opacity)}\\4a&HFF&}`;
+}
+
+/** Map trusted UTF-16 word offsets through render-only wrapping. The wrapper only
+ * inserts line breaks (and canonicalizes CRLF), so visible code units stay ordered.
+ */
+function wrappedOffsets(source: string, wrapped: string, offsets: readonly number[]) {
+  const wanted = new Set(offsets);
+  const mapped = new Map<number, number>();
+  let sourceOffset = 0;
+  let wrappedOffset = 0;
+  const capture = () => {
+    if (wanted.has(sourceOffset) && !mapped.has(sourceOffset)) mapped.set(sourceOffset, wrappedOffset);
+  };
+  capture();
+  while (sourceOffset < source.length) {
+    if (source[sourceOffset] === '\r' && source[sourceOffset + 1] === '\n') {
+      sourceOffset += 2;
+      while (wrapped[wrappedOffset] === '\n') wrappedOffset += 1;
+      capture();
+      continue;
+    }
+    if (source[sourceOffset] === '\n') {
+      sourceOffset += 1;
+      while (wrapped[wrappedOffset] === '\n') wrappedOffset += 1;
+      capture();
+      continue;
+    }
+    while (wrapped[wrappedOffset] === '\n') wrappedOffset += 1;
+    capture();
+    if (source[sourceOffset] !== wrapped[wrappedOffset]) return null;
+    sourceOffset += 1;
+    wrappedOffset += 1;
+    capture();
+  }
+  return [...wanted].every((offset) => mapped.has(offset)) ? mapped : null;
+}
+
+function styledCaptionText(
+  caption: CaptionSegment,
+  captionIndex: number,
+  lineLimit: number,
+  appearance: CaptionAppearance,
+  activeWordOffsets: ReadonlyArray<{ captionIndex: number; startOffset: number; endOffset: number }> | undefined,
+  forcedColor?: string,
+) {
+  const wrapped = wrapCaptionText(caption.text, lineLimit);
+  if (appearance.highlightMode !== 'word') return escapeAssText(wrapped);
+  const resolved = resolveCaptionWordTiming(caption);
+  if (resolved.state !== 'ready' || !resolved.words.length) return escapeAssText(wrapped);
+
+  const positions = resolved.words.flatMap((word) => [word.startOffset, word.endOffset]);
+  const mapped = wrappedOffsets(caption.text, wrapped, positions);
+  if (!mapped) return escapeAssText(wrapped);
+
+  const active = new Set((activeWordOffsets || [])
+    .filter((word) => word.captionIndex === captionIndex)
+    .map((word) => `${word.startOffset}:${word.endOffset}`));
+  const baseColor = assOverrideColor(forcedColor || appearance.textColor);
+  const highlightColor = assOverrideColor(forcedColor || appearance.highlightColor || appearance.textColor);
+  const tags = resolved.words.flatMap((word) => {
+    const start = mapped.get(word.startOffset);
+    const end = mapped.get(word.endOffset);
+    if (start === undefined || end === undefined || end <= start) return [];
+    const highlighted = active.has(`${word.startOffset}:${word.endOffset}`);
+    return [
+      { at: start, order: 1, value: highlighted ? highlightColor : baseColor },
+      { at: end, order: 0, value: baseColor },
+    ];
+  }).sort((left, right) => left.at - right.at || left.order - right.order);
+  if (!tags.length) return escapeAssText(wrapped);
+
+  let cursor = 0;
+  let output = '';
+  for (const tag of tags) {
+    output += escapeAssText(wrapped.slice(cursor, tag.at));
+    output += `{\\1c${tag.value}}`;
+    cursor = tag.at;
+  }
+  output += escapeAssText(wrapped.slice(cursor));
+  return output;
+}
+
 /** The only caption appearance recipe. Both native preview and finished MP4 consume this. */
-export function buildAssDocument(captions: CaptionSegment[], appearanceInput: Partial<CaptionAppearance> | undefined, width: number, height: number, visibilityMask?: ReadonlySet<number>) {
+export function buildAssDocument(
+  captions: CaptionSegment[],
+  appearanceInput: Partial<CaptionAppearance> | undefined,
+  width: number,
+  height: number,
+  visibilityMask?: ReadonlySet<number>,
+  sampleAtMs?: number,
+) {
   const a = normalizeCaptionAppearance(appearanceInput);
+  const highlightWords = a.highlightMode === 'word';
   const scale = height / 1080;
   const fontSize = Math.round(a.fontSize1080 * scale * 10) / 10;
   const outline = Math.round(a.outlineWidth1080 * scale * 10) / 10;
   const shadow = Math.round(a.shadowWidth1080 * scale * 10) / 10;
+  const glow = Math.round((a.glowWidth1080 || 0) * scale * 10) / 10;
+  const glowBlur = Math.round(Math.max(0.5, Math.min(8, glow * 0.5)) * 10) / 10;
   const padding = Math.round(a.backgroundPadding1080 * scale * 10) / 10;
   const side = Math.max(8, Math.round(width * (100 - a.maxWidthPct) / 200));
   const bottom = Math.max(8, Math.round(height * a.positionBottomPct / 100));
   const lineLimit = Math.max(6, Math.floor(width * a.maxWidthPct / 100 / Math.max(1, fontSize * 0.72)));
+  // Fade and decorative layers repaint the same plain caption text many times. Cache
+  // that pure wrap/escape result per cue; spoken-word paint still takes the dynamic
+  // path below because its inline color spans change with the active word.
+  const repeatedPlainPaint = !highlightWords && (a.motionPreset !== 'none' || a.glowEnabled || a.backgroundEnabled);
+  const plainTextCache = repeatedPlainPaint ? new Array<string | undefined>(captions.length) : undefined;
   const alignment = a.alignment === 'left' ? 1 : a.alignment === 'right' ? 3 : 2;
   const style = (name: string, text: string, edge: string, back: string, border: number, edgeWidth: number, shadowWidth: number) =>
-    `Style: ${name},${a.fontFamily.replace(/[\r\n,]/g, ' ')},${fontSize},${text},${text},${edge},${back},${a.bold ? -1 : 0},0,0,0,100,100,0,0,${border},${edgeWidth},${shadowWidth},${alignment},${side},${side},${bottom},1`;
+    `Style: ${name},${a.fontFamily.replace(/[\r\n,]/g, ' ')},${fontSize},${text},${text},${edge},${back},${a.bold ? -1 : 0},0,0,0,100,100,0,0,${border},${edgeWidth},${shadowWidth},${alignment},${side},${side},${bottom},${highlightWords ? -1 : 1}`;
   const styles = [style('Default', assColor(a.textColor), assColor(a.outlineColor), assColor('#000000', 0.88), 1, outline, shadow)];
   // An independent lower layer keeps background color/padding from replacing the glyph outline.
   if (a.backgroundEnabled) styles.unshift(style('Background', assColor(a.textColor, 0), assColor(a.backgroundColor, a.backgroundOpacity), assColor(a.backgroundColor, 0), 3, padding, 0));
+  // Glow is a paint-only lower glyph layer. A wider translucent outline plus a bounded
+  // native blur creates the halo without changing font metrics, wrapping, alignment,
+  // or the shaped text run. The blur itself is attached only to Glow events below.
+  const glowEnabled = Boolean(a.glowEnabled && glow > 0 && (a.glowOpacity || 0) > 0);
+  if (glowEnabled) styles.unshift(style('Glow', assColor(a.glowColor!, 0), assColor(a.glowColor!, a.glowOpacity), assColor(a.glowColor!, 0), 1, glow, 0));
   // A single block per active interval gives overlaps stable line layout after a seek.
   // Libass collision placement otherwise depends on which earlier frames were rendered.
   // Stored cue boundaries and SRT stay untouched; only the burned-in composition is grouped.
-  const events = planCaptionRenderStates(captions).filter((c) => c.key).flatMap((c) => {
-    const text = c.key.split(',').map((key) => {
+  const plannedStates = planCaptionRenderStates(captions, highlightWords, a);
+  const sampledState = sampleAtMs === undefined
+    ? undefined
+    : plannedStates.find((state) => sampleAtMs >= state.atMs && sampleAtMs < state.endMs);
+  const renderStates = sampleAtMs === undefined
+    ? plannedStates
+    : sampledState ? [{ ...sampledState, atMs: 0, endMs: 1000 }] : [];
+  const events = renderStates.filter((c) => c.key).flatMap((c) => {
+    const cueOpacities = new Map((c.cueOpacities || []).map((cue) => [cue.captionIndex, cue.opacity]));
+    const temporalPaint = c.cueOpacities !== undefined;
+    const composeText = (layer: CaptionPaintLayer, forcedColor?: string) => c.key.split(',').map((key) => {
       const index = Number(key);
-      const visible = escapeAssText(wrapCaptionText(captions[index].text, lineLimit));
+      const visible = plainTextCache
+        ? (plainTextCache[index] ??= escapeAssText(wrapCaptionText(captions[index].text, lineLimit)))
+        : styledCaptionText(captions[index], index, lineLimit, a, c.activeWordOffsets, forcedColor);
       // The editor may request a separate white-on-black focus mask. Alpha changes
       // paint only, never font metrics or line layout; this document is never exported.
       const mask = visibilityMask ? (visibilityMask.has(index) ? '{\\alpha&H00&\\1c&HFFFFFF&\\3c&HFFFFFF&\\4c&HFFFFFF&}' : '{\\alpha&HFF&}') : '';
-      return mask + visible;
+      // ASS overrides survive a \N line break. When temporal paint is active every
+      // cue chunk therefore carries an explicit alpha, including full opacity, so
+      // one cue can never inherit the previous cue's fade.
+      const temporal = visibilityMask || !temporalPaint ? '' : temporalOpacityTag(layer, cueOpacities.get(index) ?? 1, a);
+      return mask + temporal + visible;
     }).join('\\N');
-    const event = (layer: number, name: string) => `Dialogue: ${layer},${assTimestamp(c.atMs)},${assTimestamp(c.endMs)},${name},,0,0,0,,${text}`;
-    return a.backgroundEnabled ? [event(0, 'Background'), event(1, 'Default')] : [event(0, 'Default')];
+    const defaultText = composeText('default', visibilityMask ? '#FFFFFF' : undefined);
+    const requestedRisePixels = Math.max(0, Math.round((c.motionTranslateY1080 || 0) * scale));
+    const decorationBottomClearance = Math.ceil(Math.max(
+      outline + shadow,
+      a.backgroundEnabled ? padding : 0,
+      glowEnabled ? glow + glowBlur : 0,
+    ));
+    const risePixels = Math.min(requestedRisePixels, Math.max(0, bottom - decorationBottomClearance - 1));
+    const motionMarginV = risePixels > 0 ? Math.max(1, bottom - risePixels) : 0;
+    const motionScale = c.motionScale ?? 1;
+    const baseAvailableWidth = width - side * 2;
+    const scaledAvailableWidth = baseAvailableWidth > 0 ? Math.round(baseAvailableWidth * motionScale) : baseAvailableWidth;
+    const softPopActive = motionScale < 0.999999 && baseAvailableWidth > 0 && scaledAvailableWidth > 0 && scaledAvailableWidth < baseAvailableWidth;
+    const motionMarginL = softPopActive ? Math.floor((width - scaledAvailableWidth) / 2) : 0;
+    const motionMarginR = softPopActive ? Math.ceil((width - scaledAvailableWidth) / 2) : 0;
+    const motionAnchorX = a.alignment === 'left' ? side : a.alignment === 'right' ? width - side : width / 2;
+    const motionAnchorY = height - bottom;
+    const actualMotionScale = softPopActive ? scaledAvailableWidth / baseAvailableWidth : 1;
+    const motionScalePct = Number((actualMotionScale * 100).toFixed(8));
+    // Scaling text without shrinking libass's available line width can reflow a
+    // near-threshold caption. The proportional margin budget keeps the original
+    // 100% line plan while \pos pins the saved alignment anchor/baseline. At 100%
+    // no overrides are emitted, preserving the exact established rasterization.
+    const geometryText = (text: string) => softPopActive
+      ? `{\\pos(${motionAnchorX},${motionAnchorY})\\fscx${motionScalePct}\\fscy${motionScalePct}}${text}`
+      : text;
+    const event = (layer: number, name: string, text: string) => `Dialogue: ${layer},${assTimestamp(c.atMs)},${assTimestamp(c.endMs)},${name},,${motionMarginL},${motionMarginR},${motionMarginV},,${geometryText(text)}`;
+    const output: string[] = [];
+    let layer = 0;
+    if (glowEnabled) {
+      const glowText = composeText('glow', visibilityMask ? '#FFFFFF' : a.glowColor);
+      // Review-focus documents measure caption geometry; decoration must not inflate
+      // their bounds. The visible preview/export Glow alone receives libass blur.
+      output.push(event(layer++, 'Glow', visibilityMask ? glowText : `{\\blur${glowBlur}}${glowText}`));
+    }
+    if (a.backgroundEnabled) output.push(event(layer++, 'Background', composeText('background', visibilityMask ? '#FFFFFF' : a.textColor)));
+    output.push(event(layer, 'Default', defaultText));
+    return output;
   });
   return `\uFEFF[Script Info]\nScriptType: v4.00+\nLanguage: km\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: None\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`;
 }

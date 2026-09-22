@@ -1,0 +1,14 @@
+.caption-restore-review { margin-top: 16px; padding: 16px; border: 1px solid #465328; border-radius: 12px; background: #141a10; min-width: 0; }
+.caption-restore-review h3 { margin: 0; font-size: 16px; color: #ecf4d8; }
+.caption-restore-review p { font-size: 13px; line-height: 1.6; color: #bbc3b4; overflow-wrap: anywhere; }
+.caption-restore-filename { color: #edf2e8 !important; }
+.caption-restore-samples { max-height: 250px; overflow-y: auto; border: 1px solid #343e2d; border-radius: 8px; padding: 0 12px; background: #0e130b; }
+.caption-restore-samples > div { padding: 10px 0; border-bottom: 1px solid #2c3426; }
+.caption-restore-samples span { font: 12px ui-monospace, monospace; color: #a8b397; }
+.caption-restore-samples p { margin: 5px 0 0; white-space: pre-wrap; color: #e1e9d8; }
+.caption-restore-warning { border-left: 3px solid #c4a15c; padding: 8px 10px; background: #292215; color: #e6d2a9 !important; }
+.caption-restore-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.caption-restore-actions button { min-height: 38px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #505d41; border-radius: 8px; font: inherit; font-size: 13px; color: #e1e9d8; background: #20291a; cursor: pointer; }
+.caption-restore-actions .primary { background: #d7ff4f; color: #172008; }
+.caption-restore-review :focus-visible { outline: 2px solid #d7ff4f; outline-offset: 3px; }
+@media (max-width: 620px) { .caption-restore-review { padding: 12px; } .caption-restore-actions button { min-height: 44px; flex: 1 1 100%; } }

@@ -59,16 +59,25 @@ export class PreviewPngReader {
   }
 }
 
-/** Static, escaped captions have no animation. Rebase only the active native state
- * to t=0, keeping overlaps in original order and preserving the exact ASS recipe.
+/** Select only the active native state. The ASS writer freezes the exact project-time
+ * paint state at t=0, preserving word timing evidence and half-open ASS boundaries
+ * without mutating the stored cue/timing data.
  */
 export function previewSample(input: FrameInput, atMs: number) {
+  if (input.appearance.motionPreset === 'rise' || input.appearance.motionPreset === 'soft-pop') {
+    return {
+      captions: input.captions,
+      focus: new Set(input.focusIndices),
+      sampleAtMs: atMs,
+    };
+  }
   const state = planCaptionRenderStates(input.captions).find((item) => atMs >= item.atMs && atMs < item.endMs);
   const indices = state?.key ? state.key.split(',').map(Number) : [];
   const selected = new Set(input.focusIndices);
   return {
-    captions: indices.map((index) => ({ ...input.captions[index], startMs: 0, endMs: 1000 })),
+    captions: indices.map((index) => input.captions[index]),
     focus: new Set(indices.flatMap((index, compact) => selected.has(index) ? [compact] : [])),
+    sampleAtMs: atMs,
   };
 }
 
@@ -173,8 +182,8 @@ class NativePreviewWorker {
         signal?.throwIfAborted(); this.controller.signal.throwIfAborted();
         const sample = previewSample(input, atMs);
         this.writing = Promise.all([
-          fs.writeFile(path.join(this.directory, 'captions.ass'), buildAssDocument(sample.captions, input.appearance, this.width, this.height)),
-          ...(this.focus ? [fs.writeFile(path.join(this.directory, 'focus.ass'), buildAssDocument(sample.captions, input.appearance, this.width, this.height, sample.focus))] : []),
+          fs.writeFile(path.join(this.directory, 'captions.ass'), buildAssDocument(sample.captions, input.appearance, this.width, this.height, undefined, sample.sampleAtMs)),
+          ...(this.focus ? [fs.writeFile(path.join(this.directory, 'focus.ass'), buildAssDocument(sample.captions, input.appearance, this.width, this.height, sample.focus, sample.sampleAtMs))] : []),
         ]);
         await this.writing;
         signal?.throwIfAborted(); this.controller.signal.throwIfAborted();

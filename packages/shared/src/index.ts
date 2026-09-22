@@ -1,7 +1,11 @@
 import type { CaptionAppearance } from './caption-settings.js';
+import type { CaptionWordTiming } from './word-timing.js';
 export * from './caption-settings.js';
+export * from './caption-looks.js';
+export * from './word-timing.js';
+export * from './caption-interchange.js';
 export { summarizeProject, type CaptionProjectSummary } from './project-summary.js';
-export { wrapCaptionText, planCaptionRenderStates, type CaptionRenderState } from './caption-layout.js';
+export { wrapCaptionText, planCaptionRenderStates, captionMotionContextIndices, type CaptionRenderState } from './caption-layout.js';
 
 export type CaptionMode = 'dynamic' | 'word' | 'phrase' | 'single-line';
 export type TimingSource = 'stt' | 'stt-split' | 'interpolated' | 'manual';
@@ -34,6 +38,8 @@ export interface CaptionSegment {
   startMs: number;
   endMs: number;
   text: string;
+  /** Optional exact-text word timing used only when every stored offset still validates. */
+  wordTiming?: CaptionWordTiming;
   confidence?: number;
   timingQuality?: TimingQuality;
   timingSource?: TimingSource;

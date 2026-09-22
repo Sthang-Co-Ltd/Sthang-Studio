@@ -10,7 +10,7 @@ import type { ReviewIssue } from '../apps/web/src/review.js';
 
 import { CaptionEditor } from '../apps/web/src/components/CaptionEditor.js';
 import { FindReplacePanel } from '../apps/web/src/components/FindReplacePanel.js';
-import { computeSpectrum } from '../apps/web/src/components/WaveformEditor.js';
+import { computeSpectrum } from '../apps/web/src/audio/spectrum.js';
 
 function makeCaption(id: string, text: string, startMs: number, endMs: number, extra: Partial<CaptionSegment> = {}): CaptionSegment {
   return { id, text, startMs, endMs, ...extra };

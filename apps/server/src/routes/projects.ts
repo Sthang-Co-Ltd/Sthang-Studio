@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { nanoid } from 'nanoid';
-import type { CaptionProject, CaptionSegment, CaptionMode, QaProfileSettings, RegenerationApplyMode } from '@kcs/shared';
+import { reconcileCaptionWordTiming, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionMode, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
 import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
@@ -27,6 +27,13 @@ import {
 import { historyStore } from '../services/history-store.js';
 import { proposalStore } from '../services/proposal-store.js';
 import { jobStore } from '../services/job-store.js';
+import {
+  CaptionWordTimingBusyError,
+  CaptionWordTimingConflictError,
+  CaptionWordTimingInputError,
+  CaptionWordTimingNotFoundError,
+  syncCaptionWordsLocally,
+} from '../services/caption-word-timing.js';
 
 await fs.mkdir(config.uploadDir, { recursive: true });
 await fs.mkdir(config.exportDir, { recursive: true });
@@ -47,6 +54,14 @@ function expectedMedia(value: unknown): Pick<CaptionProject['media'], 'filename'
   return candidate && typeof candidate.filename === 'string' && Number.isFinite(candidate.size)
     ? { filename: candidate.filename, size: Number(candidate.size) }
     : null;
+}
+
+function sanitizeCaptionWordTiming(caption: CaptionSegment): CaptionSegment {
+  if (!caption.wordTiming) return caption;
+  const resolution = resolveCaptionWordTiming(caption);
+  if (resolution.state !== 'stale') return caption;
+  const { wordTiming: _wordTiming, ...safe } = caption;
+  return safe;
 }
 
 // Opt-in projection preserves the existing full-project API for other callers.
@@ -228,7 +243,9 @@ router.get('/:id/normalized-audio.wav', async (req, res, next) => {
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('X-Sthang-Audio-Cache', normalized.cacheHit ? 'hit' : force ? 'rebuilt' : 'generated');
-    res.sendFile(normalized.outputPath, (error) => {
+    // Scope delivery to this project's cache. An absolute path makes Express
+    // reject legitimate dot-prefixed ancestors such as .sthang-worktrees.
+    res.sendFile(path.basename(normalized.outputPath), { root: normalized.dir, dotfiles: 'deny' }, (error) => {
       if (!error) return;
       if (res.headersSent) {
         res.destroy(error);
@@ -247,6 +264,50 @@ router.get('/:id/history', async (req, res) => {
   res.json(await historyStore.list(current.id, current.media));
 });
 
+interface CaptionWordTimingRouteDependencies {
+  hasActiveCaptionJobForProject(projectId: string): boolean;
+  syncCaptionWords: typeof syncCaptionWordsLocally;
+}
+
+export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRouteDependencies = {
+  hasActiveCaptionJobForProject: (projectId) => jobStore.hasActiveCaptionJobForProject(projectId),
+  syncCaptionWords: syncCaptionWordsLocally,
+}): RequestHandler {
+  return async (req, res) => {
+    const projectId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!projectId) {
+      res.status(400).json({ error: 'Project id is required for word timing.' });
+      return;
+    }
+    const preparedFor = expectedMedia(req.body?.expectedMedia);
+    if (!preparedFor) {
+      res.status(428).json({ error: 'Word timing requires the media version the caption was edited against.' });
+      return;
+    }
+    const caption = req.body?.caption as CaptionSegment | null | undefined;
+    if (!caption || typeof caption !== 'object') {
+      res.status(400).json({ error: 'A caption is required for word timing.' });
+      return;
+    }
+    if (dependencies.hasActiveCaptionJobForProject(projectId)) {
+      res.status(409).json({ error: 'Finish or cancel the active caption processing job before syncing spoken-word timing.' });
+      return;
+    }
+    try {
+      res.json(await dependencies.syncCaptionWords(projectId, caption, preparedFor));
+    } catch (error) {
+      if (error instanceof CaptionWordTimingNotFoundError) { res.status(404).json({ error: error.message }); return; }
+      if (error instanceof CaptionWordTimingBusyError) { res.status(429).json({ error: error.message }); return; }
+      if (error instanceof CaptionWordTimingConflictError) { res.status(409).json({ error: error.message }); return; }
+      if (error instanceof CaptionWordTimingInputError) { res.status(400).json({ error: error.message }); return; }
+      console.error('[word timing] Local synchronization failed:', error);
+      res.status(400).json({ error: 'Could not sync these words locally. Check the caption text and its start/end times, then try again. Your current timing was kept.' });
+    }
+  };
+}
+
+router.post('/:id/caption-word-timing', createCaptionWordTimingHandler());
+
 router.post('/:id/history/:historyId/restore', async (req, res) => {
   try {
     const result = await store.withProjectWrite(req.params.id, async (current, persist) => {
@@ -258,6 +319,7 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
         ...entry.snapshot,
         id: current.id,
         media: current.media,
+        captions: entry.snapshot.captions.map(sanitizeCaptionWordTiming),
         captionAppearance: current.captionAppearance,
         createdAt: current.createdAt,
         updatedAt: new Date().toISOString(),
@@ -291,8 +353,9 @@ router.put('/:id/context', async (req, res) => {
 });
 
 router.put('/:id/captions', async (req, res) => {
-  const captions = Array.isArray(req.body.captions) ? req.body.captions as CaptionSegment[] : null;
-  if (!captions) return res.status(400).json({ error: 'captions must be an array' });
+  const requestedCaptions = Array.isArray(req.body.captions) ? req.body.captions as CaptionSegment[] : null;
+  if (!requestedCaptions) return res.status(400).json({ error: 'captions must be an array' });
+  const captions = requestedCaptions.map(sanitizeCaptionWordTiming);
   const expectedMedia = req.body?.expectedMedia;
   if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
     return res.status(428).json({ error: 'Caption save requires the media version it was edited against.' });
@@ -354,7 +417,7 @@ router.post('/:id/normalize-khmer-spacing', async (req, res) => {
         return { status: 'stale' as const };
       }
       await historyStore.checkpoint(project, 'Before Khmer spacing cleanup', 'cleanup');
-      project.captions = project.captions.map((caption) => caption.textLocked ? caption : ({
+      project.captions = project.captions.map((caption) => caption.textLocked ? caption : reconcileCaptionWordTiming(caption, {
         ...caption,
         text: normalizeKhmerDisplayText(caption.text),
       }));

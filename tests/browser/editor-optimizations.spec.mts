@@ -226,6 +226,7 @@ test('Review row approval on filtered list correctly targets the original captio
 });
 
 test('Row action menu on the bottom caption renders with .menu-up class', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 600 });
   await openProject(page);
 
   const rows = page.locator('.caption-row');
@@ -239,6 +240,10 @@ test('Row action menu on the bottom caption renders with .menu-up class', async 
   const menu = page.locator('.caption-action-menu');
   await expect(menu).toBeVisible();
 
-  // In CaptionEditor, visibleIndex > visible.length - 4 attaches .menu-up
+  // Actual available space determines placement; cue count alone cannot safely
+  // place a menu in a short project near the page header.
   await expect(menu).toHaveClass(/menu-up/);
+  const box = (await menu.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(600);
 });

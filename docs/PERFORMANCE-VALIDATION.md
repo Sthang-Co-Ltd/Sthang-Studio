@@ -102,6 +102,29 @@ chunks and absence of development test hooks. Mutation checks must run the same
 tests unchanged with only the target production behavior altered, then restore it.
 Do not label missing native/Windows/full-history evidence as passed.
 
+## Deep Verify overlap — unreleased
+
+Deep Verify starts two fresh independent listens as before. When the acoustic
+draft arrives, its local timing pass can now run while the contextual listen is
+still pending. `pipeline-overlap.ts` settles dependent rejection immediately and
+waits for both listens plus that timing pass before the caller groups candidates
+or cleans up temporary files. Acoustic precedence, matching-text deduplication,
+candidate scoring, alignment math, and failure behavior remain unchanged.
+
+The focused `test:performance` coverage verifies the overlap and completion/failure
+lifecycle with controlled promises. Existing normal-generation preparation and
+caching are unchanged. Synthetic scheduling evidence proves that the unnecessary
+wait can be removed; it does not establish a real-media speedup percentage.
+
+Real caption jobs already record `performance.totalMs` and `performance.stageMs`
+in the local job diagnostics. In an explicitly requested real-media comparison,
+keep the source, range, settings, machine, and warm/cold state comparable, retain
+individual samples, and compare total runtime. Also compare transcription plus
+alignment together: the first alignment now overlaps the interval labeled
+transcription, so that stage alone is no longer a like-for-like cloud-latency
+measurement. Job runtime excludes time waiting in the queue. The existing
+`benchmark:performance` command remains synthetic helper evidence only.
+
 ## Scope and public evidence
 
 New dependencies, cloud transfers, licenses, branded artwork, installer changes,

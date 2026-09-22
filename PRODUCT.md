@@ -91,7 +91,105 @@ Creators may style captions before export while watching the real video evidence
 - Appearance never changes SRT serialization, caption text/timing, locks,
   correction eligibility, correction memory, Review behavior, or source media.
 
+## Original Looks and Motion contract — unreleased source
+
+Appearance separates starter **Look**, **Motion**, and **Word emphasis**. Six
+original Looks change decoration only; the creator's font, bold/regular choice,
+size, width, alignment, placement, motion and spoken-word color remain intact.
+Saved user presets intentionally contain the complete appearance. Scope is
+project-wide. Local appearance Undo/Redo covers one change or slider gesture;
+Reset look restores decoration without resetting the independent choices.
+
+Native Glow and Fade share the preview/ASS/MP4 recipe. Fade opacity derives from
+each original rounded caption interval, not split word/highlight events, and
+cannot leak between overlapping captions. Short fades remain bounded by the
+caption duration. Native word layout/shaping is never rebuilt as separate words
+to create these effects. Review focus stays separate and ignores visual fade.
+Replay is explicit, prepares only a bounded opening and then plays once. Missing
+or retained frames are labeled preparing/updating; only a decoded native frame
+for the current appearance and paint state is presented as exact.
+
+Replay works with static Looks as well as Motion, identifies its selected caption,
+and exposes Cancel preparation / Stop replay. A manual seek releases playback
+ownership without snapping back. Font-library changes invalidate both cached
+pixels and preview errors; late discovery responses cannot undo those changes.
+Preset saves capture their click-time appearance and never label later edits as
+belonging to the saved preset.
+
+Settings and derived preview data remain local. Caption-data v2 retains nondefault
+Glow/Fade settings; v1 stays supported and unknown versions fail explicitly. Normal
+subtitle handoff remains text/timing only. These additions do not establish a
+published package, CapCut-asset license or universal editor effect transfer.
+
+Rise and Soft Pop extend the same clock and native render path. Rise is a small
+vertical entrance; Soft Pop scales the entire caption from approximately 94% to
+100% with proportionally compensated native wrapping width. Both fade out without
+exit travel or scale. Geometry stays neutral during overlapping intervals, with
+that constraint disclosed in Appearance. An entrance that intersects any other
+caption stays geometry-neutral throughout, preventing jumps around brief overlaps.
+Each caption retains its own opacity phase. Review masks follow geometric motion and ignore visual opacity.
+The final resting layout is the existing untransformed native layout. Captions
+lasting 80 ms or less bypass motion at full opacity/geometry, so a transparent
+entrance cannot hide the only video frame that contains a brief caption.
+
+Caption-data v3 is emitted for Rise/Soft Pop. Existing Glow/Fade settings retain
+v2, defaults retain v1, and the current reader accepts all three; v2 explicitly
+rejects the new motion values. Acceptance includes decoded MP4 comparisons at
+entrance, middle, exit and after caption end with caption-region/visibility checks.
+
+## Word timing and spoken-word highlight contract — unreleased source
+
+Fine Timing separates **Caption edges** from **Word timing**. Caption edits
+prevent new/increased neighbor overlaps by default; intentional overlap and a
+two-caption shared transition are explicit operations. No timing edit silently
+pushes all following captions away from unchanged speech.
+
+Each editable word track belongs to one exact caption text snapshot. Its UTF-16
+offsets must be grapheme-safe and cover the spoken text. Stable stored offsets do
+not depend on browser and server ICU versions reproducing identical word splits.
+Whole-caption movement translates owned word times; edge trims never stretch
+them. Text correction, splitting, merging, regrouping, regeneration, locking, and
+History must preserve only timing that still matches the resulting wording.
+
+Changed/ambiguous words cannot silently become highlight-ready through guessed
+proportional timings. **Sync words** aligns the saved exact wording locally and
+returns an unapplied, revision-bound candidate; **Use timing** is explicit and
+undoable. Manual word adjustments and confirmation provide a recovery path for
+uncertain or absent alignment. The operation changes no source media or wording
+and makes no new cloud transcription request.
+
+Appearance may enable an optional current-word color while the entire caption
+remains visible. It is off by default. Every spoken span in a caption must have
+usable timing; partial/stale/estimated tracks leave that caption plain and expose
+a clear editing path. Pauses use the normal text color. Word color changes must
+not change Khmer shaping, line wrapping, placement, or Review-focus geometry.
+Native preview and rendered MP4 consume the same exact paint states. SRT remains
+plain cue text/start/end, with no word-highlight metadata. Appearance/export
+reports how many captions will remain plain before a render.
+
 ## Export contract
+
+### Editable handoff — unreleased source
+
+Export separates finished captioned video from editable caption files. SRT remains
+the default for documented major-editor imports. A destination selector explains
+CapCut Desktop/mobile and other editor routes; it does not assert universal
+native editable-highlight transfer. CapCut mobile's current import route requires
+Desktop/Web first and the creator's separate CapCut cloud-sync action.
+
+WebVTT, plain TTML, ready word-by-word SRT/VTT, styled ASS, projected Studio caption
+data and a fixed-name ZIP kit stay progressively disclosed. Plain files contain
+text/timing; word files change grouping and require complete usable word timing;
+ASS is a compatible-renderer reference with font/layout dependencies. No media or
+font files are packaged. Times remain relative to source zero without silent
+overlap repair, speed conversion or proportional retiming.
+
+Caption-data restore is explicit preview then replace. It validates a bounded
+versioned allowlist, preserves valid partial word tracks without promoting them,
+checks the current source and snapshot, honors existing locks, checkpoints
+History, and restores captions with new identities/unapproved state. Current
+media and appearance remain unchanged. Import is not fresh correction evidence
+for local learning or Contributor capture.
 
 Sthang Studio has two deliberately different output paths:
 

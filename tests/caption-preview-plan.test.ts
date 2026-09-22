@@ -1,11 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CAPTION_APPEARANCE, normalizeVideoExportSettings, planCaptionRenderStates, type CaptionSegment } from '@kcs/shared';
+import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, normalizeVideoExportSettings, planCaptionRenderStates, type CaptionSegment, type TimedToken } from '@kcs/shared';
 import { captionPreviewStateIndex, containedVideoFrame } from '../apps/web/src/caption-preview-plan.js';
 import { buildAssDocument, requireCaptionFont } from '../apps/server/src/services/caption-renderer.js';
 import { parseCaptionPreviewInput } from '../apps/server/src/services/caption-preview.js';
 
 const cue = (id: string, startMs: number, endMs: number, text = id): CaptionSegment => ({ id, startMs, endMs, text });
+const highlightedCue = () => {
+  const caption = cue('spoken', 0, 1000, 'ខ្មែរកម្ពុជា');
+  const tokens: TimedToken[] = [
+    { id: 'khmer', text: 'ខ្មែរ', startMs: 100, endMs: 300, spaceBefore: false, timingSource: 'stt' },
+    { id: 'cambodia', text: 'កម្ពុជា', startMs: 500, endMs: 700, spaceBefore: false, timingSource: 'stt' },
+  ];
+  const wordTiming = buildCaptionWordTiming(caption, tokens);
+  assert.ok(wordTiming);
+  return { ...caption, wordTiming };
+};
 
 test('preview state boundaries match ASS rounding, gaps, overlaps, and half-open ends', () => {
   const states = planCaptionRenderStates([cue('A', 104, 501), cue('B', 296, 601), cue('C', 905, 1104), cue('empty', 0, 2000, ' ')]);
@@ -22,6 +32,31 @@ test('preview state boundaries match ASS rounding, gaps, overlaps, and half-open
   assert.equal(captionPreviewStateIndex(states, 1100), -1);
   assert.equal(captionPreviewStateIndex([], 0), -1);
   assert.deepEqual(planCaptionRenderStates([cue('instant', 1, 4), cue('invalid', NaN, 100)]), []);
+});
+
+test('spoken-word paint states keep the cue key stable, restore base color in pauses, and fail closed for review timing', () => {
+  const caption = highlightedCue();
+  assert.deepEqual(planCaptionRenderStates([caption]), [
+    { atMs: 0, endMs: 1000, key: '0', text: caption.text },
+  ]);
+  assert.deepEqual(planCaptionRenderStates([caption], true), [
+    { atMs: 0, endMs: 100, key: '0', text: caption.text, paintKey: '0|base', activeWordOffsets: [] },
+    { atMs: 100, endMs: 300, key: '0', text: caption.text, paintKey: '0|0:0-5', activeWordOffsets: [{ captionIndex: 0, startOffset: 0, endOffset: 5 }] },
+    { atMs: 300, endMs: 500, key: '0', text: caption.text, paintKey: '0|base', activeWordOffsets: [] },
+    { atMs: 500, endMs: 700, key: '0', text: caption.text, paintKey: '0|0:5-12', activeWordOffsets: [{ captionIndex: 0, startOffset: 5, endOffset: 12 }] },
+    { atMs: 700, endMs: 1000, key: '0', text: caption.text, paintKey: '0|base', activeWordOffsets: [] },
+  ]);
+
+  const needsReview = {
+    ...caption,
+    wordTiming: {
+      ...caption.wordTiming!,
+      words: caption.wordTiming!.words.map((word, index) => index ? word : { ...word, needsReview: true }),
+    },
+  };
+  assert.deepEqual(planCaptionRenderStates([needsReview], true), [
+    { atMs: 0, endMs: 1000, key: '0', text: caption.text },
+  ]);
 });
 
 test('native caption surface fits portrait, landscape and letterboxed video without using the control box as the frame', () => {
@@ -70,6 +105,9 @@ test('preview input rejects unbounded/unsorted samples and malformed captions be
   for (const timesMs of [[], Array.from({ length: 9 }, (_, i) => i), [1, 1], [10, 0], [NaN], [-1], ['0'], [Infinity]]) assert.throws(() => parseCaptionPreviewInput({ ...input, timesMs }));
   assert.throws(() => parseCaptionPreviewInput({ ...input, resolution: "1;movie=bad" }));
   assert.throws(() => parseCaptionPreviewInput({ ...input, captions: [{ ...cue('x', 0, 1), text: {} }] }));
+  const timed = highlightedCue();
+  assert.deepEqual(parseCaptionPreviewInput({ ...input, captions: [timed] }).captions[0].wordTiming, JSON.parse(JSON.stringify(timed.wordTiming)));
+  assert.throws(() => parseCaptionPreviewInput({ ...input, captions: [{ ...timed, wordTiming: { version: 1, text: timed.text, words: [{}] } }] }));
   assert.throws(() => parseCaptionPreviewInput(null));
   assert.deepEqual(Object.keys(parseCaptionPreviewInput({ ...input, captions: [{ ...input.captions[0], approved: true, context: 'private' }] }).captions[0]), ['id', 'text', 'startMs', 'endMs']);
 });

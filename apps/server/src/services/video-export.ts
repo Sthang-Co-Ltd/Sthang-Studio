@@ -24,6 +24,7 @@ import { runCommand } from './media.js';
 import { buildAssDocument, buildAssCaptionFilter, fontCapabilities, requireCaptionFont, prepareCaptionFonts } from './caption-renderer.js';
 import { invalidateCaptionFontCache } from './font-library.js';
 import { supportsComplexAssFilterHelp } from './caption-preview.js';
+import { hydrateProjectWordTimings } from './caption-word-timing.js';
 export { supportsComplexAssFilterHelp };
 
 interface ProbeStream {
@@ -59,6 +60,15 @@ interface RenderCallbacks {
 const encoderProbeCache = new Map<string, Promise<boolean>>();
 const capabilityCache = new Map<string, { at: number; value: VideoExportCapabilities }>();
 const capabilityCacheMs = 30_000;
+
+/**
+ * Capture the exact caption payload a render job will own. Legacy projects gain
+ * deterministic word timing from their synchronized canonical transcript here,
+ * without mutating the stored project, so preview/editor/export do not diverge.
+ */
+export function createVideoExportCaptionSnapshot(project: CaptionProject): CaptionSegment[] {
+  return structuredClone(hydrateProjectWordTimings(project).captions);
+}
 
 export function invalidateVideoExportCapabilityCache() {
   capabilityCache.clear();

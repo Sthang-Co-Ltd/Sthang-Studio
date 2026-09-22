@@ -24,6 +24,8 @@ Khmer Caption Contributor program described below:
 - imported source media and normalized working audio;
 - reusable selected-range PCM WAVs created from that normalized audio;
 - caption projects and edits;
+- per-caption word intervals, exact wording snapshots, and highlight preferences
+  in the unreleased word-timing source implementation;
 - correction memory and profile data;
 - project history, proposals, processing-job metadata, and resumable job checkpoints;
 - project-scoped KFA acoustic-emission caches and deterministic local timing-result caches;
@@ -40,6 +42,60 @@ memory-only and disappear when the browser page/process is closed.
 
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.
+
+### Local word timing and highlighting — unreleased source
+
+**Sync words** processes a bounded clip from the existing project audio and the
+caption's current wording on this computer. It does not call Gemini or add a new
+cloud transfer. The candidate stays in the local browser until applied; accepted
+word intervals persist with the caption and its local History. Existing model
+setup/download behavior is unchanged.
+
+Spoken-word highlighting uses those intervals in local native preview and
+captioned-video rendering. Preview requests travel only over the existing
+loopback API. Browser paint caches and local active export snapshots may contain
+the per-word track. The generated MP4 contains the visual effect; SRT contains
+plain caption text and cue start/end times, without the per-word track.
+
+Per-word tracks and highlight preferences are not added to Gemini, Contributor,
+or analytics requests by this feature. Contributor's existing timing evidence
+means cue/clip boundaries and the existing source timing/model/version fields;
+it does not include these new per-caption word tracks. The existing explicit
+consent rules and cloud payload projections remain unchanged.
+
+### Original appearance effects — unreleased source
+
+Look decoration, Glow, Fade, Rise and Soft Pop settings persist with local project
+appearance and any creator-saved presets. Replay prepares bounded native image frames over
+the existing loopback API; it does not contact CapCut, a template service, Gemini,
+Contributor or analytics. No third-party effect library or new asset download is
+introduced. Preview frames and scratch use the existing bounded local lifecycle.
+
+Caption-data v2 (Glow/Fade) or v3 (Rise/Soft Pop) can include the chosen effects as
+an explicit appearance reference when you download the file. Default-effect files remain compatible with the v1
+schema. Styled ASS and rendered MP4 can contain the effects; normal text subtitle
+formats do not. This does not change existing consent rules or remote payloads.
+
+## Editable caption handoff — unreleased source
+
+The editable-file workflow creates local SRT, WebVTT, TTML, styled ASS, projected
+caption-data JSON or a ZIP handoff kit only after a download request. Files contain
+the caption wording/timing appropriate to the selected format. Caption data can
+also contain per-word intervals, review/lock metadata and appearance reference.
+It excludes source-media identity/paths, project titles and identifiers, account
+credentials, context, transcripts, correction memory and History. ZIP entries are
+fixed caption/guide filenames; source media and fonts are never bundled.
+
+Studio does not upload handoff files to editing software or cloud accounts.
+Opening a third-party import-help link visits that publisher's website. Choosing
+CapCut Web or CapCut project cloud sync is a separate creator action subject to
+CapCut's service and privacy terms; it is not an automatic Studio transfer.
+
+Restoring a selected Studio caption-data file uses the local loopback API, previews
+before replacement, and creates local History. It restores caption data only,
+leaving the source and current appearance unchanged, and does not run the ordinary
+correction-memory or Contributor candidate-capture paths. This feature introduces
+no analytics event or new automatic category of cloud transfer.
 
 ## Local preparation before Generate
 

@@ -507,6 +507,11 @@ def process_server_request(request):
 
 
 def serve():
+    # The Node JSON-lines protocol is UTF-8 even when Windows pipes default
+    # to a legacy code page. Set both directions before reading any requests.
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     log("Persistent local timing worker ready.")
     for raw_line in sys.stdin:
         line = raw_line.strip()

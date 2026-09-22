@@ -13,6 +13,7 @@ import type {
   RegenerationStrategy,
   TranscriptionContext,
 } from '@kcs/shared';
+import { reconcileCaptionWordTiming } from '@kcs/shared';
 import { config } from '../config.js';
 import { store } from './store.js';
 import { profileStore } from './profile-store.js';
@@ -30,6 +31,7 @@ import { captionsInRange, preserveCaptionLocks } from './caption-locks.js';
 import { proposalStore, type StoredRegenerationProposal } from './proposal-store.js';
 import { historyStore } from './history-store.js';
 import { resolveGeminiSettings } from './llm-settings.js';
+import { settlePairWithPrimaryFollowup } from './pipeline-overlap.js';
 
 export type ProgressReporter = (stage: string, progress: number, message: string) => Promise<void> | void;
 type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
@@ -460,8 +462,21 @@ async function buildRangeRegenerationProposal(
         { guidance: { ...guidanceBase, variant: 'acoustic' }, label: 'Strict acoustic pass' },
         { guidance: { ...guidanceBase, variant: 'contextual' }, label: 'Context-aware pass' },
       ];
-      const settled = await Promise.allSettled(specs.map((spec) =>
-        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label)));
+      const draftPromises = specs.map((spec) =>
+        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label));
+      const overlap = await settlePairWithPrimaryFollowup(
+        draftPromises[0],
+        draftPromises[1],
+        (draft) => alignGeminiCandidate(
+          draft,
+          chunkPath,
+          path.join(workDir, 'candidate-verify-0'),
+          chunkDuration,
+          context,
+          acceptedBaselineText,
+        ),
+      );
+      const settled = overlap.tasks;
       const failures: string[] = [];
       const drafts: GeminiCandidateDraft[] = [];
       settled.forEach((result, index) => {
@@ -481,14 +496,20 @@ async function buildRangeRegenerationProposal(
 
       let groupIndex = 0;
       for (const group of groups.values()) {
-        const aligned = await alignGeminiCandidate(
-          group[0],
-          chunkPath,
-          path.join(workDir, `candidate-verify-${groupIndex}`),
-          chunkDuration,
-          context,
-          acceptedBaselineText,
-        );
+        let aligned: ProposalCandidate;
+        if (settled[0].status === 'fulfilled' && group[0] === settled[0].value) {
+          if (overlap.primaryFollowup.status === 'rejected') throw overlap.primaryFollowup.reason;
+          aligned = overlap.primaryFollowup.value;
+        } else {
+          aligned = await alignGeminiCandidate(
+            group[0],
+            chunkPath,
+            path.join(workDir, `candidate-verify-${groupIndex}`),
+            chunkDuration,
+            context,
+            acceptedBaselineText,
+          );
+        }
         candidates.push(aligned);
         // If both independent listens returned effectively the same wording, keep
         // both evidence labels but do not run the local acoustic alignment twice.
@@ -687,10 +708,13 @@ export async function applyRegenerationProposal(
       if (normalizedEditedText) {
         const alignedProposalText = normalizeKhmerDisplayText(proposedRange.map((caption) => caption.text).join(' ')).trim();
         const texts = redistributeText(normalizedEditedText, acceptedRange);
-        acceptedRange = acceptedRange.map((caption, index) => caption.textLocked ? caption : {
-          ...caption,
-          text: texts[index] || caption.text,
-          approved: false,
+        acceptedRange = acceptedRange.map((caption, index) => {
+          if (caption.textLocked) return caption;
+          return reconcileCaptionWordTiming(caption, {
+            ...caption,
+            text: texts[index] || caption.text,
+            approved: false,
+          });
         });
         // The exact manual text is safe in captions, but canonical token regrouping
         // should not pretend it has been word-aligned unless the user chose Realign exact wording.
@@ -699,24 +723,28 @@ export async function applyRegenerationProposal(
     } else if (mode === 'text-only') {
       const sourceText = normalizedEditedText || proposedRange.map((caption) => caption.text).join(' ');
       const texts = redistributeText(sourceText, originalRange);
-      acceptedRange = originalRange.map((caption, index) => caption.textLocked ? caption : {
-        ...caption,
-        text: texts[index] || caption.text,
-        approved: false,
+      acceptedRange = originalRange.map((caption, index) => {
+        if (caption.textLocked) return caption;
+        return reconcileCaptionWordTiming(caption, {
+          ...caption,
+          text: texts[index] || caption.text,
+          approved: false,
+        });
       });
       project.transcriptNeedsSync = true;
     } else {
       const texts = redistributeText(originalRange.map((caption) => caption.text).join(' '), proposedRange);
       acceptedRange = proposedRange.map((caption, index) => {
         const original = originalRange[index];
-        return {
+        const next = {
           ...caption,
           id: original?.id || caption.id,
           text: original?.textLocked ? original.text : texts[index] || original?.text || caption.text,
           textLocked: original?.textLocked,
           timingLocked: original?.timingLocked,
           approved: false,
-        };
+        } satisfies CaptionSegment;
+        return original ? reconcileCaptionWordTiming(original, next) : next;
       });
       acceptedRange = preserveCaptionLocks(originalRange, acceptedRange);
       project.transcriptNeedsSync = true;
@@ -758,6 +786,7 @@ export async function postprocessProjectTiming(projectId: string, settings: QaPr
     for (let index = 0; index < captions.length; index += 1) {
       const caption = captions[index];
       if (caption.timingLocked) continue;
+      const beforeCaption = structuredClone(caption);
       let start = nearestTokenBoundary(tokens, caption.startMs, settings.snapToleranceMs, 'start');
       let end = nearestTokenBoundary(tokens, caption.endMs, settings.snapToleranceMs, 'end');
       const previous = captions[index - 1];
@@ -784,6 +813,7 @@ export async function postprocessProjectTiming(projectId: string, settings: QaPr
       caption.timingSource = 'manual';
       caption.timingQuality = caption.timingQuality === 'low' ? 'medium' : caption.timingQuality || 'medium';
       caption.approved = false;
+      captions[index] = reconcileCaptionWordTiming(beforeCaption, caption);
     }
 
     project.captions = captions;

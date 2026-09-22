@@ -1,5 +1,69 @@
 # Changelog
 
+## Unreleased
+
+- Keep unfinished Fine Timing timestamps scoped to their selected caption or
+  word, including selections with identical times. Expose word review status to
+  screen readers and explain recovery when no valid word interval is available.
+  Clarify locked timing and the inspect-before-applying word-sync proposal.
+- Add native Rise and Soft Pop beside Fade, sharing the original caption clock,
+  saved presets, explicit replay and preview/export rendering. Keep overlap
+  geometry steady with disclosed per-caption fades; preserve native wrapping
+  through proportional Soft Pop width compensation.
+- Preserve Rise/Soft Pop in caption-data version 3; retain version-1/default and
+  version-2/Glow/Fade compatibility and explicit rejection by older readers.
+- Polish appearance replay with a visible target, static-Look replay, Cancel
+  preparation and Stop controls; native player seeking releases replay ownership.
+- Prevent obsolete preview requests from clearing a replacement's pending frames.
+  Refresh preview caches after font changes and preserve newer font/preset edits
+  when older loading or saving responses arrive.
+- Reuse identical plain text wrapping across native Fade/Glow/background paint
+  states, reducing repeated preparation without changing the rendered output.
+- Add six original Studio Looks with independent font/layout, Motion and Word
+  emphasis controls, appearance Undo/Redo, Reset look and explicit replay.
+- Add bounded native Glow and caption-clock Fade in/out. Preserve full-text Khmer
+  shaping, original fade phase through word/overlap states, and separate Review
+  focus at transparent boundaries. Prepare a bounded native replay opening.
+- Preserve new effect settings in local presets and caption-data version 2;
+  continue reading version 1 and exporting legacy-compatible default-effect data.
+- Add destination-guided editable caption handoff: SRT, WebVTT, plain TTML,
+  ready word-by-word SRT/VTT, styled ASS, Studio caption data and a ZIP guide kit.
+  Explain CapCut Desktop/mobile import differences and per-format styling limits.
+- Add bounded, previewed captions-only JSON restore with History, exact snapshot
+  and candidate guards, fresh caption identities, lock protection and no imported
+  correction/Contributor lineage. Preserve source media and current appearance.
+- Add optional spoken-word highlighting to native preview and captioned MP4.
+  Keep the full caption visible and restore its normal color between words.
+  Incomplete, stale, or uncertain word timing leaves that caption plain; SRT
+  continues to contain only caption text and cue start/end times.
+- Add editable per-caption word timing, word edge/move controls, local exact-text
+  Sync words proposals, explicit apply/discard, and undo. Preserve provable word
+  timings through corrections, caption movement, splitting, merging, and History;
+  mark ambiguous or changed words for review instead of stretching old timings.
+- Prevent new or increased caption overlaps by default. Offer explicit overlap
+  and shared-edge modes, with atomic two-caption undo and timing-lock protection.
+- Preserve the full combined time span when merging overlapping or nested
+  captions, without moving their retained word intervals.
+- Keep Khmer glyph shaping and layout stable across highlight states using the
+  native whole-text shaping path. Word offsets respect grapheme boundaries.
+- Fix waveform delivery when the application or state folder has a dot-prefixed
+  ancestor, such as a development worktree. Keep delivery restricted to the
+  selected project's normalized audio, and exercise real HTTP delivery in tests.
+- Use UTF-8 for persistent local timing worker input, output, and diagnostics so
+  Windows pipe encoding cannot corrupt Khmer text or trigger avoidable recovery.
+- Focus Fine Timing on the selected caption independently of recording length.
+  Keep source playback visible while timing controls scroll, and provide labeled
+  timestamp fields, edge/whole-caption nudges, set-to-playhead actions, edge
+  auditions, optional bounded looping, and timing undo/redo.
+- Commit canvas drags once on release; cancel unfinished drags with Escape or
+  pointer cancellation. Validate typed timestamps on Enter/blur instead of saving
+  partial input. Preserve timing locks and keep moved captions chronological.
+- Allow manual timing without generated word anchors and retain numeric edits
+  and source playback when the waveform preview fails to load.
+- Start the first Deep Verify local alignment while its second independent listen
+  completes. Preserve fresh listens, candidate precedence, deduplication, failure
+  handling, timing accuracy, and existing cache boundaries.
+
 ## 0.85.4 — Windows OTA recovery
 
 - Supersedes the broken `0.85.2` public Windows OTA offer. Version `0.85.3` remains

@@ -40,8 +40,34 @@ test('interactive payload contains just the active overlap, remapping focus with
   assert.deepEqual(Object.keys(selected.captions[0]), ['text', 'startMs', 'endMs']);
   assert.equal(captions[20].startMs, 20_000);
   const sample = previewSample({ ...selected, captions: selected.captions.map((c, i) => ({ ...c, id: String(i) })), timesMs: [20_000], appearance: a }, 20_000);
-  assert.deepEqual(sample.captions.map((c) => [c.startMs, c.endMs]), [[0, 1000], [0, 1000]]);
+  assert.deepEqual(sample.captions.map((c) => [c.startMs, c.endMs]), [[19_000, 20_500], [20_000, 21_500]]);
+  assert.equal(sample.sampleAtMs, 20_000);
   assert.deepEqual([...sample.focus], [1]);
+});
+test('interactive payload carries only the word timing needed by native paint', () => {
+  const caption = {
+    id: 'timed',
+    text: 'ខ្មែរកម្ពុជា',
+    startMs: 0,
+    endMs: 1000,
+    approved: true,
+    wordTiming: {
+      version: 1 as const,
+      text: 'ខ្មែរកម្ពុជា',
+      words: [
+        { id: 'a', startOffset: 0, endOffset: 5, startMs: 100, endMs: 400, source: 'aligned' as const },
+        { id: 'b', startOffset: 5, endOffset: 12, startMs: 500, endMs: 800, source: 'aligned' as const },
+      ],
+    },
+  };
+  const selected = captionPreviewSelection([caption], planCaptionRenderStates([caption], true));
+  assert.deepEqual(selected.captions, [{
+    text: caption.text,
+    startMs: 0,
+    endMs: 1000,
+    wordTiming: caption.wordTiming,
+  }]);
+  assert.equal('approved' in selected.captions[0], false);
 });
 test('persistent pipe packets are complete and PNG framing tolerates fragmentation but rejects oversized/trailing data', () => {
   for (const size of [64, 65] as const) {

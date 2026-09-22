@@ -5,6 +5,8 @@ import {
 } from './index.js';
 
 export type CaptionHorizontalAlignment = 'left' | 'center' | 'right';
+export type CaptionHighlightMode = 'off' | 'word';
+export type CaptionMotionPreset = 'none' | 'fade' | 'rise' | 'soft-pop';
 
 export interface CaptionAppearance {
   /** Font family resolved against reviewed local/system Khmer fonts at export time. */
@@ -25,6 +27,19 @@ export interface CaptionAppearance {
   positionBottomPct: number;
   /** Maximum caption region width as a percent of frame width. */
   maxWidthPct: number;
+  /** Optional native burned-in spoken-word emphasis. */
+  highlightMode?: CaptionHighlightMode;
+  /** Spoken-word emphasis color when highlightMode is word. */
+  highlightColor?: string;
+  /** Optional bounded glow rendered outside the normal caption decoration. */
+  glowEnabled?: boolean;
+  glowColor?: string;
+  /** Reference glow width at 1080px frame height. */
+  glowWidth1080?: number;
+  glowOpacity?: number;
+  /** Optional whole-caption entrance motion. */
+  motionPreset?: CaptionMotionPreset;
+  motionDurationMs?: number;
 }
 
 export const DEFAULT_CAPTION_APPEARANCE: CaptionAppearance = {
@@ -42,6 +57,14 @@ export const DEFAULT_CAPTION_APPEARANCE: CaptionAppearance = {
   alignment: 'center',
   positionBottomPct: 12,
   maxWidthPct: 82,
+  highlightMode: 'off',
+  highlightColor: '#D7FF4F',
+  glowEnabled: false,
+  glowColor: '#D7FF4F',
+  glowWidth1080: 6,
+  glowOpacity: 0.55,
+  motionPreset: 'none',
+  motionDurationMs: 160,
 };
 
 
@@ -65,6 +88,11 @@ function safeHex(value: unknown, fallback: string) {
   return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
 }
 
+function roundedStep(value: number, min: number, max: number, fallback: number, step: number) {
+  const bounded = clamp(value, min, max, fallback);
+  return Math.max(min, Math.min(max, Math.round(bounded / step) * step));
+}
+
 export function normalizeCaptionAppearance(value: Partial<CaptionAppearance> | null | undefined): CaptionAppearance {
   const raw = value || {};
   return {
@@ -82,6 +110,14 @@ export function normalizeCaptionAppearance(value: Partial<CaptionAppearance> | n
     alignment: ['left', 'center', 'right'].includes(String(raw.alignment)) ? raw.alignment! : DEFAULT_CAPTION_APPEARANCE.alignment,
     positionBottomPct: clamp(Number(raw.positionBottomPct), 3, 82, DEFAULT_CAPTION_APPEARANCE.positionBottomPct),
     maxWidthPct: clamp(Number(raw.maxWidthPct), 45, 96, DEFAULT_CAPTION_APPEARANCE.maxWidthPct),
+    highlightMode: raw.highlightMode === 'word' ? 'word' : 'off',
+    highlightColor: safeHex(raw.highlightColor, DEFAULT_CAPTION_APPEARANCE.highlightColor!),
+    glowEnabled: raw.glowEnabled === true,
+    glowColor: safeHex(raw.glowColor, DEFAULT_CAPTION_APPEARANCE.glowColor!),
+    glowWidth1080: clamp(Number(raw.glowWidth1080), 0, 16, DEFAULT_CAPTION_APPEARANCE.glowWidth1080!),
+    glowOpacity: clamp(Number(raw.glowOpacity), 0, 1, DEFAULT_CAPTION_APPEARANCE.glowOpacity!),
+    motionPreset: typeof raw.motionPreset === 'string' && ['fade', 'rise', 'soft-pop'].includes(raw.motionPreset) ? raw.motionPreset : 'none',
+    motionDurationMs: roundedStep(Number(raw.motionDurationMs), 80, 400, DEFAULT_CAPTION_APPEARANCE.motionDurationMs!, 10),
   };
 }
 

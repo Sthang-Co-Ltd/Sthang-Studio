@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -269,6 +270,55 @@ class TimingCacheTests(unittest.TestCase):
         self.numpy.savez.side_effect = ValueError("synthetic serialization bug")
         with self.assertRaisesRegex(ValueError, "serialization bug"):
             worker.compute_kfa_emission(self.audio, self.cache)
+
+    def test_server_protocol_forces_utf8_for_khmer_requests_responses_and_errors(self):
+        worker_path = Path(__file__).resolve().parents[1] / "local-timing" / "worker.py"
+        wrapper = f'''\
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("studio_timing_worker_subprocess", {str(worker_path)!r})
+worker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(worker)
+
+for stream in (sys.stdin, sys.stdout, sys.stderr):
+    stream.reconfigure(encoding="cp1252")
+encodings = [(stream.encoding or "").lower().replace("-", "") for stream in (sys.stdin, sys.stdout, sys.stderr)]
+if encodings != ["cp1252", "cp1252", "cp1252"]:
+    raise RuntimeError(f"test precondition failed: {{encodings}}")
+
+def fake_request(request):
+    worker.log("ខ្មែរ diagnostics")
+    if request.get("fail"):
+        raise RuntimeError("ខ្មែរ failure")
+    return {{"transcript": request.get("transcript")}}
+
+worker.process_server_request = fake_request
+worker.serve()
+'''
+        requests = [
+            {"id": "khmer-ok", "action": "align", "transcript": "សួស្តី"},
+            {"id": "khmer-error", "action": "align", "fail": True},
+        ]
+        stdin_bytes = "".join(json.dumps(request, ensure_ascii=False) + "\n" for request in requests).encode("utf-8")
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", wrapper],
+            input=stdin_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=15,
+            check=False,
+        )
+
+        stderr = result.stderr.decode("utf-8", errors="strict")
+        self.assertEqual(result.returncode, 0, stderr)
+        responses = [json.loads(line) for line in result.stdout.decode("utf-8", errors="strict").splitlines() if line.strip()]
+        self.assertEqual(responses, [
+            {"id": "khmer-ok", "ok": True, "result": {"transcript": "សួស្តី"}},
+            {"id": "khmer-error", "ok": False, "error": "RuntimeError: ខ្មែរ failure"},
+        ])
+        self.assertIn("Persistent local timing worker ready.", stderr)
+        self.assertIn("ខ្មែរ diagnostics", stderr)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject,
+  normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
   type CaptionAppearance,
   type CaptionProject,
   type ProcessingJob,
@@ -15,14 +15,22 @@ import {
 import { Download, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import { CaptionHandoffPanel } from './CaptionHandoffPanel';
+import { CaptionRestoreReview, type CaptionRestoreReviewState } from './CaptionRestoreReview';
+import type { CaptionFileFormat } from '../caption-handoff-client';
 import './video-export.css';
 
 interface Props {
   project: CaptionProject;
   busy: boolean;
   activeExportJob?: ProcessingJob;
-  onExportSrt(): void;
+  onExportCaptions(format: CaptionFileFormat): Promise<boolean>;
+  onImportCaptionData(file: File): Promise<void>;
+  captionImportPreview?: CaptionRestoreReviewState;
+  onApplyCaptionImport(): void;
+  onCancelCaptionImport(): void;
   onEditAppearance(): void;
+  onEditWordTiming?(id?: string): void;
   onPreviewResolution(resolution: VideoResolutionPreset): void;
   onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null>;
 }
@@ -71,7 +79,8 @@ function elapsedLabel(job: ProcessingJob) {
   return `${seconds}s elapsed`;
 }
 
-export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, onEditAppearance, onStartVideoExport, onPreviewResolution }: Props) {
+export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
+  onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution }: Props) {
   const videoProject = isVideoProject(project);
   const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
@@ -144,6 +153,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
   const hevcAvailable = Boolean(capabilities?.encoders.some((encoder) => encoder.codec === 'hevc' && encoder.available));
   const source = capabilities?.source;
   const appearanceFontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily && (!appearance.bold || font.boldAvailable)));
+  const plainWordCaptions = useMemo(() => appearance.highlightMode === 'word'
+    ? project.captions.filter((caption) => caption.text.trim() && resolveCaptionWordTiming(caption).state !== 'ready') : [], [project.captions, appearance.highlightMode]);
   const exportBlocked = Boolean(!videoProject || !capabilities?.supported || appearanceSaveBlocked || appearanceFontUnavailable || activeExportJob || busy || startingExport || !project.captions.length);
 
   const startExport = async () => {
@@ -182,15 +193,15 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
       <button aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
-      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><Download size={16}/><span>Captions file</span><small>SRT</small></button>
+      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><Download size={16}/><span>Captions file</span><small>SRT + more</small></button>
     </div>
 
-    {!videoProject && <p className="export-mode-help">This project contains audio only, so SRT is the available export path.</p>}
+    {!videoProject && <p className="export-mode-help">This audio project can export editable caption files. Captioned-video export requires a video source.</p>}
 
-    {outputMode === 'captions' && <section className="export-srt-panel" aria-labelledby="export-srt-title">
-      <div><strong id="export-srt-title">Captions file (SRT)</strong><span>Caption text + timing. Visual styling stays controlled by the destination editing app.</span></div>
-      <button disabled={!project.captions.length || busy} onClick={onExportSrt}><Download size={14}/>Download SRT</button>
-    </section>}
+    {outputMode === 'captions' && (captionImportPreview
+      ? <CaptionRestoreReview review={captionImportPreview} busy={busy} onApply={onApplyCaptionImport} onCancel={onCancelCaptionImport}/>
+      : <CaptionHandoffPanel project={project} busy={busy} onExport={onExportCaptions} onImport={onImportCaptionData}
+          onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => setOutputMode('video') : undefined}/>)}
 
     {outputMode === 'video' && <>
       {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · you can keep editing while this saved snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
@@ -251,9 +262,15 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportSrt, o
         </section>
 
         <section className="export-appearance-summary" aria-labelledby="export-appearance-title">
-          <div className="export-appearance-copy"><Palette size={17}/><div><strong id="export-appearance-title">Caption appearance</strong><span><i className="export-color-swatch" style={{ background: appearance.textColor }} aria-hidden="true"/>{appearance.fontFamily} · {appearance.fontSize1080}px @1080p · {appearance.alignment} · {appearance.positionBottomPct}% from bottom</span></div></div>
+          <div className="export-appearance-copy"><Palette size={17}/><div><strong id="export-appearance-title">Caption appearance</strong><span><i className="export-color-swatch" style={{ background: appearance.textColor }} aria-hidden="true"/>{appearance.fontFamily} · {appearance.fontSize1080}px @1080p · {appearance.alignment} · {appearance.positionBottomPct}% from bottom{appearance.glowEnabled ? ' · Glow' : ''}{appearance.motionPreset && appearance.motionPreset !== 'none' ? ` · ${{ fade: 'Fade', rise: 'Rise', 'soft-pop': 'Soft Pop' }[appearance.motionPreset]} ${appearance.motionDurationMs} ms` : ''}</span></div></div>
           <button onClick={onEditAppearance}>Edit appearance</button>
         </section>
+
+        {appearance.highlightMode === 'word' && <div className="export-warnings" role="status">
+          <div><Palette size={14}/><span>Spoken-word highlights are enabled for captioned video.
+            {plainWordCaptions.length > 0 ? ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.` : ' All nonempty captions have usable word timing.'}</span></div>
+          {plainWordCaptions.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(plainWordCaptions[0].id)}>Review word timing</button>}
+        </div>}
 
         {appearanceFontUnavailable && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Choose an available caption font</strong><span>{appearance.fontFamily} is not available on this PC. Edit appearance and select an available Khmer font before rendering so the export does not silently substitute typography.</span></div></div>}
 

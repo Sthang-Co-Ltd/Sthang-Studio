@@ -8,6 +8,7 @@ import jobs from './routes/jobs.js';
 import updates from './routes/updates.js';
 import contribution from './routes/contribution.js';
 import videoExport from './routes/video-export.js';
+import captionHandoff from './routes/caption-handoff.js';
 import { APP_VERSION } from './version.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
@@ -42,6 +43,7 @@ app.use('/api/jobs', jobs);
 app.use('/api/updates', updates);
 app.use('/api/contribution', contribution);
 app.use('/api/video-export', videoExport);
+app.use('/api/caption-handoff', captionHandoff);
 app.get('/api/health', async (_req, res) => {
   try {
     const llm = await publicLlmSettings();

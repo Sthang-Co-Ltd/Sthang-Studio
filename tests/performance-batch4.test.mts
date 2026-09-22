@@ -5,6 +5,7 @@ import type { CaptionSegment, CaptionRenderState, QaProfileSettings } from '@kcs
 import type { TimingResult, TimingWord } from '../apps/server/src/services/timing-types.js';
 import type { VocabularyEntry } from '../apps/server/src/services/vocabulary.js';
 import { alignGeminiToTiming } from '../apps/server/src/services/alignment.js';
+import { settlePairWithPrimaryFollowup } from '../apps/server/src/services/pipeline-overlap.js';
 import { analyzeCaptions, QA_PROFILES, type ReviewIssue } from '../apps/web/src/review.js';
 import { captionPreviewLookahead } from '../apps/web/src/caption-preview-plan.js';
 
@@ -109,4 +110,102 @@ test('preview lookahead never reads the suffix after its eighth drawable state',
   const states: CaptionRenderState[] = Array.from({ length: 9 }, (_, i) => ({ atMs: i, endMs: i + 1, key: String(i), text: 'ខ្មែរ' }));
   Object.defineProperty(states, 8, { get() { throw new Error('Unnecessary suffix read'); } });
   assert.equal(captionPreviewLookahead(states, 0).length, 8);
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const settleTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+test('generation overlap starts primary local work while secondary cloud work remains in flight', async () => {
+  const primary = deferred<string>();
+  const secondary = deferred<string>();
+  const followup = deferred<string>();
+  let followupInput = '';
+  let completed = false;
+
+  const resultPromise = settlePairWithPrimaryFollowup(
+    primary.promise,
+    secondary.promise,
+    async (value) => {
+      followupInput = value;
+      return followup.promise;
+    },
+  ).then((value) => {
+    completed = true;
+    return value;
+  });
+
+  primary.resolve('acoustic');
+  await settleTurn();
+  assert.equal(followupInput, 'acoustic');
+  assert.equal(completed, false, 'secondary listen must still be collected before returning');
+
+  followup.resolve('aligned-acoustic');
+  await settleTurn();
+  assert.equal(completed, false);
+
+  secondary.resolve('contextual');
+  const result = await resultPromise;
+  assert.deepEqual(result.tasks, [
+    { status: 'fulfilled', value: 'acoustic' },
+    { status: 'fulfilled', value: 'contextual' },
+  ]);
+  assert.deepEqual(result.primaryFollowup, { status: 'fulfilled', value: 'aligned-acoustic' });
+});
+
+test('generation overlap preserves settled failures without unhandled dependent work', async () => {
+  const primary = deferred<string>();
+  const secondary = deferred<string>();
+  let followupCalls = 0;
+  const resultPromise = settlePairWithPrimaryFollowup(
+    primary.promise,
+    secondary.promise,
+    async () => {
+      followupCalls += 1;
+      return 'unexpected';
+    },
+  );
+
+  const primaryError = new Error('acoustic listen failed');
+  primary.reject(primaryError);
+  secondary.resolve('contextual');
+  const result = await resultPromise;
+
+  assert.equal(followupCalls, 0);
+  assert.equal(result.tasks[0].status, 'rejected');
+  assert.equal(result.tasks[1].status, 'fulfilled');
+  assert.equal(result.primaryFollowup.status, 'rejected');
+  if (result.primaryFollowup.status === 'rejected') assert.equal(result.primaryFollowup.reason, primaryError);
+});
+
+test('generation overlap retains dependent failure until independent work settles', async () => {
+  const primary = deferred<string>();
+  const secondary = deferred<string>();
+  const alignmentError = new Error('local timing failed');
+  let returned = false;
+  const resultPromise = settlePairWithPrimaryFollowup(
+    primary.promise,
+    secondary.promise,
+    async () => { throw alignmentError; },
+  ).then((value) => {
+    returned = true;
+    return value;
+  });
+
+  primary.resolve('acoustic');
+  await settleTurn();
+  assert.equal(returned, false, 'the secondary listen is still allowed to finish');
+
+  secondary.resolve('contextual');
+  const result = await resultPromise;
+  assert.equal(result.primaryFollowup.status, 'rejected');
+  if (result.primaryFollowup.status === 'rejected') assert.equal(result.primaryFollowup.reason, alignmentError);
 });

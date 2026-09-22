@@ -112,7 +112,53 @@ before they reach Export.
   correction eligibility, caption text/timing, locks, Review focus, correction
   memory, history semantics, or source media.
 
+### Original Looks and Motion — unreleased source
+
+Keep three distinct choices: **Look**, **Motion**, and **Word emphasis**. Present
+six static labeled Look samples, a selected/Custom state, and **Reset look**.
+Applying a Look changes decoration only. Retain full user presets separately and
+label the scope as all project captions. Samples are illustrative; the native
+video remains the final layout reference. Never animate the entire gallery.
+
+Motion offers **None / Fade / Rise / Soft Pop**, a bounded duration and explicit
+**Replay effect**. Keep all four choices labeled in a two-column layout on narrow
+screens. Explain the selected effect and that opening frames are prepared first; do not
+promise full pre-rendering of all word/overlap states. Keep **Turn motion off**
+separate from Look reset. New changes cancel pending replay. Effects expose one
+appearance Undo/Redo step, with continuous slider input grouped into one gesture.
+
+Rise moves the entire caption into its saved position; Soft Pop scales the complete
+caption into place. Both fade out after settling. When these presets are selected
+and captions overlap, explain that simultaneous captions stay still and fade to
+preserve their readable layout. No new per-word movement or hidden timeline edit
+is implied. Use **Fade duration** for Fade and **Motion duration** for the new
+presets, retaining the existing bounded range and short-caption handling.
+
+Replay is also available with Motion=None. Show the selected target, provide
+Cancel preparation while waiting and Stop replay while playing, and preserve
+manual source-player seeks. Explain a missing or unchecked font before replay
+instead of offering an action that cannot render. Saving a preset while the user
+keeps editing must preserve both the clicked snapshot and the newer Custom state.
+
+Keep source playback visible during desktop editing and bounded on narrow
+screens. Touch targets and descriptive labels survive responsive layouts. Word
+emphasis retains readiness and its direct timing-repair path; an unresolved word
+track does not remove the caption's base Look or caption-level Fade.
+
 ### Export workspace
+
+For the unreleased editable-handoff path, **Captions file** opens one compact
+destination selector, a short import guide, and **Download SRT**. Keep advanced
+formats behind a labeled disclosure. Show what each format retains and what the
+destination must style again; a word-per-cue file must never be labeled a portable
+full-sentence highlight effect. Explain CapCut mobile's manual Desktop/Web sync
+route and its external cloud boundary without offering a fake direct import.
+
+Studio caption-data import opens an inline review of count, timing, sample text,
+warnings and replacement scope. **Keep current captions** and **Replace captions**
+are explicit. Newer text or media invalidates that preview. Block incompatible
+word exports with a direct word-timing review path. File creation and restore use
+the existing shared error/toast language, keyboard focus and mobile touch sizing.
 
 Export is an output decision, not another always-visible editing panel. Opening the
 header action temporarily uses the same focused workspace region and keeps the
@@ -176,6 +222,35 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - Treat surrounding audio as **context**, not as part of every loop. The first pass on a newly entered review item may use the configured pre/post-roll; subsequent loops and Replay use a tight focus window around the selected caption.
 - After a text or timing edit is committed in Review, replay the selected caption with the tight focus pass so the user can verify the change immediately.
 - Keep **Play with context** available under advanced Review controls for deliberate re-checking of neighboring speech.
+
+### Fine Timing and word highlighting — unreleased source
+
+Keep **Caption edges** and **Word timing** visibly separate inside the single
+Fine Timing workspace. Caption-edge drag handles and editable word handles occupy
+distinct lanes. The larger caption bar is a text label plus cue duration; original
+transcript word estimates are optional, explicitly named reference marks.
+
+Start with neighbor protection and no ripple. **Allow overlaps** is explicit.
+**Move adjoining edge too** changes the shared transition of two captions, honors
+both timing locks, and undoes atomically. A prevented move explains the boundary.
+
+For word edits, keep the selected word name, Hear word, Start/End, and simple
+movement controls together. Untimed fields are only a local draft until **Apply
+word timing**; tentative times require adjustment or **Confirm this word**.
+Corrected text is reconciled against a stable editing/composition basis so
+unfinished Khmer input cannot progressively destroy surrounding timing evidence.
+
+**Sync words** uses the current exact wording and proposes timing without changing
+the saved caption. Keep **Use timing / Keep current** visible while that candidate
+is previewed. Newer text/timing/lock/media edits invalidate it. Do not let an old
+highlight bitmap remain labeled exact during a word transition or text correction.
+
+Put the optional **Spoken word highlight** toggle and color under Appearance, with
+counts of usable and unresolved captions and a direct **Review word timing** link.
+Do not animate or reshape words to communicate timing. The full sentence stays
+visible, only the active word changes color, and pauses restore base color. Export
+discloses any captions that remain plain; SRT copy explains that it carries no
+word-highlight metadata. Setup/provider names stay out of normal controls.
 
 ### Caption rows
 

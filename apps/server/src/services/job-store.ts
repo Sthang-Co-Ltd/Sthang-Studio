@@ -365,6 +365,12 @@ export const jobStore = {
     return jobs.some((job) => job.projectId === projectId && ['queued', 'running'].includes(job.status));
   },
 
+  hasActiveCaptionJobForProject(projectId: string) {
+    return jobs.some((job) => job.projectId === projectId
+      && laneFor(job.type) === 'caption'
+      && ['queued', 'running'].includes(job.status));
+  },
+
   subscribe(subscriber: JobSubscriber) {
     subscribers.add(subscriber);
     subscriber(publicSnapshot());

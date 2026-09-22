@@ -61,8 +61,8 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
-import { isVideoProject, normalizeCaptionAppearance, summarizeProject } from '@kcs/shared';
-import { NativeCaptionPreview } from './components/NativeCaptionPreview';
+import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming, createCaptionData } from '@kcs/shared';
+import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
@@ -70,6 +70,11 @@ import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { deferWorkspace } from './components/DeferredWorkspace';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
+import { sameTimingRevision, timingFields } from './timing-edit';
+import { captionNeighborLimits } from './caption-timing-transaction';
+import { playTimingRange } from './timing-playback';
+import { waitForCaptionAppearanceSaves } from './caption-appearance-save';
+import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
 
 const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
@@ -91,9 +96,23 @@ const LEGACY_GLOSSARY_KEY = 'kcs:default-protected-vocabulary:v1';
 const LEGACY_STYLE_KEY = 'kcs:my-tiktok-style:v1';
 const PROFILE_MIGRATION_KEY = 'kcs:profile-migrated:v1';
 const FIRST_RUN_DISMISSED_KEY = 'sthang:first-run-dismissed:v1';
+
+function withCaptionWordTimings(project: CaptionProject): CaptionProject {
+  return hydrateCaptionWordTimings(project);
+}
 const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
 type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
+
+interface PendingCaptionImport {
+  filename: string;
+  data: string;
+  preview: HandoffRestorePreview;
+  basis: HandoffPrecondition;
+  ticket: ProjectTicket;
+  editRevision: number;
+  captionSnapshot: string;
+}
 type ReviewPlaybackPass = 'context' | 'focus';
 
 type ReviewUndoState = {
@@ -170,6 +189,7 @@ export default function App() {
   const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
+  const [wordTimingPreview, setWordTimingPreview] = useState<{ mediaKey: string; basis: CaptionSegment; caption: CaptionSegment } | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -179,7 +199,10 @@ export default function App() {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [doctor, setDoctor] = useState<SystemDoctorReport | null>(null);
   const [time, setTime] = useState(0);
+  const [loadedMediaDurationMs, setLoadedMediaDurationMs] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [effectReplayPlaying, setEffectReplayPlaying] = useState(false);
+  const [captionFontRevision, setCaptionFontRevision] = useState(0);
   const [maxChars, setMaxChars] = useState(18);
   const [groupingMode, setGroupingMode] = useState<CaptionMode>('dynamic');
   const [groupingApplying, setGroupingApplying] = useState(false);
@@ -202,6 +225,7 @@ export default function App() {
   const projectScope = useRef(createProjectScope());
   const proposalRead = useRef(0);
   const playbackTimers = useRef(new Set<number>());
+  const timingPreviewCancel = useRef<(() => void) | null>(null);
   const viewTicket = projectScope.current.capture();
   const proposal = proposalForProject(proposalEntry, viewTicket, project);
   const mediaKey = projectMediaKey(project);
@@ -211,6 +235,12 @@ export default function App() {
   const [proposalAccuracyHint, setProposalAccuracyHint] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
+  const [requestedTimingMode, setRequestedTimingMode] = useState<'caption' | 'words'>('caption');
+  const [captionHandoffWorking, setCaptionHandoffWorking] = useState(false);
+  const [pendingCaptionImport, setPendingCaptionImport] = useState<PendingCaptionImport | null>(null);
+  const handoffRequest = useRef<AbortController | null>(null);
+  const handoffWorkspace = useRef(workspaceTool);
+  handoffWorkspace.current = workspaceTool;
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
   });
@@ -222,6 +252,10 @@ export default function App() {
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
+  const nativeCaptionPreview = useRef<NativeCaptionPreviewHandle | null>(null);
+  const effectReplayController = useRef<AbortController | null>(null);
+  const effectPlaybackCancel = useRef<(() => void) | null>(null);
+  const appearanceFingerprint = useRef('');
   const replaceInput = useRef<HTMLInputElement | null>(null);
   const editor = useRef<CaptionEditorHandle | null>(null);
   const draftRef = useRef<CaptionSegment[]>([]);
@@ -236,6 +270,14 @@ export default function App() {
   const lastChangeReason = useRef<DraftChangeReason>('metadata');
   const aiOnboardingShown = useRef(false);
   const reviewPlaybackPass = useRef<ReviewPlaybackPass>('focus');
+
+  useEffect(() => {
+    handoffRequest.current?.abort();
+    handoffRequest.current = null;
+    setCaptionHandoffWorking(false);
+    setPendingCaptionImport(null);
+  }, [mediaKey, workspaceTool]);
+  useEffect(() => () => { handoffRequest.current?.abort(); }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -273,8 +315,21 @@ export default function App() {
   }, []);
 
   function cancelPlayback() {
+    stopEffectReplay();
+    stopTimingPreview();
     for (const timer of playbackTimers.current) window.clearTimeout(timer);
     playbackTimers.current.clear();
+  }
+  function stopEffectReplay() {
+    effectReplayController.current?.abort();
+    effectReplayController.current = null;
+    effectPlaybackCancel.current?.();
+    effectPlaybackCancel.current = null;
+    setEffectReplayPlaying(false);
+  }
+  function stopTimingPreview() {
+    timingPreviewCancel.current?.();
+    timingPreviewCancel.current = null;
   }
   function schedulePlayback(operation: () => void, delayMs = 0) {
     const ticket = projectScope.current.capture();
@@ -378,7 +433,7 @@ export default function App() {
 
   useEffect(() => {
     if (!project) return;
-    const initialDraft = project.captions || [];
+    const initialDraft = withCaptionWordTimings(project).captions || [];
     setDraft(initialDraft);
     draftRef.current = initialDraft;
     draftVersion.current += 1;
@@ -423,6 +478,7 @@ export default function App() {
   }, [proposal?.id, mediaKey]);
 
   const applyProject = (next: CaptionProject, replaceDraft = true) => {
+    next = withCaptionWordTimings(next);
     projectOpen.current?.abort();
     projectOpen.current = null;
     setOpeningProjectId(null);
@@ -524,6 +580,15 @@ export default function App() {
   };
 
   const updateDraft = (next: CaptionSegment[], preferredSelectionId?: string, reason: DraftChangeReason = 'metadata') => {
+    stopEffectReplay();
+    if (workspaceTool === 'timeline') cancelPlayback();
+    const previous = new Map(draftRef.current.map((caption) => [caption.id, caption]));
+    next = next.map((caption) => {
+      const before = previous.get(caption.id);
+      return before ? reconcileCaptionWordTiming(before, caption) : caption;
+    });
+    // Export and review consume array order. Keep moved captions chronological.
+    if (reason === 'timing') next = [...next].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
     setDraft(next);
     draftRef.current = next;
     draftVersion.current += 1;
@@ -544,7 +609,8 @@ export default function App() {
   );
   const contextPayload = (): TranscriptionContext => ({ description: contextDescription.trim(), vocabulary: vocabularyLines });
   const qaSettings = useMemo(() => resolveQaProfile(profile?.preferences.qaProfileId, profile?.preferences.qaCustom), [profile?.preferences.qaProfileId, profile?.preferences.qaCustom]);
-  const mediaDurationMs = project?.transcript?.timing?.audioDurationMs;
+  const mediaDurationMs = loadedMediaDurationMs || project?.transcript?.timing?.audioDurationMs;
+  useEffect(() => { setLoadedMediaDurationMs(0); }, [mediaKey]);
   const issues = useMemo(() => analyzeCaptions(draft, vocabularyLines, qaSettings, mediaDurationMs), [draft, vocabularyLines, qaSettings, mediaDurationMs]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const riskyIds = useMemo(() => draft.filter((caption) => !caption.approved && issueMap.has(caption.id)).map((caption) => caption.id), [draft, issueMap]);
@@ -569,18 +635,85 @@ export default function App() {
     return distributePreviewText(proposalEditedText, proposal.proposedCaptions);
   }, [proposal, proposalEditedText]);
   const videoCaptions = useMemo(() => {
-    if (!proposal || proposalPreviewMode === 'current') return draft;
+    if (!proposal || proposalPreviewMode === 'current') {
+      if (workspaceTool === 'timeline' && wordTimingPreview?.mediaKey === mediaKey
+        && sameTimingRevision(draft.find((caption) => caption.id === wordTimingPreview.basis.id), wordTimingPreview.basis)) {
+        return draft.map((caption) => caption.id === wordTimingPreview.basis.id ? wordTimingPreview.caption : caption);
+      }
+      return draft;
+    }
     const outside = draft.filter((caption) => caption.endMs <= proposal.startMs || caption.startMs >= proposal.endMs);
     return [...outside, ...proposedPreviewRange].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
-  }, [draft, proposal, proposalPreviewMode, proposedPreviewRange]);
+  }, [draft, proposal, proposalPreviewMode, proposedPreviewRange, wordTimingPreview, mediaKey, workspaceTool]);
   const [liveAppearance, setLiveAppearance] = useState<{ projectId: string; appearance: CaptionAppearance } | null>(null);
   const [previewResolution, setPreviewResolution] = useState<VideoResolutionPreset>('source');
   const [appearanceInteracting, setAppearanceInteracting] = useState(false);
   useEffect(() => { setAppearanceInteracting(false); }, [project?.id, project?.media.filename, workspaceTool]);
   const changeAppearance = useCallback((appearance: CaptionAppearance) => {
+    const fingerprint = JSON.stringify(normalizeCaptionAppearance(appearance));
+    if (appearanceFingerprint.current !== fingerprint) stopEffectReplay();
+    appearanceFingerprint.current = fingerprint;
     if (project) setLiveAppearance({ projectId: project.id, appearance });
   }, [project?.id]);
+  const changeCaptionFontLibrary = useCallback(() => {
+    stopEffectReplay();
+    setCaptionFontRevision((value) => value + 1);
+  }, []);
   const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.projectId === project?.id ? liveAppearance?.appearance : project?.captionAppearance), [project?.id, project?.captionAppearance, liveAppearance]);
+  useEffect(() => { stopEffectReplay(); }, [mediaKey, selectionAnchor, selectionEnd, workspaceTool]);
+  const replayAppearanceEffect = async () => {
+    const element = media.current;
+    const preview = nativeCaptionPreview.current;
+    const caption = selection.captions[0] || active || draftRef.current[0];
+    if (!element || !preview || !caption || workspaceTool !== 'appearance') return;
+    cancelPlayback();
+    element.pause();
+    const ticket = projectScope.current.capture();
+    const editRevision = draftEditRevision.current;
+    const controller = new AbortController();
+    effectReplayController.current = controller;
+    const cancel = () => controller.abort();
+    element.addEventListener('seeking', cancel);
+    element.addEventListener('play', cancel);
+    const startMs = Math.max(0, caption.startMs - 120);
+    const endMs = Math.min(mediaDurationMs || caption.endMs + 120, caption.endMs + 120);
+    try {
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        throw new Error('This caption is outside the source playback range. Adjust its timing in Fine timing before replaying.');
+      }
+      const ready = await preview.prepareReplay(startMs, endMs, controller.signal);
+      if (!ready || controller.signal.aborted || !projectScope.current.isCurrent(ticket)
+        || media.current !== element || draftEditRevision.current !== editRevision) return;
+      element.removeEventListener('seeking', cancel);
+      element.removeEventListener('play', cancel);
+      let initialSeek = true;
+      const finish = () => {
+        element.removeEventListener('seeking', onUserSeek);
+        if (effectPlaybackCancel.current === stop) {
+          effectPlaybackCancel.current = null;
+          setEffectReplayPlaying(false);
+        }
+      };
+      const onUserSeek = () => {
+        if (initialSeek && Math.abs(element.currentTime * 1000 - startMs) < 50) { initialSeek = false; return; }
+        release(false);
+      };
+      const stop = () => release();
+      const release = playTimingRange(element, { startMs, endMs, loop: false },
+        () => setError('Effect replay could not start. Check the source playback controls and try again.'), finish);
+      effectPlaybackCancel.current = stop;
+      element.addEventListener('seeking', onUserSeek);
+      setEffectReplayPlaying(true);
+    } catch (reason) {
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) {
+        setError(reason instanceof Error ? reason.message : 'The effect preview could not be prepared.');
+      }
+    } finally {
+      element.removeEventListener('seeking', cancel);
+      element.removeEventListener('play', cancel);
+      if (effectReplayController.current === controller) effectReplayController.current = null;
+    }
+  };
   useEffect(() => { setPreviewResolution('source'); setLiveAppearance(null); }, [project?.id, project?.media.filename]);
   const videoActive = useMemo(() => videoCaptions.find((caption) => time * 1000 >= caption.startMs && time * 1000 < caption.endMs) ?? null, [videoCaptions, time]);
   const reviewFocusMode = profile?.preferences.reviewFocusMode || 'brackets-label';
@@ -703,6 +836,30 @@ export default function App() {
     const timer = window.setTimeout(() => { void saveDraft(true, 'autosave', false); }, delay);
     return () => window.clearTimeout(timer);
   }, [draft, dirty, textEditing, groupingApplying, project?.id, profile?.preferences.autosaveDelayMs]);
+
+  const syncCaptionWords = async (caption: CaptionSegment, signal?: AbortSignal) => {
+    if (!project || busy || currentProjectActiveJob || caption.timingLocked) return null;
+    const ticket = projectScope.current.capture();
+    if (!sameTimingRevision(draftRef.current.find((item) => item.id === caption.id), caption)) return null;
+    const editRevision = draftEditRevision.current;
+    const hadEdits = dirtyRef.current;
+    const saved = await saveDraft(true, 'manual-save', true);
+    if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
+    if (hadEdits && !saved) throw new Error('Save the caption successfully before syncing its words.');
+    if (editRevision !== draftEditRevision.current || dirtyRef.current) throw new Error('The caption changed while saving. Sync its words again when the edit is ready.');
+    const basis = draftRef.current.find((item) => item.id === caption.id);
+    if (!basis || basis.timingLocked) return null;
+    setBusy('Syncing word timing…');
+    try {
+      const candidate = await api.syncCaptionWords(project.id, basis, { filename: project.media.filename, size: project.media.size }, signal);
+      if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
+      if (!sameTimingRevision(draftRef.current.find((item) => item.id === basis.id), basis)) {
+        setNotice('The caption changed during word sync. Your newer edits were kept.');
+        return null;
+      }
+      return candidate;
+    } finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
+  };
 
   const refreshJobs = async () => {
     try { setJobs(await api.jobs()); } catch { /* queue is optional during startup */ }
@@ -850,9 +1007,23 @@ export default function App() {
   const shiftSelection = (delta: number) => {
     if (!selection.ids.length) return;
     const selected = new Set(selection.ids);
-    const minimum = Math.min(...selection.captions.map((caption) => caption.startMs));
-    const safeDelta = Math.max(delta, -minimum);
-    updateDraft(draft.map((caption) => selected.has(caption.id) && !caption.timingLocked
+    const targets = draftRef.current.filter((caption) => selected.has(caption.id));
+    if (!targets.length) return;
+    if (targets.some((caption) => caption.timingLocked)) { setNotice('Unlock the selected timing before moving these captions together.'); return; }
+    const minimum = Math.min(...targets.map((caption) => caption.startMs));
+    const maximum = Math.max(...targets.map((caption) => caption.endMs));
+    const outsiders = draftRef.current.filter((caption) => !selected.has(caption.id));
+    let lower = -minimum;
+    let upper = mediaDurationMs ? mediaDurationMs - maximum : Number.MAX_SAFE_INTEGER;
+    for (const caption of targets) {
+      const limits = captionNeighborLimits([...outsiders, caption], caption.id, mediaDurationMs || Number.MAX_SAFE_INTEGER);
+      lower = Math.max(lower, limits.lower - caption.startMs);
+      upper = Math.min(upper, limits.upper - caption.endMs);
+    }
+    const safeDelta = Math.max(lower, Math.min(delta, upper));
+    if (safeDelta !== delta) setNotice('Reached a caption outside the selection. Other captions stayed in place.');
+    if (!safeDelta) return;
+    updateDraft(draftRef.current.map((caption) => selected.has(caption.id)
       ? { ...caption, startMs: caption.startMs + safeDelta, endMs: caption.endMs + safeDelta, timingSource: 'manual', timingQuality: 'medium', approved: false }
       : caption), undefined, 'timing');
   };
@@ -921,6 +1092,7 @@ export default function App() {
   };
   const onLoadedMetadata = (element: HTMLMediaElement) => {
     if (media.current !== element || !projectScope.current.isCurrent(viewTicket)) return;
+    if (Number.isFinite(element.duration)) setLoadedMediaDurationMs(element.duration * 1000);
     if (media.current) media.current.playbackRate = playbackRate;
     if (queuedSeekMs == null || !media.current) return;
     const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
@@ -1340,32 +1512,117 @@ export default function App() {
     setNotice('Approval undone.');
   };
 
-  const exportSrt = async () => {
-    if (!project) return;
-    const targetProject = project;
+  const prepareCaptionHandoff = async (target: CaptionProject, ticket: ProjectTicket, editRevision: number, signal: AbortSignal, needsAppearance = false) => {
+    const active = () => !signal.aborted && projectScope.current.isCurrent(ticket) && handoffWorkspace.current === 'export';
+    const hadEdits = dirtyRef.current;
+    const saved = await saveDraft(true, 'manual-save', true);
+    await saveQueue.current;
+    if (!active()) return null;
+    if (hadEdits && !saved) throw new Error('Save your captions successfully before transferring them.');
+    if (dirtyRef.current || draftEditRevision.current !== editRevision) throw new Error('The captions changed while saving. Review the latest version and try again.');
+    const captionSnapshot = JSON.stringify(draftRef.current);
+    if (needsAppearance && !await waitForCaptionAppearanceSaves(target.id)) throw new Error('Your latest appearance could not be saved. Retry its save before transferring styled captions or appearance data.');
+    if (!active()) return null;
+    const summary = await captionHandoffApi.summary(target.id, signal);
+    if (!active()) return null;
+    if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== captionSnapshot) {
+      throw new Error('The captions changed during export preparation. Your newer edits were kept.');
+    }
+    const expected = createCaptionData({ captions: draftRef.current }).captions;
+    if (summary.media.filename !== target.media.filename || summary.media.size !== target.media.size
+      || JSON.stringify(summary.snapshot.captions) !== JSON.stringify(expected)) {
+      throw new Error('The saved captions changed in another operation. Reopen the project before transferring them.');
+    }
+    return { summary, captionSnapshot, basis: { expectedMedia: summary.media, expectedRevision: summary.revision } };
+  };
+
+  const exportCaptionFile = async (format: CaptionFileFormat): Promise<boolean> => {
+    if (!project || busy || handoffRequest.current || !draftRef.current.length) return false;
+    const target = project;
     const ticket = projectScope.current.capture();
     const editRevision = draftEditRevision.current;
-    const severe = issues.filter((issue) => issue.severity !== 'info').length;
-    if (severe > 0) {
-      const confirmed = await confirmInStudio({
-        title: 'Export with review warnings?',
-        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. SRT can still be exported with the current text and timing.`,
-        confirmLabel: 'Export SRT',
-      });
-      if (!confirmed || !projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return;
-    }
-    setBusy('Saving & exporting…'); setError('');
+    const controller = new AbortController();
+    handoffRequest.current = controller;
+    setCaptionHandoffWorking(true);
+    setError('');
     try {
-      const hadUnsavedEdits = dirtyRef.current;
-      const saved = await saveDraft(true, 'manual-save', true);
-      if (hadUnsavedEdits && !saved) return;
-      if (!projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return;
-      const anchor = document.createElement('a');
-      anchor.href = `/api/projects/${targetProject.id}/export.srt`; anchor.download = '';
-      document.body.appendChild(anchor); anchor.click(); anchor.remove();
-      setNotice('SRT export started. It includes caption text and timing; visual styling is set in your editing app.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Export failed'); }
-    finally { setBusy(''); }
+      const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal, ['ass', 'data', 'bundle'].includes(format));
+      if (!prepared) return false;
+      const result = await captionHandoffApi.export(target.id, format, prepared.basis, controller.signal);
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || handoffWorkspace.current !== 'export') return false;
+      if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
+        throw new Error('The captions changed while the file was being prepared. Export again to include the latest edits.');
+      }
+      saveHandoffDownload(result.blob, result.filename);
+      setNotice(result.warnings || 'Caption file prepared for download. Your Studio project stays editable; follow the destination’s import instructions.');
+      return true;
+    } catch (reason) {
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Caption export failed.');
+      return false;
+    } finally {
+      if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
+    }
+  };
+
+  const previewCaptionImport = async (file: File): Promise<void> => {
+    if (!project || busy || handoffRequest.current) return;
+    const target = project;
+    const ticket = projectScope.current.capture();
+    const editRevision = draftEditRevision.current;
+    const controller = new AbortController();
+    handoffRequest.current = controller;
+    setCaptionHandoffWorking(true);
+    setPendingCaptionImport(null);
+    setError('');
+    try {
+      if (file.size > 4 * 1024 * 1024) throw new Error('Choose a Studio caption-data file smaller than 4 MB.');
+      const data = await file.text();
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket)) return;
+      const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal);
+      if (!prepared) return;
+      const preview = await captionHandoffApi.previewRestore(target.id, data, prepared.basis, controller.signal);
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || handoffWorkspace.current !== 'export') return;
+      if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
+        throw new Error('The captions changed while reading the file. Open it again to review the latest state.');
+      }
+      setPendingCaptionImport({ filename: file.name, data, preview, basis: prepared.basis, ticket, editRevision, captionSnapshot: prepared.captionSnapshot });
+    } catch (reason) {
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not read caption data.');
+    } finally {
+      if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
+    }
+  };
+
+  const applyCaptionImport = async () => {
+    const pending = pendingCaptionImport;
+    if (!project || !pending || handoffRequest.current || busy || currentProjectActiveJob) return;
+    const target = project;
+    const valid = () => projectScope.current.isCurrent(pending.ticket) && handoffWorkspace.current === 'export'
+      && !dirtyRef.current && draftEditRevision.current === pending.editRevision
+      && JSON.stringify(draftRef.current) === pending.captionSnapshot;
+    if (!valid()) { setNotice('The project changed. Open the caption-data file again before replacing captions.'); return; }
+    const controller = new AbortController();
+    handoffRequest.current = controller;
+    setCaptionHandoffWorking(true);
+    setError('');
+    try {
+      // Reuse the History/save acknowledgement lane. Once a replacement has been
+      // submitted, finish reconciling it even if the preview is dismissed.
+      await queueSameMediaMutation(pending.ticket, async () => {
+        if (!valid() || controller.signal.aborted) return;
+        const result = await captionHandoffApi.restore(target.id, pending.data, pending.basis, pending.preview.candidateDigest);
+        const published = publishSameMediaMutation(result, pending.ticket, pending.editRevision, false,
+          'Caption data was restored on disk. Your newer edits are still kept in the editor.');
+        if (published !== 'stale') {
+          setPendingCaptionImport(null);
+          if (published === 'applied') setNotice('Caption data restored. Current appearance and source media were kept. The previous captions are in History.');
+        }
+      });
+    } catch (reason) {
+      if (projectScope.current.isCurrent(pending.ticket)) setError(reason instanceof Error ? reason.message : 'Caption restore failed.');
+    } finally {
+      if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
+    }
   };
 
 
@@ -1585,6 +1842,7 @@ export default function App() {
   };
   const chooseWorkspaceTool = (tool: Exclude<WorkspaceTool, null>) => {
     cancelPlayback();
+    if (tool === 'timeline') setRequestedTimingMode('caption');
     if (tool === 'review') {
       if (workspaceTool === 'review') {
         setWorkspaceTool(null);
@@ -1593,7 +1851,19 @@ export default function App() {
       return;
     }
     setReviewMode(false);
+    if (tool === 'timeline' && workspaceTool !== 'timeline') {
+      const id = selection.ids[0] || draft[0]?.id;
+      if (id) { setSelectionAnchor(id); setSelectionEnd(id); }
+    }
     setWorkspaceTool((current) => current === tool ? null : tool);
+  };
+  const openWordTiming = (id?: string) => {
+    cancelPlayback();
+    setReviewMode(false);
+    const target = draftRef.current.find((caption) => caption.id === id) || selection.captions[0] || draftRef.current[0];
+    if (target) { setSelectionAnchor(target.id); setSelectionEnd(target.id); editor.current?.revealCaption(target.id); }
+    setRequestedTimingMode('words');
+    setWorkspaceTool('timeline');
   };
 
   const overlays = <>
@@ -1679,12 +1949,12 @@ export default function App() {
     </header>
 
     <section className="editor-grid">
-      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'}`}>
+      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''} ${workspaceTool === 'appearance' && !proposal ? 'appearance-workspace-active' : ''}`}>
         <div className="media-stage">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} video={isVideo} media={media}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
 
@@ -1712,7 +1982,7 @@ export default function App() {
             <div className="workspace-tool-intro"><strong>{hasHybrid ? 'Choose one workspace tool' : 'Generate first, or add optional context'}</strong><span>{hasHybrid ? 'Advanced controls stay out of the way until you need them.' : 'The normal workflow works with the default settings.'}</span></div>
             <nav aria-label="Caption workspace tools">
               {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ShieldCheck size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
-              {hasHybrid && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
+              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
               <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><WandSparkles size={16}/><span>Accuracy</span><small>optional</small></button>
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption grouping</span></button>}
               {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
@@ -1722,18 +1992,36 @@ export default function App() {
 
           {workspaceTool === 'export' && <ExportWorkspace key={`${project.id}:${project.media.filename}`}
             onPreviewResolution={setPreviewResolution}
-            project={project}
-            busy={Boolean(busy)}
+            project={{ ...project, captions: draft }}
+            busy={Boolean(busy) || captionHandoffWorking}
             activeExportJob={activeExportJob}
-            onExportSrt={() => void exportSrt()}
+            onExportCaptions={exportCaptionFile}
+            onImportCaptionData={previewCaptionImport}
+            captionImportPreview={pendingCaptionImport && projectScope.current.isCurrent(pendingCaptionImport.ticket) ? {
+              filename: pendingCaptionImport.filename, preview: pendingCaptionImport.preview, currentCount: draft.length,
+              stale: dirty || pendingCaptionImport.editRevision !== draftEditRevision.current
+                || pendingCaptionImport.captionSnapshot !== JSON.stringify(draftRef.current),
+            } : undefined}
+            onApplyCaptionImport={() => void applyCaptionImport()}
+            onCancelCaptionImport={() => setPendingCaptionImport(null)}
             onEditAppearance={() => chooseWorkspaceTool('appearance')}
+            onEditWordTiming={openWordTiming}
             onStartVideoExport={startVideoExport}
           />}
 
-          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} captions={draft}
+            onEditWordTiming={openWordTiming}
+            onReplayEffect={replayAppearanceEffect}
+            onCancelReplayEffect={stopEffectReplay}
+            replayPlaying={effectReplayPlaying}
+            onFontLibraryChange={changeCaptionFontLibrary}
+            sampleCaptionText={(selection.captions[0] || active || draft[0])?.text}
+            onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
-          {workspaceTool === 'timeline' && hasHybrid && <WaveformEditor
+          {workspaceTool === 'timeline' && draft.length > 0 && <WaveformEditor key={mediaKey}
             projectId={project.id}
+            mediaIdentity={mediaKey}
+            mediaDurationMs={mediaDurationMs}
             captions={draft}
             tokens={project.transcript?.tokens || []}
             selectedIds={selection.ids}
@@ -1741,9 +2029,42 @@ export default function App() {
             playbackRate={playbackRate}
             initialMode={profile?.preferences.waveformMode || 'waveform'}
             initialZoom={profile?.preferences.waveformZoom || 2}
+            initialEditMode={requestedTimingMode}
             onSeek={seek}
-            onSelect={(id) => selectCaption(id, false)}
-            onBoundaryChange={(id, edge, valueMs) => updateDraft(draftRef.current.map((caption) => caption.id === id && !caption.timingLocked ? { ...caption, [edge === 'start' ? 'startMs' : 'endMs']: valueMs, timingSource: 'manual', timingQuality: 'medium', approved: false } : caption), id, 'timing')}
+            onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
+            onTimingChange={(before, after) => {
+              if (!projectScope.current.isCurrent(viewTicket) || !before.length || before.length !== after.length
+                || new Set(before.map((caption) => caption.id)).size !== before.length) return false;
+              for (let index = 0; index < before.length; index++) {
+                const prior = before[index];
+                const next = after[index];
+                const current = draftRef.current.find((caption) => caption.id === prior.id);
+                if (prior.id !== next.id || !sameTimingRevision(current, prior) || current?.timingLocked
+                  || !Number.isFinite(next.startMs) || !Number.isFinite(next.endMs) || next.startMs < 0
+                  || next.endMs - next.startMs < 40 || (mediaDurationMs && next.endMs > mediaDurationMs)) return false;
+              }
+              const replacements = new Map(after.map((caption) => [caption.id, caption]));
+              updateDraft(draftRef.current.map((caption) => replacements.has(caption.id) ? { ...caption, ...timingFields(replacements.get(caption.id)!) } : caption), selection.ids[0] || before[0].id, 'timing');
+              return true;
+            }}
+            onSyncWords={syncCaptionWords}
+            syncDisabled={Boolean(busy || currentProjectActiveJob || !timingConfigured)}
+            highlightEnabled={previewAppearance.highlightMode === 'word'}
+            onOpenAppearance={() => chooseWorkspaceTool('appearance')}
+            onEditCaptionText={() => { if (selection.ids[0]) editor.current?.focusCaption(selection.ids[0]); }}
+            onWordPreview={(basis, preview) => {
+              if (preview && projectScope.current.isCurrent(viewTicket) && sameTimingRevision(draftRef.current.find((caption) => caption.id === basis.id), basis)) {
+                setWordTimingPreview({ mediaKey, basis, caption: preview });
+              } else setWordTimingPreview((current) => current?.basis.id === basis.id ? null : current);
+            }}
+            onPreview={(range) => {
+              cancelPlayback();
+              if (media.current && projectScope.current.isCurrent(viewTicket)) {
+                timingPreviewCancel.current = playTimingRange(media.current, range, () => setError('Playback could not start. Use the video controls to check the audio, then replay the caption.'));
+              }
+            }}
+            onStopPreview={stopTimingPreview}
+            onNotice={setNotice}
             onPlaybackRate={changePlaybackRate}
             onPreferenceChange={(value) => void saveWaveformPreference(value)}
           />}
@@ -1807,7 +2128,8 @@ export default function App() {
         </>}
       </div>
 
-      <CaptionEditor ref={editor} captions={draft} active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
+      <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} highlightEnabled={previewAppearance.highlightMode === 'word'} onWordTiming={openWordTiming} onNotice={setNotice}
+        active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
     </section>
 
     {statusToasts}

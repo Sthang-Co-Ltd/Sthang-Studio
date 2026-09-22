@@ -46,6 +46,21 @@ Extra care is welcome around:
 - production signer webhook authentication, replay prevention, accepted-source
   verification, archive parsing, Secrets Store isolation, and immutable R2 writes.
 
+## Caption-data import boundary — unreleased source
+
+Portable caption data is untrusted local input. Accept only the exact supported
+schema/version, bounded UTF-8 size and caption/word counts, finite source-relative
+timing, valid Unicode, known fields and grapheme-safe exact-text word spans. Do not
+evaluate markup, import filesystem paths, reuse external caption identities, or
+treat unknown fields/future versions as trusted metadata. The ZIP handoff is an
+export only; restoring it does not extract arbitrary archive entries.
+
+Restore requires preview, exact saved media/revision and candidate-digest checks,
+explicit confirmation, and a local History checkpoint. Existing locked captions
+and active processing block replacement. No ordinary correction-memory or
+Contributor capture runs for imported content. Download names and ZIP entries are
+fixed/safe and exclude media, font binaries, credentials and project context.
+
 ## Contributor and analytics trust boundaries
 
 The unreleased v0.8 source keeps Khmer Caption Contributor and optional product
