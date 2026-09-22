@@ -19,8 +19,8 @@ import {
   Play,
   RefreshCw,
   Repeat2,
-  ShieldCheck,
-  Sparkles,
+  ListChecks,
+  ScanText,
   X,
 } from 'lucide-react';
 import { captionTextForEditing } from '../caption-text';
@@ -181,7 +181,7 @@ export function RegenerationReviewDock({
       <div className="regen-refine-actions">
         <button disabled={working} onClick={() => refine('alternative', false)} title="Try another suggestion"><RefreshCw size={14}/>Try another take</button>
         <button className="baseline-action" disabled={working || !editedText.trim()} onClick={() => refine('alternative', true)} title="Build the next suggestion from this wording"><Check size={14}/>Use as baseline & refine</button>
-        <button disabled={working} onClick={() => refine('deep-verify', edited)} title="Compare extra attempts and keep the strongest suggestion"><ShieldCheck size={14}/>Deep verify</button>
+        <button disabled={working} onClick={() => refine('deep-verify', edited)} title="Compare extra attempts and keep the strongest suggestion"><ScanText size={14}/>Deep verify</button>
         <button disabled={working || !editedText.trim()} onClick={() => refine('manual-realign', true)} title="Keep your exact wording and refresh its timing"><PencilLine size={14}/>Realign exact wording</button>
       </div>
       <div className="regen-baseline-help"><Check size={13}/><span><b>Safe to experiment:</b> baseline refinement is temporary. Only the Accept buttons at the bottom change your saved captions.</span></div>
@@ -193,7 +193,7 @@ export function RegenerationReviewDock({
     </div>}
 
     {proposal.candidates && proposal.candidates.length > 1 && <details className="regen-candidates">
-      <summary><Sparkles size={14}/>How Deep Verify chose this proposal</summary>
+      <summary><ListChecks size={14}/>How Deep Verify chose this proposal</summary>
       <div>{proposal.candidates.map((candidate) => <article key={candidate.id} className={candidate.selected ? 'selected' : ''}>
         <div><strong>{candidate.label}</strong>{candidate.selected && <span>Selected</span>}</div>
         <p>{candidate.text}</p>

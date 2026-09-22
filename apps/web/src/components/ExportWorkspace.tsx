@@ -12,7 +12,7 @@ import {
   type VideoQualityPreset,
   type VideoResolutionPreset,
 } from '@kcs/shared';
-import { Download, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Download, FileText, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionHandoffPanel } from './CaptionHandoffPanel';
@@ -193,7 +193,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
       <button aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
-      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><Download size={16}/><span>Captions file</span><small>SRT + more</small></button>
+      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT + more</small></button>
     </div>
 
     {!videoProject && <p className="export-mode-help">This audio project can export editable caption files. Captioned-video export requires a video source.</p>}

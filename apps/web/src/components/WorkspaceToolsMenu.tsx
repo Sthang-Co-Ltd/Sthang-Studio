@@ -5,7 +5,7 @@ import {
   History,
   KeyRound,
   ListTodo,
-  MoreHorizontal,
+  SlidersHorizontal,
   RefreshCw,
   Replace,
   Search,
@@ -66,7 +66,7 @@ export function WorkspaceToolsMenu({
 
   return <details ref={details} className="workspace-tools-menu">
     <summary aria-label="Open project tools">
-      <MoreHorizontal size={17}/><span>Tools</span>
+      <SlidersHorizontal size={16}/><span>Tools</span>
       {attentionCount > 0 && <b className="tool-badge">{attentionCount}</b>}
     </summary>
     <div className="workspace-tools-popover" role="menu">

@@ -98,7 +98,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal find-replace-modal" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-head"><div><Search size={18}/><div><strong>Find & Correct Everywhere</strong><span>Preview every occurrence before changing it. Text locks are always respected.</span></div></div><button onClick={onClose}><X size={17}/></button></div>
+      <div className="modal-head"><div><Search size={18}/><div><strong>Find & Correct Everywhere</strong><span>Preview every occurrence before changing it. Text locks are always respected.</span></div></div><button aria-label="Close find and correct" onClick={onClose}><X size={17}/></button></div>
       <div className="find-grid">
         <label><span>Find</span><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
         <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Terra or GPT 5.6 Luna"/></label>

@@ -14,7 +14,7 @@ export function HistoryPanel({ open, entries, busy, onClose, onRefresh, onRestor
   if (!open) return null;
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal history-modal" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-head"><div><History size={18}/><div><strong>Project history</strong><span>Persistent checkpoints before edits, regeneration and timing operations</span></div></div><button onClick={onClose}><X size={17}/></button></div>
+      <div className="modal-head"><div><History size={18}/><div><strong>Project history</strong><span>Persistent checkpoints before edits, regeneration and timing operations</span></div></div><button aria-label="Close history" onClick={onClose}><X size={17}/></button></div>
       <div className="history-toolbar"><span>{entries.length} recoverable versions</span><button onClick={onRefresh}>Refresh</button></div>
       <div className="history-list">
         {entries.map((entry) => <article key={entry.id}>

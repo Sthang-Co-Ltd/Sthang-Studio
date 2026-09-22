@@ -7,9 +7,9 @@ import {
   HelpCircle,
   KeyRound,
   ListChecks,
-  Sparkles,
-  TimerReset,
-  UploadCloud,
+  ListRestart,
+  AudioLines,
+  FileUp,
   X,
 } from 'lucide-react';
 
@@ -29,11 +29,11 @@ export function HomeSetupChecklist({ llmConfigured, timingConfigured, projectCou
     <button onClick={onDismiss} aria-label="Dismiss ready status"><X size={14}/></button>
   </section>;
   return <section className="first-run-card" aria-label="Getting started">
-    <div className="first-run-heading"><div><Sparkles size={18}/><span><strong>Set up Sthang Studio in three steps</strong><small>Only the essentials for your first caption project.</small></span></div><button onClick={onDismiss} aria-label="Dismiss getting started"><X size={15}/></button></div>
+    <div className="first-run-heading"><div><ListChecks size={18}/><span><strong>Set up Sthang Studio in three steps</strong><small>Only the essentials for your first caption project.</small></span></div><button onClick={onDismiss} aria-label="Dismiss getting started"><X size={15}/></button></div>
     <div className="first-run-steps">
       <button className={llmConfigured ? 'done' : 'current'} onClick={onConnect}><i>{llmConfigured ? <Check size={15}/> : <KeyRound size={15}/>}</i><span><b>1. Connect AI</b><small>{llmConfigured ? 'Connected' : 'Paste your key inside the app.'}</small></span><ChevronRight size={15}/></button>
-      <button className={timingConfigured ? 'done' : 'current'} onClick={onOpenDoctor}><i>{timingConfigured ? <Check size={15}/> : <TimerReset size={15}/>}</i><span><b>2. Verify Khmer timing</b><small>{timingConfigured ? 'Timing is ready' : 'Open System check for the exact setup step.'}</small></span><ChevronRight size={15}/></button>
-      <div className={projectCount > 0 ? 'done' : 'current'}><i>{projectCount > 0 ? <Check size={15}/> : <UploadCloud size={15}/>}</i><span><b>3. Add a video</b><small>{projectCount > 0 ? `${projectCount} project${projectCount === 1 ? '' : 's'} available` : 'Upload below creates your first project.'}</small></span></div>
+      <button className={timingConfigured ? 'done' : 'current'} onClick={onOpenDoctor}><i>{timingConfigured ? <Check size={15}/> : <AudioLines size={15}/>}</i><span><b>2. Verify Khmer timing</b><small>{timingConfigured ? 'Timing is ready' : 'Open System check for the exact setup step.'}</small></span><ChevronRight size={15}/></button>
+      <div className={projectCount > 0 ? 'done' : 'current'}><i>{projectCount > 0 ? <Check size={15}/> : <FileUp size={15}/>}</i><span><b>3. Add a video</b><small>{projectCount > 0 ? `${projectCount} project${projectCount === 1 ? '' : 's'} available` : 'Upload below creates your first project.'}</small></span></div>
     </div>
   </section>;
 }
@@ -72,7 +72,7 @@ export function NewUserGuide({
   return <aside className="new-user-guide" aria-label="Sthang Studio guide">
     <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong><small>What to do next—without learning every advanced control first.</small></span></div><button onClick={onClose} aria-label="Close guide"><X size={16}/></button></header>
 
-    {!project ? <div className="guide-empty"><UploadCloud size={28}/><strong>Create a project first</strong><span>Drop a video or audio file on the home screen. Sthang Studio keeps the media local and prepares it for captions.</span></div> : <>
+    {!project ? <div className="guide-empty"><FileUp size={28}/><strong>Create a project first</strong><span>Drop a video or audio file on the home screen. Sthang Studio keeps the media local and prepares it for captions.</span></div> : <>
       <section className="guide-workflow">
         <h3>Your first caption workflow</h3>
         <button className={llmConfigured ? 'done' : 'next'} onClick={onConnect}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected and ready.' : 'Required to generate caption text.'}</small></span></button>
@@ -87,7 +87,7 @@ export function NewUserGuide({
         <h3>What the main tools mean</h3>
         <div><ListChecks size={15}/><span><b>Review</b><small>Shows captions worth checking; it does not mean they are definitely wrong.</small></span></div>
         <div><BookOpenCheck size={15}/><span><b>Corrections</b><small>Learns from your edits after you approve the suggested memory.</small></span></div>
-        <div><Sparkles size={15}/><span><b>Regeneration preview</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
+        <div><ListRestart size={15}/><span><b>Regeneration preview</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
       </section>
     </>}
 

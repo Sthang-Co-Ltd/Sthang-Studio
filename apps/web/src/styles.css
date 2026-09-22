@@ -408,7 +408,7 @@ body{color:var(--text);caret-color:var(--accent)}
   .modal,.profile-modal{width:100%;border-radius:13px}
 }
 @media(max-width:620px){
-  .header-actions .save-action span{display:none}
+  .header-actions .save-action span{display:inline;min-width:0}
   .header-actions>button,.workspace-tools-menu>summary{padding-inline:9px}
   .workspace-identity .project-title{display:none}
   .header-actions{margin-left:0}
@@ -497,3 +497,11 @@ body{color:var(--text);caret-color:var(--accent)}
 .review-focus-mode-control select{height:28px;border:1px solid #3a432d;border-radius:6px;background:#0f140c;color:#dce9c4;padding:0 7px;font-size:10px;cursor:pointer}
 @media(max-width:720px){.review-focus-frame{inset:-8px -11px}.review-focus-corner{width:14px;height:11px}.review-focus-label{top:-23px}}
 @media(prefers-reduced-motion:reduce){.review-focus-frame{animation:none}}
+
+/* Operational icons keep their intended shape in dense controls. */
+.lucide{flex-shrink:0}
+.dropzone>.upload-file-icon{color:var(--accent)}
+@media(max-width:380px){
+  .header-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .header-actions>button,.workspace-tools-menu>summary{width:100%;min-height:44px}
+}

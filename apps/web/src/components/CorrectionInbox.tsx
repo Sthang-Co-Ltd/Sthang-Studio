@@ -52,7 +52,7 @@ export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onA
     <section className="modal correction-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
         <div><strong>Correction Inbox</strong><span>{pending} pending · edits are captured when a caption field loses focus, when you Save, or when you Export.</span></div>
-        <button className="icon-btn" onClick={onClose}><X size={18}/></button>
+        <button className="icon-btn" aria-label="Close correction inbox" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="inbox-toolbar">
         <button className={!showAll ? 'selected' : ''} onClick={() => setShowAll(false)}>Pending ({pending})</button>

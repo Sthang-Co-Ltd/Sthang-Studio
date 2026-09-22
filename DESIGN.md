@@ -16,6 +16,25 @@
 
 ## Hierarchy
 
+### Operational icons
+
+Use the installed Lucide outline family for interface controls, retaining its
+24-unit grid and default stroke weight. Keep icons from shrinking in flex rows;
+use 16px in navigation, 14–18px in actions, and 12px in compact status markers.
+Labels remain visible and icon-only actions need accessible names.
+
+Choose symbols by action: FileUp for local media import, Captions for generation,
+ListChecks for Review, AudioLines for Fine timing, BookOpenText for Accuracy,
+Group for caption structure, and FileOutput for the Export workspace. Download
+means an actual file download. Reserve shields for privacy/security; HandHeart
+identifies contribution and ScanText identifies Deep Verify. Timing status uses
+SVG marks with descriptive accessible labels, never font-dependent glyphs.
+
+These choices were compared through [Supericons](https://supericons.dev/) and use
+the existing `lucide-react` assets covered in `THIRD_PARTY_NOTICES.md`. No remote
+icon requests or additional icon package are needed. Approved brand artwork is
+separate from this operational icon system.
+
 ### Project header
 
 Only frequent actions remain visible:

@@ -10,12 +10,17 @@ import {
 import type { CaptionSegment } from '@kcs/shared';
 import { reconcileCaptionWordTiming, resolveCaptionWordTiming } from '@kcs/shared';
 import {
+  AudioLines,
+  Check,
   CheckCircle2,
+  CircleAlert,
   Clock3,
+  Combine,
   LocateFixed,
   LockKeyhole,
   MoreHorizontal,
   Pause,
+  PencilLine,
   Play,
   Plus,
   Scissors,
@@ -27,9 +32,9 @@ import { TimestampInput } from './TimestampInput';
 import { captionNeighborLimitMap, planCaptionTimingEdit } from '../caption-timing-transaction';
 import { splitCaptionForEditing, mergeCaptionsForEditing } from '../caption-word-structure';
 
-const qualityLabel = (caption: CaptionSegment) => caption.timingSource === 'manual'
-  ? '•'
-  : caption.timingQuality === 'high' ? '✓' : caption.timingQuality === 'medium' ? '~' : '!';
+const qualityIcon = (caption: CaptionSegment) => caption.timingSource === 'manual'
+  ? <PencilLine size={12}/>
+  : caption.timingQuality === 'high' ? <Check size={12}/> : caption.timingQuality === 'medium' ? <AudioLines size={12}/> : <CircleAlert size={12}/>;
 const qualityTitle = (caption: CaptionSegment) => caption.timingSource === 'manual'
   ? 'Timing manually edited'
   : caption.timingQuality === 'high'
@@ -349,7 +354,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       <div className="panel-tools">
         <button className="panel-tool" title="Jump to current caption" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
         <button className={`panel-tool ${followPlayback ? 'following' : ''}`} title={followPlayback ? 'Pause follow' : 'Follow playback'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>{followPlayback ? 'Following' : 'Follow'}</span></button>
-        <button className="icon-btn" title="Add caption" onClick={add}><Plus size={17}/></button>
+        <button className="icon-btn" aria-label="Add caption" title="Add caption" onClick={add}><Plus size={17}/></button>
       </div>
     </div>
     <div
@@ -372,7 +377,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
           onFocusCapture={() => onSelect(caption.id, false)}
           onClick={(event) => { onSelect(caption.id, event.shiftKey); onSeek(caption.startMs); }}
         >
-          <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} title={qualityTitle(caption)}>{qualityLabel(caption)}</span>
+          <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} role="img" aria-label={qualityTitle(caption)} title={qualityTitle(caption)}>{qualityIcon(caption)}</span>
           <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
           <div className="time-stack">
             <TimestampInput
@@ -453,7 +458,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               <button role="menuitem" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, -100); setOpenMenuId(null); }}><span className="menu-micro">−100 ms</span><span>Move earlier</span></button>
               <button role="menuitem" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, 100); setOpenMenuId(null); }}><span className="menu-micro">+100 ms</span><span>Move later</span></button>
               <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); split(index); setOpenMenuId(null); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
-              {index < captions.length - 1 && <button role="menuitem" disabled={destructiveLocked || captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><span className="menu-micro" aria-hidden="true">⇢</span><span>Merge with next</span></button>}
+              {index < captions.length - 1 && <button role="menuitem" disabled={destructiveLocked || captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><Combine size={14}/><span>Merge with next</span></button>}
               <div className="caption-menu-divider"/>
               <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); remove(index); setOpenMenuId(null); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
             </div>}

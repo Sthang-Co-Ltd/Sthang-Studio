@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ShieldCheck, HandHeart, X } from 'lucide-react';
 import { api } from '../api';
 import { CONTRIBUTION_PROMPT_SESSION_KEY } from '../privacy-onboarding';
 import './contribution.css';
@@ -47,7 +47,7 @@ export function ContributionPromptHost() {
   if (!open) return null;
   return <aside className="contribution-prompt" aria-label="Khmer Caption Contributor invitation">
     <button className="contribution-prompt-close" aria-label="Dismiss for this session" onClick={() => setOpen(false)}><X size={17}/></button>
-    <div className="contribution-prompt-icon"><Sparkles size={22}/></div>
+    <div className="contribution-prompt-icon"><HandHeart size={22}/></div>
     <div className="contribution-prompt-copy">
       <strong>Help make Khmer captions world-class</strong>
       <p>Your corrections can help improve Khmer caption technology for creators everywhere.</p>

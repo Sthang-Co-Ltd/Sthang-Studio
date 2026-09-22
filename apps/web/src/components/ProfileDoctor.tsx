@@ -87,7 +87,7 @@ export function ProfileDoctor({
     <section className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
         <div><strong>Settings</strong><span>Connect AI, manage your creator profile and privacy, or run a system check.</span></div>
-        <button className="icon-btn" onClick={onClose}><X size={18}/></button>
+        <button className="icon-btn" aria-label="Close settings" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>
 
@@ -99,7 +99,7 @@ export function ProfileDoctor({
         <div className="topic-pack-section">
           <div className="section-title"><div><strong>Topic packs</strong><span>Save the current context + vocabulary as a reusable pack.</span></div></div>
           {currentContext && <div className="pack-create"><input value={packName} onChange={(event) => setPackName(event.target.value)} placeholder="Example: AI / Coding"/><button disabled={!packName.trim() || busy} onClick={createPack}><PackagePlus size={15}/>Save current project as pack</button></div>}
-          <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button className="danger-quiet" onClick={() => removePack(pack.id)}><Trash2 size={14}/></button></div>)}</div>
+          <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={() => removePack(pack.id)}><Trash2 size={14}/></button></div>)}</div>
         </div>
       </div> : tab === 'privacy' ? <ContributorSettings profile={profile} busy={busy} onSave={onSave}/> : <div className="doctor-body">
         <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. It never includes your API key.</span></div><button className="primary" disabled={busy} onClick={onRunDoctor}>Run checks</button></div>

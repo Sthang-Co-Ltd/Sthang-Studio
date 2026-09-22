@@ -6,7 +6,8 @@ import {
   Clock3,
   LockKeyhole,
   ShieldCheck,
-  Sparkles,
+  AudioLines,
+  HandHeart,
   Trash2,
 } from 'lucide-react';
 import { api } from '../api';
@@ -91,7 +92,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
 
     <section className="privacy-card privacy-card-contributor">
       <div className="privacy-card-layout">
-        <div className="privacy-card-icon" aria-hidden="true"><Sparkles size={25}/></div>
+        <div className="privacy-card-icon" aria-hidden="true"><HandHeart size={25}/></div>
         <div className="privacy-card-content">
           <header className="privacy-card-heading">
             <div className="privacy-card-title">
@@ -112,7 +113,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
 
           {status && <div className="contributor-stats" aria-label="Khmer Caption Contributor progress">
             <div><span className="privacy-stat-icon"><CheckCircle2 size={17}/></span><b>{status.verified}</b><span>Verified corrections</span></div>
-            <div><span className="privacy-stat-icon"><Sparkles size={17}/></span><b>{durationLabel(status.verifiedAudioMs)}</b><span>Verified Khmer speech</span></div>
+            <div><span className="privacy-stat-icon"><AudioLines size={17}/></span><b>{durationLabel(status.verifiedAudioMs)}</b><span>Verified Khmer speech</span></div>
             <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.submitted}</b><span>Awaiting verification</span></div>
             <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.queued}</b><span>Queued locally</span></div>
           </div>}
@@ -127,7 +128,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
               aria-pressed={contributionConsent === 'granted'}
               onClick={() => void savePrivacy('khmerContributionConsent', 'granted')}
             >
-              {contributionConsent === 'granted' ? <CheckCircle2 size={18}/> : <Sparkles size={18}/>}<span>{contributionConsent === 'granted' ? 'Helping improve Khmer captions' : 'Help improve Khmer captions'}</span>
+              {contributionConsent === 'granted' ? <CheckCircle2 size={18}/> : <HandHeart size={18}/>}<span>{contributionConsent === 'granted' ? 'Helping improve Khmer captions' : 'Help improve Khmer captions'}</span>
             </button>
             <button
               className={`privacy-choice-button privacy-choice-secondary ${contributionConsent === 'declined' ? 'is-selected' : ''}`}

@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { UploadCloud } from 'lucide-react';
+import { FileUp } from 'lucide-react';
 import { StudioBrand } from './Brand';
 
 export function Upload({ onUpload, busy, beforeDropzone }: { onUpload:(file:File,title:string)=>void; busy:boolean; beforeDropzone?: ReactNode }) {
@@ -14,7 +14,7 @@ export function Upload({ onUpload, busy, beforeDropzone }: { onUpload:(file:File
     <button aria-label="Choose a video or audio file" className={`dropzone ${drag?'drag':''}`} onClick={()=>ref.current?.click()}
       onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
       onDrop={e=>{e.preventDefault();setDrag(false);accept(e.dataTransfer.files[0])}} disabled={busy}>
-      <UploadCloud size={34}/><strong>{busy?'Uploading…':'Choose a video or audio file'}</strong><span>Drag it here, or click to browse · MP4, MOV, MP3, WAV and more</span>
+      <FileUp className="upload-file-icon" size={34}/><strong>{busy?'Uploading…':'Choose a video or audio file'}</strong><span>Drag it here, or click to browse · MP4, MOV, MP3, WAV and more</span>
     </button>
     <input ref={ref} hidden type="file" accept="video/*,audio/*" onChange={e=>accept(e.target.files?.[0])}/>
     <div className="feature-pills"><span>Khmer-first text</span><span>Precise Khmer timing</span><span>CapCut-ready SRT</span></div>

@@ -21,19 +21,24 @@ import type {
   VideoResolutionPreset,
 } from '@kcs/shared';
 import {
+  AudioLines,
   BookOpenCheck,
+  BookOpenText,
+  Captions,
   CheckCheck,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   Clock3,
-  Download,
+  FileOutput,
+  Group,
   HelpCircle,
   Info,
   KeyRound,
   Keyboard,
   Languages,
+  ListChecks,
   ListTodo,
   LoaderCircle,
   LockKeyhole,
@@ -43,10 +48,7 @@ import {
   RefreshCw,
   Save,
   Settings2,
-  ShieldCheck,
-  TimerReset,
   TriangleAlert,
-  WandSparkles,
   X,
 } from 'lucide-react';
 import { api, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput } from './api';
@@ -1928,7 +1930,7 @@ export default function App() {
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><div className="project-title"><strong>{project.title}</strong><span>{project.media.originalName} · {dirty ? autosaveState === 'saving' ? 'autosaving…' : 'autosave pending' : 'saved'}{project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}</span></div></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
-        <button className={reviewMode ? 'selected-tool' : ''} title="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ShieldCheck size={16}/><span>Review</span>{issues.length > 0 && <b className="tool-badge">{issues.length}</b>}</button>
+        <button className={reviewMode ? 'selected-tool' : ''} title="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b className="tool-badge">{issues.length}</b>}</button>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
           pendingCorrections={pendingCorrections}
@@ -1944,7 +1946,7 @@ export default function App() {
           onUpdates={() => setShowUpdates(true)}
         />
         <button className="save-action" disabled={!dirty || !!busy} title={dirty ? 'Save changes' : 'All changes saved'} onClick={() => void saveDraft(false, 'manual-save', true)}><Save size={16}/><span>{dirty ? 'Save' : 'Saved'}</span></button>
-        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><Download size={16}/><span>Export</span></button>
+        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
 
@@ -1981,10 +1983,10 @@ export default function App() {
           {workspaceTool !== 'export' && <div className="workspace-tool-strip">
             <div className="workspace-tool-intro"><strong>{hasHybrid ? 'Choose one workspace tool' : 'Generate first, or add optional context'}</strong><span>{hasHybrid ? 'Advanced controls stay out of the way until you need them.' : 'The normal workflow works with the default settings.'}</span></div>
             <nav aria-label="Caption workspace tools">
-              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ShieldCheck size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
-              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><TimerReset size={16}/><span>Fine timing</span></button>}
-              <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><WandSparkles size={16}/><span>Accuracy</span><small>optional</small></button>
-              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Languages size={16}/><span>Caption grouping</span></button>}
+              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
+              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
+              <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>
+              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
               {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
             </nav>
@@ -2070,7 +2072,7 @@ export default function App() {
           />}
 
           {workspaceTool === 'review' && hasHybrid && <div className="review-card review-active">
-            <div className="review-score"><ShieldCheck size={22}/><div><strong>{readiness}% export readiness</strong><span>{issues.length ? `${issues.length} caption${issues.length === 1 ? '' : 's'} worth a quick check` : 'No automatic risks detected'}</span></div></div>
+            <div className="review-score"><ListChecks size={22}/><div><strong>{readiness}% export readiness</strong><span>{issues.length ? `${issues.length} caption${issues.length === 1 ? '' : 's'} worth a quick check` : 'No automatic risks detected'}</span></div></div>
             <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b><span>{selection.captions.length} selected · {selection.captions.filter((caption) => caption.approved).length} approved</span></div>
             <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
             <div className="review-actions review-primary-actions">
@@ -2092,11 +2094,11 @@ export default function App() {
             <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span>Add this only when the clip contains unusual names, brands, versions, or mixed Khmer-English terms.</span></div>
             <label className="context-field"><span>What is this clip about?</span><textarea rows={3} value={contextDescription} onChange={(event) => { contextEditRevision.current += 1; setContextDescription(event.target.value); }} placeholder="Example: This video compares GPT 5.6 Luna and Terra. Preserve the exact model names."/></label>
             <label className="context-field"><span>Exact terms to preserve <b>{vocabularyLines.length}</b></span><textarea rows={5} value={vocabularyText} onChange={(event) => { contextEditRevision.current += 1; setVocabularyText(event.target.value); }} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/></label>
-            <div className="accuracy-help"><span>One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy} onClick={saveContext}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><WandSparkles size={15}/>Preview full regeneration</button>}</div></div>
+            <div className="accuracy-help"><span>One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy} onClick={saveContext}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
           </div>}
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
-            <TimerReset size={28}/><div><strong>{legacy ? 'Rebuild with accurate local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild it with the current caption timing.' : 'Studio creates the Khmer text and syncs it to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div><button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <WandSparkles size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
+            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with accurate local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild it with the current caption timing.' : 'Studio creates the Khmer text and syncs it to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div><button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
 
           {workspaceTool === 'details' && hasHybrid && <div className="timing-card">

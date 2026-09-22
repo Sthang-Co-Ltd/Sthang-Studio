@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
 import type { AppProfile, ConsentState } from '@kcs/shared';
-import { BarChart3, LockKeyhole, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { BarChart3, LockKeyhole, ShieldCheck, HandHeart, X } from 'lucide-react';
 import { api } from '../api';
 import { CONTRIBUTION_PROMPT_SESSION_KEY, shouldShowPrivacyUpgradeNotice } from '../privacy-onboarding';
 import { ContributorSettings } from './ContributorSettings';
@@ -167,7 +167,7 @@ export function PrivacyUpgradeHost() {
 
       <div className="privacy-upgrade-facts">
         <div className="privacy-upgrade-fact">
-          <span aria-hidden="true"><Sparkles size={18}/></span>
+          <span aria-hidden="true"><HandHeart size={18}/></span>
           <div><strong>Contributor is optional</strong><small>If you join, only eligible corrections you make after joining can contribute the matching short audio, generated and corrected wording, timing, and technical quality evidence.</small></div>
         </div>
         <div className="privacy-upgrade-fact">
@@ -181,7 +181,7 @@ export function PrivacyUpgradeHost() {
       </div>
 
       <div className="privacy-upgrade-actions">
-        <button className="privacy-upgrade-action primary" disabled={working} onClick={() => void choose('granted')}><Sparkles size={18}/>Help improve Khmer captions</button>
+        <button className="privacy-upgrade-action primary" disabled={working} onClick={() => void choose('granted')}><HandHeart size={18}/>Help improve Khmer captions</button>
         <button className="privacy-upgrade-action" disabled={working} onClick={() => void choose('declined')}><LockKeyhole size={18}/>Keep my work private</button>
         <button className="privacy-upgrade-action tertiary" disabled={working} onClick={() => void review()}><ShieldCheck size={16}/>Review privacy &amp; analytics settings</button>
       </div>
