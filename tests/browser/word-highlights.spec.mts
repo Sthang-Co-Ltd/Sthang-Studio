@@ -136,6 +136,54 @@ test('an inserted word starts untimed and can be assigned without stretching oth
   expect(first().wordTiming!.words[2].endMs).toBe(1250);
 });
 
+test('equal-time word selection clears an invalid draft and exposes review status accessibly', async ({ page }) => {
+  // Equal ends leave each word a possible repair interval. Equal starts would
+  // deliberately activate the separately tested no-room guard on the first word.
+  first().wordTiming!.words[0].endMs = 850;
+  first().wordTiming!.words[1].needsReview = true;
+  await openTiming(page);
+  const end = page.getByLabel('Word end time', { exact: true });
+  await end.fill('00:');
+  await selectWord(page, 2, 'love');
+  await expect(end).toHaveValue('00:00.850');
+  await expect(end).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('button', { name: 'Word 2: love', exact: true })).toHaveAccessibleDescription('Needs review');
+  await expect(page.getByRole('button', { name: 'Word 4: very', exact: true })).toHaveAccessibleDescription('');
+  expect(first().wordTiming!.words[1].endMs).toBe(850);
+});
+
+test('an untimed word with no available gap explains recovery and becomes editable after making room', async ({ page }) => {
+  state.native = true;
+  first().wordTiming!.words[3].startMs = 1250;
+  await openTiming(page);
+  await page.getByLabel('Caption 1 text', { exact: true }).fill('I love you so very much');
+  await selectWord(page, 4, 'so');
+  await expect(page.locator('.word-timing-panel')).toContainText('No room for this word');
+  await expect(page.getByLabel('Word start time', { exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Apply word timing', exact: true })).toBeDisabled();
+  await page.locator('.word-timing-selected').scrollIntoViewIfNeeded();
+  await expect(page.locator('.media-stage')).toBeInViewport();
+  await page.screenshot({ path: 'test-results/word-timing-no-room-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const guidance = page.locator('.word-timing-selected [role="status"]');
+  await guidance.evaluate((element) => element.scrollIntoView({ block: 'end' }));
+  const playerBox = (await page.locator('.media-stage').boundingBox())!;
+  const guidanceBox = (await guidance.boundingBox())!;
+  expect(guidanceBox.y).toBeGreaterThanOrEqual(playerBox.y + playerBox.height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/word-timing-no-room-mobile.png' });
+  await selectWord(page, 5, 'very');
+  await page.getByRole('button', { name: 'Move word start later', exact: true }).click();
+  await selectWord(page, 4, 'so');
+  await expect(page.getByLabel('Word start time', { exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Apply word timing', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Apply word timing', exact: true }).click();
+  await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1250);
+  expect(first().wordTiming!.words[3].endMs).toBe(1300);
+  expect(first().wordTiming!.words[2].endMs).toBe(1250);
+  expect(first().wordTiming!.words[4].startMs).toBe(1300);
+});
+
 test('local sync is a proposal until Use timing, and applying it participates in undo', async ({ page }) => {
   await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
     const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
@@ -153,6 +201,26 @@ test('local sync is a proposal until Use timing, and applying it participates in
   await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1450);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1550);
+});
+
+test('an unchanged sync proposal clears the selected word invalid draft without applying it', async ({ page }) => {
+  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
+    const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
+    await route.fulfill({ json: { basis: caption, wordTiming: caption.wordTiming } });
+  });
+  await openTiming(page);
+  const original = structuredClone(first().wordTiming);
+  const start = page.getByLabel('Word start time', { exact: true });
+  await start.fill('00:');
+  await page.getByRole('button', { name: 'Sync words', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toBeVisible();
+  await expect(start).toBeDisabled();
+  await expect(start).toHaveValue('00:00.200');
+  await expect(start).not.toHaveAttribute('aria-invalid', 'true');
+  await page.getByRole('button', { name: 'Keep current', exact: true }).click();
+  await expect(start).toBeEnabled();
+  await expect(start).toHaveValue('00:00.200');
+  expect(first().wordTiming).toEqual(original);
 });
 
 test('a newer word edit invalidates a local-sync response without losing the edit', async ({ page }) => {

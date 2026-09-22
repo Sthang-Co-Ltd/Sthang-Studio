@@ -52,7 +52,9 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
   const [draftStart, setDraftStart] = useState(caption.startMs);
   const [draftEnd, setDraftEnd] = useState(caption.endMs);
   const assigned = selected?.startMs != null && selected?.endMs != null;
+  const hasRoom = limits.max - limits.min >= MIN_WORD_MS;
   const locked = disabled || Boolean(caption.timingLocked) || Boolean(candidate);
+  const wordEditingDisabled = locked || !hasRoom;
   const wordLabel = selected ? preview.text.slice(selected.startOffset, selected.endOffset) : '';
 
   useEffect(() => {
@@ -112,7 +114,7 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
     } else { setMessage('The caption changed; its current timing was kept.'); dismissCandidate(); }
   };
   const change = (edge: 'start' | 'end', value: number) => {
-    if (!selected || locked) return false;
+    if (!selected || wordEditingDisabled) return false;
     if (!assigned) {
       if (edge === 'start') setDraftStart(value); else setDraftEnd(value);
       return true;
@@ -121,14 +123,14 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
     return after !== caption && onChange(caption, after);
   };
   const nudge = (edge: 'start' | 'end' | 'move', delta: number) => {
-    if (!selected || !assigned || locked) return;
+    if (!selected || !assigned || wordEditingDisabled) return;
     const value = edge === 'move' ? delta : (edge === 'start' ? selected.startMs! : selected.endMs!) + delta;
     const after = changeWordTiming(caption, selected.id, edge, value);
     if (after !== caption) onChange(caption, after);
     else setMessage('This word has reached the next boundary. Other words stay in place.');
   };
   const confirmWord = () => {
-    if (!selected || locked) return;
+    if (!selected || wordEditingDisabled) return;
     const after = editCaptionWord(caption, selected.id, { startMs: assigned ? selected.startMs! : draftStart, endMs: assigned ? selected.endMs! : draftEnd });
     if (after !== caption && onChange(caption, after)) setMessage('Word timing confirmed.');
     else setMessage('Choose a positive interval inside this caption and between the neighboring words.');
@@ -151,9 +153,11 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
     <div className="word-timing-links"><button onClick={onEditText}>Edit caption text</button><button onClick={onOpenAppearance}>{highlightEnabled ? 'Highlight settings' : 'Enable word highlighting…'}</button></div>
     {candidate && <div className="word-timing-candidate" role="status">
       <strong>Previewing the proposed timing. Saved captions are unchanged.</strong>
+      <p>Select words to listen and inspect. Choose Use timing or Keep current before editing.</p>
       {candidate.warnings?.map((warning, warningIndex) => <p key={warningIndex}>{warning}</p>)}
       <div><button className="timing-primary" onClick={useCandidate}>Use timing</button><button onClick={dismissCandidate}>Keep current</button></div>
     </div>}
+    {caption.timingLocked && <p className="timing-lock-status">Timing is locked. Unlock it in the caption menu to make changes; playback remains available.</p>}
     {message && <p className="timing-lock-status" role="status">{message}</p>}
     {!words.length ? <div className="word-timing-empty">
       <p>No editable word timings are available for this wording yet.</p>
@@ -161,34 +165,36 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
     </div> : <>
       <div className="word-timing-chips" role="group" aria-label="Select a word to time">
         {words.map((word, wordIndex) => <button key={word.id} aria-label={`Word ${wordIndex + 1}: ${preview.text.slice(word.startOffset, word.endOffset)}`} aria-pressed={word.id === selected?.id}
+          aria-description={word.needsReview || word.source === 'estimated' || word.startMs == null ? 'Needs review' : undefined}
           className={`${word.id === selected?.id ? 'selected' : ''} ${word.needsReview || word.source === 'estimated' || word.startMs == null ? 'word-needs-review' : ''}`}
           onClick={() => { onStopPreview(); onSelectWord(word.id); setMessage(''); }}>
-          {preview.text.slice(word.startOffset, word.endOffset)}{(word.needsReview || word.source === 'estimated' || word.startMs == null) && <span aria-label="Needs review"> · ?</span>}
+          {preview.text.slice(word.startOffset, word.endOffset)}{(word.needsReview || word.source === 'estimated' || word.startMs == null) && <span aria-hidden="true"> · ?</span>}
         </button>)}
       </div>
       {selected && <div className="word-timing-selected">
         <div className="word-timing-selected-head"><strong>Word {index + 1}: {wordLabel}</strong><button disabled={!assigned} onClick={hearWord}><Play size={14}/>Hear word</button></div>
-        {!assigned && <p className="timing-hint">This word has no assigned times. Set its start and end, then choose Apply word timing. The suggested available interval is not an alignment.</p>}
+        {!hasRoom && <p className="timing-lock-status" role="status">No room for this word between the current boundaries. Adjust a neighboring word or the caption edges to make space, or use Sync words to review a new timing proposal.</p>}
+        {!assigned && hasRoom && <p className="timing-hint">This word has no assigned times. Set its start and end, then choose Apply word timing. The suggested available interval is not an alignment.</p>}
         {assigned && (selected.needsReview || selected.source === 'estimated') && <p className="timing-hint">These times need a listen after the wording or timing changed. Adjust them, or confirm this word after checking.</p>}
         <div className="timing-edge-grid">
           {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
             <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
-              <TimestampInput label={`Word ${edge} time`} roundingMs={10} valueMs={assigned ? edge === 'start' ? selected.startMs! : selected.endMs! : edge === 'start' ? draftStart : draftEnd}
+              <TimestampInput key={`${selected.id}:${candidate ? 'proposed' : 'current'}`} label={`Word ${edge} time`} roundingMs={10} valueMs={assigned ? edge === 'start' ? selected.startMs! : selected.endMs! : edge === 'start' ? draftStart : draftEnd}
                 minMs={edge === 'start' ? limits.min : (assigned ? selected.startMs! : draftStart) + MIN_WORD_MS}
                 maxMs={edge === 'start' ? (assigned ? selected.endMs! : draftEnd) - MIN_WORD_MS : limits.max}
-                disabled={locked} onFocus={onStopPreview} onCommit={(value) => change(edge, value)}/>
+                disabled={wordEditingDisabled} onFocus={onStopPreview} onCommit={(value) => change(edge, value)}/>
             </div>
             <div className="timing-edge-actions">
-              <button disabled={locked || !assigned} onClick={() => nudge(edge, -stepMs)} aria-label={`Move word ${edge} earlier`}>−{stepMs} ms</button>
-              <button disabled={locked || !assigned} onClick={() => nudge(edge, stepMs)} aria-label={`Move word ${edge} later`}>+{stepMs} ms</button>
-              <button disabled={locked || playheadMs < (edge === 'start' ? limits.min : (assigned ? selected.startMs! : draftStart) + MIN_WORD_MS) || playheadMs > (edge === 'end' ? limits.max : (assigned ? selected.endMs! : draftEnd) - MIN_WORD_MS)} onClick={() => change(edge, playheadMs)} aria-label={`Set word ${edge} to playhead`}>Set to playhead</button>
+              <button disabled={wordEditingDisabled || !assigned} onClick={() => nudge(edge, -stepMs)} aria-label={`Move word ${edge} earlier`}>−{stepMs} ms</button>
+              <button disabled={wordEditingDisabled || !assigned} onClick={() => nudge(edge, stepMs)} aria-label={`Move word ${edge} later`}>+{stepMs} ms</button>
+              <button disabled={wordEditingDisabled || playheadMs < (edge === 'start' ? limits.min : (assigned ? selected.startMs! : draftStart) + MIN_WORD_MS) || playheadMs > (edge === 'end' ? limits.max : (assigned ? selected.endMs! : draftEnd) - MIN_WORD_MS)} onClick={() => change(edge, playheadMs)} aria-label={`Set word ${edge} to playhead`}>Set to playhead</button>
             </div>
           </div>)}
         </div>
         <div className="timing-move-controls">
-          <button disabled={locked || !assigned} onClick={() => nudge('move', -stepMs)}>Move word earlier</button>
-          <button disabled={locked || !assigned} onClick={() => nudge('move', stepMs)}>Move word later</button>
-          {(!assigned || selected.needsReview || selected.source === 'estimated') && <button className="timing-primary" disabled={locked} onClick={confirmWord}>{assigned ? 'Confirm this word' : 'Apply word timing'}</button>}
+          <button disabled={wordEditingDisabled || !assigned} onClick={() => nudge('move', -stepMs)}>Move word earlier</button>
+          <button disabled={wordEditingDisabled || !assigned} onClick={() => nudge('move', stepMs)}>Move word later</button>
+          {(!assigned || selected.needsReview || selected.source === 'estimated') && <button className="timing-primary" disabled={wordEditingDisabled} onClick={confirmWord}>{assigned ? 'Confirm this word' : 'Apply word timing'}</button>}
         </div>
         <p className="timing-hint">Word edits use 10 ms precision. Other word times and the caption’s outer edges stay in place.</p>
       </div>}

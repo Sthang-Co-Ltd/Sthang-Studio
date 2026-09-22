@@ -901,7 +901,7 @@ export function WaveformEditor({
       <div className="timing-edge-grid">
         {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
           <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
-            <TimestampInput label={`Fine timing ${edge}`} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
+            <TimestampInput key={currentCaption.id} label={`Fine timing ${edge}`} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
               minMs={edgeBounds(edge).min} maxMs={edgeBounds(edge).max}
               disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
           </div>

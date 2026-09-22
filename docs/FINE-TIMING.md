@@ -29,6 +29,8 @@ and End also accept seconds (`12.375`), `m:ss.mmm`, or `h:mm:ss.mmm`, with one t
 three fractional digits. **Enter** or blur commits valid input; **Escape** restores
 the accepted value. Invalid text stays uncommitted and explains the required
 range. **Set to playhead** is available only at a legal position for that edge.
+Selecting another caption or word clears the previous selection's unfinished
+timestamp draft, including when the two selections have identical times.
 
 Neighbor protection is on by default: moves and trims stop before creating or
 increasing an overlap with another caption. Existing overlaps can be repaired
@@ -91,6 +93,14 @@ an explicit **Apply word timing** action; the offered available gap is not a
 claimed alignment. **Set words manually** starts an untimed track when no usable
 one exists. A phrase the speaker never said may not align meaningfully; correct
 the wording or leave it plain rather than treating generated timestamps as fact.
+
+If neighboring words or the caption edges leave less than 10 ms, the word editor
+explains that there is no room and disables the impossible edit. Select a
+neighboring word to make space, adjust the caption edges, or use **Sync words**
+to review a new proposal. Other words are never moved automatically. Words marked
+**Needs review** expose that status to screen readers as well as visually.
+During a sync proposal, words remain selectable for inspection and listening;
+choose **Use timing** or **Keep current** before making manual edits.
 
 Sync is bounded to one active local word-sync operation and captions no longer
 than 60 seconds/2,000 Unicode code points. Active caption processing must finish
@@ -161,3 +171,5 @@ Public impact: required. The source-only proposal
 See [the public handoff](WORD-HIGHLIGHT-HANDOFF.md) for affected evidence and
 downstream approvals. The governed current release manifest, verified download
 claims, protected identity, services, and release approvals remain unchanged.
+The subsequent [Fine Timing refinement handoff](FINE-TIMING-REFINEMENT-HANDOFF.md)
+records selection-state, accessibility, and no-room recovery corrections.

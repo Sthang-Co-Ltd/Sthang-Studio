@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep unfinished Fine Timing timestamps scoped to their selected caption or
+  word, including selections with identical times. Expose word review status to
+  screen readers and explain recovery when no valid word interval is available.
+  Clarify locked timing and the inspect-before-applying word-sync proposal.
 - Add native Rise and Soft Pop beside Fade, sharing the original caption clock,
   saved presets, explicit replay and preview/export rendering. Keep overlap
   geometry steady with disclosed per-caption fades; preserve native wrapping

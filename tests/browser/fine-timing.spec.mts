@@ -141,6 +141,18 @@ test('manual time entry does not save partial values and Escape preserves the wo
   await expect(input).toHaveValue('00:00.200');
 });
 
+test('switching between captions with equal times clears the previous invalid timestamp draft', async ({ page }) => {
+  state.projects[0].captions[1].startMs = 200;
+  await openTiming(page);
+  const start = page.getByLabel('Fine timing start', { exact: true });
+  await start.fill('00:');
+  await page.getByRole('button', { name: 'Next caption', exact: true }).click();
+  await expect(page.locator('.timing-caption-nav strong')).toHaveText('Caption 2 / 3');
+  await expect(start).toHaveValue('00:00.200');
+  await expect(start).not.toHaveAttribute('aria-invalid', 'true');
+  expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toHaveLength(0);
+});
+
 test('stale undo cannot overwrite a subsequent caption text edit', async ({ page }) => {
   await openTiming(page);
   await page.getByRole('button', { name: 'Move later', exact: true }).click();
