@@ -28,6 +28,11 @@ export interface CaptionWordTimingResolution {
   reason?: string;
 }
 
+export interface CaptionWordTimingBuildOptions {
+  /** Direct forced-alignment path scores are not calibrated ASR confidence. */
+  ignoreConfidenceForReview?: boolean;
+}
+
 interface SpeechUnit {
   startOffset: number;
   endOffset: number;
@@ -256,15 +261,16 @@ function groupNeedsReview(
   intervalValid: boolean,
   startMs: number | null,
   endMs: number | null,
+  options?: CaptionWordTimingBuildOptions,
 ) {
   if (source === 'estimated' || !intervalValid || intervalCollapsesOnTimingGrid(startMs, endMs)) return true;
   return tokens.some((token) => (
-    (typeof token.confidence === 'number' && Number.isFinite(token.confidence) && token.confidence < 0.5)
+    (!options?.ignoreConfidenceForReview && typeof token.confidence === 'number' && Number.isFinite(token.confidence) && token.confidence < 0.5)
     || (typeof token.alignmentScore === 'number' && Number.isFinite(token.alignmentScore) && token.alignmentScore < 0.55)
   ));
 }
 
-function buildCaptionWordTimingFromSpans(caption: CaptionSegment, spans: TimedTokenSpan[]) {
+function buildCaptionWordTimingFromSpans(caption: CaptionSegment, spans: TimedTokenSpan[], options?: CaptionWordTimingBuildOptions) {
   const boundaries = graphemeBoundaries(caption.text);
   if (!boundaries || !spans.length) return undefined;
   const tokenIds = new Set<string>();
@@ -296,7 +302,7 @@ function buildCaptionWordTimingFromSpans(caption: CaptionSegment, spans: TimedTo
     const endMs = validTiming ? groupTokens[groupTokens.length - 1].endMs : null;
     const intervalValid = startMs !== null && endMs !== null && endMs > startMs;
     const source = intervalValid ? groupSource(groupTokens) : 'estimated';
-    const needsReview = groupNeedsReview(groupTokens, source, intervalValid, startMs, endMs);
+    const needsReview = groupNeedsReview(groupTokens, source, intervalValid, startMs, endMs, options);
     words.push({
       id: groupTokens.map((token) => token.id).join('~'),
       startOffset: firstSpan.startOffset,
@@ -329,10 +335,14 @@ export function buildCaptionWordTiming(caption: CaptionSegment, tokens: TimedTok
  * token literally back onto the original caption string instead of trusting
  * normalized `spaceBefore` metadata. The user's text is never rewritten.
  */
-export function buildCaptionWordTimingForExactText(caption: CaptionSegment, tokens: TimedToken[]): CaptionWordTiming | undefined {
+export function buildCaptionWordTimingForExactText(
+  caption: CaptionSegment,
+  tokens: TimedToken[],
+  options?: CaptionWordTimingBuildOptions,
+): CaptionWordTiming | undefined {
   if (!tokens.length || typeof Intl.Segmenter !== 'function' || !Number.isFinite(caption.startMs) || !Number.isFinite(caption.endMs)) return undefined;
   const spans = exactTextTokenSpans(caption, tokens);
-  return spans ? buildCaptionWordTimingFromSpans(caption, spans) : undefined;
+  return spans ? buildCaptionWordTimingFromSpans(caption, spans, options) : undefined;
 }
 
 /**

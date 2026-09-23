@@ -39,6 +39,7 @@ interface WaveformEditorProps {
   initialZoom: number;
   initialEditMode?: 'caption' | 'words';
   onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
+  onAutoSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null | undefined>;
   syncDisabled: boolean;
   highlightEnabled: boolean;
   onOpenAppearance(): void;
@@ -162,6 +163,7 @@ export function WaveformEditor({
   initialZoom,
   initialEditMode = 'caption',
   onSyncWords,
+  onAutoSyncWords,
   syncDisabled,
   highlightEnabled,
   onOpenAppearance,
@@ -898,7 +900,7 @@ export function WaveformEditor({
     </>}
     {selectedCaption && editMode === 'words' && <WordTimingPanel key={selectedCaption.id} caption={selectedCaption} selectedWordId={selectedWordId}
       playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop} highlightEnabled={highlightEnabled}
-      onSelectWord={setSelectedWordId} onChange={(before, after) => commit({ before: [before], after: [after] })} onSync={onSyncWords}
+      onSelectWord={setSelectedWordId} onChange={(before, after) => commit({ before: [before], after: [after] })} onSync={onSyncWords} onAutoSync={onAutoSyncWords}
       onCandidatePreview={(basis, preview) => { setWordCandidate(preview ? { basis, preview } : null); onWordPreview(basis, preview); }}
       onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText}/>}
     {editMode === 'words' && <div className="timing-move-controls"><label>Step<select aria-label="Word nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}

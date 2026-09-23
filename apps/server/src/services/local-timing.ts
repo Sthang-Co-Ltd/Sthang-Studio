@@ -30,6 +30,10 @@ interface TimingCacheEnvelope {
   result: TimingResult;
 }
 
+export interface LocalTimingAlignOptions {
+  allowWhisperFallback?: boolean;
+}
+
 class LocalTimingWorkerTransportError extends Error {
   constructor(message: string) {
     super(message);
@@ -79,10 +83,14 @@ function timingResultCacheDirFor(cacheNamespace?: string) {
   return path.join(projectTimingCacheRoot(cacheNamespace), 'timing-results');
 }
 
-function timingOptions(cacheNamespace?: string) {
+function effectiveWhisperFallbackEnabled(options?: LocalTimingAlignOptions) {
+  return config.localWhisperFallbackEnabled && options?.allowWhisperFallback !== false;
+}
+
+function timingOptions(cacheNamespace?: string, alignOptions?: LocalTimingAlignOptions) {
   return {
     disableKfa: !config.localKfaEnabled,
-    disableWhisperFallback: !config.localWhisperFallbackEnabled,
+    disableWhisperFallback: !effectiveWhisperFallbackEnabled(alignOptions),
     model: config.localWhisperModel,
     device: config.localWhisperDevice,
     computeType: config.localWhisperComputeType,
@@ -103,14 +111,14 @@ async function audioIdentity(wavPath: string) {
     : `path:${path.resolve(wavPath)}:${stat.size}:${mtime}`;
 }
 
-async function timingCachePath(wavPath: string, transcript: string, cacheNamespace?: string) {
+async function timingCachePath(wavPath: string, transcript: string, cacheNamespace?: string, alignOptions?: LocalTimingAlignOptions) {
   const identity = await audioIdentity(wavPath);
   const signature = crypto.createHash('sha256').update(JSON.stringify({
     version: localTimingResultCacheVersion,
     identity,
     transcript,
     kfaEnabled: config.localKfaEnabled,
-    whisperFallbackEnabled: config.localWhisperFallbackEnabled,
+    whisperFallbackEnabled: effectiveWhisperFallbackEnabled(alignOptions),
     whisperModel: config.localWhisperModel,
     whisperDevice: config.localWhisperDevice,
     whisperComputeType: config.localWhisperComputeType,
@@ -247,7 +255,12 @@ function ensureWorker() {
   return child;
 }
 
-function requestWorker(action: 'warm' | 'prepare' | 'align', payload: Record<string, unknown> = {}, cacheNamespace?: string) {
+function requestWorker(
+  action: 'warm' | 'prepare' | 'align',
+  payload: Record<string, unknown> = {},
+  cacheNamespace?: string,
+  alignOptions?: LocalTimingAlignOptions,
+) {
   const child = ensureWorker();
   const id = `${process.pid}-${Date.now()}-${++workerRequestCounter}`;
   return new Promise<unknown>((resolve, reject) => {
@@ -261,7 +274,7 @@ function requestWorker(action: 'warm' | 'prepare' | 'align', payload: Record<str
     }, workerRequestTimeoutMs);
     pendingRequests.set(id, { resolve, reject, timer });
     try {
-      child.stdin.write(`${JSON.stringify({ id, action, ...payload, options: timingOptions(cacheNamespace) })}\n`);
+      child.stdin.write(`${JSON.stringify({ id, action, ...payload, options: timingOptions(cacheNamespace, alignOptions) })}\n`);
     } catch (error) {
       clearTimeout(timer);
       pendingRequests.delete(id);
@@ -360,7 +373,13 @@ function normalizedTimingResult(parsed: WorkerResult): TimingResult {
   };
 }
 
-async function alignTimingOneShot(wavPath: string, workDir: string, geminiTranscript: string, cacheNamespace?: string): Promise<WorkerResult> {
+async function alignTimingOneShot(
+  wavPath: string,
+  workDir: string,
+  geminiTranscript: string,
+  cacheNamespace?: string,
+  alignOptions?: LocalTimingAlignOptions,
+): Promise<WorkerResult> {
   await fs.mkdir(workDir, { recursive: true });
   const outputPath = path.join(workDir, 'local-timing.json');
   const transcriptPath = path.join(workDir, 'gemini-transcript.txt');
@@ -379,7 +398,7 @@ async function alignTimingOneShot(wavPath: string, workDir: string, geminiTransc
     '--emission-cache-dir', emissionCacheDirFor(cacheNamespace),
   ];
   if (!config.localKfaEnabled) args.push('--disable-kfa');
-  if (!config.localWhisperFallbackEnabled) args.push('--disable-whisper-fallback');
+  if (!effectiveWhisperFallbackEnabled(alignOptions)) args.push('--disable-whisper-fallback');
   await runOneShot(config.localTimingPython, args, 'Local Khmer timing');
   try {
     return JSON.parse(await fs.readFile(outputPath, 'utf8')) as WorkerResult;
@@ -410,9 +429,15 @@ export async function prepareTimingLocally(wavPath: string, cacheNamespace?: str
   }
 }
 
-export async function alignTimingLocally(wavPath: string, workDir: string, geminiTranscript: string, cacheNamespace?: string): Promise<TimingResult> {
+export async function alignTimingLocally(
+  wavPath: string,
+  workDir: string,
+  geminiTranscript: string,
+  cacheNamespace?: string,
+  alignOptions?: LocalTimingAlignOptions,
+): Promise<TimingResult> {
   const namespace = inferCacheNamespace(workDir, cacheNamespace);
-  const cachePath = await timingCachePath(wavPath, geminiTranscript, namespace);
+  const cachePath = await timingCachePath(wavPath, geminiTranscript, namespace, alignOptions);
   const cached = await readTimingResultCache(cachePath);
   if (cached) {
     console.log('[local timing] Deterministic timing-result cache hit.');
@@ -421,12 +446,12 @@ export async function alignTimingLocally(wavPath: string, workDir: string, gemin
 
   let parsed: WorkerResult;
   try {
-    parsed = await requestWorker('align', { audio: wavPath, transcript: geminiTranscript }, namespace) as WorkerResult;
+    parsed = await requestWorker('align', { audio: wavPath, transcript: geminiTranscript }, namespace, alignOptions) as WorkerResult;
   } catch (error) {
     if (error instanceof LocalTimingWorkerTransportError) {
       console.warn(`[local timing] Persistent worker unavailable; using one-shot recovery path. ${error.message}`);
       try {
-        parsed = await alignTimingOneShot(wavPath, workDir, geminiTranscript, namespace);
+        parsed = await alignTimingOneShot(wavPath, workDir, geminiTranscript, namespace, alignOptions);
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         if (/ENOENT|could not start/i.test(message)) {

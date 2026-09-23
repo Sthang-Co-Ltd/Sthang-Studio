@@ -9,6 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const node = process.execPath;
 const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
+const sourceWatch = process.argv?.includes('--source-watch') ?? false;
 
 await ensureRuntimeWorkspaceLinks(root);
 
@@ -216,9 +217,12 @@ function openMacBrowser(url) {
 
 async function startServices() {
   console.log('Starting backend on http://localhost:8787');
-  // This is an end-user runtime, not a source-code development session.
-  // Keep the backend stable during long transcription jobs.
-  launch('server', ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
+  // Installed launchers call this script without --source-watch so long-running
+  // caption jobs stay stable. `npm run dev` opts into Node's source watcher so
+  // backend TypeScript changes cannot leave Vite and the API on different code.
+  launch('server', sourceWatch
+    ? ['--import', 'tsx', '--watch', 'src/index.ts']
+    : ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
   console.log('Waiting for the local backend to be ready...');
   const backendReady = await urlReady('http://127.0.0.1:8787/api/health', { health: true, signal: startup.signal });
   if (stopping) return;

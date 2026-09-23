@@ -26,7 +26,7 @@ async function until(predicate) {
  * on an ephemeral loopback port. No app state, real services or cloud calls are used.
  * VM modules are test-only, enabled by npm run test:startup.
  */
-async function fixture(t, { platform = 'win32', openBrowser = true, registeredBrowser = true, browserStatus = 0, timeout = 2000, onSpawn } = {}) {
+async function fixture(t, { platform = 'win32', openBrowser = true, registeredBrowser = true, browserStatus = 0, timeout = 2000, sourceWatch = false, onSpawn } = {}) {
   const state = {
     backend: { ...waiting }, web: { status: 200, body: '<html>Studio fixture</html>' },
     calls: [], children: [], commands: [], logs: [], exits: [], proxyStatus: [], connectionErrors: [], refuse: false,
@@ -61,7 +61,7 @@ async function fixture(t, { platform = 'win32', openBrowser = true, registeredBr
   const origin = `http://127.0.0.1:${server.address().port}`;
   const processDouble = new EventEmitter();
   Object.assign(processDouble, {
-    platform, execPath: process.execPath, env: { KCS_OPEN_BROWSER: openBrowser ? 'true' : 'false' },
+    platform, execPath: process.execPath, argv: ['node', 'scripts/dev.mjs', ...(sourceWatch ? ['--source-watch'] : [])], env: { KCS_OPEN_BROWSER: openBrowser ? 'true' : 'false' },
     exit: (code) => state.exits.push(code),
   });
   const modules = {
@@ -90,7 +90,7 @@ async function fixture(t, { platform = 'win32', openBrowser = true, registeredBr
         assert.equal(options.shell, false);
         const child = new EventEmitter();
         Object.assign(child, {
-          name: args[0] === '--import' ? 'server' : 'web', pid: 100 + state.children.length, killed: false,
+          name: args[0] === '--import' ? 'server' : 'web', args: [...args], pid: 100 + state.children.length, killed: false,
           kill() { child.killed = true; return true; },
         });
         state.children.push(child);
@@ -150,6 +150,18 @@ async function fixture(t, { platform = 'win32', openBrowser = true, registeredBr
     browsers: () => state.commands.filter(([command]) => command === 'powershell.exe' || command === '/usr/bin/open'),
   };
 }
+
+test('source-watch mode restarts only the source backend while the installed launcher stays stable', async (t) => {
+  const f = await fixture(t, { openBrowser: false, sourceWatch: true, onSpawn: (child, state) => {
+    if (child.name === 'server') state.backend = { ...healthy };
+  }});
+  await f.done;
+  const server = f.state.children.find((child) => child.name === 'server');
+  const web = f.state.children.find((child) => child.name === 'web');
+  assert.ok(server && web);
+  assert.deepEqual(server.args, ['--import', 'tsx', '--watch', 'src/index.ts']);
+  assert.equal(web.args.includes('--watch'), false);
+});
 
 for (const platform of ['win32', 'darwin']) {
   for (const openBrowser of [true, false]) {

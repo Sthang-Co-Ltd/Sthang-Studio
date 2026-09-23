@@ -42,6 +42,54 @@ interface PresentedFrame {
   image: ImageFrame;
 }
 
+const TRANSIENT_PREVIEW_STATUS = new Set([429, 502, 503, 504]);
+const MAX_BUSY_PREVIEW_RETRIES = 3;
+const MAX_RECONNECT_PREVIEW_RETRIES = 6;
+
+class CaptionPreviewResponseError extends Error {
+  constructor(message: string, readonly status = 0, readonly retryable = false) {
+    super(message);
+    this.name = 'CaptionPreviewResponseError';
+  }
+}
+
+async function readCaptionPreviewResponse(response: Response, fallbackMessage: string): Promise<CaptionPreviewResult> {
+  const text = await response.text();
+  let result: (CaptionPreviewResult & { error?: string }) | null = null;
+  if (text.trim()) {
+    try {
+      result = JSON.parse(text) as CaptionPreviewResult & { error?: string };
+    } catch {
+      throw new CaptionPreviewResponseError(
+        response.ok ? 'Caption preview returned an invalid response. Retry preview.' : `${fallbackMessage} (${response.status}).`,
+        response.status,
+        response.ok || TRANSIENT_PREVIEW_STATUS.has(response.status),
+      );
+    }
+  }
+  if (!response.ok) {
+    const retryable = TRANSIENT_PREVIEW_STATUS.has(response.status);
+    const message = typeof result?.error === 'string' && result.error.trim()
+      ? result.error
+      : retryable
+        ? 'Caption preview service is reconnecting. Studio will retry automatically.'
+        : `${fallbackMessage} (${response.status}).`;
+    throw new CaptionPreviewResponseError(message, response.status, retryable);
+  }
+  if (!result || !Number.isFinite(result.width) || !Number.isFinite(result.height) || !Array.isArray(result.frames)) {
+    throw new CaptionPreviewResponseError('Caption preview returned an incomplete response. Retry preview.', response.status, true);
+  }
+  return result;
+}
+
+function previewRequestError(reason: unknown, fallbackMessage: string) {
+  if (reason instanceof CaptionPreviewResponseError) return reason;
+  if (reason instanceof TypeError) {
+    return new CaptionPreviewResponseError('Caption preview connection was interrupted. Studio will retry automatically.', 0, true);
+  }
+  return new CaptionPreviewResponseError(reason instanceof Error ? reason.message : fallbackMessage);
+}
+
 export interface NativeCaptionPreviewHandle {
   /** Resolve only after the bounded replay opening has decoded native pixels. */
   prepareReplay(startMs: number, endMs: number, signal: AbortSignal): Promise<boolean>;
@@ -136,8 +184,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
             body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, batch, focusMask, payload.appearance), timesMs: batch.map((item) => item.atMs) }),
           });
-          const result = await response.json() as CaptionPreviewResult & { error?: string };
-          if (!response.ok) throw new Error(result.error || 'The effect preview could not be prepared. Try Replay effect again.');
+          const result = await readCaptionPreviewResponse(response, 'The effect preview could not be prepared. Try Replay effect again.');
           for (const target of batch) {
             const image = result.frames.find((item) => item.atMs === target.atMs);
             if (!image) throw new Error('The effect preview returned an incomplete set of frames. Try again.');
@@ -166,7 +213,12 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         return true;
       } catch (reason) {
         if (controller.signal.aborted && !timedOut) return false;
-        const error = new Error(timedOut ? 'Preparing the effect preview took too long. Try Replay effect again.' : reason instanceof Error ? reason.message : 'The effect preview could not be prepared.');
+        const normalized = previewRequestError(reason, 'The effect preview could not be prepared.');
+        const error = new Error(timedOut
+          ? 'Preparing the effect preview took too long. Try Replay effect again.'
+          : normalized.retryable
+            ? 'Preparing the effect preview was interrupted. Try Replay effect again.'
+            : normalized.message);
         if (session.current === current) current.error = error.message;
         throw error;
       } finally {
@@ -249,11 +301,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
             body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, missing, focusMask, payload.appearance), timesMs: missing.map((item) => item.atMs) }),
           });
-          const result = await response.json() as CaptionPreviewResult & { error?: string };
-          if (!response.ok) {
-            if (response.status === 429 && current.retries < 3) { current.retries += 1; return; }
-            throw new Error(result.error || 'Caption preview could not render.');
-          }
+          const result = await readCaptionPreviewResponse(response, 'Caption preview could not render.');
           if (controller.signal.aborted) return;
           for (const image of result.frames) {
             const target = missing.find((item) => item.atMs === image.atMs);
@@ -279,8 +327,16 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             current.cache.delete(id);
           }
           current.retries = 0;
-        } catch (error) {
-          if (!controller.signal.aborted && session.current === current) current.error = error instanceof Error ? error.message : 'Caption preview is unavailable.';
+        } catch (reason) {
+          if (!controller.signal.aborted && session.current === current) {
+            const error = previewRequestError(reason, 'Caption preview is unavailable.');
+            const retryLimit = error.status === 429 ? MAX_BUSY_PREVIEW_RETRIES : MAX_RECONNECT_PREVIEW_RETRIES;
+            if (error.retryable && current.retries < retryLimit) {
+              current.retries += 1;
+              return;
+            }
+            current.error = error.message;
+          }
         } finally {
           if (activeRequest.current === request) activeRequest.current = null;
           clearOwnedPending();

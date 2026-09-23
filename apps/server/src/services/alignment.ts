@@ -215,12 +215,15 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
     const sttConfidence = confidenceValues.length ? confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length : undefined;
     const weights = gemini.slice(group.gStart, group.gStart + group.gLen).map((t) => Math.max(1, [...t.normalized].length));
     const ranges = splitRange(startMs, endMs, weights);
+    const directAlignedUnion = timing.directAlignment === true
+      && group.gLen === 1
+      && !words.some((word) => word.derived);
     ranges.forEach((range, offset) => {
       assigned[group.gStart + offset] = {
         ...range,
         confidence: sttConfidence,
         alignmentScore: group.score,
-        timingSource: group.gLen === 1 && group.sLen === 1 && !words.some((w) => w.derived) ? 'stt' : 'stt-split',
+        timingSource: directAlignedUnion || (group.gLen === 1 && group.sLen === 1 && !words.some((word) => word.derived)) ? 'stt' : 'stt-split',
       };
     });
   }

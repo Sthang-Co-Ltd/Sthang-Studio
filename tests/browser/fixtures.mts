@@ -36,6 +36,7 @@ export interface FixtureState {
   appearanceFailure: boolean;
   native: boolean;
   previewError: string;
+  previewGatewayFailures: number;
 }
 
 let scratch: string;
@@ -161,7 +162,7 @@ export function createSyntheticWav(durationSeconds: number, frequency = 440, sam
 }
 
 export async function installFixture(page: Page): Promise<FixtureState> {
-  const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, fonts: structuredClone(capabilities.fonts), jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '' };
+  const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, fonts: structuredClone(capabilities.fonts), jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '', previewGatewayFailures: 0 };
   await page.addInitScript(() => {
     for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
     // A deterministic polling fallback: no unbounded SSE reconnect loop in a test fixture.
@@ -305,6 +306,10 @@ export async function installFixture(page: Page): Promise<FixtureState> {
     if (current && url.pathname.endsWith('/capabilities')) return json(capabilities);
     if (current && url.pathname.endsWith('/preview')) {
       const delay = state.previewDelay(body); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (state.previewGatewayFailures > 0) {
+        state.previewGatewayFailures -= 1;
+        return route.fulfill({ status: 502, contentType: 'text/plain', body: '' });
+      }
       if (state.previewError) return json({ error: state.previewError }, 400);
       try {
         const result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), capabilities, undefined, { projectId: current.id, mediaIdentity: current.media.filename }) : {

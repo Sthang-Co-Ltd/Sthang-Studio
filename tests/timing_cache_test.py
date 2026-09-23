@@ -20,6 +20,7 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("studio_timing_worker", Path(__file__).resolve().parents[1] / "local-timing" / "worker.py")
 worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
+REAL_ALIGN_KFA_EMISSION = worker.align_kfa_emission
 
 
 class ArrayFixture:
@@ -233,6 +234,28 @@ class TimingCacheTests(unittest.TestCase):
                             self.fallback.assert_called_once()
                     finally:
                         operation.side_effect = None
+
+    def test_kfa_alignment_rejects_impossible_frame_capacity_before_backtrack(self):
+        emission = SimpleNamespace(shape=(16, 64))
+        get_trellis = Mock(side_effect=AssertionError("get_trellis should not run"))
+        backtrack = Mock(side_effect=AssertionError("backtrack should not run"))
+        modules = {
+            "kfa.text_normalize": SimpleNamespace(
+                tokenize_phonemize=lambda _text: [("fixture", "fixture", list(range(1, 18)))],
+            ),
+            "kfa.utils": SimpleNamespace(
+                backtrack=backtrack,
+                get_trellis=get_trellis,
+                intersperse=lambda values, separator: values,
+                merge_repeats=Mock(),
+                merge_words=Mock(),
+                vocabs={"[PAD]": 0, "|": 63},
+            ),
+        }
+        with patch.dict(sys.modules, modules), self.assertRaisesRegex(RuntimeError, "16 acoustic frames for 17 alignment tokens"):
+            REAL_ALIGN_KFA_EMISSION(emission, 16_000, 16_000, "fixture")
+        get_trellis.assert_not_called()
+        backtrack.assert_not_called()
 
     def test_missing_audio_and_empty_transcript_still_reject(self):
         args = worker.options_namespace({})

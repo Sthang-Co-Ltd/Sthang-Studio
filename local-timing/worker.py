@@ -269,8 +269,20 @@ def align_kfa_emission(emission, sample_count: int, sr: int, transcript: str):
     if not token_ids:
         raise RuntimeError("KFA produced no transcript tokens for alignment.")
 
+    frame_count = int(emission.shape[0])
+    if frame_count < len(token_ids):
+        raise RuntimeError(
+            f"KFA audio window is too short for this transcript "
+            f"({frame_count} acoustic frames for {len(token_ids)} alignment tokens)."
+        )
+
     trellis = get_trellis(emission, token_ids, blank_id=blank_id)
-    path = backtrack(trellis, emission, token_ids, blank_id=blank_id)
+    try:
+        path = backtrack(trellis, emission, token_ids, blank_id=blank_id)
+    except AssertionError as error:
+        raise RuntimeError(
+            "KFA could not fit this transcript into the available acoustic window."
+        ) from error
     segments = merge_repeats(path, phonetic_text)
     word_segments = merge_words(segments)
     if not word_segments:

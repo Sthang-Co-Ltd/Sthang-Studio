@@ -250,6 +250,190 @@ test('fallback warnings stay user-facing and do not expose timing engine/provide
   assert.equal(result.warnings?.some((warning) => /kfa|whisper|provider|model/i.test(warning)), false);
 });
 
+test('local word sync gives short cues enough acoustic context without crossing media bounds', async () => {
+  const cases = [
+    { name: 'interior', mediaDurationMs: 5_000, startMs: 2_000, endMs: 2_200, expectedStart: 1_700, expectedDuration: 800 },
+    { name: 'near-start', mediaDurationMs: 5_000, startMs: 50, endMs: 250, expectedStart: 0, expectedDuration: 800 },
+    { name: 'near-end', mediaDurationMs: 5_000, startMs: 4_750, endMs: 4_950, expectedStart: 4_200, expectedDuration: 800 },
+    { name: 'longer-cue', mediaDurationMs: 5_000, startMs: 1_000, endMs: 2_000, expectedStart: 900, expectedDuration: 1_200 },
+    { name: 'short-source', mediaDurationMs: 600, startMs: 100, endMs: 300, expectedStart: 0, expectedDuration: 600 },
+  ];
+
+  for (const item of cases) {
+    await test(item.name, async () => {
+      const basis: CaptionSegment = { id: `window-${item.name}`, startMs: item.startMs, endMs: item.endMs, text: 'hello' };
+      const project: CaptionProject = {
+        id: `window-${item.name}`,
+        title: 'Word timing window fixture',
+        createdAt: '2026-09-23T00:00:00.000Z',
+        updatedAt: '2026-09-23T00:00:00.000Z',
+        media: { filename: `${item.name}.mp4`, originalName: `${item.name}.mp4`, mimeType: 'video/mp4', size: 1, url: `/media/${item.name}.mp4` },
+        transcript: null,
+        captions: [basis],
+        mode: 'single-line',
+      };
+      let chunkStart = -1;
+      let chunkDuration = -1;
+      let whisperFallbackAllowed: boolean | undefined;
+      const dependencies = fakeDependencies(async () => structuredClone(project), {
+        ensureNormalizedAudio: async () => ({
+          dir: `cache/${project.id}`,
+          outputPath: `cache/${project.id}/normalized.wav`,
+          durationMs: item.mediaDurationMs,
+          fingerprint: 'fixture-media',
+          cacheHit: true,
+          cachedAt: '2026-09-23T00:00:00.000Z',
+        }),
+        makeAudioChunk: async (_source, outputPath, startMs, durationMs) => {
+          chunkStart = startMs;
+          chunkDuration = durationMs;
+          return { outputPath, durationMs, cacheHit: true, directSource: false };
+        },
+        alignTimingLocally: async (_wavPath, _workDir, _transcript, _cacheNamespace, options) => {
+          whisperFallbackAllowed = options?.allowWhisperFallback;
+          return {
+            transcript: 'hello',
+            words: [{
+              text: 'hello',
+              startMs: Math.max(0, item.startMs - chunkStart + 10),
+              endMs: Math.min(chunkDuration, item.endMs - chunkStart - 10),
+              confidence: 0.99,
+            }],
+            engine: 'kfa-local', provider: 'local', model: 'fake-local', directAlignment: true,
+          };
+        },
+      }).dependencies;
+
+      const result = await syncCaptionWordsLocally(project.id, basis, project.media, dependencies);
+      assert.equal(chunkStart, item.expectedStart);
+      assert.equal(chunkDuration, item.expectedDuration);
+      assert.equal(whisperFallbackAllowed, false);
+      assert.equal(resolveCaptionWordTiming({ ...basis, wordTiming: result.wordTiming }).state, 'ready');
+    });
+  }
+});
+
+test('local word sync automatically trims trustworthy edge spill to the caption interval', async () => {
+  const text = 'hello world';
+  const basis: CaptionSegment = { id: 'edge-spill', startMs: 1_000, endMs: 1_500, text };
+  const project: CaptionProject = {
+    id: 'edge-spill-sync',
+    title: 'Word timing edge spill fixture',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+    media: { filename: 'edge-spill.mp4', originalName: 'edge-spill.mp4', mimeType: 'video/mp4', size: 2222, url: '/media/edge-spill.mp4' },
+    transcript: null,
+    captions: [basis],
+    mode: 'single-line',
+  };
+  const dependencies = fakeDependencies(async () => structuredClone(project), {
+    alignTimingLocally: async () => ({
+      transcript: text,
+      words: [
+        { text: 'hello', startMs: 100, endMs: 320, confidence: 0.99 },
+        { text: 'world', startMs: 430, endMs: 700, confidence: 0.99 },
+      ],
+      engine: 'kfa-local', provider: 'local', model: 'fake-local', directAlignment: true,
+    }),
+  }).dependencies;
+
+  const result = await syncCaptionWordsLocally(project.id, basis, project.media, dependencies);
+  const resolved = resolveCaptionWordTiming({ ...basis, wordTiming: result.wordTiming });
+  assert.equal(resolved.state, 'ready');
+  assert.equal(result.wordTiming.words[0].startMs, basis.startMs);
+  assert.equal(result.wordTiming.words.at(-1)?.endMs, basis.endMs);
+  assert.equal(result.wordTiming.words.some((word) => word.needsReview), false);
+});
+
+test('local word sync keeps wholly out-of-cue evidence review-required instead of pulling it into the caption', async () => {
+  const text = 'hello world';
+  const basis: CaptionSegment = { id: 'outside-evidence', startMs: 1_000, endMs: 1_500, text };
+  const project: CaptionProject = {
+    id: 'outside-evidence-sync',
+    title: 'Word timing outside evidence fixture',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+    media: { filename: 'outside-evidence.mp4', originalName: 'outside-evidence.mp4', mimeType: 'video/mp4', size: 3333, url: '/media/outside-evidence.mp4' },
+    transcript: null,
+    captions: [basis],
+    mode: 'single-line',
+  };
+  const dependencies = fakeDependencies(async () => structuredClone(project), {
+    alignTimingLocally: async () => ({
+      transcript: text,
+      words: [
+        { text: 'hello', startMs: 0, endMs: 40, confidence: 0.99 },
+        { text: 'world', startMs: 300, endMs: 420, confidence: 0.99 },
+      ],
+      engine: 'kfa-local', provider: 'local', model: 'fake-local', directAlignment: true,
+    }),
+  }).dependencies;
+
+  const result = await syncCaptionWordsLocally(project.id, basis, project.media, dependencies);
+  const resolved = resolveCaptionWordTiming({ ...basis, wordTiming: result.wordTiming });
+  assert.equal(resolved.state, 'partial');
+  assert.ok((result.wordTiming.words[0].startMs ?? basis.startMs) < basis.startMs);
+});
+
+test('exact direct KFA unions stay aligned without treating raw path score as ASR confidence', async () => {
+  const text = 'notebook';
+  const basis: CaptionSegment = { id: 'direct-union', startMs: 1_000, endMs: 1_800, text };
+  const project: CaptionProject = {
+    id: 'direct-union-sync',
+    title: 'Direct KFA union fixture',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+    media: { filename: 'direct-union.mp4', originalName: 'direct-union.mp4', mimeType: 'video/mp4', size: 4444, url: '/media/direct-union.mp4' },
+    transcript: null,
+    captions: [basis],
+    mode: 'single-line',
+  };
+  const dependencies = fakeDependencies(async () => structuredClone(project), {
+    alignTimingLocally: async () => ({
+      transcript: text,
+      words: [
+        { text: 'note', startMs: 120, endMs: 360, confidence: 0.08 },
+        { text: 'book', startMs: 390, endMs: 650, confidence: 0.12 },
+      ],
+      engine: 'kfa-local', provider: 'local', model: 'fake-local', directAlignment: true,
+    }),
+  }).dependencies;
+
+  const result = await syncCaptionWordsLocally(project.id, basis, project.media, dependencies);
+  const resolved = resolveCaptionWordTiming({ ...basis, wordTiming: result.wordTiming });
+  assert.equal(resolved.state, 'ready');
+  assert.equal(result.wordTiming.words.length, 1);
+  assert.equal(result.wordTiming.words[0].source, 'aligned');
+  assert.equal(result.wordTiming.words[0].needsReview, undefined);
+});
+
+test('exact direct KFA still marks proportional one-anchor text splits for review', async () => {
+  const text = 'note book';
+  const basis: CaptionSegment = { id: 'direct-split', startMs: 1_000, endMs: 1_800, text };
+  const project: CaptionProject = {
+    id: 'direct-split-sync',
+    title: 'Direct KFA split fixture',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+    media: { filename: 'direct-split.mp4', originalName: 'direct-split.mp4', mimeType: 'video/mp4', size: 5555, url: '/media/direct-split.mp4' },
+    transcript: null,
+    captions: [basis],
+    mode: 'single-line',
+  };
+  const dependencies = fakeDependencies(async () => structuredClone(project), {
+    alignTimingLocally: async () => ({
+      transcript: text,
+      words: [{ text: 'notebook', startMs: 120, endMs: 650, confidence: 0.99 }],
+      engine: 'kfa-local', provider: 'local', model: 'fake-local', directAlignment: true,
+    }),
+  }).dependencies;
+
+  const result = await syncCaptionWordsLocally(project.id, basis, project.media, dependencies);
+  const resolved = resolveCaptionWordTiming({ ...basis, wordTiming: result.wordTiming });
+  assert.equal(resolved.state, 'partial');
+  assert.ok(result.wordTiming.words.every((word) => word.source === 'estimated' && word.needsReview));
+});
+
 test('local sync rebuilds exact Khmer spaces and trailing punctuation after alignment spacing normalization', async () => {
   const text = 'ខ្មែរ ស្រឡាញ់ កម្ពុជា!';
   const basis: CaptionSegment = { id: 'exact-khmer', startMs: 1_000, endMs: 2_500, text };

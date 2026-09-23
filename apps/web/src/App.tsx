@@ -72,7 +72,7 @@ import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { deferWorkspace } from './components/DeferredWorkspace';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
-import { sameTimingRevision, timingFields } from './timing-edit';
+import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-edit';
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
 import { waitForCaptionAppearanceSaves } from './caption-appearance-save';
@@ -269,6 +269,8 @@ export default function App() {
   const queuedCaption = useRef<string | null>(null);
   const trackedJobIds = useRef(new Set<string>());
   const handledJobIds = useRef(new Set<string>());
+  const automaticWordSyncAttempts = useRef(new Set<string>());
+  const automaticWordSyncInFlight = useRef(new Set<string>());
   const lastChangeReason = useRef<DraftChangeReason>('metadata');
   const aiOnboardingShown = useRef(false);
   const reviewPlaybackPass = useRef<ReviewPlaybackPass>('focus');
@@ -861,6 +863,23 @@ export default function App() {
       }
       return candidate;
     } finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
+  };
+
+  const autoSyncCaptionWords = async (caption: CaptionSegment, signal?: AbortSignal) => {
+    if (!project) return undefined;
+    const attemptKey = `${mediaKey}:${timingRevisionKey(caption)}`;
+    if (automaticWordSyncAttempts.current.has(attemptKey) || automaticWordSyncInFlight.current.has(attemptKey)) return undefined;
+    automaticWordSyncInFlight.current.add(attemptKey);
+    try {
+      const result = await syncCaptionWords(caption, signal);
+      if (!signal?.aborted) automaticWordSyncAttempts.current.add(attemptKey);
+      return result;
+    } catch (error) {
+      if (!signal?.aborted) automaticWordSyncAttempts.current.add(attemptKey);
+      throw error;
+    } finally {
+      automaticWordSyncInFlight.current.delete(attemptKey);
+    }
   };
 
   const refreshJobs = async () => {
@@ -2050,6 +2069,7 @@ export default function App() {
               return true;
             }}
             onSyncWords={syncCaptionWords}
+            onAutoSyncWords={autoSyncCaptionWords}
             syncDisabled={Boolean(busy || currentProjectActiveJob || !timingConfigured)}
             highlightEnabled={previewAppearance.highlightMode === 'word'}
             onOpenAppearance={() => chooseWorkspaceTool('appearance')}

@@ -16,15 +16,25 @@ export function timingFields(caption: CaptionSegment) {
   };
 }
 
+/** Stable identity for the exact caption revision owned by timing operations. */
+export function timingRevisionKey(caption: CaptionSegment) {
+  return JSON.stringify({
+    id: caption.id,
+    text: caption.text,
+    startMs: caption.startMs,
+    endMs: caption.endMs,
+    timingSource: caption.timingSource ?? null,
+    timingQuality: caption.timingQuality ?? null,
+    approved: Boolean(caption.approved),
+    timingLocked: Boolean(caption.timingLocked),
+    textLocked: Boolean(caption.textLocked),
+    wordTiming: caption.wordTiming ?? null,
+  });
+}
+
 /** Do not undo across a text edit, new lock, approval, or another timing edit. */
 export function sameTimingRevision(current: CaptionSegment | undefined, expected: CaptionSegment) {
-  return Boolean(current && current.id === expected.id && current.text === expected.text
-    && current.startMs === expected.startMs && current.endMs === expected.endMs
-    && current.timingSource === expected.timingSource && current.timingQuality === expected.timingQuality
-    && Boolean(current.approved) === Boolean(expected.approved)
-    && Boolean(current.timingLocked) === Boolean(expected.timingLocked)
-    && Boolean(current.textLocked) === Boolean(expected.textLocked)
-    && JSON.stringify(current.wordTiming ?? null) === JSON.stringify(expected.wordTiming ?? null));
+  return Boolean(current && timingRevisionKey(current) === timingRevisionKey(expected));
 }
 
 /** Move preserves duration; edge edits preserve the other edge. Never mutate a neighbour. */

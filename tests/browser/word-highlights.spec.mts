@@ -203,6 +203,28 @@ test('local sync is a proposal until Use timing, and applying it participates in
   await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1550);
 });
 
+test('opening unresolved word timing automatically prepares one ready local proposal without applying it', async ({ page }) => {
+  let requests = 0;
+  first().wordTiming!.words[0].needsReview = true;
+  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
+    requests += 1;
+    const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
+    const wordTiming = structuredClone(caption.wordTiming!);
+    wordTiming.words[0] = { ...wordTiming.words[0] };
+    delete wordTiming.words[0].needsReview;
+    await route.fulfill({ json: { basis: caption, wordTiming } });
+  });
+
+  const before = structuredClone(first().wordTiming);
+  await openTiming(page);
+  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toBeVisible();
+  expect(requests).toBe(1);
+  expect(first().wordTiming).toEqual(before);
+  await page.getByRole('button', { name: 'Keep current', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toHaveCount(0);
+  expect(requests).toBe(1);
+});
+
 test('an unchanged sync proposal clears the selected word invalid draft without applying it', async ({ page }) => {
   await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
     const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };

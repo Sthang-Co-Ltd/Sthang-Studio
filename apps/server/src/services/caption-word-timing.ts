@@ -7,11 +7,12 @@ import {
   type CaptionProject,
   type CaptionSegment,
   type CaptionWordTiming,
+  type TimedToken,
 } from '@kcs/shared';
 import { config } from '../config.js';
 import { alignGeminiToTiming } from './alignment.js';
 import { ensureNormalizedAudio, mediaFingerprint, stageSignature } from './cache.js';
-import { alignTimingLocally } from './local-timing.js';
+import { alignTimingLocally, type LocalTimingAlignOptions } from './local-timing.js';
 import { makeAudioChunk, removeWorkingDir } from './media.js';
 import { store } from './store.js';
 import { offsetTokens } from './transcript.js';
@@ -21,6 +22,8 @@ type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
 
 export const MAX_CAPTION_WORD_SYNC_DURATION_MS = 60_000;
 export const MAX_CAPTION_WORD_SYNC_TEXT_CHARS = 2_000;
+const MIN_CAPTION_WORD_TIMING_WINDOW_MS = 800;
+const CAPTION_WORD_TIMING_PADDING_MS = 100;
 
 export interface CaptionWordTimingCandidate {
   basis: CaptionSegment;
@@ -61,7 +64,13 @@ export interface CaptionWordTimingDependencies {
   getProject(projectId: string): Promise<CaptionProject | null>;
   ensureNormalizedAudio(project: Pick<CaptionProject, 'id' | 'media'>): ReturnType<typeof ensureNormalizedAudio>;
   makeAudioChunk(sourceWav: string, outputPath: string, startMs: number, durationMs: number): ReturnType<typeof makeAudioChunk>;
-  alignTimingLocally(wavPath: string, workDir: string, transcript: string, cacheNamespace?: string): ReturnType<typeof alignTimingLocally>;
+  alignTimingLocally(
+    wavPath: string,
+    workDir: string,
+    transcript: string,
+    cacheNamespace?: string,
+    options?: LocalTimingAlignOptions,
+  ): ReturnType<typeof alignTimingLocally>;
   removeWorkingDir(workDir: string): Promise<void>;
 }
 
@@ -168,6 +177,33 @@ function validateBasis(value: CaptionSegment) {
   }
 }
 
+function captionWordTimingWindow(captionStart: number, captionEnd: number, mediaDurationMs: number) {
+  const cueDuration = captionEnd - captionStart;
+  const desiredDuration = Math.min(
+    mediaDurationMs,
+    Math.max(MIN_CAPTION_WORD_TIMING_WINDOW_MS, cueDuration + CAPTION_WORD_TIMING_PADDING_MS * 2),
+  );
+  const centeredStart = Math.round((captionStart + captionEnd - desiredDuration) / 2);
+  const chunkStart = Math.max(0, Math.min(centeredStart, mediaDurationMs - desiredDuration));
+  return { chunkStart, chunkEnd: chunkStart + desiredDuration };
+}
+
+function fitAlignedTokensToCaption(tokens: TimedToken[], caption: CaptionSegment, directAlignment: boolean) {
+  if (!directAlignment) return tokens;
+  return tokens.map((token, index) => {
+    if (token.timingSource !== 'stt') return token;
+    if (!Number.isFinite(token.startMs) || !Number.isFinite(token.endMs) || token.endMs <= token.startMs) return token;
+    const startMs = index === 0 ? Math.max(token.startMs, caption.startMs) : token.startMs;
+    const endMs = index === tokens.length - 1 ? Math.min(token.endMs, caption.endMs) : token.endMs;
+    // Only trim evidence that still overlaps the cue. A word wholly outside the
+    // caption is genuinely unresolved and must remain review-required instead of
+    // being pulled into the cue programmatically.
+    if (endMs <= startMs) return token;
+    if (startMs === token.startMs && endMs === token.endMs) return token;
+    return { ...token, startMs, endMs };
+  });
+}
+
 function alignmentWarnings(wordTiming: CaptionWordTiming, engineFallbackReason?: string) {
   const warnings: string[] = [];
   const reviewCount = wordTiming.words.filter((word) => word.needsReview || word.source === 'estimated').length;
@@ -207,11 +243,11 @@ export async function syncCaptionWordsLocally(
       throw new CaptionWordTimingInputError('Caption timing falls outside the source audio.');
     }
 
-    // Exact-word forced alignment benefits from a tiny acoustic margin, while a
-    // large context window can pull the first/last word toward unrelated speech.
-    const paddingMs = 100;
-    const chunkStart = Math.max(0, captionStart - paddingMs);
-    const chunkEnd = Math.min(normalized.durationMs, captionEnd + paddingMs);
+    // Exact-word forced alignment needs enough acoustic frames to consume the
+    // transcript. Very short cues can otherwise underflow KFA's CTC backtrack
+    // before it reaches the first token. Keep the ordinary 100 ms margins for
+    // longer cues, but clamp-and-shift short cues to a tight 800 ms minimum.
+    const { chunkStart, chunkEnd } = captionWordTimingWindow(captionStart, captionEnd, normalized.durationMs);
     workDir = path.join(config.workingDir, `${initial.id}-word-timing-${nanoid(6)}`);
     const chunkPath = path.join(workDir, 'caption.wav');
     const chunk = await dependencies.makeAudioChunk(normalized.outputPath, chunkPath, chunkStart, chunkEnd - chunkStart);
@@ -225,7 +261,16 @@ export async function syncCaptionWordsLocally(
       throw new CaptionWordTimingConflictError('The project changed while word timing was being prepared. Its newer edits were kept.');
     }
 
-    const timing = await dependencies.alignTimingLocally(chunkPath, workDir, basis.text, initial.id);
+    // Sync words already owns the exact saved wording. Keep this bounded action on
+    // KFA instead of cold-loading unconstrained Whisper when exact forced alignment
+    // cannot support the cue; manual word timing remains the recovery path.
+    const timing = await dependencies.alignTimingLocally(
+      chunkPath,
+      workDir,
+      basis.text,
+      initial.id,
+      { allowWhisperFallback: false },
+    );
     const aligned = alignGeminiToTiming(
       basis.text,
       timing,
@@ -233,7 +278,10 @@ export async function syncCaptionWordsLocally(
       parseVocabulary(initial.transcriptionContext?.vocabulary || []),
     );
     const absoluteTokens = offsetTokens(aligned.tokens, chunkStart, normalized.durationMs);
-    const wordTiming = buildCaptionWordTimingForExactText(basis, absoluteTokens);
+    const fittedTokens = fitAlignedTokensToCaption(absoluteTokens, basis, Boolean(aligned.diagnostics.directAlignment));
+    const wordTiming = buildCaptionWordTimingForExactText(basis, fittedTokens, {
+      ignoreConfidenceForReview: aligned.diagnostics.directAlignment === true,
+    });
     if (!wordTiming) {
       throw new Error('Local timing could not map the exact caption wording to spoken-word anchors.');
     }

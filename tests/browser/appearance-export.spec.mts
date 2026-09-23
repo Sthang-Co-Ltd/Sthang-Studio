@@ -276,6 +276,14 @@ test('missing preview does not masquerade as a CSS match; retry restores it and 
   await expect(page.locator('.native-caption-image')).toHaveAttribute('alt', 'ខ្មែររបស់យើង');
 });
 
+test('empty gateway preview responses recover automatically without exposing a JSON parser error', async ({ page }) => {
+  state.previewGatewayFailures = 3;
+  await openProject(page);
+  await expect(page.locator('.native-caption-image')).toBeVisible();
+  await expect(page.getByText(/Unexpected end of JSON input/i)).toHaveCount(0);
+  expect(state.requests.filter((request) => request.path.endsWith('/preview')).length).toBeGreaterThanOrEqual(4);
+});
+
 test('preset management and computed controls keep their real accessible states and touch targets', async ({ page }) => {
   await openProject(page); await appearancePanel(page);
   const size = page.getByLabel(/^Size /); await size.fill('74');
