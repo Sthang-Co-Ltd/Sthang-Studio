@@ -201,10 +201,14 @@ function longRequestTimeout(error: unknown) {
   return error instanceof GeminiRequestTimeoutError || statusFromError(error) === 504;
 }
 
-function transcriptionRescueEligible(error: unknown) {
+function rateLimitedGeminiError(error: unknown) {
+  return statusFromError(error) === 429;
+}
+
+export function transcriptionRescueEligible(error: unknown) {
   const status = statusFromError(error);
   if (error instanceof GeminiRequestTimeoutError) return true;
-  if (status === 408 || (status != null && status >= 500 && status <= 599)) return true;
+  if (status === 408 || status === 429 || (status != null && status >= 500 && status <= 599)) return true;
   return status == null && /temporar|unavailable|timeout|timed out|overload|connection|network|fetch failed/.test(deepErrorText(error));
 }
 
@@ -312,9 +316,10 @@ export async function createInteractionWithRetry(
       lastError = error;
       if (!transientGeminiError(error) || attempt >= maxAttempts) throw error;
       // A 504 (or Studio's own per-request deadline) already consumed the long
-      // request budget. Move to the configured fallback instead of repeating the
-      // same model for another full timeout window.
-      if (longRequestTimeout(error)) throw error;
+      // request budget. A 429 often carries a long Retry-After and is usually a
+      // capacity/quota signal rather than a request-quality problem. In both cases
+      // fail over immediately instead of spending minutes retrying the same model.
+      if (longRequestTimeout(error) || rateLimitedGeminiError(error)) throw error;
       const exponent = Math.max(0, attempt - 1);
       const exponential = Math.min(config.geminiRetryMaxMs, config.geminiRetryBaseMs * 2 ** exponent);
       const serverDelay = retryAfterMs(error);
@@ -397,7 +402,107 @@ async function runTranscriptionRescue(
   uploaded: { uri: string; mimeType: string },
   entries: VocabularyEntry[],
 ) {
-  return runTranscriptionModel(ai, model, uploaded, entries, true);
+  return runTranscriptionModel(ai, model, uploaded, entries, false);
+}
+
+function unavailableMessage(error: unknown, triedCompatibility: boolean) {
+  if (rateLimitedGeminiError(error)) {
+    return triedCompatibility
+      ? 'Google is rate-limiting this Gemini key/project. Studio tried the configured context-aware models and one compatibility transcription pass. Your video and project are safe; use Resume in Activity when capacity returns.'
+      : 'Google is rate-limiting this Gemini key/project. Studio stopped instead of waiting through repeated Retry-After delays. Your video and project are safe; use Resume in Activity when capacity returns.';
+  }
+  return triedCompatibility
+    ? 'Gemini is temporarily unavailable. Studio tried the context-aware caption models and one compatibility transcription pass. Your video and project are safe; use Resume in Activity when the service recovers.'
+    : 'Gemini is temporarily unavailable. Your video and project are safe; use Resume in Activity when the service recovers.';
+}
+
+export async function runGeminiModelChain(
+  ai: GoogleGenAI,
+  uploaded: { uri: string; mimeType: string },
+  prompt: string,
+  entries: VocabularyEntry[],
+  guidance: GeminiTranscriptionGuidance | undefined,
+  llm: Pick<ResolvedGeminiSettings, 'model' | 'fallbackModel'>,
+): Promise<GeminiTranscript> {
+  const finish = (
+    raw: Pick<TranscriptResult, 'language' | 'fullText'>,
+    model: string,
+    fallbackUsed: boolean,
+    attempts: number,
+    nativeVocabularyBias: boolean,
+    contextMode: GeminiTranscript['contextMode'] = 'full',
+  ): GeminiTranscript => {
+    const alignmentText = raw.fullText;
+    const canonicalized = canonicalizeVocabularyAliases(raw.fullText, entries);
+    if (canonicalized.replacements) console.log(`[Gemini] Applied ${canonicalized.replacements} user-owned vocabulary alias replacement(s) after transcription.`);
+    return {
+      language: raw.language,
+      fullText: canonicalized.text,
+      alignmentText,
+      textModel: model,
+      fallbackUsed,
+      attempts,
+      nativeVocabularyBias,
+      contextMode,
+      vocabularyTerms: entries.map((entry) => entry.canonical),
+    };
+  };
+
+  const rescueModel = config.geminiTranscriptionRescueModel.trim();
+  const runCompatibilityRescue = async (sourceModel: string, sourceError: unknown) => {
+    console.warn(`[Gemini] ${sourceModel}: ${retryFailureLabel(sourceError)}. Trying one transcription-only compatibility pass.`);
+    try {
+      const rescue = await runTranscriptionRescue(ai, rescueModel, uploaded, entries);
+      const value = finish(
+        rescue.transcript,
+        rescueModel,
+        true,
+        rescue.attempts,
+        rescue.nativeVocabularyBias,
+        rescue.contextMode,
+      );
+      console.warn('[Gemini] Compatibility transcription succeeded. Topic description was not applied to this rescue pass.');
+      return value;
+    } catch (rescueError) {
+      if (transientGeminiError(rescueError)) {
+        throw new GeminiUnavailableError(unavailableMessage(rescueError, true), rescueError);
+      }
+      throw rescueError;
+    }
+  };
+
+  try {
+    const primary = await runModel(ai, llm.model, uploaded, prompt, entries, guidance);
+    return finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias, primary.contextMode);
+  } catch (primaryError) {
+    const fallback = llm.fallbackModel.trim();
+    const primaryCanFailOver = transientGeminiError(primaryError) || primaryError instanceof GeminiGuidanceUnsupportedError;
+    if (!fallback || fallback === llm.model || !primaryCanFailOver) {
+      if (rateLimitedGeminiError(primaryError)) throw new GeminiUnavailableError(unavailableMessage(primaryError, false), primaryError);
+      throw primaryError;
+    }
+    console.warn(`[Gemini] ${llm.model}: ${retryFailureLabel(primaryError)}. Trying configured fallback ${fallback}.`);
+    try {
+      const secondary = await runModel(ai, fallback, uploaded, prompt, entries, guidance);
+      return finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias, secondary.contextMode);
+    } catch (fallbackError) {
+      const canRescue = !guidance
+        && Boolean(rescueModel)
+        && rescueModel !== llm.model
+        && rescueModel !== fallback
+        && transcriptionRescueEligible(fallbackError);
+      if (canRescue) return runCompatibilityRescue(fallback, fallbackError);
+      if (transientGeminiError(fallbackError)) {
+        throw new GeminiUnavailableError(
+          rateLimitedGeminiError(fallbackError)
+            ? unavailableMessage(fallbackError, false)
+            : `Gemini is temporarily unavailable. Studio tried ${llm.model} and ${fallback}. Your video and project are safe; use Resume in Activity when the service recovers.`,
+          fallbackError,
+        );
+      }
+      throw fallbackError;
+    }
+  }
 }
 
 function immutableAudioIdentity(audioPath: string, stat: Awaited<ReturnType<typeof fs.stat>>) {
@@ -511,7 +616,9 @@ export async function transcribeTextWithGemini(
   } catch (error) {
     if (transientGeminiError(error)) {
       throw new GeminiUnavailableError(
-        'Gemini did not respond in time while preparing the audio. Your video and project are safe; wait a moment and try Generate accurate captions again.',
+        rateLimitedGeminiError(error)
+          ? unavailableMessage(error, false)
+          : 'Gemini did not respond in time while preparing the audio. Your video and project are safe; use Resume in Activity when the service recovers.',
         error,
       );
     }
@@ -521,80 +628,7 @@ export async function transcribeTextWithGemini(
   const entries = parseVocabulary(context?.vocabulary);
   const prompt = buildPrompt(context, entries, guidance);
 
-  const finish = (
-    raw: Pick<TranscriptResult, 'language' | 'fullText'>,
-    model: string,
-    fallbackUsed: boolean,
-    attempts: number,
-    nativeVocabularyBias: boolean,
-    contextMode: GeminiTranscript['contextMode'] = 'full',
-  ): GeminiTranscript => {
-    const alignmentText = raw.fullText;
-    const canonicalized = canonicalizeVocabularyAliases(raw.fullText, entries);
-    if (canonicalized.replacements) console.log(`[Gemini] Applied ${canonicalized.replacements} user-owned vocabulary alias replacement(s) after transcription.`);
-    return {
-      language: raw.language,
-      fullText: canonicalized.text,
-      alignmentText,
-      textModel: model,
-      fallbackUsed,
-      attempts,
-      nativeVocabularyBias,
-      contextMode,
-      vocabularyTerms: entries.map((entry) => entry.canonical),
-    };
-  };
-
-  let completed: GeminiTranscript;
-  try {
-    const primary = await runModel(ai, llm.model, uploaded, prompt, entries, guidance);
-    completed = finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias, primary.contextMode);
-  } catch (primaryError) {
-    const fallback = llm.fallbackModel.trim();
-    const primaryCanFailOver = transientGeminiError(primaryError) || primaryError instanceof GeminiGuidanceUnsupportedError;
-    if (!fallback || fallback === llm.model || !primaryCanFailOver) throw primaryError;
-    console.warn(`[Gemini] ${llm.model}: ${retryFailureLabel(primaryError)}. Trying configured fallback ${fallback}.`);
-    try {
-      const secondary = await runModel(ai, fallback, uploaded, prompt, entries, guidance);
-      completed = finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias, secondary.contextMode);
-    } catch (fallbackError) {
-      const rescueModel = config.geminiTranscriptionRescueModel.trim();
-      const canRescue = !guidance
-        && Boolean(rescueModel)
-        && rescueModel !== llm.model
-        && rescueModel !== fallback
-        && transcriptionRescueEligible(fallbackError);
-      if (canRescue) {
-        try {
-          console.warn(`[Gemini] ${fallback}: ${retryFailureLabel(fallbackError)}. Trying one transcription-only compatibility pass.`);
-          const rescue = await runTranscriptionRescue(ai, rescueModel, uploaded, entries);
-          completed = finish(
-            rescue.transcript,
-            rescueModel,
-            true,
-            rescue.attempts,
-            rescue.nativeVocabularyBias,
-            rescue.contextMode,
-          );
-          console.warn('[Gemini] Compatibility transcription succeeded. Topic description was not applied to this rescue pass.');
-        } catch (rescueError) {
-          if (transientGeminiError(rescueError)) {
-            throw new GeminiUnavailableError(
-              'Gemini is temporarily unavailable. Studio tried the context-aware caption models and one compatibility transcription pass. Your video and project are safe; use Resume in Activity when the service recovers.',
-              rescueError,
-            );
-          }
-          throw rescueError;
-        }
-      } else if (transientGeminiError(fallbackError)) {
-        throw new GeminiUnavailableError(
-          `Gemini is temporarily unavailable. Studio tried ${llm.model} and ${fallback}. Your video and project are safe; use Resume in Activity when the service recovers.`,
-          fallbackError,
-        );
-      }
-      throw fallbackError;
-    }
-  }
+  const completed = await runGeminiModelChain(ai, uploaded, prompt, entries, guidance, llm);
 
   if (run) {
     await writeRunCheckpoint(run.projectId, run.runKey, checkpointStage, checkpointSignature, completed);

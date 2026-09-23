@@ -334,9 +334,13 @@ media to Gemini or Sthang before the corresponding user action/consent.
 - relevant topic context, protected vocabulary, accuracy hints, and accepted or
   proposed wording when those are part of the requested pass.
 
-During full caption generation, if the configured context-aware Gemini models both
-time out or become unavailable, Studio may make one transcription-only compatibility
-pass with Gemini Transcribe. That rescue reuses the same uploaded audio and can
+During full caption generation, Studio may make one transcription-only compatibility
+pass with Gemini Transcribe when the context-aware path is temporarily unavailable.
+For HTTP 429 rate-limit responses, Studio skips repeated Retry-After loops on the
+same model: it tries the primary context-aware model once, the configured fallback
+once, then the transcription compatibility pass if both remain unavailable. This
+keeps one bounded chance to preserve the full topic/context prompt before degrading
+to transcription-only behavior. The rescue reuses the same uploaded audio and can
 preserve the active protected vocabulary, but it does not apply the free-form topic
 description. Studio surfaces that degraded context mode so ambiguous names can be
 reviewed explicitly. Regeneration, Alternative, and Deep Verify passes keep their
