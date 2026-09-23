@@ -10,6 +10,7 @@ import test from 'node:test';
 
 const launcherUrl = new URL('../scripts/dev.mjs', import.meta.url);
 const source = fs.readFileSync(launcherUrl, 'utf8');
+const root = path.resolve(path.dirname(fileURLToPath(launcherUrl)), '..');
 const healthy = { status: 200, body: JSON.stringify({ ok: true, llm: { configured: false }, timing: { configured: false } }) };
 const waiting = { status: 503, body: '{}' };
 
@@ -89,8 +90,9 @@ async function fixture(t, { platform = 'win32', openBrowser = true, registeredBr
       spawn(_node, args, options) {
         assert.equal(options.shell, false);
         const child = new EventEmitter();
+        const isServer = args.includes('src/index.ts');
         Object.assign(child, {
-          name: args[0] === '--import' ? 'server' : 'web', args: [...args], pid: 100 + state.children.length, killed: false,
+          name: isServer ? 'server' : 'web', args: [...args], pid: 100 + state.children.length, killed: false,
           kill() { child.killed = true; return true; },
         });
         state.children.push(child);
@@ -151,17 +153,26 @@ async function fixture(t, { platform = 'win32', openBrowser = true, registeredBr
   };
 }
 
-test('source-watch mode restarts only the source backend while the installed launcher stays stable', async (t) => {
-  const f = await fixture(t, { openBrowser: false, sourceWatch: true, onSpawn: (child, state) => {
-    if (child.name === 'server') state.backend = { ...healthy };
-  }});
-  await f.done;
-  const server = f.state.children.find((child) => child.name === 'server');
-  const web = f.state.children.find((child) => child.name === 'web');
-  assert.ok(server && web);
-  assert.deepEqual(server.args, ['--import', 'tsx', '--watch', 'src/index.ts']);
-  assert.equal(web.args.includes('--watch'), false);
-});
+for (const platform of ['win32', 'darwin', 'linux']) {
+  test(`${platform}: source-watch uses the scoped tsx watcher while the installed launcher stays stable`, async (t) => {
+    const f = await fixture(t, { platform, openBrowser: false, sourceWatch: true, onSpawn: (child, state) => {
+      if (child.name === 'server') state.backend = { ...healthy };
+    }});
+    await f.done;
+    const server = f.state.children.find((child) => child.name === 'server');
+    const web = f.state.children.find((child) => child.name === 'web');
+    assert.ok(server && web);
+    assert.deepEqual(server.args, [
+      path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+      'watch',
+      '--exclude', '../../node_modules/**',
+      '--exclude', '../../packages/shared/dist/**',
+      'src/index.ts',
+    ]);
+    assert.equal(server.args.includes('--watch'), false);
+    assert.equal(web.args.includes('--watch'), false);
+  });
+}
 
 for (const platform of ['win32', 'darwin']) {
   for (const openBrowser of [true, false]) {

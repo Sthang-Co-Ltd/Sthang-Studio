@@ -76,6 +76,53 @@ test('Activity cancel/resume/refresh act on the chosen job and keyboard focus st
   expect(await page.locator('video').evaluate((video: HTMLVideoElement) => video.paused)).toBe(true);
 });
 
+test('an interrupted caption job is surfaced after restart instead of sitting silently idle', async ({ page }) => {
+  const interrupted = job('interrupted-caption', 'interrupted');
+  interrupted.type = 'transcribe';
+  interrupted.stage = 'interrupted';
+  interrupted.progress = 22;
+  interrupted.message = 'The app stopped during this job. Resume uses saved processing checkpoints where possible.';
+  interrupted.canResume = true;
+  state.jobs = [interrupted];
+
+  await openProject(page);
+  const dialog = page.getByRole('dialog', { name: 'Activity', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('.toast.notice')).toContainText('Studio restarted while this job was running');
+  await expect(dialog.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(dialog).toContainText('Queued to resume');
+});
+
+test('a recovered interrupted job discovered after a lost enqueue response is surfaced exactly once', async ({ page }) => {
+  state.jobs = [];
+  await openProject(page);
+
+  const interrupted = job('lost-ack-caption', 'interrupted');
+  interrupted.type = 'transcribe';
+  interrupted.stage = 'interrupted';
+  interrupted.progress = 1;
+  interrupted.message = 'The app stopped during this job. Resume uses saved processing checkpoints where possible.';
+  interrupted.canResume = true;
+  state.jobs = [interrupted];
+
+  await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
+  const dialog = page.getByRole('dialog', { name: 'Activity', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('.toast.notice')).toHaveCount(1);
+  await expect(page.locator('.toast.notice')).toContainText('Studio restarted while this job was running');
+  expect(state.requests.filter((item) => item.method === 'POST' && item.path.includes('/api/jobs/'))).toHaveLength(0);
+
+  await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
+  await expect(page.locator('.toast.notice')).toHaveCount(1);
+  expect(state.requests.filter((item) => item.method === 'POST' && item.path.includes('/api/jobs/'))).toHaveLength(0);
+
+  await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(dialog).toContainText('Queued to resume');
+  expect(state.requests.filter((item) => item.method === 'POST' && item.path.includes('/api/jobs/')).map((item) => item.path))
+    .toEqual(['/api/jobs/lost-ack-caption/resume']);
+});
+
 test('review keeps context on entry, tight replay, separate focus artwork and native select keyboard behavior', async ({ page }) => {
   state.profile.preferences.reviewPreRollMs = 450;
   state.profile.preferences.reviewPostRollMs = 300;

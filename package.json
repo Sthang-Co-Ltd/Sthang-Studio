@@ -54,7 +54,7 @@
     "test:batch4": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-batch4.test.mts && npm run test:timing-cache",
     "test:playback-grouping": "node --import tsx --test tests/playback-grouping.test.mts tests/playback-grouping-server.test.mts",
     "test:macos": "node --test tests/macos-compatibility.test.mjs",
-    "test:startup": "node --experimental-vm-modules --test tests/dev-startup.test.mjs"
+    "test:startup": "node --experimental-vm-modules --test tests/dev-startup.test.mjs tests/source-watch-behavior.test.mjs"
   },
   "allowScripts": {
     "@google/genai": true,

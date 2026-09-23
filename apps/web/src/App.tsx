@@ -891,7 +891,12 @@ export default function App() {
   };
 
   const refreshJobs = async () => {
-    try { setJobs(await api.jobs()); } catch { /* queue is optional during startup */ }
+    try {
+      const items = await api.jobs();
+      items.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status))
+        .forEach((job) => trackedJobIds.current.add(job.id));
+      setJobs(items);
+    } catch { /* queue is optional during startup */ }
   };
 
   const openJobResult = async (job: ProcessingJob) => {
@@ -961,6 +966,10 @@ export default function App() {
       } else if (job.status === 'failed') {
         handledJobIds.current.add(job.id);
         setError(job.error || 'Background processing failed. Open Jobs to retry.');
+        setShowJobs(true);
+      } else if (job.status === 'interrupted' && project?.id === job.projectId) {
+        handledJobIds.current.add(job.id);
+        setNotice('Studio restarted while this job was running. Open Activity and choose Resume to continue from saved checkpoints.');
         setShowJobs(true);
       }
     }

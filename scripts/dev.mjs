@@ -8,6 +8,7 @@ import { ensureRuntimeWorkspaceLinks } from './runtime-workspaces.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const node = process.execPath;
 const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+const tsx = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 const sourceWatch = process.argv?.includes('--source-watch') ?? false;
 
@@ -218,11 +219,25 @@ function openMacBrowser(url) {
 async function startServices() {
   console.log('Starting backend on http://localhost:8787');
   // Installed launchers call this script without --source-watch so long-running
-  // caption jobs stay stable. `npm run dev` opts into Node's source watcher so
-  // backend TypeScript changes cannot leave Vite and the API on different code.
-  launch('server', sourceWatch
-    ? ['--import', 'tsx', '--watch', 'src/index.ts']
-    : ['--import', 'tsx', 'src/index.ts'], path.join(root, 'apps', 'server'));
+  // caption jobs stay stable. `npm run dev` opts into a source watcher so backend
+  // TypeScript changes cannot leave Vite and the API on different code.
+  //
+  // Use tsx's cross-platform watcher rather than Node's native --watch import graph.
+  // Native watch follows imported node_modules, so package-manager/AV timestamp
+  // churn can restart the API mid-job. Generated shared/dist output is also
+  // excluded because normal tests/builds rewrite it. Shared source changes require
+  // a deliberate rebuild/relaunch; arbitrary build output is never restart authority.
+  const serverArgs = !sourceWatch
+    ? ['--import', 'tsx', 'src/index.ts']
+    : [
+      tsx,
+      'watch',
+      '--exclude', '../../node_modules/**',
+      '--exclude', '../../packages/shared/dist/**',
+      'src/index.ts',
+    ];
+  if (sourceWatch) console.log('Source backend watch: server source only (dependencies/build output ignored).');
+  launch('server', serverArgs, path.join(root, 'apps', 'server'));
   console.log('Waiting for the local backend to be ready...');
   const backendReady = await urlReady('http://127.0.0.1:8787/api/health', { health: true, signal: startup.signal });
   if (stopping) return;

@@ -124,9 +124,11 @@ async function load() {
   }
   const now = new Date().toISOString();
   let changed = false;
+  let interrupted = 0;
   jobs = jobs.map((job) => {
     if (job.status !== 'running') return job;
     changed = true;
+    interrupted += 1;
     return {
       ...job,
       status: 'interrupted' as const,
@@ -138,7 +140,10 @@ async function load() {
       canResume: true,
     };
   }).slice(0, 80);
-  if (changed) await persist();
+  if (changed) {
+    await persist();
+    console.warn(`[jobs] Recovered ${interrupted} interrupted job${interrupted === 1 ? '' : 's'} after restart. Resume from Activity to continue.`);
+  }
 }
 
 async function persist() {
