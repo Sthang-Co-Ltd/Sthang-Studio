@@ -70,7 +70,9 @@ export async function resolveRequestedContext(project: CaptionProject, value: un
     : normalizeTranscriptionContext(project.transcriptionContext);
   return {
     description: requested.description,
-    vocabulary: uniqueVocabulary(profile.defaultVocabulary, requested.vocabulary),
+    // Keep the active request glossary targeted. Explicit project/request terms
+    // win over profile defaults; stored profile vocabulary can remain larger.
+    vocabulary: uniqueVocabulary(requested.vocabulary, profile.defaultVocabulary).slice(0, 100),
   };
 }
 
@@ -109,11 +111,12 @@ export async function transcribeProject(
     throw new Error('Connect Gemini in Settings → AI connection before generating captions.');
   }
   const geminiSignature = stageSignature({
-    version: 3,
+    version: 4,
     mediaFingerprint: normalized.fingerprint,
     context,
     primaryModel: llm.model,
     fallbackModel: llm.fallbackModel,
+    transcriptionRescueModel: llm.fallbackModel.trim() ? config.geminiTranscriptionRescueModel : '',
     nativeVocabularyBias: config.geminiNativeVocabularyBias,
   });
   const cachedGemini = force ? null : await readStageCache<GeminiTranscript>(project.id, 'gemini', geminiSignature);
@@ -158,6 +161,7 @@ export async function transcribeProject(
     textModel: gemini.textModel,
     textModelFallback: gemini.fallbackUsed,
     nativeVocabularyBias: gemini.nativeVocabularyBias,
+    contextMode: gemini.contextMode,
     vocabularyTerms: gemini.vocabularyTerms,
     tokens: aligned.tokens,
     segments: naturalSegments,
@@ -385,6 +389,7 @@ async function generateManualCandidate(
     fallbackUsed: false,
     attempts: 0,
     nativeVocabularyBias: false,
+    contextMode: 'full',
     vocabularyTerms: parseVocabulary(context.vocabulary).map((entry) => entry.canonical),
   };
   return {
@@ -562,6 +567,7 @@ async function buildRangeRegenerationProposal(
       textModel: selected.gemini.textModel,
       textModelFallback: selected.gemini.fallbackUsed,
       nativeVocabularyBias: selected.gemini.nativeVocabularyBias,
+      contextMode: selected.gemini.contextMode,
       vocabularyTerms,
       tokens: replaced.tokens,
       segments: segmentTimedTokens(replaced.tokens, { mode: 'single-line', protectedPhrases: vocabularyTerms }),

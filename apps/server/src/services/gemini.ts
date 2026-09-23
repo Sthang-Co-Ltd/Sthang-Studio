@@ -7,8 +7,8 @@ import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settin
 import { prepareTimingLocally } from './local-timing.js';
 import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
-import { canonicalizeVocabularyAliases, parseVocabulary, vocabularyHints, type VocabularyEntry } from './vocabulary.js';
-import { withGeminiRequestTimeout } from './gemini-request-timeout.js';
+import { canonicalizeVocabularyAliases, parseVocabulary, type VocabularyEntry } from './vocabulary.js';
+import { GeminiRequestTimeoutError, withGeminiRequestTimeout } from './gemini-request-timeout.js';
 
 const schema = {
   type: 'object',
@@ -121,12 +121,12 @@ export interface GeminiTranscript {
   fallbackUsed: boolean;
   attempts: number;
   nativeVocabularyBias: boolean;
+  contextMode: 'full' | 'vocabulary-only' | 'audio-only';
   vocabularyTerms: string[];
 }
 
 interface PreparedGeminiAudio {
   ai: GoogleGenAI;
-  apiKey: string;
   uploaded: { uri: string; mimeType: string };
 }
 
@@ -139,6 +139,13 @@ export class GeminiUnavailableError extends Error {
   constructor(message: string, readonly cause?: unknown) {
     super(message);
     this.name = 'GeminiUnavailableError';
+  }
+}
+
+class GeminiGuidanceUnsupportedError extends Error {
+  constructor(readonly model: string) {
+    super(`${model} is transcription-only and cannot run this context-aware review pass. Choose a general Gemini model for Primary/Fallback in Settings.`);
+    this.name = 'GeminiGuidanceUnsupportedError';
   }
 }
 
@@ -190,48 +197,22 @@ function transientGeminiError(error: unknown): boolean {
   return /high demand|temporar|unavailable|resource[_ ]?exhausted|timeout|timed out|overload|try again/.test(deepErrorText(error));
 }
 
-function nativeVocabularyUnsupported(error: unknown) {
+function longRequestTimeout(error: unknown) {
+  return error instanceof GeminiRequestTimeoutError || statusFromError(error) === 504;
+}
+
+function transcriptionRescueEligible(error: unknown) {
   const status = statusFromError(error);
-  const text = deepErrorText(error);
-  return status === 400 && /transcription[_ ]?config|custom[_ ]?vocabulary|language[_ ]?codes|unknown field|unsupported/.test(text);
+  if (error instanceof GeminiRequestTimeoutError) return true;
+  if (status === 408 || (status != null && status >= 500 && status <= 599)) return true;
+  return status == null && /temporar|unavailable|timeout|timed out|overload|connection|network|fetch failed/.test(deepErrorText(error));
 }
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-class GeminiRestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly headers: Headers,
-    readonly body: string,
-  ) {
-    super(message);
-    this.name = 'GeminiRestError';
-  }
-}
-
 type InteractionResult = { outputText: string; nativeVocabularyBias: boolean };
-
-function outputTextFromRestInteraction(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') return '';
-  const steps = (payload as { steps?: unknown }).steps;
-  if (!Array.isArray(steps)) return '';
-  const chunks: string[] = [];
-  for (const step of steps) {
-    if (!step || typeof step !== 'object' || (step as { type?: unknown }).type !== 'model_output') continue;
-    const content = (step as { content?: unknown }).content;
-    if (!Array.isArray(content)) continue;
-    for (const item of content) {
-      if (!item || typeof item !== 'object') continue;
-      if ((item as { type?: unknown }).type === 'text' && typeof (item as { text?: unknown }).text === 'string') {
-        chunks.push((item as { text: string }).text);
-      }
-    }
-  }
-  return chunks.join('');
-}
 
 function thinkingGenerationConfig(model: string) {
   return /^gemini-(?:3(?:\.|-|$)|2\.5(?:-|$))/i.test(model)
@@ -239,71 +220,18 @@ function thinkingGenerationConfig(model: string) {
     : undefined;
 }
 
-async function makeNativeVocabularyInteraction(
-  apiKey: string,
-  model: string,
-  uploaded: { uri: string; mimeType: string },
-  prompt: string,
-  hints: string[],
-): Promise<InteractionResult> {
-  const generationConfig = thinkingGenerationConfig(model);
-  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-      method: 'POST',
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        system_instruction: systemInstruction,
-        input: [
-          { type: 'text', text: prompt },
-          { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
-        ],
-        response_format: { type: 'text', mime_type: 'application/json', schema },
-        ...(generationConfig ? { generation_config: generationConfig } : {}),
-        transcription_config: {
-          custom_vocabulary: hints,
-          language_codes: ['km-KH', 'en-US'],
-        },
-      }),
-    });
-
-    const body = await response.text();
-    if (!response.ok) {
-      let message = `Gemini Interactions REST request failed with HTTP ${response.status}.`;
-      try {
-        const parsed = JSON.parse(body) as { error?: { message?: string } };
-        if (parsed.error?.message) message = parsed.error.message;
-      } catch {
-        // Keep the HTTP fallback message.
-      }
-      throw new GeminiRestError(message, response.status, response.headers, body);
-    }
-
-    let payload: unknown;
-    try {
-      payload = JSON.parse(body);
-    } catch (error) {
-      throw new Error('Gemini native-vocabulary REST response was not valid JSON.', { cause: error });
-    }
-    const outputText = outputTextFromRestInteraction(payload);
-    if (!outputText) throw new Error('Gemini native-vocabulary REST response did not contain a model text output.');
-    return { outputText, nativeVocabularyBias: true };
-  });
+function dedicatedTranscriptionModel(model: string) {
+  return /^gemini-3\.5-transcribe(?:$|-)/i.test(model.trim());
 }
 
-async function makePromptOnlyInteraction(
+export async function makePromptOnlyInteraction(
   ai: GoogleGenAI,
   model: string,
   uploaded: { uri: string; mimeType: string },
   prompt: string,
 ): Promise<InteractionResult> {
   const generationConfig = thinkingGenerationConfig(model);
-  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async () => {
+  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
     const interaction = await ai.interactions.create({
       model,
       store: false,
@@ -314,57 +242,79 @@ async function makePromptOnlyInteraction(
       ],
       response_format: { type: 'text', mime_type: 'application/json', schema },
       ...(generationConfig ? { generation_config: generationConfig } : {}),
-    } as never);
+    } as never, {
+      // Interactions SDK 2.22 retries transient failures four times by default.
+      // Studio already owns the retry/backoff + model-fallback policy, so nested
+      // SDK retries make one visible attempt fan out into several hidden requests.
+      maxRetries: 0,
+      // Tie the SDK transport to Studio's request deadline so a timed-out call
+      // cannot continue retrying in the background while the next attempt starts.
+      fetchOptions: { signal },
+    });
     return { outputText: interaction.output_text || '', nativeVocabularyBias: false };
   });
 }
 
-async function makeInteraction(
+export async function makeTranscriptionRescueInteraction(
   ai: GoogleGenAI,
-  apiKey: string,
   model: string,
   uploaded: { uri: string; mimeType: string },
-  prompt: string,
   hints: string[],
-  enableNativeBias: boolean,
 ): Promise<InteractionResult> {
-  if (enableNativeBias && hints.length) {
-    return makeNativeVocabularyInteraction(apiKey, model, uploaded, prompt, hints);
-  }
-  return makePromptOnlyInteraction(ai, model, uploaded, prompt);
+  const customVocabulary = config.geminiNativeVocabularyBias ? hints.slice(0, 100) : [];
+  return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
+    const interaction = await ai.interactions.create({
+      model,
+      store: false,
+      input: [
+        { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
+      ],
+      generation_config: {
+        transcription_config: {
+          language_codes: ['km-KH', 'en-US'],
+          mode: { type: 'verbatim' },
+          ...(customVocabulary.length ? { custom_vocabulary: customVocabulary } : {}),
+        },
+      },
+    } as never, {
+      maxRetries: 0,
+      fetchOptions: { signal },
+    });
+    const outputText = interaction.output_text?.trim() || '';
+    if (!outputText) throw new Error(`Gemini ${model} returned an empty transcription.`);
+    return { outputText, nativeVocabularyBias: customVocabulary.length > 0 };
+  });
 }
 
-async function createInteractionWithRetry(
+function retryFailureLabel(error: unknown) {
+  if (error instanceof GeminiRequestTimeoutError) {
+    return `local request timeout after ${Math.round(error.timeoutMs / 1000)}s`;
+  }
+  const status = statusFromError(error);
+  return status ? `HTTP ${status}` : 'transient error';
+}
+
+export async function createInteractionWithRetry(
   ai: GoogleGenAI,
-  apiKey: string,
   model: string,
   uploaded: { uri: string; mimeType: string },
   prompt: string,
-  hints: string[],
 ): Promise<{ outputText: string; attempts: number; nativeVocabularyBias: boolean }> {
   let lastError: unknown;
   const maxAttempts = config.geminiMaxRetries + 1;
-  let nativeBias = config.geminiNativeVocabularyBias && hints.length > 0;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      console.log(`[Gemini] ${model}: context-aware transcription attempt ${attempt}/${maxAttempts}${nativeBias ? ` · ${hints.length} native vocabulary hints` : ''}`);
-      try {
-        const interaction = await makeInteraction(ai, apiKey, model, uploaded, prompt, hints, nativeBias);
-        return { outputText: interaction.outputText, attempts: attempt, nativeVocabularyBias: interaction.nativeVocabularyBias };
-      } catch (error) {
-        if (nativeBias && nativeVocabularyUnsupported(error)) {
-          console.warn('[Gemini] Native custom_vocabulary was not accepted for this request/model. Retrying this attempt with prompt-based vocabulary protection only.');
-          nativeBias = false;
-          const interaction = await makeInteraction(ai, apiKey, model, uploaded, prompt, hints, false);
-          return { outputText: interaction.outputText, attempts: attempt, nativeVocabularyBias: false };
-        }
-        throw error;
-      }
+      console.log(`[Gemini] ${model}: context-aware transcription attempt ${attempt}/${maxAttempts}`);
+      const interaction = await makePromptOnlyInteraction(ai, model, uploaded, prompt);
+      return { outputText: interaction.outputText, attempts: attempt, nativeVocabularyBias: false };
     } catch (error) {
       lastError = error;
-      const status = statusFromError(error);
       if (!transientGeminiError(error) || attempt >= maxAttempts) throw error;
+      // A 504 (or Studio's own per-request deadline) already consumed the long
+      // request budget. Move to the configured fallback instead of repeating the
+      // same model for another full timeout window.
+      if (longRequestTimeout(error)) throw error;
       const exponent = Math.max(0, attempt - 1);
       const exponential = Math.min(config.geminiRetryMaxMs, config.geminiRetryBaseMs * 2 ** exponent);
       const serverDelay = retryAfterMs(error);
@@ -372,8 +322,7 @@ async function createInteractionWithRetry(
       const delayMs = serverDelay == null
         ? Math.min(config.geminiRetryMaxMs, exponential + jitter)
         : Math.max(serverDelay, exponential) + jitter;
-      const statusLabel = status ? `HTTP ${status}` : 'transient error';
-      console.warn(`[Gemini] ${model}: ${statusLabel}. Retrying automatically in ${(delayMs / 1000).toFixed(1)}s...`);
+      console.warn(`[Gemini] ${model}: ${retryFailureLabel(error)}. Retrying automatically in ${(delayMs / 1000).toFixed(1)}s...`);
       await sleep(delayMs);
     }
   }
@@ -393,27 +342,62 @@ function parseTranscript(outputText: string, model: string): Pick<TranscriptResu
   return { language: parsed.language || 'km-KH', fullText };
 }
 
-async function runModel(
+export async function runModel(
   ai: GoogleGenAI,
-  apiKey: string,
   model: string,
   uploaded: { uri: string; mimeType: string },
   prompt: string,
   entries: VocabularyEntry[],
+  guidance?: GeminiTranscriptionGuidance,
 ) {
-  const hints = vocabularyHints(entries);
-  const result = await createInteractionWithRetry(ai, apiKey, model, uploaded, prompt, hints);
-  let transcript: Pick<TranscriptResult, 'language' | 'fullText'>;
-  try {
-    transcript = parseTranscript(result.outputText, model);
-  } catch (error) {
-    if (!result.nativeVocabularyBias) throw error;
-    console.warn('[Gemini] Native vocabulary response did not match the expected JSON schema. Retrying once with prompt-only protection.');
-    const plain = await makeInteraction(ai, apiKey, model, uploaded, prompt, hints, false);
-    transcript = parseTranscript(plain.outputText, model);
-    return { transcript, attempts: result.attempts + 1, nativeVocabularyBias: false };
+  if (dedicatedTranscriptionModel(model)) {
+    if (guidance) throw new GeminiGuidanceUnsupportedError(model);
+    return runTranscriptionModel(ai, model, uploaded, entries, false);
   }
-  return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias };
+  const result = await createInteractionWithRetry(ai, model, uploaded, prompt);
+  const transcript = parseTranscript(result.outputText, model);
+  return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias, contextMode: 'full' as const };
+}
+
+async function runTranscriptionModel(
+  ai: GoogleGenAI,
+  model: string,
+  uploaded: { uri: string; mimeType: string },
+  entries: VocabularyEntry[],
+  announceRescue: boolean,
+) {
+  const seen = new Set<string>();
+  const hints: string[] = [];
+  // Every active canonical term gets priority before aliases consume the
+  // recommended 100-term speech-bias budget.
+  for (const value of [
+    ...entries.map((entry) => entry.canonical),
+    ...entries.flatMap((entry) => entry.aliases),
+  ]) {
+    const term = value.trim();
+    const key = term.toLocaleLowerCase('en');
+    if (!term || seen.has(key)) continue;
+    seen.add(key);
+    hints.push(term);
+    if (hints.length >= 100) break;
+  }
+  if (announceRescue) console.warn('[Gemini] Context-aware models are unavailable. Trying one transcription-only compatibility pass.');
+  const result = await makeTranscriptionRescueInteraction(ai, model, uploaded, hints);
+  return {
+    transcript: { language: 'km-KH', fullText: result.outputText } satisfies Pick<TranscriptResult, 'language' | 'fullText'>,
+    attempts: 1,
+    nativeVocabularyBias: result.nativeVocabularyBias,
+    contextMode: result.nativeVocabularyBias ? 'vocabulary-only' as const : 'audio-only' as const,
+  };
+}
+
+async function runTranscriptionRescue(
+  ai: GoogleGenAI,
+  model: string,
+  uploaded: { uri: string; mimeType: string },
+  entries: VocabularyEntry[],
+) {
+  return runTranscriptionModel(ai, model, uploaded, entries, true);
 }
 
 function immutableAudioIdentity(audioPath: string, stat: Awaited<ReturnType<typeof fs.stat>>) {
@@ -452,7 +436,6 @@ async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSetting
     if (!uploadedFile.uri || !uploadedFile.mimeType) throw new Error('Gemini audio upload did not return a usable URI.');
     return {
       ai,
-      apiKey: llm.apiKey,
       uploaded: { uri: uploadedFile.uri, mimeType: uploadedFile.mimeType },
     };
   })();
@@ -479,12 +462,13 @@ async function geminiCheckpointSignature(
   const audioIdentity = immutableAudioIdentity(audioPath, stat);
   const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
   return crypto.createHash('sha256').update(JSON.stringify({
-    version: 'gemini-job-stage-v1',
+    version: 'gemini-job-stage-v2',
     audioIdentity,
     context,
     guidance,
     primaryModel: llm.model,
     fallbackModel: llm.fallbackModel,
+    transcriptionRescueModel: llm.fallbackModel.trim() ? config.geminiTranscriptionRescueModel : '',
     keyFingerprint,
     nativeVocabularyBias: config.geminiNativeVocabularyBias,
     thinkingLevel: config.geminiTranscriptionThinkingLevel,
@@ -537,7 +521,14 @@ export async function transcribeTextWithGemini(
   const entries = parseVocabulary(context?.vocabulary);
   const prompt = buildPrompt(context, entries, guidance);
 
-  const finish = (raw: Pick<TranscriptResult, 'language' | 'fullText'>, model: string, fallbackUsed: boolean, attempts: number, nativeVocabularyBias: boolean): GeminiTranscript => {
+  const finish = (
+    raw: Pick<TranscriptResult, 'language' | 'fullText'>,
+    model: string,
+    fallbackUsed: boolean,
+    attempts: number,
+    nativeVocabularyBias: boolean,
+    contextMode: GeminiTranscript['contextMode'] = 'full',
+  ): GeminiTranscript => {
     const alignmentText = raw.fullText;
     const canonicalized = canonicalizeVocabularyAliases(raw.fullText, entries);
     if (canonicalized.replacements) console.log(`[Gemini] Applied ${canonicalized.replacements} user-owned vocabulary alias replacement(s) after transcription.`);
@@ -549,25 +540,55 @@ export async function transcribeTextWithGemini(
       fallbackUsed,
       attempts,
       nativeVocabularyBias,
+      contextMode,
       vocabularyTerms: entries.map((entry) => entry.canonical),
     };
   };
 
   let completed: GeminiTranscript;
   try {
-    const primary = await runModel(ai, prepared.apiKey, llm.model, uploaded, prompt, entries);
-    completed = finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias);
+    const primary = await runModel(ai, llm.model, uploaded, prompt, entries, guidance);
+    completed = finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias, primary.contextMode);
   } catch (primaryError) {
     const fallback = llm.fallbackModel.trim();
-    if (!fallback || fallback === llm.model || !transientGeminiError(primaryError)) throw primaryError;
-    console.warn(`[Gemini] ${llm.model} remained unavailable after automatic retries. Falling back to ${fallback}.`);
+    const primaryCanFailOver = transientGeminiError(primaryError) || primaryError instanceof GeminiGuidanceUnsupportedError;
+    if (!fallback || fallback === llm.model || !primaryCanFailOver) throw primaryError;
+    console.warn(`[Gemini] ${llm.model}: ${retryFailureLabel(primaryError)}. Trying configured fallback ${fallback}.`);
     try {
-      const secondary = await runModel(ai, prepared.apiKey, fallback, uploaded, prompt, entries);
-      completed = finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias);
+      const secondary = await runModel(ai, fallback, uploaded, prompt, entries, guidance);
+      completed = finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias, secondary.contextMode);
     } catch (fallbackError) {
-      if (transientGeminiError(fallbackError)) {
+      const rescueModel = config.geminiTranscriptionRescueModel.trim();
+      const canRescue = !guidance
+        && Boolean(rescueModel)
+        && rescueModel !== llm.model
+        && rescueModel !== fallback
+        && transcriptionRescueEligible(fallbackError);
+      if (canRescue) {
+        try {
+          console.warn(`[Gemini] ${fallback}: ${retryFailureLabel(fallbackError)}. Trying one transcription-only compatibility pass.`);
+          const rescue = await runTranscriptionRescue(ai, rescueModel, uploaded, entries);
+          completed = finish(
+            rescue.transcript,
+            rescueModel,
+            true,
+            rescue.attempts,
+            rescue.nativeVocabularyBias,
+            rescue.contextMode,
+          );
+          console.warn('[Gemini] Compatibility transcription succeeded. Topic description was not applied to this rescue pass.');
+        } catch (rescueError) {
+          if (transientGeminiError(rescueError)) {
+            throw new GeminiUnavailableError(
+              'Gemini is temporarily unavailable. Studio tried the context-aware caption models and one compatibility transcription pass. Your video and project are safe; use Resume in Activity when the service recovers.',
+              rescueError,
+            );
+          }
+          throw rescueError;
+        }
+      } else if (transientGeminiError(fallbackError)) {
         throw new GeminiUnavailableError(
-          `Gemini is temporarily unavailable. The app retried ${llm.model} and also tried ${fallback}. Your video and project are safe; wait a minute and click Generate accurate captions again.`,
+          `Gemini is temporarily unavailable. Studio tried ${llm.model} and ${fallback}. Your video and project are safe; use Resume in Activity when the service recovers.`,
           fallbackError,
         );
       }

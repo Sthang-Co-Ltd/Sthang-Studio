@@ -186,6 +186,8 @@ export interface TranscriptResult {
   textModelFallback?: boolean;
   /** True when Gemini native ASR vocabulary bias was accepted by the API. */
   nativeVocabularyBias?: boolean;
+  /** Whether the AI wording pass applied full topic context or only protected vocabulary. */
+  contextMode?: 'full' | 'vocabulary-only' | 'audio-only';
   /** Canonical protected vocabulary terms that were supplied for this transcription. */
   vocabularyTerms?: string[];
   /** Canonical timing representation: Gemini wording mapped onto local timing anchors. */

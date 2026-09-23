@@ -76,6 +76,14 @@ import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-ed
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
 import { waitForCaptionAppearanceSaves } from './caption-appearance-save';
+
+function compatibilityTranscriptionNotice(value: CaptionProject) {
+  const mode = value.transcript?.contextMode;
+  if (!mode || mode === 'full') return '';
+  return mode === 'vocabulary-only'
+    ? 'Studio used compatibility transcription. Protected terms were kept, but the topic description was not applied. Review ambiguous names.'
+    : 'Studio used compatibility transcription without topic context or protected-term bias. Review ambiguous names.';
+}
 import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
 
@@ -906,7 +914,7 @@ export default function App() {
       if (job.proposalId) {
         if (!await loadProposal(target.id, job.proposalId, ticket) || !projectScope.current.isCurrent(ticket)) return;
         setNotice('Regeneration preview opened. Current captions remain untouched until you approve it.');
-      } else setNotice('Completed caption job opened.');
+      } else setNotice(compatibilityTranscriptionNotice(target) || 'Completed caption job opened.');
       setShowJobs(false);
       handledJobIds.current.add(job.id);
     } catch (reason) {
@@ -936,12 +944,15 @@ export default function App() {
           } else if (job.resultProjectId) {
             void api.get(job.resultProjectId).then((value) => {
               if (!projectScope.current.isCurrent(ticket) || projectMediaKey(value) !== ticket.key) return;
+              const compatibilityNotice = compatibilityTranscriptionNotice(value);
               if (dirtyRef.current || version !== draftVersion.current) {
-                setNotice('Caption generation completed. Your newer edits are kept; the result is available in Activity.');
+                setNotice(compatibilityNotice
+                  ? `${compatibilityNotice} Your newer edits are kept; open the result from Activity.`
+                  : 'Caption generation completed. Your newer edits are kept; the result is available in Activity.');
                 return;
               }
               applyProject(value);
-              setNotice('Background caption generation completed.');
+              setNotice(compatibilityNotice || 'Background caption generation completed.');
             }).catch(() => {});
           } else if (job.resultExport) {
             setNotice(`Captioned video ready: ${job.resultExport.filename}. Open Activity to download it.`);
@@ -2122,7 +2133,8 @@ export default function App() {
           </div>}
 
           {workspaceTool === 'details' && hasHybrid && <div className="timing-card">
-            <div className="timing-card-title"><CheckCircle2 size={18}/><div><strong>{usedFallback ? 'Local Whisper fallback active' : 'KFA Khmer alignment active'}</strong><span>Text: {project.transcript?.textModel || health?.geminiModel}{project.transcript?.textModelFallback ? ' (fallback)' : ''} · Timing: {timing?.model}{timing?.device ? ` · ${timing.device}` : ''}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{project.transcript?.vocabularyTerms?.length} protected terms · native bias {project.transcript?.nativeVocabularyBias ? 'on' : 'prompt-only'}</span>}</div></div>
+            <div className="timing-card-title"><CheckCircle2 size={18}/><div><strong>{usedFallback ? 'Local Whisper fallback active' : 'KFA Khmer alignment active'}</strong><span>Text: {project.transcript?.textModel || health?.geminiModel}{project.transcript?.textModelFallback ? ' (fallback)' : ''} · Timing: {timing?.model}{timing?.device ? ` · ${timing.device}` : ''}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{project.transcript?.vocabularyTerms?.length} protected terms · native bias {project.transcript?.nativeVocabularyBias ? 'on' : project.transcript?.contextMode === 'audio-only' ? 'not applied' : 'prompt-only'}</span>}</div></div>
+            {project.transcript?.contextMode && project.transcript.contextMode !== 'full' && <div className="inline-warning"><TriangleAlert size={16}/><span>Studio used a compatibility transcription pass. {project.transcript.contextMode === 'vocabulary-only' ? 'Protected terms were kept, but the topic description was not applied.' : 'The topic description and protected-term bias were not applied.'} Review ambiguous names before approval.</span></div>}
             {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align this clip, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
             {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>Text and canonical timing no longer fully match. Lock reviewed captions before regrouping.</span></div>}
             <div className="timing-metrics"><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>review</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>

@@ -28,7 +28,7 @@
     "check:public": "node scripts/verify-product-manifest.mjs && node scripts/verify-product-services.mjs && node scripts/public-readiness-check.mjs",
     "test:public": "node --test tests/public-readiness.test.mjs tests/product-release-identity.test.mjs",
     "test:contribution": "npm run build --workspace @kcs/shared && node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/analytics-worker.test.mjs tests/public-services-config.test.mjs tests/privacy-onboarding.test.ts",
-    "test:gemini": "node --import tsx --test tests/gemini-request-timeout.test.ts",
+    "test:gemini": "node --import tsx --test tests/gemini-request-timeout.test.ts tests/gemini-interactions.test.ts",
     "test:media-clock": "node --import tsx --test tests/media-clock.test.ts",
     "test:fine-timing": "npm run build --workspace @kcs/shared && node --import tsx --test tests/fine-timing.test.ts tests/caption-timing-transaction.test.ts tests/timestamp.test.ts tests/timing-playback.test.ts tests/waveform-audio-route.test.mts",
     "test:word-timing": "npm run build --workspace @kcs/shared && node --import tsx --test tests/word-timing.test.ts tests/word-timing-edit.test.ts tests/caption-word-structure.test.ts tests/caption-word-timing-server.test.ts tests/caption-word-timing-api.test.mts",

@@ -730,6 +730,30 @@ test('job result read cannot replace edits typed after the pre-save check', asyn
   } finally { release(); }
 });
 
+test('completed compatibility transcription surfaces its context limitation in the normal completion flow', async ({ page }) => {
+  const running = completedResultJob();
+  running.status = 'running';
+  running.stage = 'transcription';
+  running.progress = 22;
+  running.message = 'Transcribing';
+  delete running.resultProjectId;
+  state.jobs = [running];
+  state.projects[0].transcript!.contextMode = 'vocabulary-only';
+
+  await openProject(page);
+  const dialog = await activity(page);
+  await expect(dialog).toContainText('Transcribing');
+  const completed = completedResultJob();
+  completed.resultProjectId = 'landscape';
+  state.jobs[0] = completed;
+  await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(dialog).toContainText('Result ready');
+
+  await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+  await expect(page.locator('.toast.notice')).toContainText('Studio used compatibility transcription');
+  await expect(page.locator('.toast.notice')).toContainText('topic description was not applied');
+});
+
 test('full regeneration does not submit after Home invalidates its pending prerequisite save, even after reopening the same project', async ({ page }) => {
   state.profile.preferences.autosaveDelayMs = 60_000;
   let release!: () => void;
