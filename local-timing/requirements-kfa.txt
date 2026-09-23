@@ -19,5 +19,5 @@ onnxruntime>=1.20
 librosa>=0.10
 scipy>=1.10
 tqdm==4.65.0
-requests>=2.31
+requests>=2.34.2
 appdirs>=1.4.4
