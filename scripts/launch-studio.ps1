@@ -6,9 +6,10 @@ $ActiveFile = Join-Path $UpdateRoot 'active.json'
 $PendingFile = Join-Path $UpdateRoot 'pending-install.json'
 $BrokerVersion = '1.0.0'
 $ActivationLaunch = [bool]$env:STHANG_STUDIO_UPDATE_ACTIVATION
+$SourceCheckout = Test-Path -LiteralPath (Join-Path $InstallRoot '.git')
 $ForceLegacy = $false
 
-if (-not $ActivationLaunch) {
+if (-not $SourceCheckout -and -not $ActivationLaunch) {
   & node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') recover $InstallRoot
   if ($LASTEXITCODE -ne 0) {
     Write-Host 'Studio could not complete update recovery. The legacy installed version will be used.' -ForegroundColor Yellow
@@ -18,7 +19,7 @@ if (-not $ActivationLaunch) {
 
 $SourceRoot = $InstallRoot
 $ActiveVersion = ''
-if (-not $ForceLegacy -and (Test-Path -LiteralPath $ActiveFile)) {
+if (-not $SourceCheckout -and -not $ForceLegacy -and (Test-Path -LiteralPath $ActiveFile)) {
   try {
     $Active = Get-Content -LiteralPath $ActiveFile -Raw | ConvertFrom-Json
     $Version = [string]$Active.version
@@ -87,6 +88,10 @@ Set-Location $SourceRoot
 $ExitCode = $LASTEXITCODE
 
 if ($ExitCode -eq 42) {
+  if ($SourceCheckout) {
+    Write-Host 'Signed updates cannot be installed from a source checkout.' -ForegroundColor Yellow
+    exit 1
+  }
   if (-not (Test-Path -LiteralPath $PendingFile)) {
     Write-Host 'Studio requested an update restart, but no verified pending release was found.' -ForegroundColor Red
     exit 1

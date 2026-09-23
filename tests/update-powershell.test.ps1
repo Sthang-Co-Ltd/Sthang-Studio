@@ -23,6 +23,45 @@ function New-TestZip([string]$Path, [object[]]$Entries) {
   } finally { $Archive.Dispose() }
 }
 
+function New-LauncherFixture([string]$Name, [bool]$SourceCheckout, [bool]$ValidMarker) {
+  $Fixture = Join-Path $TempRoot $Name
+  $VersionRoot = Join-Path $Fixture 'versions\0.85.4'
+  foreach ($Directory in @(
+    (Join-Path $Fixture 'scripts'),
+    (Join-Path $Fixture 'updates'),
+    (Join-Path $Fixture 'node_modules\typescript\bin'),
+    (Join-Path $Fixture '.venv\Scripts'),
+    (Join-Path $Fixture 'apps\server'),
+    (Join-Path $Fixture 'config'),
+    (Join-Path $VersionRoot 'scripts'),
+    (Join-Path $VersionRoot 'node_modules\typescript\bin'),
+    (Join-Path $VersionRoot '.venv\Scripts')
+  )) { New-Item -ItemType Directory -Path $Directory -Force | Out-Null }
+  if ($SourceCheckout) { New-Item -ItemType Directory -Path (Join-Path $Fixture '.git') | Out-Null }
+  Copy-Item -LiteralPath (Join-Path $Root 'scripts\launch-studio.ps1') -Destination (Join-Path $Fixture 'scripts\launch-studio.ps1')
+  foreach ($Relative in @(
+    'node_modules\typescript\bin\tsc', '.venv\Scripts\python.exe',
+    'versions\0.85.4\node_modules\typescript\bin\tsc',
+    'versions\0.85.4\.venv\Scripts\python.exe',
+    'scripts\dev.mjs', 'versions\0.85.4\scripts\dev.mjs',
+    'apps\server\.env', 'config\update-trust-root.json'
+  )) { [IO.File]::WriteAllText((Join-Path $Fixture $Relative), '') }
+  $Digest = 'a' * 64
+  @{ version = '0.85.4'; manifestDigest = $Digest; relativePath = 'versions\0.85.4' } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Fixture 'updates\active.json')
+  @{ schemaVersion = 1; version = '0.85.4'; manifestDigest = $(if ($ValidMarker) { $Digest } else { 'b' * 64 }) } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $VersionRoot '.sthang-update-version.json')
+  return $Fixture
+}
+
+function Invoke-LauncherFixture([string]$Fixture, [string]$Name, [int]$ExpectedExit) {
+  $Trace = Join-Path $TempRoot ($Name + '.trace')
+  $env:STHANG_LAUNCH_TEST_TRACE = $Trace
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Fixture 'scripts\launch-studio.ps1') | Out-Null
+  Assert-True ($LASTEXITCODE -eq $ExpectedExit) "$Name returned the wrong exit code."
+  return Get-Content -LiteralPath $Trace
+}
+
 try {
   $Scripts = @(
     'scripts\launch-studio.ps1',
@@ -83,6 +122,40 @@ try {
   Assert-True ($Launcher -match 'scripts\\launch-studio\.ps1') 'The stable Windows launcher is not wired to the update broker.'
   $Installer = Get-Content -LiteralPath (Join-Path $Root 'scripts\install-release-package.ps1') -Raw
   Assert-True ($Installer -match 'active\.json') 'The manual recovery installer does not clear the OTA active pointer.'
+
+  $NodeBin = Join-Path $TempRoot 'bin'
+  New-Item -ItemType Directory -Path $NodeBin | Out-Null
+  @'
+@echo off
+echo %*>>"%STHANG_LAUNCH_TEST_TRACE%"
+if "%~nx1"=="dev.mjs" if "%STHANG_LAUNCH_TEST_DEV_EXIT%"=="42" exit /b 42
+exit /b 0
+'@ | Set-Content -LiteralPath (Join-Path $NodeBin 'node.cmd') -Encoding Ascii
+  $OriginalPath = $env:PATH
+  $OriginalActivation = $env:STHANG_STUDIO_UPDATE_ACTIVATION
+  try {
+    $env:PATH = "$NodeBin;$OriginalPath"
+    Remove-Item Env:STHANG_STUDIO_UPDATE_ACTIVATION -ErrorAction SilentlyContinue
+    $Checkout = New-LauncherFixture 'checkout' $true $true
+    $CheckoutTrace = @(Invoke-LauncherFixture $Checkout 'checkout' 0)
+    Assert-True ($CheckoutTrace.Count -eq 1 -and $CheckoutTrace[0] -like "*$Checkout\scripts\dev.mjs*") 'A source checkout must launch its current scripts without update recovery.'
+    $Installed = New-LauncherFixture 'installed' $false $true
+    $InstalledTrace = @(Invoke-LauncherFixture $Installed 'installed' 0)
+    Assert-True ($InstalledTrace.Count -eq 2 -and $InstalledTrace[0] -like '*update-runtime.mjs*recover*' -and $InstalledTrace[1] -like "*$Installed\versions\0.85.4\scripts\dev.mjs*") 'An installed copy must recover and launch its verified active version.'
+    $BadMarker = New-LauncherFixture 'bad-marker' $false $false
+    $BadMarkerTrace = @(Invoke-LauncherFixture $BadMarker 'bad-marker' 0)
+    Assert-True ($BadMarkerTrace.Count -eq 2 -and $BadMarkerTrace[1] -like "*$BadMarker\scripts\dev.mjs*") 'An invalid installed version marker must fall back to the stable root.'
+    [IO.File]::WriteAllText((Join-Path $Checkout 'updates\pending-install.json'), '{}')
+    $env:STHANG_LAUNCH_TEST_DEV_EXIT = '42'
+    $CheckoutRestartTrace = @(Invoke-LauncherFixture $Checkout 'checkout-restart' 1)
+    Assert-True ($CheckoutRestartTrace.Count -eq 1) 'A source checkout must not apply a signed update restart.'
+  } finally {
+    $env:PATH = $OriginalPath
+    if ($null -eq $OriginalActivation) { Remove-Item Env:STHANG_STUDIO_UPDATE_ACTIVATION -ErrorAction SilentlyContinue }
+    else { $env:STHANG_STUDIO_UPDATE_ACTIVATION = $OriginalActivation }
+    Remove-Item Env:STHANG_LAUNCH_TEST_TRACE -ErrorAction SilentlyContinue
+    Remove-Item Env:STHANG_LAUNCH_TEST_DEV_EXIT -ErrorAction SilentlyContinue
+  }
 
   $Prepare = Get-Content -LiteralPath (Join-Path $Root 'scripts\prepare-studio-update.ps1') -Raw
   $NpmIndex = $Prepare.IndexOf('& npm.cmd ci')

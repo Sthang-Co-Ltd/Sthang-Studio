@@ -129,17 +129,47 @@ async function withRoots(run: (roots: { root: string; updateRoot: string; versio
   }
 }
 
-test('unprovisioned builds fail closed without contacting an update service', async () => {
+test('unprovisioned builds fail closed without contacting an update service', async () => withRoots(async ({ root, updateRoot, versionsRoot }) => {
   const signing = signingFixture();
   let fetched = false;
   const service = await createUpdateService({
     trustRoot: { ...signing.trust, keyId: 'studio-updates-unprovisioned', publicKeyHex: '', provisioned: false },
     platform: 'win32',
     fetchImpl: (async () => { fetched = true; return new Response(); }) as typeof fetch,
+    installRoot: root,
+    updateRoot,
+    versionsRoot,
   });
   const status = await service.check('0.7.14');
   assert.equal(status.status, 'disabled');
   assert.equal(fetched, false);
+}));
+
+test('source checkouts cannot offer, download, or install signed updates', async () => {
+  for (const markerKind of ['directory', 'file']) {
+    await withRoots(async ({ root, updateRoot, versionsRoot }) => {
+      const gitMarker = path.join(root, '.git');
+      if (markerKind === 'directory') await fs.mkdir(gitMarker);
+      else await fs.writeFile(gitMarker, 'gitdir: ../worktrees/studio');
+      let fetched = false;
+      const service = await createUpdateService({
+        trustRoot: signingFixture().trust,
+        platform: 'win32',
+        fetchImpl: (async () => { fetched = true; throw new Error('Source checkout contacted the update service.'); }) as typeof fetch,
+        installRoot: root,
+        updateRoot,
+        versionsRoot,
+      });
+      const status = await service.check('0.7.14');
+      assert.equal(status.status, 'disabled');
+      if (status.status === 'disabled') assert.match(status.message, /source checkout/);
+      const disabled = (error: unknown) => error instanceof UpdateError && error.code === 'DISABLED';
+      await assert.rejects(() => service.download('a'.repeat(64)), disabled);
+      await assert.rejects(() => service.prepareInstall('0.7.14', 'a'.repeat(64)), disabled);
+      assert.equal(fetched, false);
+      await assert.rejects(fs.access(path.join(updateRoot, 'pending-install.json')));
+    });
+  }
 });
 
 test('check, staged download, and final install preparation preserve stable user state', async () => withRoots(async ({ root, updateRoot, versionsRoot }) => {
@@ -260,19 +290,22 @@ test('signature tampering and malformed release metadata are rejected', async ()
   );
 }));
 
-test('metadata responses are hard-bounded while streaming even without content-length', async () => {
+test('metadata responses are hard-bounded while streaming even without content-length', async () => withRoots(async ({ root, updateRoot, versionsRoot }) => {
   const signing = signingFixture();
   const oversized = Buffer.alloc((128 * 1024) + 1, 0x61);
   const service = await createUpdateService({
     trustRoot: signing.trust,
     platform: 'win32',
     fetchImpl: (async () => new Response(oversized, { status: 200 })) as typeof fetch,
+    installRoot: root,
+    updateRoot,
+    versionsRoot,
   });
   await assert.rejects(
     () => service.check('0.7.14'),
     (error: unknown) => error instanceof UpdateError && error.code === 'INVALID_RELEASE',
   );
-});
+}));
 
 test('unsafe active caption work produces actionable blockers', () => {
   const reasons = unsafeUpdateReasons({ dirty: true, textEditing: true, reviewMode: true, proposalOpen: true, busy: true, activeJobs: 1 });

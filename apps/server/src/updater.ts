@@ -355,6 +355,8 @@ export async function createUpdateService(options: ServiceOptions = {}) {
   const installRoot = options.installRoot || stateRootDir;
   const updateRoot = options.updateRoot || config.updateDir;
   const versionsRoot = options.versionsRoot || config.versionsDir;
+  const sourceCheckout = fsSync.existsSync(path.join(installRoot, '.git'));
+  const sourceCheckoutMessage = 'Signed updates cannot be installed from a source checkout. Pull the latest changes or use a Windows release installation.';
   let mutationQueue: Promise<unknown> = Promise.resolve();
 
   const exclusive = <T>(operation: () => Promise<T>) => {
@@ -365,6 +367,7 @@ export async function createUpdateService(options: ServiceOptions = {}) {
 
   const ensureEnabled = () => {
     if (platform !== 'win32') throw new UpdateError('PLATFORM', 'Signed Studio updates are available on Windows installations only.', 409);
+    if (sourceCheckout) throw new UpdateError('DISABLED', sourceCheckoutMessage, 409);
     if (!trust.provisioned) throw new UpdateError('DISABLED', 'Signed Studio updates are not enabled in this source build. Use the current GitHub Release download.', 503);
   };
 
@@ -399,6 +402,7 @@ export async function createUpdateService(options: ServiceOptions = {}) {
   const check = async (currentVersion: string): Promise<UpdateStatus> => {
     try { exactVersion(currentVersion, 'current version'); }
     catch (error) { throw protocolFailure(error); }
+    if (sourceCheckout && platform === 'win32') return { status: 'disabled', currentVersion, message: sourceCheckoutMessage };
     const lastFailure = await readLastFailure(updateRoot);
     if (platform !== 'win32') return { status: 'disabled', currentVersion, message: 'Signed Studio updates are available on Windows installations only.', ...(lastFailure ? { lastFailure } : {}) };
     if (!trust.provisioned) return { status: 'disabled', currentVersion, message: 'Signed Studio updates are not enabled in this source build. Use the current GitHub Release download.', ...(lastFailure ? { lastFailure } : {}) };

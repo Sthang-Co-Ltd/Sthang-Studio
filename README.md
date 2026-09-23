@@ -417,6 +417,11 @@ npm run dev
 
 The explicit `--include=dev` flag keeps the locked build and typecheck toolchain
 available even when the local npm configuration would otherwise omit it.
+On Windows, `run-windows.bat` also launches the current source checkout when the
+folder contains `.git`, even if an older local `updates/active.json` exists.
+Pull new commits to update a checkout; in-app signed updates are available only
+in packaged Windows installations without `.git`, which continue to launch their
+verified active version.
 
 The public-readiness guard requires a complete clone with relevant refs fetched;
 it does not fetch them itself. It checks current and historical forbidden paths
