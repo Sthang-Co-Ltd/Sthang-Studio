@@ -111,7 +111,7 @@ export async function transcribeProject(
     throw new Error('Connect Gemini in Settings → AI connection before generating captions.');
   }
   const geminiSignature = stageSignature({
-    version: 4,
+    version: 5,
     mediaFingerprint: normalized.fingerprint,
     context,
     primaryModel: llm.model,

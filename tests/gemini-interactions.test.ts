@@ -3,6 +3,9 @@ import test from 'node:test';
 import type { GoogleGenAI } from '@google/genai';
 import {
   createInteractionWithRetry,
+  GeminiLanguageMismatchError,
+  implausibleEnglishOnlyKhmerRescue,
+  inferTranscriptLanguageFromText,
   makePromptOnlyInteraction,
   makeTranscriptionRescueInteraction,
   runGeminiModelChain,
@@ -219,7 +222,7 @@ test('transcription rescue is one audio-only verbatim request with bounded prote
   assert.equal(Object.hasOwn(requestBody || {}, 'response_format'), false);
   assert.deepEqual(requestBody?.input, [{ type: 'audio', uri: 'https://example.test/audio', mime_type: 'audio/wav' }]);
   const generationConfig = requestBody?.generation_config as { transcription_config?: Record<string, unknown> } | undefined;
-  assert.deepEqual(generationConfig?.transcription_config?.language_codes, ['km-KH', 'en-US']);
+  assert.deepEqual(generationConfig?.transcription_config?.language_codes, []);
   assert.deepEqual(generationConfig?.transcription_config?.mode, { type: 'verbatim' });
   const customVocabulary = generationConfig?.transcription_config?.custom_vocabulary as string[] | undefined;
   assert.equal(customVocabulary?.length, 100);
@@ -249,6 +252,7 @@ test('a user-configured Gemini Transcribe model uses the dedicated audio-only ad
   );
 
   assert.equal(result.transcript.fullText, 'សួស្តី Sthang');
+  assert.equal(result.transcript.language, 'km-KH');
   assert.equal(result.contextMode, 'vocabulary-only');
   assert.deepEqual(requestBody?.input, [{ type: 'audio', uri: 'https://example.test/audio', mime_type: 'audio/wav' }]);
   assert.equal(Object.hasOwn(requestBody || {}, 'system_instruction'), false);
@@ -256,6 +260,71 @@ test('a user-configured Gemini Transcribe model uses the dedicated audio-only ad
   const generationConfig = requestBody?.generation_config as { transcription_config?: Record<string, unknown> } | undefined;
   assert.deepEqual(generationConfig?.transcription_config?.mode, { type: 'verbatim' });
   assert.deepEqual(generationConfig?.transcription_config?.custom_vocabulary, ['Sthang']);
+});
+
+test('Transcribe rescue infers transcript language from returned script instead of hard-coding Khmer', () => {
+  assert.equal(inferTranscriptLanguageFromText('សួស្តី OpenAI'), 'km-KH');
+  assert.equal(inferTranscriptLanguageFromText('Hello from OpenAI'), 'en-US');
+  assert.equal(inferTranscriptLanguageFromText('12345'), 'und');
+});
+
+test('Khmer-first rescue rejects English-only output but allows Khmer code-switching and non-Khmer projects', () => {
+  assert.equal(implausibleEnglishOnlyKhmerRescue('This is a completely English transcript returned for a Khmer-first video.', 'km'), true);
+  assert.equal(implausibleEnglishOnlyKhmerRescue('ខ្ញុំកំពុងនិយាយអំពី OpenAI GPT-5', 'km'), false);
+  assert.equal(implausibleEnglishOnlyKhmerRescue('OpenAI GPT-5', 'km'), true);
+  assert.equal(implausibleEnglishOnlyKhmerRescue('This is a normal English-only source clip.', 'en'), false);
+});
+
+test('manually selected Transcribe may auto-detect a genuine English source', async () => {
+  let calls = 0;
+  const ai = {
+    interactions: {
+      create: async () => {
+        calls += 1;
+        return { output_text: 'Hello world' };
+      },
+    },
+  } as unknown as GoogleGenAI;
+
+  const result = await runModel(
+    ai,
+    'gemini-3.5-transcribe',
+    { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+    'This general-model prompt must not be sent.',
+    [],
+  );
+  assert.equal(result.transcript.language, 'en-US');
+  assert.equal(calls, 1);
+});
+
+test('automatic Khmer compatibility rescue fails closed on substantial English-only output', async () => {
+  const calls: string[] = [];
+  const ai = {
+    interactions: {
+      create: async (request: { model?: string }) => {
+        const model = String(request.model || '');
+        calls.push(model);
+        if (model === 'gemini-3.7-flash' || model === 'gemini-3.6-flash') {
+          throw Object.assign(new Error('rate limited'), { status: 429 });
+        }
+        return { output_text: 'This is a fully English transcription of the entire source clip and should not be published.' };
+      },
+    },
+  } as unknown as GoogleGenAI;
+
+  await assert.rejects(
+    runGeminiModelChain(
+      ai,
+      { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+      'Transcribe this audio.',
+      [],
+      undefined,
+      { model: 'gemini-3.7-flash', fallbackModel: 'gemini-3.6-flash' },
+    ),
+    (error: unknown) => error instanceof GeminiLanguageMismatchError
+      && /Compatibility transcription returned English-only text/.test(error.message),
+  );
+  assert.deepEqual(calls, ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-transcribe']);
 });
 
 test('a transcription-only model cannot silently ignore guided review instructions', async () => {

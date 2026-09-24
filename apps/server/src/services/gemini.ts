@@ -142,6 +142,14 @@ export class GeminiUnavailableError extends Error {
   }
 }
 
+export class GeminiLanguageMismatchError extends Error {
+  readonly statusCode = 502;
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeminiLanguageMismatchError';
+  }
+}
+
 class GeminiGuidanceUnsupportedError extends Error {
   constructor(readonly model: string) {
     super(`${model} is transcription-only and cannot run this context-aware review pass. Choose a general Gemini model for Primary/Fallback in Settings.`);
@@ -275,7 +283,7 @@ export async function makeTranscriptionRescueInteraction(
       ],
       generation_config: {
         transcription_config: {
-          language_codes: ['km-KH', 'en-US'],
+          language_codes: [],
           mode: { type: 'verbatim' },
           ...(customVocabulary.length ? { custom_vocabulary: customVocabulary } : {}),
         },
@@ -288,6 +296,35 @@ export async function makeTranscriptionRescueInteraction(
     if (!outputText) throw new Error(`Gemini ${model} returned an empty transcription.`);
     return { outputText, nativeVocabularyBias: customVocabulary.length > 0 };
   });
+}
+
+export function inferTranscriptLanguageFromText(text: string) {
+  let khmer = 0;
+  let latin = 0;
+  for (const char of text) {
+    if (/\p{Script=Khmer}/u.test(char)) khmer += 1;
+    else if (/\p{Script=Latin}/u.test(char)) latin += 1;
+  }
+  if (khmer > 0) return 'km-KH';
+  if (latin > 0) return 'en-US';
+  return 'und';
+}
+
+export function implausibleEnglishOnlyKhmerRescue(
+  text: string,
+  expectedLanguage = config.localWhisperLanguage,
+) {
+  if (!/^km(?:-|$)/i.test(expectedLanguage.trim())) return false;
+  let letters = 0;
+  let khmer = 0;
+  let latin = 0;
+  for (const char of text) {
+    if (!/\p{L}/u.test(char)) continue;
+    letters += 1;
+    if (/\p{Script=Khmer}/u.test(char)) khmer += 1;
+    else if (/\p{Script=Latin}/u.test(char)) latin += 1;
+  }
+  return letters > 0 && khmer === 0 && latin / letters >= 0.9;
 }
 
 function retryFailureLabel(error: unknown) {
@@ -389,7 +426,10 @@ async function runTranscriptionModel(
   if (announceRescue) console.warn('[Gemini] Context-aware models are unavailable. Trying one transcription-only compatibility pass.');
   const result = await makeTranscriptionRescueInteraction(ai, model, uploaded, hints);
   return {
-    transcript: { language: 'km-KH', fullText: result.outputText } satisfies Pick<TranscriptResult, 'language' | 'fullText'>,
+    transcript: {
+      language: inferTranscriptLanguageFromText(result.outputText),
+      fullText: result.outputText,
+    } satisfies Pick<TranscriptResult, 'language' | 'fullText'>,
     attempts: 1,
     nativeVocabularyBias: result.nativeVocabularyBias,
     contextMode: result.nativeVocabularyBias ? 'vocabulary-only' as const : 'audio-only' as const,
@@ -453,6 +493,11 @@ export async function runGeminiModelChain(
     console.warn(`[Gemini] ${sourceModel}: ${retryFailureLabel(sourceError)}. Trying one transcription-only compatibility pass.`);
     try {
       const rescue = await runTranscriptionRescue(ai, rescueModel, uploaded, entries);
+      if (implausibleEnglishOnlyKhmerRescue(rescue.transcript.fullText)) {
+        throw new GeminiLanguageMismatchError(
+          'Compatibility transcription returned English-only text for this Khmer-first clip, so Studio did not save new captions. Your project is unchanged. Use Resume in Activity when Gemini is available again.',
+        );
+      }
       const value = finish(
         rescue.transcript,
         rescueModel,
@@ -464,6 +509,7 @@ export async function runGeminiModelChain(
       console.warn('[Gemini] Compatibility transcription succeeded. Topic description was not applied to this rescue pass.');
       return value;
     } catch (rescueError) {
+      if (rescueError instanceof GeminiLanguageMismatchError) throw rescueError;
       if (transientGeminiError(rescueError)) {
         throw new GeminiUnavailableError(unavailableMessage(rescueError, true), rescueError);
       }
@@ -567,7 +613,7 @@ async function geminiCheckpointSignature(
   const audioIdentity = immutableAudioIdentity(audioPath, stat);
   const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
   return crypto.createHash('sha256').update(JSON.stringify({
-    version: 'gemini-job-stage-v2',
+    version: 'gemini-job-stage-v3',
     audioIdentity,
     context,
     guidance,

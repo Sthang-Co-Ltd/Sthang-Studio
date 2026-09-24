@@ -154,7 +154,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
           <label><span>Fallback model <em>optional</em></span><input list="gemini-model-options" value={fallbackModel} onChange={(event) => { setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
           <datalist id="gemini-model-options"><option value="gemini-3.7-flash"/><option value="gemini-3.6-flash"/></datalist>
         </div>
-        <p className="ai-model-help">The fallback uses the same key and runs only when the primary model is temporarily unavailable. During full caption generation, a rate-limit response skips repeated same-model waits: Studio tries the primary once, the configured fallback once, then one transcription-only compatibility attempt if both are unavailable. Compatibility transcription can preserve protected terms, but the free-form topic description is not applied. Leave the fallback blank to disable automatic model failover.</p>
+        <p className="ai-model-help">The fallback uses the same key and runs only when the primary model is temporarily unavailable. During full caption generation, a rate-limit response skips repeated same-model waits: Studio tries the primary once, the configured fallback once, then one transcription-only compatibility attempt if both are unavailable. Compatibility transcription auto-detects the spoken language and code-switching and can preserve protected terms, but the free-form topic description is not applied. Leave the fallback blank to disable automatic model failover.</p>
       </section>
     </div>
 

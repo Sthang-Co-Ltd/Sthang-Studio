@@ -342,11 +342,13 @@ once, then the transcription compatibility pass if both remain unavailable. This
 keeps one bounded chance to preserve the full topic/context prompt before degrading
 to transcription-only behavior. The rescue reuses the same uploaded audio and can
 preserve the active protected vocabulary, but it does not apply the free-form topic
-description. Studio surfaces that degraded context mode so ambiguous names can be
-reviewed explicitly. Regeneration, Alternative, and Deep Verify passes keep their
-context-aware evidence contract and do not use this rescue. Leaving the optional
-fallback model blank disables automatic model failover, including the compatibility
-rescue.
+description. The Transcribe pass uses automatic language identification/code-switching;
+for Khmer-first projects, Studio rejects English-only compatibility output
+instead of caching or applying it as Khmer captions. Studio surfaces degraded context
+mode so ambiguous names can be reviewed explicitly. Regeneration, Alternative, and
+Deep Verify passes keep their context-aware evidence contract and do not use this
+rescue. Leaving the optional fallback model blank disables automatic model failover,
+including the compatibility rescue.
 
 Repeated listens over the same immutable audio range may reuse one short-lived
 Gemini Files API upload instead of uploading duplicate copies. A fresh
