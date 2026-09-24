@@ -2,12 +2,12 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { config } from '../config.js';
+import { config, defaultGeminiFallbackModel, defaultGeminiModel } from '../config.js';
 
 export type LlmKeySource = 'secure-store' | 'environment' | 'none';
 
 interface StoredLlmMetadata {
-  version: 1;
+  version: 1 | 2;
   provider: 'gemini';
   model?: string;
   fallbackModel?: string;
@@ -117,18 +117,26 @@ function invalidateResolvedSettingsCache() {
 async function readMetadata(): Promise<StoredLlmMetadata> {
   try {
     const parsed = JSON.parse(await fs.readFile(metadataFile, 'utf8')) as Partial<StoredLlmMetadata>;
+    const model = typeof parsed.model === 'string' ? parsed.model : undefined;
+    const fallbackModel = typeof parsed.fallbackModel === 'string' ? parsed.fallbackModel : undefined;
+    // v1 stored the then-default 3.7/3.6 pair as ordinary model choices. Treat
+    // exactly that pair as legacy defaults so existing installs receive the new
+    // recommended 3.8/3.7 chain. Any other pair remains user-owned/custom.
+    const legacyDefaultPair = parsed.version !== 2
+      && model === 'gemini-3.7-flash'
+      && fallbackModel === 'gemini-3.6-flash';
     return {
-      version: 1,
+      version: 2,
       provider: 'gemini',
-      model: typeof parsed.model === 'string' ? parsed.model : undefined,
-      fallbackModel: typeof parsed.fallbackModel === 'string' ? parsed.fallbackModel : undefined,
+      model: legacyDefaultPair ? defaultGeminiModel : model,
+      fallbackModel: legacyDefaultPair ? defaultGeminiFallbackModel : fallbackModel,
       keyLast4: typeof parsed.keyLast4 === 'string' ? parsed.keyLast4 : undefined,
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
     };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT') console.warn('[AI settings] Could not read local settings metadata:', error instanceof Error ? error.message : error);
-    return { version: 1, provider: 'gemini' };
+    return { version: 2, provider: 'gemini' };
   }
 }
 
@@ -302,7 +310,7 @@ export async function saveLlmSettings(input: { apiKey?: unknown; model?: unknown
     keyLast4 = key.slice(-4);
   }
   await writeMetadata({
-    version: 1,
+    version: 2,
     provider: 'gemini',
     model,
     fallbackModel,

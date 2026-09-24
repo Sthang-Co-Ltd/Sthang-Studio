@@ -112,7 +112,9 @@ app.listen(config.port, '127.0.0.1', () => {
     console.log(`Gemini: ${llm.configured ? `configured via ${llm.keySource}` : 'not configured — open Settings → AI connection'}`);
     console.log(`Gemini text model: ${llm.model}`);
     console.log(`Gemini resilience: ${config.geminiMaxRetries} retries/model · fallback ${llm.fallbackModel || 'disabled'}`);
-    if (llm.fallbackModel) console.log(`Gemini transcription rescue: ${config.geminiTranscriptionRescueModel || 'disabled'}`);
+    if (llm.fallbackModel) {
+      console.log(`Gemini transcription rescue: ${config.geminiTranscriptionRescueEnabled ? config.geminiTranscriptionRescueModel || 'disabled' : 'disabled (experimental opt-in)'}`);
+    }
   }).catch((error) => console.warn('[AI settings] Startup status unavailable:', error instanceof Error ? error.message : error));
   if (localTimingConfigured()) {
     void prewarmLocalTiming().then((ready) => {

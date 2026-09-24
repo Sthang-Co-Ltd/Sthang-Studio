@@ -7,7 +7,7 @@ import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settin
 import { prepareTimingLocally } from './local-timing.js';
 import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
-import { canonicalizeVocabularyAliases, parseVocabulary, type VocabularyEntry } from './vocabulary.js';
+import { canonicalizeVocabularyAliases, contextRecognitionHints, parseVocabulary, type VocabularyEntry } from './vocabulary.js';
 import { GeminiRequestTimeoutError, withGeminiRequestTimeout } from './gemini-request-timeout.js';
 
 const schema = {
@@ -122,6 +122,8 @@ export interface GeminiTranscript {
   attempts: number;
   nativeVocabularyBias: boolean;
   contextMode: 'full' | 'vocabulary-only' | 'audio-only';
+  /** Soft recognition hints extracted from the free-form Accuracy description and actually sent to Transcribe. */
+  descriptionHintsUsed: number;
   vocabularyTerms: string[];
 }
 
@@ -272,6 +274,7 @@ export async function makeTranscriptionRescueInteraction(
   model: string,
   uploaded: { uri: string; mimeType: string },
   hints: string[],
+  languageCodes: string[] = [],
 ): Promise<InteractionResult> {
   const customVocabulary = config.geminiNativeVocabularyBias ? hints.slice(0, 100) : [];
   return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
@@ -283,7 +286,7 @@ export async function makeTranscriptionRescueInteraction(
       ],
       generation_config: {
         transcription_config: {
-          language_codes: [],
+          language_codes: languageCodes,
           mode: { type: 'verbatim' },
           ...(customVocabulary.length ? { custom_vocabulary: customVocabulary } : {}),
         },
@@ -314,17 +317,45 @@ export function implausibleEnglishOnlyKhmerRescue(
   text: string,
   expectedLanguage = config.localWhisperLanguage,
 ) {
-  if (!/^km(?:-|$)/i.test(expectedLanguage.trim())) return false;
+  return khmerTranscriptScriptIssue(text, [], expectedLanguage) === 'english-only';
+}
+
+export type KhmerTranscriptScriptIssue = 'english-only' | 'thai-lao-contamination';
+
+function withoutExplicitThaiLaoTerms(text: string, entries: VocabularyEntry[]) {
+  let candidate = text;
+  for (const entry of entries) {
+    for (const term of [entry.canonical, ...entry.aliases]) {
+      if (!/[\p{Script=Thai}\p{Script=Lao}]/u.test(term)) continue;
+      candidate = candidate.split(term).join(' ');
+    }
+  }
+  return candidate;
+}
+
+export function khmerTranscriptScriptIssue(
+  text: string,
+  entries: VocabularyEntry[] = [],
+  expectedLanguage = config.localWhisperLanguage,
+): KhmerTranscriptScriptIssue | null {
+  if (!/^km(?:-|$)/i.test(expectedLanguage.trim())) return null;
+  const candidate = withoutExplicitThaiLaoTerms(text, entries);
   let letters = 0;
   let khmer = 0;
   let latin = 0;
-  for (const char of text) {
+  let thai = 0;
+  let lao = 0;
+  for (const char of candidate) {
     if (!/\p{L}/u.test(char)) continue;
     letters += 1;
     if (/\p{Script=Khmer}/u.test(char)) khmer += 1;
     else if (/\p{Script=Latin}/u.test(char)) latin += 1;
+    else if (/\p{Script=Thai}/u.test(char)) thai += 1;
+    else if (/\p{Script=Lao}/u.test(char)) lao += 1;
   }
-  return letters > 0 && khmer === 0 && latin / letters >= 0.9;
+  if (thai > 0 || lao > 0) return 'thai-lao-contamination';
+  if (letters > 0 && khmer === 0 && latin / letters >= 0.9) return 'english-only';
+  return null;
 }
 
 function retryFailureLabel(error: unknown) {
@@ -391,14 +422,43 @@ export async function runModel(
   prompt: string,
   entries: VocabularyEntry[],
   guidance?: GeminiTranscriptionGuidance,
+  descriptionHints: string[] = [],
 ) {
   if (dedicatedTranscriptionModel(model)) {
     if (guidance) throw new GeminiGuidanceUnsupportedError(model);
-    return runTranscriptionModel(ai, model, uploaded, entries, false);
+    return runTranscriptionModel(ai, model, uploaded, entries, descriptionHints, false);
   }
   const result = await createInteractionWithRetry(ai, model, uploaded, prompt);
   const transcript = parseTranscript(result.outputText, model);
-  return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias, contextMode: 'full' as const };
+  return { transcript, attempts: result.attempts, nativeVocabularyBias: result.nativeVocabularyBias, contextMode: 'full' as const, descriptionHintsUsed: 0 };
+}
+
+export function buildTranscriptionRecognitionHints(
+  entries: VocabularyEntry[],
+  descriptionHints: string[],
+  limit = 100,
+) {
+  const hints: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string) => {
+    const term = value.trim();
+    const key = term.toLocaleLowerCase('en');
+    if (!term || seen.has(key) || hints.length >= limit) return false;
+    seen.add(key);
+    hints.push(term);
+    return true;
+  };
+
+  // Explicit protected vocabulary is the user's strongest instruction. Every
+  // canonical and user-authored alias owns the hint budget before softer terms
+  // extracted automatically from the free-form Accuracy description.
+  for (const entry of entries) add(entry.canonical);
+  for (const entry of entries) for (const alias of entry.aliases) add(alias);
+  let descriptionHintsUsed = 0;
+  for (const hint of descriptionHints) {
+    if (add(hint)) descriptionHintsUsed += 1;
+  }
+  return { hints, descriptionHintsUsed };
 }
 
 async function runTranscriptionModel(
@@ -406,25 +466,13 @@ async function runTranscriptionModel(
   model: string,
   uploaded: { uri: string; mimeType: string },
   entries: VocabularyEntry[],
+  descriptionHints: string[],
   announceRescue: boolean,
+  languageCodes: string[] = [],
 ) {
-  const seen = new Set<string>();
-  const hints: string[] = [];
-  // Every active canonical term gets priority before aliases consume the
-  // recommended 100-term speech-bias budget.
-  for (const value of [
-    ...entries.map((entry) => entry.canonical),
-    ...entries.flatMap((entry) => entry.aliases),
-  ]) {
-    const term = value.trim();
-    const key = term.toLocaleLowerCase('en');
-    if (!term || seen.has(key)) continue;
-    seen.add(key);
-    hints.push(term);
-    if (hints.length >= 100) break;
-  }
+  const recognition = buildTranscriptionRecognitionHints(entries, descriptionHints);
   if (announceRescue) console.warn('[Gemini] Context-aware models are unavailable. Trying one transcription-only compatibility pass.');
-  const result = await makeTranscriptionRescueInteraction(ai, model, uploaded, hints);
+  const result = await makeTranscriptionRescueInteraction(ai, model, uploaded, recognition.hints, languageCodes);
   return {
     transcript: {
       language: inferTranscriptLanguageFromText(result.outputText),
@@ -433,6 +481,7 @@ async function runTranscriptionModel(
     attempts: 1,
     nativeVocabularyBias: result.nativeVocabularyBias,
     contextMode: result.nativeVocabularyBias ? 'vocabulary-only' as const : 'audio-only' as const,
+    descriptionHintsUsed: result.nativeVocabularyBias ? recognition.descriptionHintsUsed : 0,
   };
 }
 
@@ -441,8 +490,10 @@ async function runTranscriptionRescue(
   model: string,
   uploaded: { uri: string; mimeType: string },
   entries: VocabularyEntry[],
+  descriptionHints: string[],
 ) {
-  return runTranscriptionModel(ai, model, uploaded, entries, false);
+  const languageCodes = /^km(?:-|$)/i.test(config.localWhisperLanguage.trim()) ? ['km-KH'] : [];
+  return runTranscriptionModel(ai, model, uploaded, entries, descriptionHints, false, languageCodes);
 }
 
 function unavailableMessage(error: unknown, triedCompatibility: boolean) {
@@ -463,6 +514,7 @@ export async function runGeminiModelChain(
   entries: VocabularyEntry[],
   guidance: GeminiTranscriptionGuidance | undefined,
   llm: Pick<ResolvedGeminiSettings, 'model' | 'fallbackModel'>,
+  descriptionHints: string[] = [],
 ): Promise<GeminiTranscript> {
   const finish = (
     raw: Pick<TranscriptResult, 'language' | 'fullText'>,
@@ -471,8 +523,21 @@ export async function runGeminiModelChain(
     attempts: number,
     nativeVocabularyBias: boolean,
     contextMode: GeminiTranscript['contextMode'] = 'full',
+    descriptionHintsUsed = 0,
+    allowEnglishOnlyDedicatedModel = false,
   ): GeminiTranscript => {
     const alignmentText = raw.fullText;
+    const scriptIssue = khmerTranscriptScriptIssue(raw.fullText, entries);
+    if (scriptIssue === 'thai-lao-contamination') {
+      throw new GeminiLanguageMismatchError(
+        'AI transcription produced unexpected Thai/Lao script for this Khmer-first clip, so Studio rejected it before saving captions. Your project is unchanged. Use Resume in Activity to try again.',
+      );
+    }
+    if (scriptIssue === 'english-only' && !allowEnglishOnlyDedicatedModel) {
+      throw new GeminiLanguageMismatchError(
+        'AI transcription returned English-only text for this Khmer-first clip, so Studio rejected it before saving captions. Your project is unchanged. Use Resume in Activity to try again.',
+      );
+    }
     const canonicalized = canonicalizeVocabularyAliases(raw.fullText, entries);
     if (canonicalized.replacements) console.log(`[Gemini] Applied ${canonicalized.replacements} user-owned vocabulary alias replacement(s) after transcription.`);
     return {
@@ -484,20 +549,18 @@ export async function runGeminiModelChain(
       attempts,
       nativeVocabularyBias,
       contextMode,
+      descriptionHintsUsed,
       vocabularyTerms: entries.map((entry) => entry.canonical),
     };
   };
 
-  const rescueModel = config.geminiTranscriptionRescueModel.trim();
+  const rescueModel = config.geminiTranscriptionRescueEnabled
+    ? config.geminiTranscriptionRescueModel.trim()
+    : '';
   const runCompatibilityRescue = async (sourceModel: string, sourceError: unknown) => {
     console.warn(`[Gemini] ${sourceModel}: ${retryFailureLabel(sourceError)}. Trying one transcription-only compatibility pass.`);
     try {
-      const rescue = await runTranscriptionRescue(ai, rescueModel, uploaded, entries);
-      if (implausibleEnglishOnlyKhmerRescue(rescue.transcript.fullText)) {
-        throw new GeminiLanguageMismatchError(
-          'Compatibility transcription returned English-only text for this Khmer-first clip, so Studio did not save new captions. Your project is unchanged. Use Resume in Activity when Gemini is available again.',
-        );
-      }
+      const rescue = await runTranscriptionRescue(ai, rescueModel, uploaded, entries, descriptionHints);
       const value = finish(
         rescue.transcript,
         rescueModel,
@@ -505,8 +568,10 @@ export async function runGeminiModelChain(
         rescue.attempts,
         rescue.nativeVocabularyBias,
         rescue.contextMode,
+        rescue.descriptionHintsUsed,
+        false,
       );
-      console.warn('[Gemini] Compatibility transcription succeeded. Topic description was not applied to this rescue pass.');
+      console.warn(`[Gemini] Compatibility transcription succeeded. ${rescue.descriptionHintsUsed ? `${rescue.descriptionHintsUsed} Accuracy-context recognition hint(s) were applied; ` : ''}full topic semantics were not available to Transcribe.`);
       return value;
     } catch (rescueError) {
       if (rescueError instanceof GeminiLanguageMismatchError) throw rescueError;
@@ -518,9 +583,19 @@ export async function runGeminiModelChain(
   };
 
   try {
-    const primary = await runModel(ai, llm.model, uploaded, prompt, entries, guidance);
-    return finish(primary.transcript, llm.model, false, primary.attempts, primary.nativeVocabularyBias, primary.contextMode);
+    const primary = await runModel(ai, llm.model, uploaded, prompt, entries, guidance, descriptionHints);
+    return finish(
+      primary.transcript,
+      llm.model,
+      false,
+      primary.attempts,
+      primary.nativeVocabularyBias,
+      primary.contextMode,
+      primary.descriptionHintsUsed,
+      dedicatedTranscriptionModel(llm.model),
+    );
   } catch (primaryError) {
+    if (primaryError instanceof GeminiLanguageMismatchError) throw primaryError;
     const fallback = llm.fallbackModel.trim();
     const primaryCanFailOver = transientGeminiError(primaryError) || primaryError instanceof GeminiGuidanceUnsupportedError;
     if (!fallback || fallback === llm.model || !primaryCanFailOver) {
@@ -529,9 +604,19 @@ export async function runGeminiModelChain(
     }
     console.warn(`[Gemini] ${llm.model}: ${retryFailureLabel(primaryError)}. Trying configured fallback ${fallback}.`);
     try {
-      const secondary = await runModel(ai, fallback, uploaded, prompt, entries, guidance);
-      return finish(secondary.transcript, fallback, true, secondary.attempts, secondary.nativeVocabularyBias, secondary.contextMode);
+      const secondary = await runModel(ai, fallback, uploaded, prompt, entries, guidance, descriptionHints);
+      return finish(
+        secondary.transcript,
+        fallback,
+        true,
+        secondary.attempts,
+        secondary.nativeVocabularyBias,
+        secondary.contextMode,
+        secondary.descriptionHintsUsed,
+        dedicatedTranscriptionModel(fallback),
+      );
     } catch (fallbackError) {
+      if (fallbackError instanceof GeminiLanguageMismatchError) throw fallbackError;
       const canRescue = !guidance
         && Boolean(rescueModel)
         && rescueModel !== llm.model
@@ -613,13 +698,16 @@ async function geminiCheckpointSignature(
   const audioIdentity = immutableAudioIdentity(audioPath, stat);
   const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
   return crypto.createHash('sha256').update(JSON.stringify({
-    version: 'gemini-job-stage-v3',
+    version: 'gemini-job-stage-v5',
     audioIdentity,
     context,
     guidance,
     primaryModel: llm.model,
     fallbackModel: llm.fallbackModel,
-    transcriptionRescueModel: llm.fallbackModel.trim() ? config.geminiTranscriptionRescueModel : '',
+    transcriptionRescueEnabled: config.geminiTranscriptionRescueEnabled,
+    transcriptionRescueModel: config.geminiTranscriptionRescueEnabled && llm.fallbackModel.trim()
+      ? config.geminiTranscriptionRescueModel
+      : '',
     keyFingerprint,
     nativeVocabularyBias: config.geminiNativeVocabularyBias,
     thinkingLevel: config.geminiTranscriptionThinkingLevel,
@@ -672,9 +760,10 @@ export async function transcribeTextWithGemini(
   }
   const { ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);
+  const descriptionHints = contextRecognitionHints(context?.description);
   const prompt = buildPrompt(context, entries, guidance);
 
-  const completed = await runGeminiModelChain(ai, uploaded, prompt, entries, guidance, llm);
+  const completed = await runGeminiModelChain(ai, uploaded, prompt, entries, guidance, llm, descriptionHints);
 
   if (run) {
     await writeRunCheckpoint(run.projectId, run.runKey, checkpointStage, checkpointSignature, completed);

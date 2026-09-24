@@ -334,21 +334,26 @@ media to Gemini or Sthang before the corresponding user action/consent.
 - relevant topic context, protected vocabulary, accuracy hints, and accepted or
   proposed wording when those are part of the requested pass.
 
-During full caption generation, Studio may make one transcription-only compatibility
-pass with Gemini Transcribe when the context-aware path is temporarily unavailable.
-For HTTP 429 rate-limit responses, Studio skips repeated Retry-After loops on the
-same model: it tries the primary context-aware model once, the configured fallback
-once, then the transcription compatibility pass if both remain unavailable. This
-keeps one bounded chance to preserve the full topic/context prompt before degrading
-to transcription-only behavior. The rescue reuses the same uploaded audio and can
-preserve the active protected vocabulary, but it does not apply the free-form topic
-description. The Transcribe pass uses automatic language identification/code-switching;
-for Khmer-first projects, Studio rejects English-only compatibility output
-instead of caching or applying it as Khmer captions. Studio surfaces degraded context
-mode so ambiguous names can be reviewed explicitly. Regeneration, Alternative, and
-Deep Verify passes keep their context-aware evidence contract and do not use this
-rescue. Leaving the optional fallback model blank disables automatic model failover,
-including the compatibility rescue.
+The recommended caption chain is Gemini 3.8 Flash followed by Gemini 3.7 Flash using
+the same Gemini API key and the same full Accuracy/topic prompt. For HTTP 429
+rate-limit responses, Studio skips repeated Retry-After loops on the same model and
+advances to the configured fallback. If both context-aware models are unavailable,
+the job stops safely and remains resumable instead of automatically degrading to a
+lower-quality transcription-only model.
+
+Gemini 3.5 Transcribe remains available only as an experimental/manual compatibility
+path. Automatic rescue is disabled by default and requires an explicit development
+opt-in. When that experimental path is used, it can preserve protected vocabulary and
+a small bounded set of exact names, model identifiers, versions, acronyms, and quoted
+terms extracted from Accuracy context as soft recognition hints. The full semantic
+topic description is not available to Transcribe and derived hints never authorize
+canonical replacement. Khmer-first final transcripts are validated before checkpoint,
+cache, local alignment, or project persistence: English-only output and unexpected
+Thai/Lao script are rejected, while normal Khmer + Latin/English code-switching and
+explicitly protected Thai/Lao terms remain allowed. Studio never transliterates
+wrong-script output into Khmer. Regeneration, Alternative, and Deep Verify keep their
+context-aware evidence contract and never silently degrade to Transcribe. Leaving the
+optional fallback model blank disables automatic model failover.
 
 Repeated listens over the same immutable audio range may reuse one short-lived
 Gemini Files API upload instead of uploading duplicate copies. A fresh

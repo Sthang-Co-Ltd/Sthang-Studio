@@ -111,12 +111,15 @@ export async function transcribeProject(
     throw new Error('Connect Gemini in Settings → AI connection before generating captions.');
   }
   const geminiSignature = stageSignature({
-    version: 5,
+    version: 7,
     mediaFingerprint: normalized.fingerprint,
     context,
     primaryModel: llm.model,
     fallbackModel: llm.fallbackModel,
-    transcriptionRescueModel: llm.fallbackModel.trim() ? config.geminiTranscriptionRescueModel : '',
+    transcriptionRescueEnabled: config.geminiTranscriptionRescueEnabled,
+    transcriptionRescueModel: config.geminiTranscriptionRescueEnabled && llm.fallbackModel.trim()
+      ? config.geminiTranscriptionRescueModel
+      : '',
     nativeVocabularyBias: config.geminiNativeVocabularyBias,
   });
   const cachedGemini = force ? null : await readStageCache<GeminiTranscript>(project.id, 'gemini', geminiSignature);
@@ -162,6 +165,7 @@ export async function transcribeProject(
     textModelFallback: gemini.fallbackUsed,
     nativeVocabularyBias: gemini.nativeVocabularyBias,
     contextMode: gemini.contextMode,
+    descriptionHintsUsed: gemini.descriptionHintsUsed,
     vocabularyTerms: gemini.vocabularyTerms,
     tokens: aligned.tokens,
     segments: naturalSegments,
@@ -390,6 +394,7 @@ async function generateManualCandidate(
     attempts: 0,
     nativeVocabularyBias: false,
     contextMode: 'full',
+    descriptionHintsUsed: 0,
     vocabularyTerms: parseVocabulary(context.vocabulary).map((entry) => entry.canonical),
   };
   return {
@@ -568,6 +573,7 @@ async function buildRangeRegenerationProposal(
       textModelFallback: selected.gemini.fallbackUsed,
       nativeVocabularyBias: selected.gemini.nativeVocabularyBias,
       contextMode: selected.gemini.contextMode,
+      descriptionHintsUsed: selected.gemini.descriptionHintsUsed,
       vocabularyTerms,
       tokens: replaced.tokens,
       segments: segmentTimedTokens(replaced.tokens, { mode: 'single-line', protectedPhrases: vocabularyTerms }),

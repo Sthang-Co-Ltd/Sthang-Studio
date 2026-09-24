@@ -70,12 +70,16 @@ const publicAnalyticsEndpoint = publicServices.productAnalytics?.provisioned ===
   ? httpsOriginValue(publicServices.productAnalytics.endpoint)
   : '';
 
+export const defaultGeminiModel = 'gemini-3.8-flash';
+export const defaultGeminiFallbackModel = 'gemini-3.7-flash';
+
 export const config = {
   port: Number(process.env.PORT || 8787),
   webOrigin: process.env.WEB_ORIGIN || 'http://localhost:5188',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-3.7-flash',
-  geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash',
+  geminiModel: process.env.GEMINI_MODEL || defaultGeminiModel,
+  geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? defaultGeminiFallbackModel,
+  geminiTranscriptionRescueEnabled: envBool('GEMINI_TRANSCRIPTION_RESCUE_ENABLED', false),
   geminiTranscriptionRescueModel: process.env.GEMINI_TRANSCRIPTION_RESCUE_MODEL ?? 'gemini-3.5-transcribe',
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),

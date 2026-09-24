@@ -78,11 +78,21 @@ import { playTimingRange } from './timing-playback';
 import { waitForCaptionAppearanceSaves } from './caption-appearance-save';
 
 function compatibilityTranscriptionNotice(value: CaptionProject) {
-  const mode = value.transcript?.contextMode;
+  const transcript = value.transcript;
+  const mode = transcript?.contextMode;
   if (!mode || mode === 'full') return '';
-  return mode === 'vocabulary-only'
-    ? 'Studio used compatibility transcription. Protected terms were kept, but the topic description was not applied. Review ambiguous names.'
-    : 'Studio used compatibility transcription without topic context or protected-term bias. Review ambiguous names.';
+  if (mode === 'audio-only') {
+    return 'Studio used compatibility transcription without Accuracy recognition hints. Review ambiguous names.';
+  }
+  const protectedCount = transcript?.vocabularyTerms?.length || 0;
+  const descriptionHints = transcript?.descriptionHintsUsed || 0;
+  if (descriptionHints > 0) {
+    const sources = protectedCount
+      ? `Protected terms and ${descriptionHints} selected name/model hint${descriptionHints === 1 ? '' : 's'} from your Accuracy context were used as recognition hints`
+      : `${descriptionHints} selected name/model hint${descriptionHints === 1 ? '' : 's'} from your Accuracy context ${descriptionHints === 1 ? 'was' : 'were'} used for recognition`;
+    return `Studio used compatibility transcription. ${sources}, but the full topic description was not available to Transcribe. Review ambiguous names.`;
+  }
+  return 'Studio used compatibility transcription. Protected terms were used as recognition hints, but the full topic description was not available to Transcribe. Review ambiguous names.';
 }
 import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
@@ -2131,7 +2141,7 @@ export default function App() {
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">
-            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span>Add this only when the clip contains unusual names, brands, versions, or mixed Khmer-English terms.</span></div>
+            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span>Use this to help Studio recognize unusual names, brands, versions, and mixed Khmer-English speech. Normal Gemini Flash transcription (recommended 3.8/3.7) uses the full topic context; experimental Transcribe can use selected names/model identifiers from this text only as recognition hints.</span></div>
             <label className="context-field"><span>What is this clip about?</span><textarea rows={3} value={contextDescription} onChange={(event) => { contextEditRevision.current += 1; setContextDescription(event.target.value); }} placeholder="Example: This video compares GPT 5.6 Luna and Terra. Preserve the exact model names."/></label>
             <label className="context-field"><span>Exact terms to preserve <b>{vocabularyLines.length}</b></span><textarea rows={5} value={vocabularyText} onChange={(event) => { contextEditRevision.current += 1; setVocabularyText(event.target.value); }} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/></label>
             <div className="accuracy-help"><span>One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy} onClick={saveContext}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
@@ -2143,7 +2153,7 @@ export default function App() {
 
           {workspaceTool === 'details' && hasHybrid && <div className="timing-card">
             <div className="timing-card-title"><CheckCircle2 size={18}/><div><strong>{usedFallback ? 'Local Whisper fallback active' : 'KFA Khmer alignment active'}</strong><span>Text: {project.transcript?.textModel || health?.geminiModel}{project.transcript?.textModelFallback ? ' (fallback)' : ''} · Timing: {timing?.model}{timing?.device ? ` · ${timing.device}` : ''}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{project.transcript?.vocabularyTerms?.length} protected terms · native bias {project.transcript?.nativeVocabularyBias ? 'on' : project.transcript?.contextMode === 'audio-only' ? 'not applied' : 'prompt-only'}</span>}</div></div>
-            {project.transcript?.contextMode && project.transcript.contextMode !== 'full' && <div className="inline-warning"><TriangleAlert size={16}/><span>Studio used a compatibility transcription pass. {project.transcript.contextMode === 'vocabulary-only' ? 'Protected terms were kept, but the topic description was not applied.' : 'The topic description and protected-term bias were not applied.'} Review ambiguous names before approval.</span></div>}
+            {project.transcript?.contextMode && project.transcript.contextMode !== 'full' && <div className="inline-warning"><TriangleAlert size={16}/><span>{compatibilityTranscriptionNotice(project)}</span></div>}
             {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align this clip, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
             {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>Text and canonical timing no longer fully match. Lock reviewed captions before regrouping.</span></div>}
             <div className="timing-metrics"><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>review</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>

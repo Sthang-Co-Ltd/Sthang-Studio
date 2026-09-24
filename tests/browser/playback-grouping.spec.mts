@@ -739,6 +739,7 @@ test('completed compatibility transcription surfaces its context limitation in t
   delete running.resultProjectId;
   state.jobs = [running];
   state.projects[0].transcript!.contextMode = 'vocabulary-only';
+  state.projects[0].transcript!.descriptionHintsUsed = 2;
 
   await openProject(page);
   const dialog = await activity(page);
@@ -751,7 +752,8 @@ test('completed compatibility transcription surfaces its context limitation in t
 
   await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
   await expect(page.locator('.toast.notice')).toContainText('Studio used compatibility transcription');
-  await expect(page.locator('.toast.notice')).toContainText('topic description was not applied');
+  await expect(page.locator('.toast.notice')).toContainText('2 selected name/model hints from your Accuracy context');
+  await expect(page.locator('.toast.notice')).toContainText('full topic description was not available to Transcribe');
 });
 
 test('full regeneration does not submit after Home invalidates its pending prerequisite save, even after reopening the same project', async ({ page }) => {
