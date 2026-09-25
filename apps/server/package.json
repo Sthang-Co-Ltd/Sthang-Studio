@@ -11,7 +11,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@google/genai": "2.22.0",
+    "@google/genai": "2.24.0",
     "@kcs/shared": "0.85.5",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
