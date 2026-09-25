@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.85.5 — Fine Timing, caption handoff, effects, and Khmer transcription
+
 - Keep unfinished Fine Timing timestamps scoped to their selected caption or
   word, including selections with identical times. Expose word review status to
   screen readers and explain recovery when no valid word interval is available.

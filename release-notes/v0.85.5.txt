@@ -1,0 +1,34 @@
+Sthang Studio 0.85.5 - Public Beta
+
+0.85.5 brings the accepted caption-finishing work since 0.85.4 into one release.
+
+Fine Timing now focuses on one caption at a time with precise timestamp entry, bounded nudges, whole-caption movement, edge auditions, optional looping, overlap protection, shared-edge editing, and timing undo/redo.
+Word timing adds local Sync words proposals, per-word timing edits, review states, and optional spoken-word highlighting in native preview and captioned MP4 without changing plain SRT output.
+
+Appearance adds six original Studio Looks, native Glow, Fade, Rise and Soft Pop, independent Motion and Word emphasis, appearance Undo/Redo, Reset look, and explicit effect replay.
+Export -> Captions file adds guided SRT, WebVTT, TTML, word-by-word SRT/VTT, styled ASS, Studio caption-data backup/restore, and a ZIP handoff kit with destination-specific guidance.
+
+Khmer transcription now defaults to Gemini 3.8 Flash with Gemini 3.7 Flash fallback using the same full Accuracy/topic context.
+Automatic Gemini 3.5 Transcribe rescue is disabled by default; the experimental/manual path remains available separately.
+Khmer-first output is rejected before persistence when it unexpectedly returns English-only or Thai/Lao script, while normal Khmer plus English code-switching and explicitly protected terms remain supported.
+
+This release also improves local word-sync responsiveness, source-watcher recovery, Windows UTF-8 local-timing worker I/O, accessible/mobile controls, and OTA restart handling for install paths containing command-shell metacharacters.
+
+Windows signed updates keep the existing fail-closed package verification, staged preparation, health checks, rollback, and stable user-state preservation.
+Windows OTA still requires Download & verify followed by Install & restart; Studio never silently downloads or installs an update.
+
+Curated recovery downloads support Windows 10 or 11 x64 and Apple Silicon macOS 12.3+.
+The macOS package remains the curated manual-download update path and does not implement the Windows in-app OTA updater.
+
+A Gemini Developer API key is still required for AI caption wording.
+Studio requests store: false for Gemini interactions; normalized WAV audio is uploaded separately through the Gemini Files API and Studio does not explicitly delete that remote file.
+Google currently documents Files API retention of up to 48 hours.
+Khmer Caption Contributor and optional product analytics remain separate, off-by-default choices that require explicit opt-in.
+
+Release assets:
+- Sthang-Studio-Windows-v0.85.5.zip
+- Sthang-Studio-Windows-v0.85.5.zip.sha256
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.5.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.5.zip.sha256
+
+Verify the matching SHA-256 checksum after download if you want to confirm the archive bytes.

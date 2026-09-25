@@ -131,7 +131,7 @@ before they reach Export.
   correction eligibility, caption text/timing, locks, Review focus, correction
   memory, history semantics, or source media.
 
-### Original Looks and Motion — unreleased source
+### Original Looks and Motion
 
 Keep three distinct choices: **Look**, **Motion**, and **Word emphasis**. Present
 six static labeled Look samples, a selected/Custom state, and **Reset look**.
@@ -166,7 +166,7 @@ track does not remove the caption's base Look or caption-level Fade.
 
 ### Export workspace
 
-For the unreleased editable-handoff path, **Captions file** opens one compact
+For editable caption handoff, **Captions file** opens one compact
 destination selector, a short import guide, and **Download SRT**. Keep advanced
 formats behind a labeled disclosure. Show what each format retains and what the
 destination must style again; a word-per-cue file must never be labeled a portable
@@ -242,7 +242,7 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - After a text or timing edit is committed in Review, replay the selected caption with the tight focus pass so the user can verify the change immediately.
 - Keep **Play with context** available under advanced Review controls for deliberate re-checking of neighboring speech.
 
-### Fine Timing and word highlighting — unreleased source
+### Fine Timing and word highlighting
 
 Keep **Caption edges** and **Word timing** visibly separate inside the single
 Fine Timing workspace. Caption-edge drag handles and editable word handles occupy

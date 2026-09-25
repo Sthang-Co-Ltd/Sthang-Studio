@@ -102,7 +102,7 @@ chunks and absence of development test hooks. Mutation checks must run the same
 tests unchanged with only the target production behavior altered, then restore it.
 Do not label missing native/Windows/full-history evidence as passed.
 
-## Deep Verify overlap — unreleased
+## Deep Verify overlap
 
 Deep Verify starts two fresh independent listens as before. When the acoustic
 draft arrives, its local timing pass can now run while the contextual listen is
@@ -131,5 +131,5 @@ New dependencies, cloud transfers, licenses, branded artwork, installer changes,
 release/version changes and external service provisioning are out of scope. The
 product manifest's approved release/data-flow proposal is not advanced by these
 source changes. Privacy notes describe the derived local peaks and font-only cache.
-Do not promote an unreleased speedup on the website/docs or claim that the broader
+Do not promote an unmeasured speedup on the website/docs or claim that the broader
 startup, KFA, memory-lifecycle and contention audit is complete from these tests.

@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-v0-85-4-ota-recovery-20260916",
+    "id": "studio-v0-85-5-feature-release-20260925",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Prepare Sthang Studio 0.85.4 as the emergency Windows signed-OTA recovery that supersedes the broken 0.85.2 public offer while leaving signed-but-unpromoted 0.85.3 immutable evidence untouched. Support unchanged v0.8 brokers through the bounded legacy preparation bridge, keep explicit runtime-only validation for current OTA and curated Windows setup, preserve full source typechecking plus shared/server/web runtime validation, rollback/fail-closed state preservation, curated Windows and Apple Silicon macOS recovery downloads, and explicit Download & verify then Install & restart. macOS remains manual-download only."
+      "summary": "Release Sthang Studio 0.85.5 with Fine Timing and word-level timing, editable caption handoff, original Studio Looks and native Glow/Fade/Rise/Soft Pop effects, improved Khmer Gemini transcription using 3.8 Flash then 3.7 Flash with wrong-script safeguards, source-watcher stability, accessible icon/mobile polish, the existing signed Windows OTA path, and curated Windows plus Apple Silicon macOS recovery downloads. Windows keeps explicit Download & verify then Install & restart with rollback; macOS remains manual-download only."
     },
     "releaseImpact": "version"
   },
@@ -23,7 +23,7 @@
     "lifecycle": "preview",
     "publicVisibilityRequest": {
       "status": "approved",
-      "basis": "Approved public repository; v0.85.4 publication is governed by the repository release gates and externally verified release evidence"
+      "basis": "Approved public repository; v0.85.5 publication is governed by the repository release gates and externally verified release evidence"
     },
     "source": {
       "visibility": "public",
@@ -36,7 +36,7 @@
       "downloadAuthority": "github-releases",
       "primaryAction": {
         "label": "Download for Windows",
-        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.85.4/Sthang-Studio-Windows-v0.85.4.zip"
+        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.85.5/Sthang-Studio-Windows-v0.85.5.zip"
       },
       "sourceAction": {
         "label": "View source on GitHub",
@@ -48,8 +48,8 @@
       "automaticPublication": false
     },
     "release": {
-      "sourceVersion": "0.85.4",
-      "publicVersion": "0.85.4",
+      "sourceVersion": "0.85.5",
+      "publicVersion": "0.85.5",
       "publicVersionStatus": "verified",
       "channel": "preview"
     },
@@ -179,13 +179,13 @@
   "evidence": {
     "release": {
       "mode": "github-release",
-      "tag": "v0.85.4",
+      "tag": "v0.85.5",
       "expectedDraft": false,
       "expectedPrerelease": true,
-      "assetName": "Sthang-Studio-Windows-v0.85.4.zip",
-      "checksumAssetName": "Sthang-Studio-Windows-v0.85.4.zip.sha256",
+      "assetName": "Sthang-Studio-Windows-v0.85.5.zip",
+      "checksumAssetName": "Sthang-Studio-Windows-v0.85.5.zip.sha256",
       "notesRequiredTerms": [
-        "Sthang Studio 0.85.4",
+        "Sthang Studio 0.85.5",
         "Public Beta",
         "Windows 10 or 11 x64",
         "Apple Silicon macOS 12.3+",
@@ -201,27 +201,27 @@
         "no public download"
       ],
       "package": {
-        "entrypoint": "Sthang Studio 0.85.4/Install Sthang Studio.bat",
+        "entrypoint": "Sthang Studio 0.85.5/Install Sthang Studio.bat",
         "requiredPaths": [
-          "Sthang Studio 0.85.4/Install Sthang Studio.bat",
-          "Sthang Studio 0.85.4/Read Me.txt",
-          "Sthang Studio 0.85.4/Sthang Studio Files/.env.example",
-          "Sthang Studio 0.85.4/Sthang Studio Files/.sthang/product-manifest.json",
-          "Sthang Studio 0.85.4/Sthang Studio Files/INSTALL-NEW-PC.bat",
-          "Sthang Studio 0.85.4/Sthang Studio Files/README.md",
-          "Sthang Studio 0.85.4/Sthang Studio Files/PRIVACY.md",
-          "Sthang Studio 0.85.4/Sthang Studio Files/package-lock.json",
-          "Sthang Studio 0.85.4/Sthang Studio Files/scripts/install-release-package.ps1"
+          "Sthang Studio 0.85.5/Install Sthang Studio.bat",
+          "Sthang Studio 0.85.5/Read Me.txt",
+          "Sthang Studio 0.85.5/Sthang Studio Files/.env.example",
+          "Sthang Studio 0.85.5/Sthang Studio Files/.sthang/product-manifest.json",
+          "Sthang Studio 0.85.5/Sthang Studio Files/INSTALL-NEW-PC.bat",
+          "Sthang Studio 0.85.5/Sthang Studio Files/README.md",
+          "Sthang Studio 0.85.5/Sthang Studio Files/PRIVACY.md",
+          "Sthang Studio 0.85.5/Sthang Studio Files/package-lock.json",
+          "Sthang Studio 0.85.5/Sthang Studio Files/scripts/install-release-package.ps1"
         ],
         "truth": {
           "paths": [
-            "Sthang Studio 0.85.4/Read Me.txt",
-            "Sthang Studio 0.85.4/Sthang Studio Files/README.md",
-            "Sthang Studio 0.85.4/Sthang Studio Files/PRIVACY.md"
+            "Sthang Studio 0.85.5/Read Me.txt",
+            "Sthang Studio 0.85.5/Sthang Studio Files/README.md",
+            "Sthang Studio 0.85.5/Sthang Studio Files/PRIVACY.md"
           ],
           "requiredTerms": [
             "public Beta",
-            "v0.85.4",
+            "v0.85.5",
             "Gemini Files API",
             "store: false",
             "48 hours"

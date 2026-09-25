@@ -1,4 +1,7 @@
-# Responsive native caption preview — unreleased source
+# Responsive native caption preview
+
+Status: released in the Sthang Studio `0.85.x` Public Beta line and retained in
+`0.85.5`.
 
 Base: `c49a614b532d86a94e57fb5374d193633dd978d8`.
 Change ID: `studio-smooth-native-preview-20260916`.

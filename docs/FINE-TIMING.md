@@ -1,7 +1,6 @@
 # Fine Timing and spoken-word highlights
 
-Status: source implementation, unreleased. The existing `0.85.4` release identity
-and download/update evidence do not establish availability of these changes.
+Status: included in Sthang Studio `0.85.5` for Windows and Apple Silicon macOS.
 
 ## Choose the timing you need to change
 
@@ -166,10 +165,11 @@ Native tests exercise real Khmer shaping, highlight-state geometry, persistent
 preview, and MP4 output. Local sync accuracy still depends on the speech and the
 installed timing runtime; a successful fixture is not a universal accuracy claim.
 
-Public impact: required. The source-only proposal
-`studio-word-timing-highlights-20260919` extends the earlier Fine Timing work.
-See [the public handoff](WORD-HIGHLIGHT-HANDOFF.md) for affected evidence and
-downstream approvals. The governed current release manifest, verified download
-claims, protected identity, services, and release approvals remain unchanged.
+Public impact: released in `0.85.5`. The original proposal
+`studio-word-timing-highlights-20260919` extended the earlier Fine Timing work.
+See [the public handoff](WORD-HIGHLIGHT-HANDOFF.md) for its affected evidence and
+downstream approval history. The `0.85.5` release manifest and release notes now
+carry the shipped feature identity while protected services and identity remain
+unchanged.
 The subsequent [Fine Timing refinement handoff](FINE-TIMING-REFINEMENT-HANDOFF.md)
 records selection-state, accessibility, and no-room recovery corrections.

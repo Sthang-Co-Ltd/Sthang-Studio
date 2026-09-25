@@ -1,4 +1,4 @@
-# Local service startup readiness — unreleased fix
+# Local service startup readiness
 
 Base: `d8dca9885f1646fa957e964dc76b70d16e0da1d8`.
 Branch: `chatgpt/startup-readiness`.

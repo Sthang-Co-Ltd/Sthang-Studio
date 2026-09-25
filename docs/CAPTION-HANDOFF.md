@@ -1,7 +1,6 @@
 # Continue editing captions in another app
 
-Status: unreleased source. This guide describes the local implementation; it does
-not establish availability in a published download. Import guidance was checked
+Status: included in Sthang Studio `0.85.5`. Import guidance was checked
 against the publishers' documentation on 19 September 2026.
 
 ## Start with your destination

@@ -2,7 +2,7 @@
 
 Change ID: `studio-word-timing-highlights-20260919`
 
-Status: source-only proposal, unreleased. Public impact: required. This extends
+Status: released in `0.85.5`. Public impact: required. This extends
 the earlier `studio-fine-timing-generation-20260918` workflow with editable owned
 word timing, local exact-word synchronization, optional spoken-word highlighting,
 neighbor protection, and shared-edge editing.
@@ -88,9 +88,9 @@ Phase 2 plan/apply protocol. Known affected surfaces are:
   the governed synchronization, if the approved HQ representation changes.
 
 No authorized HQ checkout/Phase 3 intake evidence or new plan digest was supplied
-in this task. The product manifest and its verifier bind the accepted `0.85.4`
-release proposal exactly. They are intentionally unchanged: rewriting that
-identity or weakening its validator would not constitute approval of this feature.
+when this handoff was authored. The product manifest and its verifier now bind the
+`0.85.5` release identity; this earlier change ID remains implementation evidence,
+not a substitute for governed HQ/Distribution approval.
 
 Before public advertising, an authorized maintainer must run the HQ Phase 3 intake
 for this new change ID, obtain its exact plan-digest/approval-class decision, then

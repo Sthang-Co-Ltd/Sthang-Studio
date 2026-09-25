@@ -46,7 +46,7 @@ Extra care is welcome around:
 - production signer webhook authentication, replay prevention, accepted-source
   verification, archive parsing, Secrets Store isolation, and immutable R2 writes.
 
-## Caption-data import boundary — unreleased source
+## Caption-data import boundary
 
 Portable caption data is untrusted local input. Accept only the exact supported
 schema/version, bounded UTF-8 size and caption/word counts, finite source-relative
@@ -63,7 +63,7 @@ fixed/safe and exclude media, font binaries, credentials and project context.
 
 ## Contributor and analytics trust boundaries
 
-The unreleased v0.8 source keeps Khmer Caption Contributor and optional product
+The public v0.85.x line keeps Khmer Caption Contributor and optional product
 analytics **off unless the user explicitly enables each choice**. Both cloud
 paths also fail closed if their production configuration is missing.
 
@@ -104,12 +104,12 @@ keys, names/email addresses, or Contributor ids into analytics.
 
 ## Signed update trust
 
-The updater uses a Studio-specific Ed25519 public trust root. The unreleased
-`0.8.0` bootstrap source provisions the reviewed **public** verification key so a
-later deliberately published bootstrap build can verify signed Studio updates.
-The repository contains no production private signing key and no private
-provider custody coordinates. Provisioning public trust does not establish that
-`0.8.0`, a signed update, or `latest.json` is publicly available.
+The updater uses a Studio-specific Ed25519 public trust root. The published
+`0.8.0` bootstrap provisioned the reviewed **public** verification key so later
+signed Studio updates can be verified. The repository contains no production
+private signing key and no private provider custody coordinates. A committed
+public key or signed immutable release does not by itself establish that a new
+`latest.json` offer has been promoted.
 
 Do not place a production private key, recovery passphrase, Cloudflare
 credential, R2 credential, GitHub webhook secret, release-signing secret, or
@@ -142,9 +142,9 @@ above.
 
 Security fixes target the latest accepted `main` branch and the most recent
 published release. Older development ZIPs and historical builds are not treated
-as supported releases. Until `0.8.0` is deliberately published, the verified
-public Beta remains `v0.7.14` even if `main` contains unreleased bootstrap and
-Contributor/analytics source.
+as supported releases. This release source corresponds to the `v0.85.5` Public
+Beta line; Windows signed-update availability still depends on the separately
+verified and deliberately promoted `latest.json` pointer.
 
 ## Public bug reports
 

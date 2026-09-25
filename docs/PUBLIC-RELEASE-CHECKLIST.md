@@ -12,9 +12,10 @@ but real `0.8.0` preparation fails safely before activation because the runtime
 payload lacks repository-only tests while the old preparation typecheck still
 requires `tests/tsconfig.json`. Version `0.85.3` was production-signed as immutable
 evidence but deliberately never promoted after exact unchanged-v0.8 preparation
-still failed. Version `0.85.4` is the emergency recovery and retains the same
-curated recovery-download model for both platforms. Historical publication evidence
-remains intact.
+still failed. Version `0.85.4` became the promoted emergency recovery. Version
+`0.85.5` retains that signed Windows update contract and curated recovery-download
+model while shipping the accepted Fine Timing, handoff, effects, transcription,
+startup, and accessibility changes. Historical publication evidence remains intact.
 
 The historical `v0.7.14` publication record remains below. On 2026-08-28, the
 public [Studio page](https://sthang.app/studio/) advertised `v0.7.14`; that dated
@@ -22,7 +23,7 @@ observation is preserved as history rather than rewritten as current website
 evidence. The owning HQ and Distribution repositories must establish the current
 public website/docs state through their separately governed synchronization flow.
 
-## Version 0.85.4 emergency OTA recovery requirements
+## Version 0.85.5 release requirements
 
 - [ ] Run `npm run ci` on the exact accepted release commit.
 - [ ] Run `npm run test:update-powershell` on that exact release commit.
@@ -42,18 +43,18 @@ public website/docs state through their separately governed synchronization flow
       files using the production runtime projection, which intentionally contains
       no repository `tests/` directory; complete preparation, activation, health,
       rollback, and protected-state checks.
-- [ ] Publish non-draft prerelease `v0.85.4` from the exact accepted commit with
+- [ ] Publish non-draft prerelease `v0.85.5` from the exact accepted commit with
       both curated ZIPs and both checksum assets; verify the uploaded bytes/digests.
 - [ ] Stage and sign the exact Windows OTA ZIP for that same accepted commit,
       independently verify the immutable package, manifest, attestation, and public
       `updates.sthang.app` bytes, then promote the signed `latest.json` pointer.
-- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.4` as a newer
+- [ ] Verify an updater-capable `0.8.0`-or-newer client sees `0.85.5` as a newer
       signed offer and still requires **Download & verify** then **Install & restart**.
-- [ ] Verify the real client prepares and activates `versions/0.85.4`, relaunches,
-      reports exact API version `0.85.4`, keeps the stable launcher working, and
+- [ ] Verify the real client prepares and activates `versions/0.85.5`, relaunches,
+      reports exact API version `0.85.5`, keeps the stable launcher working, and
       preserves protected user/runtime state.
 - [ ] Complete the separately governed HQ intake and Distribution `/studio/`
-      synchronization for version `0.85.4` and the Windows public signed-OTA model.
+      synchronization for version `0.85.5` and the Windows public signed-OTA model.
 - [ ] Do not claim completed real-Mac native acceptance unless the remaining
       real-Apple-Silicon checklist in `MACOS-COMPATIBILITY.md` has actually run.
 - [ ] Do not claim public OTA availability unless the signed-release, public-origin,

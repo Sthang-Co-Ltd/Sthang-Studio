@@ -1,7 +1,6 @@
 # Original Looks and caption effects
 
-Status: unreleased source implementation. These controls do not establish that
-the published Windows/macOS packages contain the feature.
+Status: included in Sthang Studio `0.85.5` for Windows and Apple Silicon macOS.
 
 ## Choose a Look
 
@@ -236,12 +235,10 @@ or hardware performance, or effect fidelity in another editor.
 Public impact: **required**. Change ID: `studio-original-looks-fade-20260920`.
 The follow-up replay/preset/font polish uses change ID
 `studio-effects-polish-20260920`. The Rise/Soft Pop and encoded-exit validation
-extension uses `studio-rise-soft-pop-20260920`. All remain unreleased source work.
-Product evidence includes this guide, README's Development changes, CHANGELOG's
-Unreleased section, PRODUCT/DESIGN, PRIVACY, and the caption-data schema notes.
-The `.sthang/product-manifest.json` still describes the separately governed
-0.85.4 release. Its source version, download links, approved identity and verifier
-must not be rewritten merely to advertise this local feature.
+extension uses `studio-rise-soft-pop-20260920`. These development records are
+bundled into the `0.85.5` release. Product evidence includes this guide, README,
+CHANGELOG, PRODUCT/DESIGN, PRIVACY, the caption-data schema notes, and the
+`0.85.5` product manifest/release evidence.
 
 Proposed HQ updates concern the Studio feature/public-claim representation,
 documentation-impact record and local appearance-data description. Known

@@ -2,9 +2,9 @@
 
 Change ID: `studio-caption-handoff-20260919`
 
-Status: unreleased source. **Public impact: required.** This adds local editable
+Status: released in `0.85.5`. **Public impact: required.** This adds local editable
 caption-file handoff, destination guidance, and a captions-only backup/restore
-workflow. It does not publish a new release or modify installed applications.
+workflow.
 
 ## Product evidence
 
@@ -45,11 +45,10 @@ and `governance/hq/sync-lock.json` only after governed approval. Suggested HQ fi
 are Studio's feature/export-format representation, documentation-impact record,
 supported-workflow limitations, and local-data/export description.
 
-No authorized HQ checkout or new exact plan-digest approval was supplied. The
-existing product manifest describes the separately governed 0.85.4 release and
-its verification script binds that identity. Both remain unchanged. The older
-Distribution release identity must not be edited opportunistically in this task.
-Before these features are advertised as released, run the HQ Phase 3 intake for
+No authorized HQ checkout or new exact plan-digest approval was supplied when
+this handoff was authored. The product manifest now describes the separately
+governed `0.85.5` release and its verification script binds that identity. Before
+these features are advertised on the Sthang website/docs, run the HQ Phase 3 intake for
 this change, approve the exact eligible plan, then the Distribution Phase 2 sync
 and separately authorized website/docs publication. No old release exception or
 validator weakening substitutes for that approval.

@@ -145,14 +145,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-v0-85-4-ota-recovery-20260916', 'manifest.change.id');
+  equal(change.id, 'studio-v0-85-5-feature-release-20260925', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare Sthang Studio 0.85.4 as the emergency Windows signed-OTA recovery that supersedes the broken 0.85.2 public offer while leaving signed-but-unpromoted 0.85.3 immutable evidence untouched. Support unchanged v0.8 brokers through the bounded legacy preparation bridge, keep explicit runtime-only validation for current OTA and curated Windows setup, preserve full source typechecking plus shared/server/web runtime validation, rollback/fail-closed state preservation, curated Windows and Apple Silicon macOS recovery downloads, and explicit Download & verify then Install & restart. macOS remains manual-download only.',
+    'Release Sthang Studio 0.85.5 with Fine Timing and word-level timing, editable caption handoff, original Studio Looks and native Glow/Fade/Rise/Soft Pop effects, improved Khmer Gemini transcription using 3.8 Flash then 3.7 Flash with wrong-script safeguards, source-watcher stability, accessible icon/mobile polish, the existing signed Windows OTA path, and curated Windows plus Apple Silicon macOS recovery downloads. Windows keeps explicit Download & verify then Install & restart with rollback; macOS remains manual-download only.',
     'manifest.change.documentationImpact.summary',
   );
 

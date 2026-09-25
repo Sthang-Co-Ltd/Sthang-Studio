@@ -1,4 +1,4 @@
-# Signed Studio updates (0.8 bootstrap; 0.85.4 emergency OTA recovery)
+# Signed Studio updates (0.8 bootstrap; 0.85.5 release)
 
 This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.2` became the first deliberately promoted public signed Windows OTA offer. Its signed immutable objects remain historical and must not be mutated.
 
@@ -6,7 +6,7 @@ Version `0.8.0` carries the reviewed Studio public verification trust. No public
 
 Real `0.8.0` client evidence for `0.85.2` exposed a preparation failure before active-version activation: the OTA runtime package intentionally excludes repository-only tests, while the preparation typecheck still required `tests/tsconfig.json`. Dependency setup and signed-package verification completed, then TypeScript validation failed closed and left the prior version active.
 
-Version `0.85.3` was production-signed as immutable evidence but deliberately never promoted after exact unchanged-`0.8.0` preparation showed that the old stable broker still invoked plain source typechecking before activation. Its immutable objects remain historical and must not be mutated. Version `0.85.4` is the emergency recovery candidate. It supports unchanged v0.8 brokers through a narrowly bounded compatibility bridge inside their verified `updates/work/.../source` preparation context, while current brokers and curated/manual Windows setup explicitly request runtime-only validation. Normal source `npm run typecheck` still includes repository tests; runtime-only validation still checks shared, server, and web TypeScript. `0.85.4` becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, upgrade/rollback evidence, and signed `latest.json` pointer are deliberately verified and promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live `0.85.4` OTA offer.
+Version `0.85.3` was production-signed as immutable evidence but deliberately never promoted after exact unchanged-`0.8.0` preparation showed that the old stable broker still invoked plain source typechecking before activation. Its immutable objects remain historical and must not be mutated. Version `0.85.4` became the promoted emergency recovery and remains the rollback/public baseline until a later pointer is deliberately advanced. It supports unchanged v0.8 brokers through a narrowly bounded compatibility bridge inside their verified `updates/work/.../source` preparation context, while current brokers and curated/manual Windows setup explicitly request runtime-only validation. Normal source `npm run typecheck` still includes repository tests; runtime-only validation still checks shared, server, and web TypeScript. Version `0.85.5` uses the same signed update contract and becomes an in-app offer only after its exact accepted source, curated recovery release, immutable signed OTA package/manifest/attestation, public update origin, upgrade/rollback evidence, and signed `latest.json` pointer are deliberately verified and promoted. Source code, packaging, signing, or signer deployment alone must never be described as a live `0.85.5` OTA offer.
 
 ## User experience
 
@@ -74,9 +74,9 @@ Each immutable version owns its `node_modules` and `.venv`. This permits `packag
 
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
-## OTA production gates and 0.85.4 emergency recovery
+## OTA production gates for 0.85.5 and later
 
-The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.4`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
+The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.5`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
 
 1. Build the ordinary Windows GitHub Release candidate and OTA candidate for that later version from the same exact accepted `main` commit, with committed bounded release notes.
 2. Stage and sign the exact OTA candidate through the production signer; independently verify the signature, package bytes, manifest, attestation, dependency declarations, and immutable R2 objects.

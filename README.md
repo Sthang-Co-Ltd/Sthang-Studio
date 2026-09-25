@@ -36,7 +36,11 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
-## Development changes — unreleased
+## Version 0.85.5
+
+Version `0.85.5` ships the Fine Timing, word-timing, caption-handoff, appearance,
+transcription-quality, startup-stability, and accessibility work accepted after
+`0.85.4`, while preserving the existing local-first project/state boundary.
 
 **Appearance** now offers six original Studio Looks, optional native Glow, and
 caption-level Fade, Rise, and Soft Pop. Look, Motion and Word emphasis are separate, with
@@ -54,7 +58,7 @@ different preservation levels, not a universal editable-highlight guarantee.
 See [Continue editing elsewhere](docs/CAPTION-HANDOFF.md), including CapCut
 mobile's documented Desktop/Web plus manual project-sync requirement.
 
-The source Fine Timing workspace now focuses on one caption at a time, keeps
+The Fine Timing workspace now focuses on one caption at a time, keeps
 playback visible, and provides precise start/end entry, bounded nudges, whole-cue
 movement, edge auditions, optional looping, and timing undo/redo. Neighbor
 protection prevents accidental overlaps; an explicit shared-edge option adjusts
@@ -68,7 +72,7 @@ colors the current spoken word while keeping the entire caption visible. Caption
 with unresolved word timing stay plain. The effect is included in native preview
 and captioned MP4; SRT remains plain caption text and cue timing. See the
 [Fine Timing guide](docs/FINE-TIMING.md) for controls, shortcuts, and limits.
-These source changes do not establish availability in the released downloads below.
+These features are included in the `0.85.5` release packages.
 
 Deep Verify also starts its first local timing pass while the second independent
 listen is still running. This removes an avoidable ordering dependency; it does
@@ -76,11 +80,11 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-Sthang Studio `0.85.4` is the current emergency Public Beta recovery identity for
+Sthang Studio `0.85.5` is the current Public Beta release identity for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
-[0.85.4 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.4)
-becomes the governed recovery-download location only after publication and byte
-verification complete for this release.
+[0.85.5 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.5)
+is the governed recovery-download location after its assets are published and
+byte-verified.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -183,8 +187,9 @@ separately deployed signing service. Version 0.8.0 established the updater-capab
 bootstrap. Version 0.85.2 became the first promoted public signed Windows offer,
 but its runtime preparation fails safely before activation as described above.
 Version 0.85.3 was signed as immutable evidence but deliberately never promoted.
-Version 0.85.4 is the emergency recovery candidate and becomes visible to installed
-clients only after its own signed and verified `latest.json` is deliberately
+Version 0.85.4 is the promoted recovery baseline that superseded the broken
+0.85.2 offer. Version 0.85.5 becomes visible to installed Windows clients only
+after its exact signed release is verified and `latest.json` is deliberately
 promoted.
 The curated GitHub Release remains the manual download and recovery path. See
 [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol, confirmation flow,

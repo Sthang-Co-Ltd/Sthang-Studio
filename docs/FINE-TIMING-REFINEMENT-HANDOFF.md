@@ -2,9 +2,9 @@
 
 Change ID: `studio-fine-timing-refinement-20260922`
 
-Status: source-only, unreleased. Public impact: required for the Fine Timing
-guide's recovery and accessibility instructions. This is a localized follow-up
-to `studio-word-timing-highlights-20260919`, not a new release claim.
+Status: released in `0.85.5`. Public impact: required for the Fine Timing guide's
+recovery and accessibility instructions. This is a localized follow-up to
+`studio-word-timing-highlights-20260919`.
 
 ## Changes and evidence
 
@@ -48,14 +48,11 @@ layout, not local alignment accuracy on real speech or a published installation.
 
 ## Public representation and approval boundary
 
-Compared against `.sthang/product-manifest.json` and its existing release,
-installation, privacy, and identity evidence. `README.md` already identifies Fine
-Timing and word highlights as unreleased source and links the updated guide.
-No provider, data transfer, dependency, install requirement, artwork, package
-version, or download claim changes; `PRIVACY.md` needs no revision.
-
-The manifest describes verified `0.85.4` release evidence and stays unchanged.
-Do not rewrite that identity to represent an unreleased interface correction.
+At implementation time this correction did not change provider, data transfer,
+dependency, install requirement, artwork, package version, or download claims.
+The correction is now bundled into the `0.85.5` product/release identity; the
+release-level version/download updates are tracked by the `0.85.5` release change
+rather than by this earlier interface-only change record.
 
 The local HQ Phase 3 and Distribution Phase 2 README workflows were inspected
 read-only. HQ intake consumes committed evidence reachable from `main` together

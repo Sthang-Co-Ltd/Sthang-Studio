@@ -8,8 +8,8 @@ The `v0.85.x` Public Beta line includes two separate privacy-controlled Sthang
 cloud paths: Khmer Caption Contributor and optional product analytics. Both are
 **off by default** and require separate explicit opt-in. Their production services
 are provisioned, but neither choice is required for caption generation, review,
-editing, saving, or export. The `0.85.4` OTA recovery does not change
-these data flows or consent boundaries.
+editing, saving, or export. Version `0.85.5` does not change these data flows or
+consent boundaries.
 
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
@@ -24,8 +24,7 @@ Khmer Caption Contributor program described below:
 - imported source media and normalized working audio;
 - reusable selected-range PCM WAVs created from that normalized audio;
 - caption projects and edits;
-- per-caption word intervals, exact wording snapshots, and highlight preferences
-  in the unreleased word-timing source implementation;
+- per-caption word intervals, exact wording snapshots, and highlight preferences;
 - correction memory and profile data;
 - project history, proposals, processing-job metadata, and resumable job checkpoints;
 - project-scoped KFA acoustic-emission caches and deterministic local timing-result caches;
@@ -43,7 +42,7 @@ memory-only and disappear when the browser page/process is closed.
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.
 
-### Local word timing and highlighting — unreleased source
+### Local word timing and highlighting
 
 **Sync words** processes a bounded clip from the existing project audio and the
 caption's current wording on this computer. It does not call Gemini or add a new
@@ -63,7 +62,7 @@ means cue/clip boundaries and the existing source timing/model/version fields;
 it does not include these new per-caption word tracks. The existing explicit
 consent rules and cloud payload projections remain unchanged.
 
-### Original appearance effects — unreleased source
+### Original appearance effects
 
 Look decoration, Glow, Fade, Rise and Soft Pop settings persist with local project
 appearance and any creator-saved presets. Replay prepares bounded native image frames over
@@ -76,7 +75,7 @@ an explicit appearance reference when you download the file. Default-effect file
 schema. Styled ASS and rendered MP4 can contain the effects; normal text subtitle
 formats do not. This does not change existing consent rules or remote payloads.
 
-## Editable caption handoff — unreleased source
+## Editable caption handoff
 
 The editable-file workflow creates local SRT, WebVTT, TTML, styled ASS, projected
 caption-data JSON or a ZIP handoff kit only after a download request. Files contain
@@ -351,8 +350,9 @@ repository-only tests while the old preparation path still required
 `tests/tsconfig.json`. The failure happens before active-version activation, so the
 previous installed version remains usable. `0.85.3` was production-signed as
 immutable evidence but deliberately never promoted after unchanged-v0.8 preparation
-still failed. `0.85.4` is the emergency recovery candidate; it becomes the public
-offer only when its own signed `latest.json` is deliberately promoted and verified.
+still failed. `0.85.4` is the promoted recovery baseline that superseded the
+broken offer. `0.85.5` becomes the public Windows offer only when its own signed
+release is verified and `latest.json` is deliberately promoted.
 The curated GitHub Release remains the manual download and recovery path. The Apple
 Silicon macOS package does not implement this Windows OTA updater.
 

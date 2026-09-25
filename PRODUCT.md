@@ -91,7 +91,7 @@ Creators may style captions before export while watching the real video evidence
 - Appearance never changes SRT serialization, caption text/timing, locks,
   correction eligibility, correction memory, Review behavior, or source media.
 
-## Original Looks and Motion contract — unreleased source
+## Original Looks and Motion contract
 
 Appearance separates starter **Look**, **Motion**, and **Word emphasis**. Six
 original Looks change decoration only; the creator's font, bold/regular choice,
@@ -137,7 +137,7 @@ v2, defaults retain v1, and the current reader accepts all three; v2 explicitly
 rejects the new motion values. Acceptance includes decoded MP4 comparisons at
 entrance, middle, exit and after caption end with caption-region/visibility checks.
 
-## Word timing and spoken-word highlight contract — unreleased source
+## Word timing and spoken-word highlight contract
 
 Fine Timing separates **Caption edges** from **Word timing**. Caption edits
 prevent new/increased neighbor overlaps by default; intentional overlap and a
@@ -169,7 +169,7 @@ reports how many captions will remain plain before a render.
 
 ## Export contract
 
-### Editable handoff — unreleased source
+### Editable handoff
 
 Export separates finished captioned video from editable caption files. SRT remains
 the default for documented major-editor imports. A destination selector explains

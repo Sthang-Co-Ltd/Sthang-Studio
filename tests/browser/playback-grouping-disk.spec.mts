@@ -32,7 +32,7 @@ async function waitForServer() {
   // Cold tsx startup on Windows was measured at 10.3 seconds locally. The old
   // six-second readiness gate failed before these history assertions could run.
   // Bound startup separately; do not extend or weaken any interaction assertion.
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (server?.exitCode != null) throw new Error(`Disk-backed test server exited early (${server.exitCode}).\n${serverOutput}`);
     try {
@@ -45,6 +45,10 @@ async function waitForServer() {
 }
 
 test.beforeAll(async () => {
+  // The hook also creates several disk fixtures and a real media sample before
+  // starting the server. Give that bounded cold-start path room beyond the
+  // suite's normal 30s interaction budget without relaxing any test assertion.
+  test.setTimeout(90_000);
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-playback-disk-browser-'));
   const uploads = path.join(root, 'uploads');
   const projects = path.join(root, 'data', 'projects');
@@ -369,6 +373,11 @@ test.afterAll(async () => {
 });
 
 test('disk-backed History restore cannot falsely mark a newer saved edit as saved', async ({ page }) => {
+  // This test deliberately holds a real disk-backed restore while exercising a
+  // second edit. On a cold Windows release-validation machine the real server and
+  // filesystem path can consume most of Playwright's default 30s test budget.
+  // Keep the interaction assertions unchanged and bound only the overall case.
+  test.setTimeout(60_000);
   await page.addInitScript(() => {
     for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
     (window as any).EventSource = undefined;
