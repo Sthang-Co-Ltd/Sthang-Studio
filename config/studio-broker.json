@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "product": "sthang-studio",
+  "platform": "windows-x64",
+  "brokerVersion": "1.0.1",
+  "files": {
+    "scripts/launch-studio.ps1": {
+      "sha256": "344090a25ec00110b488f57e4841e420cb01463ea79908850edd8e569a33aced",
+      "sizeBytes": 7721
+    },
+    "scripts/update-runtime.mjs": {
+      "sha256": "3815a54d8351cd7b5b9fef03fffb9a80d5fe702010f8ccbdc444d0c277978702",
+      "sizeBytes": 15049
+    },
+    "scripts/update-protocol.mjs": {
+      "sha256": "75b3d8b37199ee8d9f575d2abcd7d6f63726231b4b8605fdde2d4486dcc7f797",
+      "sizeBytes": 16205
+    },
+    "scripts/prepare-studio-update.ps1": {
+      "sha256": "70a4301295eaa05dadec2edcfde1bbaac3959af81f86df7d31765b34a20a53e1",
+      "sizeBytes": 12586
+    }
+  },
+  "predecessors": [
+    {
+      "brokerVersion": "1.0.0",
+      "files": {
+        "scripts/launch-studio.ps1": [
+          "203617163240ea7ef79ec74fd0256dcebb73f52e8d9be966fff402205f3f6ae3",
+          "887253bde787e445e519096b7a2ee55bbd99b98a1b9bd476320a8ae40c63288c"
+        ],
+        "scripts/update-runtime.mjs": [
+          "44d7e9b923fa5b6a695db96e11c9ef7da7c862840a87659406ce1e725d6c0dc7",
+          "4785bd13a3c5e22623a4f9ccaadc93f1c7ea7f3e0540d83834d7a8cc77aba308",
+          "a217bcadb26447e80e45692b353e605273aaa48be988268325288965b919dbac"
+        ],
+        "scripts/update-protocol.mjs": [
+          "75b3d8b37199ee8d9f575d2abcd7d6f63726231b4b8605fdde2d4486dcc7f797"
+        ],
+        "scripts/prepare-studio-update.ps1": [
+          "2ce9a3407e4396274a0182af3ad9538a4a44a26d24c356a6fce15e47ec4db197",
+          "70a4301295eaa05dadec2edcfde1bbaac3959af81f86df7d31765b34a20a53e1",
+          "a5bc0896e2d532e7e028ab370ff018d4e4769d84d228527a8c1725739c48011a",
+          "c33d8c36c3f60855a0fed27d38b6c13001ad35f49ddfa8ff02bef896df182df2"
+        ]
+      }
+    }
+  ]
+}

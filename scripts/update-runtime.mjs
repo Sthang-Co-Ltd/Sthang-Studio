@@ -298,7 +298,8 @@ export async function applyPending(pendingPath) {
   try {
     verified = await validatePending(pendingPath);
     ({ updateRoot, installRoot } = verified.pending);
-    const prepare = path.join(installRoot, 'scripts', 'prepare-studio-update.ps1');
+    // Stay inside the selected broker bundle, not the legacy root scripts.
+    const prepare = fileURLToPath(new URL('./prepare-studio-update.ps1', import.meta.url));
     const result = spawnSync('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', prepare,
       '-PendingPath', path.resolve(pendingPath),
