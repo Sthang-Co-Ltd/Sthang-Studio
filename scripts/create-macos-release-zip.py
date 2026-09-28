@@ -7,6 +7,9 @@ import time
 import zipfile
 
 
+UNIX_SCRIPT_SUFFIXES = {".sh", ".command"}
+
+
 def zip_info(path: pathlib.Path, arcname: str, executable: bool) -> zipfile.ZipInfo:
     stat = path.stat()
     info = zipfile.ZipInfo(arcname, tuple(list(time.localtime(stat.st_mtime))[:6]))
@@ -15,6 +18,21 @@ def zip_info(path: pathlib.Path, arcname: str, executable: bool) -> zipfile.ZipI
     mode = 0o100755 if executable else 0o100644
     info.external_attr = mode << 16
     return info
+
+
+def prepare_unix_scripts(package_root: pathlib.Path) -> dict[pathlib.Path, bytes]:
+    prepared: dict[pathlib.Path, bytes] = {}
+    for path in sorted(package_root.rglob("*")):
+        if not path.is_file() or path.suffix not in UNIX_SCRIPT_SUFFIXES:
+            continue
+        data = path.read_bytes().replace(b"\r\n", b"\n")
+        if b"\r" in data:
+            relative = path.relative_to(package_root).as_posix()
+            raise ValueError(
+                f"macOS shell entrypoint contains an unsupported carriage-return byte: {relative}."
+            )
+        prepared[path] = data
+    return prepared
 
 
 def main() -> int:
@@ -32,6 +50,12 @@ def main() -> int:
     if output.exists():
         output.unlink()
 
+    try:
+        unix_scripts = prepare_unix_scripts(package_root)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+
     base = package_root.name
     with zipfile.ZipFile(output, "w", allowZip64=True) as archive:
         for path in sorted(package_root.rglob("*")):
@@ -39,9 +63,12 @@ def main() -> int:
                 continue
             relative = path.relative_to(package_root).as_posix()
             arcname = f"{base}/{relative}"
-            executable = path.suffix in {".sh", ".command"}
+            executable = path.suffix in UNIX_SCRIPT_SUFFIXES
             info = zip_info(path, arcname, executable)
             with path.open("rb") as source, archive.open(info, "w") as target:
+                if executable:
+                    target.write(unix_scripts[path])
+                    continue
                 while True:
                     chunk = source.read(1024 * 1024)
                     if not chunk:

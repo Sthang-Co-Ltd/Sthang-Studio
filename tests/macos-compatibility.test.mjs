@@ -13,6 +13,11 @@ const shell = process.env.STHANG_TEST_BASH || (process.platform === 'win32'
   ? path.resolve(path.dirname(spawnSync('where.exe', ['git.exe'], { encoding: 'utf8' }).stdout.trim().split(/\r?\n/)[0]), '../bin/bash.exe')
   : '/bin/bash');
 
+function pythonCommand() {
+  const candidates = process.platform === 'win32' ? ['python', 'python3.12', 'python3'] : ['python3.12', 'python3'];
+  return candidates.find((candidate) => spawnSync(candidate, ['--version'], { windowsHide: true }).status === 0);
+}
+
 function fixture(t, changes = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos test '));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -82,6 +87,57 @@ for (const entry of entrypoints) {
 for (const entry of releaseEntrypoints) {
   test(`${entry}: shell syntax`, () => success(spawnSync(shell, ['-n', path.join(root, entry)], { encoding: 'utf8', windowsHide: true })));
 }
+
+test('tracked macOS shell entrypoints are stored with LF-only line endings', () => {
+  for (const entry of [...entrypoints, ...releaseEntrypoints, 'scripts/macos-common.sh']) {
+    const tracked = spawnSync('git', ['show', `HEAD:${entry}`], { cwd: root, windowsHide: true });
+    assert.equal(tracked.status, 0, String(tracked.stderr));
+    assert.equal(tracked.stdout.includes(13), false, `${entry} contains a tracked carriage-return byte`);
+  }
+  assert.match(fs.readFileSync(path.join(root, '.gitattributes'), 'utf8'), /\*\.command text eol=lf/);
+});
+
+test('macOS release ZIP creation canonicalizes CRLF shell entrypoints to LF', (t) => {
+  const python = pythonCommand();
+  assert.ok(python, 'Python is required for the macOS package regression.');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos package '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const packageDir = path.join(dir, 'Sthang Studio test');
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, 'Install Sthang Studio.command'), '#!/usr/bin/env bash\r\necho broken\r\n');
+  const output = path.join(dir, 'normalized.zip');
+  const result = spawnSync(python, ['-B', path.join(root, 'scripts/create-macos-release-zip.py'), packageDir, output], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  });
+  success(result);
+  const probe = spawnSync(python, ['-B', '-c', [
+    'import pathlib, sys, zipfile',
+    'archive = zipfile.ZipFile(sys.argv[1])',
+    "name = 'Sthang Studio test/Install Sthang Studio.command'",
+    'data = archive.read(name)',
+    'mode = (archive.getinfo(name).external_attr >> 16) & 0o777',
+    "raise SystemExit(0 if data == b'#!/usr/bin/env bash\\necho broken\\n' and mode == 0o755 else 1)",
+  ].join('; '), output], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  success(probe);
+});
+
+test('macOS release ZIP creation rejects lone carriage returns before writing an artifact', (t) => {
+  const python = pythonCommand();
+  assert.ok(python, 'Python is required for the macOS package regression.');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos package invalid '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const packageDir = path.join(dir, 'Sthang Studio test');
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, 'Install Sthang Studio.command'), '#!/usr/bin/env bash\recho invalid\n');
+  const output = path.join(dir, 'invalid.zip');
+  fs.writeFileSync(output, 'stale artifact');
+  const result = spawnSync(python, ['-B', path.join(root, 'scripts/create-macos-release-zip.py'), packageDir, output], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /unsupported carriage-return byte/);
+  assert.equal(fs.existsSync(output), false);
+});
 
 for (const [macos, node, arch, accepted] of [
   ['12.3', '22.11.0', 'arm64', false], ['12.3', '22.12.0', 'arm64', true],
@@ -168,8 +224,7 @@ test('manifest and lockfile agree on the Node 22 compatibility floor', () => {
 });
 
 test('Python dependency-verifier regressions', () => {
-  const candidates = process.platform === 'win32' ? ['python', 'python3.12', 'python3'] : ['python3.12', 'python3'];
-  const python = candidates.find((candidate) => spawnSync(candidate, ['--version'], { windowsHide: true }).status === 0);
+  const python = pythonCommand();
   assert.ok(python, 'Python is required for the local macOS setup regressions.');
   success(spawnSync(python, ['-B', 'tests/macos_timing_check_test.py'], {
     cwd: root, encoding: 'utf8', timeout: 30_000, windowsHide: true,

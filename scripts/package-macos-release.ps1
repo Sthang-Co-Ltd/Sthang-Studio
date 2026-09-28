@@ -30,6 +30,17 @@ function Get-Sha256Hex([string]$Path) {
 $Package = Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
 $Version = [string]$Package.version
 if (-not $Version) { throw 'package.json does not contain a release version.' }
+$OutputDir = Join-Path $Root 'release-artifacts'
+$ArtifactName = "Sthang-Studio-macOS-Apple-Silicon-v$Version.zip"
+$ArtifactPath = Join-Path $OutputDir $ArtifactName
+$ChecksumPath = "$ArtifactPath.sha256"
+
+New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+foreach ($OldOutput in @($ArtifactPath, $ChecksumPath)) {
+  if (Test-Path -LiteralPath $OldOutput) {
+    Remove-Item -LiteralPath $OldOutput -Force
+  }
+}
 
 if (-not $SkipValidation) {
   Invoke-Checked 'Running macOS compatibility regressions...' { npm.cmd run test:macos }
@@ -47,13 +58,11 @@ if ($TrackedChanges.Trim()) {
 $Commit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $Commit) { throw 'The current Git commit could not be resolved.' }
 
-$OutputDir = Join-Path $Root 'release-artifacts'
 $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ('Sthang-Studio-macOS-Package-' + [Guid]::NewGuid().ToString('N'))
 $PackageFolder = Join-Path $StageRoot ("Sthang Studio $Version")
 $FilesFolder = Join-Path $PackageFolder 'Sthang Studio Files'
 $PayloadZip = Join-Path $StageRoot 'payload.zip'
 
-New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 New-Item -ItemType Directory -Path $FilesFolder -Force | Out-Null
 
 try {
@@ -93,8 +102,6 @@ try {
   $Readme = (Get-Content -LiteralPath $ReadmeTemplate -Raw).Replace('{{VERSION}}', $Version)
   Set-Content -LiteralPath (Join-Path $PackageFolder 'Read Me.txt') -Value $Readme -Encoding UTF8
 
-  $ArtifactName = "Sthang-Studio-macOS-Apple-Silicon-v$Version.zip"
-  $ArtifactPath = Join-Path $OutputDir $ArtifactName
   Invoke-Checked 'Creating ZIP with macOS executable permissions...' {
     python (Join-Path $Root 'scripts\create-macos-release-zip.py') $PackageFolder $ArtifactPath
   }
@@ -144,7 +151,6 @@ try {
   }
 
   $Hash = Get-Sha256Hex $ArtifactPath
-  $ChecksumPath = "$ArtifactPath.sha256"
   Set-Content -LiteralPath $ChecksumPath -Value "$Hash  $ArtifactName" -Encoding ASCII
   $SizeMb = [math]::Round((Get-Item -LiteralPath $ArtifactPath).Length / 1MB, 2)
 
