@@ -456,11 +456,11 @@ test('macOS OTA ZIP creator is rootless, preserves shell executability, and reje
 
 test('macOS release packager builds derived output from an isolated captured commit projection', () => {
   const script = fs.readFileSync(path.join(root, 'scripts/package-macos-release.ps1'), 'utf8');
-  assert.match(script, /git archive --format=zip "--output=\$BuildArchive" \$Commit/);
+  assert.match(script, /git -c core\.autocrlf=false -c core\.eol=lf archive --format=zip "--output=\$BuildArchive" \$Commit/);
   assert.match(script, /npm\.cmd ci --include=dev --ignore-scripts=false --no-audit --no-fund/);
   assert.match(script, /Push-Location \$BuildRoot/);
   assert.match(script, /\$SourceBuild = Join-Path \$BuildRoot \$BuildOutput/);
-  assert.match(script, /git archive --format=zip "--output=\$PayloadZip" \$Commit -- @PayloadPaths/);
+  assert.match(script, /git -c core\.autocrlf=false -c core\.eol=lf archive --format=zip "--output=\$PayloadZip" \$Commit -- @PayloadPaths/);
   assert.doesNotMatch(script, /\$SourceBuild = Join-Path \$Root \$BuildOutput/);
   assert.match(script, /\$BuildPackageLockShaAfterBuild -ne \$BuildPackageLockSha/);
   assert.match(script, /\$PayloadPackageLockSha -ne \$BuildPackageLockSha/);

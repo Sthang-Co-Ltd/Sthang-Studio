@@ -78,7 +78,7 @@ New-Item -ItemType Directory -Path $FilesFolder -Force | Out-Null
 try {
   Write-Host ''
   Write-Host "Preparing exact tracked release build for commit $Commit..." -ForegroundColor Cyan
-  & git archive --format=zip "--output=$BuildArchive" $Commit
+  & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$BuildArchive" $Commit
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the exact tracked release-build source archive.' }
   Expand-Archive -LiteralPath $BuildArchive -DestinationPath $BuildRoot -Force
 
@@ -145,7 +145,7 @@ try {
 
   Write-Host ''
   Write-Host "Creating clean Apple Silicon macOS package for Sthang Studio $Version..." -ForegroundColor Cyan
-  & git archive --format=zip "--output=$PayloadZip" $Commit -- @PayloadPaths
+  & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$PayloadZip" $Commit -- @PayloadPaths
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the tracked macOS release payload.' }
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
 
