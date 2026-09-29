@@ -14,6 +14,7 @@ STAGE_ROOT="$STATE_ROOT/.manual-install-stage"
 LOCK_ROOT="$STATE_ROOT/.manual-install-lock"
 LAUNCHER_DIR="$HOME/Applications"
 LAUNCHER="$LAUNCHER_DIR/Sthang Studio.command"
+INSTALL_ROOT_QUOTED="$(printf '%q' "$INSTALL_ROOT")"
 OLD_ENV="$INSTALL_ROOT/apps/server/.env"
 HAD_OLD_ENV=0
 INSTALLED_NEW_ROOT=0
@@ -140,10 +141,18 @@ if [[ "$HAD_OLD_ENV" -eq 1 && ! -f "$INSTALL_ROOT/apps/server/.env" ]]; then
 fi
 
 mkdir -p "$LAUNCHER_DIR"
-cat > "$LAUNCHER" <<'EOF'
+{
+  cat <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-APP_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}/app"
+EOF
+  printf 'DEFAULT_APP_ROOT=%s\n' "$INSTALL_ROOT_QUOTED"
+  cat <<'EOF'
+if [[ -n "${STHANG_STUDIO_STATE_ROOT:-}" ]]; then
+  APP_ROOT="$STHANG_STUDIO_STATE_ROOT/app"
+else
+  APP_ROOT="$DEFAULT_APP_ROOT"
+fi
 if [[ ! -f "$APP_ROOT/run-macos.sh" ]]; then
   echo "Sthang Studio is not installed correctly. Re-run the downloaded installer."
   read -r -p "Press Return to close..." _
@@ -151,6 +160,7 @@ if [[ ! -f "$APP_ROOT/run-macos.sh" ]]; then
 fi
 exec bash "$APP_ROOT/run-macos.sh"
 EOF
+} > "$LAUNCHER"
 chmod 755 "$LAUNCHER"
 
 if [[ "$BACKED_UP_OLD_ROOT" -eq 1 && -d "$BACKUP_ROOT" ]]; then

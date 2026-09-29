@@ -11,6 +11,8 @@
   downloading them again, while preserving the manual install rollback path when
   application dependency setup fails. A later installer retry also recovers the
   previous app after an interrupted swap before attempting the replacement again.
+  The generated launcher also remembers a custom install-time state root while
+  continuing to honor an explicit runtime state-root override.
 
 ## 0.85.5 — Fine Timing, caption handoff, effects, and Khmer transcription
 
