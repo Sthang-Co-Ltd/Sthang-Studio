@@ -531,6 +531,7 @@ export async function brokerMac(installRoot) {
     ...process.env,
     STHANG_STUDIO_INSTALL_ROOT: installRoot,
     STHANG_STUDIO_STATE_ROOT: installRoot,
+    STHANG_STUDIO_BROKER_CHILD: '1',
     STHANG_STUDIO_ENV_FILE: path.join(baselineRoot, 'apps', 'server', '.env'),
     STHANG_STUDIO_UPDATE_TRUST_ROOT_FILE: path.join(baselineRoot, 'config', 'update-trust-root-macos.json'),
     STHANG_STUDIO_ACTIVE_VERSION: selection.activeVersion,

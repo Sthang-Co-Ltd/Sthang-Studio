@@ -608,6 +608,51 @@ test('curated macOS install omits development dependencies and launches the prod
   assert.doesNotMatch(f.log(), /npm run dev/);
 });
 
+test('stable macOS broker child launches the curated baseline instead of recursively re-entering the broker', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos broker child '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const state = path.join(dir, 'state');
+  const app = path.join(state, 'app');
+  const bin = path.join(dir, 'bin');
+  const log = path.join(dir, 'calls.log');
+  for (const relative of [
+    'scripts',
+    '.sthang',
+    'node_modules',
+    '.venv/bin',
+    'apps/server/dist',
+    'apps/web/dist',
+    'packages/shared/dist',
+  ]) fs.mkdirSync(path.join(app, relative), { recursive: true });
+  fs.mkdirSync(bin, { recursive: true });
+  fs.copyFileSync(path.join(root, 'run-macos.sh'), path.join(app, 'run-macos.sh'));
+  fs.writeFileSync(path.join(app, '.sthang/macos-curated-runtime'), 'production-runtime-v1\n');
+  fs.writeFileSync(path.join(app, 'apps/server/dist/index.js'), 'server\n');
+  fs.writeFileSync(path.join(app, 'apps/web/dist/index.html'), '<div id="root"></div>\n');
+  fs.writeFileSync(path.join(app, 'packages/shared/dist/index.js'), 'shared\n');
+  fs.writeFileSync(path.join(app, 'scripts/dev.mjs'), '// fixture\n');
+  fs.writeFileSync(path.join(app, 'scripts/launch-studio-macos.sh'), `#!/usr/bin/env bash\necho recursive-broker-called >> "${shellPath(log)}"\nexit 91\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(app, 'scripts/macos-common.sh'), `#!/usr/bin/env bash\nstudio_macos_host() { :; }\nstudio_macos_select_node() { :; }\nstudio_macos_select_ffmpeg() { :; }\nstudio_macos_require_venv() { :; }\n`);
+  fs.writeFileSync(path.join(bin, 'node'), `#!/usr/bin/env bash\nprintf 'node %s\\n' "$*" >> "${shellPath(log)}"\n`, { mode: 0o755 });
+
+  const env = {
+    ...process.env,
+    PATH: `${shellPath(bin)}:${process.env.PATH || ''}`,
+    STHANG_STUDIO_STATE_ROOT: shellPath(state),
+    STHANG_STUDIO_BROKER_CHILD: '1',
+  };
+  const result = spawnSync(shell, [shellPath(path.join(app, 'run-macos.sh'))], {
+    env,
+    encoding: 'utf8',
+    timeout: 30_000,
+    windowsHide: true,
+  });
+  success(result);
+  const calls = fs.readFileSync(log, 'utf8');
+  assert.match(calls, /node .*scripts\/dev\.mjs --production/);
+  assert.doesNotMatch(calls, /recursive-broker-called/);
+});
+
 test('source macOS setup retains development dependency workflow', (t) => {
   const f = fixture(t);
   success(f.run('bash ./INSTALL-MACOS.sh'));

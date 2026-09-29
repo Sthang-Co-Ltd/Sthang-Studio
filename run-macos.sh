@@ -6,9 +6,10 @@ cd "$ROOT"
 export STHANG_STUDIO_STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}"
 export STHANG_STUDIO_ENV_FILE="${STHANG_STUDIO_ENV_FILE:-$ROOT/apps/server/.env}"
 
-if [[ -f "$ROOT/.sthang/macos-curated-runtime" && "$ROOT" == "$STHANG_STUDIO_STATE_ROOT/app" ]]; then
+if [[ -f "$ROOT/.sthang/macos-curated-runtime" && "$ROOT" == "$STHANG_STUDIO_STATE_ROOT/app" && "${STHANG_STUDIO_BROKER_CHILD:-}" != "1" ]]; then
   exec bash "$ROOT/scripts/launch-studio-macos.sh"
 fi
+unset STHANG_STUDIO_BROKER_CHILD
 
 source "$ROOT/scripts/macos-common.sh"
 studio_macos_host

@@ -67,6 +67,14 @@ test('macOS broker launch spec stays anchored to the stable manual bootstrap', (
   assert.equal(spec.env.STHANG_STUDIO_UPDATE_ACTIVATION, '1');
 });
 
+test('macOS broker marks its selected child so the stable baseline cannot recurse into the broker', async () => {
+  const source = await fs.readFile(path.resolve('scripts/update-runtime.mjs'), 'utf8');
+  const launcher = await fs.readFile(path.resolve('run-macos.sh'), 'utf8');
+  assert.match(source, /STHANG_STUDIO_BROKER_CHILD: '1'/);
+  assert.match(launcher, /STHANG_STUDIO_BROKER_CHILD:-.*!= "1"/);
+  assert.match(launcher, /unset STHANG_STUDIO_BROKER_CHILD/);
+});
+
 test('update platform identity is exact for Windows x64 and Apple Silicon only', () => {
   assert.equal(updatePlatformForRuntime('win32', 'x64'), 'windows-x64');
   assert.equal(updatePlatformForRuntime('darwin', 'arm64'), 'macos-arm64');
