@@ -1,0 +1,441 @@
+{
+  "schemaVersion": 1,
+  "packageLockSha256": "0d30ed5158dbd6397205cb271335caae43d76e024f328cf920efca04c79c09f6",
+  "files": [
+    {
+      "path": "apps/server/dist/config.js",
+      "size": 6213,
+      "sha256": "f502347acb0971b7c9d7f531433f0d65bb71010b7febcba8a73cd8b4211dd17f"
+    },
+    {
+      "path": "apps/server/dist/index.js",
+      "size": 8636,
+      "sha256": "bbe7bc9d342dcbfaba493364586c7e8d1f6758006bdffbbaf5b03d5438e8be40"
+    },
+    {
+      "path": "apps/server/dist/routes/caption-handoff.js",
+      "size": 6396,
+      "sha256": "40e225527d7fe557444b946f719f3bd6d5d4e49499310c442da60b4eab7eac75"
+    },
+    {
+      "path": "apps/server/dist/routes/contribution.js",
+      "size": 1718,
+      "sha256": "2ee59d92e6f81f5689d3c6e08c00324ac02f8423b14b108514bf921f0a25e691"
+    },
+    {
+      "path": "apps/server/dist/routes/jobs.js",
+      "size": 3847,
+      "sha256": "f74e7c10cc7553d7083115420f7a5e42e255b8c3d533920d53a171fa67bf23ae"
+    },
+    {
+      "path": "apps/server/dist/routes/profile.js",
+      "size": 3719,
+      "sha256": "9af340a6529221127e29ae1cdecb2d3eebbf7fee513ea9f9b3458205df6b51dd"
+    },
+    {
+      "path": "apps/server/dist/routes/projects.js",
+      "size": 28101,
+      "sha256": "7288950d93b1d6d189ef4100fc30cc5aacd26fb76f5ffe98e837e771cd3a3957"
+    },
+    {
+      "path": "apps/server/dist/routes/system.js",
+      "size": 1991,
+      "sha256": "fa732e901a26d7da52dffc0510079fb00813ae483b4b34a5ef82b6e813937c0a"
+    },
+    {
+      "path": "apps/server/dist/routes/updates.js",
+      "size": 2576,
+      "sha256": "92c1738fea9836934737757e94eafa9f431cae5a8640ff972d3c9c71f0047efa"
+    },
+    {
+      "path": "apps/server/dist/routes/video-export.js",
+      "size": 8904,
+      "sha256": "302dc9489c2f16488900e88132eb43b67c7d39d0ad7fbac94293941706ae2eda"
+    },
+    {
+      "path": "apps/server/dist/services/alignment.js",
+      "size": 12108,
+      "sha256": "d7e81c5ce17d8cf5e6651efdae1eaaeb76f866a95d3669c24d951d2092821ee5"
+    },
+    {
+      "path": "apps/server/dist/services/analytics.js",
+      "size": 3756,
+      "sha256": "d1e1a9d5c3b65d32afbb06f9fbb02f569266f401f5f2b1255c82b73d478e223e"
+    },
+    {
+      "path": "apps/server/dist/services/cache.js",
+      "size": 5574,
+      "sha256": "70f6ece715a10def706457d22ab76ca259dae49df07da345a9aeecb4db992b0a"
+    },
+    {
+      "path": "apps/server/dist/services/caption-handoff.js",
+      "size": 28382,
+      "sha256": "04b3751954299d71d4a13754e71e3a5a126b160e72294ab13059c1cd140b2349"
+    },
+    {
+      "path": "apps/server/dist/services/caption-locks.js",
+      "size": 5043,
+      "sha256": "02915319a3685a5e14fb453c7cce812da6f18fe64856ac4d9fbe69d4cb766096"
+    },
+    {
+      "path": "apps/server/dist/services/caption-preview.js",
+      "size": 13885,
+      "sha256": "d295f2f986328a746b4e336749c64e194e70566d72c27656435e7dca70bf2787"
+    },
+    {
+      "path": "apps/server/dist/services/caption-renderer.js",
+      "size": 16922,
+      "sha256": "a9fd95e86ba475daf3e1112e90d655c09c49591544de1ad7856e03e6154d942f"
+    },
+    {
+      "path": "apps/server/dist/services/caption-word-timing.js",
+      "size": 14248,
+      "sha256": "0d4a8ff3efec20f67d5e98c7177f74d5199c7f22cba4a066c58bb9df69ee9417"
+    },
+    {
+      "path": "apps/server/dist/services/contribution-core.js",
+      "size": 4426,
+      "sha256": "4db2b57f008390f4b78fe61cd7362b23982346f46afbd3474359b95fd0aa36e9"
+    },
+    {
+      "path": "apps/server/dist/services/contribution-store.js",
+      "size": 18988,
+      "sha256": "3afd1f39f829683254fed1293e2fa06ca1a37f8952640f2e94562c8ca8781811"
+    },
+    {
+      "path": "apps/server/dist/services/doctor.js",
+      "size": 7457,
+      "sha256": "d275dfc677423ece89dbd55750607ec8f80767718f16f3ec70681e79d78c5dde"
+    },
+    {
+      "path": "apps/server/dist/services/export-maintenance.js",
+      "size": 602,
+      "sha256": "c798fbbbce3d94b7cbe074e97e88e79f07ef24a52f2679ab0cc2bf12109c5637"
+    },
+    {
+      "path": "apps/server/dist/services/font-library.js",
+      "size": 27233,
+      "sha256": "cba737f0cd37c5034fcaf83355c1192bf3863c318e2f082e345041e1fede38c3"
+    },
+    {
+      "path": "apps/server/dist/services/gemini-request-timeout.js",
+      "size": 856,
+      "sha256": "0aae54305cd5053cac77269ee879e720b3c21ea44129f2482135a9b42e224db6"
+    },
+    {
+      "path": "apps/server/dist/services/gemini.js",
+      "size": 30443,
+      "sha256": "c28495a2ba77e620960aa24358bff1c725f7a80a6ba33098cc9a059401fa8b99"
+    },
+    {
+      "path": "apps/server/dist/services/history-store.js",
+      "size": 8729,
+      "sha256": "8881bade2378afe4ee7e05a1ef86f73f0680485036ee48426d82af8561340923"
+    },
+    {
+      "path": "apps/server/dist/services/job-persistence.js",
+      "size": 2160,
+      "sha256": "7fc4cefe33f3fe2baf0e854abf1ed432b05742edde87f5055197862bc75b4753"
+    },
+    {
+      "path": "apps/server/dist/services/job-store.js",
+      "size": 16401,
+      "sha256": "71bb4860c9addf89cb2072c5a3b3cfbe659cb960d623c716f177f9c5d56a8296"
+    },
+    {
+      "path": "apps/server/dist/services/llm-settings.js",
+      "size": 15545,
+      "sha256": "86e696b77cabac5dd3a7570029c135b11db1cafdff4afe020424f9dd0cb6d00b"
+    },
+    {
+      "path": "apps/server/dist/services/local-timing.js",
+      "size": 18195,
+      "sha256": "1cd55b2d5f1ed167bbd4dce7187eaabef034f4cb93efdbe4f168b498cec0af01"
+    },
+    {
+      "path": "apps/server/dist/services/media.js",
+      "size": 10678,
+      "sha256": "6d390f009e4708659316f84942a635a24fc64c94d9e7c379743580e1dfa76ddc"
+    },
+    {
+      "path": "apps/server/dist/services/persistent-caption-preview.js",
+      "size": 16017,
+      "sha256": "4d6bc738419cbc32884302a251205babc8d81668590d1110c9c80900d41665a1"
+    },
+    {
+      "path": "apps/server/dist/services/pipeline-overlap.js",
+      "size": 742,
+      "sha256": "0431c5e2032e648080c872ea09c967367a1fda04d05e21dea5cd085fa15126dc"
+    },
+    {
+      "path": "apps/server/dist/services/preview-font-cache.js",
+      "size": 4364,
+      "sha256": "dc7a4ba2b7d0babb8977a97597e2f34caaa82f35fc877be46471dc1c263f5717"
+    },
+    {
+      "path": "apps/server/dist/services/prewarm.js",
+      "size": 2011,
+      "sha256": "aff773ca3e1298624ba2e6dae87597cd764918228cd3aa37cd5049d82c148274"
+    },
+    {
+      "path": "apps/server/dist/services/profile-store.js",
+      "size": 20408,
+      "sha256": "92ceeb1955a1c40d0eafbef2ca5fc4e9f931cd5ffa153033a0603891ba9f99f1"
+    },
+    {
+      "path": "apps/server/dist/services/project-processing.js",
+      "size": 36109,
+      "sha256": "078e099c31df7e1daa5e3849172e3aaa63ee3f70ba50a122e125785f224f5587"
+    },
+    {
+      "path": "apps/server/dist/services/proposal-store.js",
+      "size": 3865,
+      "sha256": "2cd9ac3a3de5fa00bc0adb1c731caab8c6effd7c19a8289c57b4571faeedfe4f"
+    },
+    {
+      "path": "apps/server/dist/services/run-checkpoints.js",
+      "size": 3629,
+      "sha256": "c875ae971007d7c352d537ff7253e8eaa2f2163aa2e4d74a29b828a1c3b26e97"
+    },
+    {
+      "path": "apps/server/dist/services/run-context.js",
+      "size": 271,
+      "sha256": "77e137240a3b5dd051dcfa854aceb42f636c817086f6dbd912e116d8cc6cb356"
+    },
+    {
+      "path": "apps/server/dist/services/segmenter.js",
+      "size": 5482,
+      "sha256": "6861d335a1bcd4eb584b48ce93280a80c13ddee4aabcd5a8b19b778519286366"
+    },
+    {
+      "path": "apps/server/dist/services/srt.js",
+      "size": 503,
+      "sha256": "2a608df22237837d6d589ca4e89978b23c456ab676e6e6e8e71d4a04b660d5bc"
+    },
+    {
+      "path": "apps/server/dist/services/store.js",
+      "size": 9651,
+      "sha256": "39e93863a82a1f225309270267b8d803063984c4531155b16e36a7bfdd6dcddc"
+    },
+    {
+      "path": "apps/server/dist/services/timing-types.js",
+      "size": 11,
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "path": "apps/server/dist/services/tokenizer.js",
+      "size": 5375,
+      "sha256": "69ce990967cd9d9b6ccdf035ab44687ef5fce480d1f19a0b33af28ba3081eaac"
+    },
+    {
+      "path": "apps/server/dist/services/transcript.js",
+      "size": 2722,
+      "sha256": "2032e11966dcb8b03366d34832413d385c1a99c7e4e8eb7dbdac7a435af13806"
+    },
+    {
+      "path": "apps/server/dist/services/video-export.js",
+      "size": 27947,
+      "sha256": "95169b8c7d8a9e2631b15e52bcfb70bd785b13e8bfaebbe1500588d50520b0d0"
+    },
+    {
+      "path": "apps/server/dist/services/vocabulary.js",
+      "size": 6708,
+      "sha256": "db2d6feace0c1bef9c9d1ef19706c209de52e8803f1034dadd95749d68b52149"
+    },
+    {
+      "path": "apps/server/dist/updater.js",
+      "size": 23188,
+      "sha256": "607ae22ad8b1b4800fd51d8306a1238b6a946b6139ca43655fadd87cb22f3e44"
+    },
+    {
+      "path": "apps/server/dist/version.js",
+      "size": 392,
+      "sha256": "2af67e6951974fa7793bb043763f6e0619b260dc34808f7721d29635770dfe87"
+    },
+    {
+      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-CRRQLbUP.css",
+      "size": 18520,
+      "sha256": "a89fc1442f88bc08abe5038e99efac0678453a49022c42f73826e63973040d90"
+    },
+    {
+      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-DxgLV6F1.js",
+      "size": 31389,
+      "sha256": "8d3b41b104c2caca7e6d4f0d51803e1d61012ff914b009c061a1c1babddcf7ba"
+    },
+    {
+      "path": "apps/web/dist/assets/ExportWorkspace-BHr8vmUh.css",
+      "size": 18017,
+      "sha256": "ffdc3e18c9462dd191166cfee492238c2da695a68f5750034740926af0c49784"
+    },
+    {
+      "path": "apps/web/dist/assets/ExportWorkspace-BKhZBFvF.js",
+      "size": 29456,
+      "sha256": "57e593552ca1d01f8c1199c10c1b85d240c41d4747b5ab208e17bac5088080c8"
+    },
+    {
+      "path": "apps/web/dist/assets/file-text-CPXHtxbF.js",
+      "size": 414,
+      "sha256": "fa6b5823c08b3f4d9e176dffdbd14ae3e5a1f92f5e205cb145bdb697607736f2"
+    },
+    {
+      "path": "apps/web/dist/assets/index-D2KRMFIb.css",
+      "size": 114156,
+      "sha256": "3be9a66533ddc0478cb2fcfe1e90a9426b368253bb612a0e8533dab57f2a75aa"
+    },
+    {
+      "path": "apps/web/dist/assets/index-DjXXZmNl.js",
+      "size": 455987,
+      "sha256": "9da215800c6133a8fc05bcea682a9a35c6643186345e48930a12ffa389885018"
+    },
+    {
+      "path": "apps/web/dist/assets/RegenerationReviewDock-BBmWZA1M.js",
+      "size": 10167,
+      "sha256": "dba50521fa57f69e995086d5b888760f6026cb44ae8720e4db34ab361ba0ccf7"
+    },
+    {
+      "path": "apps/web/dist/assets/undo-2-DKDFaf8p.js",
+      "size": 416,
+      "sha256": "1ed82034c93913366afb99e7be70cd28a0242563829d4f7c6ea42bd69e5f5eb5"
+    },
+    {
+      "path": "apps/web/dist/assets/WaveformEditor-CHy7Mh9y.css",
+      "size": 6186,
+      "sha256": "29d788ce6d3d0de9b610a8db7f1fc9fb879576095a634ad60749a4132a393249"
+    },
+    {
+      "path": "apps/web/dist/assets/WaveformEditor-I5XUbWn3.js",
+      "size": 39814,
+      "sha256": "d11ba97d89b11e283400d2c907b66fcd8369af41512b8e0c2c420ee1297a8ca3"
+    },
+    {
+      "path": "apps/web/dist/brand/brand-manifest.json",
+      "size": 1174,
+      "sha256": "71f25c986a5d5b8d36ad7b517c3cf44f694021176ecc2cf4259132969cf11e87"
+    },
+    {
+      "path": "apps/web/dist/brand/favicon.svg",
+      "size": 734,
+      "sha256": "23a72d88a8b7d400107f6501bba60b79a383516a63c25a98260cd67ba3dab84c"
+    },
+    {
+      "path": "apps/web/dist/brand/LICENSE.md",
+      "size": 866,
+      "sha256": "1ad3f9ef8e3c2a6855e501189aa61a0127f29ac5c7cdd36ba4be28f0f49220f7"
+    },
+    {
+      "path": "apps/web/dist/brand/README.md",
+      "size": 1703,
+      "sha256": "3ba0cbcbf67e3d2ef85691f3b9a123ce3ef36648019b70042eef37696a91a586"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-studio-icon.png",
+      "size": 4024,
+      "sha256": "5fb2b2410c2343b6f5f80f8da338d9bc0280d64cd26cec18b6bf8be21ec3f60f"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-studio-mark-ink.svg",
+      "size": 641,
+      "sha256": "b12883d526dbace1de2ba1b69e297b36157a2bcc9ad2da4982df0ecb11ff6126"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-studio-mark-mono.svg",
+      "size": 641,
+      "sha256": "37724a24f5ed2e6041428bd55ba48534c1420d3c1aa41ec2ec168ef69dc74a7f"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-studio-mark.svg",
+      "size": 641,
+      "sha256": "b427b9a8dfce0552addc1eb3274d4e82a8d0cbb34bc5cdaab905221e4e82058d"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-studio.ico",
+      "size": 3654,
+      "sha256": "c592934afb7a413b7a45adfe06f8982df52fd16ee1c70f61da8dec764e1671ce"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-wordmark-ink.svg",
+      "size": 2304,
+      "sha256": "bbefca304fbed585b1026411384678ff03b929f0edf1290c3c106b913a383900"
+    },
+    {
+      "path": "apps/web/dist/brand/sthang-wordmark.svg",
+      "size": 2304,
+      "sha256": "26d0f6f1ac7e1f9e73e4377fdaa7c94155b1af2e40af54653723041de55c678f"
+    },
+    {
+      "path": "apps/web/dist/index.html",
+      "size": 622,
+      "sha256": "f2781fdeaa090a2fdf20eb16e6504bd2138d5c1fd8a31481fb8534cc7e9dbee6"
+    },
+    {
+      "path": "packages/shared/dist/caption-interchange.d.ts",
+      "size": 3579,
+      "sha256": "a2d2d78f9d05ceca269a636681847c11b1bbcb917251c469cbf8deac3a4b9405"
+    },
+    {
+      "path": "packages/shared/dist/caption-interchange.js",
+      "size": 30329,
+      "sha256": "7bbd83e0f789b1a91d7acef075d31b452dae3db86cef7d49b20be89bb3b59c16"
+    },
+    {
+      "path": "packages/shared/dist/caption-layout.d.ts",
+      "size": 2100,
+      "sha256": "0227b6f9bdecac2e6ee5c09a8bedb0441b29188df617243f63812931948f26a1"
+    },
+    {
+      "path": "packages/shared/dist/caption-layout.js",
+      "size": 12985,
+      "sha256": "977d7a3ecf74dcd97553e08193e0e2add80dedae336d354ea03ea8985579e799"
+    },
+    {
+      "path": "packages/shared/dist/caption-looks.d.ts",
+      "size": 1154,
+      "sha256": "80ba7c02e6d9fb3efcc36b8054021ac8583115e2b0cd184721882cffbcc6bd28"
+    },
+    {
+      "path": "packages/shared/dist/caption-looks.js",
+      "size": 3728,
+      "sha256": "1038fbb00ec7e98678aa2d3a196b223aed432f2c9d05d0911c8975d3da4c3640"
+    },
+    {
+      "path": "packages/shared/dist/caption-settings.d.ts",
+      "size": 3262,
+      "sha256": "d6c1c2f531d5bff12a9c7117473fb2b2738febcb7161597b9fa1c35c95f28c4d"
+    },
+    {
+      "path": "packages/shared/dist/caption-settings.js",
+      "size": 6851,
+      "sha256": "655e0f33c8ba108c39ae890102dcccb50674c22fcaff6133ce63413d9de0731a"
+    },
+    {
+      "path": "packages/shared/dist/index.d.ts",
+      "size": 15594,
+      "sha256": "5a8c28fdf51f6a3af152daa1abd79d67118eccdd0f487d07b3d4102dde5c8d9c"
+    },
+    {
+      "path": "packages/shared/dist/index.js",
+      "size": 370,
+      "sha256": "254557148a30fe1c66d10a0a83184f696bdd1f3b907445013da1f75fa340ec92"
+    },
+    {
+      "path": "packages/shared/dist/project-summary.d.ts",
+      "size": 369,
+      "sha256": "090721a9901d82ee95148bcc2c7807342190d62f8bfe4ac6b136721f67748d5a"
+    },
+    {
+      "path": "packages/shared/dist/project-summary.js",
+      "size": 243,
+      "sha256": "e9114572331e806f8216d3f5577b4342bb4d0a3119e81221b1e5b8b779d3b6bf"
+    },
+    {
+      "path": "packages/shared/dist/word-timing.d.ts",
+      "size": 2931,
+      "sha256": "30d69259af6a086b6fddb671565b5e16d2f9698d45726efd9d042b169983e3a7"
+    },
+    {
+      "path": "packages/shared/dist/word-timing.js",
+      "size": 24419,
+      "sha256": "58dfd8adea774769477132c2843f758e60470fac12c8979a076b39edc1e26414"
+    }
+  ]
+}
