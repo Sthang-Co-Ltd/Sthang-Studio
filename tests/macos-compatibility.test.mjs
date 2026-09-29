@@ -329,8 +329,9 @@ test('macOS release ZIP creation canonicalizes CRLF shell entrypoints to LF', (t
     'archive = zipfile.ZipFile(sys.argv[1])',
     "name = 'Sthang Studio test/Install Sthang Studio.command'",
     'data = archive.read(name)',
-    'mode = (archive.getinfo(name).external_attr >> 16) & 0o777',
-    "raise SystemExit(0 if data == b'#!/usr/bin/env bash\\necho broken\\n' and mode == 0o755 else 1)",
+    'info = archive.getinfo(name)',
+    'mode = (info.external_attr >> 16) & 0o777',
+    "raise SystemExit(0 if data == b'#!/usr/bin/env bash\\necho broken\\n' and mode == 0o755 and info.date_time == (1980, 1, 1, 0, 0, 0) else 1)",
   ].join('; '), output], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
   success(probe);
 });

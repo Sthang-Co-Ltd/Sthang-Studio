@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import os
 import pathlib
 import sys
-import time
 import zipfile
 
 
 UNIX_SCRIPT_SUFFIXES = {".sh", ".command"}
+CANONICAL_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
 
 def zip_info(path: pathlib.Path, arcname: str, executable: bool) -> zipfile.ZipInfo:
-    stat = path.stat()
-    info = zipfile.ZipInfo(arcname, tuple(list(time.localtime(stat.st_mtime))[:6]))
+    info = zipfile.ZipInfo(arcname, CANONICAL_ZIP_TIME)
     info.create_system = 3
     info.compress_type = zipfile.ZIP_DEFLATED
     mode = 0o100755 if executable else 0o100644
