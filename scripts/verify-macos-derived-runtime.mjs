@@ -5,8 +5,16 @@ import path from 'node:path';
 const root = path.resolve(process.argv[2] || '.');
 const manifestPath = path.resolve(process.argv[3] || path.join(root, '.sthang', 'macos-derived-runtime.json'));
 const sourceCommit = String(process.argv[4] || '').trim();
+const expectedPackageLockSha256 = String(process.argv[5] || '').trim().toLowerCase();
+const sourceTree = String(process.argv[6] || '').trim();
 if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) {
   throw new Error('A full 40-character source commit is required for the macOS derived-runtime manifest.');
+}
+if (!/^[0-9a-f]{64}$/u.test(expectedPackageLockSha256)) {
+  throw new Error('A 64-character package-lock SHA-256 is required for the macOS derived-runtime manifest.');
+}
+if (!/^[0-9a-f]{40}$/u.test(sourceTree)) {
+  throw new Error('A full 40-character source tree is required for the macOS derived-runtime manifest.');
 }
 
 const derivedRoots = [
@@ -76,6 +84,23 @@ for (const relativeRoot of derivedRoots) {
 
 if (required.size) throw new Error(`Derived runtime is missing required files: ${[...required].join(', ')}`);
 entries.sort((a, b) => a.path.localeCompare(b.path));
+
+const packageLockPath = path.join(root, 'package-lock.json');
+if (!fs.existsSync(packageLockPath)) throw new Error('Packaged runtime is missing package-lock.json.');
+const packageLockSha256 = crypto.createHash('sha256').update(fs.readFileSync(packageLockPath)).digest('hex');
+if (packageLockSha256 !== expectedPackageLockSha256) {
+  throw new Error(`Packaged package-lock.json does not match the clean release-build lock: expected ${expectedPackageLockSha256}, got ${packageLockSha256}`);
+}
+
 fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-fs.writeFileSync(manifestPath, `${JSON.stringify({ schemaVersion: 1, sourceCommit, files: entries }, null, 2)}\n`, 'utf8');
+fs.writeFileSync(manifestPath, `${JSON.stringify({
+  schemaVersion: 2,
+  sourceCommit,
+  sourceTree,
+  packageLockSha256,
+  buildNodeVersion: process.version,
+  buildPlatform: process.platform,
+  buildArch: process.arch,
+  files: entries,
+}, null, 2)}\n`, 'utf8');
 console.log(`Verified ${entries.length} derived macOS production files and wrote ${manifestPath}.`);

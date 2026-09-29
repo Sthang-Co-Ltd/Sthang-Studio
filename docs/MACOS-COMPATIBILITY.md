@@ -110,6 +110,15 @@ from the local backend origin. Vite, esbuild, tsx and TypeScript remain source/b
 tools and are not installed or executed in the ordinary curated macOS runtime.
 Source checkouts continue to use the development dependency workflow.
 
+Release packaging rebuilds those production files in a temporary source projection
+created from the exact captured Git commit, then performs a fresh development
+dependency install from that commit's `package-lock.json`. Ignored/untracked
+checkout files (including Vite `.env*` files), stale local `node_modules`, and
+stale `dist` output therefore cannot become release build inputs. The
+derived-runtime manifest records the exact source commit, source tree and
+package-lock SHA-256 plus every generated file's size/hash; the package gate
+re-verifies those values from the final ZIP.
+
 The reviewed managed prerequisite pins for this change are Node.js 22.23.3 from
 nodejs.org and CPython 3.12.14+20260924 from Astral's python-build-standalone. The
 managed FFmpeg candidate is the Apple Silicon `FFmpeg-arm-silicon` 0.5.0 tools

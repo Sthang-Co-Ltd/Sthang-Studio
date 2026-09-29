@@ -56,27 +56,63 @@ if ($TrackedChanges.Trim()) {
 
 $Commit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $Commit) { throw 'The current Git commit could not be resolved.' }
-
-Invoke-Checked 'Running production build...' { npm.cmd run build }
-
-$CommitAfterBuild = (& git rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $CommitAfterBuild -ne $Commit) {
-  throw 'The Git commit changed during the production build. Re-run packaging from the new exact commit.'
-}
-$TrackedChangesAfterBuild = (& git status --porcelain --untracked-files=no) -join "`n"
-if ($LASTEXITCODE -ne 0) { throw 'Git status could not be read after the production build.' }
-if ($TrackedChangesAfterBuild.Trim()) {
-  throw 'The production build changed tracked files. Restore them before building a release package.'
-}
+$SourceTree = (& git rev-parse ($Commit + '^{tree}')).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $SourceTree) { throw 'The current Git tree could not be resolved.' }
 
 $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ('Sthang-Studio-macOS-Package-' + [Guid]::NewGuid().ToString('N'))
+$BuildArchive = Join-Path $StageRoot 'tracked-build-source.zip'
+$BuildRoot = Join-Path $StageRoot 'tracked-build-source'
 $PackageFolder = Join-Path $StageRoot ("Sthang Studio $Version")
 $FilesFolder = Join-Path $PackageFolder 'Sthang Studio Files'
 $PayloadZip = Join-Path $StageRoot 'payload.zip'
 
+New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $FilesFolder -Force | Out-Null
 
 try {
+  Write-Host ''
+  Write-Host "Preparing exact tracked release build for commit $Commit..." -ForegroundColor Cyan
+  & git archive --format=zip "--output=$BuildArchive" $Commit
+  if ($LASTEXITCODE -ne 0) { throw 'Could not create the exact tracked release-build source archive.' }
+  Expand-Archive -LiteralPath $BuildArchive -DestinationPath $BuildRoot -Force
+
+  $BuildPackageLock = Join-Path $BuildRoot 'package-lock.json'
+  if (-not (Test-Path -LiteralPath $BuildPackageLock)) {
+    throw 'Exact tracked release-build source is missing package-lock.json.'
+  }
+  $BuildPackageLockSha = Get-Sha256Hex $BuildPackageLock
+
+  Invoke-Checked 'Installing exact release-build dependencies...' {
+    Push-Location $BuildRoot
+    try {
+      npm.cmd ci --include=dev --ignore-scripts=false --no-audit --no-fund
+    } finally {
+      Pop-Location
+    }
+  }
+  Invoke-Checked 'Running production build from exact tracked source...' {
+    Push-Location $BuildRoot
+    try {
+      npm.cmd run build
+    } finally {
+      Pop-Location
+    }
+  }
+  $BuildPackageLockShaAfterBuild = Get-Sha256Hex $BuildPackageLock
+  if ($BuildPackageLockShaAfterBuild -ne $BuildPackageLockSha) {
+    throw "The exact release-build package-lock.json changed during dependency install/build. Before: $BuildPackageLockSha After: $BuildPackageLockShaAfterBuild"
+  }
+
+  $CommitAfterBuild = (& git rev-parse HEAD).Trim()
+  if ($LASTEXITCODE -ne 0 -or $CommitAfterBuild -ne $Commit) {
+    throw 'The Git commit changed during the production build. Re-run packaging from the new exact commit.'
+  }
+  $TrackedChangesAfterBuild = (& git status --porcelain --untracked-files=no) -join "`n"
+  if ($LASTEXITCODE -ne 0) { throw 'Git status could not be read after the production build.' }
+  if ($TrackedChangesAfterBuild.Trim()) {
+    throw 'Tracked files changed during the production build. Restore them before building a release package.'
+  }
+
   $PayloadPaths = @(
     'apps',
     'packages',
@@ -103,7 +139,7 @@ try {
 
   Write-Host ''
   Write-Host "Creating clean Apple Silicon macOS package for Sthang Studio $Version..." -ForegroundColor Cyan
-  & git archive --format=zip "--output=$PayloadZip" HEAD -- @PayloadPaths
+  & git archive --format=zip "--output=$PayloadZip" $Commit -- @PayloadPaths
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the tracked macOS release payload.' }
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
 
@@ -112,9 +148,9 @@ try {
     'apps\web\dist',
     'packages\shared\dist'
   )) {
-    $SourceBuild = Join-Path $Root $BuildOutput
+    $SourceBuild = Join-Path $BuildRoot $BuildOutput
     if (-not (Test-Path -LiteralPath $SourceBuild)) {
-      throw "Required production build output is missing after npm run build: $BuildOutput"
+      throw "Required production build output is missing after the exact tracked build: $BuildOutput"
     }
     $DestinationBuild = Join-Path $FilesFolder $BuildOutput
     New-Item -ItemType Directory -Path (Split-Path -Parent $DestinationBuild) -Force | Out-Null
@@ -122,9 +158,13 @@ try {
   }
   $RuntimeMarker = Join-Path $FilesFolder '.sthang\macos-curated-runtime'
   Set-Content -LiteralPath $RuntimeMarker -Value 'production-runtime-v1' -Encoding ASCII
+  $PayloadPackageLockSha = Get-Sha256Hex (Join-Path $FilesFolder 'package-lock.json')
+  if ($PayloadPackageLockSha -ne $BuildPackageLockSha) {
+    throw "Packaged package-lock.json does not match the exact tracked release-build lock. Build: $BuildPackageLockSha Package: $PayloadPackageLockSha"
+  }
   $DerivedManifest = Join-Path $FilesFolder '.sthang\macos-derived-runtime.json'
   Invoke-Checked 'Verifying derived macOS production output...' {
-    node (Join-Path $Root 'scripts\verify-macos-derived-runtime.mjs') $FilesFolder $DerivedManifest $Commit
+    node (Join-Path $Root 'scripts\verify-macos-derived-runtime.mjs') $FilesFolder $DerivedManifest $Commit $BuildPackageLockSha $SourceTree
   }
 
   Invoke-Checked 'Validating runtime-only dependency install...' {
@@ -188,6 +228,98 @@ try {
       "${ArchiveRoot}Sthang Studio Files/.sthang/product-manifest.json"
     )) {
       if ($Entries -notcontains $Required) { throw "macOS release ZIP is missing required entry: $Required" }
+    }
+
+    $ManifestEntryName = "${ArchiveRoot}Sthang Studio Files/.sthang/macos-derived-runtime.json"
+    $ManifestEntry = $Archive.GetEntry($ManifestEntryName)
+    if ($null -eq $ManifestEntry) { throw 'macOS derived-runtime manifest could not be inspected.' }
+    $ManifestStream = $ManifestEntry.Open()
+    $ManifestReader = New-Object IO.StreamReader($ManifestStream, [Text.Encoding]::UTF8, $true)
+    try {
+      $Manifest = ($ManifestReader.ReadToEnd() | ConvertFrom-Json)
+    } finally {
+      $ManifestReader.Dispose()
+      $ManifestStream.Dispose()
+    }
+    if ([int]$Manifest.schemaVersion -ne 2) {
+      throw "Unsupported macOS derived-runtime manifest schema: $($Manifest.schemaVersion)"
+    }
+    if ([string]$Manifest.sourceCommit -ne $Commit) {
+      throw 'macOS derived-runtime manifest source commit does not match the packaged commit.'
+    }
+    if ([string]$Manifest.sourceTree -ne $SourceTree) {
+      throw 'macOS derived-runtime manifest source tree does not match the packaged commit tree.'
+    }
+    if ([string]$Manifest.packageLockSha256 -ne $BuildPackageLockSha) {
+      throw 'macOS derived-runtime manifest package-lock hash does not match the exact release-build lock.'
+    }
+
+    $ManifestFiles = @($Manifest.files)
+    if ($ManifestFiles.Count -eq 0) {
+      throw 'macOS derived-runtime manifest contains no derived files.'
+    }
+    $SeenDerived = @{}
+    foreach ($Derived in $ManifestFiles) {
+      $Relative = ([string]$Derived.path).Replace('\', '/')
+      if (-not $Relative -or $SeenDerived.ContainsKey($Relative)) {
+        throw "macOS derived-runtime manifest contains a missing or duplicate path: $Relative"
+      }
+      $SeenDerived[$Relative] = $true
+      $ExpectedEntryName = "${ArchiveRoot}Sthang Studio Files/$Relative"
+      $DerivedEntry = $Archive.GetEntry($ExpectedEntryName)
+      if ($null -eq $DerivedEntry) {
+        throw "macOS release ZIP is missing a derived file recorded by the manifest: $Relative"
+      }
+      if ([Int64]$DerivedEntry.Length -ne [Int64]$Derived.size) {
+        throw "macOS release ZIP derived file size does not match the manifest: $Relative"
+      }
+      $DerivedStream = $DerivedEntry.Open()
+      $DerivedHasher = [Security.Cryptography.SHA256]::Create()
+      try {
+        $DerivedHash = ([BitConverter]::ToString($DerivedHasher.ComputeHash($DerivedStream))).Replace('-', '').ToLowerInvariant()
+      } finally {
+        $DerivedHasher.Dispose()
+        $DerivedStream.Dispose()
+      }
+      if ($DerivedHash -ne [string]$Derived.sha256) {
+        throw "macOS release ZIP derived file hash does not match the manifest: $Relative"
+      }
+    }
+
+    $DerivedPrefixes = @(
+      "${ArchiveRoot}Sthang Studio Files/apps/server/dist/",
+      "${ArchiveRoot}Sthang Studio Files/apps/web/dist/",
+      "${ArchiveRoot}Sthang Studio Files/packages/shared/dist/"
+    )
+    foreach ($ArchiveEntry in $Archive.Entries) {
+      $ArchiveName = $ArchiveEntry.FullName.Replace('\', '/')
+      if ($ArchiveName.EndsWith('/')) { continue }
+      $MatchesDerivedRoot = $false
+      foreach ($Prefix in $DerivedPrefixes) {
+        if ($ArchiveName.StartsWith($Prefix, [StringComparison]::Ordinal)) {
+          $MatchesDerivedRoot = $true
+          break
+        }
+      }
+      if (-not $MatchesDerivedRoot) { continue }
+      $Relative = $ArchiveName.Substring(("${ArchiveRoot}Sthang Studio Files/").Length)
+      if (-not $SeenDerived.ContainsKey($Relative)) {
+        throw "macOS release ZIP contains an unmanifested derived file: $Relative"
+      }
+    }
+
+    $LockEntry = $Archive.GetEntry("${ArchiveRoot}Sthang Studio Files/package-lock.json")
+    if ($null -eq $LockEntry) { throw 'Packaged package-lock.json could not be inspected.' }
+    $LockStream = $LockEntry.Open()
+    $LockHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+      $ArchivedLockHash = ([BitConverter]::ToString($LockHasher.ComputeHash($LockStream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $LockHasher.Dispose()
+      $LockStream.Dispose()
+    }
+    if ($ArchivedLockHash -ne [string]$Manifest.packageLockSha256) {
+      throw 'Packaged package-lock.json hash does not match the derived-runtime manifest.'
     }
 
     $InstallerEntry = $Archive.GetEntry("${ArchiveRoot}Install Sthang Studio.command")

@@ -19,6 +19,11 @@
   with only the server/shared runtime npm closure and lifecycle scripts disabled,
   removing Vite/esbuild/tsx/TypeScript native developer tooling and npm postinstall
   execution from ordinary Mac installation and launch.
+- Rebuild the curated production output from an isolated archive of the exact
+  release commit with a fresh lockfile install, then bind the generated files to
+  the commit/tree/package-lock hashes and re-verify every derived file from the
+  final ZIP so ignored local Vite env/public files or stale build tooling cannot
+  alter release bytes unnoticed.
 - Update the server's Multer dependency to 2.4.0, clearing the current production
   npm audit advisory for aborted-upload orphaned disk writes.
 

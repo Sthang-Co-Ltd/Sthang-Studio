@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -308,6 +309,71 @@ test('macOS release ZIP creation rejects lone carriage returns before writing an
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stderr, /unsupported carriage-return byte/);
   assert.equal(fs.existsSync(output), false);
+});
+
+test('macOS release packager builds derived output from an isolated captured commit projection', () => {
+  const script = fs.readFileSync(path.join(root, 'scripts/package-macos-release.ps1'), 'utf8');
+  assert.match(script, /git archive --format=zip "--output=\$BuildArchive" \$Commit/);
+  assert.match(script, /npm\.cmd ci --include=dev --ignore-scripts=false --no-audit --no-fund/);
+  assert.match(script, /Push-Location \$BuildRoot/);
+  assert.match(script, /\$SourceBuild = Join-Path \$BuildRoot \$BuildOutput/);
+  assert.match(script, /git archive --format=zip "--output=\$PayloadZip" \$Commit -- @PayloadPaths/);
+  assert.doesNotMatch(script, /\$SourceBuild = Join-Path \$Root \$BuildOutput/);
+  assert.match(script, /\$BuildPackageLockShaAfterBuild -ne \$BuildPackageLockSha/);
+  assert.match(script, /\$PayloadPackageLockSha -ne \$BuildPackageLockSha/);
+  assert.match(script, /ComputeHash\(\$DerivedStream\)/);
+  assert.match(script, /Packaged package-lock\.json hash does not match the derived-runtime manifest/);
+});
+
+test('macOS derived-runtime verifier binds output to commit, tree, and exact package lock', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos derived runtime '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const relative of ['apps/server/dist', 'apps/web/dist', 'packages/shared/dist', '.sthang']) {
+    fs.mkdirSync(path.join(dir, relative), { recursive: true });
+  }
+  fs.writeFileSync(path.join(dir, 'apps/server/dist/index.js'), 'console.log("server")\n');
+  fs.writeFileSync(path.join(dir, 'apps/web/dist/index.html'), '<div id="root"></div>\n');
+  fs.writeFileSync(path.join(dir, 'packages/shared/dist/index.js'), 'export {}\n');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3}\n');
+  const lockSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'package-lock.json'))).digest('hex');
+  const commit = '1'.repeat(40);
+  const tree = '2'.repeat(40);
+  const manifest = path.join(dir, '.sthang/macos-derived-runtime.json');
+  const verifier = path.join(root, 'scripts/verify-macos-derived-runtime.mjs');
+  const result = spawnSync(process.execPath, [verifier, dir, manifest, commit, lockSha, tree], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  });
+  success(result);
+  const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.sourceCommit, commit);
+  assert.equal(parsed.sourceTree, tree);
+  assert.equal(parsed.packageLockSha256, lockSha);
+  assert.equal(parsed.files.length, 3);
+  assert.deepEqual(parsed.files.map((entry) => entry.path), [
+    'apps/server/dist/index.js',
+    'apps/web/dist/index.html',
+    'packages/shared/dist/index.js',
+  ]);
+
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3,"changed":true}\n');
+  const mismatch = spawnSync(process.execPath, [verifier, dir, manifest, commit, lockSha, tree], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  });
+  assert.equal(mismatch.status, 1, mismatch.stdout + mismatch.stderr);
+  assert.match(mismatch.stderr, /does not match the clean release-build lock/);
+});
+
+test('production build rejects ambient VITE variables before build tooling runs', () => {
+  const result = spawnSync(process.execPath, [path.join(root, 'scripts/build.mjs')], {
+    cwd: root,
+    env: { ...process.env, VITE_RELEASE_SENTINEL: 'must-not-enter-release-output' },
+    encoding: 'utf8',
+    timeout: 30_000,
+    windowsHide: true,
+  });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Refusing to build with ambient VITE_\* variables/);
 });
 
 for (const [macos, node, arch, accepted] of [
