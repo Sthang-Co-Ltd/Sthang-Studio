@@ -365,6 +365,40 @@ test('release installer restores the previous app after setup failure and succee
   assert.equal(fs.existsSync(path.join(home, 'Applications', 'Sthang Studio.command')), true);
 });
 
+test('release installer recovers an interrupted prior swap before retrying setup', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos interrupted install '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const installed = path.join(state, 'app');
+  const backup = path.join(state, '.manual-install-backup');
+  const staleLock = path.join(state, '.manual-install-lock');
+  fs.mkdirSync(installed, { recursive: true });
+  fs.mkdirSync(backup, { recursive: true });
+  fs.mkdirSync(staleLock, { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(installed, 'interrupted-new.txt'), 'incomplete app');
+  fs.writeFileSync(path.join(backup, 'old.txt'), 'last known good app');
+  fs.writeFileSync(path.join(staleLock, 'pid'), '99999999\n');
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+  const env = {
+    ...process.env,
+    HOME: shellPath(home),
+    STHANG_STUDIO_STATE_ROOT: shellPath(state),
+  };
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /Recovering the previous app from an interrupted installation/);
+  assert.equal(fs.readFileSync(path.join(installed, 'old.txt'), 'utf8'), 'last known good app');
+  assert.equal(fs.existsSync(path.join(installed, 'interrupted-new.txt')), false);
+  assert.equal(fs.existsSync(backup), false);
+  assert.equal(fs.existsSync(staleLock), false);
+});
+
 test('an installed keg-only Node 22 is discovered again at launch', (t) => {
   const f = fixture(t, { MOCK_NODE_VERSION: '24.13.0' });
   fs.mkdirSync(path.join(f.dir, 'runtime with spaces/bin'), { recursive: true });

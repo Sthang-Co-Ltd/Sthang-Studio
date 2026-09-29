@@ -81,7 +81,10 @@ macOS dependency/timing setup used by source builds, preserves an existing advan
 `apps/server/.env` fallback during upgrades, and creates
 `~/Applications/Sthang Studio.command` for normal launches. User projects, media,
 history, exports, privacy identities, and Keychain credentials remain in the stable
-macOS state locations rather than being replaced with the app source.
+macOS state locations rather than being replaced with the app source. The manual
+installer keeps a recoverable previous-app backup while the replacement is being
+prepared; a failed setup rolls back immediately, and a later retry recovers a
+backup left by an interrupted swap before attempting another replacement.
 
 The release ZIP preserves executable permission bits for `.command` and shell
 entrypoints. Because the package is not Apple-notarized, Gatekeeper may require a

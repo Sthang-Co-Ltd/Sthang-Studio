@@ -9,7 +9,8 @@
   or system-wide PATH changes.
 - Reuse verified Studio-managed macOS prerequisites on later launches without
   downloading them again, while preserving the manual install rollback path when
-  application dependency setup fails.
+  application dependency setup fails. A later installer retry also recovers the
+  previous app after an interrupted swap before attempting the replacement again.
 
 ## 0.85.5 — Fine Timing, caption handoff, effects, and Khmer transcription
 
