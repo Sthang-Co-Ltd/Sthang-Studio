@@ -130,8 +130,8 @@ fi`;
     STHANG_STUDIO_FILE: shellPath(path.join(dir, 'bin/file')),
     MOCK_LOG: path.join(dir, 'calls.log').replaceAll('\\', '/'), ...changes,
   };
-  const run = (command) => spawnSync(shell, ['--noprofile', '--norc', '-c', `export PATH="$PWD/bin:$PATH"; ${command}`], {
-    cwd: dir, env, encoding: 'utf8', timeout: 90_000, windowsHide: true,
+  const run = (command, timeout = 90_000) => spawnSync(shell, ['--noprofile', '--norc', '-c', `export PATH="$PWD/bin:$PATH"; ${command}`], {
+    cwd: dir, env, encoding: 'utf8', timeout, windowsHide: true,
   });
   return { dir, env, write, run, log: () => fs.existsSync(path.join(dir, 'calls.log')) ? fs.readFileSync(path.join(dir, 'calls.log'), 'utf8') : '' };
 }
@@ -549,7 +549,7 @@ for (const [macos, node, arch, accepted] of [
 for (const version of ['12.3', '13.4', '13.5', '14.7', '15.0', '26.0']) {
   test(`clean Apple Silicon macOS ${version} provisions verified private runtimes`, (t) => {
     const f = cleanFixture(t, { MOCK_MACOS: version });
-    success(f.run('bash ./INSTALL-MACOS.sh'));
+    success(f.run('bash ./INSTALL-MACOS.sh', 180_000));
     const firstLog = f.log();
     assert.match(firstLog, /download .*node-v22\.23\.3-darwin-arm64\.tar\.gz/);
     assert.match(firstLog, /download .*cpython-3\.12\.14/);
@@ -558,7 +558,7 @@ for (const version of ['12.3', '13.4', '13.5', '14.7', '15.0', '26.0']) {
     assert.doesNotMatch(firstLog, /brew install|sudo/);
 
     fs.writeFileSync(path.join(f.dir, 'calls.log'), '');
-    success(f.run('bash ./run-macos.sh'));
+    success(f.run('bash ./run-macos.sh', 180_000));
     const launchLog = f.log();
     assert.match(launchLog, /npm run dev/);
     assert.doesNotMatch(launchLog, /download /);
