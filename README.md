@@ -99,7 +99,9 @@ The Apple Silicon macOS package uses the same simple three-item handoff:
 folder. Double-clicking the installer places Studio at
 `~/Library/Application Support/Sthang Studio/app`, prepares the reviewed local
 dependencies, and creates `~/Applications/Sthang Studio.command` for later
-launches. The downloaded setup folder can then be deleted. This Beta uses a
+launches. Compatible local runtimes are reused; missing reviewed prerequisites can
+be downloaded into Studio's private `tools` folder with exact SHA-256 verification.
+The downloaded setup folder can then be deleted. This Beta uses a
 command-based installer rather than a signed/notarized `.app`; if Gatekeeper
 blocks the downloaded command on first open, Control-click it and choose **Open**.
 
@@ -269,13 +271,13 @@ Silicon (`arm64`) boundary as the curated Beta package. Intel Mac support and a
 macOS implementation of the Windows signed OTA updater are not provided.
 
 1. Clone or check out this repository into a stable folder.
-2. Install native **Node.js 22.12+ within the 22.x LTS line**, Python 3.12, and
-   FFmpeg/ffprobe with libass complex shaping. Node 24+ is also accepted on
-   macOS 13.5 or newer; macOS 12.3 through 13.4 must use Node 22. Use current
-   security patches within the chosen runtime line. Run `bash ./INSTALL-MACOS.sh`.
-   Existing compatible dependencies take priority. Automatic Homebrew installation
-   is only attempted on macOS 15+ with Homebrew already installed; it is not a
-   prerequisite on older macOS. See the [legacy/manual setup guide](docs/MACOS-COMPATIBILITY.md).
+2. Run `bash ./INSTALL-MACOS.sh`. Existing compatible native Node.js, Python 3.12,
+   and FFmpeg/ffprobe runtimes take priority. When one is missing, setup downloads
+   the exact reviewed Apple Silicon runtime, verifies its SHA-256 digest, and keeps
+   it under `~/Library/Application Support/Sthang Studio/tools`. Setup does not
+   install Homebrew, invoke `sudo`, edit shell startup files, or replace system
+   runtimes. See the [macOS compatibility guide](docs/MACOS-COMPATIBILITY.md) for
+   the pinned runtime and manual-recovery details.
 3. Start Studio with `bash ./run-macos.sh`. After both local services are
    healthy, Studio opens in the registered default macOS browser. Use Safari 17+
    or a maintained browser version compatible with your OS, not Monterey's
@@ -284,10 +286,11 @@ macOS implementation of the Windows signed OTA updater are not provided.
    store it in the macOS Keychain; the browser receives only a masked value.
 5. Upload media, generate captions, review, and export as on Windows.
 
-macOS runtime state is kept under `~/Library/Application Support/Sthang Studio`
-by the macOS launcher, while the Python environment and source dependencies stay
-inside the checkout. Run `bash ./INSTALL-MACOS.sh` again to repair local source
-dependencies after changing the checkout.
+macOS runtime state and Studio-managed prerequisite tools are kept under
+`~/Library/Application Support/Sthang Studio`, while the project Python virtual
+environment and source dependencies stay inside the checkout. Run
+`bash ./INSTALL-MACOS.sh` again to repair local source dependencies after changing
+the checkout.
 
 Monterey and Ventura use a dedicated native-dependency compatibility profile so Whisper
 cannot upgrade its ONNX/PyAV runtime to a newer-macOS-only build. macOS 14+ and

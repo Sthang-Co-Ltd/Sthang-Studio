@@ -131,6 +131,7 @@ try {
       "${ArchiveRoot}Sthang Studio Files/run-macos.sh",
       "${ArchiveRoot}Sthang Studio Files/setup-local-timing-macos.sh",
       "${ArchiveRoot}Sthang Studio Files/scripts/install-release-package-macos.sh",
+      "${ArchiveRoot}Sthang Studio Files/scripts/macos-managed-runtime.sh",
       "${ArchiveRoot}Sthang Studio Files/package-lock.json",
       "${ArchiveRoot}Sthang Studio Files/.sthang/product-manifest.json"
     )) {

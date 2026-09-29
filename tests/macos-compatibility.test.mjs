@@ -18,11 +18,16 @@ function pythonCommand() {
   return candidates.find((candidate) => spawnSync(candidate, ['--version'], { windowsHide: true }).status === 0);
 }
 
+function shellPath(value) {
+  if (process.platform !== 'win32') return value;
+  return value.replace(/^([A-Za-z]):[\\/]/, (_, drive) => `/${drive.toLowerCase()}/`).replaceAll('\\', '/');
+}
+
 function fixture(t, changes = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos test '));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   for (const sub of ['bin', 'scripts', 'node_modules', '.venv/bin']) fs.mkdirSync(path.join(dir, sub), { recursive: true });
-  for (const file of [...entrypoints, 'scripts/macos-common.sh']) {
+  for (const file of [...entrypoints, 'scripts/macos-common.sh', 'scripts/macos-managed-runtime.sh']) {
     fs.copyFileSync(path.join(root, file), path.join(dir, file));
   }
   const write = (file, text) => fs.writeFileSync(path.join(dir, file), `#!/usr/bin/env bash\n${text}\n`, { mode: 0o755 });
@@ -31,8 +36,9 @@ function fixture(t, changes = {}) {
   write('bin/node', 'echo "$MOCK_NODE_VERSION $MOCK_NODE_ARCH"');
   write('bin/npm', 'printf "npm %s\\n" "$*" >> "$MOCK_LOG"');
   write('bin/brew', 'printf "brew %s\\n" "$*" >> "$MOCK_LOG"; if [[ "$1" == "--prefix" && -n "${MOCK_BREW_PREFIX:-}" ]]; then printf "%s\\n" "$MOCK_BREW_PREFIX"; else exit 1; fi');
-  write('bin/ffmpeg', '[[ "$MOCK_FFMPEG" != "broken" ]] || exit 1; if [[ "$1" != "-version" && "$MOCK_FFMPEG" == "good" ]]; then echo "shaping: auto simple complex"; fi');
+  write('bin/ffmpeg', '[[ "$MOCK_FFMPEG" != "broken" ]] || exit 1; if [[ "$*" == *"filter=ass"* && "$MOCK_FFMPEG" == "good" ]]; then echo "shaping: auto simple complex"; elif [[ "$*" == *"-encoders"* ]]; then echo " V..... libx264 H.264"; fi');
   write('bin/ffprobe', '[[ "$MOCK_FFPROBE" == "good" ]]');
+  write('bin/file', 'printf "Mach-O 64-bit executable %s\\n" "$MOCK_FILE_ARCH"');
   const python = `if [[ "$1" == "-c" ]]; then
   [[ "$MOCK_PYTHON" == "good" ]]
 elif [[ "$1" == "-m" ]]; then
@@ -46,13 +52,136 @@ fi`;
   const env = {
     ...process.env, BASH_ENV: '', MOCK_OS: 'Darwin', MOCK_ARCH: 'arm64', MOCK_MACOS: '12.3',
     MOCK_NODE_VERSION: '22.12.0', MOCK_NODE_ARCH: 'arm64', MOCK_PYTHON: 'good',
-    MOCK_FFMPEG: 'good', MOCK_FFPROBE: 'good', MOCK_READY: 'yes',
+    MOCK_FFMPEG: 'good', MOCK_FFPROBE: 'good', MOCK_FILE_ARCH: 'arm64', MOCK_READY: 'yes',
+    STHANG_STUDIO_FILE: shellPath(path.join(dir, 'bin/file')),
     MOCK_LOG: path.join(dir, 'calls.log').replaceAll('\\', '/'), ...changes,
   };
   const run = (command) => spawnSync(shell, ['--noprofile', '--norc', '-c', `export PATH="$PWD/bin:$PATH"; ${command}`], {
-    cwd: dir, env, encoding: 'utf8', timeout: 30_000, windowsHide: true,
+    cwd: dir, env, encoding: 'utf8', timeout: 90_000, windowsHide: true,
   });
   return { dir, env, write, run, log: () => fs.existsSync(path.join(dir, 'calls.log')) ? fs.readFileSync(path.join(dir, 'calls.log'), 'utf8') : '' };
+}
+
+function cleanFixture(t, changes = {}) {
+  const f = fixture(t, changes);
+  const stateDir = path.join(f.dir, 'state');
+  for (const relative of ['bin/node', 'bin/npm', 'bin/python3.12', 'bin/ffmpeg', 'bin/ffprobe', 'bin/brew', '.venv']) {
+    fs.rmSync(path.join(f.dir, relative), { recursive: true, force: true });
+  }
+
+  f.write('bin/curl', `output=''
+url=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+[[ -n "$output" && -n "$url" ]] || exit 2
+case "$url" in
+  *node-v22.23.3-darwin-arm64.tar.gz) payload=node ;;
+  *cpython-3.12.14*) payload=python ;;
+  *FFmpeg-arm-silicon-Tools-20260424.zip) payload=ffmpeg ;;
+  *) exit 3 ;;
+esac
+printf '%s' "$payload" > "$output"
+printf 'download %s\\n' "$url" >> "$MOCK_LOG"`);
+  f.write('bin/shasum', `payload="$(cat "${'${3}'}")"
+if [[ "${'${MOCK_BAD_SHA:-}'}" == "$payload" ]]; then
+  printf '0000000000000000000000000000000000000000000000000000000000000000  %s\\n' "${'${3}'}"
+  exit 0
+fi
+case "$payload" in
+  node) sha=23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53 ;;
+  python) sha=9763f43db2481a6af36af82ec40302aab7a73632f880129d07a6e81aec846277 ;;
+  ffmpeg) sha=7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc ;;
+  *) exit 4 ;;
+esac
+printf '%s  %s\\n' "$sha" "${'${3}'}"`);
+  f.write('bin/tar', `archive=''
+dest=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -xzf) archive="$2"; shift 2 ;;
+    -C) dest="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+payload="$(cat "$archive")"
+if [[ "$payload" == node ]]; then
+  root="$dest/node-v22.23.3-darwin-arm64/bin"
+  mkdir -p "$root"
+  cat > "$root/node" <<'EOF'
+#!/usr/bin/env bash
+echo '22.23.3 arm64'
+EOF
+  cat > "$root/npm" <<'EOF'
+#!/usr/bin/env bash
+printf 'npm %s\\n' "$*" >> "$MOCK_LOG"
+EOF
+  chmod +x "$root/node" "$root/npm"
+elif [[ "$payload" == python ]]; then
+  root="$dest/python/bin"
+  mkdir -p "$root"
+  cat > "$root/python3.12" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "-c" ]]; then
+  exit 0
+elif [[ "$1" == "-m" && "$2" == "venv" ]]; then
+  mkdir -p "$3/bin"
+  cp "$0" "$3/bin/python"
+  chmod +x "$3/bin/python"
+  exit 0
+elif [[ "$1" == "-m" ]]; then
+  printf 'python %s\\n' "$*" >> "$MOCK_LOG"
+  exit 0
+fi
+printf 'verify %s\\n' "$*" >> "$MOCK_LOG"
+if [[ "${'${2:-}'}" == "--ready" ]]; then [[ "$MOCK_READY" == yes ]]; fi
+EOF
+  chmod +x "$root/python3.12"
+else
+  exit 5
+fi`);
+  f.write('bin/unzip', `archive=''
+dest=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -q) archive="$2"; shift 2 ;;
+    -d) dest="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+payload="$(cat "$archive")"
+mkdir -p "$dest"
+if [[ "$payload" == ffmpeg ]]; then
+  mkdir -p "$dest/Tools"
+  cat > "$dest/Tools/ffmpeg" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"filter=ass"* ]]; then
+  echo 'shaping: auto simple complex'
+elif [[ "$*" == *"-encoders"* ]]; then
+  echo ' V..... libx264 H.264'
+elif [[ "$*" == *"-buildconf"* ]]; then
+  echo 'configuration: --enable-gpl --enable-version3 --enable-libass --enable-libharfbuzz --enable-libx264'
+fi
+EOF
+  printf '#!/usr/bin/env bash\\nexit 0\\n' > "$dest/Tools/ffprobe"
+  chmod +x "$dest/Tools/ffmpeg" "$dest/Tools/ffprobe"
+else
+  exit 6
+fi`);
+
+  f.env.PATH = '/usr/bin:/bin';
+  f.env.STHANG_STUDIO_CURL = shellPath(path.join(f.dir, 'bin/curl'));
+  f.env.STHANG_STUDIO_SHASUM = shellPath(path.join(f.dir, 'bin/shasum'));
+  f.env.STHANG_STUDIO_TAR = shellPath(path.join(f.dir, 'bin/tar'));
+  f.env.STHANG_STUDIO_UNZIP = shellPath(path.join(f.dir, 'bin/unzip'));
+  f.env.STHANG_STUDIO_STATE_ROOT = shellPath(stateDir);
+  Object.assign(f.env, changes);
+  f.managedStateDir = stateDir;
+  return f;
 }
 
 function success(result) {
@@ -89,7 +218,7 @@ for (const entry of releaseEntrypoints) {
 }
 
 test('tracked macOS shell entrypoints are stored with LF-only line endings', () => {
-  for (const entry of [...entrypoints, ...releaseEntrypoints, 'scripts/macos-common.sh']) {
+  for (const entry of [...entrypoints, ...releaseEntrypoints, 'scripts/macos-common.sh', 'scripts/macos-managed-runtime.sh']) {
     const tracked = spawnSync('git', ['show', `HEAD:${entry}`], { cwd: root, windowsHide: true });
     assert.equal(tracked.status, 0, String(tracked.stderr));
     assert.equal(tracked.stdout.includes(13), false, `${entry} contains a tracked carriage-return byte`);
@@ -153,12 +282,87 @@ for (const [macos, node, arch, accepted] of [
   });
 }
 
-test('Monterey never attempts an unsupported Homebrew install', (t) => {
-  const f = fixture(t, { MOCK_NODE_VERSION: '24.13.0' });
+for (const version of ['12.3', '13.4', '13.5', '14.7', '15.0', '26.0']) {
+  test(`clean Apple Silicon macOS ${version} provisions verified private runtimes`, (t) => {
+    const f = cleanFixture(t, { MOCK_MACOS: version });
+    success(f.run('bash ./INSTALL-MACOS.sh'));
+    const firstLog = f.log();
+    assert.match(firstLog, /download .*node-v22\.23\.3-darwin-arm64\.tar\.gz/);
+    assert.match(firstLog, /download .*cpython-3\.12\.14/);
+    assert.match(firstLog, /download .*FFmpeg-arm-silicon-Tools-20260424\.zip/);
+    assert.match(firstLog, /npm ci --include=dev/);
+    assert.doesNotMatch(firstLog, /brew install|sudo/);
+
+    fs.writeFileSync(path.join(f.dir, 'calls.log'), '');
+    success(f.run('bash ./run-macos.sh'));
+    const launchLog = f.log();
+    assert.match(launchLog, /npm run dev/);
+    assert.doesNotMatch(launchLog, /download /);
+  });
+}
+
+test('managed prerequisite download fails closed on a SHA-256 mismatch', (t) => {
+  const f = cleanFixture(t, { MOCK_BAD_SHA: 'node' });
   const result = f.run('bash ./INSTALL-MACOS.sh');
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /manual\/legacy/);
-  assert.doesNotMatch(f.log(), /brew install|npm ci/);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /failed SHA-256 verification/);
+  assert.doesNotMatch(f.log(), /npm ci/);
+  assert.equal(fs.existsSync(path.join(f.managedStateDir, 'tools/macos-arm64/node-v22.23.3/bin/node')), false);
+});
+
+test('managed FFmpeg rejects the wrong executable architecture', (t) => {
+  const f = cleanFixture(t, { MOCK_FILE_ARCH: 'x86_64' });
+  const result = f.run('bash ./INSTALL-MACOS.sh');
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /FFmpeg runtime failed native-arm64/);
+  assert.equal(fs.existsSync(path.join(f.managedStateDir, 'tools/macos-arm64/ffmpeg-8.1-20260424/bin/ffmpeg')), false);
+});
+
+test('managed runtime pins are fixed and installer never invokes sudo or installs Homebrew', () => {
+  const managed = fs.readFileSync(path.join(root, 'scripts/macos-managed-runtime.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'INSTALL-MACOS.sh'), 'utf8');
+  assert.match(managed, /node-v22\.23\.3-darwin-arm64\.tar\.gz/);
+  assert.match(managed, /23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53/);
+  assert.match(managed, /cpython-3\.12\.14\+20260924-aarch64-apple-darwin-install_only\.tar\.gz/);
+  assert.match(managed, /9763f43db2481a6af36af82ec40302aab7a73632f880129d07a6e81aec846277/);
+  assert.match(managed, /FFmpeg-arm-silicon-Tools-20260424\.zip/);
+  assert.match(managed, /7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc/);
+  assert.doesNotMatch(managed + installer, /\bsudo\b|brew install|releases\/latest/);
+});
+
+test('release installer restores the previous app after setup failure and succeeds on retry', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos release rollback '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const oldApp = path.join(state, 'app');
+  fs.mkdirSync(oldApp, { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(oldApp, 'old.txt'), 'previous install');
+  fs.writeFileSync(path.join(source, 'new.txt'), 'replacement install');
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  const installScript = path.join(source, 'INSTALL-MACOS.sh');
+  fs.writeFileSync(installScript, '#!/usr/bin/env bash\necho expected setup failure >&2\nexit 1\n', { mode: 0o755 });
+  const env = {
+    ...process.env,
+    HOME: shellPath(home),
+    STHANG_STUDIO_STATE_ROOT: shellPath(state),
+  };
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const failed = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+  assert.match(failed.stderr, /Restoring the previous installed application/);
+  assert.equal(fs.readFileSync(path.join(oldApp, 'old.txt'), 'utf8'), 'previous install');
+  assert.equal(fs.existsSync(path.join(oldApp, 'new.txt')), false);
+
+  fs.writeFileSync(installScript, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  const retried = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  success(retried);
+  assert.equal(fs.readFileSync(path.join(oldApp, 'new.txt'), 'utf8'), 'replacement install');
+  assert.equal(fs.existsSync(path.join(oldApp, 'old.txt')), false);
+  assert.equal(fs.existsSync(path.join(home, 'Applications', 'Sthang Studio.command')), true);
 });
 
 test('an installed keg-only Node 22 is discovered again at launch', (t) => {
@@ -183,7 +387,7 @@ for (const entry of entrypoints) {
   });
 }
 
-for (const changes of [{ MOCK_FFMPEG: 'missing-shaping' }, { MOCK_FFMPEG: 'broken' }, { MOCK_FFPROBE: 'broken' }]) {
+for (const changes of [{ MOCK_FFMPEG: 'missing-shaping' }, { MOCK_FFMPEG: 'broken' }, { MOCK_FFPROBE: 'broken' }, { MOCK_FILE_ARCH: 'x86_64' }]) {
   test(`launcher rejects unusable FFmpeg: ${JSON.stringify(changes)}`, (t) => {
     const f = fixture(t, changes);
     assert.equal(f.run('bash ./run-macos.sh').status, 1);

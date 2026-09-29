@@ -322,6 +322,18 @@ invalidate that memory cache immediately.
 Never commit, paste into issues, or publish a real API key. If a key is exposed,
 revoke/rotate it with the provider immediately.
 
+## macOS prerequisite downloads
+
+On Apple Silicon macOS, initial setup first reuses compatible Node.js, Python and
+FFmpeg runtimes already present on the Mac. When a required runtime is missing,
+setup may download an exact checksum-pinned prerequisite archive from its upstream
+project host and store the verified runtime under
+`~/Library/Application Support/Sthang Studio/tools`. These setup requests expose
+ordinary HTTPS metadata such as the source IP address and request headers to the
+upstream host. They do not contain projects, captions, source media, exports, the
+Gemini API key, Contributor data or the analytics identity. Studio does not install
+Homebrew or modify system-wide runtimes for this path.
+
 ## Downloaded local models
 
 The first local timing setup may download KFA model assets into the user's local

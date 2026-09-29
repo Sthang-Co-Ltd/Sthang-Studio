@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Repair Apple Silicon macOS first-run setup so missing Node.js, Python 3.12, or
+  FFmpeg prerequisites can be installed into Studio's private application-state
+  folder from exact checksum-pinned upstream downloads. Preserve compatible
+  existing runtimes and avoid Homebrew installation, `sudo`, shell startup edits,
+  or system-wide PATH changes.
+- Reuse verified Studio-managed macOS prerequisites on later launches without
+  downloading them again, while preserving the manual install rollback path when
+  application dependency setup fails.
+
 ## 0.85.5 — Fine Timing, caption handoff, effects, and Khmer transcription
 
 - Keep unfinished Fine Timing timestamps scoped to their selected caption or

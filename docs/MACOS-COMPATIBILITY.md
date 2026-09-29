@@ -19,11 +19,11 @@ extensions.
 | macOS | Node runtime | Python timing profile | Dependency provisioning |
 | --- | --- | --- | --- |
 | 11 Big Sur and older; Monterey 12.0–12.2 | Rejected | No claimed compatible native stack | Not supported by this implementation |
-| 12.3+ Monterey | Latest patched Node 22.x, at least 22.12.0 | Python 3.12 + `constraints-macos-legacy.txt` | Existing/manual dependencies; no automatic Homebrew installation |
-| 13.0–13.4 Ventura | Latest patched Node 22.x, at least 22.12.0 | Python 3.12 + legacy profile | Existing/manual dependencies |
-| 13.5+ Ventura | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12 + legacy profile | Existing/manual dependencies |
-| 14 Sonoma | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12, normal macOS requirements | Existing/manual dependencies |
-| 15+ | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12, normal macOS requirements | Existing dependencies first; optional existing Homebrew |
+| 12.3+ Monterey | Node 22.12+ within 22.x | Python 3.12 + `constraints-macos-legacy.txt` | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
+| 13.0–13.4 Ventura | Node 22.12+ within 22.x | Python 3.12 + legacy profile | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
+| 13.5+ Ventura | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12 + legacy profile | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
+| 14 Sonoma | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12, normal macOS requirements | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
+| 15+ | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12, normal macOS requirements | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
 
 Use a maintained browser that still supports your OS. The production syntax/CSS
 target includes Safari 17; Monterey's original Safari 15 is not the browser
@@ -88,10 +88,22 @@ entrypoints. Because the package is not Apple-notarized, Gatekeeper may require 
 first-run Control-click → **Open** confirmation on the downloaded installer. Setup
 does not silently bypass macOS security controls.
 
-Existing compatible native dependencies are reused. On macOS 15+ with Homebrew
-already installed, setup may install missing supported Node/Python/FFmpeg packages.
-On older macOS or without a compatible package-manager path, the installer stops
-with dependency guidance; it does not install Homebrew or invoke `sudo` itself.
+Existing compatible native dependencies are reused. When a prerequisite is missing,
+setup downloads a pinned Apple Silicon runtime into the Studio state root, verifies
+the exact SHA-256 digest before extraction, validates the native architecture and
+runtime capabilities, and exposes it only to Studio's setup/launch process. The
+installer does not install Homebrew, invoke `sudo`, change the user's global PATH,
+or edit shell startup files.
+
+The reviewed managed prerequisite pins for this change are Node.js 22.23.3 from
+nodejs.org and CPython 3.12.14+20260924 from Astral's python-build-standalone. The
+managed FFmpeg candidate is the Apple Silicon `FFmpeg-arm-silicon` 0.5.0 tools
+archive, pinned by exact SHA-256 and separately validated for arm64, libass complex
+shaping, libx264, GPL/version3 configuration, and absence of nonfree/OpenSSL build
+flags. These files are downloaded at setup time from their upstream projects and
+are not committed, bundled, or rehosted by Sthang Studio. Public release of the
+managed FFmpeg fallback remains subject to exact upstream provenance/license review
+and native-Mac acceptance of the pinned bytes.
 
 ## Manual/source setup, including older macOS
 
@@ -141,9 +153,10 @@ bash ./run-macos.sh
 ```
 
 The installer reuses compatible PATH dependencies and can rediscover installed
-Homebrew `node@22`, `node@24`, Python 3.12 and `ffmpeg-full` locations. Only macOS
-15+ attempts installation with an already-installed Homebrew. It never installs
-a package manager or invokes `sudo` for you. The launcher never installs anything.
+Homebrew `node@22`, `node@24`, Python 3.12 and `ffmpeg-full` locations. If those are
+unavailable, the installer uses the verified Studio-managed fallback described
+above. It never installs a package manager or invokes `sudo`. The launcher only
+selects an already-prepared managed runtime; it does not download prerequisites.
 
 An existing `.venv` must really run native arm64 Python 3.12. An incompatible or
 broken environment is rejected without deletion: close Studio, move that `.venv`
@@ -164,8 +177,9 @@ npm run check:public
 ```
 
 `test:macos` uses synthetic shell commands and disposable folders. It tests OS
-boundaries, Rosetta/wrong-runtime rejection, Homebrew policy, dependency profile
-selection, paths with spaces, non-destructive venv failures, and metadata checks.
+boundaries, Rosetta/wrong-runtime rejection, clean-machine managed provisioning,
+fixed-hash failure, runtime reuse, dependency profile selection, paths with spaces,
+non-destructive venv failures, release-install rollback/retry, and metadata checks.
 Windows uses Git for Windows Bash; `STHANG_TEST_BASH` can name an explicit Bash
 executable. These are policy regressions, not execution on the simulated OS.
 
@@ -234,11 +248,24 @@ also expose the matching macOS asset from the same verified `v0.85.0` GitHub
 Release. Signed OTA availability remains unchanged and must not be inferred from
 the Mac package or this release.
 
+The unreleased managed-prerequisite correction also has **Public impact: required**
+because it changes first-run network/setup behavior on supported Macs. Public
+installation guidance must describe the app-private checksum-verified fallback only
+after a provenance-aligned release is accepted. This does not add macOS OTA, change
+the platform floor, or change caption/media cloud processing. The corresponding
+source evidence is `scripts/macos-managed-runtime.sh`, `INSTALL-MACOS.sh`,
+`README.md`, `PRIVACY.md`, `THIRD_PARTY_NOTICES.md`, and the macOS release package
+tests. The managed FFmpeg fallback must not be represented as publicly accepted
+until its remaining upstream provenance and native-Mac acceptance gates are closed.
+
 ## Upstream compatibility evidence
 
 - [Node 22 build/platform requirements](https://github.com/nodejs/node/blob/v22.x/BUILDING.md)
 - [Node 24 build/platform requirements](https://github.com/nodejs/node/blob/v24.x/BUILDING.md)
 - [Node LTS lifecycle](https://nodejs.org/en/about/previous-releases)
+- [Node.js 22.23.3 distribution directory](https://nodejs.org/dist/v22.23.3/)
+- [python-build-standalone releases](https://github.com/astral-sh/python-build-standalone/releases)
+- [FFmpeg-arm-silicon 0.5.0 release](https://github.com/kiimelon/FFmpeg-arm-silicon/releases/tag/0.5.0)
 - [ONNX Runtime 1.19.2 wheels](https://pypi.org/project/onnxruntime/1.19.2/#files)
 - [SciPy 1.15.3 wheels](https://pypi.org/project/scipy/1.15.3/#files)
 - [SciPy 1.10.1 wheels](https://pypi.org/project/scipy/1.10.1/#files)

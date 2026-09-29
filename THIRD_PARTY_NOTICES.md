@@ -31,6 +31,22 @@ The unreleased Sthang contribution and analytics relay Workers use Cloudflare's
 Worker/D1/R2 capabilities directly and add no Studio application npm runtime
 dependency.
 
+## macOS managed prerequisite runtimes
+
+The Apple Silicon macOS installer may download prerequisite runtimes at setup time
+when an already-compatible local installation is unavailable. Sthang does not
+bundle or rehost these archives. The currently reviewed direct-download pins are:
+
+| Component | Setup use | Upstream license / terms |
+|---|---|---|
+| Node.js 22.23.3 arm64 | JavaScript runtime and npm | MIT for Node.js, with bundled third-party notices in the upstream distribution |
+| Astral `python-build-standalone` CPython 3.12.14+20260924 arm64 | Python 3.12 runtime used to create Studio's local timing virtual environment | `python-build-standalone` tooling: MPL-2.0; CPython and bundled runtime components retain their upstream licenses |
+| `FFmpeg-arm-silicon` 0.5.0 tools archive | FFmpeg/ffprobe fallback for local media processing and libass caption rendering | Exact inspected binary reports GPL version 3 or later; public release remains subject to the source-provenance review documented in `docs/MACOS-COMPATIBILITY.md` |
+
+Each managed archive is addressed by a fixed versioned HTTPS URL and exact SHA-256
+digest in `scripts/macos-managed-runtime.sh`. The installer validates the expected
+native architecture and required runtime capabilities before selecting it.
+
 ## Python / local timing
 
 | Component | Use | Upstream license |
@@ -64,11 +80,17 @@ the existing scientific/audio stack, including the MIT-licensed CTranslate2 and
 BSD-licensed PyAV dependencies of faster-whisper. Native packages use upstream
 wheels; the pure-Python emoji 2.6.0 dependency is built from its upstream source
 distribution. No wheels, model weights or FFmpeg binaries are committed or
-redistributed by this source change. See `docs/MACOS-COMPATIBILITY.md` for the
-version boundary and validation requirements.
+redistributed by this source change. On Apple Silicon macOS, setup may download
+pinned Node.js, CPython and FFmpeg prerequisite archives directly from their
+upstream hosts when a compatible local runtime is unavailable. Each managed
+prerequisite is verified by an exact SHA-256 digest before use and stays under
+Studio's local application-state folder. See `docs/MACOS-COMPATIBILITY.md` for the
+version boundary, exact release evidence and validation requirements.
 
-Sthang Studio expects `ffmpeg`/`ffprobe` to be installed on the user's system and
-does not commit FFmpeg binaries to this repository. Studio uses that local runtime
+Sthang Studio prefers an already compatible local `ffmpeg`/`ffprobe` and does not
+commit or rehost FFmpeg binaries in this repository. The macOS installer can fall
+back to a checksum-pinned upstream Apple Silicon runtime downloaded at setup time.
+Studio uses the selected local runtime
 for audio normalization/range work and, in the captioned-video source
 implementation, for video decoding/encoding, stream mapping, probing, output
 verification, and ASS subtitle rendering through FFmpeg's `subtitles`/libass
@@ -87,9 +109,12 @@ source change. Before a public release claims finished-video export, Sthang must
 review and validate the exact ordinary-user Windows FFmpeg path/build and any
 redistribution/licensing implications of the release package.
 
-Anyone redistributing an installer that bundles FFmpeg must review the license of
-that exact build separately. A development or system-installed FFmpeg capability
-is not evidence that the public package has the same codec/filter configuration.
+Anyone redistributing or rehosting an installer that conveys FFmpeg must review the
+license of that exact build separately. Sthang's managed macOS approach downloads
+the selected upstream archive at install time and invokes it as a separate process;
+Sthang does not bundle or rehost that binary. A development or system-installed
+FFmpeg capability is not evidence that the managed public path has the same
+codec/filter configuration or sufficient upstream source provenance.
 
 ## Runtime-downloaded model assets
 

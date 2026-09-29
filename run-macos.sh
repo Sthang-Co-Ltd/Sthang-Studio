@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
+export STHANG_STUDIO_STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}"
+export STHANG_STUDIO_ENV_FILE="${STHANG_STUDIO_ENV_FILE:-$ROOT/apps/server/.env}"
 source "$ROOT/scripts/macos-common.sh"
 studio_macos_host
 
@@ -12,9 +14,6 @@ if ! studio_macos_select_node || ! studio_macos_select_ffmpeg || [[ ! -d "$ROOT/
   exit 1
 fi
 studio_macos_require_venv
-
-export STHANG_STUDIO_STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}"
-export STHANG_STUDIO_ENV_FILE="${STHANG_STUDIO_ENV_FILE:-$ROOT/apps/server/.env}"
 
 echo "Starting Sthang Studio. Keep this terminal open while using the app."
 exec npm run dev

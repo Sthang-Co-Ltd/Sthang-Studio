@@ -7,19 +7,19 @@ source "$ROOT/scripts/macos-common.sh"
 studio_macos_host
 
 if ! studio_macos_select_node; then
-  studio_macos_brew_install "$STUDIO_NODE_FORMULA"
+  studio_macos_install_managed_node
   studio_macos_select_node || { echo "ERROR: Native Node 22.12+ (22.x), or Node 24+ on macOS 13.5+, and npm are required."; exit 1; }
 fi
 
 if [[ -e "$ROOT/.venv" || -L "$ROOT/.venv" ]]; then
   studio_macos_require_venv
 elif ! studio_macos_select_python; then
-  studio_macos_brew_install python@3.12
+  studio_macos_install_managed_python
   studio_macos_select_python || { echo "ERROR: Native arm64 Python 3.12 was not found."; exit 1; }
 fi
 
 if ! studio_macos_select_ffmpeg; then
-  studio_macos_brew_install ffmpeg-full
+  studio_macos_install_managed_ffmpeg
   studio_macos_select_ffmpeg || { echo "ERROR: FFmpeg/ffprobe must run locally and expose ASS/libass complex shaping."; exit 1; }
 fi
 

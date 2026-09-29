@@ -19,11 +19,9 @@ REQUIREMENTS
 - macOS 12.3 Monterey or newer
 - Internet access during initial setup and AI transcription
 - A Gemini Developer API key for AI caption wording
-- Native Node.js 22.12+ within the Node 22 line; Node 24+ is also accepted on macOS 13.5+
-- Native Python 3.12
-- FFmpeg/ffprobe with ASS/libass complex shaping
+- Enough free disk space for local runtimes, timing resources, projects, and media
 
-On current macOS with Homebrew already installed, setup can install missing supported Node/Python/FFmpeg packages automatically. On older macOS or a Mac without compatible dependencies, setup gives the exact dependency guidance instead of silently installing an unsupported toolchain.
+Setup reuses compatible native Node.js, Python 3.12, and FFmpeg/ffprobe when they are already available. If a compatible prerequisite is missing, setup downloads the exact reviewed Apple Silicon runtime into ~/Library/Application Support/Sthang Studio/tools, verifies its SHA-256 checksum, and keeps it private to Studio. Setup does not install Homebrew, invoke sudo, modify your shell startup files, or replace system runtimes.
 
 PRIVACY
 When you generate or regenerate AI wording, Studio sends normalized WAV audio and relevant context or wording to Gemini using your API key.
