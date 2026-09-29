@@ -10,15 +10,17 @@ SOURCE_ROOT="$(cd "$1" && pwd)"
 STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}"
 INSTALL_ROOT="$STATE_ROOT/app"
 BACKUP_ROOT="$STATE_ROOT/.manual-install-backup"
+DISCARD_ROOT="$STATE_ROOT/.manual-install-discard"
 STAGE_ROOT="$STATE_ROOT/.manual-install-stage"
-LOCK_ROOT="$STATE_ROOT/.manual-install-lock"
+FRESH_MARKER="$STATE_ROOT/.manual-install-fresh"
+LOCK_FILE="$STATE_ROOT/.manual-install.lock"
+SHLOCK_BIN="${STHANG_STUDIO_SHLOCK:-/usr/bin/shlock}"
 LAUNCHER_DIR="$HOME/Applications"
 LAUNCHER="$LAUNCHER_DIR/Sthang Studio.command"
-INSTALL_ROOT_QUOTED="$(printf '%q' "$INSTALL_ROOT")"
+LAUNCHER_TMP="$LAUNCHER_DIR/.Sthang Studio.command.tmp"
+STATE_ROOT_QUOTED="$(printf '%q' "$STATE_ROOT")"
 OLD_ENV="$INSTALL_ROOT/apps/server/.env"
 HAD_OLD_ENV=0
-INSTALLED_NEW_ROOT=0
-BACKED_UP_OLD_ROOT=0
 LOCK_HELD=0
 
 cleanup_stage() {
@@ -28,19 +30,26 @@ cleanup_stage() {
 }
 
 rollback_install() {
-  if [[ "$INSTALLED_NEW_ROOT" -eq 1 && -d "$INSTALL_ROOT" ]]; then
-    rm -rf -- "$INSTALL_ROOT"
-  fi
-  if [[ "$BACKED_UP_OLD_ROOT" -eq 1 && -d "$BACKUP_ROOT" ]]; then
+  if [[ -d "$BACKUP_ROOT" ]]; then
+    if [[ -d "$INSTALL_ROOT" ]]; then
+      rm -rf -- "$INSTALL_ROOT"
+    fi
     mv "$BACKUP_ROOT" "$INSTALL_ROOT"
+  elif [[ -f "$FRESH_MARKER" ]]; then
+    if [[ -d "$INSTALL_ROOT" ]]; then
+      rm -rf -- "$INSTALL_ROOT"
+    fi
+    rm -f -- "$FRESH_MARKER"
   fi
-  INSTALLED_NEW_ROOT=0
-  BACKED_UP_OLD_ROOT=0
 }
 
 release_lock() {
-  if [[ "$LOCK_HELD" -eq 1 && -d "$LOCK_ROOT" ]]; then
-    rm -rf -- "$LOCK_ROOT"
+  local owner=""
+  if [[ "$LOCK_HELD" -eq 1 && -f "$LOCK_FILE" ]]; then
+    owner="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+    if [[ "$owner" == "$$" ]]; then
+      rm -f -- "$LOCK_FILE"
+    fi
   fi
   LOCK_HELD=0
 }
@@ -52,33 +61,42 @@ finish_install_process() {
     rollback_install || true
   fi
   cleanup_stage || true
+  cleanup_launcher_temp || true
   release_lock || true
   exit "$status"
 }
 
 acquire_lock() {
   local prior_pid=""
-  if mkdir "$LOCK_ROOT" 2>/dev/null; then
+  if [[ ! -x "$SHLOCK_BIN" ]]; then
+    echo "ERROR: macOS installation locking is unavailable at $SHLOCK_BIN." >&2
+    return 1
+  fi
+  if "$SHLOCK_BIN" -p "$$" -f "$LOCK_FILE"; then
     LOCK_HELD=1
-    printf '%s\n' "$$" > "$LOCK_ROOT/pid"
     return 0
   fi
+  if [[ -f "$LOCK_FILE" ]]; then
+    prior_pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+  fi
+  if [[ "$prior_pid" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Another Sthang Studio installation is still running (PID $prior_pid). Close it before retrying." >&2
+  else
+    echo "ERROR: Could not acquire the Sthang Studio installation lock. Close any other installer and retry." >&2
+  fi
+  return 1
+}
 
-  if [[ -f "$LOCK_ROOT/pid" ]]; then
-    prior_pid="$(cat "$LOCK_ROOT/pid" 2>/dev/null || true)"
+cleanup_discard() {
+  if [[ -d "$DISCARD_ROOT" ]]; then
+    rm -rf -- "$DISCARD_ROOT"
   fi
-  if [[ "$prior_pid" =~ ^[0-9]+$ ]] && kill -0 "$prior_pid" 2>/dev/null; then
-    echo "ERROR: Another Sthang Studio installation is still running. Close it before retrying." >&2
-    return 1
-  fi
+}
 
-  rm -rf -- "$LOCK_ROOT"
-  if ! mkdir "$LOCK_ROOT"; then
-    echo "ERROR: Could not acquire the Sthang Studio installation lock." >&2
-    return 1
+cleanup_launcher_temp() {
+  if [[ -f "$LAUNCHER_TMP" || -L "$LAUNCHER_TMP" ]]; then
+    rm -f -- "$LAUNCHER_TMP"
   fi
-  LOCK_HELD=1
-  printf '%s\n' "$$" > "$LOCK_ROOT/pid"
 }
 
 recover_interrupted_install() {
@@ -89,7 +107,15 @@ recover_interrupted_install() {
       rm -rf -- "$INSTALL_ROOT"
     fi
     mv "$BACKUP_ROOT" "$INSTALL_ROOT"
+  elif [[ -f "$FRESH_MARKER" ]]; then
+    echo "Removing an incomplete interrupted installation before retrying..."
+    if [[ -d "$INSTALL_ROOT" ]]; then
+      rm -rf -- "$INSTALL_ROOT"
+    fi
   fi
+  rm -f -- "$FRESH_MARKER"
+  cleanup_launcher_temp
+  cleanup_discard
 }
 
 if [[ "$SOURCE_ROOT" == "$INSTALL_ROOT" ]]; then
@@ -124,11 +150,11 @@ fi
 
 if [[ -d "$INSTALL_ROOT" ]]; then
   mv "$INSTALL_ROOT" "$BACKUP_ROOT"
-  BACKED_UP_OLD_ROOT=1
+else
+  printf '%s\n' "$$" > "$FRESH_MARKER"
 fi
 
 mv "$STAGE_ROOT" "$INSTALL_ROOT"
-INSTALLED_NEW_ROOT=1
 
 if ! bash "$INSTALL_ROOT/INSTALL-MACOS.sh"; then
   echo "ERROR: macOS dependency setup did not complete. Restoring the previous installed application." >&2
@@ -141,18 +167,16 @@ if [[ "$HAD_OLD_ENV" -eq 1 && ! -f "$INSTALL_ROOT/apps/server/.env" ]]; then
 fi
 
 mkdir -p "$LAUNCHER_DIR"
+rm -f -- "$LAUNCHER_TMP"
 {
   cat <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 EOF
-  printf 'DEFAULT_APP_ROOT=%s\n' "$INSTALL_ROOT_QUOTED"
+  printf 'DEFAULT_STATE_ROOT=%s\n' "$STATE_ROOT_QUOTED"
   cat <<'EOF'
-if [[ -n "${STHANG_STUDIO_STATE_ROOT:-}" ]]; then
-  APP_ROOT="$STHANG_STUDIO_STATE_ROOT/app"
-else
-  APP_ROOT="$DEFAULT_APP_ROOT"
-fi
+export STHANG_STUDIO_STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$DEFAULT_STATE_ROOT}"
+APP_ROOT="$STHANG_STUDIO_STATE_ROOT/app"
 if [[ ! -f "$APP_ROOT/run-macos.sh" ]]; then
   echo "Sthang Studio is not installed correctly. Re-run the downloaded installer."
   read -r -p "Press Return to close..." _
@@ -160,14 +184,19 @@ if [[ ! -f "$APP_ROOT/run-macos.sh" ]]; then
 fi
 exec bash "$APP_ROOT/run-macos.sh"
 EOF
-} > "$LAUNCHER"
-chmod 755 "$LAUNCHER"
+} > "$LAUNCHER_TMP"
+chmod 755 "$LAUNCHER_TMP"
+mv -f -- "$LAUNCHER_TMP" "$LAUNCHER"
 
-if [[ "$BACKED_UP_OLD_ROOT" -eq 1 && -d "$BACKUP_ROOT" ]]; then
-  rm -rf -- "$BACKUP_ROOT"
+if [[ -d "$DISCARD_ROOT" ]]; then
+  rm -rf -- "$DISCARD_ROOT"
 fi
-BACKED_UP_OLD_ROOT=0
-INSTALLED_NEW_ROOT=0
+if [[ -d "$BACKUP_ROOT" ]]; then
+  mv "$BACKUP_ROOT" "$DISCARD_ROOT"
+else
+  rm -f -- "$FRESH_MARKER"
+fi
+cleanup_discard || true
 
 echo
 echo "Sthang Studio is installed."

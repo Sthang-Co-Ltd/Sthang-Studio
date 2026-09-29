@@ -84,7 +84,11 @@ history, exports, privacy identities, and Keychain credentials remain in the sta
 macOS state locations rather than being replaced with the app source. The manual
 installer keeps a recoverable previous-app backup while the replacement is being
 prepared; a failed setup rolls back immediately, and a later retry recovers a
-backup left by an interrupted swap before attempting another replacement.
+backup left by an interrupted swap before attempting another replacement. Manual
+installers are serialized with the macOS system lock helper, the Applications
+launcher is replaced atomically, and a successful swap retires the old backup from
+recovery state before deleting it so an interrupted cleanup cannot displace the
+newly committed app.
 
 The release ZIP preserves executable permission bits for `.command` and shell
 entrypoints. Because the package is not Apple-notarized, Gatekeeper may require a

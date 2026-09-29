@@ -23,6 +23,37 @@ function shellPath(value) {
   return value.replace(/^([A-Za-z]):[\\/]/, (_, drive) => `/${drive.toLowerCase()}/`).replaceAll('\\', '/');
 }
 
+function releaseInstallerEnv(dir, home, state, changes = {}) {
+  const shlock = path.join(dir, 'mock-shlock');
+  fs.writeFileSync(shlock, `#!/usr/bin/env bash
+set -euo pipefail
+lock_file=''
+pid=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -f) lock_file="$2"; shift 2 ;;
+    -p) pid="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[[ -n "$lock_file" && -n "$pid" ]] || exit 2
+if [[ "${'${MOCK_SHLOCK_DENY:-}'}" == 1 ]]; then exit 1; fi
+if [[ -f "$lock_file" ]]; then
+  prior="$(cat "$lock_file" 2>/dev/null || true)"
+  if [[ "$prior" != 99999999 ]]; then exit 1; fi
+  rm -f -- "$lock_file"
+fi
+printf '%s\\n' "$pid" > "$lock_file"
+`, { mode: 0o755 });
+  return {
+    ...process.env,
+    HOME: shellPath(home),
+    STHANG_STUDIO_STATE_ROOT: shellPath(state),
+    STHANG_STUDIO_SHLOCK: shellPath(shlock),
+    ...changes,
+  };
+}
+
 function fixture(t, changes = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos test '));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -345,11 +376,7 @@ test('release installer restores the previous app after setup failure and succee
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   const installScript = path.join(source, 'INSTALL-MACOS.sh');
   fs.writeFileSync(installScript, '#!/usr/bin/env bash\necho expected setup failure >&2\nexit 1\n', { mode: 0o755 });
-  const env = {
-    ...process.env,
-    HOME: shellPath(home),
-    STHANG_STUDIO_STATE_ROOT: shellPath(state),
-  };
+  const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const failed = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
   assert.equal(failed.status, 1, failed.stdout + failed.stderr);
@@ -371,24 +398,20 @@ test('release launcher remembers a custom installation state root', (t) => {
   const home = path.join(dir, 'home');
   const state = path.join(dir, 'custom state root');
   const source = path.join(dir, 'package files');
-  const marker = path.join(dir, 'launched.txt');
+  const marker = path.join(home, 'launched.txt');
   fs.mkdirSync(source, { recursive: true });
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(source, 'run-macos.sh'), `#!/usr/bin/env bash\nprintf 'launched' > ${JSON.stringify(shellPath(marker))}\n`, { mode: 0o755 });
-  const env = {
-    ...process.env,
-    HOME: shellPath(home),
-    STHANG_STUDIO_STATE_ROOT: shellPath(state),
-  };
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), `#!/usr/bin/env bash\nprintf '%s' "$STHANG_STUDIO_STATE_ROOT" > "$HOME/launched.txt"\n`, { mode: 0o755 });
+  const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   success(spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true }));
 
   const launcher = path.join(home, 'Applications', 'Sthang Studio.command');
   const launchEnv = { ...process.env, HOME: shellPath(home) };
   success(spawnSync(shell, [shellPath(launcher)], { env: launchEnv, encoding: 'utf8', timeout: 30_000, windowsHide: true }));
-  assert.equal(fs.readFileSync(marker, 'utf8'), 'launched');
-  assert.match(fs.readFileSync(launcher, 'utf8'), /DEFAULT_APP_ROOT=/);
+  assert.equal(fs.readFileSync(marker, 'utf8'), shellPath(state));
+  assert.match(fs.readFileSync(launcher, 'utf8'), /DEFAULT_STATE_ROOT=/);
 });
 
 test('release installer rolls back when launcher creation fails after the app swap', (t) => {
@@ -407,18 +430,45 @@ test('release installer rolls back when launcher creation fails after the app sw
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(home, 'Applications'), 'blocks launcher directory');
-  const env = {
-    ...process.env,
-    HOME: shellPath(home),
-    STHANG_STUDIO_STATE_ROOT: shellPath(state),
-  };
+  const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
   assert.equal(fs.readFileSync(path.join(oldApp, 'old.txt'), 'utf8'), 'previous install');
   assert.equal(fs.existsSync(path.join(oldApp, 'new.txt')), false);
   assert.equal(fs.existsSync(path.join(state, '.manual-install-backup')), false);
-  assert.equal(fs.existsSync(path.join(state, '.manual-install-lock')), false);
+  assert.equal(fs.existsSync(path.join(state, '.manual-install.lock')), false);
+});
+
+test('release installer preserves the previous launcher when temporary launcher creation fails', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos atomic launcher rollback '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const oldApp = path.join(state, 'app');
+  const applications = path.join(home, 'Applications');
+  const launcher = path.join(applications, 'Sthang Studio.command');
+  const blockedTemp = path.join(applications, '.Sthang Studio.command.tmp');
+  fs.mkdirSync(oldApp, { recursive: true });
+  fs.mkdirSync(applications, { recursive: true });
+  fs.mkdirSync(blockedTemp, { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(oldApp, 'old.txt'), 'previous install');
+  fs.writeFileSync(launcher, 'previous launcher\n');
+  fs.writeFileSync(path.join(source, 'new.txt'), 'replacement install');
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  const env = releaseInstallerEnv(dir, home, state);
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.equal(fs.readFileSync(path.join(oldApp, 'old.txt'), 'utf8'), 'previous install');
+  assert.equal(fs.existsSync(path.join(oldApp, 'new.txt')), false);
+  assert.equal(fs.readFileSync(launcher, 'utf8'), 'previous launcher\n');
+  assert.equal(fs.existsSync(path.join(state, '.manual-install-backup')), false);
+  assert.equal(fs.existsSync(path.join(state, '.manual-install.lock')), false);
 });
 
 test('release installer recovers an interrupted prior swap before retrying setup', (t) => {
@@ -429,22 +479,17 @@ test('release installer recovers an interrupted prior swap before retrying setup
   const source = path.join(dir, 'package files');
   const installed = path.join(state, 'app');
   const backup = path.join(state, '.manual-install-backup');
-  const staleLock = path.join(state, '.manual-install-lock');
+  const staleLock = path.join(state, '.manual-install.lock');
   fs.mkdirSync(installed, { recursive: true });
   fs.mkdirSync(backup, { recursive: true });
-  fs.mkdirSync(staleLock, { recursive: true });
   fs.mkdirSync(source, { recursive: true });
   fs.writeFileSync(path.join(installed, 'interrupted-new.txt'), 'incomplete app');
   fs.writeFileSync(path.join(backup, 'old.txt'), 'last known good app');
-  fs.writeFileSync(path.join(staleLock, 'pid'), '99999999\n');
+  fs.writeFileSync(staleLock, '99999999\n');
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
-  const env = {
-    ...process.env,
-    HOME: shellPath(home),
-    STHANG_STUDIO_STATE_ROOT: shellPath(state),
-  };
+  const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
   assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -453,6 +498,59 @@ test('release installer recovers an interrupted prior swap before retrying setup
   assert.equal(fs.existsSync(path.join(installed, 'interrupted-new.txt')), false);
   assert.equal(fs.existsSync(backup), false);
   assert.equal(fs.existsSync(staleLock), false);
+});
+
+test('release installer leaves app state untouched when installation lock is held', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos installer contention '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const installed = path.join(state, 'app');
+  const lockFile = path.join(state, '.manual-install.lock');
+  fs.mkdirSync(installed, { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(installed, 'old.txt'), 'current app');
+  fs.writeFileSync(path.join(source, 'new.txt'), 'replacement app');
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(lockFile, '424242\n');
+  const env = releaseInstallerEnv(dir, home, state, { MOCK_SHLOCK_DENY: '1' });
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Another Sthang Studio installation is still running/);
+  assert.equal(fs.readFileSync(path.join(installed, 'old.txt'), 'utf8'), 'current app');
+  assert.equal(fs.existsSync(path.join(installed, 'new.txt')), false);
+  assert.equal(fs.readFileSync(lockFile, 'utf8'), '424242\n');
+  assert.equal(fs.existsSync(path.join(state, '.manual-install-backup')), false);
+  assert.equal(fs.existsSync(path.join(state, '.manual-install-stage')), false);
+});
+
+test('release recovery ignores an interrupted non-authoritative backup cleanup', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos discard recovery '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const installed = path.join(state, 'app');
+  const discard = path.join(state, '.manual-install-discard');
+  fs.mkdirSync(installed, { recursive: true });
+  fs.mkdirSync(discard, { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(installed, 'current.txt'), 'committed app');
+  fs.writeFileSync(path.join(discard, 'partial-old.txt'), 'partially deleted old app');
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  const env = releaseInstallerEnv(dir, home, state);
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.equal(fs.readFileSync(path.join(installed, 'current.txt'), 'utf8'), 'committed app');
+  assert.equal(fs.existsSync(path.join(installed, 'partial-old.txt')), false);
+  assert.equal(fs.existsSync(discard), false);
 });
 
 test('an installed keg-only Node 22 is discovered again at launch', (t) => {
