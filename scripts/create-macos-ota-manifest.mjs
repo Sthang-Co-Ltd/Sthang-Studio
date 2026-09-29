@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateReleaseManifest, validateTrustRoot } from './update-protocol.mjs';
+import { sanitizeReleaseNotes, validateReleaseManifest, validateTrustRoot } from './update-protocol.mjs';
 
 const [
   payloadRootArg,
@@ -68,7 +68,7 @@ const pythonFiles = fs.readdirSync(path.join(payloadRoot, 'local-timing'))
 if (!pythonFiles.length || pythonFiles.length > 8) throw new Error('The macOS Python dependency declaration is invalid.');
 
 const packageBytes = fs.readFileSync(packageFile);
-const releaseNotes = fs.readFileSync(releaseNotesFile, 'utf8');
+const releaseNotes = sanitizeReleaseNotes(fs.readFileSync(releaseNotesFile, 'utf8'));
 const unsigned = {
   schemaVersion: 2,
   product: 'sthang-studio',
