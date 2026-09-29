@@ -102,6 +102,14 @@ runtime capabilities, and exposes it only to Studio's setup/launch process. The
 installer does not install Homebrew, invoke `sudo`, change the user's global PATH,
 or edit shell startup files.
 
+The curated release carries the already-built server, shared package and web
+application output from the accepted release build. Its Mac-side npm step installs
+only the server/shared production workspace closure with development dependencies
+omitted and lifecycle scripts disabled, and launch serves the production web build
+from the local backend origin. Vite, esbuild, tsx and TypeScript remain source/build
+tools and are not installed or executed in the ordinary curated macOS runtime.
+Source checkouts continue to use the development dependency workflow.
+
 The reviewed managed prerequisite pins for this change are Node.js 22.23.3 from
 nodejs.org and CPython 3.12.14+20260924 from Astral's python-build-standalone. The
 managed FFmpeg candidate is the Apple Silicon `FFmpeg-arm-silicon` 0.5.0 tools

@@ -15,6 +15,12 @@
   continuing to honor an explicit runtime state-root override. Concurrent manual
   installers are serialized with the macOS system lock helper, and cleanup of an
   old successful-install backup is no longer treated as recovery-authoritative.
+- Run the curated macOS package from prebuilt production server/web/shared output
+  with only the server/shared runtime npm closure and lifecycle scripts disabled,
+  removing Vite/esbuild/tsx/TypeScript native developer tooling and npm postinstall
+  execution from ordinary Mac installation and launch.
+- Update the server's Multer dependency to 2.4.0, clearing the current production
+  npm audit advisory for aborted-upload orphaned disk writes.
 
 ## 0.85.5 — Fine Timing, caption handoff, effects, and Khmer transcription
 

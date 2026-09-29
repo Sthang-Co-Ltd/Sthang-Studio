@@ -24,7 +24,14 @@ if ! studio_macos_select_ffmpeg; then
 fi
 
 echo "Installing reviewed Node dependencies..."
-npm ci --include=dev
+if [[ -f "$ROOT/.sthang/macos-curated-runtime" ]]; then
+  for required in "$ROOT/apps/server/dist/index.js" "$ROOT/apps/web/dist/index.html" "$ROOT/packages/shared/dist/index.js"; do
+    [[ -f "$required" ]] || { echo "ERROR: The curated macOS package is missing a production build artifact: $required" >&2; exit 1; }
+  done
+  npm ci --omit=dev --ignore-scripts --workspace @kcs/server --workspace @kcs/shared --include-workspace-root
+else
+  npm ci --include=dev
+fi
 bash "$ROOT/setup-local-timing-macos.sh"
 
 echo

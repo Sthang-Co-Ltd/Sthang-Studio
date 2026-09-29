@@ -16,4 +16,11 @@ fi
 studio_macos_require_venv
 
 echo "Starting Sthang Studio. Keep this terminal open while using the app."
+if [[ -f "$ROOT/.sthang/macos-curated-runtime" ]]; then
+  [[ -f "$ROOT/apps/server/dist/index.js" && -f "$ROOT/apps/web/dist/index.html" && -f "$ROOT/packages/shared/dist/index.js" ]] || {
+    echo "ERROR: The curated macOS production runtime is incomplete. Re-run the current installer." >&2
+    exit 1
+  }
+  exec node "$ROOT/scripts/dev.mjs" --production
+fi
 exec npm run dev

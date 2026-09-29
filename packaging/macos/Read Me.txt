@@ -10,6 +10,11 @@ INSTALL
 4. When setup finishes, open "Sthang Studio.command" from your Applications folder.
 5. In Studio, open Settings > AI connection and add your Gemini API key.
 
+The curated download already contains Sthang Studio's reviewed production web,
+server and shared build. Setup installs only the server/shared runtime Node
+dependencies with package lifecycle scripts disabled; it does not run Vite,
+esbuild, tsx or TypeScript developer tooling on this Mac.
+
 If macOS blocks the downloaded command the first time, Control-click it, choose Open, then confirm Open. This public Beta is distributed as a command-based installer rather than a signed/notarized .app bundle.
 
 After installation completes, you can delete the extracted setup folder. Sthang Studio is installed at ~/Library/Application Support/Sthang Studio/app and keeps projects/settings in the normal macOS application-support location.

@@ -46,7 +46,6 @@ if (-not $SkipValidation) {
   Invoke-Checked 'Running macOS compatibility regressions...' { npm.cmd run test:macos }
   Invoke-Checked 'Running public-readiness check...' { npm.cmd run check:public }
   Invoke-Checked 'Running typecheck...' { npm.cmd run typecheck }
-  Invoke-Checked 'Running production build...' { npm.cmd run build }
 }
 
 $TrackedChanges = (& git status --porcelain --untracked-files=no) -join "`n"
@@ -57,6 +56,18 @@ if ($TrackedChanges.Trim()) {
 
 $Commit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $Commit) { throw 'The current Git commit could not be resolved.' }
+
+Invoke-Checked 'Running production build...' { npm.cmd run build }
+
+$CommitAfterBuild = (& git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $CommitAfterBuild -ne $Commit) {
+  throw 'The Git commit changed during the production build. Re-run packaging from the new exact commit.'
+}
+$TrackedChangesAfterBuild = (& git status --porcelain --untracked-files=no) -join "`n"
+if ($LASTEXITCODE -ne 0) { throw 'Git status could not be read after the production build.' }
+if ($TrackedChangesAfterBuild.Trim()) {
+  throw 'The production build changed tracked files. Restore them before building a release package.'
+}
 
 $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ('Sthang-Studio-macOS-Package-' + [Guid]::NewGuid().ToString('N'))
 $PackageFolder = Join-Path $StageRoot ("Sthang Studio $Version")
@@ -96,6 +107,42 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the tracked macOS release payload.' }
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
 
+  foreach ($BuildOutput in @(
+    'apps\server\dist',
+    'apps\web\dist',
+    'packages\shared\dist'
+  )) {
+    $SourceBuild = Join-Path $Root $BuildOutput
+    if (-not (Test-Path -LiteralPath $SourceBuild)) {
+      throw "Required production build output is missing after npm run build: $BuildOutput"
+    }
+    $DestinationBuild = Join-Path $FilesFolder $BuildOutput
+    New-Item -ItemType Directory -Path (Split-Path -Parent $DestinationBuild) -Force | Out-Null
+    Copy-Item -LiteralPath $SourceBuild -Destination $DestinationBuild -Recurse -Force
+  }
+  $RuntimeMarker = Join-Path $FilesFolder '.sthang\macos-curated-runtime'
+  Set-Content -LiteralPath $RuntimeMarker -Value 'production-runtime-v1' -Encoding ASCII
+  $DerivedManifest = Join-Path $FilesFolder '.sthang\macos-derived-runtime.json'
+  Invoke-Checked 'Verifying derived macOS production output...' {
+    node (Join-Path $Root 'scripts\verify-macos-derived-runtime.mjs') $FilesFolder $DerivedManifest $Commit
+  }
+
+  Invoke-Checked 'Validating runtime-only dependency install...' {
+    Push-Location $FilesFolder
+    try {
+      npm.cmd ci --omit=dev --ignore-scripts --workspace '@kcs/server' --workspace '@kcs/shared' --include-workspace-root
+    } finally {
+      Pop-Location
+    }
+  }
+  Invoke-Checked 'Smoke-testing curated production runtime...' {
+    node (Join-Path $FilesFolder 'scripts\smoke-macos-curated-runtime.mjs') $FilesFolder
+  }
+  $StagedNodeModules = Join-Path $FilesFolder 'node_modules'
+  if (Test-Path -LiteralPath $StagedNodeModules) {
+    Remove-Item -LiteralPath $StagedNodeModules -Recurse -Force
+  }
+
   $InstallerTemplate = Join-Path $Root 'packaging\macos\Install Sthang Studio.command'
   $ReadmeTemplate = Join-Path $Root 'packaging\macos\Read Me.txt'
   Copy-Item -LiteralPath $InstallerTemplate -Destination (Join-Path $PackageFolder 'Install Sthang Studio.command') -Force
@@ -132,6 +179,11 @@ try {
       "${ArchiveRoot}Sthang Studio Files/setup-local-timing-macos.sh",
       "${ArchiveRoot}Sthang Studio Files/scripts/install-release-package-macos.sh",
       "${ArchiveRoot}Sthang Studio Files/scripts/macos-managed-runtime.sh",
+      "${ArchiveRoot}Sthang Studio Files/.sthang/macos-curated-runtime",
+      "${ArchiveRoot}Sthang Studio Files/.sthang/macos-derived-runtime.json",
+      "${ArchiveRoot}Sthang Studio Files/apps/server/dist/index.js",
+      "${ArchiveRoot}Sthang Studio Files/apps/web/dist/index.html",
+      "${ArchiveRoot}Sthang Studio Files/packages/shared/dist/index.js",
       "${ArchiveRoot}Sthang Studio Files/package-lock.json",
       "${ArchiveRoot}Sthang Studio Files/.sthang/product-manifest.json"
     )) {

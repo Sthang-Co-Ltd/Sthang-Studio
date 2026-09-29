@@ -101,6 +101,10 @@ folder. Double-clicking the installer places Studio at
 dependencies, and creates `~/Applications/Sthang Studio.command` for later
 launches. Compatible local runtimes are reused; missing reviewed prerequisites can
 be downloaded into Studio's private `tools` folder with exact SHA-256 verification.
+The curated package also carries the reviewed production server, shared package and
+web build, and installs only the server/shared runtime npm closure with lifecycle
+scripts disabled. Ordinary setup and launch therefore do not execute Vite,
+esbuild, tsx, TypeScript or npm postinstall tooling.
 The downloaded setup folder can then be deleted. This Beta uses a
 command-based installer rather than a signed/notarized `.app`; if Gatekeeper
 blocks the downloaded command on first open, Control-click it and choose **Open**.

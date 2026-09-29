@@ -10,7 +10,14 @@ const node = process.execPath;
 const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 const tsx = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
-const sourceWatch = process.argv?.includes('--source-watch') ?? false;
+const productionRuntime = process.argv?.includes('--production') ?? false;
+const sourceWatch = !productionRuntime && (process.argv?.includes('--source-watch') ?? false);
+const backendPort = productionRuntime ? Number(process.env.PORT || 8787) : 8787;
+
+if (productionRuntime) {
+  process.env.STHANG_STUDIO_WEB_ROOT = path.join(root, 'apps', 'web', 'dist');
+  process.env.WEB_ORIGIN = `http://127.0.0.1:${backendPort}`;
+}
 
 await ensureRuntimeWorkspaceLinks(root);
 
@@ -30,7 +37,10 @@ function windowsPortOwner(port) {
   return result.stdout?.trim() || '';
 }
 
-for (const [port, label] of [[8787, 'backend'], [5188, 'web app']]) {
+const startupPorts = productionRuntime
+  ? [[backendPort, 'Studio']]
+  : [[8787, 'backend'], [5188, 'web app']];
+for (const [port, label] of startupPorts) {
   if (!(await portAvailable(port))) {
     console.error(`\nERROR: Port ${port} is already in use, so the ${label} cannot start.`);
     const owner = windowsPortOwner(port);
@@ -46,13 +56,15 @@ for (const [port, label] of [[8787, 'backend'], [5188, 'web app']]) {
   }
 }
 
-console.log('Preparing shared caption package...');
-const sharedBuild = spawnSync(node, [tsc, '-p', path.join(root, 'packages', 'shared', 'tsconfig.json')], {
-  cwd: root,
-  stdio: 'inherit',
-  shell: false,
-});
-if (sharedBuild.status !== 0) process.exit(sharedBuild.status ?? 1);
+if (!productionRuntime) {
+  console.log('Preparing shared caption package...');
+  const sharedBuild = spawnSync(node, [tsc, '-p', path.join(root, 'packages', 'shared', 'tsconfig.json')], {
+    cwd: root,
+    stdio: 'inherit',
+    shell: false,
+  });
+  if (sharedBuild.status !== 0) process.exit(sharedBuild.status ?? 1);
+}
 
 const children = [];
 let stopping = false;
@@ -217,7 +229,7 @@ function openMacBrowser(url) {
 }
 
 async function startServices() {
-  console.log('Starting backend on http://localhost:8787');
+  console.log(`Starting backend on http://localhost:${backendPort}`);
   // Installed launchers call this script without --source-watch so long-running
   // caption jobs stay stable. `npm run dev` opts into a source watcher so backend
   // TypeScript changes cannot leave Vite and the API on different code.
@@ -227,9 +239,11 @@ async function startServices() {
   // churn can restart the API mid-job. Generated shared/dist output is also
   // excluded because normal tests/builds rewrite it. Shared source changes require
   // a deliberate rebuild/relaunch; arbitrary build output is never restart authority.
-  const serverArgs = !sourceWatch
-    ? ['--import', 'tsx', 'src/index.ts']
-    : [
+  const serverArgs = productionRuntime
+    ? [path.join(root, 'apps', 'server', 'dist', 'index.js')]
+    : !sourceWatch
+      ? ['--import', 'tsx', 'src/index.ts']
+      : [
       tsx,
       'watch',
       '--exclude', '../../node_modules/**',
@@ -237,13 +251,28 @@ async function startServices() {
       'src/index.ts',
     ];
   if (sourceWatch) console.log('Source backend watch: server source only (dependencies/build output ignored).');
-  launch('server', serverArgs, path.join(root, 'apps', 'server'));
+  launch('server', serverArgs, productionRuntime ? root : path.join(root, 'apps', 'server'));
   console.log('Waiting for the local backend to be ready...');
-  const backendReady = await urlReady('http://127.0.0.1:8787/api/health', { health: true, signal: startup.signal });
+  const backendReady = await urlReady(`http://127.0.0.1:${backendPort}/api/health`, { health: true, signal: startup.signal });
   if (stopping) return;
   if (!backendReady) {
     console.error('ERROR: The local backend did not become ready within 30 seconds. The web app was not started. Close this window, check the error above, and try launching Studio again.');
     shutdown(1);
+    return;
+  }
+
+  if (productionRuntime) {
+    const url = `http://127.0.0.1:${backendPort}/`;
+    const webReady = await urlReady(url, { signal: startup.signal });
+    if (stopping) return;
+    if (!webReady) {
+      console.error('ERROR: The packaged Studio web app did not become ready within 30 seconds. Close this window, check the error above, and try launching Studio again.');
+      shutdown(1);
+      return;
+    }
+    if (process.env.KCS_OPEN_BROWSER !== 'false' && process.platform === 'win32') openWindowsBrowser(url);
+    else if (process.env.KCS_OPEN_BROWSER !== 'false' && process.platform === 'darwin') openMacBrowser(url);
+    else console.log(`Sthang Studio is ready. Open ${url} in your preferred browser.`);
     return;
   }
 

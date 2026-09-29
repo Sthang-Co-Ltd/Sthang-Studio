@@ -64,7 +64,7 @@ function fixture(t, changes = {}) {
   const write = (file, text) => fs.writeFileSync(path.join(dir, file), `#!/usr/bin/env bash\n${text}\n`, { mode: 0o755 });
   write('bin/uname', 'if [[ "$1" == "-s" ]]; then echo "$MOCK_OS"; else echo "$MOCK_ARCH"; fi');
   write('bin/sw_vers', 'printf "%s\\n" "$MOCK_MACOS"');
-  write('bin/node', 'echo "$MOCK_NODE_VERSION $MOCK_NODE_ARCH"');
+  write('bin/node', 'if [[ "$1" == "-p" ]]; then echo "$MOCK_NODE_VERSION $MOCK_NODE_ARCH"; else printf "node %s\\n" "$*" >> "$MOCK_LOG"; fi');
   write('bin/npm', 'printf "npm %s\\n" "$*" >> "$MOCK_LOG"');
   write('bin/brew', 'printf "brew %s\\n" "$*" >> "$MOCK_LOG"; if [[ "$1" == "--prefix" && -n "${MOCK_BREW_PREFIX:-}" ]]; then printf "%s\\n" "$MOCK_BREW_PREFIX"; else exit 1; fi');
   write('bin/ffmpeg', '[[ "$MOCK_FFMPEG" != "broken" ]] || exit 1; if [[ "$*" == *"filter=ass"* && "$MOCK_FFMPEG" == "good" ]]; then echo "shaping: auto simple complex"; elif [[ "$*" == *"-encoders"* ]]; then echo " V..... libx264 H.264"; fi');
@@ -91,6 +91,17 @@ fi`;
     cwd: dir, env, encoding: 'utf8', timeout: 90_000, windowsHide: true,
   });
   return { dir, env, write, run, log: () => fs.existsSync(path.join(dir, 'calls.log')) ? fs.readFileSync(path.join(dir, 'calls.log'), 'utf8') : '' };
+}
+
+function markCuratedRuntime(f) {
+  for (const relative of ['.sthang', 'apps/server/dist', 'apps/web/dist', 'packages/shared/dist']) {
+    fs.mkdirSync(path.join(f.dir, relative), { recursive: true });
+  }
+  fs.writeFileSync(path.join(f.dir, '.sthang/macos-curated-runtime'), 'production-runtime-v1\n');
+  fs.writeFileSync(path.join(f.dir, 'apps/server/dist/index.js'), 'console.log("server")\n');
+  fs.writeFileSync(path.join(f.dir, 'apps/web/dist/index.html'), '<div id="root"></div>\n');
+  fs.writeFileSync(path.join(f.dir, 'packages/shared/dist/index.js'), 'export {}\n');
+  fs.writeFileSync(path.join(f.dir, 'scripts/dev.mjs'), '// packaged runtime launcher fixture\n');
 }
 
 function cleanFixture(t, changes = {}) {
@@ -359,6 +370,36 @@ test('managed runtime pins are fixed and installer never invokes sudo or install
   assert.match(managed, /FFmpeg-arm-silicon-Tools-20260424\.zip/);
   assert.match(managed, /7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc/);
   assert.doesNotMatch(managed + installer, /\bsudo\b|brew install|releases\/latest/);
+});
+
+test('curated macOS install omits development dependencies and launches the production runtime', (t) => {
+  const f = fixture(t);
+  markCuratedRuntime(f);
+  success(f.run('bash ./INSTALL-MACOS.sh'));
+  assert.match(f.log(), /npm ci --omit=dev --ignore-scripts --workspace @kcs\/server --workspace @kcs\/shared --include-workspace-root/);
+  assert.doesNotMatch(f.log(), /npm ci --include=dev/);
+
+  fs.writeFileSync(path.join(f.dir, 'calls.log'), '');
+  success(f.run('bash ./run-macos.sh'));
+  assert.match(f.log(), /node .*scripts\/dev\.mjs --production/);
+  assert.doesNotMatch(f.log(), /npm run dev/);
+});
+
+test('source macOS setup retains development dependency workflow', (t) => {
+  const f = fixture(t);
+  success(f.run('bash ./INSTALL-MACOS.sh'));
+  assert.match(f.log(), /npm ci --include=dev/);
+  assert.doesNotMatch(f.log(), /npm ci --omit=dev/);
+});
+
+test('curated macOS setup rejects a missing production build before npm install', (t) => {
+  const f = fixture(t);
+  markCuratedRuntime(f);
+  fs.rmSync(path.join(f.dir, 'apps/web/dist/index.html'));
+  const result = f.run('bash ./INSTALL-MACOS.sh');
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /curated macOS package is missing a production build artifact/);
+  assert.doesNotMatch(f.log(), /npm ci/);
 });
 
 test('release installer restores the previous app after setup failure and succeeds on retry', (t) => {

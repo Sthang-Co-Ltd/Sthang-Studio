@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'node:fs';
+import path from 'node:path';
 import { config, localTimingConfigured } from './config.js';
 import projects from './routes/projects.js';
 import profile from './routes/profile.js';
@@ -19,10 +21,46 @@ import { captureAnalytics } from './services/analytics.js';
 const app = express();
 app.disable('x-powered-by');
 void proposalStore.cleanup();
+const packagedWebRoot = process.env.STHANG_STUDIO_WEB_ROOT
+  ? path.resolve(process.env.STHANG_STUDIO_WEB_ROOT)
+  : '';
+
+if (packagedWebRoot) {
+  const productionCsp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; ');
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (/^\/(?:media|exports)(?:\/|$)/u.test(req.path)) {
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; object-src 'none'; frame-ancestors 'none'");
+    } else {
+      res.setHeader('Content-Security-Policy', productionCsp);
+    }
+    next();
+  });
+}
+
 const allowedBrowserOrigins = new Set([
   config.webOrigin,
   'http://localhost:5188',
   'http://127.0.0.1:5188',
+  `http://localhost:${config.port}`,
+  `http://127.0.0.1:${config.port}`,
 ]);
 app.use(cors({
   origin(origin, callback) {
@@ -97,6 +135,19 @@ app.get('/api/health', async (_req, res) => {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Health check failed' });
   }
 });
+
+if (packagedWebRoot) {
+  const indexFile = path.join(packagedWebRoot, 'index.html');
+  if (!fs.existsSync(indexFile)) {
+    throw new Error(`Packaged web runtime is incomplete: ${indexFile}`);
+  }
+  app.use(express.static(packagedWebRoot, { index: false, dotfiles: 'deny' }));
+  app.use((req, res, next) => {
+    if (!['GET', 'HEAD'].includes(req.method)) return next();
+    if (/^\/(?:api|media|exports)(?:\/|$)/u.test(req.path)) return next();
+    res.sendFile('index.html', { root: packagedWebRoot, dotfiles: 'deny' });
+  });
+}
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
