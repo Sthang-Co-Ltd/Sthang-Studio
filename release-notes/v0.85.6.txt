@@ -1,0 +1,38 @@
+Sthang Studio 0.85.6 - Public Beta
+
+0.85.6 adds the Apple Silicon macOS update bootstrap and Finder launch path while preserving the curated production-runtime installer validated on a real Mac.
+
+On Apple Silicon macOS 12.3+, setup creates ~/Applications/Sthang Studio.app with the approved Studio icon and keeps ~/Applications/Sthang Studio.command beside it as the Terminal recovery launcher.
+The generated .app is a local launcher wrapper for the command-based installer; it is not represented as an Apple-signed or notarized native distribution.
+
+The stable manually installed app under ~/Library/Application Support/Sthang Studio/app acts as the update broker and recovery baseline.
+Future compatible Mac releases can be prepared under versions/<version> without replacing that stable broker or its trust root.
+Studio checks the separate signed macos-arm64 channel and still requires explicit Download & verify followed by Install & restart.
+It never silently downloads or installs an update.
+
+Mac update manifests are Ed25519-signed and bind the exact platform, preview channel, immutable package URL, source commit/tree, production-build evidence, derived runtime and package lock.
+They also bind the Python inputs, arm64 architecture, macOS 12.3 floor, package size and SHA-256.
+Prepared updates use bounded safe ZIP extraction, exact-version health checks, rollback on failed activation, and interrupted-activation recovery.
+
+The curated Mac install and update path keeps developer-only Vite, esbuild, tsx and TypeScript out of ordinary user setup/launch.
+Compatible Node, Python 3.12 and FFmpeg/ffprobe can be reused or provisioned into Studio's private tools folder from exact checksum-pinned upstream downloads.
+Setup does not install Homebrew, invoke sudo, modify shell startup files, mutate global PATH, or replace system runtimes.
+
+Projects, media, history, settings, correction memory, exports, managed tools and custom STHANG_STUDIO_STATE_ROOT state remain outside immutable OTA payloads.
+Manual installation and OTA activation share the Mac install lock and preserve rollback material until the new version is healthy.
+
+Windows keeps its existing signed updater behavior and explicit Download & verify then Install & restart flow.
+
+A Gemini Developer API key is still required for AI caption wording.
+Studio requests store: false for Gemini interactions; normalized WAV audio is uploaded separately through the Gemini Files API and Studio does not explicitly delete that remote file.
+Google currently documents Files API retention of up to 48 hours.
+Khmer Caption Contributor and optional product analytics remain separate, off-by-default choices that require explicit opt-in.
+
+Release assets when this version is deliberately published:
+- Sthang-Studio-Windows-v0.85.6.zip
+- Sthang-Studio-Windows-v0.85.6.zip.sha256
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.6.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.85.6.zip.sha256
+
+The macOS OTA bootstrap itself is not proof that a Mac update offer is live.
+A Mac OTA becomes public only after the exact 0.85.6 recovery/source evidence is accepted and a separately signed immutable Mac release plus signed latest pointer are deliberately verified and promoted.

@@ -146,14 +146,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-v0-85-5-feature-release-20260925', 'manifest.change.id');
+  equal(change.id, 'studio-v0-85-6-macos-ota-bootstrap-20260929', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Release Sthang Studio 0.85.5 with Fine Timing and word-level timing, editable caption handoff, original Studio Looks and native Glow/Fade/Rise/Soft Pop effects, improved Khmer Gemini transcription using 3.8 Flash then 3.7 Flash with wrong-script safeguards, source-watcher stability, accessible icon/mobile polish, the existing signed Windows OTA path, and curated Windows plus Apple Silicon macOS recovery downloads. Windows keeps explicit Download & verify then Install & restart with rollback; macOS remains manual-download only.',
+    'Prepare Sthang Studio 0.85.6 source with the Apple Silicon macOS signed-update bootstrap, Finder-launchable Sthang Studio.app wrapper plus Sthang Studio.command fallback, curated no-esbuild production runtime, managed private Node/Python/FFmpeg provisioning, and transactional rollback/state preservation. Verified public release evidence remains on 0.85.5 until a separately governed 0.85.6 release is published, signed, verified, and promoted.',
     'manifest.change.documentationImpact.summary',
   );
 

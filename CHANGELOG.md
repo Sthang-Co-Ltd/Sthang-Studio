@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.85.6 — Apple Silicon OTA bootstrap and Finder launcher
+
 - Repair Apple Silicon macOS first-run setup so missing Node.js, Python 3.12, or
   FFmpeg prerequisites can be installed into Studio's private application-state
   folder from exact checksum-pinned upstream downloads. Preserve compatible

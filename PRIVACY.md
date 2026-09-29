@@ -365,10 +365,11 @@ immutable evidence but deliberately never promoted after unchanged-v0.8 preparat
 still failed. `0.85.4` is the promoted recovery baseline that superseded the
 broken offer. `0.85.5` becomes the public Windows offer only when its own signed
 release is verified and `latest.json` is deliberately promoted.
-The curated GitHub Release remains the manual download and recovery path. Installed
-curated Apple Silicon builds now contain a separate `macos-arm64` updater bootstrap;
-source checkouts remain outside that installed broker. Bootstrap code does not mean
-a Mac OTA is publicly offered until the matching signed platform release and latest
+The curated GitHub Release remains the manual download and recovery path. The
+`0.85.6` source and local Apple Silicon candidate contain a separate `macos-arm64`
+updater bootstrap; the verified public `0.85.5` Mac package does not. Source
+checkouts remain outside that installed broker. Bootstrap code does not mean a
+Mac OTA is publicly offered until the matching signed platform release and latest
 pointer have been deliberately verified and promoted.
 
 A released installed build containing this provisioned public key may make one

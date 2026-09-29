@@ -16,6 +16,9 @@ still failed. Version `0.85.4` became the promoted emergency recovery. Version
 `0.85.5` retains that signed Windows update contract and curated recovery-download
 model while shipping the accepted Fine Timing, handoff, effects, transcription,
 startup, and accessibility changes. Historical publication evidence remains intact.
+Source version `0.85.6` prepares the Apple Silicon signed-update bootstrap and
+Finder launcher while keeping the immutable public `v0.85.5` evidence unchanged
+until a new release is deliberately published.
 
 The historical `v0.7.14` publication record remains below. On 2026-08-28, the
 public [Studio page](https://sthang.app/studio/) advertised `v0.7.14`; that dated
@@ -23,7 +26,33 @@ observation is preserved as history rather than rewritten as current website
 evidence. The owning HQ and Distribution repositories must establish the current
 public website/docs state through their separately governed synchronization flow.
 
-## Version 0.85.5 release requirements
+## Version 0.85.6 release requirements
+
+- [x] Validate the corrected Apple Silicon bootstrap on a real supported Mac:
+      installation completes, `Sthang Studio.app` reaches the stable broker once,
+      the curated production runtime reaches port 8787, the browser-open step is
+      reached, and existing project state remains available.
+- [ ] Run `npm run ci` and `npm run test:update-powershell` on the exact accepted
+      `0.85.6` release commit.
+- [ ] Run `npm run package:windows` and `npm run package:macos` from that exact
+      source; verify the recovery ZIPs, checksums, Mac rootless OTA ZIP/unsigned
+      manifest, source/tree/build-evidence binding, and deterministic archive rules.
+- [ ] Publish a new immutable `v0.85.6` prerelease from the exact accepted source.
+      Do not move, replace, or rewrite `v0.85.5` or any older release asset/tag.
+- [ ] Stage and sign the exact `macos-arm64` OTA package only after the accepted
+      source is on the governed branch and the matching recovery release exists.
+- [ ] Independently verify the immutable signed Mac package, manifest, attestation,
+      release recovery ZIP, and public update-origin bytes before promotion.
+- [ ] Exercise a real installed Mac bootstrap with a version newer than `0.85.6`:
+      signed offer, **Download & verify**, **Install & restart**, immutable
+      `versions/<version>` activation, exact-version health, stable broker/trust
+      root preservation, protected-state preservation, and rollback on failure.
+- [ ] Deliberately promote the signed `macos-arm64/latest.json` pointer only after
+      the end-to-end acceptance above. Do not describe Mac OTA as live beforehand.
+- [ ] Complete the corresponding Windows/public-site/HQ distribution evidence if
+      `0.85.6` is published as the cross-platform Studio release.
+
+## Version 0.85.5 release requirements (historical)
 
 - [ ] Run `npm run ci` on the exact accepted release commit.
 - [ ] Run `npm run test:update-powershell` on that exact release commit.
