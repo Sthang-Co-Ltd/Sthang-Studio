@@ -90,6 +90,12 @@ launcher is replaced atomically, and a successful swap retires the old backup fr
 recovery state before deleting it so an interrupted cleanup cannot displace the
 newly committed app.
 
+The installer also creates `~/Applications/Sthang Studio.app` with the approved
+Studio icon and retains `Sthang Studio.command` beside it as the Terminal recovery
+launcher. This Beta still uses a command-based, non-notarized installation; the
+Finder bundle is a locally generated launcher wrapper rather than a signed/notarized
+native app distribution.
+
 The release ZIP preserves executable permission bits for `.command` and shell
 entrypoints. Because the package is not Apple-notarized, Gatekeeper may require a
 first-run Control-click → **Open** confirmation on the downloaded installer. Setup
@@ -118,6 +124,15 @@ stale `dist` output therefore cannot become release build inputs. The
 derived-runtime manifest records the exact source commit, source tree and
 package-lock SHA-256 plus every generated file's size/hash; the package gate
 re-verifies those values from the final ZIP.
+
+Installed curated builds additionally carry the stable `macos-arm64` signed-update
+broker. `~/Library/Application Support/Sthang Studio/app` remains the manual
+bootstrap/recovery baseline. Verified future versions prepare under
+`versions/<version>`; an atomic update pointer selects one only after runtime-only
+Node/local-timing preparation succeeds. Exact-version API plus same-origin UI health
+must pass after activation or the prior pointer is restored. The updater uses a
+platform-specific signed namespace and never enables itself in a normal source
+checkout. Its presence does not establish that a public Mac OTA offer exists.
 
 The reviewed managed prerequisite pins for this change are Node.js 22.23.3 from
 nodejs.org and CPython 3.12.14+20260924 from Astral's python-build-standalone. The
@@ -249,6 +264,14 @@ must not be reported as completed unless it is actually run:
       preservation, source replacement, and restart/recovery.
 - [ ] Default-browser startup, supported-browser editing/playback/Review,
       Khmer SRT export, native preview and real mixed Khmer/English MP4 rendering.
+- [ ] Finder shows `Sthang Studio.app` with the approved icon; double-click launch
+      reaches the same stable broker, while `Sthang Studio.command` still works as
+      the recovery launcher.
+- [ ] From an installed bootstrap, verify the Mac update check is platform-bound
+      and source checkouts remain disabled. With a deliberately staged signed test
+      release, exercise Download & verify, Install & restart, exact-version health,
+      failed preparation, failed health, interrupted activation, pointer rollback,
+      fresh-terminal relaunch and preservation of projects/Keychain/.env/tools.
 - [ ] Repeat the representative workflow on Ventura, Sonoma and a current macOS;
       verify macOS 14+ dependency resolution was not forced onto old pins, including
       after upgrading a machine from Monterey/Ventura.
@@ -272,14 +295,17 @@ also expose the matching macOS asset from the same verified `v0.85.0` GitHub
 Release. Signed OTA availability remains unchanged and must not be inferred from
 the Mac package or this release.
 
-The unreleased managed-prerequisite correction also has **Public impact: required**
+The unreleased managed-prerequisite/OTA bootstrap correction also has **Public impact: required**
 because it changes first-run network/setup behavior on supported Macs. Public
 installation guidance must describe the app-private checksum-verified fallback only
-after a provenance-aligned release is accepted. This does not add macOS OTA, change
-the platform floor, or change caption/media cloud processing. The corresponding
+after a provenance-aligned release is accepted. It also adds a Finder launcher and
+an installed Mac signed-update bootstrap, but does not make a public Mac OTA offer
+without separately promoted signed release evidence. It does not change the
+platform floor or caption/media cloud processing. The corresponding
 source evidence is `scripts/macos-managed-runtime.sh`, `INSTALL-MACOS.sh`,
+`scripts/update-runtime.mjs`, the Mac trust/OTA packaging and signer files,
 `README.md`, `PRIVACY.md`, `THIRD_PARTY_NOTICES.md`, and the macOS release package
-tests. The managed FFmpeg fallback must not be represented as publicly accepted
+tests. The managed FFmpeg fallback or Mac OTA availability must not be represented as publicly accepted
 until its remaining upstream provenance and native-Mac acceptance gates are closed.
 
 ## Upstream compatibility evidence

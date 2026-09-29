@@ -102,6 +102,7 @@ const webPackage = readJson('apps/web/package.json');
 const sharedPackage = readJson('packages/shared/package.json');
 const lock = readJson('package-lock.json');
 const updateTrustRoot = readJson('config/update-trust-root.json');
+const macUpdateTrustRoot = readJson('config/update-trust-root-macos.json');
 
 if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && lock && updateTrustRoot) {
   const version = rootPackage.version;
@@ -592,6 +593,19 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(trust.publicKeyHex, '0e9ff5aaa1d9b3ea80887bd372d73fe83d5d7aaf51bfcfa09c3c07b1280cce5d', 'update trust publicKeyHex');
   equal(trust.provisioned, true, 'update trust provisioned');
   equal(trust.brokerVersion, '1.0.0', 'update trust brokerVersion');
+
+  const macTrust = exactKeys(macUpdateTrustRoot, 'config/update-trust-root-macos.json', [
+    'schemaVersion', 'product', 'platform', 'channel', 'endpoint', 'keyId', 'publicKeyHex', 'provisioned', 'brokerVersion',
+  ]);
+  equal(macTrust.schemaVersion, 1, 'macOS update trust schemaVersion');
+  equal(macTrust.product, 'sthang-studio', 'macOS update trust product');
+  equal(macTrust.platform, 'macos-arm64', 'macOS update trust platform');
+  equal(macTrust.channel, 'preview', 'macOS update trust channel');
+  equal(macTrust.endpoint, 'https://updates.sthang.app/studio/macos-arm64/latest.json', 'macOS update trust endpoint');
+  equal(macTrust.keyId, trust.keyId, 'macOS update trust keyId');
+  equal(macTrust.publicKeyHex, trust.publicKeyHex, 'macOS update trust publicKeyHex');
+  equal(macTrust.provisioned, true, 'macOS update trust provisioned');
+  equal(macTrust.brokerVersion, '1.0.0', 'macOS update trust brokerVersion');
 
   const releaseNotesPath = `release-notes/v${version}.txt`;
   try {

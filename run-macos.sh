@@ -5,6 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 export STHANG_STUDIO_STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}"
 export STHANG_STUDIO_ENV_FILE="${STHANG_STUDIO_ENV_FILE:-$ROOT/apps/server/.env}"
+
+if [[ -f "$ROOT/.sthang/macos-curated-runtime" && "$ROOT" == "$STHANG_STUDIO_STATE_ROOT/app" ]]; then
+  exec bash "$ROOT/scripts/launch-studio-macos.sh"
+fi
+
 source "$ROOT/scripts/macos-common.sh"
 studio_macos_host
 

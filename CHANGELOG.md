@@ -24,6 +24,19 @@
   the commit/tree/package-lock hashes and re-verify every derived file from the
   final ZIP so ignored local Vite env/public files or stale build tooling cannot
   alter release bytes unnoticed.
+- Add an Apple Silicon signed-update bootstrap with its own `macos-arm64` trust
+  namespace, explicit Download & verify / Install & restart decisions, safe bounded
+  package extraction, immutable prepared versions, exact-version health checks and
+  pointer rollback. The stable manual install remains the broker/recovery baseline,
+  and source checkouts stay outside the Mac OTA path.
+- Create a Finder-launchable `Sthang Studio.app` with the approved Studio icon
+  during manual Mac installation while retaining `Sthang Studio.command` as the
+  Terminal recovery launcher. App/command replacement and manual recovery of OTA
+  control pointers participate in the existing install transaction/lock.
+- Extend the runner-free signer with separate Mac staging, sign and promotion
+  authority. Mac release schema 2 binds the exact accepted commit/tree,
+  source-owned production-build evidence, derived-runtime hashes, package lock,
+  Python inputs, arm64/macOS floor and immutable package bytes before signing.
 - Update the server's Multer dependency to 2.4.0, clearing the current production
   npm audit advisory for aborted-upload orphaned disk writes.
 

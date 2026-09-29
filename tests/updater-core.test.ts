@@ -43,6 +43,22 @@ function signingFixture() {
   return { ...pair, trust };
 }
 
+function macSigningFixture() {
+  const pair = crypto.generateKeyPairSync('ed25519');
+  const trust: UpdateTrustRoot = {
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'macos-arm64',
+    channel: 'preview',
+    endpoint: 'https://updates.sthang.app/studio/macos-arm64/latest.json',
+    keyId: 'studio-update-test-key',
+    publicKeyHex: publicKeyHexFromKey(pair.publicKey),
+    provisioned: true,
+    brokerVersion: '1.0.0',
+  };
+  return { ...pair, trust };
+}
+
 function releaseFixture(
   signing: ReturnType<typeof signingFixture>,
   options: { version?: string; notes?: string; packageBytes?: Buffer } = {},
@@ -91,11 +107,94 @@ function releaseFixture(
   return { manifest, manifestBytes, manifestUrl, packageBytes, packageUrl, pointerBytes };
 }
 
+function macReleaseFixture(
+  signing: ReturnType<typeof macSigningFixture>,
+  options: { version?: string; notes?: string; packageBytes?: Buffer } = {},
+): SignedFixture {
+  const version = options.version || '0.85.6';
+  const packageBytes = options.packageBytes || Buffer.from(`signed-macos-package-${version}`);
+  const packageUrl = `https://updates.sthang.app/studio/macos-arm64/v${version}/Sthang-Studio-OTA-macOS-Apple-Silicon-v${version}.zip`;
+  const manifestUrl = `https://updates.sthang.app/studio/macos-arm64/v${version}/release.json`;
+  const unsigned = {
+    schemaVersion: 2,
+    product: 'sthang-studio',
+    platform: 'macos-arm64',
+    channel: 'preview',
+    version,
+    publishedAt: '2026-09-29T00:00:00.000Z',
+    releaseNotes: options.notes || 'Safe signed Studio macOS update.',
+    source: {
+      commit: '1'.repeat(40),
+      tree: '2'.repeat(40),
+      buildEvidenceSha256: '4'.repeat(64),
+      derivedRuntimeManifestSha256: '3'.repeat(64),
+    },
+    package: {
+      url: packageUrl,
+      sha256: sha256(packageBytes),
+      sizeBytes: packageBytes.length,
+      unpackedSizeBytes: 4096,
+    },
+    compatibility: {
+      minBrokerVersion: '1.0.0',
+      stateSchema: 1,
+      manualInstallerRequired: false,
+      minMacos: '12.3',
+      arch: 'arm64',
+    },
+    setup: {
+      strategy: 'macos-curated-runtime',
+      packageLockSha256: 'a'.repeat(64),
+      pythonFiles: [{ path: 'local-timing/requirements.txt', sha256: 'b'.repeat(64) }],
+    },
+  } as const;
+  const manifest = signDocument(unsigned, signing.privateKey, signing.trust.keyId) as unknown as ReleaseManifest;
+  const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  const pointer = signDocument({
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'macos-arm64',
+    channel: 'preview',
+    version,
+    manifestUrl,
+    manifestSha256: sha256(manifestBytes),
+  }, signing.privateKey, signing.trust.keyId);
+  const pointerBytes = Buffer.from(`${JSON.stringify(pointer, null, 2)}\n`);
+  return { manifest, manifestBytes, manifestUrl, packageBytes, packageUrl, pointerBytes };
+}
+
 function fetchFixture(current: () => SignedFixture, packageOverride?: () => Buffer) {
   return (async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const release = current();
     if (url === 'https://updates.sthang.app/studio/windows/latest.json') {
+      return new Response(release.pointerBytes, {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': String(release.pointerBytes.length) },
+      });
+    }
+    if (url === release.manifestUrl) {
+      return new Response(release.manifestBytes, {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': String(release.manifestBytes.length) },
+      });
+    }
+    if (url === release.packageUrl) {
+      const body = packageOverride ? packageOverride() : release.packageBytes;
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'application/zip', 'content-length': String(body.length) },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+}
+
+function macFetchFixture(current: () => SignedFixture, packageOverride?: () => Buffer) {
+  return (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const release = current();
+    if (url === 'https://updates.sthang.app/studio/macos-arm64/latest.json') {
       return new Response(release.pointerBytes, {
         status: 200,
         headers: { 'content-type': 'application/json', 'content-length': String(release.pointerBytes.length) },
@@ -139,6 +238,94 @@ test('unprovisioned builds fail closed without contacting an update service', as
   });
   const status = await service.check('0.7.14');
   assert.equal(status.status, 'disabled');
+  assert.equal(fetched, false);
+});
+
+test('native Apple Silicon uses the platform-bound signed macOS update channel', async () => withRoots(async ({ root, updateRoot, versionsRoot }) => {
+  const signing = macSigningFixture();
+  const current = macReleaseFixture(signing);
+  const service = await createUpdateService({
+    trustRoot: signing.trust,
+    platform: 'darwin',
+    arch: 'arm64',
+    brokerActive: true,
+    fetchImpl: macFetchFixture(() => current),
+    installRoot: root,
+    updateRoot,
+    versionsRoot,
+  });
+  const first = await service.check('0.85.5');
+  assert.equal(first.status, 'available');
+  if (first.status !== 'available') return;
+  await service.download(first.offer.manifestDigest);
+  const prepared = await service.prepareInstall('0.85.5', first.offer.manifestDigest);
+  const pending = JSON.parse(await fs.readFile(prepared.pendingFile, 'utf8')) as Record<string, unknown>;
+  assert.equal(pending.platform, 'macos-arm64');
+  assert.equal(pending.targetVersion, '0.85.6');
+  assert.equal(pending.targetRelativePath, 'versions/0.85.6');
+}));
+
+test('macOS update checks reject replay of an older valid signed pointer after a newer release was seen', async () => withRoots(async ({ root, updateRoot, versionsRoot }) => {
+  const signing = macSigningFixture();
+  let current = macReleaseFixture(signing, { version: '0.85.7' });
+  const service = await createUpdateService({
+    trustRoot: signing.trust,
+    platform: 'darwin',
+    arch: 'arm64',
+    brokerActive: true,
+    fetchImpl: macFetchFixture(() => current),
+    installRoot: root,
+    updateRoot,
+    versionsRoot,
+  });
+  assert.equal((await service.check('0.85.5')).status, 'available');
+  const highWater = JSON.parse(await fs.readFile(path.join(updateRoot, 'high-water.json'), 'utf8')) as Record<string, unknown>;
+  assert.equal(highWater.highestVersion, '0.85.7');
+
+  current = macReleaseFixture(signing, { version: '0.85.6' });
+  await assert.rejects(
+    () => service.check('0.85.5'),
+    (error: unknown) => error instanceof UpdateError
+      && error.code === 'SIGNATURE'
+      && /older signed update pointer/i.test(error.message),
+  );
+  const afterReplay = JSON.parse(await fs.readFile(path.join(updateRoot, 'high-water.json'), 'utf8')) as Record<string, unknown>;
+  assert.equal(afterReplay.highestVersion, '0.85.7');
+}));
+
+test('macOS signed updates fail closed on Intel/Rosetta or a Windows trust root', async () => {
+  const mac = macSigningFixture();
+  const intel = await createUpdateService({
+    trustRoot: mac.trust,
+    platform: 'darwin',
+    arch: 'x64',
+    brokerActive: true,
+    fetchImpl: (async () => { throw new Error('must not fetch'); }) as typeof fetch,
+  });
+  assert.equal((await intel.check('0.85.5')).status, 'disabled');
+
+  const windows = signingFixture();
+  const wrongTrust = await createUpdateService({
+    trustRoot: windows.trust,
+    platform: 'darwin',
+    arch: 'arm64',
+    brokerActive: true,
+    fetchImpl: (async () => { throw new Error('must not fetch'); }) as typeof fetch,
+  });
+  assert.equal((await wrongTrust.check('0.85.5')).status, 'disabled');
+});
+
+test('macOS source checkouts stay OTA-disabled without the installed stable broker', async () => {
+  const mac = macSigningFixture();
+  let fetched = false;
+  const source = await createUpdateService({
+    trustRoot: mac.trust,
+    platform: 'darwin',
+    arch: 'arm64',
+    brokerActive: false,
+    fetchImpl: (async () => { fetched = true; return new Response(); }) as typeof fetch,
+  });
+  assert.equal((await source.check('0.85.5')).status, 'disabled');
   assert.equal(fetched, false);
 });
 

@@ -46,13 +46,55 @@ if [[ -f "$lock_file" ]]; then
 fi
 printf '%s\\n' "$pid" > "$lock_file"
 `, { mode: 0o755 });
+  const sips = path.join(dir, 'mock-sips');
+  fs.writeFileSync(sips, `#!/usr/bin/env bash
+set -e
+out=''
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--out" ]]; then out="$2"; shift 2; else shift; fi
+done
+[[ -n "$out" ]] || exit 2
+mkdir -p "$(dirname "$out")"
+printf 'png' > "$out"
+`, { mode: 0o755 });
+  const iconutil = path.join(dir, 'mock-iconutil');
+  fs.writeFileSync(iconutil, `#!/usr/bin/env bash
+set -e
+out=''
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "-o" ]]; then out="$2"; shift 2; else shift; fi
+done
+[[ -n "$out" ]] || exit 2
+printf 'icns' > "$out"
+`, { mode: 0o755 });
+  const plutil = path.join(dir, 'mock-plutil');
+  fs.writeFileSync(plutil, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   return {
     ...process.env,
     HOME: shellPath(home),
     STHANG_STUDIO_STATE_ROOT: shellPath(state),
     STHANG_STUDIO_SHLOCK: shellPath(shlock),
+    STHANG_STUDIO_SIPS: shellPath(sips),
+    STHANG_STUDIO_ICONUTIL: shellPath(iconutil),
+    STHANG_STUDIO_PLUTIL: shellPath(plutil),
     ...changes,
   };
+}
+
+function completeReleaseSource(source) {
+  fs.mkdirSync(path.join(source, 'config'), { recursive: true });
+  fs.mkdirSync(path.join(source, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(source, 'apps/web/public/brand'), { recursive: true });
+  if (!fs.existsSync(path.join(source, 'config/update-trust-root-macos.json'))) {
+    fs.writeFileSync(path.join(source, 'config/update-trust-root-macos.json'), '{}\n');
+  }
+  for (const name of ['launch-studio-macos.sh', 'prepare-studio-update-macos.sh']) {
+    const file = path.join(source, 'scripts', name);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  }
+  const preparePython = path.join(source, 'scripts/prepare-studio-update-macos.py');
+  if (!fs.existsSync(preparePython)) fs.writeFileSync(preparePython, '# fixture\n');
+  fs.writeFileSync(path.join(source, 'apps/web/public/brand/sthang-studio-icon.png'), 'fixture icon');
 }
 
 function fixture(t, changes = {}) {
@@ -311,6 +353,106 @@ test('macOS release ZIP creation rejects lone carriage returns before writing an
   assert.equal(fs.existsSync(output), false);
 });
 
+test('macOS OTA extraction rejects traversal, protected state, symlinks, case collisions, and signed-size drift', (t) => {
+  const python = pythonCommand();
+  assert.ok(python, 'Python is required for the macOS OTA extraction regression.');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos ota extractor '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const code = String.raw`
+import importlib.util, io, pathlib, stat, sys, tempfile, zipfile
+spec = importlib.util.spec_from_file_location("prep", sys.argv[1])
+prep = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(prep)
+
+def archive(entries):
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as z:
+        for item in entries:
+            if isinstance(item, tuple):
+                name, data = item
+                z.writestr(name, data)
+            else:
+                z.writestr(item, b"x")
+    stream.seek(0)
+    return stream
+
+def reject(stream, size):
+    destination = pathlib.Path(tempfile.mkdtemp(dir=sys.argv[2]))
+    try:
+        try:
+            prep.safe_extract_opened(stream, destination, size)
+        except RuntimeError:
+            return
+        raise AssertionError("unsafe archive was accepted")
+    finally:
+        import shutil
+        shutil.rmtree(destination, ignore_errors=True)
+
+reject(archive([("../escape.txt", b"x")]), 1)
+reject(archive([("node_modules/evil.js", b"x")]), 1)
+reject(archive([("Apps/File.txt", b"a"), ("apps/file.txt", b"b")]), 2)
+
+stream = io.BytesIO()
+with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as z:
+    info = zipfile.ZipInfo("link")
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    z.writestr(info, b"target")
+stream.seek(0)
+reject(stream, 6)
+
+reject(archive([("safe.txt", b"abc")]), 4)
+`;
+  const result = spawnSync(python, ['-c', code, path.join(root, 'scripts/prepare-studio-update-macos.py'), dir], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  });
+  success(result);
+});
+
+test('macOS OTA ZIP creator is rootless, preserves shell executability, and rejects protected state', (t) => {
+  const python = pythonCommand();
+  assert.ok(python, 'Python is required for the macOS OTA package regression.');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos ota zip '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const payload = path.join(dir, 'payload');
+  fs.mkdirSync(path.join(payload, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(payload, 'run-macos.sh'), '#!/usr/bin/env bash\r\necho ok\r\n');
+  fs.writeFileSync(path.join(payload, 'scripts/file.txt'), 'payload');
+  const output = path.join(dir, 'ota.zip');
+  success(spawnSync(python, [path.join(root, 'scripts/create-macos-ota-zip.py'), payload, output], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  }));
+  const probe = spawnSync(python, ['-c', [
+    'import sys,zipfile',
+    'z=zipfile.ZipFile(sys.argv[1])',
+    'names=z.namelist()',
+    'info=z.getinfo("run-macos.sh")',
+    'data=z.read("run-macos.sh")',
+    'mode=(info.external_attr>>16)&0o777',
+    'raise SystemExit(0 if names==["run-macos.sh","scripts/file.txt"] and data==b"#!/usr/bin/env bash\\necho ok\\n" and mode==0o755 else 1)',
+  ].join('; '), output], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  success(probe);
+
+  const firstHash = crypto.createHash('sha256').update(fs.readFileSync(output)).digest('hex');
+  const changedTime = new Date('2026-09-29T12:34:56Z');
+  fs.utimesSync(path.join(payload, 'run-macos.sh'), changedTime, changedTime);
+  fs.utimesSync(path.join(payload, 'scripts/file.txt'), new Date('2025-01-02T03:04:05Z'), new Date('2025-01-02T03:04:05Z'));
+  success(spawnSync(python, [path.join(root, 'scripts/create-macos-ota-zip.py'), payload, output], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  }));
+  const secondHash = crypto.createHash('sha256').update(fs.readFileSync(output)).digest('hex');
+  assert.equal(secondHash, firstHash, 'macOS OTA ZIP bytes must not depend on source mtimes');
+
+  fs.mkdirSync(path.join(payload, 'node_modules'), { recursive: true });
+  fs.writeFileSync(path.join(payload, 'node_modules/evil.js'), 'evil');
+  fs.writeFileSync(output, 'stale');
+  const rejected = spawnSync(python, [path.join(root, 'scripts/create-macos-ota-zip.py'), payload, output], {
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  });
+  assert.equal(rejected.status, 1, rejected.stdout + rejected.stderr);
+  assert.equal(fs.existsSync(output), false);
+});
+
 test('macOS release packager builds derived output from an isolated captured commit projection', () => {
   const script = fs.readFileSync(path.join(root, 'scripts/package-macos-release.ps1'), 'utf8');
   assert.match(script, /git archive --format=zip "--output=\$BuildArchive" \$Commit/);
@@ -336,6 +478,19 @@ test('macOS derived-runtime verifier binds output to commit, tree, and exact pac
   fs.writeFileSync(path.join(dir, 'packages/shared/dist/index.js'), 'export {}\n');
   fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3}\n');
   const lockSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'package-lock.json'))).digest('hex');
+  const evidenceFiles = [
+    'apps/server/dist/index.js',
+    'apps/web/dist/index.html',
+    'packages/shared/dist/index.js',
+  ].map((relative) => {
+    const bytes = fs.readFileSync(path.join(dir, relative));
+    return { path: relative, size: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
+  });
+  fs.writeFileSync(path.join(dir, '.sthang/macos-release-build.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    packageLockSha256: lockSha,
+    files: evidenceFiles,
+  }, null, 2)}\n`);
   const commit = '1'.repeat(40);
   const tree = '2'.repeat(40);
   const manifest = path.join(dir, '.sthang/macos-derived-runtime.json');
@@ -349,6 +504,7 @@ test('macOS derived-runtime verifier binds output to commit, tree, and exact pac
   assert.equal(parsed.sourceCommit, commit);
   assert.equal(parsed.sourceTree, tree);
   assert.equal(parsed.packageLockSha256, lockSha);
+  assert.equal(parsed.buildEvidenceSha256, crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, '.sthang/macos-release-build.json'))).digest('hex'));
   assert.equal(parsed.files.length, 3);
   assert.deepEqual(parsed.files.map((entry) => entry.path), [
     'apps/server/dist/index.js',
@@ -483,6 +639,7 @@ test('release installer restores the previous app after setup failure and succee
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   const installScript = path.join(source, 'INSTALL-MACOS.sh');
   fs.writeFileSync(installScript, '#!/usr/bin/env bash\necho expected setup failure >&2\nexit 1\n', { mode: 0o755 });
+  completeReleaseSource(source);
   const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const failed = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
@@ -497,6 +654,12 @@ test('release installer restores the previous app after setup failure and succee
   assert.equal(fs.readFileSync(path.join(oldApp, 'new.txt'), 'utf8'), 'replacement install');
   assert.equal(fs.existsSync(path.join(oldApp, 'old.txt')), false);
   assert.equal(fs.existsSync(path.join(home, 'Applications', 'Sthang Studio.command')), true);
+  assert.equal(fs.existsSync(path.join(home, 'Applications', 'Sthang Studio.app', 'Contents', 'Info.plist')), true);
+  assert.equal(fs.readFileSync(path.join(home, 'Applications', 'Sthang Studio.app', 'Contents', 'Resources', 'SthangStudio.icns'), 'utf8'), 'icns');
+  assert.match(fs.readFileSync(path.join(home, 'Applications', 'Sthang Studio.app', 'Contents', 'MacOS', 'Sthang Studio'), 'utf8'), /open -a Terminal/);
+  const plist = fs.readFileSync(path.join(home, 'Applications', 'Sthang Studio.app', 'Contents', 'Info.plist'), 'utf8');
+  assert.match(plist, /<key>LSArchitecturePriority<\/key>[\s\S]*<string>arm64<\/string>/);
+  assert.doesNotMatch(plist, /LSRequiresNativeExecution/);
 });
 
 test('release launcher remembers a custom installation state root', (t) => {
@@ -510,6 +673,7 @@ test('release launcher remembers a custom installation state root', (t) => {
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'run-macos.sh'), `#!/usr/bin/env bash\nprintf '%s' "$STHANG_STUDIO_STATE_ROOT" > "$HOME/launched.txt"\n`, { mode: 0o755 });
+  completeReleaseSource(source);
   const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   success(spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true }));
@@ -519,6 +683,116 @@ test('release launcher remembers a custom installation state root', (t) => {
   success(spawnSync(shell, [shellPath(launcher)], { env: launchEnv, encoding: 'utf8', timeout: 30_000, windowsHide: true }));
   assert.equal(fs.readFileSync(marker, 'utf8'), shellPath(state));
   assert.match(fs.readFileSync(launcher, 'utf8'), /DEFAULT_STATE_ROOT=/);
+  assert.equal(fs.existsSync(path.join(home, 'Applications', 'Sthang Studio.app', 'Contents', 'Info.plist')), true);
+});
+
+test('manual macOS recovery install transactionally returns launch authority to the new baseline', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos manual resets ota '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const installed = path.join(state, 'app');
+  const updates = path.join(state, 'updates');
+  const versionDir = path.join(state, 'versions', '0.85.6');
+  fs.mkdirSync(installed, { recursive: true });
+  fs.mkdirSync(updates, { recursive: true });
+  fs.mkdirSync(versionDir, { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(installed, 'old.txt'), 'old baseline');
+  fs.writeFileSync(path.join(versionDir, 'preserved.txt'), 'immutable ota version');
+  for (const name of ['active.json', 'transaction.json', 'pending-install.json', 'rollback.json', 'last-failure.json', 'high-water.json']) {
+    fs.writeFileSync(path.join(updates, name), `{"name":"${name}"}\n`);
+  }
+  fs.writeFileSync(path.join(source, 'new.txt'), 'new baseline');
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
+  const env = releaseInstallerEnv(dir, home, state);
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  success(spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true }));
+  assert.equal(fs.readFileSync(path.join(installed, 'new.txt'), 'utf8'), 'new baseline');
+  for (const name of ['active.json', 'transaction.json', 'pending-install.json', 'rollback.json', 'last-failure.json', 'high-water.json']) {
+    assert.equal(fs.existsSync(path.join(updates, name)), false, `${name} should be reset by manual recovery install`);
+  }
+  assert.equal(fs.readFileSync(path.join(versionDir, 'preserved.txt'), 'utf8'), 'immutable ota version');
+  assert.equal(fs.existsSync(path.join(state, '.manual-update-control-backup')), false);
+});
+
+test('release installer preserves prior app and launchers when Finder bundle generation fails', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos finder bundle rollback '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const applications = path.join(home, 'Applications');
+  const installed = path.join(state, 'app');
+  const launcher = path.join(applications, 'Sthang Studio.command');
+  const appBundle = path.join(applications, 'Sthang Studio.app');
+  fs.mkdirSync(installed, { recursive: true });
+  fs.mkdirSync(path.join(appBundle, 'Contents'), { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(installed, 'old.txt'), 'previous install');
+  fs.writeFileSync(launcher, 'previous launcher\n');
+  fs.writeFileSync(path.join(appBundle, 'Contents', 'old.txt'), 'previous app bundle');
+  fs.writeFileSync(path.join(source, 'new.txt'), 'replacement install');
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
+  const failingIconutil = path.join(dir, 'failing-iconutil');
+  fs.writeFileSync(failingIconutil, '#!/usr/bin/env bash\nexit 9\n', { mode: 0o755 });
+  const env = releaseInstallerEnv(dir, home, state, { STHANG_STUDIO_ICONUTIL: shellPath(failingIconutil) });
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.equal(fs.readFileSync(path.join(installed, 'old.txt'), 'utf8'), 'previous install');
+  assert.equal(fs.existsSync(path.join(installed, 'new.txt')), false);
+  assert.equal(fs.readFileSync(launcher, 'utf8'), 'previous launcher\n');
+  assert.equal(fs.readFileSync(path.join(appBundle, 'Contents', 'old.txt'), 'utf8'), 'previous app bundle');
+  assert.equal(fs.existsSync(path.join(state, '.manual-install-backup')), false);
+  assert.equal(fs.existsSync(path.join(state, '.manual-install.lock')), false);
+});
+
+test('release installer restores the prior command if app-bundle backup fails mid-publication', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio macos launcher backup rollback '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  const state = path.join(dir, 'state');
+  const source = path.join(dir, 'package files');
+  const applications = path.join(home, 'Applications');
+  const installed = path.join(state, 'app');
+  const launcher = path.join(applications, 'Sthang Studio.command');
+  const appBundle = path.join(applications, 'Sthang Studio.app');
+  fs.mkdirSync(installed, { recursive: true });
+  fs.mkdirSync(path.join(appBundle, 'Contents'), { recursive: true });
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(installed, 'old.txt'), 'previous install');
+  fs.writeFileSync(launcher, 'previous launcher\n');
+  fs.writeFileSync(path.join(appBundle, 'Contents', 'old.txt'), 'previous app bundle');
+  fs.writeFileSync(path.join(source, 'new.txt'), 'replacement install');
+  fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
+  fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
+
+  const bin = path.join(dir, 'failing-mv-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const failingMv = path.join(bin, 'mv');
+  fs.writeFileSync(failingMv, '#!/usr/bin/env bash\nset -e\ndest="${@: -1}"\nif [[ "$dest" == *\'.Sthang Studio.app.backup\' ]]; then\n  exit 17\nfi\nexec /usr/bin/mv "$@"\n', { mode: 0o755 });
+  const env = releaseInstallerEnv(dir, home, state, {
+    STHANG_STUDIO_MV: shellPath(failingMv),
+  });
+  const installer = path.join(root, 'scripts/install-release-package-macos.sh');
+  const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.equal(fs.readFileSync(path.join(installed, 'old.txt'), 'utf8'), 'previous install');
+  assert.equal(fs.existsSync(path.join(installed, 'new.txt')), false);
+  assert.equal(fs.readFileSync(launcher, 'utf8'), 'previous launcher\n');
+  assert.equal(fs.readFileSync(path.join(appBundle, 'Contents', 'old.txt'), 'utf8'), 'previous app bundle');
+  assert.equal(fs.existsSync(path.join(applications, '.Sthang Studio.command.backup')), false);
+  assert.equal(fs.existsSync(path.join(state, '.manual-install.lock')), false);
 });
 
 test('release installer rolls back when launcher creation fails after the app swap', (t) => {
@@ -536,6 +810,7 @@ test('release installer rolls back when launcher creation fails after the app sw
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
   fs.writeFileSync(path.join(home, 'Applications'), 'blocks launcher directory');
   const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
@@ -567,6 +842,7 @@ test('release installer preserves the previous launcher when temporary launcher 
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
   const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
@@ -587,15 +863,21 @@ test('release installer recovers an interrupted prior swap before retrying setup
   const installed = path.join(state, 'app');
   const backup = path.join(state, '.manual-install-backup');
   const staleLock = path.join(state, '.manual-install.lock');
+  const updateControlBackup = path.join(state, '.manual-update-control-backup');
+  const updates = path.join(state, 'updates');
   fs.mkdirSync(installed, { recursive: true });
   fs.mkdirSync(backup, { recursive: true });
   fs.mkdirSync(source, { recursive: true });
+  fs.mkdirSync(updateControlBackup, { recursive: true });
+  fs.mkdirSync(updates, { recursive: true });
   fs.writeFileSync(path.join(installed, 'interrupted-new.txt'), 'incomplete app');
   fs.writeFileSync(path.join(backup, 'old.txt'), 'last known good app');
   fs.writeFileSync(staleLock, '99999999\n');
+  fs.writeFileSync(path.join(updateControlBackup, 'active.json'), '{"restored":true}\n');
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+  completeReleaseSource(source);
   const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
@@ -605,6 +887,8 @@ test('release installer recovers an interrupted prior swap before retrying setup
   assert.equal(fs.existsSync(path.join(installed, 'interrupted-new.txt')), false);
   assert.equal(fs.existsSync(backup), false);
   assert.equal(fs.existsSync(staleLock), false);
+  assert.equal(fs.readFileSync(path.join(updates, 'active.json'), 'utf8'), '{"restored":true}\n');
+  assert.equal(fs.existsSync(updateControlBackup), false);
 });
 
 test('release installer leaves app state untouched when installation lock is held', (t) => {
@@ -622,6 +906,7 @@ test('release installer leaves app state untouched when installation lock is hel
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
   fs.writeFileSync(lockFile, '424242\n');
   const env = releaseInstallerEnv(dir, home, state, { MOCK_SHLOCK_DENY: '1' });
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
@@ -651,6 +936,7 @@ test('release recovery ignores an interrupted non-authoritative backup cleanup',
   fs.writeFileSync(path.join(source, 'package.json'), '{"version":"test"}\n');
   fs.writeFileSync(path.join(source, 'INSTALL-MACOS.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
   fs.writeFileSync(path.join(source, 'run-macos.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  completeReleaseSource(source);
   const env = releaseInstallerEnv(dir, home, state);
   const installer = path.join(root, 'scripts/install-release-package-macos.sh');
   const result = spawnSync(shell, [shellPath(installer), shellPath(source)], { env, encoding: 'utf8', timeout: 30_000, windowsHide: true });

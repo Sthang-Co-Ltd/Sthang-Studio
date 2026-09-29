@@ -39,6 +39,14 @@ function trust(publicKeyHex, overrides = {}) {
   };
 }
 
+function macTrust(publicKeyHex, overrides = {}) {
+  return trust(publicKeyHex, {
+    platform: 'macos-arm64',
+    endpoint: 'https://updates.sthang.app/studio/macos-arm64/latest.json',
+    ...overrides,
+  });
+}
+
 function unsignedManifest(overrides = {}) {
   return {
     schemaVersion: 1,
@@ -71,6 +79,33 @@ function unsignedManifest(overrides = {}) {
   };
 }
 
+function unsignedMacManifest(overrides = {}) {
+  return unsignedManifest({
+    schemaVersion: 2,
+    platform: 'macos-arm64',
+    source: {
+      commit: '1'.repeat(40),
+      tree: '2'.repeat(40),
+      buildEvidenceSha256: '4'.repeat(64),
+      derivedRuntimeManifestSha256: '3'.repeat(64),
+    },
+    package: {
+      ...unsignedManifest().package,
+      url: 'https://updates.sthang.app/studio/macos-arm64/v0.8.0/Sthang-Studio-OTA-macOS-Apple-Silicon-v0.8.0.zip',
+    },
+    compatibility: {
+      ...unsignedManifest().compatibility,
+      minMacos: '12.3',
+      arch: 'arm64',
+    },
+    setup: {
+      ...unsignedManifest().setup,
+      strategy: 'macos-curated-runtime',
+    },
+    ...overrides,
+  });
+}
+
 test('canonical JSON and Ed25519 verification are deterministic and tamper-evident', () => {
   const pair = keys();
   const root = trust(pair.publicKeyHex);
@@ -96,6 +131,14 @@ test('Studio trust roots fail closed until an approved public key is provisioned
   assert.equal(unprovisioned.provisioned, false);
   assert.throws(() => validateTrustRoot({ ...unprovisioned, provisioned: true }), /not provisioned correctly/i);
   assert.throws(() => validateTrustRoot({ ...unprovisioned, endpoint: 'https://example.com/latest.json' }), /approved Studio endpoint/i);
+});
+
+test('macOS trust roots are platform-bound to the macOS update namespace', () => {
+  const pair = keys();
+  const root = validateTrustRoot(macTrust(pair.publicKeyHex));
+  assert.equal(root.platform, 'macos-arm64');
+  assert.equal(root.endpoint, 'https://updates.sthang.app/studio/macos-arm64/latest.json');
+  assert.throws(() => validateTrustRoot({ ...root, endpoint: 'https://updates.sthang.app/studio/windows/latest.json' }), /approved Studio endpoint/i);
 });
 
 test('release manifests bind immutable Sthang URLs, dependency inputs, and bounded plain text', () => {
@@ -128,6 +171,24 @@ test('release manifests bind immutable Sthang URLs, dependency inputs, and bound
   );
 });
 
+test('macOS manifests require the curated runtime strategy and macOS immutable namespace', () => {
+  const pair = keys();
+  const root = macTrust(pair.publicKeyHex);
+  const signed = signDocument(unsignedMacManifest(), pair.privateKey, root.keyId);
+  const validated = validateReleaseManifest(signed, root);
+  assert.equal(validated.platform, 'macos-arm64');
+  assert.equal(validated.schemaVersion, 2);
+  assert.equal(validated.source.commit, '1'.repeat(40));
+  assert.equal(validated.setup.strategy, 'macos-curated-runtime');
+  assert.match(validated.package.url, /\/studio\/macos-arm64\/v0\.8\.0\//);
+  assert.throws(() => validateReleaseManifest(signDocument(unsignedMacManifest({
+    setup: { ...unsignedMacManifest().setup, strategy: 'npm-ci-and-local-timing' },
+  }), pair.privateKey, root.keyId), root), /setup strategy/i);
+  assert.throws(() => validateReleaseManifest(signDocument(unsignedMacManifest({
+    package: { ...unsignedMacManifest().package, url: 'https://updates.sthang.app/studio/windows/v0.8.0/package.zip' },
+  }), pair.privateKey, root.keyId), root), /immutable|versioned/i);
+});
+
 test('latest pointers bind the exact immutable manifest bytes', () => {
   const pair = keys();
   const root = trust(pair.publicKeyHex);
@@ -144,6 +205,28 @@ test('latest pointers bind the exact immutable manifest bytes', () => {
   }, pair.privateKey, root.keyId);
   assert.equal(validateLatestPointer(pointer, root).manifestSha256, sha256(bytes));
   assert.throws(() => validateLatestPointer({ ...pointer, manifestSha256: 'f'.repeat(64) }, root), /signature/i);
+});
+
+test('macOS latest pointers cannot cross into the Windows channel', () => {
+  const pair = keys();
+  const root = macTrust(pair.publicKeyHex);
+  const manifest = signDocument(unsignedMacManifest(), pair.privateKey, root.keyId);
+  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  const pointer = signDocument({
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'macos-arm64',
+    channel: 'preview',
+    version: '0.8.0',
+    manifestUrl: 'https://updates.sthang.app/studio/macos-arm64/v0.8.0/release.json',
+    manifestSha256: sha256(bytes),
+  }, pair.privateKey, root.keyId);
+  assert.equal(validateLatestPointer(pointer, root).platform, 'macos-arm64');
+  assert.throws(() => validateLatestPointer(signDocument({
+    ...pointer,
+    platform: 'windows-x64',
+    signature: undefined,
+  }, pair.privateKey, root.keyId), root), /identity/i);
 });
 
 test('version comparison follows semantic prerelease ordering', () => {

@@ -9,7 +9,9 @@ import {
   buildStudioStartSpec,
   isInside,
   recoverInterruptedActivation,
+  resolveActiveSourceRoot,
   samePath,
+  updatePlatformForRuntime,
   writeJsonAtomic,
 } from '../scripts/update-runtime.mjs';
 import {
@@ -50,6 +52,73 @@ test('Windows stable broker launches from cwd across command-sensitive install p
         assert.match(result.stdout, new RegExp(`MODE=${expectedMode}`));
       }
     }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('macOS broker launch spec stays anchored to the stable manual bootstrap', () => {
+  const installRoot = path.resolve('/tmp/Sthang Studio');
+  const spec = buildStudioStartSpec(installRoot, true, 'darwin');
+  assert.equal(spec.command, '/bin/bash');
+  assert.deepEqual(spec.args, [path.join(installRoot, 'app', 'run-macos.sh')]);
+  assert.equal(spec.cwd, path.join(installRoot, 'app'));
+  assert.equal(spec.env.STHANG_STUDIO_STATE_ROOT, installRoot);
+  assert.equal(spec.env.STHANG_STUDIO_UPDATE_ACTIVATION, '1');
+});
+
+test('update platform identity is exact for Windows x64 and Apple Silicon only', () => {
+  assert.equal(updatePlatformForRuntime('win32', 'x64'), 'windows-x64');
+  assert.equal(updatePlatformForRuntime('darwin', 'arm64'), 'macos-arm64');
+  assert.equal(updatePlatformForRuntime('darwin', 'x64'), '');
+  assert.equal(updatePlatformForRuntime('linux', 'arm64'), '');
+});
+
+test('macOS active-version resolution validates immutable marker and falls back to the stable app when unset', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-macos-active-'));
+  try {
+    const baseline = path.join(root, 'app');
+    await fs.mkdir(baseline, { recursive: true });
+    assert.deepEqual(await resolveActiveSourceRoot(root, 'macos-arm64'), {
+      sourceRoot: baseline,
+      activeVersion: '',
+    });
+
+    const version = '0.85.6';
+    const digest = 'd'.repeat(64);
+    const target = path.join(root, 'versions', version);
+    for (const relative of [
+      'apps/server/dist',
+      'apps/web/dist',
+      'packages/shared/dist',
+    ]) await fs.mkdir(path.join(target, ...relative.split('/')), { recursive: true });
+    await fs.writeFile(path.join(target, 'run-macos.sh'), '#!/usr/bin/env bash\n');
+    await fs.writeFile(path.join(target, 'apps/server/dist/index.js'), 'server');
+    await fs.writeFile(path.join(target, 'apps/web/dist/index.html'), '<div id="root"></div>');
+    await fs.writeFile(path.join(target, 'packages/shared/dist/index.js'), 'shared');
+    await writeJsonAtomic(path.join(target, '.sthang-update-version.json'), {
+      schemaVersion: 1,
+      platform: 'macos-arm64',
+      version,
+      manifestDigest: digest,
+    });
+    await writeJsonAtomic(path.join(root, 'updates', 'active.json'), {
+      schemaVersion: 1,
+      version,
+      relativePath: `versions/${version}`,
+      manifestDigest: digest,
+    });
+    assert.deepEqual(await resolveActiveSourceRoot(root, 'macos-arm64'), {
+      sourceRoot: target,
+      activeVersion: version,
+    });
+    await writeJsonAtomic(path.join(target, '.sthang-update-version.json'), {
+      schemaVersion: 1,
+      platform: 'macos-arm64',
+      version,
+      manifestDigest: 'e'.repeat(64),
+    });
+    await assert.rejects(() => resolveActiveSourceRoot(root, 'macos-arm64'), /marker/i);
   } finally {
     await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }

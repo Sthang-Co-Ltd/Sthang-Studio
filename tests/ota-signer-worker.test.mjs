@@ -9,14 +9,20 @@ import {
   STUDIO_SIGNING_ACTOR_LOGIN,
   acceptedMainFromAtom,
   assertExactSourceTree,
+  assertMacPackageMatchesSource,
   assertPackageMatchesSource,
+  buildMacManifest,
   compareStudioVersions,
   handleRequest,
   latestPointerDocument,
+  macPromotionIssueCommand,
+  macReleaseIssueCommand,
   parseZip,
+  putLatestPointerConditional,
   promotionIssueCommand,
   releaseChecksum,
   releaseIssueCommand,
+  restoreLatestPointerConditional,
   verifyGithubWebhook,
 } from '../infra/ota-signer/src/index.mjs';
 
@@ -107,6 +113,64 @@ function requiredSource() {
   ]);
 }
 
+async function macPackageFixture() {
+  const commit = '1'.repeat(40);
+  const tree = '2'.repeat(40);
+  const lock = Buffer.from('{"lockfileVersion":3}\n');
+  const dist = new Map([
+    ['apps/server/dist/index.js', Buffer.from('server')],
+    ['apps/web/dist/index.html', Buffer.from('<div id="root"></div>')],
+    ['packages/shared/dist/index.js', Buffer.from('shared')],
+  ]);
+  const files = [...dist.entries()].map(([path, bytes]) => ({
+    path,
+    size: bytes.length,
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+  })).sort((a, b) => a.path.localeCompare(b.path));
+  const lockSha = crypto.createHash('sha256').update(lock).digest('hex');
+  const buildEvidence = Buffer.from(`${JSON.stringify({ schemaVersion: 1, packageLockSha256: lockSha, files }, null, 2)}\n`);
+  const buildEvidenceSha = crypto.createHash('sha256').update(buildEvidence).digest('hex');
+  const source = new Map([
+    ['package.json', Buffer.from('{"version":"0.85.6"}')],
+    ['package-lock.json', lock],
+    ['config/update-trust-root-macos.json', Buffer.from(JSON.stringify({
+      schemaVersion: 1,
+      product: 'sthang-studio',
+      platform: 'macos-arm64',
+      channel: 'preview',
+      endpoint: 'https://updates.sthang.app/studio/macos-arm64/latest.json',
+      keyId: 'studio-updates-ed25519-root-v1',
+      publicKeyHex: '0e9ff5aaa1d9b3ea80887bd372d73fe83d5d7aaf51bfcfa09c3c07b1280cce5d',
+      provisioned: true,
+      brokerVersion: '1.0.0',
+    }))],
+    ['scripts/update-protocol.mjs', Buffer.from('protocol')],
+    ['scripts/update-runtime.mjs', Buffer.from('runtime')],
+    ['scripts/launch-studio-macos.sh', Buffer.from('launch')],
+    ['scripts/prepare-studio-update-macos.sh', Buffer.from('prepare')],
+    ['scripts/prepare-studio-update-macos.py', Buffer.from('prepare-py')],
+    ['INSTALL-MACOS.sh', Buffer.from('install')],
+    ['run-macos.sh', Buffer.from('run')],
+    ['.sthang/macos-release-build.json', buildEvidence],
+    ['release-notes/v0.85.6.txt', Buffer.from('Mac OTA fixture.')],
+    ['local-timing/requirements.txt', Buffer.from('fixture==1\n')],
+  ]);
+  const derivedManifest = Buffer.from(`${JSON.stringify({
+    schemaVersion: 2,
+    sourceCommit: commit,
+    sourceTree: tree,
+    packageLockSha256: lockSha,
+    buildEvidenceSha256: buildEvidenceSha,
+    files,
+  }, null, 2)}\n`);
+  const packageEntries = new Map(source);
+  packageEntries.delete('release-notes/v0.85.6.txt');
+  packageEntries.set('.sthang/macos-curated-runtime', Buffer.from('production-runtime-v1\n'));
+  packageEntries.set('.sthang/macos-derived-runtime.json', derivedManifest);
+  for (const entry of dist) packageEntries.set(...entry);
+  return { source, packageEntries, commit, tree };
+}
+
 test('ZIP parser verifies stored and deflated entries and strips GitHub archive root', async () => {
   const zip = makeZip([
     { name: 'repo-abcd/package.json', content: '{"version":"0.8.0"}', method: 8 },
@@ -167,6 +231,32 @@ test('package/source byte comparison requires critical files and rejects changed
   const missing = new Map(exact);
   missing.delete('scripts/update-runtime.mjs');
   assert.throws(() => assertPackageMatchesSource(missing, source));
+});
+
+test('macOS package provenance binds tracked source and derived output to committed build evidence', async () => {
+  const fixture = await macPackageFixture();
+  await assert.doesNotReject(() => assertMacPackageMatchesSource(fixture.packageEntries, fixture.source, {
+    commit: fixture.commit,
+    tree: fixture.tree,
+  }));
+  const tampered = new Map(fixture.packageEntries);
+  tampered.set('apps/server/dist/index.js', Buffer.from('tampered'));
+  await assert.rejects(
+    () => assertMacPackageMatchesSource(tampered, fixture.source, { commit: fixture.commit, tree: fixture.tree }),
+    /derived file|source-owned/i,
+  );
+  const manifest = await buildMacManifest(
+    fixture.source,
+    fixture.packageEntries,
+    Buffer.from('zip-bytes'),
+    1234,
+    { commit: fixture.commit, tree: fixture.tree, publishedAt: '2026-09-29T00:00:00.000Z' },
+  );
+  assert.equal(manifest.schemaVersion, 2);
+  assert.equal(manifest.platform, 'macos-arm64');
+  assert.equal(manifest.source.commit, fixture.commit);
+  assert.equal(manifest.source.tree, fixture.tree);
+  assert.match(manifest.package.url, /\/studio\/macos-arm64\//);
 });
 
 test('GitHub commit feed parsing accepts only the first exact commit entry', () => {
@@ -233,6 +323,27 @@ test('latest promotion command is separately exact and owner-bound', () => {
   assert.throws(() => promotionIssueCommand(outsider));
 });
 
+test('macOS signing and promotion commands are separate exact owner-bound authorities', () => {
+  const signing = releasePayload();
+  signing.comment.body = '/studio-ota-sign-macos';
+  assert.deepEqual(macReleaseIssueCommand(signing), {
+    issueNumber: 30,
+    commentId: 123,
+    actor: STUDIO_SIGNING_ACTOR_LOGIN,
+    actorId: STUDIO_SIGNING_ACTOR_ID,
+  });
+  assert.throws(() => releaseIssueCommand(signing));
+  const promotion = releasePayload();
+  promotion.comment.body = '/studio-ota-promote-macos';
+  assert.deepEqual(macPromotionIssueCommand(promotion), {
+    issueNumber: 30,
+    commentId: 123,
+    actor: STUDIO_SIGNING_ACTOR_LOGIN,
+    actorId: STUDIO_SIGNING_ACTOR_ID,
+  });
+  assert.throws(() => promotionIssueCommand(promotion));
+});
+
 test('promotion pointer construction is version-ordered and immutable-manifest bound', () => {
   assert.equal(compareStudioVersions('0.85.2', '0.85.0'), 1);
   assert.equal(compareStudioVersions('0.85.2', '0.85.2'), 0);
@@ -248,6 +359,55 @@ test('promotion pointer construction is version-ordered and immutable-manifest b
     manifestSha256,
   });
   assert.throws(() => latestPointerDocument('0.85.2', 'bad'));
+  assert.deepEqual(latestPointerDocument('0.85.6', manifestSha256, 'macos-arm64'), {
+    schemaVersion: 1,
+    product: 'sthang-studio',
+    platform: 'macos-arm64',
+    channel: 'preview',
+    version: '0.85.6',
+    manifestUrl: 'https://updates.sthang.app/studio/macos-arm64/v0.85.6/release.json',
+    manifestSha256,
+  });
+});
+
+test('latest pointer promotion uses conditional writes and never rolls an older pointer over a concurrent newer write', async () => {
+  let sequence = 0;
+  const state = { value: null };
+  const bucket = {
+    async put(_key, bytes, options = {}) {
+      const condition = options.onlyIf || {};
+      if (condition.etagDoesNotMatch === '*' && state.value) return null;
+      if (condition.etagMatches !== undefined && state.value?.etag !== condition.etagMatches) return null;
+      const stored = {
+        etag: 'etag-' + (++sequence),
+        bytes: Buffer.from(bytes),
+        httpMetadata: options.httpMetadata,
+        customMetadata: options.customMetadata,
+      };
+      state.value = stored;
+      return stored;
+    },
+  };
+
+  const first = await putLatestPointerConditional(bucket, 'latest.json', Buffer.from('v1'), {
+    httpMetadata: { contentType: 'application/json' },
+  });
+  assert.equal(state.value?.bytes.toString(), 'v1');
+  assert.equal(first.etag, state.value?.etag);
+
+  const previous = { ...state.value };
+  const second = await putLatestPointerConditional(bucket, 'latest.json', Buffer.from('v2'), { previous });
+  assert.equal(state.value?.bytes.toString(), 'v2');
+
+  state.value = { ...state.value, etag: 'etag-' + (++sequence), bytes: Buffer.from('v3') };
+  const restored = await restoreLatestPointerConditional(bucket, 'latest.json', previous, previous.bytes, second);
+  assert.equal(restored, false);
+  assert.equal(state.value?.bytes.toString(), 'v3');
+
+  await assert.rejects(
+    () => putLatestPointerConditional(bucket, 'latest.json', Buffer.from('stale'), { previous }),
+    /latest pointer changed during promotion/i,
+  );
 });
 
 test('GitHub webhook HMAC must match exact request body', async () => {

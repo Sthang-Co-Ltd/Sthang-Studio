@@ -14,15 +14,18 @@ $WorkerName = 'sthang-studio-ota-signer'
 $WebhookUrl = 'https://signer.sthang.app/github/webhook'
 $Repository = 'Sthang-Co-Ltd/Sthang-Studio'
 $WebhookSecretName = 'STUDIO_GITHUB_WEBHOOK_SECRET'
+$ReviewedWranglerVersion = '4.143.0'
+$Wrangler = Join-Path $Root 'node_modules\wrangler\bin\wrangler.js'
+$WranglerPackage = Join-Path $Root 'node_modules\wrangler\package.json'
 
 function Invoke-Wrangler([string[]]$Arguments, [string]$InputText = '') {
   $Previous = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
     if ($InputText) {
-      $Output = $InputText | & npx.cmd wrangler @Arguments 2>&1
+      $Output = $InputText | & node.exe $Wrangler @Arguments 2>&1
     } else {
-      $Output = & npx.cmd wrangler @Arguments 2>&1
+      $Output = & node.exe $Wrangler @Arguments 2>&1
     }
     $ExitCode = $LASTEXITCODE
   } finally {
@@ -32,6 +35,23 @@ function Invoke-Wrangler([string[]]$Arguments, [string]$InputText = '') {
     ExitCode = $ExitCode
     Text = (($Output | ForEach-Object { "$_" }) -join "`r`n")
   }
+}
+
+if (-not (Test-Path -LiteralPath $Wrangler -PathType Leaf) -or -not (Test-Path -LiteralPath $WranglerPackage -PathType Leaf)) {
+  throw 'Run npm ci before deploying so the reviewed Wrangler CLI is available.'
+}
+$RootPackage = Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
+$RootLock = Get-Content (Join-Path $Root 'package-lock.json') -Raw | ConvertFrom-Json
+$InstalledWrangler = Get-Content $WranglerPackage -Raw | ConvertFrom-Json
+$DeclaredWranglerVersion = [string]($RootPackage.devDependencies.wrangler)
+$LockedWranglerVersion = [string](($RootLock.packages.'node_modules/wrangler').version)
+$InstalledWranglerVersion = [string]($InstalledWrangler.version)
+if (
+  ($DeclaredWranglerVersion -ne $ReviewedWranglerVersion) -or
+  ($LockedWranglerVersion -ne $ReviewedWranglerVersion) -or
+  ($InstalledWranglerVersion -ne $ReviewedWranglerVersion)
+) {
+  throw "The installed Wrangler CLI must exactly match the reviewed $ReviewedWranglerVersion dependency. Run npm ci and retry."
 }
 
 function Invoke-Gh([string[]]$Arguments, [string]$InputText = '') {
@@ -56,7 +76,7 @@ function Invoke-Gh([string[]]$Arguments, [string]$InputText = '') {
 if ($SecretsStoreId -notmatch '^[A-Za-z0-9_-]{8,128}$') { throw 'SecretsStoreId has an unexpected format.' }
 if ($BucketName -notmatch '^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$') { throw 'BucketName is not a valid R2 bucket name.' }
 if (-not (Test-Path -LiteralPath $Template -PathType Leaf)) { throw 'Signer Wrangler template is missing.' }
-foreach ($Command in @('node.exe','npx.cmd','gh.exe')) {
+foreach ($Command in @('node.exe','gh.exe')) {
   if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) { throw "$Command is required." }
 }
 

@@ -34,6 +34,23 @@ const ALLOWED_TOP_LEVEL_FILES = new Set([
   'TRADEMARKS.md',
 ]);
 const ALLOWED_ROOTS = ['apps/', 'packages/', 'local-timing/', 'scripts/', 'config/', '.sthang/'];
+const MAC_ALLOWED_TOP_LEVEL_FILES = new Set([
+  '.env.example',
+  'package.json',
+  'package-lock.json',
+  'INSTALL-MACOS.sh',
+  'setup-local-timing-macos.sh',
+  'run-macos.sh',
+  'README.md',
+  'LICENSE',
+  'PRIVACY.md',
+  'SECURITY.md',
+  'SUPPORT.md',
+  'THIRD_PARTY_NOTICES.md',
+  'TRADEMARKS.md',
+  'docs/MACOS-COMPATIBILITY.md',
+  'docs/OTA-UPDATES.md',
+]);
 const FORBIDDEN_PACKAGE_PARTS = new Set([
   'data', 'uploads', 'exports', 'node_modules', '.venv', 'versions', 'updates', 'release-artifacts', '.env',
 ]);
@@ -47,6 +64,29 @@ const REQUIRED_PACKAGE_PATHS = new Set([
   'scripts/prepare-studio-update.ps1',
   'run-windows.bat',
 ]);
+const REQUIRED_MAC_PACKAGE_PATHS = new Set([
+  'package.json',
+  'package-lock.json',
+  'config/update-trust-root-macos.json',
+  'scripts/update-protocol.mjs',
+  'scripts/update-runtime.mjs',
+  'scripts/launch-studio-macos.sh',
+  'scripts/prepare-studio-update-macos.sh',
+  'scripts/prepare-studio-update-macos.py',
+  'INSTALL-MACOS.sh',
+  'run-macos.sh',
+  '.sthang/macos-release-build.json',
+  '.sthang/macos-curated-runtime',
+  '.sthang/macos-derived-runtime.json',
+  'apps/server/dist/index.js',
+  'apps/web/dist/index.html',
+  'packages/shared/dist/index.js',
+]);
+const MAC_DERIVED_ROOTS = [
+  'apps/server/dist/',
+  'apps/web/dist/',
+  'packages/shared/dist/',
+];
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|clock\$|conin\$|conout\$|com[1-9]|lpt[1-9])$/i;
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/;
 
@@ -442,6 +482,126 @@ export function assertPackageMatchesSource(packageEntries, sourceEntries) {
   }
 }
 
+function expectedMacTrackedPayload(sourceEntries) {
+  const expected = new Map();
+  for (const [path, bytes] of sourceEntries.entries()) {
+    if (
+      MAC_ALLOWED_TOP_LEVEL_FILES.has(path)
+      || ALLOWED_ROOTS.some((root) => path.startsWith(root))
+    ) expected.set(path, bytes);
+  }
+  return expected;
+}
+
+function sourceOwnedMacBuildEvidence(sourceEntries) {
+  const bytes = sourceEntries.get('.sthang/macos-release-build.json');
+  if (!bytes) throw new SignerError('Accepted Studio source is missing macOS release build evidence.', 409);
+  const value = safeJsonParse(bytes, 'Accepted macOS release build evidence');
+  exactObjectKeys(value, ['schemaVersion', 'packageLockSha256', 'files'], 'accepted macOS release build evidence');
+  if (
+    value.schemaVersion !== 1
+    || !/^[0-9a-f]{64}$/.test(String(value.packageLockSha256 || ''))
+    || !Array.isArray(value.files)
+    || !value.files.length
+  ) throw new SignerError('Accepted macOS release build evidence is invalid.', 409);
+  const files = value.files.map((record) => {
+    exactObjectKeys(record, ['path', 'size', 'sha256'], 'accepted macOS derived file evidence');
+    if (
+      typeof record.path !== 'string'
+      || !MAC_DERIVED_ROOTS.some((root) => record.path.startsWith(root))
+      || !Number.isSafeInteger(record.size)
+      || record.size < 0
+      || !/^[0-9a-f]{64}$/.test(String(record.sha256 || ''))
+    ) throw new SignerError('Accepted macOS derived file evidence is invalid.', 409);
+    return { path: record.path, size: record.size, sha256: record.sha256 };
+  });
+  const ordered = [...files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  if (new Set(ordered.map((entry) => entry.path)).size !== ordered.length) {
+    throw new SignerError('Accepted macOS release build evidence contains duplicate paths.', 409);
+  }
+  return { bytes, value: { ...value, files: ordered } };
+}
+
+export async function assertMacPackageMatchesSource(packageEntries, sourceEntries, { commit, tree }) {
+  if (!/^[0-9a-f]{40}$/.test(String(commit || '')) || !/^[0-9a-f]{40}$/.test(String(tree || ''))) {
+    throw new SignerError('Accepted macOS source identity is invalid.', 409);
+  }
+  const expected = expectedMacTrackedPayload(sourceEntries);
+  for (const required of REQUIRED_MAC_PACKAGE_PATHS) {
+    if (!packageEntries.has(required)) throw new SignerError(`Staged macOS package is missing required content: ${required}.`, 409);
+  }
+  for (const [path, sourceBytes] of expected.entries()) {
+    const packageBytes = packageEntries.get(path);
+    if (!packageBytes || !compareBytes(packageBytes, sourceBytes)) {
+      throw new SignerError(`Staged macOS package does not match accepted source at ${path}.`, 409);
+    }
+  }
+
+  const generatedPaths = new Set([
+    '.sthang/macos-curated-runtime',
+    '.sthang/macos-derived-runtime.json',
+  ]);
+  for (const path of packageEntries.keys()) {
+    const derived = MAC_DERIVED_ROOTS.some((root) => path.startsWith(root));
+    if (!expected.has(path) && !generatedPaths.has(path) && !derived) {
+      throw new SignerError(`Staged macOS package contains unexpected content: ${path}.`, 409);
+    }
+  }
+  if (textDecoder.decode(packageEntries.get('.sthang/macos-curated-runtime')).trim() !== 'production-runtime-v1') {
+    throw new SignerError('Staged macOS package has an invalid curated-runtime marker.', 409);
+  }
+
+  const sourceLock = sourceEntries.get('package-lock.json');
+  if (!sourceLock) throw new SignerError('Accepted Studio source is missing package-lock.json.', 409);
+  const packageLockSha256 = await sha256Hex(sourceLock);
+  const buildEvidence = sourceOwnedMacBuildEvidence(sourceEntries);
+  if (buildEvidence.value.packageLockSha256 !== packageLockSha256) {
+    throw new SignerError('Accepted macOS release build evidence does not match the accepted package lock.', 409);
+  }
+  const buildEvidenceSha256 = await sha256Hex(buildEvidence.bytes);
+  const derivedBytes = packageEntries.get('.sthang/macos-derived-runtime.json');
+  const derived = safeJsonParse(derivedBytes, 'Staged macOS derived-runtime manifest');
+  exactObjectKeys(derived, [
+    'schemaVersion', 'sourceCommit', 'sourceTree', 'packageLockSha256', 'buildEvidenceSha256', 'files',
+  ], 'staged macOS derived-runtime manifest');
+  if (
+    derived.schemaVersion !== 2
+    || derived.sourceCommit !== commit
+    || derived.sourceTree !== tree
+    || derived.packageLockSha256 !== packageLockSha256
+    || derived.buildEvidenceSha256 !== buildEvidenceSha256
+    || !Array.isArray(derived.files)
+  ) throw new SignerError('Staged macOS derived-runtime identity does not match accepted source.', 409);
+
+  const normalizedDerived = derived.files.map((record) => {
+    exactObjectKeys(record, ['path', 'size', 'sha256'], 'staged macOS derived file record');
+    return { path: record.path, size: record.size, sha256: record.sha256 };
+  }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  if (canonicalJson(normalizedDerived) !== canonicalJson(buildEvidence.value.files)) {
+    throw new SignerError('Staged macOS derived runtime does not match source-owned release build evidence.', 409);
+  }
+  const evidencePaths = new Set();
+  for (const record of buildEvidence.value.files) {
+    evidencePaths.add(record.path);
+    const bytes = packageEntries.get(record.path);
+    if (
+      !bytes
+      || bytes.byteLength !== record.size
+      || await sha256Hex(bytes) !== record.sha256
+    ) throw new SignerError(`Staged macOS derived file failed source-owned verification: ${record.path}.`, 409);
+  }
+  for (const path of packageEntries.keys()) {
+    if (MAC_DERIVED_ROOTS.some((root) => path.startsWith(root)) && !evidencePaths.has(path)) {
+      throw new SignerError(`Staged macOS package contains an unapproved derived file: ${path}.`, 409);
+    }
+  }
+  return {
+    packageLockSha256,
+    buildEvidenceSha256,
+    derivedRuntimeManifestSha256: await sha256Hex(derivedBytes),
+  };
+}
+
 export function acceptedMainFromAtom(atomText) {
   if (typeof atomText !== 'string' || atomText.length > MAX_GITHUB_FEED_BYTES) {
     throw new SignerError('Accepted Studio source identity is invalid.', 502);
@@ -496,6 +656,29 @@ async function sourceArchive(commit) {
   // still excludes it and the staged OTA package parser still rejects it.
   const parsed = await parseZip(bytes, { stripFirstSegment: true, allowProtectedRuntimeState: true });
   return { ...parsed, archiveSha256: await sha256Hex(bytes) };
+}
+
+async function acceptedTree(commit) {
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new SignerError('Accepted Studio source identity is invalid.', 502);
+  const response = await fetch(`https://api.github.com/repos/${STUDIO_REPOSITORY}/git/commits/${commit}`, {
+    headers: {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'Sthang-Studio-OTA-Signer',
+      'cache-control': 'no-cache',
+    },
+    redirect: 'manual',
+    cache: 'no-store',
+  });
+  if (!response.ok || new URL(response.url).hostname !== 'api.github.com') {
+    throw new SignerError('Could not verify the accepted Studio Git tree.', 502);
+  }
+  const bytes = await readBoundedResponse(response, 64 * 1024, 'Accepted Studio Git tree');
+  const value = safeJsonParse(bytes, 'Accepted Studio Git tree');
+  const tree = String(value?.tree?.sha || '').toLowerCase();
+  if (String(value?.sha || '').toLowerCase() !== commit || !/^[0-9a-f]{40}$/.test(tree)) {
+    throw new SignerError('Accepted Studio Git tree identity is invalid.', 502);
+  }
+  return tree;
 }
 
 function sourceText(entries, path) {
@@ -555,14 +738,20 @@ async function fetchGithubReleaseAsset(version, name, maximumBytes) {
   return readBoundedResponse(response, maximumBytes, `GitHub recovery asset ${name}`);
 }
 
-function validateTrustRoot(entries) {
-  const trust = sourceJson(entries, 'config/update-trust-root.json');
+function validateTrustRoot(entries, platform = 'windows-x64') {
+  const macos = platform === 'macos-arm64';
+  if (!macos && platform !== 'windows-x64') throw new SignerError('Accepted Studio trust root platform is invalid.', 409);
+  const trustPath = macos ? 'config/update-trust-root-macos.json' : 'config/update-trust-root.json';
+  const expectedEndpoint = macos
+    ? 'https://updates.sthang.app/studio/macos-arm64/latest.json'
+    : 'https://updates.sthang.app/studio/windows/latest.json';
+  const trust = sourceJson(entries, trustPath);
   if (
     trust?.schemaVersion !== 1
     || trust?.product !== 'sthang-studio'
-    || trust?.platform !== 'windows-x64'
+    || trust?.platform !== platform
     || trust?.channel !== 'preview'
-    || trust?.endpoint !== 'https://updates.sthang.app/studio/windows/latest.json'
+    || trust?.endpoint !== expectedEndpoint
     || trust?.keyId !== STUDIO_SIGNING_KEY_ID
     || String(trust?.publicKeyHex || '').toLowerCase() !== STUDIO_PUBLIC_KEY_HEX
     || trust?.provisioned !== true
@@ -602,6 +791,57 @@ export async function buildManifest(sourceEntries, packageBytes, packageUnpacked
     setup: {
       strategy: 'npm-ci-and-local-timing',
       packageLockSha256: await sha256Hex(sourceEntries.get('package-lock.json')),
+      pythonFiles: await Promise.all(pythonFiles.map(async (path) => ({ path, sha256: await sha256Hex(sourceEntries.get(path)) }))),
+    },
+  };
+}
+
+export async function buildMacManifest(
+  sourceEntries,
+  packageEntries,
+  packageBytes,
+  packageUnpackedSize,
+  { commit, tree, publishedAt = new Date().toISOString() } = {},
+) {
+  const packageJson = sourceJson(sourceEntries, 'package.json');
+  const version = exactVersion(packageJson?.version);
+  const trust = validateTrustRoot(sourceEntries, 'macos-arm64');
+  const notes = sanitizeReleaseNotes(sourceText(sourceEntries, `release-notes/v${version}.txt`));
+  const evidence = await assertMacPackageMatchesSource(packageEntries, sourceEntries, { commit, tree });
+  const pythonFiles = [...sourceEntries.keys()]
+    .filter((path) => /^local-timing\/requirements(?:-[a-z0-9-]+)?\.txt$/.test(path))
+    .sort();
+  if (!pythonFiles.length || pythonFiles.length > 8) throw new SignerError('Accepted Python dependency declaration is invalid.');
+  return {
+    schemaVersion: 2,
+    product: 'sthang-studio',
+    platform: 'macos-arm64',
+    channel: 'preview',
+    version,
+    publishedAt,
+    releaseNotes: notes,
+    source: {
+      commit,
+      tree,
+      buildEvidenceSha256: evidence.buildEvidenceSha256,
+      derivedRuntimeManifestSha256: evidence.derivedRuntimeManifestSha256,
+    },
+    package: {
+      url: `https://${STUDIO_UPDATE_HOST}/studio/macos-arm64/v${version}/Sthang-Studio-OTA-macOS-Apple-Silicon-v${version}.zip`,
+      sha256: await sha256Hex(packageBytes),
+      sizeBytes: packageBytes.byteLength,
+      unpackedSizeBytes: packageUnpackedSize,
+    },
+    compatibility: {
+      minBrokerVersion: trust.brokerVersion,
+      stateSchema: 1,
+      manualInstallerRequired: false,
+      minMacos: '12.3',
+      arch: 'arm64',
+    },
+    setup: {
+      strategy: 'macos-curated-runtime',
+      packageLockSha256: evidence.packageLockSha256,
       pythonFiles: await Promise.all(pythonFiles.map(async (path) => ({ path, sha256: await sha256Hex(sourceEntries.get(path)) }))),
     },
   };
@@ -689,14 +929,22 @@ async function putCreateOrMatch(bucket, key, bytes, metadata = {}) {
   return { reused: false };
 }
 
-async function writeStatus(bucket, issueNumber, value) {
-  await bucket.put(`status/issues/${issueNumber}.json`, `${JSON.stringify(value)}\n`, {
+function statusKey(issueNumber, platform = 'windows-x64') {
+  return platform === 'macos-arm64'
+    ? `status/issues/${issueNumber}.macos-arm64.json`
+    : `status/issues/${issueNumber}.json`;
+}
+
+async function writeStatus(bucket, issueNumber, value, platform = 'windows-x64') {
+  await bucket.put(statusKey(issueNumber, platform), `${JSON.stringify(value)}\n`, {
     httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
   });
 }
 
-async function stageObject(bucket, commit) {
-  const key = `staging/${commit}/package.zip`;
+async function stageObject(bucket, commit, platform = 'windows-x64') {
+  const key = platform === 'macos-arm64'
+    ? `staging/macos-arm64/${commit}/package.zip`
+    : `staging/${commit}/package.zip`;
   const object = await bucket.get(key);
   if (!object) throw new SignerError('No staged OTA candidate exists for the current accepted main commit.', 409);
   if (object.size <= 0 || object.size > MAX_ARCHIVE_BYTES) throw new SignerError('Staged OTA candidate size is not supported.', 413);
@@ -737,15 +985,35 @@ export function promotionIssueCommand(payload) {
   return authorizedIssueCommand(payload, '/studio-ota-promote');
 }
 
-async function processSigning(env, requestContext, deliveryId) {
+export function macReleaseIssueCommand(payload) {
+  return authorizedIssueCommand(payload, '/studio-ota-sign-macos');
+}
+
+export function macPromotionIssueCommand(payload) {
+  return authorizedIssueCommand(payload, '/studio-ota-promote-macos');
+}
+
+async function processSigning(env, requestContext, deliveryId, platform = 'windows-x64') {
   const commit = await signerRuntimeStage('sign', 'accepted-main', () => acceptedMain());
-  const staged = await signerRuntimeStage('sign', 'staged-package-load', () => stageObject(env.STUDIO_UPDATES, commit));
-  const [source, stagedZip] = await Promise.all([
+  const staged = await signerRuntimeStage('sign', 'staged-package-load', () => stageObject(env.STUDIO_UPDATES, commit, platform));
+  const work = [
     signerRuntimeStage('sign', 'accepted-source-archive', () => sourceArchive(commit)),
     signerRuntimeStage('sign', 'staged-package-zip', () => parseZip(staged.bytes)),
-  ]);
-  await signerRuntimeStage('sign', 'package-source-comparison', async () => assertPackageMatchesSource(stagedZip.entries, source.entries));
-  const manifest = await signerRuntimeStage('sign', 'release-manifest-build', () => buildManifest(source.entries, staged.bytes, stagedZip.totalUnpacked));
+  ];
+  if (platform === 'macos-arm64') work.push(signerRuntimeStage('sign', 'accepted-source-tree', () => acceptedTree(commit)));
+  const [source, stagedZip, tree] = await Promise.all(work);
+  const manifest = platform === 'macos-arm64'
+    ? await signerRuntimeStage('sign', 'release-manifest-build', () => buildMacManifest(
+      source.entries,
+      stagedZip.entries,
+      staged.bytes,
+      stagedZip.totalUnpacked,
+      { commit, tree },
+    ))
+    : await signerRuntimeStage('sign', 'release-manifest-build', async () => {
+      assertPackageMatchesSource(stagedZip.entries, source.entries);
+      return buildManifest(source.entries, staged.bytes, stagedZip.totalUnpacked);
+    });
 
   await requireMain(commit, 'Accepted main changed before signing. Stage a new candidate from the new main commit.');
   const key = await privateSigningStage('key-import-and-self-check', () => signingKey(env));
@@ -756,7 +1024,7 @@ async function processSigning(env, requestContext, deliveryId) {
   const attestationUnsigned = {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform,
     channel: 'preview',
     operation: 'release-attestation',
     source: {
@@ -780,8 +1048,13 @@ async function processSigning(env, requestContext, deliveryId) {
   const attestationBytes = textEncoder.encode(`${JSON.stringify(attestation, null, 2)}\n`);
 
   await requireMain(commit, 'Accepted main changed during signing. No immutable release objects were written.');
-  const prefix = `studio/windows/v${manifest.version}`;
-  await putCreateOrMatch(env.STUDIO_UPDATES, `${prefix}/Sthang-Studio-OTA-v${manifest.version}.zip`, staged.bytes, {
+  const prefix = platform === 'macos-arm64'
+    ? `studio/macos-arm64/v${manifest.version}`
+    : `studio/windows/v${manifest.version}`;
+  const packageName = platform === 'macos-arm64'
+    ? `Sthang-Studio-OTA-macOS-Apple-Silicon-v${manifest.version}.zip`
+    : `Sthang-Studio-OTA-v${manifest.version}.zip`;
+  await putCreateOrMatch(env.STUDIO_UPDATES, `${prefix}/${packageName}`, staged.bytes, {
     sha256: manifest.package.sha256,
     sourceCommit: commit,
   });
@@ -805,7 +1078,7 @@ async function processSigning(env, requestContext, deliveryId) {
     packageSizeBytes: manifest.package.sizeBytes,
     verifiedAt,
   };
-  await writeStatus(env.STUDIO_UPDATES, requestContext.issueNumber, status);
+  await writeStatus(env.STUDIO_UPDATES, requestContext.issueNumber, status, platform);
   return status;
 }
 
@@ -850,7 +1123,7 @@ function validateReleaseStatus(value, issueNumber, commit, version) {
   return status;
 }
 
-function validateAttestation(value, { issueNumber, commit, version, manifestSha256, packageSha256, packageSizeBytes }) {
+function validateAttestation(value, { issueNumber, commit, version, manifestSha256, packageSha256, packageSizeBytes, platform = 'windows-x64' }) {
   const attestation = exactObjectKeys(value, [
     'schemaVersion', 'product', 'platform', 'channel', 'operation', 'source', 'version',
     'manifestSha256', 'packageSha256', 'packageSizeBytes', 'verifiedAt', 'signature',
@@ -862,7 +1135,7 @@ function validateAttestation(value, { issueNumber, commit, version, manifestSha2
   if (
     attestation.schemaVersion !== 1
     || attestation.product !== 'sthang-studio'
-    || attestation.platform !== 'windows-x64'
+    || attestation.platform !== platform
     || attestation.channel !== 'preview'
     || attestation.operation !== 'release-attestation'
     || attestation.version !== version
@@ -881,16 +1154,18 @@ function validateAttestation(value, { issueNumber, commit, version, manifestSha2
   return attestation;
 }
 
-async function verifyGithubRecoveryRelease(version, commit) {
+async function verifyGithubRecoveryRelease(version, commit, platform = 'windows-x64') {
   const source = await sourceArchive(commit);
   const tagArchiveBytes = await fetchCodeloadArchive(`refs/tags/v${version}`, 'GitHub recovery tag archive');
   const tagged = await parseZip(tagArchiveBytes, { stripFirstSegment: true, allowProtectedRuntimeState: true });
   assertExactSourceTree(tagged.entries, source.entries, 'GitHub recovery tag');
 
-  const pairs = [
-    [`Sthang-Studio-Windows-v${version}.zip`, `Sthang-Studio-Windows-v${version}.zip.sha256`],
-    [`Sthang-Studio-macOS-Apple-Silicon-v${version}.zip`, `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip.sha256`],
-  ];
+  const pairs = platform === 'macos-arm64'
+    ? [[`Sthang-Studio-macOS-Apple-Silicon-v${version}.zip`, `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip.sha256`]]
+    : [
+      [`Sthang-Studio-Windows-v${version}.zip`, `Sthang-Studio-Windows-v${version}.zip.sha256`],
+      [`Sthang-Studio-macOS-Apple-Silicon-v${version}.zip`, `Sthang-Studio-macOS-Apple-Silicon-v${version}.zip.sha256`],
+    ];
   for (const [archiveName, checksumName] of pairs) {
     const [archiveBytes, checksumBytes] = await Promise.all([
       fetchGithubReleaseAsset(version, archiveName, MAX_ARCHIVE_BYTES),
@@ -900,49 +1175,128 @@ async function verifyGithubRecoveryRelease(version, commit) {
     if (await sha256Hex(archiveBytes) !== expected) {
       throw new SignerError(`The matching GitHub recovery release asset is not verified: ${archiveName}.`, 409);
     }
+    if (platform === 'macos-arm64') {
+      const recovery = await parseZip(archiveBytes);
+      const outer = `Sthang Studio ${version}/`;
+      const filesPrefix = `${outer}Sthang Studio Files/`;
+      const installerPath = `${outer}Install Sthang Studio.command`;
+      const readmePath = `${outer}Read Me.txt`;
+      const payload = new Map();
+      let installerBytes = null;
+      let readmeBytes = null;
+      for (const [entryPath, entryBytes] of recovery.entries.entries()) {
+        if (entryPath === installerPath) {
+          installerBytes = entryBytes;
+          continue;
+        }
+        if (entryPath === readmePath) {
+          readmeBytes = entryBytes;
+          continue;
+        }
+        if (entryPath.startsWith(filesPrefix)) {
+          const relative = entryPath.slice(filesPrefix.length);
+          if (!relative) throw new SignerError('The GitHub macOS recovery package layout is invalid.', 409);
+          payload.set(relative, entryBytes);
+          continue;
+        }
+        throw new SignerError(`The GitHub macOS recovery package contains unexpected content: ${entryPath}.`, 409);
+      }
+      if (!installerBytes || !readmeBytes || !payload.size) {
+        throw new SignerError('The GitHub macOS recovery package is missing its three-item handoff.', 409);
+      }
+      const normalizedText = (bytes) => textDecoder.decode(bytes).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trimEnd();
+      const expectedInstaller = source.entries.get('packaging/macos/Install Sthang Studio.command');
+      const expectedReadme = source.entries.get('packaging/macos/Read Me.txt');
+      if (
+        !expectedInstaller
+        || normalizedText(installerBytes) !== normalizedText(expectedInstaller)
+        || !expectedReadme
+        || normalizedText(readmeBytes) !== normalizedText(expectedReadme).replaceAll('{{VERSION}}', version)
+      ) {
+        throw new SignerError('The GitHub macOS recovery handoff does not match accepted source.', 409);
+      }
+      const tree = await acceptedTree(commit);
+      await assertMacPackageMatchesSource(payload, source.entries, { commit, tree });
+    }
   }
 }
 
-export function latestPointerDocument(version, manifestSha256) {
+export function latestPointerDocument(version, manifestSha256, platform = 'windows-x64') {
   const checkedVersion = exactVersion(version);
   if (!/^[0-9a-f]{64}$/.test(manifestSha256)) throw new SignerError('Release manifest hash is invalid.');
+  const base = platform === 'macos-arm64'
+    ? 'studio/macos-arm64'
+    : platform === 'windows-x64'
+      ? 'studio/windows'
+      : '';
+  if (!base) throw new SignerError('Release platform is invalid.');
   return {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform,
     channel: 'preview',
     version: checkedVersion,
-    manifestUrl: `https://${STUDIO_UPDATE_HOST}/studio/windows/v${checkedVersion}/release.json`,
+    manifestUrl: `https://${STUDIO_UPDATE_HOST}/${base}/v${checkedVersion}/release.json`,
     manifestSha256,
   };
 }
 
-async function validateExistingLatest(bytes) {
+async function validateExistingLatest(bytes, platform = 'windows-x64') {
   const pointer = safeJsonParse(bytes, 'Current latest pointer');
   exactObjectKeys(pointer, [
     'schemaVersion', 'product', 'platform', 'channel', 'version', 'manifestUrl', 'manifestSha256', 'signature',
   ], 'current latest pointer');
   await verifySignedDocument(pointer, 'Current latest pointer');
   const version = exactVersion(pointer.version);
+  const base = platform === 'macos-arm64' ? 'studio/macos-arm64' : 'studio/windows';
   if (
     pointer.schemaVersion !== 1
     || pointer.product !== 'sthang-studio'
-    || pointer.platform !== 'windows-x64'
+    || pointer.platform !== platform
     || pointer.channel !== 'preview'
-    || pointer.manifestUrl !== `https://${STUDIO_UPDATE_HOST}/studio/windows/v${version}/release.json`
+    || pointer.manifestUrl !== `https://${STUDIO_UPDATE_HOST}/${base}/v${version}/release.json`
     || !/^[0-9a-f]{64}$/.test(pointer.manifestSha256)
   ) throw new SignerError('Current latest pointer identity is invalid.', 409);
   return pointer;
 }
 
-async function verifyPromotionEvidence(env, requestContext) {
+export async function putLatestPointerConditional(bucket, key, bytes, {
+  previous = null,
+  httpMetadata,
+  customMetadata,
+} = {}) {
+  const stored = await bucket.put(key, bytes, {
+    onlyIf: previous
+      ? { etagMatches: String(previous.etag || '') }
+      : { etagDoesNotMatch: '*' },
+    httpMetadata,
+    customMetadata,
+  });
+  if (!stored) throw new SignerError('The latest pointer changed during promotion. Verify the newer state before retrying.', 409);
+  return stored;
+}
+
+export async function restoreLatestPointerConditional(bucket, key, previous, previousBytes, promoted) {
+  if (!previous || !previousBytes || !promoted?.etag) return false;
+  const restored = await bucket.put(key, previousBytes, {
+    onlyIf: { etagMatches: promoted.etag },
+    httpMetadata: previous.httpMetadata || { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
+    customMetadata: previous.customMetadata,
+  });
+  return Boolean(restored);
+}
+
+async function verifyPromotionEvidence(env, requestContext, platform = 'windows-x64') {
   const commit = await acceptedMain();
   const source = await sourceArchive(commit);
   const version = exactVersion(sourceJson(source.entries, 'package.json')?.version);
-  const prefix = `studio/windows/v${version}`;
+  const prefix = platform === 'macos-arm64' ? `studio/macos-arm64/v${version}` : `studio/windows/v${version}`;
+  const packageName = platform === 'macos-arm64'
+    ? `Sthang-Studio-OTA-macOS-Apple-Silicon-v${version}.zip`
+    : `Sthang-Studio-OTA-v${version}.zip`;
   const [statusObject, packageObject, manifestObject, attestationObject] = await Promise.all([
-    bucketBytes(env.STUDIO_UPDATES, `status/issues/${requestContext.issueNumber}.json`, 'Release signing status', 32 * 1024),
-    bucketBytes(env.STUDIO_UPDATES, `${prefix}/Sthang-Studio-OTA-v${version}.zip`, 'Immutable OTA package'),
+    bucketBytes(env.STUDIO_UPDATES, statusKey(requestContext.issueNumber, platform), 'Release signing status', 32 * 1024),
+    bucketBytes(env.STUDIO_UPDATES, `${prefix}/${packageName}`, 'Immutable OTA package'),
     bucketBytes(env.STUDIO_UPDATES, `${prefix}/release.json`, 'Signed release manifest', 64 * 1024),
     bucketBytes(env.STUDIO_UPDATES, `${prefix}/release-attestation.json`, 'Signed release attestation', 64 * 1024),
   ]);
@@ -951,13 +1305,17 @@ async function verifyPromotionEvidence(env, requestContext) {
     throw new SignerError('Immutable OTA package does not match release signing status.', 409);
   }
   const packageZip = await parseZip(packageObject.bytes);
-  assertPackageMatchesSource(packageZip.entries, source.entries);
+  const tree = platform === 'macos-arm64' ? await acceptedTree(commit) : '';
+  if (platform === 'macos-arm64') await assertMacPackageMatchesSource(packageZip.entries, source.entries, { commit, tree });
+  else assertPackageMatchesSource(packageZip.entries, source.entries);
 
   const manifest = safeJsonParse(manifestObject.bytes, 'Signed release manifest');
   await verifySignedDocument(manifest, 'Signed release manifest');
   const manifestSha256 = await sha256Hex(manifestObject.bytes);
   if (manifestSha256 !== status.manifestSha256) throw new SignerError('Signed release manifest does not match release signing status.', 409);
-  const expectedManifest = await buildManifest(source.entries, packageObject.bytes, packageZip.totalUnpacked, { publishedAt: manifest.publishedAt });
+  const expectedManifest = platform === 'macos-arm64'
+    ? await buildMacManifest(source.entries, packageZip.entries, packageObject.bytes, packageZip.totalUnpacked, { commit, tree, publishedAt: manifest.publishedAt })
+    : await buildManifest(source.entries, packageObject.bytes, packageZip.totalUnpacked, { publishedAt: manifest.publishedAt });
   if (canonicalJson(unsignedDocument(manifest)) !== canonicalJson(expectedManifest)) {
     throw new SignerError('Signed release manifest does not match current accepted source and package.', 409);
   }
@@ -971,25 +1329,32 @@ async function verifyPromotionEvidence(env, requestContext) {
     manifestSha256,
     packageSha256: status.packageSha256,
     packageSizeBytes: status.packageSizeBytes,
+    platform,
   });
 
-  await verifyGithubRecoveryRelease(version, commit);
+  await verifyGithubRecoveryRelease(version, commit, platform);
   await Promise.all([
     fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/release.json`, manifestObject.bytes, 'Public immutable release manifest'),
-    fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/Sthang-Studio-OTA-v${version}.zip`, packageObject.bytes, 'Public immutable OTA package'),
+    fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/${packageName}`, packageObject.bytes, 'Public immutable OTA package'),
     fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/${prefix}/release-attestation.json`, attestationObject.bytes, 'Public immutable release attestation'),
   ]);
   return { commit, version, manifest, manifestBytes: manifestObject.bytes, manifestSha256, packageSha256: status.packageSha256 };
 }
 
-async function processPromotion(env, requestContext, deliveryId) {
-  const evidence = await verifyPromotionEvidence(env, requestContext);
-  const latestKey = 'studio/windows/latest.json';
+async function processPromotion(env, requestContext, deliveryId, platform = 'windows-x64') {
+  const evidence = await verifyPromotionEvidence(env, requestContext, platform);
+  const latestKey = platform === 'macos-arm64' ? 'studio/macos-arm64/latest.json' : 'studio/windows/latest.json';
   const previous = await env.STUDIO_UPDATES.get(latestKey);
   let previousBytes = null;
+  let previousEtag = '';
+  let previousHttpMetadata;
+  let previousCustomMetadata;
   if (previous) {
     previousBytes = new Uint8Array(await previous.arrayBuffer());
-    const current = await validateExistingLatest(previousBytes);
+    previousEtag = String(previous.etag || '');
+    previousHttpMetadata = previous.httpMetadata;
+    previousCustomMetadata = previous.customMetadata;
+    const current = await validateExistingLatest(previousBytes, platform);
     if (compareStudioVersions(evidence.version, current.version) <= 0) {
       throw new SignerError('The latest pointer may only advance to a newer verified version.', 409);
     }
@@ -997,27 +1362,33 @@ async function processPromotion(env, requestContext, deliveryId) {
 
   await requireMain(evidence.commit, 'Accepted main changed before latest-pointer signing. Verify the new accepted release first.');
   const key = await privateSigningStage('latest-key-import-and-self-check', () => signingKey(env));
-  const signedPointer = await privateSigningStage('latest-pointer-signature', () => signDocument(latestPointerDocument(evidence.version, evidence.manifestSha256), key));
+  const signedPointer = await privateSigningStage('latest-pointer-signature', () => signDocument(latestPointerDocument(evidence.version, evidence.manifestSha256, platform), key));
   const pointerBytes = textEncoder.encode(`${JSON.stringify(signedPointer, null, 2)}\n`);
   const latestSha256 = await sha256Hex(pointerBytes);
   await requireMain(evidence.commit, 'Accepted main changed during latest-pointer promotion. No pointer was written.');
 
-  await env.STUDIO_UPDATES.put(latestKey, pointerBytes, {
+  const storedPointer = await putLatestPointerConditional(env.STUDIO_UPDATES, latestKey, pointerBytes, {
+    previous,
     httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
     customMetadata: { sourceCommit: evidence.commit, manifestSha256: evidence.manifestSha256, deliveryId },
   });
   try {
     const stored = await bucketBytes(env.STUDIO_UPDATES, latestKey, 'Promoted latest pointer', 32 * 1024);
     if (!compareBytes(stored.bytes, pointerBytes)) throw new SignerError('Promoted latest pointer bytes could not be verified.', 502);
-    await validateExistingLatest(stored.bytes);
-    await fetchExactPublic(`https://${STUDIO_UPDATE_HOST}/studio/windows/latest.json`, pointerBytes, 'Public latest pointer');
+    await validateExistingLatest(stored.bytes, platform);
+    const publicLatest = platform === 'macos-arm64'
+      ? `https://${STUDIO_UPDATE_HOST}/studio/macos-arm64/latest.json`
+      : `https://${STUDIO_UPDATE_HOST}/studio/windows/latest.json`;
+    await fetchExactPublic(publicLatest, pointerBytes, 'Public latest pointer');
   } catch (error) {
     if (previousBytes) {
-      await env.STUDIO_UPDATES.put(latestKey, previousBytes, {
-        httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
-      }).catch(() => {});
-    } else {
-      await env.STUDIO_UPDATES.delete(latestKey).catch(() => {});
+      await restoreLatestPointerConditional(
+        env.STUDIO_UPDATES,
+        latestKey,
+        { ...previous, etag: previousEtag, httpMetadata: previousHttpMetadata, customMetadata: previousCustomMetadata },
+        previousBytes,
+        storedPointer,
+      ).catch(() => {});
     }
     throw error;
   }
@@ -1033,7 +1404,7 @@ async function processPromotion(env, requestContext, deliveryId) {
     latestSha256,
     promotedAt: new Date().toISOString(),
   };
-  await writeStatus(env.STUDIO_UPDATES, requestContext.issueNumber, status);
+  await writeStatus(env.STUDIO_UPDATES, requestContext.issueNumber, status, platform);
   return status;
 }
 
@@ -1048,9 +1419,19 @@ async function handleWebhook(request, env) {
 
   const payload = safeJsonParse(bodyBytes, 'Webhook payload');
   const command = payload?.comment?.body;
-  const operation = command === '/studio-ota-sign' ? 'sign' : command === '/studio-ota-promote' ? 'promote' : null;
+  const operation = command === '/studio-ota-sign'
+    ? { action: 'sign', platform: 'windows-x64' }
+    : command === '/studio-ota-promote'
+      ? { action: 'promote', platform: 'windows-x64' }
+      : command === '/studio-ota-sign-macos'
+        ? { action: 'sign', platform: 'macos-arm64' }
+        : command === '/studio-ota-promote-macos'
+          ? { action: 'promote', platform: 'macos-arm64' }
+          : null;
   if (!operation) throw new SignerError('This issue comment is not an authorized Studio signing request.', 403);
-  const context = operation === 'sign' ? releaseIssueCommand(payload) : promotionIssueCommand(payload);
+  const context = operation.platform === 'macos-arm64'
+    ? operation.action === 'sign' ? macReleaseIssueCommand(payload) : macPromotionIssueCommand(payload)
+    : operation.action === 'sign' ? releaseIssueCommand(payload) : promotionIssueCommand(payload);
   const replayKey = `audit/webhook/${deliveryId}.json`;
   const replayBytes = textEncoder.encode(`${JSON.stringify({ receivedAt: new Date().toISOString(), issueNumber: context.issueNumber, commentId: context.commentId })}\n`);
   const replay = await env.STUDIO_UPDATES.put(replayKey, replayBytes, {
@@ -1060,29 +1441,29 @@ async function handleWebhook(request, env) {
   if (!replay) return json({ ok: true, duplicate: true }, 202);
 
   try {
-    const status = operation === 'sign'
-      ? await processSigning(env, context, deliveryId)
-      : await processPromotion(env, context, deliveryId);
+    const status = operation.action === 'sign'
+      ? await processSigning(env, context, deliveryId, operation.platform)
+      : await processPromotion(env, context, deliveryId, operation.platform);
     await putCreateOrMatch(env.STUDIO_UPDATES, `audit/webhook/${deliveryId}.result.json`, textEncoder.encode(`${JSON.stringify(status)}\n`));
     return json({ ok: true, accepted: true, version: status.version }, 202);
   } catch (error) {
-    const message = error instanceof SignerError ? error.message : operation === 'sign' ? 'Signing request failed.' : 'Latest-pointer promotion failed.';
+    const message = error instanceof SignerError ? error.message : operation.action === 'sign' ? 'Signing request failed.' : 'Latest-pointer promotion failed.';
     const status = {
       schemaVersion: 1,
       product: 'sthang-studio',
-      operation: operation === 'sign' ? 'release-signing-failed' : 'latest-promotion-failed',
+      operation: operation.action === 'sign' ? 'release-signing-failed' : 'latest-promotion-failed',
       issueNumber: context.issueNumber,
       message,
       failedAt: new Date().toISOString(),
     };
-    await writeStatus(env.STUDIO_UPDATES, context.issueNumber, status).catch(() => {});
+    await writeStatus(env.STUDIO_UPDATES, context.issueNumber, status, operation.platform).catch(() => {});
     await putCreateOrMatch(env.STUDIO_UPDATES, `audit/webhook/${deliveryId}.result.json`, textEncoder.encode(`${JSON.stringify(status)}\n`)).catch(() => {});
     throw error;
   }
 }
 
-async function readPublicStatus(env, issueNumber) {
-  const object = await env.STUDIO_UPDATES.get(`status/issues/${issueNumber}.json`);
+async function readPublicStatus(env, issueNumber, platform = 'windows-x64') {
+  const object = await env.STUDIO_UPDATES.get(statusKey(issueNumber, platform));
   if (!object) return json({ ok: true, status: 'none' }, 404);
   return new Response(object.body, {
     status: 200,
@@ -1101,6 +1482,8 @@ export async function handleRequest(request, env) {
   }
   const statusMatch = /^\/v1\/studio\/issues\/(\d+)\/latest$/.exec(url.pathname);
   if (request.method === 'GET' && statusMatch) return readPublicStatus(env, Number(statusMatch[1]));
+  const macStatusMatch = /^\/v1\/studio\/issues\/(\d+)\/macos-arm64\/latest$/.exec(url.pathname);
+  if (request.method === 'GET' && macStatusMatch) return readPublicStatus(env, Number(macStatusMatch[1]), 'macos-arm64');
   if (request.method === 'POST' && url.pathname === '/github/webhook') return handleWebhook(request, env);
   return json({ ok: false, error: 'Not found.' }, 404);
 }

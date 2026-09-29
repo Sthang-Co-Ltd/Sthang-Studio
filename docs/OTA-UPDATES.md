@@ -1,6 +1,13 @@
-# Signed Studio updates (0.8 bootstrap; 0.85.5 release)
+# Signed Studio updates (Windows public path; Apple Silicon bootstrap)
 
 This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.2` became the first deliberately promoted public signed Windows OTA offer. Its signed immutable objects remain historical and must not be mutated.
+
+The current unreleased Apple Silicon work adds a separate installed macOS bootstrap
+using the same explicit user-confirmation and Ed25519 verification model but a
+platform-bound `macos-arm64` namespace. It does **not** make any Mac version a live
+OTA offer by itself. A Mac offer exists only after its exact source, recovery
+installer, immutable OTA package/manifest/attestation, native-Mac acceptance and
+signed `macos-arm64/latest.json` pointer are separately verified and promoted.
 
 Version `0.8.0` carries the reviewed Studio public verification trust. No public signed `latest.json` pointer is promoted by the 0.8.0 GitHub Release.
 
@@ -16,7 +23,16 @@ Update controls remain secondary to caption work. Installation is blocked while 
 
 ## Trust and immutable release contract
 
-Studio has a dedicated Ed25519 trust-root configuration at `config/update-trust-root.json`; it is separate from every ACO trust root or credential. In the `0.8.0` bootstrap, the **public verification key is provisioned** with key id `studio-updates-ed25519-root-v1`. Only that public key is committed. The matching production private key remains outside the repository behind the dedicated signing-service custody boundary.
+Studio has dedicated platform-bound Ed25519 trust-root configuration:
+`config/update-trust-root.json` for `windows-x64` and
+`config/update-trust-root-macos.json` for `macos-arm64`. They use the Studio
+update verification key rather than any ACO trust root or credential. Only the
+public key is committed. The matching production private key remains outside the
+repository behind the dedicated signing-service custody boundary.
+
+For both installed updater bootstraps, the **public verification key is provisioned**
+in the committed platform trust root; provisioning that public key does not itself
+publish or promote an update.
 
 Provisioning the public key is necessary so the published bootstrap can verify later signed updates. It does not create a signed latest pointer or public OTA offer by itself.
 
@@ -24,27 +40,56 @@ The public Studio updater requires no license, authentication, D1 enrollment, or
 device credential. It must never reuse ACO enrollment state, update credentials,
 or Tauri updater code.
 
-The Sthang-controlled Windows update endpoint is:
+The Sthang-controlled update endpoints are:
 
 ```text
 https://updates.sthang.app/studio/windows/latest.json
+https://updates.sthang.app/studio/macos-arm64/latest.json
 ```
 
-The mutable pointer and immutable version manifest are both Ed25519-signed. Version manifests and package objects must live below `/v<version>/`, have no query string or redirect, and bind the exact package byte length, SHA-256, expanded-size ceiling, lockfile hash, Python requirement hashes, setup strategy, minimum broker version, and bounded release notes. A pointer is promotable only from exact verified release evidence after the versioned manifest signature and package bytes match.
+The mutable pointer and immutable version manifest are both Ed25519-signed.
+Platform names are part of the signed identity, and URLs must remain beneath the
+matching immutable platform namespace. Windows retains release-manifest schema 1.
+Apple Silicon uses schema 2, which additionally binds the accepted Git commit/tree,
+source-owned production-build evidence, the derived-runtime manifest, `arm64`,
+the macOS 12.3 floor and the curated-runtime setup strategy. Both platforms bind
+the exact package byte length, SHA-256, expanded-size ceiling, lockfile hash,
+Python requirement hashes, minimum broker version and bounded release notes.
 
-`npm run package:ota` creates an unsigned local candidate only. Local protocol tooling can verify manifest/package relationships, but production release signing is performed by the runner-free signing broker described below. Neither local packaging nor source acceptance uploads a public OTA release or advances `latest.json`.
+`npm run package:ota` creates the unsigned Windows candidate.
+`npm run package:macos` creates both the manual Mac recovery ZIP and a rootless
+unsigned Mac OTA ZIP/manifest from the same exact curated payload. Local protocol
+tooling verifies those relationships, but production signing is performed by the
+runner-free signing broker. Neither local packaging nor source acceptance uploads a
+public OTA release or advances `latest.json`.
 
 ## Runner-free production signing broker
 
-The production signer is a dedicated Cloudflare Worker under `infra/ota-signer/` rather than a GitHub Actions signing job. The owner-controlled private key stays behind a Cloudflare Secrets Store binding. ChatGPT and Codex may invoke signing by posting the exact `/studio-ota-sign` command to an authorized open `release:` issue. GitHub sends the signed `issue_comment` webhook directly to `signer.sthang.app`, so routine signing does not consume GitHub Actions or Blacksmith runner quota.
+The production signer is a dedicated Cloudflare Worker under `infra/ota-signer/`
+rather than a GitHub Actions signing job. The owner-controlled private key stays
+behind a Cloudflare Secrets Store binding. Windows uses the exact
+`/studio-ota-sign` and `/studio-ota-promote` issue commands. Apple Silicon uses
+the separately authorized `/studio-ota-sign-macos` and
+`/studio-ota-promote-macos` commands. GitHub sends the signed
+`issue_comment` webhook directly to `signer.sthang.app`.
 
 The signer service and private R2 staging bucket were deployed separately from the 0.8.0 GitHub Release. Provider-specific account/store/secret identifiers remain outside public source and release documentation. Deployment is infrastructure evidence only; it does not establish that an OTA release exists.
 
-The signer does not accept arbitrary messages, manifests, or upload URLs to sign. An owner-controlled local release-preparation step stages an OTA ZIP under a private R2 key bound to the exact current `main` commit. Before using the Studio key, the Worker downloads GitHub's archive for that exact commit, parses both archives, rejects unsafe/protected/unsupported entries, and requires the staged package's complete allowed file set and every file byte to match accepted source. It derives the release manifest itself from accepted source and verified package bytes, signs that canonical manifest plus a provenance attestation, and writes only create-only immutable version objects.
+The signer does not accept arbitrary messages, manifests, or upload URLs to sign.
+Windows staging remains `staging/<commit>/package.zip`; Apple Silicon staging is
+`staging/macos-arm64/<commit>/package.zip`. Before using the Studio key, the
+Worker obtains the exact accepted `main` source. Mac signing additionally resolves
+that commit's Git tree and verifies every staged tracked payload byte plus every
+generated server/web/shared file against the source-owned
+`.sthang/macos-release-build.json`. The staged derived-runtime manifest must bind
+that exact commit/tree, build-evidence hash and lockfile hash. Only after those
+checks does the Worker derive and sign the platform manifest/attestation.
 
 The Worker rechecks accepted `main` immediately before private-key use and again before immutable release-object writes. If `main` changes, the signing request fails rather than signing stale source.
 
-The `/studio-ota-sign` command never promotes `latest.json`. Public update availability still requires the matching immutable objects to be independently verified, the update-serving origin to be verified, Windows upgrade/rollback evidence, the matching GitHub recovery release, and deliberate latest-pointer promotion. Promotion is a separate owner-bound `/studio-ota-promote` command that re-verifies those production inputs before signing and advancing the pointer.
+Signing never promotes `latest.json`. Promotion is a separate owner-bound command
+per platform and re-verifies accepted source, immutable package/manifest/attestation
+and the matching GitHub recovery release before advancing that platform's pointer.
 
 ## Staging, activation, and rollback
 
@@ -57,6 +102,37 @@ After Studio closes, the stable broker safely extracts the ZIP beneath the updat
 Prepared source and dependencies move to immutable `versions/<version>/`. npm's Windows workspace junctions use absolute targets, so runtime startup verifies and refreshes only the known `@kcs/server`, `@kcs/shared`, and `@kcs/web` workspace links after that relocation before building/starting services. An atomic `updates/active.json` pointer chooses the version; the desktop shortcut continues targeting the stable root `run-windows.bat`, which preserves registered-default-browser behavior. The previous pointer and version are retained. The new API and web service must become healthy, and the API must report the offered version, before the transaction is accepted. Failure restores the prior pointer and relaunches the prior version. A power interruption after pointer change leaves a transaction marker; the next normal launch restores the previous pointer before starting.
 
 The old root installation is retained as the initial rollback/manual-recovery version. No OTA path uses the legacy delete-then-copy installer as its atomicity mechanism.
+
+### Apple Silicon activation
+
+The manually installed Mac baseline remains at
+`~/Library/Application Support/Sthang Studio/app` and acts as the stable broker
+and recovery source. `~/Applications/Sthang Studio.app` is a thin Finder launcher
+with the approved icon; `Sthang Studio.command` remains the Terminal recovery
+launcher. Neither normal OTA package needs to replace those stable launchers.
+
+A Mac package contains the reviewed prebuilt server/web/shared production output,
+not development build tooling. Before activation, the stable broker re-verifies the
+signed pointer/manifest/package, holds the same macOS install lock used by the
+manual installer for the complete prepare/activate/health/rollback transaction,
+safe-extracts the rootless ZIP beneath `updates/work`, rejects traversal,
+symlinks/special files, Unicode/case collisions, protected state and expansion
+beyond the signed exact size, then verifies package lock, Python inputs,
+source-owned build evidence and every derived output hash.
+
+The version runs curated `npm ci --omit=dev --ignore-scripts` plus the reviewed
+local timing setup and is moved to immutable `versions/<version>` only after
+preparation succeeds. `updates/active.json` changes atomically afterward. The new
+API must report the exact offered version and the same-origin production UI must
+be healthy before the transaction commits. Health failure or interruption restores
+the previous pointer. User data, managed prerequisite tools and the stable baseline
+`.env` stay outside immutable versions.
+
+A later manual recovery/bootstrap installer intentionally returns launch authority
+to its newly installed baseline: OTA control pointers are backed up under the same
+install transaction and removed only at commit. Failure restores both the prior
+baseline/launchers and the prior OTA control pointers; immutable versions/receipts
+are preserved.
 
 ### Maintainer-assisted repair for the affected stable Windows broker
 
@@ -74,7 +150,11 @@ Each immutable version owns its `node_modules` and `.venv`. This permits `packag
 
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
-## OTA production gates for 0.85.5 and later
+On macOS, the Keychain-backed Gemini key and stable state root remain outside
+version directories as well. The baseline `apps/server/.env` is explicitly
+injected into active immutable versions as the advanced fallback.
+
+## OTA production gates
 
 The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.5`, and for every later signed Studio release, the rollout must satisfy these gates before the new version is described as available through in-app update:
 
@@ -86,6 +166,14 @@ The 0.8.0 GitHub Release provides the bootstrap trust only. For `0.85.5`, and fo
 6. Advance signed `latest.json` only from matching verified immutable-release, GitHub Release, and Windows upgrade/rollback evidence.
 7. Verify a real installed 0.8.0-or-later bootstrap client offers the intended newer signed version once per session and through the manual check action.
 8. Complete approved HQ intake and Distribution synchronization before changing public website/docs claims about OTA availability.
+
+Apple Silicon follows the same evidence principle but its acceptance is
+platform-specific: use `npm run stage:ota:macos`, authorize only the Mac signing
+and promotion commands, verify the exact schema-2 source/build provenance chain,
+exercise install → in-app offer → download/verify → prepare → activation → fresh
+launch on real Apple Silicon, test failed preparation/health/interrupted activation
+rollback and state preservation, and verify the matching manual Mac recovery release.
+The platform pointer must not be promoted before those native-Mac gates pass.
 
 The public anonymous signed OTA model is represented as `public-signed-ota` in
 Studio's product manifest. HQ and Distribution must accept and synchronize that

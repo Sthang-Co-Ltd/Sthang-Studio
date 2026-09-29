@@ -92,15 +92,41 @@ if (packageLockSha256 !== expectedPackageLockSha256) {
   throw new Error(`Packaged package-lock.json does not match the clean release-build lock: expected ${expectedPackageLockSha256}, got ${packageLockSha256}`);
 }
 
+const buildEvidencePath = path.join(root, '.sthang', 'macos-release-build.json');
+if (!fs.existsSync(buildEvidencePath)) throw new Error('Packaged runtime is missing source-owned macOS release build evidence.');
+const buildEvidenceBytes = fs.readFileSync(buildEvidencePath);
+const buildEvidenceSha256 = crypto.createHash('sha256').update(buildEvidenceBytes).digest('hex');
+let buildEvidence;
+try {
+  buildEvidence = JSON.parse(buildEvidenceBytes.toString('utf8'));
+} catch {
+  throw new Error('Source-owned macOS release build evidence is invalid.');
+}
+if (
+  buildEvidence?.schemaVersion !== 1
+  || buildEvidence?.packageLockSha256 !== expectedPackageLockSha256
+  || !Array.isArray(buildEvidence?.files)
+) {
+  throw new Error('Source-owned macOS release build evidence identity is invalid.');
+}
+const expectedEvidenceFiles = [...buildEvidence.files]
+  .map((entry) => ({
+    path: String(entry?.path || ''),
+    size: Number(entry?.size),
+    sha256: String(entry?.sha256 || '').toLowerCase(),
+  }))
+  .sort((a, b) => a.path.localeCompare(b.path));
+if (JSON.stringify(expectedEvidenceFiles) !== JSON.stringify(entries)) {
+  throw new Error('Derived macOS production output does not match source-owned release build evidence.');
+}
+
 fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
 fs.writeFileSync(manifestPath, `${JSON.stringify({
   schemaVersion: 2,
   sourceCommit,
   sourceTree,
   packageLockSha256,
-  buildNodeVersion: process.version,
-  buildPlatform: process.platform,
-  buildArch: process.arch,
+  buildEvidenceSha256,
   files: entries,
 }, null, 2)}\n`, 'utf8');
 console.log(`Verified ${entries.length} derived macOS production files and wrote ${manifestPath}.`);

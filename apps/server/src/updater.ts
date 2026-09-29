@@ -32,7 +32,7 @@ export interface UpdateSignature {
 export interface UpdateTrustRoot {
   schemaVersion: 1;
   product: 'sthang-studio';
-  platform: 'windows-x64';
+  platform: 'windows-x64' | 'macos-arm64';
   channel: 'preview';
   endpoint: string;
   keyId: string;
@@ -44,7 +44,7 @@ export interface UpdateTrustRoot {
 export interface LatestPointer {
   schemaVersion: 1;
   product: 'sthang-studio';
-  platform: 'windows-x64';
+  platform: 'windows-x64' | 'macos-arm64';
   channel: 'preview';
   version: string;
   manifestUrl: string;
@@ -53,9 +53,9 @@ export interface LatestPointer {
 }
 
 export interface ReleaseManifest {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   product: 'sthang-studio';
-  platform: 'windows-x64';
+  platform: 'windows-x64' | 'macos-arm64';
   channel: 'preview';
   version: string;
   publishedAt: string;
@@ -70,11 +70,19 @@ export interface ReleaseManifest {
     minBrokerVersion: string;
     stateSchema: 1;
     manualInstallerRequired: false;
+    minMacos?: '12.3';
+    arch?: 'arm64';
   };
   setup: {
-    strategy: 'npm-ci-and-local-timing';
+    strategy: 'npm-ci-and-local-timing' | 'macos-curated-runtime';
     packageLockSha256: string;
     pythonFiles: Array<{ path: string; sha256: string }>;
+  };
+  source?: {
+    commit: string;
+    tree: string;
+    buildEvidenceSha256: string;
+    derivedRuntimeManifestSha256: string;
   };
   signature: UpdateSignature;
 }
@@ -117,6 +125,8 @@ interface ServiceOptions {
   trustRoot?: UpdateTrustRoot;
   fetchImpl?: typeof fetch;
   platform?: NodeJS.Platform;
+  arch?: string;
+  brokerActive?: boolean;
   updateRoot?: string;
   versionsRoot?: string;
   installRoot?: string;
@@ -165,8 +175,11 @@ export function assertImmutableUpdateUrl(raw: string, version: string, label: st
 }
 
 async function loadDefaultTrustRoot(): Promise<UpdateTrustRoot> {
+  const defaultName = process.platform === 'darwin'
+    ? 'update-trust-root-macos.json'
+    : 'update-trust-root.json';
   const trustFile = process.env.STHANG_STUDIO_UPDATE_TRUST_ROOT_FILE
-    || path.join(stateRootDir, 'config', 'update-trust-root.json');
+    || path.join(stateRootDir, 'config', defaultName);
   let parsed: unknown;
   try { parsed = JSON.parse(await fs.readFile(trustFile, 'utf8')); }
   catch (error) {
@@ -248,6 +261,7 @@ async function writeAtomic(file: string, value: unknown) {
   try {
     await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     await fs.rename(temp, file);
+    await syncParentDirectory(file);
   } catch (error) {
     await fs.rm(temp, { force: true }).catch(() => {});
     throw error;
@@ -260,10 +274,18 @@ async function writeBufferAtomic(file: string, value: Buffer) {
   try {
     await fs.writeFile(temp, value, { mode: 0o600, flag: 'wx' });
     await fs.rename(temp, file);
+    await syncParentDirectory(file);
   } catch (error) {
     await fs.rm(temp, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+async function syncParentDirectory(file: string) {
+  if (process.platform === 'win32') return;
+  const handle = await fs.open(path.dirname(file), 'r');
+  try { await handle.sync(); }
+  finally { await handle.close(); }
 }
 
 async function fileHash(file: string) {
@@ -352,6 +374,8 @@ export async function createUpdateService(options: ServiceOptions = {}) {
   const trust = options.trustRoot || await loadDefaultTrustRoot();
   const fetchImpl = options.fetchImpl || fetch;
   const platform = options.platform || process.platform;
+  const arch = options.arch || process.arch;
+  const brokerActive = options.brokerActive ?? Boolean(process.env.STHANG_STUDIO_BROKER_VERSION);
   const installRoot = options.installRoot || stateRootDir;
   const updateRoot = options.updateRoot || config.updateDir;
   const versionsRoot = options.versionsRoot || config.versionsDir;
@@ -363,8 +387,16 @@ export async function createUpdateService(options: ServiceOptions = {}) {
     return run;
   };
 
+  const runtimeUpdatePlatform = platform === 'win32' && arch === 'x64'
+    ? 'windows-x64'
+    : platform === 'darwin' && arch === 'arm64' && brokerActive
+      ? 'macos-arm64'
+      : '';
+
   const ensureEnabled = () => {
-    if (platform !== 'win32') throw new UpdateError('PLATFORM', 'Signed Studio updates are available on Windows installations only.', 409);
+    if (!runtimeUpdatePlatform || trust.platform !== runtimeUpdatePlatform) {
+      throw new UpdateError('PLATFORM', 'Signed Studio updates are not available for this platform installation.', 409);
+    }
     if (!trust.provisioned) throw new UpdateError('DISABLED', 'Signed Studio updates are not enabled in this source build. Use the current GitHub Release download.', 503);
   };
 
@@ -396,13 +428,66 @@ export async function createUpdateService(options: ServiceOptions = {}) {
     } catch { return false; }
   };
 
-  const check = async (currentVersion: string): Promise<UpdateStatus> => {
+  const enforceHighWater = async (release: CheckedRelease) => {
+    // The macOS updater is introduced by this bootstrap, so it can establish a
+    // durable anti-replay floor without changing the already-deployed Windows
+    // protocol/state contract.
+    if (trust.platform !== 'macos-arm64') return;
+    const highWaterFile = path.join(updateRoot, 'high-water.json');
+    let prior: {
+      schemaVersion?: unknown;
+      platform?: unknown;
+      channel?: unknown;
+      highestVersion?: unknown;
+      manifestDigest?: unknown;
+    } | null = null;
+    try { prior = JSON.parse(await fs.readFile(highWaterFile, 'utf8')); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        throw new UpdateError('INVALID_RELEASE', 'Studio update rollback protection state is invalid. Re-run the current manual installer to repair it.', 409);
+      }
+    }
+    if (prior) {
+      if (
+        prior.schemaVersion !== 1
+        || prior.platform !== trust.platform
+        || prior.channel !== trust.channel
+        || typeof prior.highestVersion !== 'string'
+        || typeof prior.manifestDigest !== 'string'
+        || !HEX_64.test(prior.manifestDigest)
+      ) {
+        throw new UpdateError('INVALID_RELEASE', 'Studio update rollback protection state is invalid. Re-run the current manual installer to repair it.', 409);
+      }
+      try { exactVersion(prior.highestVersion, 'highest verified update version'); }
+      catch { throw new UpdateError('INVALID_RELEASE', 'Studio update rollback protection state is invalid. Re-run the current manual installer to repair it.', 409); }
+      const order = compareVersions(release.manifest.version, prior.highestVersion);
+      if (order < 0) {
+        throw new UpdateError('SIGNATURE', 'Studio rejected an older signed update pointer that was already superseded on this installation.', 409);
+      }
+      if (order === 0 && release.manifestDigest !== prior.manifestDigest) {
+        throw new UpdateError('SIGNATURE', 'Studio rejected conflicting signed metadata for an update version already seen on this installation.', 409);
+      }
+      if (order === 0) return;
+    }
+    await writeAtomic(highWaterFile, {
+      schemaVersion: 1,
+      platform: trust.platform,
+      channel: trust.channel,
+      highestVersion: release.manifest.version,
+      manifestDigest: release.manifestDigest,
+    });
+  };
+
+  const checkUnlocked = async (currentVersion: string): Promise<UpdateStatus> => {
     try { exactVersion(currentVersion, 'current version'); }
     catch (error) { throw protocolFailure(error); }
     const lastFailure = await readLastFailure(updateRoot);
-    if (platform !== 'win32') return { status: 'disabled', currentVersion, message: 'Signed Studio updates are available on Windows installations only.', ...(lastFailure ? { lastFailure } : {}) };
+    if (!runtimeUpdatePlatform || trust.platform !== runtimeUpdatePlatform) {
+      return { status: 'disabled', currentVersion, message: 'Signed Studio updates are not available for this platform installation.', ...(lastFailure ? { lastFailure } : {}) };
+    }
     if (!trust.provisioned) return { status: 'disabled', currentVersion, message: 'Signed Studio updates are not enabled in this source build. Use the current GitHub Release download.', ...(lastFailure ? { lastFailure } : {}) };
     const release = await checkedRelease(fetchImpl, trust);
+    await enforceHighWater(release);
     if (compareVersions(release.manifest.version, currentVersion) <= 0) {
       return { status: 'up-to-date', currentVersion, ...(lastFailure ? { lastFailure } : {}) };
     }
@@ -424,6 +509,7 @@ export async function createUpdateService(options: ServiceOptions = {}) {
     ensureEnabled();
     if (!HEX_64.test(expectedDigest || '')) throw new UpdateError('INVALID_RELEASE', 'The selected update is invalid.');
     const release = await checkedRelease(fetchImpl, trust);
+    await enforceHighWater(release);
     if (release.manifestDigest !== expectedDigest) {
       throw new UpdateError('CHANGED', 'A different Studio update is now available. Review the new version before continuing.', 409);
     }
@@ -479,6 +565,7 @@ export async function createUpdateService(options: ServiceOptions = {}) {
     const pendingFile = path.join(updateRoot, 'pending-install.json');
     await writeAtomic(pendingFile, {
       schemaVersion: 1,
+      platform: trust.platform,
       createdAt: new Date().toISOString(),
       installRoot,
       updateRoot,
@@ -494,7 +581,7 @@ export async function createUpdateService(options: ServiceOptions = {}) {
   };
 
   return {
-    check,
+    check: (currentVersion: string) => exclusive(() => checkUnlocked(currentVersion)),
     download: (expectedDigest: string) => exclusive(() => downloadUnlocked(expectedDigest)),
     prepareInstall: (currentVersion: string, expectedDigest: string) => exclusive(() => prepareInstallUnlocked(currentVersion, expectedDigest)),
     trustRoot: { ...trust, publicKeyHex: trust.provisioned ? '[committed public key]' : '[unprovisioned]' },

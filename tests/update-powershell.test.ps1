@@ -29,7 +29,10 @@ try {
     'scripts\prepare-studio-update.ps1',
     'scripts\package-ota-release.ps1',
     'scripts\package-windows-release.ps1',
-    'scripts\install-release-package.ps1'
+    'scripts\install-release-package.ps1',
+    'scripts\stage-ota-candidate.ps1',
+    'scripts\stage-macos-ota-candidate.ps1',
+    'scripts\deploy-ota-signer.ps1'
   )
   foreach ($Relative in $Scripts) {
     $Tokens = $null
@@ -83,6 +86,17 @@ try {
   Assert-True ($Launcher -match 'scripts\\launch-studio\.ps1') 'The stable Windows launcher is not wired to the update broker.'
   $Installer = Get-Content -LiteralPath (Join-Path $Root 'scripts\install-release-package.ps1') -Raw
   Assert-True ($Installer -match 'active\.json') 'The manual recovery installer does not clear the OTA active pointer.'
+
+  foreach ($Relative in @(
+    'scripts\stage-ota-candidate.ps1',
+    'scripts\stage-macos-ota-candidate.ps1',
+    'scripts\deploy-ota-signer.ps1'
+  )) {
+    $WranglerScript = Get-Content -LiteralPath (Join-Path $Root $Relative) -Raw
+    Assert-True ($WranglerScript -match '\$ReviewedWranglerVersion\s*=\s*''4\.143\.0''') "$Relative must pin the reviewed Wrangler version before authenticated use."
+    Assert-True ($WranglerScript -match "'node_modules/wrangler'" -and $WranglerScript -match 'LockedWranglerVersion') "$Relative must verify the lockfile Wrangler version."
+    Assert-True ($WranglerScript -match 'InstalledWranglerVersion') "$Relative must verify the installed Wrangler version."
+  }
 
   $Prepare = Get-Content -LiteralPath (Join-Path $Root 'scripts\prepare-studio-update.ps1') -Raw
   $NpmIndex = $Prepare.IndexOf('& npm.cmd ci')

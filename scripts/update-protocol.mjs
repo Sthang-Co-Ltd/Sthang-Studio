@@ -3,6 +3,10 @@ import crypto from 'node:crypto';
 export const UPDATE_HOST = 'updates.sthang.app';
 export const UPDATE_BASE_PATH = '/studio/windows/';
 export const LATEST_PATH = `${UPDATE_BASE_PATH}latest.json`;
+export const UPDATE_PLATFORM_CONFIG = Object.freeze({
+  'windows-x64': Object.freeze({ basePath: '/studio/windows/' }),
+  'macos-arm64': Object.freeze({ basePath: '/studio/macos-arm64/' }),
+});
 export const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 export const HEX_64 = /^[0-9a-f]{64}$/;
 export const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/;
@@ -142,20 +146,29 @@ function hash(value, label) {
   return result;
 }
 
-export function assertLatestEndpoint(raw) {
+export function platformConfig(platform) {
+  const config = UPDATE_PLATFORM_CONFIG[platform];
+  if (!config) throw new UpdateProtocolError('The Studio update platform is not supported.');
+  return config;
+}
+
+export function assertLatestEndpoint(raw, platform = 'windows-x64') {
+  const { basePath } = platformConfig(platform);
+  const latestPath = `${basePath}latest.json`;
   let url;
   try { url = new URL(raw); } catch { throw new UpdateProtocolError('The update endpoint is invalid.'); }
-  if (url.protocol !== 'https:' || url.hostname !== UPDATE_HOST || url.port || url.username || url.password || url.search || url.hash || url.pathname !== LATEST_PATH) {
+  if (url.protocol !== 'https:' || url.hostname !== UPDATE_HOST || url.port || url.username || url.password || url.search || url.hash || url.pathname !== latestPath) {
     throw new UpdateProtocolError('The update endpoint is not the approved Studio endpoint.');
   }
   return url.toString();
 }
 
-export function assertImmutableUpdateUrl(raw, version, label = 'The update URL') {
+export function assertImmutableUpdateUrl(raw, version, label = 'The update URL', platform = 'windows-x64') {
   const safeVersion = exactVersion(version);
+  const { basePath } = platformConfig(platform);
   let url;
   try { url = new URL(raw); } catch { throw new UpdateProtocolError(`${label} is invalid.`); }
-  const prefix = `${UPDATE_BASE_PATH}v${safeVersion}/`;
+  const prefix = `${basePath}v${safeVersion}/`;
   if (url.protocol !== 'https:' || url.hostname !== UPDATE_HOST || url.port || url.username || url.password || url.search || url.hash) {
     throw new UpdateProtocolError(`${label} is not an approved immutable Studio URL.`);
   }
@@ -169,7 +182,7 @@ export function validateTrustRoot(value) {
   const item = exactKeys(value, 'Studio update trust root', [
     'schemaVersion', 'product', 'platform', 'channel', 'endpoint', 'keyId', 'publicKeyHex', 'provisioned', 'brokerVersion',
   ]);
-  if (item.schemaVersion !== 1 || item.product !== 'sthang-studio' || item.platform !== 'windows-x64' || item.channel !== 'preview') {
+  if (item.schemaVersion !== 1 || item.product !== 'sthang-studio' || !Object.hasOwn(UPDATE_PLATFORM_CONFIG, item.platform) || item.channel !== 'preview') {
     throw new UpdateProtocolError('The Studio update trust root identity is invalid.');
   }
   const provisioned = item.provisioned === true;
@@ -186,9 +199,9 @@ export function validateTrustRoot(value) {
   return {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform: item.platform,
     channel: 'preview',
-    endpoint: assertLatestEndpoint(text(item.endpoint, 'update endpoint', 500)),
+    endpoint: assertLatestEndpoint(text(item.endpoint, 'update endpoint', 500), item.platform),
     keyId,
     publicKeyHex,
     provisioned,
@@ -226,16 +239,16 @@ export function validateLatestPointer(value, trustValue, { verifySignature = tru
   ]);
   if (verifySignature) verifySignedJson(item, trust);
   const version = exactVersion(item.version);
-  if (item.schemaVersion !== 1 || item.product !== 'sthang-studio' || item.platform !== 'windows-x64' || item.channel !== trust.channel) {
+  if (item.schemaVersion !== 1 || item.product !== 'sthang-studio' || item.platform !== trust.platform || item.channel !== trust.channel) {
     throw new UpdateProtocolError('The latest pointer identity is invalid.');
   }
   return {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform: trust.platform,
     channel: trust.channel,
     version,
-    manifestUrl: assertImmutableUpdateUrl(text(item.manifestUrl, 'manifest URL', 500), version, 'The update manifest URL'),
+    manifestUrl: assertImmutableUpdateUrl(text(item.manifestUrl, 'manifest URL', 500), version, 'The update manifest URL', trust.platform),
     manifestSha256: hash(item.manifestSha256, 'manifest hash'),
     signature: signature(item.signature),
   };
@@ -243,12 +256,15 @@ export function validateLatestPointer(value, trustValue, { verifySignature = tru
 
 export function validateReleaseManifest(value, trustValue, { verifySignature = true } = {}) {
   const trust = validateTrustRoot(trustValue);
+  const macos = trust.platform === 'macos-arm64';
   const manifestKeys = ['schemaVersion', 'product', 'platform', 'channel', 'version', 'publishedAt', 'releaseNotes', 'package', 'compatibility', 'setup'];
+  if (macos) manifestKeys.push('source');
   if (verifySignature) manifestKeys.push('signature');
   const item = exactKeys(value, 'release manifest', manifestKeys);
   if (verifySignature) verifySignedJson(item, trust);
   const version = exactVersion(item.version);
-  if (item.schemaVersion !== 1 || item.product !== 'sthang-studio' || item.platform !== 'windows-x64' || item.channel !== trust.channel) {
+  const expectedSchemaVersion = macos ? 2 : 1;
+  if (item.schemaVersion !== expectedSchemaVersion || item.product !== 'sthang-studio' || item.platform !== trust.platform || item.channel !== trust.channel) {
     throw new UpdateProtocolError('The release manifest identity is invalid.');
   }
   const publishedAt = text(item.publishedAt, 'published time', 80);
@@ -258,12 +274,21 @@ export function validateReleaseManifest(value, trustValue, { verifySignature = t
     throw new UpdateProtocolError('Release notes must be bounded sanitized plain text.');
   }
   const packageValue = exactKeys(item.package, 'release package', ['url', 'sha256', 'sizeBytes', 'unpackedSizeBytes']);
-  const compatibility = exactKeys(item.compatibility, 'release compatibility', ['minBrokerVersion', 'stateSchema', 'manualInstallerRequired']);
+  const compatibility = exactKeys(
+    item.compatibility,
+    'release compatibility',
+    macos
+      ? ['minBrokerVersion', 'stateSchema', 'manualInstallerRequired', 'minMacos', 'arch']
+      : ['minBrokerVersion', 'stateSchema', 'manualInstallerRequired'],
+  );
   if (compatibility.manualInstallerRequired !== true && compatibility.manualInstallerRequired !== false) {
     throw new UpdateProtocolError('The manual-installer compatibility flag is invalid.');
   }
   const setup = exactKeys(item.setup, 'release setup', ['strategy', 'packageLockSha256', 'pythonFiles']);
-  if (setup.strategy !== 'npm-ci-and-local-timing') throw new UpdateProtocolError('The update setup strategy is not supported.');
+  const expectedStrategy = macos
+    ? 'macos-curated-runtime'
+    : 'npm-ci-and-local-timing';
+  if (setup.strategy !== expectedStrategy) throw new UpdateProtocolError('The update setup strategy is not supported.');
   if (!Array.isArray(setup.pythonFiles) || setup.pythonFiles.length < 1 || setup.pythonFiles.length > 8) {
     throw new UpdateProtocolError('The Python dependency declaration is invalid.');
   }
@@ -278,22 +303,40 @@ export function validateReleaseManifest(value, trustValue, { verifySignature = t
     return { path: relative, sha256: hash(file.sha256, 'Python dependency hash') };
   });
   const minimumBroker = exactVersion(compatibility.minBrokerVersion, 'minimum broker version');
+  let source;
+  if (macos) {
+    const sourceValue = exactKeys(item.source, 'release source evidence', ['commit', 'tree', 'buildEvidenceSha256', 'derivedRuntimeManifestSha256']);
+    const commit = text(sourceValue.commit, 'source commit', 40).toLowerCase();
+    const tree = text(sourceValue.tree, 'source tree', 40).toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(commit) || !/^[0-9a-f]{40}$/.test(tree)) {
+      throw new UpdateProtocolError('The macOS release source identity is invalid.');
+    }
+    source = {
+      commit,
+      tree,
+      buildEvidenceSha256: hash(sourceValue.buildEvidenceSha256, 'release build evidence hash'),
+      derivedRuntimeManifestSha256: hash(sourceValue.derivedRuntimeManifestSha256, 'derived runtime manifest hash'),
+    };
+    if (compatibility.minMacos !== '12.3' || compatibility.arch !== 'arm64') {
+      throw new UpdateProtocolError('The macOS release compatibility target is invalid.');
+    }
+  }
   if (compareVersions(trust.brokerVersion, minimumBroker) < 0) {
-    throw new UpdateProtocolError('This update needs a newer Studio installer. Use the manual Windows download instead.');
+    throw new UpdateProtocolError('This update needs a newer Studio installer. Use the current manual installer instead.');
   }
   if (compatibility.manualInstallerRequired) {
-    throw new UpdateProtocolError('This release needs the manual Windows installer.');
+    throw new UpdateProtocolError('This release needs the current manual installer.');
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: expectedSchemaVersion,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform: trust.platform,
     channel: trust.channel,
     version,
     publishedAt,
     releaseNotes,
     package: {
-      url: assertImmutableUpdateUrl(text(packageValue.url, 'package URL', 500), version, 'The update package URL'),
+      url: assertImmutableUpdateUrl(text(packageValue.url, 'package URL', 500), version, 'The update package URL', trust.platform),
       sha256: hash(packageValue.sha256, 'package hash'),
       sizeBytes: integer(packageValue.sizeBytes, 'package size', MAX_PACKAGE_BYTES),
       unpackedSizeBytes: integer(packageValue.unpackedSizeBytes, 'unpacked package size', MAX_UNPACKED_BYTES),
@@ -302,12 +345,14 @@ export function validateReleaseManifest(value, trustValue, { verifySignature = t
       minBrokerVersion: minimumBroker,
       stateSchema: compatibility.stateSchema === 1 ? 1 : (() => { throw new UpdateProtocolError('The update state schema is not supported.'); })(),
       manualInstallerRequired: false,
+      ...(macos ? { minMacos: '12.3', arch: 'arm64' } : {}),
     },
     setup: {
-      strategy: 'npm-ci-and-local-timing',
+      strategy: expectedStrategy,
       packageLockSha256: hash(setup.packageLockSha256, 'package lock hash'),
       pythonFiles,
     },
+    ...(macos ? { source } : {}),
     ...(verifySignature ? { signature: signature(item.signature) } : {}),
   };
 }
@@ -322,7 +367,7 @@ export function validateReleaseReceipt(value, trustValue) {
   if (
     item.schemaVersion !== 1
     || item.product !== 'sthang-studio'
-    || item.platform !== 'windows-x64'
+    || item.platform !== trust.platform
     || item.channel !== trust.channel
     || item.keyId !== trust.keyId
   ) {
@@ -333,7 +378,7 @@ export function validateReleaseReceipt(value, trustValue) {
   return {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform: trust.platform,
     channel: trust.channel,
     keyId: trust.keyId,
     version: exactVersion(item.version, 'receipt version'),

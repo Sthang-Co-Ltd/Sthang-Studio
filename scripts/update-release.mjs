@@ -44,8 +44,17 @@ async function writeJson(file, value) {
 }
 
 async function loadTrustRoot() {
-  const file = path.join(root, 'config', 'update-trust-root.json');
+  const requested = flag('--trust-root', { required: false });
+  const file = requested
+    ? path.resolve(requested)
+    : path.join(root, 'config', 'update-trust-root.json');
   return validateTrustRoot(await readJson(file));
+}
+
+function updateBasePath(platform) {
+  if (platform === 'windows-x64') return 'windows';
+  if (platform === 'macos-arm64') return 'macos-arm64';
+  throw new Error('The Studio update platform is not supported.');
 }
 
 async function loadPrivateKey() {
@@ -118,7 +127,7 @@ async function verifyRelease({ writeReceipt = true } = {}) {
   const evidence = {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform: trust.platform,
     channel: trust.channel,
     keyId: trust.keyId,
     version: manifest.version,
@@ -170,10 +179,10 @@ async function promote() {
   const unsignedPointer = {
     schemaVersion: 1,
     product: 'sthang-studio',
-    platform: 'windows-x64',
+    platform: trust.platform,
     channel: trust.channel,
     version: manifest.version,
-    manifestUrl: `https://updates.sthang.app/studio/windows/v${manifest.version}/release.json`,
+    manifestUrl: `https://updates.sthang.app/studio/${updateBasePath(trust.platform)}/v${manifest.version}/release.json`,
     manifestSha256: expectedManifestSha256,
   };
   const pointer = signDocument(unsignedPointer, privateKey, trust.keyId);

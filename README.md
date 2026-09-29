@@ -98,16 +98,28 @@ The Apple Silicon macOS package uses the same simple three-item handoff:
 **Install Sthang Studio.command**, **Read Me.txt**, and one **Sthang Studio Files**
 folder. Double-clicking the installer places Studio at
 `~/Library/Application Support/Sthang Studio/app`, prepares the reviewed local
-dependencies, and creates `~/Applications/Sthang Studio.command` for later
-launches. Compatible local runtimes are reused; missing reviewed prerequisites can
+dependencies, creates a Finder-launchable `~/Applications/Sthang Studio.app` with
+the approved Studio icon, and keeps `~/Applications/Sthang Studio.command` as a
+Terminal recovery launcher. Compatible local runtimes are reused; missing reviewed prerequisites can
 be downloaded into Studio's private `tools` folder with exact SHA-256 verification.
 The curated package also carries the reviewed production server, shared package and
 web build, and installs only the server/shared runtime npm closure with lifecycle
 scripts disabled. Ordinary setup and launch therefore do not execute Vite,
 esbuild, tsx, TypeScript or npm postinstall tooling.
-The downloaded setup folder can then be deleted. This Beta uses a
-command-based installer rather than a signed/notarized `.app`; if Gatekeeper
-blocks the downloaded command on first open, Control-click it and choose **Open**.
+The installed curated package also contains the stable Apple Silicon signed-update
+bootstrap. It can check a separate `macos-arm64` update channel once per Studio
+session and, after explicit **Download & verify** and **Install & restart** choices,
+stage a verified immutable version and roll back if the exact new API/UI does not
+become healthy. Source checkouts do not enter this updater path. Having the bootstrap
+code does not mean a macOS OTA is publicly available: a Mac offer exists only after
+its separately governed signed immutable release and signed `latest.json` pointer
+have been deliberately verified and promoted.
+
+The downloaded setup folder can then be deleted. This Beta is still installed by a
+command-based, non-notarized installer. The Finder `.app` is a locally generated
+launcher wrapper rather than a signed/notarized native app distribution. If
+Gatekeeper blocks the downloaded installer command on first open, Control-click it
+and choose **Open**; the `.command` launcher remains the recovery path.
 
 ## Version 0.85.4
 
@@ -171,7 +183,7 @@ Both Sthang cloud paths remain default-off and fail open for caption work if a
 service is unavailable. Their production endpoints are provisioned; no caption
 or analytics data is sent through them until the corresponding explicit opt-in.
 
-### Signed updates — Windows public OTA
+### Signed updates — Windows public OTA and Apple Silicon bootstrap
 
 The Windows build contains a Studio-native signed updater designed around
 the existing `%LOCALAPPDATA%\Sthang Studio\app` installation. It checks at most
@@ -200,6 +212,17 @@ promoted.
 The curated GitHub Release remains the manual download and recovery path. See
 [`docs/OTA-UPDATES.md`](docs/OTA-UPDATES.md) for the protocol, confirmation flow,
 and rollback guarantees.
+
+Installed curated Apple Silicon builds use the same explicit two-step user decision
+and Studio-only Ed25519 trust model through a distinct
+`https://updates.sthang.app/studio/macos-arm64/` namespace. The stable manual
+installation remains at `~/Library/Application Support/Sthang Studio/app`; signed
+Mac versions prepare under `versions/<version>` with runtime-only Node dependencies
+and local timing resources, and an atomic pointer chooses the active version only
+after preparation succeeds. A failed health check restores the previous pointer.
+The baseline app and Finder launcher remain the manual recovery/bootstrap layer.
+No Mac OTA should be described as live merely because this source or bootstrap is
+present; the platform-specific signed latest pointer is separate release evidence.
 
 ### Khmer Caption Contributor contract
 
@@ -271,8 +294,9 @@ is needed.
 ### Install from source on Apple Silicon macOS
 
 The source path targets the same **macOS 12.3 Monterey or newer** native Apple
-Silicon (`arm64`) boundary as the curated Beta package. Intel Mac support and a
-macOS implementation of the Windows signed OTA updater are not provided.
+Silicon (`arm64`) boundary as the curated Beta package. Intel Mac support is not
+provided. Source checkouts deliberately remain outside the installed signed-update
+broker; use the normal Git/source workflow for source development.
 
 1. Clone or check out this repository into a stable folder.
 2. Run `bash ./INSTALL-MACOS.sh`. Existing compatible native Node.js, Python 3.12,
@@ -312,7 +336,9 @@ by that hardware; this does not make new Macs capable of booting Monterey.
 
 Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
 Curated public packages are available for Windows x64 and Apple Silicon macOS;
-the signed OTA updater remains Windows-only.
+Windows has the currently governed public signed OTA history. Curated Apple Silicon
+packages contain the macOS OTA bootstrap, but public Mac OTA availability requires
+its own accepted signed release and promoted platform-specific pointer.
 
 ## Local and cloud data flow
 

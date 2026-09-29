@@ -34,9 +34,13 @@ $OutputDir = Join-Path $Root 'release-artifacts'
 $ArtifactName = "Sthang-Studio-macOS-Apple-Silicon-v$Version.zip"
 $ArtifactPath = Join-Path $OutputDir $ArtifactName
 $ChecksumPath = "$ArtifactPath.sha256"
+$OtaArtifactName = "Sthang-Studio-OTA-macOS-Apple-Silicon-v$Version.zip"
+$OtaArtifactPath = Join-Path $OutputDir $OtaArtifactName
+$OtaChecksumPath = "$OtaArtifactPath.sha256"
+$OtaManifestPath = Join-Path $OutputDir "Sthang-Studio-OTA-macOS-Apple-Silicon-v$Version.release-unsigned.json"
 
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-foreach ($OldOutput in @($ArtifactPath, $ChecksumPath)) {
+foreach ($OldOutput in @($ArtifactPath, $ChecksumPath, $OtaArtifactPath, $OtaChecksumPath, $OtaManifestPath)) {
   if (Test-Path -LiteralPath $OldOutput) {
     Remove-Item -LiteralPath $OldOutput -Force
   }
@@ -58,6 +62,8 @@ $Commit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $Commit) { throw 'The current Git commit could not be resolved.' }
 $SourceTree = (& git rev-parse ($Commit + '^{tree}')).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $SourceTree) { throw 'The current Git tree could not be resolved.' }
+$PublishedAt = (& git show -s --format=%cI $Commit).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $PublishedAt) { throw 'The current Git commit timestamp could not be resolved.' }
 
 $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ('Sthang-Studio-macOS-Package-' + [Guid]::NewGuid().ToString('N'))
 $BuildArchive = Join-Path $StageRoot 'tracked-build-source.zip'
@@ -183,6 +189,55 @@ try {
     Remove-Item -LiteralPath $StagedNodeModules -Recurse -Force
   }
 
+  $ReleaseNotes = Join-Path $BuildRoot ("release-notes\v$Version.txt")
+  if (-not (Test-Path -LiteralPath $ReleaseNotes -PathType Leaf)) {
+    throw "The exact tracked release source is missing release-notes/v$Version.txt."
+  }
+  Invoke-Checked 'Creating rootless macOS OTA payload...' {
+    python (Join-Path $Root 'scripts\create-macos-ota-zip.py') $FilesFolder $OtaArtifactPath
+  }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $OtaArchive = [IO.Compression.ZipFile]::OpenRead($OtaArtifactPath)
+  try {
+    $OtaEntries = @($OtaArchive.Entries | Where-Object { -not $_.FullName.EndsWith('/') })
+    if ($OtaEntries.Count -eq 0) { throw 'macOS OTA package contains no files.' }
+    $OtaUnpackedSize = [Int64](($OtaEntries | Measure-Object -Property Length -Sum).Sum)
+    foreach ($Required in @(
+      'INSTALL-MACOS.sh',
+      'run-macos.sh',
+      'scripts/launch-studio-macos.sh',
+      'scripts/prepare-studio-update-macos.sh',
+      'scripts/prepare-studio-update-macos.py',
+      'scripts/update-runtime.mjs',
+      'config/update-trust-root-macos.json',
+      '.sthang/macos-curated-runtime',
+      '.sthang/macos-release-build.json',
+      '.sthang/macos-derived-runtime.json',
+      'apps/server/dist/index.js',
+      'apps/web/dist/index.html',
+      'packages/shared/dist/index.js',
+      'package-lock.json'
+    )) {
+      if ($null -eq $OtaArchive.GetEntry($Required)) { throw "macOS OTA package is missing required entry: $Required" }
+    }
+    foreach ($Entry in $OtaEntries) {
+      $Name = $Entry.FullName.Replace('\', '/')
+      if ($Name -match '(^|/)(data|uploads|exports|tools|node_modules|\.venv|versions|updates|release-artifacts)(/|$)' -or $Name -match '(^|/)\.env($|/)') {
+        throw "macOS OTA package contains protected runtime state: $Name"
+      }
+    }
+  } finally {
+    $OtaArchive.Dispose()
+  }
+  Invoke-Checked 'Creating unsigned macOS OTA release manifest...' {
+    node (Join-Path $Root 'scripts\create-macos-ota-manifest.mjs') $FilesFolder $OtaArtifactPath $OtaManifestPath $Commit $SourceTree $OtaUnpackedSize $ReleaseNotes $PublishedAt
+  }
+  Invoke-Checked 'Verifying unsigned macOS OTA candidate...' {
+    node (Join-Path $Root 'scripts\update-release.mjs') verify-unsigned --trust-root (Join-Path $FilesFolder 'config\update-trust-root-macos.json') --manifest $OtaManifestPath --package $OtaArtifactPath
+  }
+  $OtaHash = Get-Sha256Hex $OtaArtifactPath
+  Set-Content -LiteralPath $OtaChecksumPath -Value "$OtaHash  $OtaArtifactName" -Encoding ASCII
+
   $InstallerTemplate = Join-Path $Root 'packaging\macos\Install Sthang Studio.command'
   $ReadmeTemplate = Join-Path $Root 'packaging\macos\Read Me.txt'
   Copy-Item -LiteralPath $InstallerTemplate -Destination (Join-Path $PackageFolder 'Install Sthang Studio.command') -Force
@@ -193,7 +248,6 @@ try {
     python (Join-Path $Root 'scripts\create-macos-release-zip.py') $PackageFolder $ArtifactPath
   }
 
-  Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Archive = [IO.Compression.ZipFile]::OpenRead($ArtifactPath)
   try {
     $ArchiveRoot = "Sthang Studio $Version/"
@@ -219,7 +273,12 @@ try {
       "${ArchiveRoot}Sthang Studio Files/setup-local-timing-macos.sh",
       "${ArchiveRoot}Sthang Studio Files/scripts/install-release-package-macos.sh",
       "${ArchiveRoot}Sthang Studio Files/scripts/macos-managed-runtime.sh",
+      "${ArchiveRoot}Sthang Studio Files/scripts/launch-studio-macos.sh",
+      "${ArchiveRoot}Sthang Studio Files/scripts/prepare-studio-update-macos.sh",
+      "${ArchiveRoot}Sthang Studio Files/scripts/prepare-studio-update-macos.py",
+      "${ArchiveRoot}Sthang Studio Files/config/update-trust-root-macos.json",
       "${ArchiveRoot}Sthang Studio Files/.sthang/macos-curated-runtime",
+      "${ArchiveRoot}Sthang Studio Files/.sthang/macos-release-build.json",
       "${ArchiveRoot}Sthang Studio Files/.sthang/macos-derived-runtime.json",
       "${ArchiveRoot}Sthang Studio Files/apps/server/dist/index.js",
       "${ArchiveRoot}Sthang Studio Files/apps/web/dist/index.html",
@@ -252,6 +311,19 @@ try {
     }
     if ([string]$Manifest.packageLockSha256 -ne $BuildPackageLockSha) {
       throw 'macOS derived-runtime manifest package-lock hash does not match the exact release-build lock.'
+    }
+    $BuildEvidenceEntry = $Archive.GetEntry("${ArchiveRoot}Sthang Studio Files/.sthang/macos-release-build.json")
+    if ($null -eq $BuildEvidenceEntry) { throw 'Source-owned macOS release build evidence could not be inspected.' }
+    $BuildEvidenceStream = $BuildEvidenceEntry.Open()
+    $BuildEvidenceHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+      $ArchivedBuildEvidenceHash = ([BitConverter]::ToString($BuildEvidenceHasher.ComputeHash($BuildEvidenceStream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $BuildEvidenceHasher.Dispose()
+      $BuildEvidenceStream.Dispose()
+    }
+    if ($ArchivedBuildEvidenceHash -ne [string]$Manifest.buildEvidenceSha256) {
+      throw 'Packaged source-owned macOS release build evidence hash does not match the derived-runtime manifest.'
     }
 
     $ManifestFiles = @($Manifest.files)
@@ -345,6 +417,8 @@ try {
   Write-Host "Size: $SizeMb MB"
   Write-Host "SHA256: $Hash"
   Write-Host "Commit: $Commit"
+  Write-Host "Unsigned OTA candidate: $OtaArtifactPath"
+  Write-Host "OTA SHA256: $OtaHash"
   Write-Host ''
   Write-Host 'Inside the downloaded ZIP, users see only:' -ForegroundColor DarkGray
   Write-Host '  Install Sthang Studio.command' -ForegroundColor DarkGray

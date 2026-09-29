@@ -7,7 +7,7 @@ INSTALL
 1. Extract the entire downloaded ZIP.
 2. Double-click "Install Sthang Studio.command".
 3. Keep the Terminal setup window open while Studio prepares its local dependencies and Khmer timing resources.
-4. When setup finishes, open "Sthang Studio.command" from your Applications folder.
+4. When setup finishes, open "Sthang Studio" from your Applications folder.
 5. In Studio, open Settings > AI connection and add your Gemini API key.
 
 The curated download already contains Sthang Studio's reviewed production web,
@@ -15,7 +15,9 @@ server and shared build. Setup installs only the server/shared runtime Node
 dependencies with package lifecycle scripts disabled; it does not run Vite,
 esbuild, tsx or TypeScript developer tooling on this Mac.
 
-If macOS blocks the downloaded command the first time, Control-click it, choose Open, then confirm Open. This public Beta is distributed as a command-based installer rather than a signed/notarized .app bundle.
+Setup creates a Finder-launchable "Sthang Studio.app" with the approved Studio icon and keeps "Sthang Studio.command" beside it as a Terminal recovery launcher. The .app is a locally generated launcher wrapper; this Beta is still installed through a command-based, non-notarized installer rather than a signed/notarized native app distribution.
+
+If macOS blocks the downloaded installer command the first time, Control-click it, choose Open, then confirm Open.
 
 After installation completes, you can delete the extracted setup folder. Sthang Studio is installed at ~/Library/Application Support/Sthang Studio/app and keeps projects/settings in the normal macOS application-support location.
 
@@ -27,6 +29,11 @@ REQUIREMENTS
 - Enough free disk space for local runtimes, timing resources, projects, and media
 
 Setup reuses compatible native Node.js, Python 3.12, and FFmpeg/ffprobe when they are already available. If a compatible prerequisite is missing, setup downloads the exact reviewed Apple Silicon runtime into ~/Library/Application Support/Sthang Studio/tools, verifies its SHA-256 checksum, and keeps it private to Studio. Setup does not install Homebrew, invoke sudo, modify your shell startup files, or replace system runtimes.
+
+UPDATES
+Installed curated builds contain a stable Apple Silicon signed-update bootstrap. Studio may check the public macos-arm64 update channel once per session/startup, plus when you choose Check for updates. It never downloads or installs automatically. A future signed offer still requires your separate Download & verify and Install & restart choices. Prepared versions are verified before activation and a failed health check rolls back to the previous version.
+
+The bootstrap itself is not proof that a macOS update is currently offered. A Mac OTA exists only when Sthang has separately signed, verified and deliberately promoted that exact platform release. The downloaded/manual installer remains the recovery path.
 
 PRIVACY
 When you generate or regenerate AI wording, Studio sends normalized WAV audio and relevant context or wording to Gemini using your API key.
