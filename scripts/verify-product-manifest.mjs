@@ -153,7 +153,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare Sthang Studio 0.85.6 source with the Apple Silicon macOS signed-update bootstrap, Finder-launchable Sthang Studio.app wrapper plus Sthang Studio.command fallback, curated no-esbuild production runtime, managed private Node/Python/FFmpeg provisioning, and transactional rollback/state preservation. Verified public release evidence remains on 0.85.5 until a separately governed 0.85.6 release is published, signed, verified, and promoted.',
+    'Release Sthang Studio 0.85.6 with the Apple Silicon macOS signed-update bootstrap, Finder-launchable Sthang Studio.app wrapper plus Sthang Studio.command fallback, curated no-esbuild production runtime, managed private Node/Python/FFmpeg provisioning, and transactional rollback/state preservation. Windows retains the signed in-app updater; macOS 0.85.6 is the one-time bootstrap for later signed in-app updates after separate native acceptance and pointer promotion.',
     'manifest.change.documentationImpact.summary',
   );
 

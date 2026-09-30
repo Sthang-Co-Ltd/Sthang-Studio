@@ -8,7 +8,7 @@ The `v0.85.x` Public Beta line includes two separate privacy-controlled Sthang
 cloud paths: Khmer Caption Contributor and optional product analytics. Both are
 **off by default** and require separate explicit opt-in. Their production services
 are provisioned, but neither choice is required for caption generation, review,
-editing, saving, or export. Version `0.85.5` does not change these data flows or
+editing, saving, or export. Version `0.85.6` does not change these data flows or
 consent boundaries.
 
 This document describes the behavior of the application itself. It is not a
@@ -363,11 +363,12 @@ repository-only tests while the old preparation path still required
 previous installed version remains usable. `0.85.3` was production-signed as
 immutable evidence but deliberately never promoted after unchanged-v0.8 preparation
 still failed. `0.85.4` is the promoted recovery baseline that superseded the
-broken offer. `0.85.5` becomes the public Windows offer only when its own signed
-release is verified and `latest.json` is deliberately promoted.
+broken offer. `0.85.5` is the previous public Windows offer; `0.85.6` becomes the
+current Windows offer only when its own signed release is verified and
+`latest.json` is deliberately promoted.
 The curated GitHub Release remains the manual download and recovery path. The
-`0.85.6` source and local Apple Silicon candidate contain a separate `macos-arm64`
-updater bootstrap; the verified public `0.85.5` Mac package does not. Source
+public Apple Silicon `0.85.6` package contains a separate `macos-arm64` updater
+bootstrap; the older `0.85.5` Mac package does not. Source
 checkouts remain outside that installed broker. Bootstrap code does not mean a
 Mac OTA is publicly offered until the matching signed platform release and latest
 pointer have been deliberately verified and promoted.

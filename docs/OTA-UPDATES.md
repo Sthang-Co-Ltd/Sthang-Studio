@@ -2,15 +2,15 @@
 
 This document describes the updater implemented in Studio. The `0.8.0` GitHub Release is the first updater-capable bootstrap, but it is **not evidence that OTA updates are publicly available** by itself. Version `0.85.2` became the first deliberately promoted public signed Windows OTA offer. Its signed immutable objects remain historical and must not be mutated.
 
-Source version `0.85.6` prepares a separate installed Apple Silicon macOS bootstrap
+Version `0.85.6` introduces a separate installed Apple Silicon macOS bootstrap
 using the same explicit user-confirmation and Ed25519 verification model but a
 platform-bound `macos-arm64` namespace. It does **not** make any Mac version a live
 OTA offer by itself. A Mac offer exists only after its exact source, recovery
 installer, immutable OTA package/manifest/attestation, native-Mac acceptance and
 signed `macos-arm64/latest.json` pointer are separately verified and promoted.
-Until that governed release is completed, verified public distribution evidence
-remains on `0.85.5`; the source version and public release identity are intentionally
-kept separate.
+Users on the older manual-only Mac line install the `0.85.6` GitHub recovery
+package once to gain this bootstrap. Promotion of a later Mac in-app offer remains
+a separate governed action.
 
 Version `0.8.0` carries the reviewed Studio public verification trust. No public signed `latest.json` pointer is promoted by the 0.8.0 GitHub Release.
 

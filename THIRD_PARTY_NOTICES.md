@@ -41,7 +41,7 @@ bundle or rehost these archives. The currently reviewed direct-download pins are
 |---|---|---|
 | Node.js 22.23.3 arm64 | JavaScript runtime and npm | MIT for Node.js, with bundled third-party notices in the upstream distribution |
 | Astral `python-build-standalone` CPython 3.12.14+20260924 arm64 | Python 3.12 runtime used to create Studio's local timing virtual environment | `python-build-standalone` tooling: MPL-2.0; CPython and bundled runtime components retain their upstream licenses |
-| `FFmpeg-arm-silicon` 0.5.0 tools archive | FFmpeg/ffprobe fallback for local media processing and libass caption rendering | Exact inspected binary reports GPL version 3 or later; public release remains subject to the source-provenance review documented in `docs/MACOS-COMPATIBILITY.md` |
+| `FFmpeg-arm-silicon` 0.5.0 tools archive | FFmpeg/ffprobe fallback for local media processing and libass caption rendering | Exact inspected binary reports GPL version 3 or later. For v0.85.6, the owner approved a documented provenance exception: Sthang downloads the exact checksum-pinned upstream asset directly and does not bundle or rehost it, while the upstream binary-to-source chain is not independently reproducible to Sthang's stricter internal provenance standard. |
 
 Each managed archive is addressed by a fixed versioned HTTPS URL and exact SHA-256
 digest in `scripts/macos-managed-runtime.sh`. The installer validates the expected
@@ -115,6 +115,16 @@ the selected upstream archive at install time and invokes it as a separate proce
 Sthang does not bundle or rehost that binary. A development or system-installed
 FFmpeg capability is not evidence that the managed public path has the same
 codec/filter configuration or sufficient upstream source provenance.
+
+For the `0.85.6` Public Beta, the owner explicitly approved a narrow exception to
+that internal provenance standard for the exact upstream `FFmpeg-arm-silicon`
+0.5.0 asset pinned in `scripts/macos-managed-runtime.sh`. The upstream release and
+Sthang pin agree on SHA-256
+`7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc`, and the
+accepted real-Mac bootstrap validated those exact downloaded bytes. The exception
+does not assert reproducible binary provenance: the tagged upstream build scripts
+still contain floating dependency refs, so a future runtime replacement must close
+that provenance gap rather than treating this exception as precedent.
 
 ## Runtime-downloaded model assets
 

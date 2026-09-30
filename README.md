@@ -80,14 +80,9 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-The current source tree is preparing `0.85.6` with the Apple Silicon signed-update
-bootstrap and Finder launcher. Verified public release evidence remains on
-`0.85.5` until the separately governed `0.85.6` release is published, verified,
-and deliberately promoted.
-
-Sthang Studio `0.85.5` is the current Public Beta release identity for
+Sthang Studio `0.85.6` is the current Public Beta release identity for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
-[0.85.5 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.5)
+[0.85.6 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.6)
 is the governed recovery-download location after its assets are published and
 byte-verified.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
@@ -341,11 +336,11 @@ by that hardware; this does not make new Macs capable of booting Monterey.
 
 Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
 Curated public packages are available for Windows x64 and Apple Silicon macOS;
-Windows has the currently governed public signed OTA history. The `0.85.6` source
-and local Apple Silicon candidate packages contain the macOS OTA bootstrap; the
-verified public `0.85.5` Mac package remains the manual-download path. Public Mac
-OTA availability requires its own accepted signed release and promoted
-platform-specific pointer.
+Windows has the currently governed public signed OTA history. The Apple Silicon
+`0.85.6` package is the one-time macOS OTA bootstrap and includes the Finder
+launcher; users coming from the older manual-only Mac line install this GitHub
+package once. Later Mac in-app updates remain gated on a separately accepted
+signed release, real-Mac upgrade/rollback evidence, and promoted platform pointer.
 
 ## Local and cloud data flow
 

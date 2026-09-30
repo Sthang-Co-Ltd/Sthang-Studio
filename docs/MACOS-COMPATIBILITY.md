@@ -140,9 +140,13 @@ managed FFmpeg candidate is the Apple Silicon `FFmpeg-arm-silicon` 0.5.0 tools
 archive, pinned by exact SHA-256 and separately validated for arm64, libass complex
 shaping, libx264, GPL/version3 configuration, and absence of nonfree/OpenSSL build
 flags. These files are downloaded at setup time from their upstream projects and
-are not committed, bundled, or rehosted by Sthang Studio. Public release of the
-managed FFmpeg fallback remains subject to exact upstream provenance/license review
-and native-Mac acceptance of the pinned bytes.
+are not committed, bundled, or rehosted by Sthang Studio. For the `0.85.6` Public
+Beta, native-Mac acceptance of the pinned bytes passed and the owner explicitly
+approved a narrow exception to the stricter exact-source-provenance requirement.
+The exception is limited to the exact upstream 0.5.0 asset and SHA-256 recorded in
+`scripts/macos-managed-runtime.sh`; the upstream build still contains floating
+x264/LAME source refs, so this is not represented as reproducible binary provenance
+and must not silently carry forward to a future FFmpeg replacement.
 
 ## Manual/source setup, including older macOS
 

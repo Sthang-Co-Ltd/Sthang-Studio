@@ -16,6 +16,7 @@ Prepared updates use bounded safe ZIP extraction, exact-version health checks, r
 
 The curated Mac install and update path keeps developer-only Vite, esbuild, tsx and TypeScript out of ordinary user setup/launch.
 Compatible Node, Python 3.12 and FFmpeg/ffprobe can be reused or provisioned into Studio's private tools folder from exact checksum-pinned upstream downloads.
+For this Beta, the managed FFmpeg fallback uses the exact upstream 0.5.0 archive tested on the accepted real Mac; Sthang downloads it directly and does not bundle or rehost it.
 Setup does not install Homebrew, invoke sudo, modify shell startup files, mutate global PATH, or replace system runtimes.
 
 Projects, media, history, settings, correction memory, exports, managed tools and custom STHANG_STUDIO_STATE_ROOT state remain outside immutable OTA payloads.
@@ -28,11 +29,11 @@ Studio requests store: false for Gemini interactions; normalized WAV audio is up
 Google currently documents Files API retention of up to 48 hours.
 Khmer Caption Contributor and optional product analytics remain separate, off-by-default choices that require explicit opt-in.
 
-Release assets when this version is deliberately published:
+Release assets:
 - Sthang-Studio-Windows-v0.85.6.zip
 - Sthang-Studio-Windows-v0.85.6.zip.sha256
 - Sthang-Studio-macOS-Apple-Silicon-v0.85.6.zip
 - Sthang-Studio-macOS-Apple-Silicon-v0.85.6.zip.sha256
 
 The macOS OTA bootstrap itself is not proof that a Mac update offer is live.
-A Mac OTA becomes public only after the exact 0.85.6 recovery/source evidence is accepted and a separately signed immutable Mac release plus signed latest pointer are deliberately verified and promoted.
+Users coming from the previous manual-only Mac line install this 0.85.6 package once; a later Mac in-app offer becomes public only after separate signed-release, native upgrade/rollback and latest-pointer verification.

@@ -142,11 +142,10 @@ above.
 
 Security fixes target the latest accepted `main` branch and the most recent
 published release. Older development ZIPs and historical builds are not treated
-as supported releases. The current source version is `0.85.6`, while verified
-public release evidence remains on the immutable `v0.85.5` Public Beta until a
-separately governed `v0.85.6` publication is completed. Signed-update availability
-still depends on the matching separately verified and deliberately promoted
-platform `latest.json` pointer.
+as supported releases. This release source corresponds to the `v0.85.6` Public
+Beta line. Signed-update availability still depends on the matching separately
+verified and deliberately promoted platform `latest.json` pointer; publication of
+the recovery package alone does not make a Mac OTA offer live.
 
 ## Public bug reports
 
