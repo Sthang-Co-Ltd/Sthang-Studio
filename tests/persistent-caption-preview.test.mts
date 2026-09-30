@@ -34,6 +34,24 @@ const capabilities: VideoExportCapabilities = {
   source: { width: 640, height: 360, displayWidth: 640, displayHeight: 360, rotation: 0, durationMs: 4000, frameRate: 25, variableFrameRate: false, videoCodec: 'h264', pixelFormat: 'yuv420p', bitDepth: 8, hdr: 'sdr', audioCodecs: [], audioStreams: 0 },
 };
 
+test('the first persistent frame completes without another seed or closing stdin', async () => {
+  await disposePersistentCaptionPreviews();
+  const input = parseCaptionPreviewInput({ captions: [{ text: 'កម្ពុជា CapCut', startMs: 0, endMs: 1000 }], timesMs: [200], appearance, resolution: 'source' });
+  const expected = await renderCaptionPreview(input, capabilities);
+  const before = persistentPreviewDiagnostics();
+  try {
+    // A single time sends exactly one complete seed. The worker must return it
+    // while its input remains open, rather than timing out into one-shot fallback.
+    const actual = await renderCaptionPreview(input, capabilities, undefined, { projectId: 'first-frame', mediaIdentity: 'v1' });
+    const after = persistentPreviewDiagnostics();
+    assert.equal(after.fallbacks - before.fallbacks, 0, 'first frame must not wait for a second packet or EOF');
+    assert.equal(after.starts - before.starts, 1);
+    assert.equal(after.frames - before.frames, 1);
+    assert.equal(after.workers, 1, 'transport must remain alive for the next request');
+    assert.deepEqual(actual, expected);
+  } finally { await disposePersistentCaptionPreviews('first-frame'); }
+});
+
 test('a real FFmpeg process survives appearance changes with byte-identical native PNGs and bounds', async () => {
   const base = { captions: [{ id: 'a', text: 'កម្ពុជា CapCut\nខ្មែរជាភាសារបស់យើង', startMs: 100, endMs: 1800 }], timesMs: [200], resolution: 'source' };
   const styles = [appearance, { ...appearance, fontSize1080: 82, positionBottomPct: 28 }, { ...appearance, backgroundEnabled: true, backgroundOpacity: 0.58, outlineWidth1080: 5.5, shadowWidth1080: 8.5 }];

@@ -126,7 +126,9 @@ class NativePreviewWorker {
       '-hide_banner', '-loglevel', 'info', '-nostats', '-nostdin',
       '-threads', '1', '-probesize', '32', '-analyzeduration', '0', '-fpsprobesize', '0',
       '-f', 'image2pipe', '-framerate', '1', '-c:v', 'ppm', '-reinit_filter', '1',
-      '-avioflags', 'direct', '-blocksize', '4096', '-i', 'pipe:0',
+      // Keep AVIO buffering so header probes can rewind on this non-seekable
+      // pipe. Direct I/O can discard the first PPM header and stall the request.
+      '-blocksize', '4096', '-i', 'pipe:0',
       '-filter_complex_threads', '1', '-filter_complex', filter,
       '-map', '[png]', '-fps_mode', 'passthrough', '-c:v', 'png', '-threads', '1',
       '-flush_packets', '1', '-f', 'image2pipe', 'pipe:1',
