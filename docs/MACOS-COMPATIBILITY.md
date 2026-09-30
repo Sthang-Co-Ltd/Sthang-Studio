@@ -309,8 +309,11 @@ platform floor or caption/media cloud processing. The corresponding
 source evidence is `scripts/macos-managed-runtime.sh`, `INSTALL-MACOS.sh`,
 `scripts/update-runtime.mjs`, the Mac trust/OTA packaging and signer files,
 `README.md`, `PRIVACY.md`, `THIRD_PARTY_NOTICES.md`, and the macOS release package
-tests. The managed FFmpeg fallback or Mac OTA availability must not be represented as publicly accepted
-until its remaining upstream provenance and native-Mac acceptance gates are closed.
+tests. For `0.85.6`, the exact pinned managed FFmpeg fallback is accepted only under
+the owner-approved provenance exception recorded above; future FFmpeg replacements
+must close that provenance gap. Mac OTA availability remains separately gated until
+a later signed release completes the required native upgrade/rollback acceptance and
+latest-pointer promotion.
 
 ## Upstream compatibility evidence
 
