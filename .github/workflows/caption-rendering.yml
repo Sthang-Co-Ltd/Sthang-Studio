@@ -71,6 +71,8 @@ jobs:
           if (-not (Test-Path $regular) -or -not (Test-Path $bold)) {
             throw 'Windows Khmer Supplemental Fonts did not provide Khmer UI regular and bold faces.'
           }
+      - name: Browser-compatible media preview tests
+        run: npm run test:media-preview
       - name: Native rasterization, cancellation and real MP4 tests
         run: npm run test:caption-renderer
       - name: Install isolated browser runtime

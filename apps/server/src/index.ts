@@ -11,6 +11,8 @@ import updates from './routes/updates.js';
 import contribution from './routes/contribution.js';
 import videoExport from './routes/video-export.js';
 import captionHandoff from './routes/caption-handoff.js';
+import mediaPreviewRouter from './routes/media-preview.js';
+import { ACTIVATION_HEADER, WEB_IDENTITY_PATH } from '../../../scripts/web-runtime-identity.mjs';
 import { APP_VERSION } from './version.js';
 import { proposalStore } from './services/proposal-store.js';
 import { publicLlmSettings, resolveGeminiSettings } from './services/llm-settings.js';
@@ -82,6 +84,17 @@ app.use('/api/updates', updates);
 app.use('/api/contribution', contribution);
 app.use('/api/video-export', videoExport);
 app.use('/api/caption-handoff', captionHandoff);
+app.use('/api/media-preview', mediaPreviewRouter);
+// Per-launch identity binds activation probes to this process. The frontend
+// body remains the independently built artifact, never an API-generated version.
+app.use((req, res, next) => {
+  if (req.path === '/api/health' || req.path === WEB_IDENTITY_PATH) {
+    res.setHeader('Cache-Control', 'no-store');
+    const activationId = process.env.STHANG_STUDIO_ACTIVATION_ID;
+    if (activationId) res.setHeader(ACTIVATION_HEADER, activationId);
+  }
+  next();
+});
 app.get('/api/health', async (_req, res) => {
   try {
     const llm = await publicLlmSettings();

@@ -10,6 +10,7 @@ import type {
   VideoExportSettings,
 } from '@kcs/shared';
 import { config } from '../config.js';
+import { jobAdmission } from './job-admission.js';
 import { store } from './store.js';
 import { analyticsBuckets, captureAnalytics } from './analytics.js';
 import { createRangeRegenerationProposal, refineRegenerationProposal, transcribeProject } from './project-processing.js';
@@ -363,7 +364,9 @@ queueMicrotask(pump);
 
 export const jobStore = {
   hasAnyActive() {
-    return jobs.some((job) => ['queued', 'running'].includes(job.status));
+    // Terminal status is published in memory before durable persistence and
+    // checkpoint cleanup finish. Keep the lane busy through that entire tail.
+    return pumping.caption || pumping.export || jobs.some((job) => ['queued', 'running'].includes(job.status));
   },
 
   hasActiveForProject(projectId: string) {
@@ -399,57 +402,61 @@ export const jobStore = {
   },
 
   async create(type: ProcessingJobType, projectId: string, payload: JobPayload) {
-    const project = await store.get(projectId);
-    if (!project) throw new Error('Project not found');
-    const duplicate = jobs.find((job) => job.projectId === projectId && job.type === type && ['queued', 'running'].includes(job.status));
-    if (duplicate) return publicJob(duplicate);
-    const now = new Date().toISOString();
-    const job: StoredJob = {
-      id: nanoid(14),
-      type,
-      projectId,
-      projectTitle: project.title,
-      status: 'queued',
-      stage: 'queued',
-      progress: 0,
-      message: type === 'export-video' ? 'Captioned video export is queued.' : 'Waiting for the local processing worker…',
-      createdAt: now,
-      updatedAt: now,
-      canResume: false,
-      payload,
-    };
-    jobs.unshift(job);
-    jobs = jobs.slice(0, 80);
-    await persist();
-    notifySubscribers();
-    if (type !== 'export-video') void captureAnalytics('generation_started', { job_type: type });
-    pump();
-    return publicJob(job);
+    return jobAdmission.run(async () => {
+      const project = await store.get(projectId);
+      if (!project) throw new Error('Project not found');
+      const duplicate = jobs.find((job) => job.projectId === projectId && job.type === type && ['queued', 'running'].includes(job.status));
+      if (duplicate) return publicJob(duplicate);
+      const now = new Date().toISOString();
+      const job: StoredJob = {
+        id: nanoid(14),
+        type,
+        projectId,
+        projectTitle: project.title,
+        status: 'queued',
+        stage: 'queued',
+        progress: 0,
+        message: type === 'export-video' ? 'Captioned video export is queued.' : 'Waiting for the local processing worker…',
+        createdAt: now,
+        updatedAt: now,
+        canResume: false,
+        payload,
+      };
+      jobs.unshift(job);
+      jobs = jobs.slice(0, 80);
+      await persist();
+      notifySubscribers();
+      if (type !== 'export-video') void captureAnalytics('generation_started', { job_type: type });
+      pump();
+      return publicJob(job);
+    });
   },
 
   async resume(id: string) {
-    const job = jobs.find((item) => item.id === id);
-    if (!job) throw new Error('Job not found');
-    if (!['failed', 'interrupted'].includes(job.status)) throw new Error('Only failed or interrupted jobs can be resumed.');
-    if (job.type === 'export-video' && (!job.payload.exportCaptions || !job.payload.exportSettings || !job.payload.exportAppearance)) {
-      throw new Error('This older export job no longer has a complete render snapshot. Start a new export.');
-    }
-    await patch(id, {
-      status: 'queued',
-      stage: 'queued',
-      progress: 0,
-      message: job.type === 'export-video'
-        ? 'Export queued again with the saved caption and quality settings.'
-        : 'Queued again. Saved stage checkpoints will be reused when valid.',
-      error: undefined,
-      completedAt: undefined,
-      canResume: false,
-      cancelRequested: false,
-      performance: undefined,
+    return jobAdmission.run(async () => {
+      const job = jobs.find((item) => item.id === id);
+      if (!job) throw new Error('Job not found');
+      if (!['failed', 'interrupted'].includes(job.status)) throw new Error('Only failed or interrupted jobs can be resumed.');
+      if (job.type === 'export-video' && (!job.payload.exportCaptions || !job.payload.exportSettings || !job.payload.exportAppearance)) {
+        throw new Error('This older export job no longer has a complete render snapshot. Start a new export.');
+      }
+      await patch(id, {
+        status: 'queued',
+        stage: 'queued',
+        progress: 0,
+        message: job.type === 'export-video'
+          ? 'Export queued again with the saved caption and quality settings.'
+          : 'Queued again. Saved stage checkpoints will be reused when valid.',
+        error: undefined,
+        completedAt: undefined,
+        canResume: false,
+        cancelRequested: false,
+        performance: undefined,
     });
     if (job.type !== 'export-video') void captureAnalytics('generation_started', { job_type: job.type });
     pump();
     return (await this.get(id))!;
+    });
   },
 
   async cancel(id: string) {

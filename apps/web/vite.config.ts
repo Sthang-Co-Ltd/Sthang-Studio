@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
+import { studioWebIdentityPlugin } from '../../scripts/web-runtime-identity.mjs';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), studioWebIdentityPlugin(fileURLToPath(new URL('../..', import.meta.url)))],
   // Monterey can run Safari 17; do not let Vite's moving default silently
   // raise the browser floor above the macOS source compatibility target.
   build: {

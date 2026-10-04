@@ -123,6 +123,30 @@ function Expand-SafeZip([string]$ArchivePath, [string]$Destination, [long]$Maxim
   }
 }
 
+function Assert-PreparedTimingFiles([string]$ArchivePath, [string]$PreparedRoot) {
+  # PackagePath has already passed the signed archive size/hash verification.
+  # Reused control files must match those bytes, not a self-consistent local copy.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $Archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+  try {
+    foreach ($Relative in @('local-timing/locks/manifest.json', 'scripts/check-timing-dependencies.py', 'scripts/check-windows-timing.py')) {
+      $Entries = @($Archive.Entries | Where-Object { $_.FullName.Replace('\', '/') -ieq $Relative })
+      if ($Entries.Count -ne 1 -or $Entries[0].FullName.Replace('\', '/') -cne $Relative -or $Entries[0].Length -gt 1048576) { throw 'The signed timing control file is missing or invalid.' }
+      $Entry = $Entries[0]
+      $File = Join-Path $PreparedRoot $Relative
+      if (-not (Test-Path -LiteralPath $File -PathType Leaf) -or (Get-Item -LiteralPath $File).Length -ne $Entry.Length) {
+        throw 'The prepared timing control file does not match the signed package.'
+      }
+      if ((Get-Item -LiteralPath $File).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'The prepared timing control file must not be a reparse point.' }
+      $Hasher = [Security.Cryptography.SHA256]::Create()
+      $Stream = $Entry.Open()
+      try { $Expected = [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace('-', '').ToLowerInvariant() }
+      finally { $Stream.Dispose(); $Hasher.Dispose() }
+      if ((Get-Sha256 $File) -cne $Expected) { throw 'The prepared timing control file does not match the signed package.' }
+    }
+  } finally { $Archive.Dispose() }
+}
+
 if ($LibraryOnly) { return }
 if (-not $PendingPath) { throw 'PendingPath is required.' }
 
@@ -171,6 +195,22 @@ Assert-Under $VersionsRoot $Target 'The target version'
 $ReceiptPath = Join-Path $UpdateRoot ("receipts\$Version.json")
 $MarkerPath = Join-Path $Target $MarkerName
 
+function Assert-TimingLocks([string]$PreparedRoot) {
+  # The outer archive SHA/signature authenticates this exact inner manifest.
+  # Retain legacy pythonFiles schema for compatibility with existing brokers.
+  $LockManifest = Get-Content -LiteralPath (Join-Path $PreparedRoot 'local-timing/locks/manifest.json') -Raw | ConvertFrom-Json
+  $AllowedLocks = @('tooling', 'windows-py312-x64', 'macos-legacy-py312-arm64', 'macos-modern-py312-arm64') | ForEach-Object { 'local-timing/locks/' + $_ + '.txt' }
+  if ($LockManifest.schemaVersion -ne 1 -or @($LockManifest.files).Count -ne 4) { throw 'The reviewed timing lock manifest is invalid.' }
+  $SeenLocks = @{}
+  foreach ($Record in $LockManifest.files) {
+    $Relative = [string]$Record.path
+    if ($Relative -cnotin $AllowedLocks -or $SeenLocks.ContainsKey($Relative) -or ([string]$Record.sha256) -cnotmatch '^[a-f0-9]{64}$') { throw 'The reviewed timing lock path/hash is invalid.' }
+    $SeenLocks[$Relative] = $true
+    if ((Get-Sha256 (Join-Path $PreparedRoot $Relative)) -cne [string]$Record.sha256) { throw 'A reviewed timing lock failed authenticated manifest verification.' }
+  }
+
+}
+
 function Assert-PreparedTarget([string]$PreparedRoot) {
   $Marker = Get-Content -LiteralPath (Join-Path $PreparedRoot $MarkerName) -Raw | ConvertFrom-Json
   if (
@@ -194,6 +234,9 @@ function Assert-PreparedTarget([string]$PreparedRoot) {
   foreach ($Required in @(
     'scripts\dev.mjs',
     'scripts\update-protocol.mjs',
+    'scripts\check-windows-timing.py',
+    'scripts\check-timing-dependencies.py',
+    'local-timing\locks\manifest.json',
     'node_modules\typescript\bin\tsc',
     '.venv\Scripts\python.exe',
     'apps\server\src\index.ts',
@@ -204,6 +247,12 @@ function Assert-PreparedTarget([string]$PreparedRoot) {
       throw "The existing immutable version is incomplete: $Required"
     }
   }
+  Assert-PreparedTimingFiles $PackagePath $PreparedRoot
+  Assert-TimingLocks $PreparedRoot
+  & (Join-Path $PreparedRoot '.venv\Scripts\python.exe') (Join-Path $PreparedRoot 'scripts\check-timing-dependencies.py') --profile windows-py312-x64
+  if ($LASTEXITCODE -ne 0) { throw 'Required reviewed timing dependency validation failed.' }
+  & (Join-Path $PreparedRoot '.venv\Scripts\python.exe') (Join-Path $PreparedRoot 'scripts\check-windows-timing.py')
+  if ($LASTEXITCODE -ne 0) { throw 'Required local Khmer timing readiness validation failed.' }
 }
 
 if (Test-Path -LiteralPath $Target) {
@@ -253,6 +302,9 @@ try {
   foreach ($Required in @(
     'scripts\dev.mjs',
     'scripts\update-protocol.mjs',
+    'scripts\check-windows-timing.py',
+    'scripts\check-timing-dependencies.py',
+    'local-timing\locks\manifest.json',
     'apps\server\src\index.ts',
     'apps\web\package.json',
     'config\update-trust-root.json',
@@ -263,28 +315,20 @@ try {
     }
   }
 
-  # The outer archive SHA/signature authenticates this exact inner manifest.
-  # Retain legacy pythonFiles schema for compatibility with existing brokers.
-  $LockManifest = Get-Content -LiteralPath (Join-Path $ExtractRoot 'local-timing/locks/manifest.json') -Raw | ConvertFrom-Json
-  $AllowedLocks = @('tooling', 'windows-py312-x64', 'macos-legacy-py312-arm64', 'macos-modern-py312-arm64') | ForEach-Object { 'local-timing/locks/' + $_ + '.txt' }
-  if ($LockManifest.schemaVersion -ne 1 -or @($LockManifest.files).Count -ne 4) { throw 'The reviewed timing lock manifest is invalid.' }
-  $SeenLocks = @{}
-  foreach ($Record in $LockManifest.files) {
-    $Relative = [string]$Record.path
-    if ($Relative -cnotin $AllowedLocks -or $SeenLocks.ContainsKey($Relative) -or ([string]$Record.sha256) -cnotmatch '^[a-f0-9]{64}$') { throw 'The reviewed timing lock path/hash is invalid.' }
-    $SeenLocks[$Relative] = $true
-    if ((Get-Sha256 (Join-Path $ExtractRoot $Relative)) -cne [string]$Record.sha256) { throw 'A reviewed timing lock failed authenticated manifest verification.' }
-  }
+  Assert-TimingLocks $ExtractRoot
 
   . (Join-Path $ExtractRoot 'scripts\windows-managed-runtime.ps1')
   $ReviewedNode = Get-StudioManagedNode
   $env:Path = (Split-Path -Parent $ReviewedNode) + ';' + $env:Path
   $ReviewedNpm = Join-Path (Split-Path -Parent $ReviewedNode) 'npm.cmd'
+  $PreviousNoninteractive = $env:KCS_NONINTERACTIVE
+  $PreviousRequireKfa = $env:KCS_REQUIRE_KFA
   Push-Location $ExtractRoot
   try {
     & $ReviewedNpm ci --include=dev --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Node dependency preparation failed.' }
     $env:KCS_NONINTERACTIVE = '1'
+    $env:KCS_REQUIRE_KFA = '1'
     & $env:ComSpec /d /c 'setup-local-timing-windows.bat'
     if ($LASTEXITCODE -ne 0) { throw 'Local timing dependency preparation failed.' }
     & $ReviewedNpm run typecheck -- --runtime-only
@@ -292,7 +336,8 @@ try {
     & $ReviewedNpm run build
     if ($LASTEXITCODE -ne 0) { throw 'The staged Studio application failed its production build.' }
   } finally {
-    Remove-Item Env:KCS_NONINTERACTIVE -ErrorAction SilentlyContinue
+    $env:KCS_NONINTERACTIVE = $PreviousNoninteractive
+    $env:KCS_REQUIRE_KFA = $PreviousRequireKfa
     Pop-Location
   }
 

@@ -15,7 +15,7 @@ echo.
 if not exist "scripts\launch-studio.ps1" (
   echo ERROR: The Sthang Studio launcher is incomplete.
   echo Run the current manual Windows installer to repair it.
-  pause
+  if not "%STHANG_STUDIO_UPDATE_ACTIVATION%"=="1" pause
   exit /b 1
 )
 
@@ -28,6 +28,8 @@ set "EXITCODE=%errorlevel%"
 
 REM Exit code 42 means the stable broker handed control to a verified new version.
 if "%EXITCODE%"=="42" exit /b 0
+REM The updater must observe failed activation exits, not a paused cmd window.
+if "%STHANG_STUDIO_UPDATE_ACTIVATION%"=="1" exit /b %EXITCODE%
 
 echo.
 echo ============================================================

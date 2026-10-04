@@ -147,6 +147,8 @@ export async function cacheDuration(projectId: string) {
 }
 
 export async function invalidateProjectCache(projectId: string) {
+  const { invalidateMediaPreview } = await import('./media-preview.js');
+  await invalidateMediaPreview(projectId);
   const { disposePersistentCaptionPreviews } = await import('./persistent-caption-preview.js');
   await disposePersistentCaptionPreviews(projectId);
   const existing = normalizedAudioInFlight.get(projectId);

@@ -51,6 +51,31 @@ try {
   $HashFixture = Join-Path $TempRoot 'hash-fixture.bin'
   [IO.File]::WriteAllBytes($HashFixture, [Text.Encoding]::ASCII.GetBytes('abc'))
   Assert-True ((Get-Sha256 $HashFixture) -eq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'The broker SHA-256 implementation returned the wrong digest.'
+  $TimingZip = Join-Path $TempRoot 'timing-controls.zip'
+  $TimingRoot = Join-Path $TempRoot 'timing-controls'
+  $TimingEntries = @(
+    @('local-timing/locks/manifest.json', '{"schemaVersion":1}'),
+    @('scripts/check-timing-dependencies.py', '# reviewed dependency check'),
+    @('scripts/check-windows-timing.py', '# reviewed functional check')
+  )
+  New-TestZip $TimingZip $TimingEntries
+  foreach ($Entry in $TimingEntries) {
+    $Path = Join-Path $TimingRoot $Entry[0]
+    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+    [IO.File]::WriteAllText($Path, $Entry[1], (New-Object Text.UTF8Encoding($false)))
+  }
+  Assert-PreparedTimingFiles $TimingZip $TimingRoot
+  foreach ($Entry in $TimingEntries) {
+    $Path = Join-Path $TimingRoot $Entry[0]
+    [IO.File]::WriteAllText($Path, ('x' * $Entry[1].Length), (New-Object Text.UTF8Encoding($false)))
+    $Rejected = $false
+    try { Assert-PreparedTimingFiles $TimingZip $TimingRoot }
+    catch { $Rejected = $_.Exception.Message -match 'does not match the signed package' }
+    Assert-True $Rejected "A changed timing control file '$($Entry[0])' was accepted."
+    [IO.File]::WriteAllText($Path, $Entry[1], (New-Object Text.UTF8Encoding($false)))
+  }
+
+  Write-Host 'Prepared timing control integrity fixtures passed.'
   $OtaPackager = Get-Content -LiteralPath (Join-Path $Root 'scripts\package-ota-release.ps1') -Raw
   Assert-True ($OtaPackager -notmatch '\bGet-FileHash\b') 'The OTA packager must not depend on PowerShell module auto-loading for SHA-256.'
 
@@ -102,10 +127,10 @@ try {
   }
 
   $Prepare = Get-Content -LiteralPath (Join-Path $Root 'scripts\prepare-studio-update.ps1') -Raw
-  $NpmIndex = $Prepare.IndexOf('& npm.cmd ci')
+  $NpmIndex = $Prepare.IndexOf('& $ReviewedNpm ci')
   $PythonIndex = $Prepare.IndexOf("& `$env:ComSpec /d /c 'setup-local-timing-windows.bat'")
-  $TypecheckIndex = $Prepare.IndexOf('& npm.cmd run typecheck')
-  $BuildIndex = $Prepare.IndexOf('& npm.cmd run build')
+  $TypecheckIndex = $Prepare.IndexOf('& $ReviewedNpm run typecheck')
+  $BuildIndex = $Prepare.IndexOf('& $ReviewedNpm run build')
   $MoveIndex = $Prepare.IndexOf('Move-Item -LiteralPath $ExtractRoot -Destination $Target')
   Assert-True ($NpmIndex -ge 0 -and $PythonIndex -gt $NpmIndex -and $TypecheckIndex -gt $PythonIndex -and $BuildIndex -gt $TypecheckIndex -and $MoveIndex -gt $BuildIndex) 'Dependency/setup/build validation must finish before the immutable version is moved into place.'
   Assert-True ($Prepare -notmatch 'active\.json') 'The dependency preparation script must never modify the active-version pointer.'
