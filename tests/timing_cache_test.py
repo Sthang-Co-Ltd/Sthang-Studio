@@ -54,6 +54,9 @@ class TimingCacheTests(unittest.TestCase):
         self.cache = self.root / "cache"
         self.emission = ArrayFixture()
         self.transcript = "សួស្តី"
+        privacy = patch.dict("sys.modules", {"onnxruntime": SimpleNamespace(disable_telemetry_events=Mock())})
+        privacy.start()
+        self.addCleanup(privacy.stop)
         worker._emission_memory.clear()
         self.addCleanup(worker._emission_memory.clear)
         self.stderr = io.StringIO()

@@ -83,27 +83,11 @@ function Download-File([string]$Url, [string]$Destination, [string]$Label) {
 function Test-Node {
   try {
     $node = Get-Command node -ErrorAction Stop
-    & $node.Source -e "process.exit(Number(process.versions.node.split('.')[0]) >= 24 ? 0 : 1)" *> $null
+    & $node.Source -e "const [major,minor]=process.versions.node.split('.').map(Number); process.exit(major === 24 && minor >= 21 && process.arch === 'x64' ? 0 : 1)" *> $null
     return $LASTEXITCODE -eq 0
   } catch {
     return $false
   }
-}
-
-function Test-Python312 {
-  try {
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-      py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" *> $null
-      if ($LASTEXITCODE -eq 0) { return $true }
-    }
-  } catch { }
-  try {
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-      python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" *> $null
-      if ($LASTEXITCODE -eq 0) { return $true }
-    }
-  } catch { }
-  return $false
 }
 
 function Test-FFmpeg {
@@ -144,87 +128,16 @@ function Try-WingetPackage([string]$PackageId, [string]$Label, [scriptblock]$Ver
 }
 
 function Install-NodeFallback {
-  $version = '24.21.0'
-  $archiveName = "node-v$version-win-x64.zip"
-  $archive = Join-Path $TempRoot $archiveName
-  $sums = Join-Path $TempRoot "node-v$version-SHASUMS256.txt"
-  $target = Join-Path $ToolsRoot "node-v$version-win-x64"
-
-  if (-not (Test-Path (Join-Path $target 'node.exe'))) {
-    Download-File "https://nodejs.org/dist/v$version/$archiveName" $archive "Node.js LTS $version"
-    Download-File "https://nodejs.org/dist/v$version/SHASUMS256.txt" $sums "Node.js checksum"
-
-    $escaped = [regex]::Escape($archiveName)
-    $line = Get-Content $sums | Where-Object { $_ -match "$escaped$" } | Select-Object -First 1
-    if (-not $line) { throw "Could not verify the Node.js download checksum." }
-    $expected = (($line -split '\s+')[0]).ToLowerInvariant()
-    $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-    if ($actual -ne $expected) { throw "Node.js download checksum did not match. Delete the installer download and try again." }
-
-    if (Test-Path $target) { Remove-Item $target -Recurse -Force }
-    Expand-Archive -Path $archive -DestinationPath $ToolsRoot -Force
-  }
-
-  Add-UserPath $target
-  if (-not (Test-Node)) { throw "Node.js direct setup did not finish correctly." }
-  Write-Host "[OK] Node.js LTS ready (direct per-user setup)." -ForegroundColor Green
+  . (Join-Path $PSScriptRoot 'windows-managed-runtime.ps1')
+  $Node = Get-StudioManagedNode
+  $env:Path = (Split-Path -Parent $Node) + ';' + $env:Path
+  Write-Host "[OK] Reviewed app-private Node.js is ready." -ForegroundColor Green
 }
 
 function Install-PythonFallback {
-  $version = '3.12.10'
-  $installer = Join-Path $TempRoot "python-$version-amd64.exe"
-  $target = Join-Path $ToolsRoot "python-$version"
-  $pythonExe = Join-Path $target 'python.exe'
-
-  if (-not (Test-Path $pythonExe)) {
-    Download-File "https://www.python.org/ftp/python/$version/python-$version-amd64.exe" $installer "Python $version"
-    if ((Get-Item $installer).Length -lt 5000000) { throw "Python installer download looks incomplete." }
-
-    if (Test-Path $target) { Remove-Item $target -Recurse -Force }
-    Write-Host "Installing Python $version for this Windows user..." -ForegroundColor Yellow
-    Write-Host "This can take several minutes in Windows Sandbox. Keep this window open." -ForegroundColor DarkGray
-    $pythonLog = Join-Path $TempRoot "python-$version-install.log"
-    $pythonArgs = @(
-      '/quiet',
-      "/log `"$pythonLog`"",
-      'InstallAllUsers=0',
-      'InstallLauncherAllUsers=0',
-      "TargetDir=`"$target`"",
-      'PrependPath=0',
-      'Include_launcher=0',
-      'Include_test=0',
-      'Include_doc=0',
-      'Shortcuts=0',
-      'Include_tcltk=0',
-      'Include_pip=1',
-      'Include_dev=1',
-      'Include_exe=1',
-      'Include_lib=1',
-      'Include_tools=1'
-    )
-    $pythonProcess = Start-Process -FilePath $installer -ArgumentList ($pythonArgs -join ' ') -Wait -PassThru
-    $pythonExit = $pythonProcess.ExitCode
-    if ($pythonExit -ne 0) {
-      throw "Python $version direct setup failed with exit code $pythonExit. Installer log: $pythonLog"
-    }
-
-    if (-not (Test-Path $pythonExe)) {
-      $defaultPythonExe = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
-      if (Test-Path $defaultPythonExe) {
-        $pythonExe = $defaultPythonExe
-        $target = Split-Path -Parent $pythonExe
-      } else {
-        throw "Python $version installer reported success but python.exe was not found. Installer log: $pythonLog"
-      }
-    }
-  }
-
-  Add-UserPath $target
-  $scripts = Join-Path $target 'Scripts'
-  if (Test-Path $scripts) { Add-UserPath $scripts }
-  & $pythonExe -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" *> $null
-  if ($LASTEXITCODE -ne 0) { throw "Python 3.12 direct setup did not finish correctly." }
-  Write-Host "[OK] Python 3.12 ready (direct per-user setup)." -ForegroundColor Green
+  . (Join-Path $PSScriptRoot 'windows-managed-runtime.ps1')
+  $env:STHANG_STUDIO_PYTHON = Get-StudioManagedPython
+  Write-Host "[OK] Reviewed app-private Python is ready." -ForegroundColor Green
 }
 
 function Install-FFmpegFallback {
@@ -282,20 +195,11 @@ function Install-VCRuntimeFallback {
 }
 
 function Ensure-Node {
-  if (Test-Node) {
-    Write-Host "[OK] Node.js already available." -ForegroundColor Green
-    return
-  }
-  if (Try-WingetPackage 'OpenJS.NodeJS.LTS' 'Node.js LTS' { Test-Node }) { return }
   Install-NodeFallback
 }
 
 function Ensure-Python {
-  if (Test-Python312) {
-    Write-Host "[OK] Python 3.12 already available." -ForegroundColor Green
-    return
-  }
-  if (Try-WingetPackage 'Python.Python.3.12' 'Python 3.12' { Test-Python312 }) { return }
+  # Do not let an old system/launcher Python bypass the reviewed runtime.
   Install-PythonFallback
 }
 
@@ -326,10 +230,10 @@ try {
     Write-Host "WinGet is not available. That's okay - using direct per-user downloads instead." -ForegroundColor Yellow
   }
 
+  Ensure-VCRuntime
   Ensure-Node
   Ensure-Python
   Ensure-FFmpeg
-  Ensure-VCRuntime
 
   Write-Host ""
   Write-Host "Running Sthang Studio setup..." -ForegroundColor Cyan

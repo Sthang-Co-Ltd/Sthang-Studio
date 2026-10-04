@@ -222,7 +222,7 @@ try {
     }
     foreach ($Entry in $OtaEntries) {
       $Name = $Entry.FullName.Replace('\', '/')
-      if ($Name -match '(^|/)(data|uploads|exports|tools|node_modules|\.venv|versions|updates|release-artifacts)(/|$)' -or $Name -match '(^|/)\.env($|/)') {
+      if ($Name -match '(^|/)(data|uploads|exports|tools|node_modules|\.venv(?:\.(?:rollback|pending)-[^/]+)?|\.timing-envs|\.timing-setup\.lock|\.timing-transaction\.json(?:\.tmp)?|versions|updates|release-artifacts)(/|$)' -or $Name -match '(^|/)\.env($|/)') {
         throw "macOS OTA package contains protected runtime state: $Name"
       }
     }

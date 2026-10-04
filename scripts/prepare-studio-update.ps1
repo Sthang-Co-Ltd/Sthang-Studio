@@ -64,6 +64,7 @@ function Get-SafeArchiveName([string]$Value) {
   }
 
   foreach ($Part in $Trimmed.Split('\')) {
+    if ($Part -match '^\.venv\.(rollback|pending)-' -or $Part -match '^\.timing-(envs|setup\.lock|transaction\.json(?:\.tmp)?)$') { throw 'The update archive contains protected timing state.' }
     if (-not $Part -or $Part.EndsWith(' ') -or $Part.EndsWith('.') -or $Part -match '[\x00-\x1F]') {
       throw 'The update archive contains a Windows-unsafe path.'
     }
@@ -225,7 +226,7 @@ $ExtractRoot = Join-Path $WorkRoot 'source'
 New-Item -ItemType Directory -Path $ExtractRoot -Force | Out-Null
 try {
   Expand-SafeZip $PackagePath $ExtractRoot ([long]$Manifest.package.unpackedSizeBytes)
-  foreach ($Protected in @('data','uploads','exports','node_modules','.venv','versions','updates','release-artifacts',$MarkerName)) {
+  foreach ($Protected in @('data','uploads','exports','node_modules','.venv','.timing-envs','.timing-setup.lock','.timing-transaction.json','.timing-transaction.json.tmp','versions','updates','release-artifacts',$MarkerName)) {
     if (Test-Path -LiteralPath (Join-Path $ExtractRoot $Protected)) {
       throw "The update archive contains protected runtime state: $Protected"
     }
@@ -262,16 +263,33 @@ try {
     }
   }
 
+  # The outer archive SHA/signature authenticates this exact inner manifest.
+  # Retain legacy pythonFiles schema for compatibility with existing brokers.
+  $LockManifest = Get-Content -LiteralPath (Join-Path $ExtractRoot 'local-timing/locks/manifest.json') -Raw | ConvertFrom-Json
+  $AllowedLocks = @('tooling', 'windows-py312-x64', 'macos-legacy-py312-arm64', 'macos-modern-py312-arm64') | ForEach-Object { 'local-timing/locks/' + $_ + '.txt' }
+  if ($LockManifest.schemaVersion -ne 1 -or @($LockManifest.files).Count -ne 4) { throw 'The reviewed timing lock manifest is invalid.' }
+  $SeenLocks = @{}
+  foreach ($Record in $LockManifest.files) {
+    $Relative = [string]$Record.path
+    if ($Relative -cnotin $AllowedLocks -or $SeenLocks.ContainsKey($Relative) -or ([string]$Record.sha256) -cnotmatch '^[a-f0-9]{64}$') { throw 'The reviewed timing lock path/hash is invalid.' }
+    $SeenLocks[$Relative] = $true
+    if ((Get-Sha256 (Join-Path $ExtractRoot $Relative)) -cne [string]$Record.sha256) { throw 'A reviewed timing lock failed authenticated manifest verification.' }
+  }
+
+  . (Join-Path $ExtractRoot 'scripts\windows-managed-runtime.ps1')
+  $ReviewedNode = Get-StudioManagedNode
+  $env:Path = (Split-Path -Parent $ReviewedNode) + ';' + $env:Path
+  $ReviewedNpm = Join-Path (Split-Path -Parent $ReviewedNode) 'npm.cmd'
   Push-Location $ExtractRoot
   try {
-    & npm.cmd ci --include=dev --no-audit --no-fund
+    & $ReviewedNpm ci --include=dev --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Node dependency preparation failed.' }
     $env:KCS_NONINTERACTIVE = '1'
     & $env:ComSpec /d /c 'setup-local-timing-windows.bat'
     if ($LASTEXITCODE -ne 0) { throw 'Local timing dependency preparation failed.' }
-    & npm.cmd run typecheck -- --runtime-only
+    & $ReviewedNpm run typecheck -- --runtime-only
     if ($LASTEXITCODE -ne 0) { throw 'The staged Studio application failed TypeScript validation.' }
-    & npm.cmd run build
+    & $ReviewedNpm run build
     if ($LASTEXITCODE -ne 0) { throw 'The staged Studio application failed its production build.' }
   } finally {
     Remove-Item Env:KCS_NONINTERACTIVE -ErrorAction SilentlyContinue

@@ -47,6 +47,9 @@
     "performance-batch4.test.mts",
     "project-store.test.mts",
     "playback-grouping.test.mts",
-    "playback-grouping-server.test.mts"
+    "playback-grouping-server.test.mts",
+    "local-timing-privacy.test.mts",
+    "gemini-sdk-transport.test.mts",
+    "diagnostics/gemini-sdk-abort-known-limitation.mts"
   ]
 }

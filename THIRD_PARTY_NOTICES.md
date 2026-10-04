@@ -31,21 +31,28 @@ The unreleased Sthang contribution and analytics relay Workers use Cloudflare's
 Worker/D1/R2 capabilities directly and add no Studio application npm runtime
 dependency.
 
-## macOS managed prerequisite runtimes
+## Managed prerequisite runtimes
 
 The Apple Silicon macOS installer may download prerequisite runtimes at setup time
 when an already-compatible local installation is unavailable. Sthang does not
-bundle or rehost these archives. The currently reviewed direct-download pins are:
+bundle or rehost these archives. The source maintenance candidate also provisions
+app-private CPython on Windows. The source download pins below are checksum
+verified; the new Python candidate still requires native release acceptance:
 
 | Component | Setup use | Upstream license / terms |
 |---|---|---|
 | Node.js 22.23.3 arm64 | JavaScript runtime and npm | MIT for Node.js, with bundled third-party notices in the upstream distribution |
-| Astral `python-build-standalone` CPython 3.12.14+20260924 arm64 | Python 3.12 runtime used to create Studio's local timing virtual environment | `python-build-standalone` tooling: MPL-2.0; CPython and bundled runtime components retain their upstream licenses |
+| Node.js 24.21.0 Windows x64 | App-private JavaScript runtime and npm for setup/build/application execution | MIT for Node.js, with bundled third-party notices in the upstream distribution |
+| Astral `python-build-standalone` CPython 3.12.15+20261003 arm64 / Windows x64 | Private Python 3.12 runtime used to create Studio's local timing virtual environment | `python-build-standalone` tooling: MPL-2.0; CPython and bundled runtime components retain their upstream licenses |
 | `FFmpeg-arm-silicon` 0.5.0 tools archive | FFmpeg/ffprobe fallback for local media processing and libass caption rendering | Exact inspected binary reports GPL version 3 or later. For v0.85.6, the owner approved a documented provenance exception: Sthang downloads the exact checksum-pinned upstream asset directly and does not bundle or rehost it, while the upstream binary-to-source chain is not independently reproducible to Sthang's stricter internal provenance standard. |
 
 Each managed archive is addressed by a fixed versioned HTTPS URL and exact SHA-256
-digest in `scripts/macos-managed-runtime.sh`. The installer validates the expected
+digest in `scripts/macos-managed-runtime.sh` or `scripts/windows-managed-runtime.ps1`. The installer validates the expected
 native architecture and required runtime capabilities before selecting it.
+
+The accepted `v0.85.6` Mac bootstrap used CPython 3.12.14+20260924. Its acceptance
+does not validate the new source candidate automatically. See
+`docs/DEPENDENCY-RUNTIME-MAINTENANCE.md` for exact hashes and remaining gates.
 
 ## Python / local timing
 
@@ -64,6 +71,12 @@ native architecture and required runtime capabilities before selecting it.
 | Requests | HTTP dependency | Apache-2.0 |
 | appdirs | Local cache paths | MIT |
 | faster-whisper | Local timing fallback | MIT |
+
+The source maintenance profile pins full platform-specific Python graphs and
+artifact hashes under `local-timing/locks/`; the downloaded upstream distributions
+retain their license files. ONNX Runtime's supported telemetry opt-outs are applied
+before initialization, including startup environment flags. No telemetry-enabled
+service or new data-transfer category is authorized by updating a dependency.
 
 Studio's `local-timing/worker.py` adapts portions of KFA 0.2.0's Apache-2.0
 `forced_alignment.py` acoustic-emission and transcript-alignment flow so the

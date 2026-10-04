@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Shared by all macOS entrypoints. Keep compatible with Apple's Bash 3.2.
 
+export ORT_DISABLE_TELEMETRY=1
+export HF_HUB_DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
+
 STUDIO_MACOS_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$STUDIO_MACOS_COMMON_DIR/macos-managed-runtime.sh"
 
@@ -31,13 +35,14 @@ studio_macos_host() {
 }
 
 studio_macos_node_ok() {
-  local info major minor
+  local info major minor patch
   info="$("$1" -p 'process.versions.node + " " + process.arch' 2>/dev/null)" || return 1
   [[ "$info" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\ arm64$ ]] || return 1
   major=$((10#${BASH_REMATCH[1]}))
   minor=$((10#${BASH_REMATCH[2]}))
-  if [[ "$major" -eq 22 && "$minor" -ge 12 ]]; then return 0; fi
-  [[ "$major" -ge 24 && "$STUDIO_NODE_FORMULA" != "node@22" ]]
+  patch=$((10#${BASH_REMATCH[3]}))
+  if [[ "$major" -eq 22 ]] && { [[ "$minor" -gt 23 ]] || { [[ "$minor" -eq 23 && "$patch" -ge 3 ]]; }; }; then return 0; fi
+  [[ "$major" -eq 24 && "$minor" -ge 21 && "$STUDIO_NODE_FORMULA" != "node@22" ]]
 }
 
 studio_macos_select_node() {
@@ -61,7 +66,7 @@ studio_macos_select_node() {
 }
 
 studio_macos_python_ok() {
-  "$1" -c 'import ensurepip, platform, ssl, sys, venv; sys.exit(0 if sys.version_info[:2] == (3, 12) and platform.machine() == "arm64" else 1)' >/dev/null 2>&1
+  "$1" -c 'import ensurepip, platform, ssl, sys, venv; sys.exit(0 if (3, 12, 15) <= sys.version_info[:3] < (3, 13, 0) and platform.machine() == "arm64" else 1)' >/dev/null 2>&1
 }
 
 studio_macos_select_python() {
@@ -144,7 +149,7 @@ studio_macos_select_ffmpeg() {
 
 studio_macos_require_venv() {
   if ! studio_macos_python_ok "$ROOT/.venv/bin/python"; then
-    echo "ERROR: .venv must use native arm64 Python 3.12. Existing files have not been removed." >&2
+    echo "ERROR: .venv must use native arm64 Python 3.12.15 or newer 3.12 patch. Existing files have not been removed." >&2
     echo "Close Studio, move an incompatible .venv aside, and rerun bash ./INSTALL-MACOS.sh." >&2
     return 1
   fi

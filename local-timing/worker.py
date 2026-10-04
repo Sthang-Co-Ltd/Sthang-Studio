@@ -9,6 +9,12 @@ from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
 
+# Must precede every direct/transitive ONNX import: the API alone is too late
+# to stop native initialization telemetry in official ONNX Runtime builds.
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
+
 # Portions of the KFA acoustic-emission and transcript-alignment flow below are
 # adapted from KFA 0.2.0's Apache-2.0 forced_alignment.py implementation so
 # Studio can cache transcript-independent emissions without changing KFA's
@@ -120,9 +126,17 @@ def memory_emission_put(key: str, value):
         _emission_memory.popitem(last=False)
 
 
+def disable_onnx_telemetry():
+    # Environment opt-out is already set before import; this also disables the
+    # platform API (including Windows ETW) before KFA/Whisper initialization.
+    import onnxruntime
+    onnxruntime.disable_telemetry_events()
+
+
 def get_kfa_session():
     global _kfa_session
     if _kfa_session is None:
+        disable_onnx_telemetry()
         from kfa import create_session
 
         log("Loading KFA Khmer ONNX session once for the local timing worker...")
@@ -203,6 +217,7 @@ def compute_kfa_emission(audio_path: Path, cache_dir=None):
     import librosa
     import numpy as np
     from scipy.special import log_softmax
+    disable_onnx_telemetry()
     from kfa.utils import time_to_frame
 
     y, sr = librosa.load(str(audio_path), sr=16000, mono=True)
@@ -239,6 +254,7 @@ def compute_kfa_emission(audio_path: Path, cache_dir=None):
 
 
 def align_kfa_emission(emission, sample_count: int, sr: int, transcript: str):
+    disable_onnx_telemetry()
     from kfa.text_normalize import tokenize_phonemize
     from kfa.utils import backtrack, get_trellis, intersperse, merge_repeats, merge_words, vocabs
 
@@ -387,6 +403,7 @@ def load_whisper_model(model_name: str, requested_device: str, requested_compute
         log(f"Reusing faster-whisper fallback '{model_name}' from memory.")
         return _whisper_cache_value
 
+    disable_onnx_telemetry()
     from faster_whisper import WhisperModel
 
     device = choose_device(requested_device)

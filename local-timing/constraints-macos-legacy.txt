@@ -1,3 +1,4 @@
+# Native compatibility inputs; complete exact artifacts are in locks/macos-legacy-py312-arm64.txt.
 # CPython 3.12 / Apple Silicon / macOS 12.3+ compatibility profile.
 # SciPy's macosx_12_0 wheel contains Mach-O deployment targets of 12.3.
 # Applied to the combined KFA + Whisper install on Monterey and Ventura.

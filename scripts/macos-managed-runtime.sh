@@ -8,11 +8,11 @@ STUDIO_MANAGED_NODE_ARCHIVE="node-v22.23.3-darwin-arm64.tar.gz"
 STUDIO_MANAGED_NODE_URL="https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-arm64.tar.gz"
 STUDIO_MANAGED_NODE_SHA256="23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53"
 
-STUDIO_MANAGED_PYTHON_VERSION="3.12.14"
-STUDIO_MANAGED_PYTHON_RELEASE="20260924"
-STUDIO_MANAGED_PYTHON_ARCHIVE="cpython-3.12.14+20260924-aarch64-apple-darwin-install_only.tar.gz"
-STUDIO_MANAGED_PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.12.14%2B20260924-aarch64-apple-darwin-install_only.tar.gz"
-STUDIO_MANAGED_PYTHON_SHA256="9763f43db2481a6af36af82ec40302aab7a73632f880129d07a6e81aec846277"
+STUDIO_MANAGED_PYTHON_VERSION="3.12.15"
+STUDIO_MANAGED_PYTHON_RELEASE="20261003"
+STUDIO_MANAGED_PYTHON_ARCHIVE="cpython-3.12.15+20261003-aarch64-apple-darwin-install_only.tar.gz"
+STUDIO_MANAGED_PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-aarch64-apple-darwin-install_only.tar.gz"
+STUDIO_MANAGED_PYTHON_SHA256="316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213"
 
 STUDIO_MANAGED_FFMPEG_VERSION="8.1-20260424"
 STUDIO_MANAGED_FFMPEG_ARCHIVE="FFmpeg-arm-silicon-Tools-20260424.zip"
@@ -91,8 +91,7 @@ studio_macos_install_managed_node() {
     return 1
   fi
 
-  rm -rf -- "$STUDIO_MANAGED_NODE_ROOT"
-  mv -- "$candidate" "$STUDIO_MANAGED_NODE_ROOT"
+  studio_macos_promote_runtime "$candidate" "$STUDIO_MANAGED_NODE_ROOT" node || { rm -rf -- "$work"; return 1; }
   rm -rf -- "$work"
   echo "Node.js $STUDIO_MANAGED_NODE_VERSION is ready in Sthang Studio's private tools folder."
 }
@@ -127,8 +126,7 @@ studio_macos_install_managed_python() {
     return 1
   fi
 
-  rm -rf -- "$STUDIO_MANAGED_PYTHON_ROOT"
-  mv -- "$candidate" "$STUDIO_MANAGED_PYTHON_ROOT"
+  studio_macos_promote_runtime "$candidate" "$STUDIO_MANAGED_PYTHON_ROOT" python || { rm -rf -- "$work"; return 1; }
   rm -rf -- "$work"
   echo "Python $STUDIO_MANAGED_PYTHON_VERSION is ready in Sthang Studio's private tools folder."
 }
@@ -176,8 +174,7 @@ studio_macos_install_managed_ffmpeg() {
     return 1
   fi
 
-  rm -rf -- "$STUDIO_MANAGED_FFMPEG_ROOT"
-  mv -- "$candidate" "$STUDIO_MANAGED_FFMPEG_ROOT"
+  studio_macos_promote_runtime "$candidate" "$STUDIO_MANAGED_FFMPEG_ROOT" ffmpeg || { rm -rf -- "$work"; return 1; }
   rm -rf -- "$work"
   echo "FFmpeg $STUDIO_MANAGED_FFMPEG_VERSION is ready in Sthang Studio's private tools folder."
 }
@@ -193,4 +190,35 @@ studio_macos_managed_ffmpeg_build_ok() {
   [[ "$buildconf" == *--enable-libx264* ]] || return 1
   [[ "$buildconf" != *--enable-nonfree* ]] || return 1
   [[ "$buildconf" != *--enable-openssl* ]]
+}
+
+# Preserve an existing installation if final-path validation fails. A versioned
+# previous directory is retained after success for manual recovery.
+studio_macos_promote_runtime() {
+  local candidate="$1" target="$2" kind="$3"
+  local backup="${target}.previous-$$" had_previous=0
+  if [[ -e "$backup" || -L "$backup" ]]; then
+    echo "ERROR: Runtime recovery directory already exists; preserve it before retrying." >&2
+    return 1
+  fi
+  if [[ -e "$target" || -L "$target" ]]; then
+    mv -- "$target" "$backup" || return 1
+    had_previous=1
+  fi
+  if ! mv -- "$candidate" "$target"; then
+    if [[ "$had_previous" -eq 1 ]]; then mv -- "$backup" "$target"; fi
+    return 1
+  fi
+  local ok=1
+  case "$kind" in
+    node) studio_macos_node_ok "$target/bin/node" && [[ -x "$target/bin/npm" ]] && ok=0 ;;
+    python) studio_macos_python_ok "$target/bin/python3.12" && ok=0 ;;
+    ffmpeg) studio_macos_ffmpeg_ok "$target/bin/ffmpeg" "$target/bin/ffprobe" && ok=0 ;;
+  esac
+  if [[ "$ok" -ne 0 ]]; then
+    mv -- "$target" "$candidate"
+    if [[ "$had_previous" -eq 1 ]]; then mv -- "$backup" "$target"; fi
+    echo "ERROR: Runtime validation failed after placement; previous runtime restored." >&2
+    return 1
+  fi
 }

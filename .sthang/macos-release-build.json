@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageLockSha256": "75467eb969e495590abe37b7e256a019bd9efa95590fffac6370641188155e56",
+  "packageLockSha256": "88b229b46b78a1129f545753f02dcd0c77fdec3728d10cc9e072cc9d2915dcfe",
   "files": [
     {
       "path": "apps/server/dist/config.js",
@@ -149,8 +149,8 @@
     },
     {
       "path": "apps/server/dist/services/local-timing.js",
-      "size": 18195,
-      "sha256": "1cd55b2d5f1ed167bbd4dce7187eaabef034f4cb93efdbe4f168b498cec0af01"
+      "size": 18617,
+      "sha256": "236e6e8496c523c81fb5b77b80ab31a723ea88dc39c821b4275788f3239667a8"
     },
     {
       "path": "apps/server/dist/services/media.js",
@@ -159,8 +159,8 @@
     },
     {
       "path": "apps/server/dist/services/persistent-caption-preview.js",
-      "size": 16017,
-      "sha256": "4d6bc738419cbc32884302a251205babc8d81668590d1110c9c80900d41665a1"
+      "size": 16165,
+      "sha256": "61b07ff384dec253bbb27217c70357131e248cf4aa5ff854116e6ae7f9ec7b03"
     },
     {
       "path": "apps/server/dist/services/pipeline-overlap.js",
@@ -258,9 +258,14 @@
       "sha256": "a89fc1442f88bc08abe5038e99efac0678453a49022c42f73826e63973040d90"
     },
     {
-      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-DxgLV6F1.js",
+      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-DSpMu2yL.js",
       "size": 31389,
-      "sha256": "8d3b41b104c2caca7e6d4f0d51803e1d61012ff914b009c061a1c1babddcf7ba"
+      "sha256": "6bf00359c2de05f5f9266e5d2b1d2431f4053e5eb7b6370dec04ee9a7cf8b346"
+    },
+    {
+      "path": "apps/web/dist/assets/ExportWorkspace-2v2K1pWx.js",
+      "size": 29456,
+      "sha256": "d8b7c3dd3862843862d7ff86fc1ce1dea75e403094c573f5357c1e3eda8e534d"
     },
     {
       "path": "apps/web/dist/assets/ExportWorkspace-BHr8vmUh.css",
@@ -268,14 +273,9 @@
       "sha256": "ffdc3e18c9462dd191166cfee492238c2da695a68f5750034740926af0c49784"
     },
     {
-      "path": "apps/web/dist/assets/ExportWorkspace-BKhZBFvF.js",
-      "size": 29456,
-      "sha256": "57e593552ca1d01f8c1199c10c1b85d240c41d4747b5ab208e17bac5088080c8"
-    },
-    {
-      "path": "apps/web/dist/assets/file-text-CPXHtxbF.js",
+      "path": "apps/web/dist/assets/file-text-Md-Z-tv-.js",
       "size": 414,
-      "sha256": "fa6b5823c08b3f4d9e176dffdbd14ae3e5a1f92f5e205cb145bdb697607736f2"
+      "sha256": "2dad69e1c8a0ee9b07f398f298e99c413b09777c648a5c351b8f754bf6c25a64"
     },
     {
       "path": "apps/web/dist/assets/index-D2KRMFIb.css",
@@ -283,29 +283,29 @@
       "sha256": "3be9a66533ddc0478cb2fcfe1e90a9426b368253bb612a0e8533dab57f2a75aa"
     },
     {
-      "path": "apps/web/dist/assets/index-DjXXZmNl.js",
-      "size": 455987,
-      "sha256": "9da215800c6133a8fc05bcea682a9a35c6643186345e48930a12ffa389885018"
+      "path": "apps/web/dist/assets/index-tulJ23Bv.js",
+      "size": 456146,
+      "sha256": "a0de1e48e7b0af549b54c5f653b09c1616978484e52829c06968500946f710f8"
     },
     {
-      "path": "apps/web/dist/assets/RegenerationReviewDock-BBmWZA1M.js",
+      "path": "apps/web/dist/assets/RegenerationReviewDock-BS0cYREU.js",
       "size": 10167,
-      "sha256": "dba50521fa57f69e995086d5b888760f6026cb44ae8720e4db34ab361ba0ccf7"
+      "sha256": "9710dde699270eae53d2268f5f9cc032a9f455bf90de88d259d29ed576f68988"
     },
     {
-      "path": "apps/web/dist/assets/undo-2-DKDFaf8p.js",
+      "path": "apps/web/dist/assets/undo-2-ZfrXq-id.js",
       "size": 416,
-      "sha256": "1ed82034c93913366afb99e7be70cd28a0242563829d4f7c6ea42bd69e5f5eb5"
+      "sha256": "cb1a9a9deeff38117ab2b0885a8fa7e1174ec94e5429ae723fc69d0d31edcf97"
+    },
+    {
+      "path": "apps/web/dist/assets/WaveformEditor-A1fv6Huh.js",
+      "size": 39814,
+      "sha256": "3d1d22e9d281606b6032e8d64abf18d677630ab059128972bfa57526bb537f59"
     },
     {
       "path": "apps/web/dist/assets/WaveformEditor-CHy7Mh9y.css",
       "size": 6186,
       "sha256": "29d788ce6d3d0de9b610a8db7f1fc9fb879576095a634ad60749a4132a393249"
-    },
-    {
-      "path": "apps/web/dist/assets/WaveformEditor-I5XUbWn3.js",
-      "size": 39814,
-      "sha256": "d11ba97d89b11e283400d2c907b66fcd8369af41512b8e0c2c420ee1297a8ca3"
     },
     {
       "path": "apps/web/dist/brand/brand-manifest.json",
@@ -365,7 +365,7 @@
     {
       "path": "apps/web/dist/index.html",
       "size": 622,
-      "sha256": "f2781fdeaa090a2fdf20eb16e6504bd2138d5c1fd8a31481fb8534cc7e9dbee6"
+      "sha256": "ce7ad66ea52b002a7425c155e5abce31b8843edac77c72da88e269eba5091f2c"
     },
     {
       "path": "packages/shared/dist/caption-interchange.d.ts",

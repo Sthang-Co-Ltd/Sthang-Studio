@@ -3,6 +3,13 @@ setlocal
 cd /d "%~dp0"
 title Sthang Studio Setup
 
+if "%STHANG_STUDIO_NODE_READY%"=="1" goto :reviewed_node
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup-windows-reviewed-node.ps1"
+exit /b %ERRORLEVEL%
+:reviewed_node
+node -e "const [major,minor]=process.versions.node.split('.').map(Number); process.exit(major === 24 && minor >= 21 && process.arch === 'x64' ? 0 : 1)" >nul 2>nul
+if errorlevel 1 (echo ERROR: Reviewed x64 Node 24.21 or newer 24.x is required.& exit /b 1)
+
 echo.
 echo === Sthang Studio setup ===
 where node >nul 2>nul || (echo ERROR: Node.js is not installed. Install Node.js, then run this again.& if not "%KCS_NONINTERACTIVE%"=="1" pause & exit /b 1)

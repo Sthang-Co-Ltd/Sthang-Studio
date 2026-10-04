@@ -1,46 +1,34 @@
-"""Validate the Mac timing environment; importing this module has no side effects."""
+"""Validate the Mac timing environment; imports only enforce telemetry opt-out."""
 import argparse
 import importlib
+import importlib.util
+import os
 from importlib.metadata import version
 from pathlib import Path
 import platform
-import subprocess
 import sys
 
+# Required before ONNX or a transitive importer initializes its native library.
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
 
-ALLOWED_METADATA_ERRORS = frozenset({
-    "kfa 0.2.0 has requirement sosap==0.0.1, but you have sosap 0.4.3.",
-    "khmercut 0.0.2 has requirement python-crfsuite==0.9.9, but you have python-crfsuite 0.9.11.",
-})
+
+# Load relative to this script, so direct execution, importlib tests and callers
+# from a different working directory all share the same strict policy.
+_spec = importlib.util.spec_from_file_location("studio_timing_dependencies", Path(__file__).with_name("check-timing-dependencies.py"))
+_dependencies = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_dependencies)
+ALLOWED_METADATA_ERRORS = _dependencies.allowed_metadata_errors("macos-legacy-py312-arm64")
 
 
 def dependency_errors(returncode, output):
-    """Ignore only the two reviewed upstream metadata mismatches, not pip errors."""
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    if returncode == 0 and lines == ["No broken requirements found."]:
-        return []
-    unexpected = [line for line in lines if line.lower() not in ALLOWED_METADATA_ERRORS]
-    if returncode not in (0, 1) or not lines:
-        unexpected.append(f"pip check failed without usable dependency evidence (exit {returncode}).")
-    return unexpected
+    return _dependencies.dependency_errors(returncode, output, "macos-legacy-py312-arm64")
 
 
 def check_versions(root, major, lookup=version):
-    from packaging.requirements import Requirement
-
-    files = [root / "local-timing/requirements-kfa-macos.txt", root / "local-timing/requirements-whisper.txt"]
-    if major < 14:
-        files.append(root / "local-timing/constraints-macos-legacy.txt")
-    requirements = ["kfa==0.2.0", "khmercut==0.0.2"]
-    if major >= 14:
-        requirements.append("onnxruntime>=1.20,<2.0")
-    for filename in files:
-        requirements.extend(line.split("#", 1)[0].strip() for line in filename.read_text(encoding="utf-8").splitlines())
-    for text in filter(None, requirements):
-        requirement = Requirement(text)
-        installed = lookup(requirement.name)
-        if installed not in requirement.specifier:
-            raise RuntimeError(f"{requirement.name} {installed} does not satisfy {requirement.specifier}")
+    profile = "macos-legacy-py312-arm64" if major < 14 else "macos-modern-py312-arm64"
+    _dependencies.check_versions(root, profile, lookup)
 
 
 def main():
@@ -54,11 +42,9 @@ def main():
     if macos < (12, 3):
         raise RuntimeError("macOS 12.3 Monterey or newer is required.")
     root = Path(__file__).resolve().parent.parent
-    check_versions(root, major)
-    result = subprocess.run([sys.executable, "-m", "pip", "check"], capture_output=True, text=True, check=False)
-    errors = dependency_errors(result.returncode, result.stdout + "\n" + result.stderr)
-    if errors:
-        raise RuntimeError("\n".join(errors))
+    profile = "macos-legacy-py312-arm64" if major < 14 else "macos-modern-py312-arm64"
+    _dependencies.validate_host(profile)
+    _dependencies.check_dependencies(root, profile)
 
     from appdirs import user_cache_dir
     model = Path(user_cache_dir()) / "kfa/wav2vec2-km-base-1500.onnx"
@@ -66,6 +52,8 @@ def main():
         raise RuntimeError("The local Khmer model has not been prepared.")
     # find_spec is insufficient: a present extension can still fail to load on an
     # older macOS. These imports load the real native libraries, not Whisper weights.
+    import onnxruntime
+    onnxruntime.disable_telemetry_events()
     for name in ("numpy", "scipy.signal", "sklearn", "numba", "librosa", "soundfile", "soxr", "onnxruntime", "av", "ctranslate2", "khmernormalizer", "faster_whisper", "kfa"):
         importlib.import_module(name)
     from khmercut import tokenize
@@ -76,7 +64,6 @@ def main():
         raise RuntimeError("The native Khmer tokenizer smoke check failed.")
     # Importability alone does not prove an older ONNX runtime can open the
     # actual KFA graph. Check that during setup, never during normal launch.
-    import onnxruntime
     options = onnxruntime.SessionOptions()
     options.intra_op_num_threads = 1
     session = onnxruntime.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])

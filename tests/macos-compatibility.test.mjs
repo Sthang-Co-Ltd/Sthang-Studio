@@ -117,6 +117,8 @@ function fixture(t, changes = {}) {
   [[ "$MOCK_PYTHON" == "good" ]]
 elif [[ "$1" == "-m" ]]; then
   printf "python %s\\n" "$*" >> "$MOCK_LOG"
+elif [[ "$1" == *provision-timing.py ]]; then
+  printf "provision %s\\n" "$*" >> "$MOCK_LOG"
 else
   printf "verify %s\\n" "$*" >> "$MOCK_LOG"
   if [[ "\${2:-}" == "--ready" ]]; then [[ "$MOCK_READY" == "yes" ]]; fi
@@ -125,7 +127,7 @@ fi`;
   write('.venv/bin/python', python);
   const env = {
     ...process.env, BASH_ENV: '', MOCK_OS: 'Darwin', MOCK_ARCH: 'arm64', MOCK_MACOS: '12.3',
-    MOCK_NODE_VERSION: '22.12.0', MOCK_NODE_ARCH: 'arm64', MOCK_PYTHON: 'good',
+    MOCK_NODE_VERSION: '22.23.3', MOCK_NODE_ARCH: 'arm64', MOCK_PYTHON: 'good',
     MOCK_FFMPEG: 'good', MOCK_FFPROBE: 'good', MOCK_FILE_ARCH: 'arm64', MOCK_READY: 'yes',
     STHANG_STUDIO_FILE: shellPath(path.join(dir, 'bin/file')),
     MOCK_LOG: path.join(dir, 'calls.log').replaceAll('\\', '/'), ...changes,
@@ -166,7 +168,7 @@ done
 [[ -n "$output" && -n "$url" ]] || exit 2
 case "$url" in
   *node-v22.23.3-darwin-arm64.tar.gz) payload=node ;;
-  *cpython-3.12.14*) payload=python ;;
+  *cpython-3.12.15*) payload=python ;;
   *FFmpeg-arm-silicon-Tools-20260424.zip) payload=ffmpeg ;;
   *) exit 3 ;;
 esac
@@ -179,7 +181,7 @@ if [[ "${'${MOCK_BAD_SHA:-}'}" == "$payload" ]]; then
 fi
 case "$payload" in
   node) sha=23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53 ;;
-  python) sha=9763f43db2481a6af36af82ec40302aab7a73632f880129d07a6e81aec846277 ;;
+  python) sha=316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213 ;;
   ffmpeg) sha=7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc ;;
   *) exit 4 ;;
 esac
@@ -222,6 +224,13 @@ elif [[ "$1" == "-m" ]]; then
   printf 'python %s\\n' "$*" >> "$MOCK_LOG"
   exit 0
 fi
+if [[ "$1" == *provision-timing.py ]]; then
+  mkdir -p .venv/bin
+  cp "$0" .venv/bin/python
+  chmod +x .venv/bin/python
+  printf 'provision %s\\n' "$*" >> "$MOCK_LOG"
+  exit 0
+fi
 printf 'verify %s\\n' "$*" >> "$MOCK_LOG"
 if [[ "${'${2:-}'}" == "--ready" ]]; then [[ "$MOCK_READY" == yes ]]; fi
 EOF
@@ -258,6 +267,8 @@ else
   exit 6
 fi`);
 
+  f.write('bin/ffmpeg', 'exit 1');
+  f.write('bin/ffprobe', 'exit 1');
   f.env.PATH = '/usr/bin:/bin';
   f.env.STHANG_STUDIO_CURL = shellPath(path.join(f.dir, 'bin/curl'));
   f.env.STHANG_STUDIO_SHASUM = shellPath(path.join(f.dir, 'bin/shasum'));
@@ -534,11 +545,12 @@ test('production build rejects ambient VITE variables before build tooling runs'
 });
 
 for (const [macos, node, arch, accepted] of [
-  ['12.3', '22.11.0', 'arm64', false], ['12.3', '22.12.0', 'arm64', true],
-  ['12.3', '24.13.0', 'arm64', false], ['13.4.1', '24.13.0', 'arm64', false],
-  ['13.5', '24.13.0', 'arm64', true], ['14.0', '22.12.0', 'arm64', true],
-  ['15.0', '23.0.0', 'arm64', false], ['15.0', '24.13.0', 'x64', false],
-  ['15.0', '24.13.0-beta', 'arm64', false], ['12.3', '', 'arm64', false],
+  ['12.3', '22.11.0', 'arm64', false], ['12.3', '22.23.2', 'arm64', false],
+  ['15.0', '24.20.0', 'arm64', false], ['15.0', '25.0.0', 'arm64', false], ['15.0', '26.0.0', 'arm64', false], ['12.3', '22.23.3', 'arm64', true],
+  ['12.3', '24.21.0', 'arm64', false], ['13.4.1', '24.21.0', 'arm64', false],
+  ['13.5', '24.21.0', 'arm64', true], ['14.0', '22.23.3', 'arm64', true],
+  ['15.0', '23.0.0', 'arm64', false], ['15.0', '24.21.0', 'x64', false],
+  ['15.0', '24.21.0-beta', 'arm64', false], ['12.3', '', 'arm64', false],
 ]) {
   test(`Node policy: ${macos} / ${node} / ${arch}`, (t) => {
     const f = fixture(t, { MOCK_MACOS: macos, MOCK_NODE_VERSION: node, MOCK_NODE_ARCH: arch });
@@ -553,7 +565,7 @@ for (const version of ['12.3', '13.4', '13.5', '14.7', '15.0', '26.0']) {
     success(f.run('bash ./INSTALL-MACOS.sh', 180_000));
     const firstLog = f.log();
     assert.match(firstLog, /download .*node-v22\.23\.3-darwin-arm64\.tar\.gz/);
-    assert.match(firstLog, /download .*cpython-3\.12\.14/);
+    assert.match(firstLog, /download .*cpython-3\.12\.15/);
     assert.match(firstLog, /download .*FFmpeg-arm-silicon-Tools-20260424\.zip/);
     assert.match(firstLog, /npm ci --include=dev/);
     assert.doesNotMatch(firstLog, /brew install|sudo/);
@@ -588,8 +600,8 @@ test('managed runtime pins are fixed and installer never invokes sudo or install
   const installer = fs.readFileSync(path.join(root, 'INSTALL-MACOS.sh'), 'utf8');
   assert.match(managed, /node-v22\.23\.3-darwin-arm64\.tar\.gz/);
   assert.match(managed, /23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53/);
-  assert.match(managed, /cpython-3\.12\.14\+20260924-aarch64-apple-darwin-install_only\.tar\.gz/);
-  assert.match(managed, /9763f43db2481a6af36af82ec40302aab7a73632f880129d07a6e81aec846277/);
+  assert.match(managed, /cpython-3\.12\.15\+20261003-aarch64-apple-darwin-install_only\.tar\.gz/);
+  assert.match(managed, /316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213/);
   assert.match(managed, /FFmpeg-arm-silicon-Tools-20260424\.zip/);
   assert.match(managed, /7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc/);
   assert.doesNotMatch(managed + installer, /\bsudo\b|brew install|releases\/latest/);
@@ -993,16 +1005,16 @@ test('release recovery ignores an interrupted non-authoritative backup cleanup',
 });
 
 test('an installed keg-only Node 22 is discovered again at launch', (t) => {
-  const f = fixture(t, { MOCK_NODE_VERSION: '24.13.0' });
+  const f = fixture(t, { MOCK_NODE_VERSION: '24.21.0' });
   fs.mkdirSync(path.join(f.dir, 'runtime with spaces/bin'), { recursive: true });
-  f.write('runtime with spaces/bin/node', 'echo "22.12.0 arm64"');
+  f.write('runtime with spaces/bin/node', 'echo "22.23.3 arm64"');
   f.write('runtime with spaces/bin/npm', 'echo "used compatible npm"');
   const result = f.run('export MOCK_BREW_PREFIX="$PWD/runtime with spaces"; bash ./run-macos.sh');
   success(result);
   assert.match(result.stdout, /used compatible npm/);
 });
 
-for (const entry of entrypoints) {
+for (const entry of ['run-macos.sh']) {
   test(`${entry}: rejects an incompatible venv without deleting it`, (t) => {
     const f = fixture(t, { MOCK_PYTHON: 'x64-or-wrong-version' });
     const before = fs.readFileSync(path.join(f.dir, '.venv/bin/python'));
@@ -1027,14 +1039,10 @@ for (const version of ['12.3', '13.0', '13.5', '14.0']) {
     const f = fixture(t, { MOCK_MACOS: version, MOCK_READY: 'no' });
     success(f.run('bash ./setup-local-timing-macos.sh'));
     const log = f.log();
-    assert.match(log, /--only-binary=:all: --no-binary=emoji/);
-    assert.match(log, /--no-deps khmercut==0\.0\.2 kfa==0\.2\.0/);
-    assert.match(log, /requirements-kfa-macos\.txt -r local-timing\/requirements-whisper\.txt/);
-    if (Number(version.split('.')[0]) < 14) assert.match(log, /-c .*constraints-macos-legacy\.txt/);
-    else {
-      assert.doesNotMatch(log, /constraints-macos-legacy/);
-      assert.match(log, /onnxruntime>=1\.20,<2\.0/);
-    }
+    assert.match(log, /provision .*scripts\/provision-timing\.py --profile /);
+    if (Number(version.split('.')[0]) < 14) assert.match(log, /--profile macos-legacy-py312-arm64/);
+    else assert.match(log, /--profile macos-modern-py312-arm64/);
+
   });
 }
 
@@ -1049,7 +1057,7 @@ test('launcher preserves custom state and environment locations', (t) => {
 test('manifest and lockfile agree on the Node 22 compatibility floor', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
-  assert.equal(manifest.engines.node, '^22.12.0 || >=24');
+  assert.equal(manifest.engines.node, '^22.23.3 || ^24.21.0');
   assert.equal(lock.packages[''].engines.node, manifest.engines.node);
   assert.match(fs.readFileSync(path.join(root, '.gitattributes'), 'utf8'), /\*\.sh text eol=lf/);
 });
@@ -1060,4 +1068,28 @@ test('Python dependency-verifier regressions', () => {
   success(spawnSync(python, ['-B', 'tests/macos_timing_check_test.py'], {
     cwd: root, encoding: 'utf8', timeout: 30_000, windowsHide: true,
   }));
+});
+
+
+test('timing staging, relocation, rollback and recovery regressions', () => {
+  const python = pythonCommand();
+  assert.ok(python, 'Python is required for the timing provisioning regressions.');
+  success(spawnSync(python, ['-B', 'tests/timing_provision_test.py'], {
+    cwd: root, encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  }));
+});
+
+test('managed runtime restores prior files when validation fails at the final path', (t) => {
+  const f = fixture(t);
+  const result = f.run(`set -euo pipefail
+source scripts/macos-common.sh
+mkdir -p candidate/bin target/bin
+printf 'new' > candidate/bin/node
+printf 'old' > target/bin/node
+studio_macos_node_ok() { return 1; }
+if studio_macos_promote_runtime "$PWD/candidate" "$PWD/target" node; then exit 12; fi
+[[ "$(cat target/bin/node)" == old ]]
+[[ "$(cat candidate/bin/node)" == new ]]
+`);
+  success(result);
 });

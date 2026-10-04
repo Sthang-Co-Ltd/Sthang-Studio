@@ -52,7 +52,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Could not archive the reviewed OTA payload.' }
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $Source -Force
 
-  foreach ($Protected in @('data','uploads','exports','node_modules','.venv','versions','updates','release-artifacts','.sthang-update-version.json')) {
+  foreach ($Protected in @('data','uploads','exports','node_modules','.venv','.timing-envs','.timing-setup.lock','.timing-transaction.json','.timing-transaction.json.tmp','versions','updates','release-artifacts','.sthang-update-version.json')) {
     if (Test-Path (Join-Path $Source $Protected)) { throw "OTA payload contains protected state: $Protected" }
   }
   if (Test-Path (Join-Path $Source 'apps\server\.env')) { throw 'OTA payload contains local environment data.' }
@@ -70,6 +70,7 @@ try {
   $Archive = [IO.Compression.ZipFile]::OpenRead($Artifact)
   try {
     foreach ($Entry in $Archive.Entries) {
+      if ($Entry.FullName -match '(^|/)\.venv\.(rollback|pending)-') { throw 'OTA ZIP contains protected timing recovery state.' }
       if ($Entry.FullName.Contains('\')) { throw "OTA ZIP contains a non-canonical entry path: $($Entry.FullName)" }
     }
   } finally {

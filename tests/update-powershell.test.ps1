@@ -26,6 +26,9 @@ function New-TestZip([string]$Path, [object[]]$Entries) {
 try {
   $Scripts = @(
     'scripts\launch-studio.ps1',
+    'scripts\windows-managed-runtime.ps1',
+    'scripts\setup-local-timing-windows.ps1',
+    'scripts\setup-windows-reviewed-node.ps1',
     'scripts\prepare-studio-update.ps1',
     'scripts\package-ota-release.ps1',
     'scripts\package-windows-release.ps1',

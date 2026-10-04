@@ -1,6 +1,27 @@
 # Apple Silicon macOS compatibility and public Beta package
 
-## Target and release boundary
+## Dependency-maintenance source candidate
+
+The current maintenance source keeps the **macOS 12.3 / native arm64** floor but
+raises runtime security-patch requirements to **Node 22.23.3+ within 22.x**, or
+**Node 24.21.0+ within 24.x on macOS 13.5+**, and **Python 3.12.15+ within 3.12**.
+The managed Python candidate is Astral 3.12.15+20261003. These are source changes,
+not a claim that the public v0.85.6 archive has changed.
+
+Monterey/Ventura and macOS 14+ now use separate exact version/hash locks. Native
+source builds remain prohibited except for the documented pure-Python emoji
+source package. Candidate timing environments live at stable private paths
+outside the relocatable OTA source tree; `.venv` selects one only after validation
+and preserves the old environment for rollback. Telemetry opt-outs are applied
+before ONNX/model-library initialization. The Safari 17 build target is unchanged.
+
+Native installation, inference, interruption/rollback and network acceptance of
+this candidate are still required. The historical release evidence and FFmpeg
+exception below apply only to their stated versions. See
+[Reviewed dependency and runtime maintenance](DEPENDENCY-RUNTIME-MAINTENANCE.md)
+for the inventory and release gates.
+
+## Historical v0.85.0 target and release boundary
 
 The `v0.85.0` public Beta targets **macOS 12.3 Monterey or newer, native arm64**.
 The prior source gate was macOS 14, not 15. All three runtime entrypoints use

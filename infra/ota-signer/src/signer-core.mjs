@@ -52,7 +52,7 @@ const MAC_ALLOWED_TOP_LEVEL_FILES = new Set([
   'docs/OTA-UPDATES.md',
 ]);
 const FORBIDDEN_PACKAGE_PARTS = new Set([
-  'data', 'uploads', 'exports', 'node_modules', '.venv', 'versions', 'updates', 'release-artifacts', '.env',
+  'data', 'uploads', 'exports', 'node_modules', '.venv', '.timing-envs', '.timing-setup.lock', '.timing-transaction.json', '.timing-transaction.json.tmp', 'versions', 'updates', 'release-artifacts', '.env',
 ]);
 const REQUIRED_PACKAGE_PATHS = new Set([
   'package.json',
@@ -318,7 +318,7 @@ function assertSafeArchivePath(rawPath, { allowProtectedRuntimeState = false } =
     if (WINDOWS_RESERVED.test(base)) throw new SignerError('Archive contains a reserved Windows path.');
   }
   const lower = segments.map((segment) => segment.toLowerCase());
-  if (!allowProtectedRuntimeState && lower.some((segment) => FORBIDDEN_PACKAGE_PARTS.has(segment))) throw new SignerError('Archive contains protected runtime state.');
+  if (!allowProtectedRuntimeState && lower.some((segment) => FORBIDDEN_PACKAGE_PARTS.has(segment) || /^\.venv\.(?:rollback|pending)-/.test(segment))) throw new SignerError('Archive contains protected runtime state.');
   return segments.join('/');
 }
 

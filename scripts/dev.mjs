@@ -4,6 +4,10 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureRuntimeWorkspaceLinks } from './runtime-workspaces.mjs';
+import { reexecReviewedWindowsNode } from './windows-node-bootstrap.mjs';
+
+const reviewedNodeExit = await reexecReviewedWindowsNode();
+if (reviewedNodeExit !== null) process.exit(reviewedNodeExit);
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const node = process.execPath;
