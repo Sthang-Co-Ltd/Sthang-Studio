@@ -50,6 +50,17 @@ let workerStdoutBuffer = '';
 let workerRequestCounter = 0;
 const pendingRequests = new Map<string, PendingRequest>();
 
+function privateTimingEnvironment() {
+  // Set these before Python starts, including site/.pth initialization. ORT's
+  // API-only opt-out can occur after a native initialization telemetry event.
+  return {
+    ...process.env,
+    ORT_DISABLE_TELEMETRY: '1',
+    HF_HUB_DISABLE_TELEMETRY: '1',
+    DO_NOT_TRACK: '1',
+  };
+}
+
 function safeCacheNamespace(value: string | undefined) {
   const normalized = String(value || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
   return normalized || '_shared';
@@ -232,6 +243,7 @@ function ensureWorker() {
   const child = spawn(config.localTimingPython, [config.localTimingWorker, '--server'], {
     shell: false,
     windowsHide: true,
+    env: privateTimingEnvironment(),
     stdio: ['pipe', 'pipe', 'pipe'],
   }) as ChildProcessWithoutNullStreams;
   workerProcess = child;
@@ -287,7 +299,7 @@ function requestWorker(
 
 function runOneShot(command: string, args: string[], label: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { shell: false, windowsHide: true });
+    const child = spawn(command, args, { shell: false, windowsHide: true, env: privateTimingEnvironment() });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (d) => { stdout += String(d); });

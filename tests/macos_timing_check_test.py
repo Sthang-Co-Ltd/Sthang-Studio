@@ -43,29 +43,20 @@ class MacTimingCheckTests(unittest.TestCase):
                     CHECK.main()
 
     def test_legacy_profile_is_checked_even_when_packages_are_present(self):
-        # pip is part of the documented Python setup; use its vendored parser so
-        # these tests do not require installing the timing stack or any models.
-        from pip._vendor import packaging
-        from pip._vendor.packaging import requirements
-        versions = {
-            "sosap": "0.4.3", "python-crfsuite": "0.9.11", "khmernormalizer": "0.0.4",
-            "chardet": "5.2.0", "tqdm": "4.65.0", "requests": "2.32.5", "appdirs": "1.4.4",
-            "kfa": "0.2.0", "khmercut": "0.0.2",
-        }
-        for line in (ROOT / "local-timing/constraints-macos-legacy.txt").read_text().splitlines():
-            if line and not line.startswith("#"):
-                name, value = line.split("==")
-                versions[name] = value
-        with patch.dict("sys.modules", {"packaging": packaging, "packaging.requirements": requirements}):
-            CHECK.check_versions(ROOT, 12, versions.__getitem__)
-            CHECK.check_versions(ROOT, 13, versions.__getitem__)
-            with self.assertRaisesRegex(RuntimeError, "onnxruntime"):
-                CHECK.check_versions(ROOT, 14, versions.__getitem__)
-            versions["onnxruntime"] = "1.20.1"
-            with self.assertRaisesRegex(RuntimeError, "onnxruntime"):
-                CHECK.check_versions(ROOT, 12, versions.__getitem__)
-            # The same dependency is allowed on Sonoma: no blanket Mac downgrade.
-            CHECK.check_versions(ROOT, 14, versions.__getitem__)
+        import json
+        manifest = json.loads((ROOT / "local-timing/locks/versions.json").read_text())
+        legacy = {**manifest["tooling"], **manifest["profiles"]["macos-legacy-py312-arm64"]}
+        modern = {**manifest["tooling"], **manifest["profiles"]["macos-modern-py312-arm64"]}
+        CHECK.check_versions(ROOT, 12, legacy.__getitem__)
+        CHECK.check_versions(ROOT, 13, legacy.__getitem__)
+        CHECK.check_versions(ROOT, 14, modern.__getitem__)
+        with self.assertRaises(RuntimeError):
+            CHECK.check_versions(ROOT, 14, legacy.__getitem__)
+        for name in ("onnxruntime", "requests", "tokenizers", "pip"):
+            drifted = {**legacy, name: "0.0.0"}
+            with self.assertRaisesRegex(RuntimeError, name):
+                CHECK.check_versions(ROOT, 12, drifted.__getitem__)
+
 
 
 if __name__ == "__main__":

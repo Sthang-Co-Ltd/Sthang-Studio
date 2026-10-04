@@ -3,8 +3,10 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// These tests use only the Python standard library; no model setup/downloads.
+// No model setup/downloads. The complete timing policy suite also uses packaging
+// (or pip's bundled packaging) to validate committed dependency metadata offline.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pattern = process.argv.includes('--all') ? '*timing*_test.py' : 'timing_cache_test.py';
 const venv = path.join(root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const candidates = process.env.STHANG_TEST_PYTHON
   ? [[process.env.STHANG_TEST_PYTHON, []]]
@@ -27,7 +29,7 @@ if (!chosen) {
   process.exit(1);
 }
 const [command, prefix] = chosen;
-const result = spawnSync(command, [...prefix, '-I', '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'timing_cache_test.py', '-v'], { cwd: root, stdio: 'inherit', timeout: 120000, windowsHide: true });
+const result = spawnSync(command, [...prefix, '-I', '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', pattern, '-v'], { cwd: root, stdio: 'inherit', timeout: 120000, windowsHide: true });
 if (result.error || result.signal || result.status !== 0) {
   console.error('Timing-cache tests failed:', result.error?.message || result.signal || `exit ${result.status}`);
   process.exit(1);

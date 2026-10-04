@@ -292,10 +292,12 @@ guidance, not the end-user download or release path.
 1. Clone or otherwise check out this repository into a stable folder. Do not run
    it directly from a temporary ZIP-preview location.
 2. Double-click `INSTALL-NEW-PC.bat`.
-3. The installer checks/installs Node.js LTS, Python 3.12, FFmpeg, and the
-   Microsoft Visual C++ runtime needed by local timing. WinGet is preferred when
-   available; clean x64 Windows machines can use the reviewed direct per-user
-   fallback instead.
+3. The installer checks/installs the reviewed Node 24 runtime, app-private Python
+   3.12, FFmpeg, and the Microsoft Visual C++ runtime needed by local timing.
+   Python is downloaded from an exact checksum-pinned upstream archive rather
+   than relying on an old system Python. Other prerequisites retain their
+   per-user installation/reuse paths; Python does not require a user-installed
+   interpreter or alter the user's Python PATH.
 4. Launch **Sthang Studio** from the desktop shortcut or run `run-windows.bat`.
    After the local services are healthy, Studio opens in the registered default
    Windows browser. Chrome is not required; Microsoft Edge-only Windows
@@ -317,7 +319,9 @@ broker; use the normal Git/source workflow for source development.
 
 1. Clone or check out this repository into a stable folder.
 2. Run `bash ./INSTALL-MACOS.sh`. Existing compatible native Node.js, Python 3.12,
-   and FFmpeg/ffprobe runtimes take priority. When one is missing, setup downloads
+   and FFmpeg/ffprobe runtimes may be reused only after the current runtime checks.
+   The reviewed Node security floors are 22.23.3 and 24.21.0, subject to the macOS
+   version gate; Python must be 3.12.15 or newer within 3.12. When one is missing, setup downloads
    the exact reviewed Apple Silicon runtime, verifies its SHA-256 digest, and keeps
    it under `~/Library/Application Support/Sthang Studio/tools`. Setup does not
    install Homebrew, invoke `sudo`, edit shell startup files, or replace system
@@ -331,11 +335,18 @@ broker; use the normal Git/source workflow for source development.
    store it in the macOS Keychain; the browser receives only a masked value.
 5. Upload media, generate captions, review, and export as on Windows.
 
-macOS runtime state and Studio-managed prerequisite tools are kept under
-`~/Library/Application Support/Sthang Studio`, while the project Python virtual
-environment and source dependencies stay inside the checkout. Run
+macOS runtime state, Studio-managed prerequisite tools and immutable timing
+environments are kept under `~/Library/Application Support/Sthang Studio`.
+The checkout's `.venv` selects a validated environment with a link; preparing a
+replacement preserves the old environment for rollback. Source npm dependencies
+stay inside the checkout. Run
 `bash ./INSTALL-MACOS.sh` again to repair local source dependencies after changing
 the checkout.
+
+The dependency/runtime maintenance in this source branch is distinct from the
+accepted public `v0.85.6` downloads. Its exact dependency inventory, native
+acceptance requirements and deferred FFmpeg replacement are documented in
+[Reviewed dependency and runtime maintenance](docs/DEPENDENCY-RUNTIME-MAINTENANCE.md).
 
 Monterey and Ventura use a dedicated native-dependency compatibility profile so Whisper
 cannot upgrade its ONNX/PyAV runtime to a newer-macOS-only build. macOS 14+ and

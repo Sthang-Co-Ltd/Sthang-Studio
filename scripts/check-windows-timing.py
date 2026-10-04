@@ -1,4 +1,8 @@
-"""Fail-closed updater readiness check; normal/manual setup keeps Whisper fallback."""
+"""Fail-closed cached KFA readiness; runtime Whisper fallback stays lazy."""
+import os
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
 import importlib
 from importlib.metadata import version
 from pathlib import Path
@@ -32,7 +36,9 @@ def check_ready():
     model = Path(user_cache_dir()) / "kfa/wav2vec2-km-base-1500.onnx"
     if not model.is_file() or model.stat().st_size == 0:
         raise RuntimeError("The local Khmer model has not been prepared.")
-    for name in ("onnxruntime", "khmernormalizer", "faster_whisper", "kfa"):
+    ort = importlib.import_module("onnxruntime")
+    ort.disable_telemetry_events()
+    for name in ("khmernormalizer", "faster_whisper", "kfa"):
         importlib.import_module(name)
     from khmercut import tokenize
     from sosap import Model

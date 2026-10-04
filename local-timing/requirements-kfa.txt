@@ -1,3 +1,4 @@
+# Resolution inputs only; setup installs the reviewed platform hash locks in locks/.
 # Explicit KFA runtime dependencies for the Windows/Python 3.12 setup.
 # KFA 0.2.0 is installed with --no-deps, so its runtime requirements must stay
 # explicit here.
@@ -9,15 +10,15 @@
 #
 # khmercut 0.0.2 requires python-crfsuite 0.9.9 and tqdm 4.65.0 exactly. Keep
 # those pins aligned so pip can resolve the wheel-backed stack on Python 3.12.
-numpy>=1.26,<2.0
+numpy>=1.26.4,<2.0
 sosap==0.4.3
 khmercut==0.0.2
 python-crfsuite==0.9.9
 khmernormalizer==0.0.4
-chardet>=5.2,<6
-onnxruntime>=1.20
-librosa>=0.10
-scipy>=1.10
+chardet==5.2.0
+onnxruntime>=1.20,<1.31
+librosa>=0.10.2.post1,<0.12
+scipy>=1.15.3,<1.18
 tqdm==4.65.0
-requests>=2.31
-appdirs>=1.4.4
+requests>=2.34.2,<3
+appdirs==1.4.4

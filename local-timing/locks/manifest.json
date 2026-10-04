@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "local-timing/locks/macos-legacy-py312-arm64.txt",
+      "sha256": "072aa699f878c606f437e4e28c0d6213a8fa9328e29e84c7186283ece6736e22"
+    },
+    {
+      "path": "local-timing/locks/macos-modern-py312-arm64.txt",
+      "sha256": "3c9a997c54a23278ccc75c08a6eff54eb026d735e3748f0838e2b9f1e3006611"
+    },
+    {
+      "path": "local-timing/locks/tooling.txt",
+      "sha256": "976476c1c9070e4fe9cac719035c60c79440cb9b76d0d3d34b93cb4ec2014306"
+    },
+    {
+      "path": "local-timing/locks/windows-py312-x64.txt",
+      "sha256": "52da9d07f9b35f36ee9e552d48a76f05001f29a51aeca9bc9df3f2f95dd04d6e"
+    }
+  ]
+}

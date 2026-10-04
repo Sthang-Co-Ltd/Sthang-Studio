@@ -26,3 +26,7 @@ apps/web/public/brand/*.svg -text
 # Derived brand assets are binary.
 *.png binary
 *.ico binary
+
+# Signed Python lock inventory hashes exact bytes across Windows/macOS checkouts.
+local-timing/locks/*.txt text eol=lf
+local-timing/locks/*.json text eol=lf

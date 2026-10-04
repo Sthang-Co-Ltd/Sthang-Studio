@@ -12,16 +12,18 @@ test('packaged Windows setup explicitly uses runtime-only typecheck', async () =
   assert.doesNotMatch(setup, /node\s+"scripts\\typecheck\.mjs"\s*(?:\r?\n|$)/i);
 });
 
-test('OTA preparation requires KFA while manual setup retains fallback', async () => {
+test('OTA preparation retains strict KFA checks across immutable dependency provisioning', async () => {
   const setup = await fs.readFile(path.join(root, 'setup-local-timing-windows.bat'), 'utf8');
+  const provision = await fs.readFile(path.join(root, 'scripts/setup-local-timing-windows.ps1'), 'utf8');
   const prepare = await fs.readFile(path.join(root, 'scripts/prepare-studio-update.ps1'), 'utf8');
-  assert.equal((setup.match(/if "%KCS_REQUIRE_KFA%"=="1"/g) || []).length, 2, 'both fresh setup and cached ready path validate strict mode');
-  assert.match(setup, /if not "%KFA_OK%"=="1" goto :kfa_required_error/);
-  assert.match(setup, /:kfa_required_error[\s\S]*exit \/b 1/);
-  assert.match(setup, /The app can still run with its local Whisper fallback/);
+  assert.match(setup, /setup-local-timing-windows\.ps1/);
+  assert.match(setup, /if not "%SETUP_EXIT%"=="0" goto :finish/);
+  assert.match(setup, /if "%KCS_REQUIRE_KFA%"=="1"[\s\S]*check-windows-timing\.py[\s\S]*if errorlevel 1 exit \/b 1/);
+  assert.match(provision, /provision-timing\.py.*--profile windows-py312-x64/);
+  assert.match(provision, /if \(\$LASTEXITCODE -ne 0\) \{ throw/);
   assert.match(prepare, /\$env:KCS_REQUIRE_KFA = '1'[\s\S]*setup-local-timing-windows\.bat/);
   assert.match(prepare, /\$env:KCS_REQUIRE_KFA = \$PreviousRequireKfa/);
-  assert.match(prepare, /function Assert-PreparedTarget[\s\S]*check-windows-timing\.py[\s\S]*Required local Khmer timing readiness validation failed/);
+  assert.match(prepare, /function Assert-PreparedTarget[\s\S]*Assert-TimingLocks \$PreparedRoot[\s\S]*check-timing-dependencies\.py[\s\S]*check-windows-timing\.py[\s\S]*Required local Khmer timing readiness validation failed/);
 });
 
 test('strict KFA readiness helper covers dependency, missing-model and session failures without models', async () => {

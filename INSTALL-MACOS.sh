@@ -8,14 +8,12 @@ studio_macos_host
 
 if ! studio_macos_select_node; then
   studio_macos_install_managed_node
-  studio_macos_select_node || { echo "ERROR: Native Node 22.12+ (22.x), or Node 24+ on macOS 13.5+, and npm are required."; exit 1; }
+  studio_macos_select_node || { echo "ERROR: Native Node 22.23.3+ (22.x), or Node 24.21+ (24.x) on macOS 13.5+, and npm are required."; exit 1; }
 fi
 
-if [[ -e "$ROOT/.venv" || -L "$ROOT/.venv" ]]; then
-  studio_macos_require_venv
-elif ! studio_macos_select_python; then
+if ! studio_macos_select_python; then
   studio_macos_install_managed_python
-  studio_macos_select_python || { echo "ERROR: Native arm64 Python 3.12 was not found."; exit 1; }
+  studio_macos_select_python || { echo "ERROR: Native arm64 Python 3.12.15 was not found."; exit 1; }
 fi
 
 if ! studio_macos_select_ffmpeg; then

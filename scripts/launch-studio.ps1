@@ -7,9 +7,12 @@ $PendingFile = Join-Path $UpdateRoot 'pending-install.json'
 $BrokerVersion = '1.0.0'
 $ActivationLaunch = [bool]$env:STHANG_STUDIO_UPDATE_ACTIVATION
 $ForceLegacy = $false
+. (Join-Path $PSScriptRoot 'windows-managed-runtime.ps1')
+$Node = Get-StudioManagedNode -NoDownload
+$env:Path = (Split-Path -Parent $Node) + ';' + $env:Path
 
 if (-not $ActivationLaunch) {
-  & node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') recover $InstallRoot
+  & $Node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') recover $InstallRoot
   if ($LASTEXITCODE -ne 0) {
     Write-Host 'Studio could not complete update recovery. The legacy installed version will be used.' -ForegroundColor Yellow
     $ForceLegacy = $true
@@ -83,7 +86,7 @@ $env:STHANG_STUDIO_BROKER_VERSION = $BrokerVersion
 Remove-Item Env:STHANG_STUDIO_UPDATE_ACTIVATION -ErrorAction SilentlyContinue
 
 Set-Location $SourceRoot
-& node (Join-Path $SourceRoot 'scripts\dev.mjs')
+& $Node (Join-Path $SourceRoot 'scripts\dev.mjs')
 $ExitCode = $LASTEXITCODE
 
 if ($ExitCode -eq 42) {
@@ -92,7 +95,7 @@ if ($ExitCode -eq 42) {
     exit 1
   }
   Set-Location $InstallRoot
-  & node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') apply $PendingFile
+  & $Node (Join-Path $InstallRoot 'scripts\update-runtime.mjs') apply $PendingFile
   if ($LASTEXITCODE -eq 0) { exit 42 }
   exit 1
 }

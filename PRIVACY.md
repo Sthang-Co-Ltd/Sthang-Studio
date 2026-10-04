@@ -329,7 +329,7 @@ invalidate that memory cache immediately.
 Never commit, paste into issues, or publish a real API key. If a key is exposed,
 revoke/rotate it with the provider immediately.
 
-## macOS prerequisite downloads
+## Managed prerequisite downloads
 
 On Apple Silicon macOS, initial setup first reuses compatible Node.js, Python and
 FFmpeg runtimes already present on the Mac. When a required runtime is missing,
@@ -340,6 +340,25 @@ ordinary HTTPS metadata such as the source IP address and request headers to the
 upstream host. They do not contain projects, captions, source media, exports, the
 Gemini API key, Contributor data or the analytics identity. Studio does not install
 Homebrew or modify system-wide runtimes for this path.
+
+The dependency-maintenance source change applies minimum security-patch checks
+before runtime reuse and adds the same checksum-pinned app-private CPython
+provisioning on Windows. The Windows Python archive is downloaded directly from
+Astral's upstream `python-build-standalone` release and kept inside Studio's local
+tools folder. Windows also provisions the reviewed private Node.js archive from
+nodejs.org when needed, with an exact checksum. These private runtime selections
+use process-local paths rather than changing the user's Node/Python PATH, and do
+not save download credentials. Python packages are installed from exact version/artifact-hash inventories
+for each supported platform. These download requests expose ordinary HTTPS
+metadata to their upstream hosts, not project/media content.
+
+That source change explicitly disables ONNX Runtime and Hugging Face telemetry
+before initialization. The server sets opt-out environment variables before
+starting either persistent or one-shot Python workers; setup/checking paths also
+apply the controls. These are independent of the optional Sthang Contributor and
+product-analytics choices. Native network verification remains a release gate;
+the audit did not establish that older Studio builds transmitted telemetry or
+media. See [the maintenance release boundary](docs/DEPENDENCY-RUNTIME-MAINTENANCE.md).
 
 ## Downloaded local models
 

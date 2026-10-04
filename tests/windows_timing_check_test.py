@@ -44,20 +44,32 @@ class WindowsTimingCheck(unittest.TestCase):
             versions = {"kfa": "0.2.0", "khmercut": "0.0.2", "python-crfsuite": "0.9.9", "tqdm": "4.65.0", "sosap": "0.4.3"}
             stack.enter_context(patch.object(module, "version", side_effect=versions.__getitem__))
             stack.enter_context(patch.object(module.subprocess, "run", return_value=types.SimpleNamespace(returncode=0, stdout="No broken requirements found.", stderr="")))
+            telemetry_disabled = False
+            def disable_telemetry():
+                nonlocal telemetry_disabled
+                telemetry_disabled = True
             def create_session():
+                self.assertTrue(telemetry_disabled, "Disable ORT telemetry before creating a KFA session")
                 if corrupt_model:
                     raise RuntimeError("Corrupt ONNX graph")
                 return types.SimpleNamespace(get_inputs=lambda: ["audio"], get_outputs=lambda: ["emissions"])
             modules = {
                 "appdirs": types.SimpleNamespace(user_cache_dir=lambda: root),
-                "onnxruntime": types.ModuleType("onnxruntime"),
+                "onnxruntime": types.SimpleNamespace(disable_telemetry_events=disable_telemetry),
                 "khmernormalizer": types.ModuleType("khmernormalizer"),
                 "faster_whisper": types.ModuleType("faster_whisper"),
                 "kfa": types.SimpleNamespace(create_session=create_session),
                 "khmercut": types.SimpleNamespace(tokenize=lambda _: ["Khmer"]),
                 "sosap": types.SimpleNamespace(Model=object),
             }
+            def import_runtime(name):
+                for key in ("ORT_DISABLE_TELEMETRY", "HF_HUB_DISABLE_TELEMETRY", "DO_NOT_TRACK"):
+                    self.assertEqual(module.os.environ[key], "1")
+                if name == "kfa":
+                    self.assertTrue(telemetry_disabled, "Disable ORT telemetry before KFA import")
+                return modules[name]
             stack.enter_context(patch.dict("sys.modules", modules))
+            stack.enter_context(patch.object(module.importlib, "import_module", side_effect=import_runtime))
             return module.check_ready()
 
     def test_usable_cached_model_and_native_imports_succeed(self):

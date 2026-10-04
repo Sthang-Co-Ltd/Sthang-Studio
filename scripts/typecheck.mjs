@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { reexecReviewedWindowsNode } from './windows-node-bootstrap.mjs';
 
 export function typecheckProjectArgs(root, { runtimeOnly = false } = {}) {
   const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
@@ -54,6 +55,8 @@ export function shouldUseRuntimeOnlyTypecheck(root, argv = process.argv.slice(2)
 
 const invoked = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invoked) {
+  const reviewedNodeExit = await reexecReviewedWindowsNode();
+  if (reviewedNodeExit !== null) process.exit(reviewedNodeExit);
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const node = process.execPath;
   // Current brokers explicitly request --runtime-only. The legacy v0.8 broker

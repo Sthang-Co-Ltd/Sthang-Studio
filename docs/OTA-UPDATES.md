@@ -151,6 +151,23 @@ This is a bounded maintainer recovery procedure for matching installed brokers, 
 
 Each immutable version owns its `node_modules` and `.venv`. This permits `package-lock.json`, npm packages, Python requirements, local timing setup, or supporting scripts to change without mutating the running version. The signed manifest declares those dependency inputs. Caches and all user state remain preserved; a future incompatible state/cache migration must be signed, staged, rollback-safe, and explicitly documented rather than deleting state during source refresh.
 
+The dependency-maintenance source candidate retains the released `pythonFiles`
+manifest schema. Platform lock inventories and provisioning code are authenticated
+by the signed whole-package SHA-256 before extraction/execution, then the embedded
+lock manifest is checked before pip runs. It does not add lock paths to that
+legacy field and thereby reject released brokers. Actual Python environments are
+prepared at stable private state-root paths rather than beneath relocatable OTA
+work directories; each version's `.venv` selects its validated environment.
+Interrupted selection is recovered from a durable journal, and prior environments
+remain available for rollback. Candidate/native acceptance gates are listed in
+`docs/DEPENDENCY-RUNTIME-MAINTENANCE.md`; no update pointer is advanced by this work.
+
+Released Windows brokers can still perform their initial `npm ci` using their
+existing Node before candidate setup runs. The new candidate does not inject a
+lifecycle hook into that process. After provisioning, its build/typecheck/launch
+entrypoints select reviewed private Node or fail before activation. Full replacement
+of that initial old-broker process requires a broker/manual-installation upgrade.
+
 The Windows-protected Gemini key already lives outside source versions. The advanced `apps/server/.env` fallback remains in the stable installation root and is selected through `STHANG_STUDIO_ENV_FILE`. Projects, media, history, correction memory, jobs/checkpoints, proposals, exports, and compatible caches continue using the stable state root.
 
 On macOS, the Keychain-backed Gemini key and stable state root remain outside
@@ -199,9 +216,11 @@ keeps it until the authorized restart, even if its requesting tab disconnects.
 
 Windows OTA preparation sets an updater-only strict KFA requirement. Both a fresh
 setup and an existing prepared target must pass dependency pins/checks, actual
-native imports, the Khmer tokenizer and the prepared model session. The normal
-manual installer retains its intentional Whisper-only fallback. This check never
-preloads the large Whisper model for perceived readiness.
+native imports, the Khmer tokenizer and the prepared model session. Immutable
+setup requires a complete reviewed environment and retains the previous one on
+failure; runtime Whisper fallback remains lazy. Existing targets also recheck
+the exact dependency-lock profile. This check never preloads the large Whisper
+model for perceived readiness.
 
 Activation probes now impose per-attempt and total wall-clock deadlines plus a
 bounded response body, including stalled or trickling responses. They accept only

@@ -43,6 +43,12 @@ data/contribution/
 
 # Python/runtime caches
 .venv/
+.venv
+.venv.rollback-*
+.venv.pending-*
+.timing-envs/
+.timing-setup.lock
+.timing-transaction.json*
 __pycache__/
 *.py[cod]
 

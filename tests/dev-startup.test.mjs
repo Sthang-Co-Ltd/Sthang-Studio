@@ -66,6 +66,7 @@ async function fixture(t, { platform = 'win32', openBrowser = true, registeredBr
     exit: (code) => state.exits.push(code),
   });
   const modules = {
+    './windows-node-bootstrap.mjs': { reexecReviewedWindowsNode: async () => null },
     './runtime-workspaces.mjs': { ensureRuntimeWorkspaceLinks: async () => {} },
     'node:path': { default: path },
     'node:url': { fileURLToPath },

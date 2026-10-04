@@ -1,2 +1,6 @@
+# Resolution inputs only; setup installs the reviewed platform hash locks in locks/.
 # Local-only fallback when KFA cannot align a mixed-language / unusual clip.
-faster-whisper>=1.1.0,<2.0.0
+faster-whisper==1.2.1
+# Preserve the established HTTP/client API instead of migrating to Hub 1.x/2.x.
+huggingface-hub>=0.36.2,<1
+filelock>=3.32.7,<4

@@ -12,7 +12,7 @@
     "url": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/issues"
   },
   "engines": {
-    "node": "^22.12.0 || >=24"
+    "node": "^22.23.3 || ^24.21.0"
   },
   "workspaces": [
     "apps/*",
@@ -28,7 +28,7 @@
     "check:public": "node scripts/verify-product-manifest.mjs && node scripts/verify-product-services.mjs && node scripts/public-readiness-check.mjs",
     "test:public": "node --test tests/public-readiness.test.mjs tests/product-release-identity.test.mjs",
     "test:contribution": "npm run build --workspace @kcs/shared && node --import tsx --test tests/contribution-core.test.ts tests/contribution-worker.test.mjs tests/analytics-privacy.test.ts tests/analytics-worker.test.mjs tests/public-services-config.test.mjs tests/privacy-onboarding.test.ts",
-    "test:gemini": "node --import tsx --test tests/gemini-request-timeout.test.ts tests/gemini-interactions.test.ts",
+    "test:gemini": "node --import tsx --test tests/gemini-request-timeout.test.ts tests/gemini-interactions.test.ts tests/gemini-sdk-transport.test.mts",
     "test:media-clock": "node --import tsx --test tests/media-clock.test.ts",
     "test:fine-timing": "npm run build --workspace @kcs/shared && node --import tsx --test tests/fine-timing.test.ts tests/caption-timing-transaction.test.ts tests/timestamp.test.ts tests/timing-playback.test.ts tests/waveform-audio-route.test.mts",
     "test:word-timing": "npm run build --workspace @kcs/shared && node --import tsx --test tests/word-timing.test.ts tests/word-timing-edit.test.ts tests/caption-word-structure.test.ts tests/caption-word-timing-server.test.ts tests/caption-word-timing-api.test.mts",
@@ -44,7 +44,7 @@
     "update:macos-build-evidence": "node scripts/update-macos-release-build-evidence.mjs",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
     "update:release": "node scripts/update-release.mjs",
-    "ci": "npm run test:startup && npm run test:macos && npm run test:public && npm run test:contribution && npm run test:gemini && npm run test:media-clock && npm run test:fine-timing && npm run test:word-timing && npm run test:caption-handoff && npm run test:caption-effects && npm run test:video-export && npm run test:web-optimizations && npm run test:playback-grouping && npm run test:performance && npm run check:public && npm run test:media-preview && npm run test:updater && npm run typecheck && npm run build",
+    "ci": "npm run test:timing-dependencies && npm run test:dependencies && npm run test:startup && npm run test:macos && npm run test:public && npm run test:contribution && npm run test:gemini && npm run test:media-clock && npm run test:fine-timing && npm run test:word-timing && npm run test:caption-handoff && npm run test:caption-effects && npm run test:video-export && npm run test:web-optimizations && npm run test:playback-grouping && npm run test:performance && npm run check:public && npm run test:media-preview && npm run test:updater && npm run typecheck && npm run build",
     "test:update-powershell": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/update-powershell.test.ps1",
     "test:caption-renderer": "npm run build --workspace @kcs/shared && node --import tsx --test tests/caption-renderer-native.test.mts tests/persistent-caption-preview.test.mts",
     "benchmark:caption-preview": "npm run build --workspace @kcs/shared && node --import tsx scripts/benchmark-caption-preview.mts",
@@ -57,6 +57,10 @@
     "test:playback-grouping": "node --import tsx --test tests/playback-grouping.test.mts tests/playback-grouping-server.test.mts",
     "test:macos": "node --test tests/macos-compatibility.test.mjs",
     "test:startup": "node --experimental-vm-modules --test tests/dev-startup.test.mjs tests/source-watch-behavior.test.mjs",
+    "test:dependencies": "npm run build --workspace @kcs/shared && node --test tests/dependency-runtime-policy.test.mjs tests/windows-node-bootstrap.test.mjs && node --import tsx --test tests/local-timing-privacy.test.mts",
+    "test:timing-dependencies": "node scripts/test-timing-cache.mjs --all",
+    "diagnose:gemini-abort": "node --expose-gc --import tsx --test tests/diagnostics/gemini-sdk-abort-known-limitation.mts",
+    "diagnose:node-abort": "node --expose-gc tests/diagnostics/request-clone-abort-known-limitation.mjs",
     "test:media-preview": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-preview.test.mts"
   },
   "allowScripts": {
@@ -70,6 +74,6 @@
     "wrangler": "4.143.0"
   },
   "overrides": {
-    "undici": "7.29.1"
+    "undici": "7.30.0"
   }
 }

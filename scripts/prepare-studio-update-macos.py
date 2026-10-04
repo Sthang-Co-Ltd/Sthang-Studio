@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import subprocess
@@ -29,6 +30,10 @@ PROTECTED_PARTS = {
     "tools",
     "node_modules",
     ".venv",
+    ".timing-envs",
+    ".timing-setup.lock",
+    ".timing-transaction.json",
+    ".timing-transaction.json.tmp",
     "versions",
     "updates",
     "release-artifacts",
@@ -111,7 +116,7 @@ def normalized_archive_path(raw: str) -> str:
     if any(":" in part or part[-1:] in {" ", "."} for part in parts):
         fail("The update archive contains an unsafe path.")
     lowered = [part.casefold() for part in parts]
-    if any(part in PROTECTED_PARTS for part in lowered):
+    if any(part in PROTECTED_PARTS or part.startswith((".venv.rollback-", ".venv.pending-")) for part in lowered):
         fail("The update archive contains protected runtime state.")
     if any(part == ".env" for part in lowered):
         fail("The update archive contains protected local settings.")
@@ -370,14 +375,30 @@ def main() -> int:
         python_files = setup.get("pythonFiles")
         if not isinstance(python_files, list) or not python_files:
             fail("The signed Python dependency declaration is invalid.")
+        declared = set()
         for record in python_files:
             if not isinstance(record, dict):
                 fail("A signed Python dependency declaration is invalid.")
             relative = str(record.get("path") or "").replace("\\", "/")
-            if not relative.startswith("local-timing/requirements") or not relative.endswith(".txt"):
+            if not re.fullmatch(r"local-timing/requirements(?:-[a-z0-9-]+)?\.txt", relative) or relative in declared:
                 fail("A signed Python dependency path is invalid.")
+            declared.add(relative)
             if sha256_path(extract_root.joinpath(*relative.split("/"))) != exact_hash(record.get("sha256"), "A signed Python dependency hash"):
                 fail("A Python dependency file failed signed verification.")
+        # All these bytes are authenticated by the outer signed package digest.
+        # Keep legacy pythonFiles protocol compatible with released brokers.
+        lock_manifest = json_file(extract_root / "local-timing/locks/manifest.json", "The timing lock manifest")
+        required_locks = {f"local-timing/locks/{name}.txt" for name in ("tooling", "windows-py312-x64", "macos-legacy-py312-arm64", "macos-modern-py312-arm64")}
+        records = lock_manifest.get("files")
+        if lock_manifest.get("schemaVersion") != 1 or not isinstance(records, list) or len(records) != 4:
+            fail("The timing lock manifest is invalid.")
+        seen_locks = set()
+        for record in records:
+            if not isinstance(record, dict) or record.get("path") not in required_locks or record["path"] in seen_locks:
+                fail("A timing lock declaration is invalid.")
+            seen_locks.add(record["path"])
+            if sha256_path(extract_root / record["path"]) != exact_hash(record.get("sha256"), "A timing lock digest"):
+                fail("A timing lock failed authenticated manifest verification.")
         marker = extract_root / ".sthang" / "macos-curated-runtime"
         if marker.read_text(encoding="ascii").strip() != "production-runtime-v1":
             fail("The prepared update is not a curated macOS production runtime.")

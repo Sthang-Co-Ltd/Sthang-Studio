@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageLockSha256": "75467eb969e495590abe37b7e256a019bd9efa95590fffac6370641188155e56",
+  "packageLockSha256": "88b229b46b78a1129f545753f02dcd0c77fdec3728d10cc9e072cc9d2915dcfe",
   "files": [
     {
       "path": "apps/server/dist/config.js",
@@ -9,8 +9,8 @@
     },
     {
       "path": "apps/server/dist/index.js",
-      "size": 8636,
-      "sha256": "bbe7bc9d342dcbfaba493364586c7e8d1f6758006bdffbbaf5b03d5438e8be40"
+      "size": 9336,
+      "sha256": "690c2c55e79f18fe19ccd0309f90bc17f8c504e9f00fbe55a5af8017e910cfb9"
     },
     {
       "path": "apps/server/dist/routes/caption-handoff.js",
@@ -24,8 +24,13 @@
     },
     {
       "path": "apps/server/dist/routes/jobs.js",
-      "size": 3847,
-      "sha256": "f74e7c10cc7553d7083115420f7a5e42e255b8c3d533920d53a171fa67bf23ae"
+      "size": 4128,
+      "sha256": "2c46092c082b610ef36c68777d3a93d5b1593a5a70de6c1b59194f3e2e5524cb"
+    },
+    {
+      "path": "apps/server/dist/routes/media-preview.js",
+      "size": 2495,
+      "sha256": "d0821e8aa03a9dad3ecc0e5b537be2d1c8b93b9472907bce21350149352548e4"
     },
     {
       "path": "apps/server/dist/routes/profile.js",
@@ -34,8 +39,8 @@
     },
     {
       "path": "apps/server/dist/routes/projects.js",
-      "size": 28101,
-      "sha256": "7288950d93b1d6d189ef4100fc30cc5aacd26fb76f5ffe98e837e771cd3a3957"
+      "size": 28924,
+      "sha256": "c6547a8af99494dacfc30acad594725585ff62ca0f79b5187653601e9d0825f4"
     },
     {
       "path": "apps/server/dist/routes/system.js",
@@ -44,13 +49,13 @@
     },
     {
       "path": "apps/server/dist/routes/updates.js",
-      "size": 2576,
-      "sha256": "92c1738fea9836934737757e94eafa9f431cae5a8640ff972d3c9c71f0047efa"
+      "size": 3145,
+      "sha256": "8720c0fc70ca36b8520344423abf7d1a990c3b2597f135736b4efa31431493a5"
     },
     {
       "path": "apps/server/dist/routes/video-export.js",
-      "size": 8904,
-      "sha256": "302dc9489c2f16488900e88132eb43b67c7d39d0ad7fbac94293941706ae2eda"
+      "size": 9085,
+      "sha256": "0456b505fbd10f781f162ddd3908ed224c8539ee9bb10c0b6c290b445d99a75b"
     },
     {
       "path": "apps/server/dist/services/alignment.js",
@@ -64,8 +69,8 @@
     },
     {
       "path": "apps/server/dist/services/cache.js",
-      "size": 5574,
-      "sha256": "70f6ece715a10def706457d22ab76ca259dae49df07da345a9aeecb4db992b0a"
+      "size": 5694,
+      "sha256": "afe87167576ed4034afd436c38dd468c141b3c2b7526b257768b71afa68659fe"
     },
     {
       "path": "apps/server/dist/services/caption-handoff.js",
@@ -133,14 +138,19 @@
       "sha256": "8881bade2378afe4ee7e05a1ef86f73f0680485036ee48426d82af8561340923"
     },
     {
+      "path": "apps/server/dist/services/job-admission.js",
+      "size": 1424,
+      "sha256": "49d2f15371976ff7e3851ebd9492bf97e6a51f10ec2879a8970b2327b511a8cf"
+    },
+    {
       "path": "apps/server/dist/services/job-persistence.js",
       "size": 2160,
       "sha256": "7fc4cefe33f3fe2baf0e854abf1ed432b05742edde87f5055197862bc75b4753"
     },
     {
       "path": "apps/server/dist/services/job-store.js",
-      "size": 16401,
-      "sha256": "71bb4860c9addf89cb2072c5a3b3cfbe659cb960d623c716f177f9c5d56a8296"
+      "size": 16985,
+      "sha256": "9cab62bbd494d688cb15f33c8295cf720ddfb4cd88d390af79711a237766fad0"
     },
     {
       "path": "apps/server/dist/services/llm-settings.js",
@@ -149,8 +159,13 @@
     },
     {
       "path": "apps/server/dist/services/local-timing.js",
-      "size": 18195,
-      "sha256": "1cd55b2d5f1ed167bbd4dce7187eaabef034f4cb93efdbe4f168b498cec0af01"
+      "size": 18617,
+      "sha256": "236e6e8496c523c81fb5b77b80ab31a723ea88dc39c821b4275788f3239667a8"
+    },
+    {
+      "path": "apps/server/dist/services/media-preview.js",
+      "size": 15265,
+      "sha256": "f12e857aee2e4b59628141ad078013bfb66a5346dde81fe4e139adde25e5abff"
     },
     {
       "path": "apps/server/dist/services/media.js",
@@ -159,8 +174,8 @@
     },
     {
       "path": "apps/server/dist/services/persistent-caption-preview.js",
-      "size": 16017,
-      "sha256": "4d6bc738419cbc32884302a251205babc8d81668590d1110c9c80900d41665a1"
+      "size": 16165,
+      "sha256": "61b07ff384dec253bbb27217c70357131e248cf4aa5ff854116e6ae7f9ec7b03"
     },
     {
       "path": "apps/server/dist/services/pipeline-overlap.js",
@@ -253,14 +268,14 @@
       "sha256": "2af67e6951974fa7793bb043763f6e0619b260dc34808f7721d29635770dfe87"
     },
     {
+      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-C9hKddk2.js",
+      "size": 31389,
+      "sha256": "ddd3ae257ba32d74b9ea35644d498561debd43214eced6bd9d2cb0af07853de9"
+    },
+    {
       "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-CRRQLbUP.css",
       "size": 18520,
       "sha256": "a89fc1442f88bc08abe5038e99efac0678453a49022c42f73826e63973040d90"
-    },
-    {
-      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-DxgLV6F1.js",
-      "size": 31389,
-      "sha256": "8d3b41b104c2caca7e6d4f0d51803e1d61012ff914b009c061a1c1babddcf7ba"
     },
     {
       "path": "apps/web/dist/assets/ExportWorkspace-BHr8vmUh.css",
@@ -268,14 +283,14 @@
       "sha256": "ffdc3e18c9462dd191166cfee492238c2da695a68f5750034740926af0c49784"
     },
     {
-      "path": "apps/web/dist/assets/ExportWorkspace-BKhZBFvF.js",
+      "path": "apps/web/dist/assets/ExportWorkspace-CWhbt9Lb.js",
       "size": 29456,
-      "sha256": "57e593552ca1d01f8c1199c10c1b85d240c41d4747b5ab208e17bac5088080c8"
+      "sha256": "75ca16195bfdf5e1758c25d81d4645a7314e0eb24db5f4dd8aefa70c078eb036"
     },
     {
-      "path": "apps/web/dist/assets/file-text-CPXHtxbF.js",
+      "path": "apps/web/dist/assets/file-text-BvoFkFfh.js",
       "size": 414,
-      "sha256": "fa6b5823c08b3f4d9e176dffdbd14ae3e5a1f92f5e205cb145bdb697607736f2"
+      "sha256": "a22d0f8eb70e499926c1709f333f08add40bfc71658329a7b779e7e59b67aa47"
     },
     {
       "path": "apps/web/dist/assets/index-D2KRMFIb.css",
@@ -283,19 +298,19 @@
       "sha256": "3be9a66533ddc0478cb2fcfe1e90a9426b368253bb612a0e8533dab57f2a75aa"
     },
     {
-      "path": "apps/web/dist/assets/index-DjXXZmNl.js",
-      "size": 455987,
-      "sha256": "9da215800c6133a8fc05bcea682a9a35c6643186345e48930a12ffa389885018"
+      "path": "apps/web/dist/assets/index-uxZDicRC.js",
+      "size": 459382,
+      "sha256": "687ce96792816f4df8540fd34cc444f90077297dd6b4ff13e1bfb0cf1fa3e2d6"
     },
     {
-      "path": "apps/web/dist/assets/RegenerationReviewDock-BBmWZA1M.js",
+      "path": "apps/web/dist/assets/RegenerationReviewDock-BbeNGTGX.js",
       "size": 10167,
-      "sha256": "dba50521fa57f69e995086d5b888760f6026cb44ae8720e4db34ab361ba0ccf7"
+      "sha256": "1ba78784209ef7df1af4a8cd37b8b3ce1115d2b0cc30218d98b9a94cfa642e0e"
     },
     {
-      "path": "apps/web/dist/assets/undo-2-DKDFaf8p.js",
+      "path": "apps/web/dist/assets/undo-2-Dn0weluf.js",
       "size": 416,
-      "sha256": "1ed82034c93913366afb99e7be70cd28a0242563829d4f7c6ea42bd69e5f5eb5"
+      "sha256": "a9d6de698054bf948dd87b6753e2a70c74415e3790214e8299663b741ab40a8c"
     },
     {
       "path": "apps/web/dist/assets/WaveformEditor-CHy7Mh9y.css",
@@ -303,9 +318,9 @@
       "sha256": "29d788ce6d3d0de9b610a8db7f1fc9fb879576095a634ad60749a4132a393249"
     },
     {
-      "path": "apps/web/dist/assets/WaveformEditor-I5XUbWn3.js",
+      "path": "apps/web/dist/assets/WaveformEditor-CtYsiLdd.js",
       "size": 39814,
-      "sha256": "d11ba97d89b11e283400d2c907b66fcd8369af41512b8e0c2c420ee1297a8ca3"
+      "sha256": "0c116e0df1210892b9a7bebc4dd5d484ae77dfc72e7920ef60bf75ff4555f25d"
     },
     {
       "path": "apps/web/dist/brand/brand-manifest.json",
@@ -365,7 +380,12 @@
     {
       "path": "apps/web/dist/index.html",
       "size": 622,
-      "sha256": "f2781fdeaa090a2fdf20eb16e6504bd2138d5c1fd8a31481fb8534cc7e9dbee6"
+      "sha256": "c0dd757d0309f82dd081db52fe43a6e2968532efeb49aeaf437e6d4901d7bb2c"
+    },
+    {
+      "path": "apps/web/dist/studio-web-identity.json",
+      "size": 146,
+      "sha256": "03e3c5dd91d8d2f6bf7e0cc7ac3bfa9efe896e39110dc1fc87c56103e41d1c33"
     },
     {
       "path": "packages/shared/dist/caption-interchange.d.ts",

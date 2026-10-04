@@ -14,6 +14,10 @@ FORBIDDEN_PARTS = {
     "tools",
     "node_modules",
     ".venv",
+    ".timing-envs",
+    ".timing-setup.lock",
+    ".timing-transaction.json",
+    ".timing-transaction.json.tmp",
     "versions",
     "updates",
     "release-artifacts",
@@ -39,7 +43,7 @@ def normalized_bytes(path: pathlib.Path) -> bytes:
 
 def allowed(relative: pathlib.PurePosixPath) -> bool:
     lowered = {part.casefold() for part in relative.parts}
-    if lowered & FORBIDDEN_PARTS:
+    if any(part.startswith((".venv.rollback-", ".venv.pending-")) for part in lowered) or lowered & FORBIDDEN_PARTS:
         return False
     if any(part.casefold() == ".env" for part in relative.parts):
         return False

@@ -12,13 +12,6 @@ echo Captions workspace: fast review, precise timing and CapCut SRT.
 echo Install folder: "%CD%"
 echo.
 
-where node >nul 2>nul || (
-  echo ERROR: Node.js was not found.
-  echo Run INSTALL-NEW-PC.bat to finish setup.
-  if not "%STHANG_STUDIO_UPDATE_ACTIVATION%"=="1" pause
-  exit /b 1
-)
-
 if not exist "scripts\launch-studio.ps1" (
   echo ERROR: The Sthang Studio launcher is incomplete.
   echo Run the current manual Windows installer to repair it.

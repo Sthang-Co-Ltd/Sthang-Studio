@@ -48,6 +48,9 @@
     "project-store.test.mts",
     "playback-grouping.test.mts",
     "playback-grouping-server.test.mts",
+    "local-timing-privacy.test.mts",
+    "gemini-sdk-transport.test.mts",
+    "diagnostics/gemini-sdk-abort-known-limitation.mts",
     "job-admission.test.ts",
     "job-admission-routes.test.mts",
     "media-preview.test.mts"
