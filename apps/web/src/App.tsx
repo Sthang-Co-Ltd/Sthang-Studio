@@ -272,6 +272,7 @@ export default function App() {
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
+  const [mediaElement, setMediaElement] = useState<HTMLMediaElement | null>(null);
   const nativeCaptionPreview = useRef<NativeCaptionPreviewHandle | null>(null);
   const effectReplayController = useRef<AbortController | null>(null);
   const effectPlaybackCancel = useRef<(() => void) | null>(null);
@@ -1144,7 +1145,6 @@ export default function App() {
   const onLoadedMetadata = (element: HTMLMediaElement) => {
     if (media.current !== element || !projectScope.current.isCurrent(viewTicket)) return;
     if (Number.isFinite(element.duration)) setLoadedMediaDurationMs(element.duration * 1000);
-    if (media.current) media.current.playbackRate = playbackRate;
     if (queuedSeekMs == null || !media.current) return;
     const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
     media.current.currentTime = Math.max(0, queuedSeekMs - preRoll) / 1000;
@@ -2002,10 +2002,10 @@ export default function App() {
     <section className="editor-grid">
       <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''} ${workspaceTool === 'appearance' && !proposal ? 'appearance-workspace-active' : ''}`}>
         <div className="media-stage">
-          <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} media={media}
+          <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} onElementChange={setMediaElement}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
 

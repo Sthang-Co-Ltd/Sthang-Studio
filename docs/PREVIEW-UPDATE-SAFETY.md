@@ -81,6 +81,32 @@ also remains unresolved. No GitHub Actions were started for this integration.
 Current-tree public checks pass; the local source snapshots do not establish a
 new full-history clone scan or installed-release acceptance.
 
+## Mid-edit player recovery follow-up (source only)
+
+Explicit Retry now retires the failed media element and creates a fresh player,
+instead of asking the same decoder instance to reload. It keeps the local
+caption draft, prepared source, playhead, playback rate, volume and mute setting;
+playback remains paused. Review/replay ownership is cancelled on failure, late
+events from the retired player are ignored, and native caption geometry observes
+the replacement element. Repeated Retry before metadata retains the pending
+playhead. Error copy distinguishes browser read, decode and open failures without
+exposing raw decoder messages or file paths.
+
+This addresses the ineffective Retry path reported in Chrome. The original
+intermittent mid-edit decoder failure has not been reproduced or attributed to a
+specific trigger. The reported installed build is unverified. Local native
+preview/recovery tests pass 12/12; adjacent clock/timing tests pass 13/13, and
+typecheck/production build pass. Five new browser scenarios plus the eight existing
+scenarios collect, but Chromium execution is blocked by the environment's
+Unix-socket permission restriction. A separate browser-fixture type check retains
+the baseline TimedToken fixture error. Real Chrome/Windows acceptance is still
+required; no new release, deployment or Actions run is implied.
+
+Public impact for this follow-up: none beyond the existing source-only proposal.
+It repairs the documented playback recovery workflow, with no new capability,
+data transfer, retention, installation or public-availability claim. The existing
+manifest and separately approval-gated HQ/Distribution proposal remain unchanged.
+
 ## Public impact: required
 
 This is a new source-only intake proposal, `studio-preview-update-safety-20261004`.

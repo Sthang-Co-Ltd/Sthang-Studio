@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent, type RefObject } from 'react';
 import { needsCompatiblePlayback, requestMediaPreview, type MediaPreviewStatus } from '../media-preview-client';
+import { playbackFailureMessage, recoveryPosition, restoredPosition, type PlaybackSettings } from '../media-playback-recovery';
 import './source-media.css';
 
 interface Props {
@@ -7,16 +8,20 @@ interface Props {
   projectId: string;
   source: string;
   video: boolean;
+  playbackRate: number;
   media: RefObject<HTMLMediaElement | null>;
+  onElementChange: (element: HTMLMediaElement | null) => void;
   onLoadedMetadata: (element: HTMLMediaElement) => void;
   onTimeUpdate: (element: HTMLMediaElement) => void;
   onRetry: () => void;
 }
 
 /** Mount with a project/media key. Recovery never changes the source project. */
-export function SourceMedia({ src, projectId, source, video, media, onLoadedMetadata, onTimeUpdate, onRetry }: Props) {
+export function SourceMedia({ src, projectId, source, video, playbackRate, media, onElementChange, onLoadedMetadata, onTimeUpdate, onRetry }: Props) {
   const [playbackSrc, setPlaybackSrc] = useState(src);
   const [failed, setFailed] = useState(false);
+  const [failureCode, setFailureCode] = useState<number>();
+  const [playerGeneration, setPlayerGeneration] = useState(0);
   const [recovering, setRecovering] = useState(false);
   const [preview, setPreview] = useState<MediaPreviewStatus | null>(null);
   const [previewError, setPreviewError] = useState('');
@@ -28,12 +33,35 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
   const sequence = useRef(0);
   const attempted = useRef(false);
   const inFlight = useRef(false);
-  const attach = useCallback((element: HTMLMediaElement | null) => { media.current = element; }, [media]);
+  const playbackSettings = useRef<PlaybackSettings | null>(null);
+  // Set before any metadata/status reply; later speed controls write to the
+  // current element directly and must not change this stable ref callback.
+  const initialPlaybackRate = useRef(playbackRate);
+  const attach = useCallback((element: HTMLMediaElement | null) => {
+    media.current = element;
+    if (element) {
+      const settings = playbackSettings.current;
+      const rate = settings?.playbackRate ?? initialPlaybackRate.current;
+      Object.assign(element, { defaultPlaybackRate: rate, playbackRate: rate, ...settings });
+    }
+    onElementChange(element);
+  }, [media, onElementChange]);
   const preservePosition = () => {
     const element = media.current;
-    restoreTime.current = element && !element.error && Number.isFinite(element.currentTime) ? element.currentTime : lastPosition.current;
+    // Repeated Retry clicks before metadata must not replace the saved position with zero.
+    if (restoreTime.current === null) restoreTime.current = element ? recoveryPosition(element, lastPosition.current) : lastPosition.current;
+    if (element) playbackSettings.current = { playbackRate: element.playbackRate, volume: element.volume, muted: element.muted };
     element?.pause();
     onRetry();
+  };
+  const replacePlayer = () => {
+    const previous = media.current;
+    // Retire the failed decoder before creating a new one. Ignore its late events.
+    media.current = null;
+    previous?.pause();
+    previous?.removeAttribute('src');
+    previous?.load();
+    setPlayerGeneration((generation) => generation + 1);
   };
   const accept = (value: MediaPreviewStatus) => {
     setPreviewError('');
@@ -43,8 +71,8 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
       setPlaybackSrc(value.url);
       setRecovering(true);
       setFailed(false);
-      // Eviction/rebuild can publish at the same URL: force the browser to reopen it.
-      if (value.url === playbackSrc) media.current?.load();
+      // Every accepted copy gets a fresh decoder, even when its URL is unchanged.
+      replacePlayer();
     }
   };
   const prepare = async () => {
@@ -119,7 +147,7 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
     setPreviewError('');
     setPreview((value) => value && value.state !== 'ready' ? { ...value, state: 'original', message: undefined } : value);
     setRecovering(true); setFailed(false);
-    media.current.load();
+    replacePlayer();
   };
   const props = {
     src: playbackSrc, controls: true,
@@ -129,9 +157,11 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
       if (restoreTime.current !== null) {
         const target = restoreTime.current;
         restoreTime.current = null;
-        element.currentTime = Number.isFinite(element.duration) ? Math.min(target, Math.max(0, element.duration - 0.05)) : target;
+        element.currentTime = restoredPosition(target, element.duration);
       }
       setRecovering(false); setFailed(false);
+      // Settings are restored on attachment only. Later user changes during
+      // loading must win over the recovery snapshot.
       onLoadedMetadata(element);
     },
     onTimeUpdate: (event: SyntheticEvent<HTMLMediaElement>) => {
@@ -141,19 +171,23 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
       onTimeUpdate(element);
     },
     onError: (event: SyntheticEvent<HTMLMediaElement>) => {
+      if (media.current !== event.currentTarget) return;
       setFailed(true); setRecovering(false);
+      event.currentTarget.pause();
+      onRetry();
       // Network/abort failures keep ordinary reload recovery. Only an actual
       // decoder/unsupported-source failure automatically requests transcoding.
       const code = event.currentTarget.error?.code;
+      setFailureCode(code);
       if (video && !attempted.current && playbackSrc === src && (code === 3 || code === 4)) void prepare();
     },
   };
   const processing = requesting || preview?.state === 'processing';
   const offerCopy = video && (failed || playbackSrc === src && (failed || ['hevc', 'h265'].includes(preview?.videoCodec || '') || preview?.state === 'failed' || preview?.state === 'cancelled'));
   const message = previewError || (processing ? `Preparing browser playback${preview?.progress ? ` · ${preview.progress}%` : '…'}`
-    : (preview?.state === 'failed' ? preview.message : '') || (recovering ? 'Reloading playback…' : failed ? 'Playback could not continue. Your source file and captions are unchanged.' : offerCopy ? 'Picture missing? Prepare a local playback copy. Your original stays unchanged.' : ''));
+    : (preview?.state === 'failed' ? preview.message : '') || (recovering ? 'Restarting playback…' : failed ? playbackFailureMessage(failureCode) : offerCopy ? 'Picture missing? Prepare a local playback copy. Your original stays unchanged.' : ''));
   return <>
-    {video ? <video ref={attach} {...props}/> : <audio ref={attach} {...props}/>}
+    {video ? <video key={playerGeneration} ref={attach} {...props}/> : <audio key={playerGeneration} ref={attach} {...props}/>}
     {message && <div className="source-media-status" role="status">
       <span>{message}</span>
       {preview?.state === 'processing' ? <button type="button" disabled={requesting} onClick={() => void cancel()}>Cancel preparation</button>

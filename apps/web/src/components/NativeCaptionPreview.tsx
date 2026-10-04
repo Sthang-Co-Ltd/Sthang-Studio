@@ -7,6 +7,7 @@ import './native-caption-preview.css';
 interface Props {
   project: CaptionProject;
   media: RefObject<HTMLMediaElement | null>;
+  mediaElement: HTMLMediaElement | null;
   captions: CaptionSegment[];
   appearance: CaptionAppearance;
   interacting: boolean;
@@ -95,7 +96,7 @@ export interface NativeCaptionPreviewHandle {
   prepareReplay(startMs: number, endMs: number, signal: AbortSignal): Promise<boolean>;
 }
 
-export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0 }, ref) {
+export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, mediaElement, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0 }, ref) {
   const normalizedAppearance = useMemo(() => normalizeCaptionAppearance(appearance), [appearance]);
   const highlightWords = normalizedAppearance.highlightMode === 'word';
   const motionPreset = normalizedAppearance.motionPreset;
@@ -134,7 +135,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     : '';
 
   useEffect(() => {
-    const video = media.current;
+    const video = mediaElement;
     if (!(video instanceof HTMLVideoElement)) return;
     const update = () => setFrame(containedVideoFrame(video.clientWidth, video.clientHeight, video.videoWidth, video.videoHeight));
     const observer = new ResizeObserver(update);
@@ -142,7 +143,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     video.addEventListener('loadedmetadata', update);
     update();
     return () => { observer.disconnect(); video.removeEventListener('loadedmetadata', update); };
-  }, [media, project.id, project.media.filename]);
+  }, [mediaElement, project.id, project.media.filename]);
 
   useEffect(() => () => {
     replayPreparation.current?.controller.abort(); replayPreparation.current = null;
