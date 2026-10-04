@@ -116,6 +116,8 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
   const retry = () => {
     if (!media.current) return;
     preservePosition();
+    setPreviewError('');
+    setPreview((value) => value && value.state !== 'ready' ? { ...value, state: 'original', message: undefined } : value);
     setRecovering(true); setFailed(false);
     media.current.load();
   };
@@ -138,9 +140,12 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
       if (restoreTime.current === null && !element.error && Number.isFinite(element.currentTime)) lastPosition.current = element.currentTime;
       onTimeUpdate(element);
     },
-    onError: () => {
+    onError: (event: SyntheticEvent<HTMLMediaElement>) => {
       setFailed(true); setRecovering(false);
-      if (video && !attempted.current && playbackSrc === src) void prepare();
+      // Network/abort failures keep ordinary reload recovery. Only an actual
+      // decoder/unsupported-source failure automatically requests transcoding.
+      const code = event.currentTarget.error?.code;
+      if (video && !attempted.current && playbackSrc === src && (code === 3 || code === 4)) void prepare();
     },
   };
   const processing = requesting || preview?.state === 'processing';
@@ -152,8 +157,10 @@ export function SourceMedia({ src, projectId, source, video, media, onLoadedMeta
     {message && <div className="source-media-status" role="status">
       <span>{message}</span>
       {preview?.state === 'processing' ? <button type="button" disabled={requesting} onClick={() => void cancel()}>Cancel preparation</button>
-        : offerCopy ? <button type="button" disabled={processing} onClick={() => void prepare()}>Prepare playback</button>
-        : (failed || recovering) && <button type="button" onClick={retry}>{recovering ? 'Retry again' : 'Retry playback'}</button>}
+        : <>
+          {(failed || recovering) && <button type="button" onClick={retry}>{recovering ? 'Retry again' : 'Retry playback'}</button>}
+          {offerCopy && <button type="button" disabled={processing} onClick={() => void prepare()}>Prepare playback</button>}
+        </>}
     </div>}
   </>;
 }

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures, seek } from './fixtures.mjs';
+import { cleanFixtures, installFixture, openProject, prepareFixtures, seek } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -116,14 +116,18 @@ test('transient polling failure clears after playback becomes ready', async ({ p
 test('failed playback copy forces a rebuild and reloads even when its URL stays the same', async ({ page }) => {
   await installFixture(page); let force: unknown; let posts = 0;
   await manualPreparation(page);
-  await page.route('**/media/landscape.mp4?compatible=1', (route) => route.fulfill({ contentType: 'video/mp4', headers: { 'Cache-Control': 'no-store' }, body: fixtureMedia() }));
+  // Use the real range-aware fixture server for the compatible URL, too.
   await page.route('**/api/media-preview/landscape*', async (route) => {
     if (route.request().method() === 'POST') { posts++; force = route.request().postDataJSON().force; }
     return route.fulfill({ json: preview('ready') });
   });
   await openProject(page);
   await expect(page.locator('video')).toHaveAttribute('src', playbackUrl);
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
   await seek(page, 1250);
+  // Establish a completed, seekable starting point before testing reload recovery.
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeCloseTo(1.25, 2);
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.seeking)).toBe(false);
   await page.locator('video').evaluate((video: HTMLVideoElement) => {
     video.dataset.metadataLoads = '0';
     video.addEventListener('loadedmetadata', () => { video.dataset.metadataLoads = String(Number(video.dataset.metadataLoads) + 1); });
