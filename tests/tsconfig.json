@@ -53,6 +53,7 @@
     "diagnostics/gemini-sdk-abort-known-limitation.mts",
     "job-admission.test.ts",
     "job-admission-routes.test.mts",
-    "media-preview.test.mts"
+    "media-preview.test.mts",
+    "media-playback-recovery.test.ts"
   ]
 }
