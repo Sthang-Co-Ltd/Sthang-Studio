@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 
 const router = Router();
@@ -49,7 +50,7 @@ router.post('/transcribe', async (req, res) => {
     });
     res.status(202).json(job);
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not create job' });
+    res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Could not create job' });
   }
 });
 
@@ -63,7 +64,7 @@ router.post('/regenerate-range', async (req, res) => {
     });
     res.status(202).json(job);
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not create job' });
+    res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Could not create job' });
   }
 });
 
@@ -81,18 +82,18 @@ router.post('/refine-proposal', async (req, res) => {
     });
     res.status(202).json(job);
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not create refinement job' });
+    res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Could not create refinement job' });
   }
 });
 
 router.post('/:id/resume', async (req, res) => {
   try { res.json(await jobStore.resume(req.params.id)); }
-  catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Resume failed' }); }
+  catch (error) { res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Resume failed' }); }
 });
 
 router.post('/:id/cancel', async (req, res) => {
   try { res.json(await jobStore.cancel(req.params.id)); }
-  catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Cancel failed' }); }
+  catch (error) { res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Cancel failed' }); }
 });
 
 export default router;

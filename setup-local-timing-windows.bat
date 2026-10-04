@@ -106,6 +106,13 @@ if "%KFA_OK%"=="1" (
   if errorlevel 1 set KFA_OK=0
 )
 
+REM OTA preparation must never certify a fallback-only timing environment.
+if "%KCS_REQUIRE_KFA%"=="1" (
+  if not "%KFA_OK%"=="1" goto :kfa_required_error
+  ".venv\Scripts\python.exe" "scripts\check-windows-timing.py"
+  if errorlevel 1 goto :kfa_required_error
+)
+
 echo.
 echo ============================================================
 echo Local timing setup complete.
@@ -123,6 +130,10 @@ if not "%KCS_NONINTERACTIVE%"=="1" pause
 exit /b 0
 
 :already_ready
+if "%KCS_REQUIRE_KFA%"=="1" (
+  ".venv\Scripts\python.exe" "scripts\check-windows-timing.py"
+  if errorlevel 1 goto :kfa_required_error
+)
 echo.
 echo ============================================================
 echo Existing local timing environment is READY.
@@ -146,5 +157,12 @@ exit /b 1
 echo.
 echo ERROR: Local timing dependency setup failed.
 echo Copy the error above and send it to ChatGPT.
+if not "%KCS_NONINTERACTIVE%"=="1" pause
+exit /b 1
+
+:kfa_required_error
+echo.
+echo ERROR: This update requires working KFA timing and its prepared Khmer model.
+echo The current installed Studio version will remain available.
 if not "%KCS_NONINTERACTIVE%"=="1" pause
 exit /b 1

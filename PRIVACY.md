@@ -22,6 +22,7 @@ computer unless you explicitly export/share them or explicitly opt into the
 Khmer Caption Contributor program described below:
 
 - imported source media and normalized working audio;
+- on-demand browser-compatible playback copies, generated locally with FFmpeg from the original upload;
 - reusable selected-range PCM WAVs created from that normalized audio;
 - caption projects and edits;
 - per-caption word intervals, exact wording snapshots, and highlight preferences;
@@ -38,6 +39,12 @@ Performance caches are derived from media already owned by the local project. Th
 are bounded and are kept under the project's existing cache/runtime locations so
 normal project/media invalidation can remove them. Browser waveform caches are
 memory-only and disappear when the browser page/process is closed.
+
+Browser-compatible playback copies stay in the project-scoped local media-preview
+cache. Preparation is cancellable, creates no cloud transfer, and does not replace
+the source used for caption generation or video export. Media replacement/deletion
+invalidates the copy; bounded cache eviction can also remove and later rebuild it.
+This describes current source behavior, not proof of a released package.
 
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.

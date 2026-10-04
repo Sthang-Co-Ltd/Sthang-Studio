@@ -13,6 +13,7 @@ import {
 } from '../services/font-library.js';
 import { config } from '../config.js';
 import { store } from '../services/store.js';
+import { JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 
@@ -157,6 +158,7 @@ router.post('/:projectId/jobs', async (req, res) => {
     });
     res.status(202).json(job);
   } catch (error) {
+    if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Could not start captioned-video export' });
   }
 });

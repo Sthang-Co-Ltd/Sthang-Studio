@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import { APP_VERSION } from '../version.js';
 import { UpdateError, createUpdateService, publicUpdateError, unsafeUpdateReasons, type UpdateSafetySnapshot } from '../updater.js';
+import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 
 const router = Router();
@@ -34,6 +35,7 @@ function assertSafe(body: unknown) {
 }
 
 function sendFailure(res: Response, error: unknown) {
+  if (error instanceof JobAdmissionError) return res.status(error.httpStatus).json({ error: error.message, code: 'UNSAFE' });
   const result = publicUpdateError(error);
   return res.status(result.status).json(result.body);
 }
@@ -55,15 +57,20 @@ router.post('/download', async (req, res) => {
 
 router.post('/install', async (req, res) => {
   noStore(res);
+  let release: (() => void) | undefined;
   try {
+    // Acquire synchronously, before service creation, verification, or preparation.
+    release = jobAdmission.beginUpdate(() => jobStore.hasAnyActive());
     assertSafe(req.body);
     const digest = typeof req.body?.manifestDigest === 'string' ? req.body.manifestDigest : '';
     const pending = await (await service()).prepareInstall(APP_VERSION, digest);
     if (process.env.STHANG_STUDIO_DISABLE_UPDATE_EXIT !== '1') {
-      res.once('finish', () => setTimeout(() => process.exit(42), 250).unref());
+      // An authorized preparation still hands off if its browser tab disconnects.
+      // Waiting only for 'finish' could strand the admission lease indefinitely.
+      setTimeout(() => process.exit(42), 250).unref();
     }
     res.status(202).json({ closing: true, version: pending.version });
-  } catch (error) { sendFailure(res, error); }
+  } catch (error) { release?.(); sendFailure(res, error); }
 });
 
 export default router;

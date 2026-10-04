@@ -36,6 +36,23 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Source-only playback and update hardening
+
+The current development source can prepare a local H.264/AAC playback copy when
+HEVC/H.265 video is unsupported by the browser, or through **Prepare playback**
+when the picture is missing. Preparation shows progress and can be cancelled.
+The original upload, caption times and export source remain unchanged; the copy
+is for playback only. Copies are limited to 720p, two-hour inputs, 15 minutes of
+preparation and 512 MiB per copy, with one encoder and a bounded 2 GiB local cache.
+An evicted copy can be rebuilt; replacing or deleting media removes its copy.
+
+The same unreleased work closes update/job-start races, requires working Khmer
+timing for updater preparation, and checks bounded API and frontend build/launch
+identity before accepting activation. Existing installed stable brokers need a
+separately reviewed bootstrap delivery path to receive broker changes. These
+source changes do not establish a new public download or completed native
+Windows/macOS acceptance. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
+
 ## Version 0.85.5
 
 Version `0.85.5` ships the Fine Timing, word-timing, caption-handoff, appearance,

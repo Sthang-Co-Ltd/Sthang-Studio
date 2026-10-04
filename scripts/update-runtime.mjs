@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ACTIVATION_HEADER, WEB_IDENTITY_FILE, WEB_IDENTITY_PATH, validateWebIdentity } from './web-runtime-identity.mjs';
 import {
   HEX_64,
   compareVersions,
@@ -186,6 +187,10 @@ export async function resolveActiveSourceRoot(installRoot, updatePlatform = upda
   return { sourceRoot, activeVersion: version };
 }
 
+function launchedProcessAlive(child) {
+  return Boolean(child?.pid) && child.exitCode === null && child.signalCode === null && !child.killed;
+}
+
 export async function activateWithRollback({ installRoot, target, launch, healthCheck, stop }) {
   const updateRoot = path.join(installRoot, 'updates');
   const activeFile = path.join(updateRoot, 'active.json');
@@ -193,11 +198,22 @@ export async function activateWithRollback({ installRoot, target, launch, health
   const previous = await readJson(activeFile);
   const transaction = { schemaVersion: 1, status: 'activating', previous, target, startedAt: new Date().toISOString() };
   await writeJsonAtomic(transactionFile, transaction);
-  await writeJsonAtomic(activeFile, { schemaVersion: 1, ...target, activatedAt: new Date().toISOString() });
   let launched;
+  const health = new AbortController();
+  const stopped = () => health.abort();
+  const requireAlive = () => {
+    if (health.signal.aborted || !launchedProcessAlive(launched)) {
+      throw new Error('The new Studio process stopped before activation completed.');
+    }
+  };
   try {
+    await writeJsonAtomic(activeFile, { schemaVersion: 1, ...target, activatedAt: new Date().toISOString() });
     launched = await launch();
-    const healthy = await healthCheck();
+    launched.once('exit', stopped);
+    launched.once('error', stopped);
+    requireAlive();
+    const healthy = await healthCheck(launched, health.signal);
+    requireAlive();
     if (!healthy) throw new Error('The new Studio version did not become healthy.');
     await writeJsonAtomic(path.join(updateRoot, 'rollback.json'), {
       schemaVersion: 1,
@@ -205,51 +221,120 @@ export async function activateWithRollback({ installRoot, target, launch, health
       active: target,
       replacedAt: new Date().toISOString(),
     });
+    requireAlive();
     await removeFileDurable(transactionFile);
+    requireAlive();
     return { previous, launched };
   } catch (error) {
+    health.abort();
     if (launched) await stop(launched).catch(() => {});
     if (previous) await writeJsonAtomic(activeFile, previous);
     else await removeFileDurable(activeFile);
     await removeFileDurable(transactionFile);
     throw error;
+  } finally {
+    health.abort();
+    launched?.removeListener('exit', stopped);
+    launched?.removeListener('error', stopped);
   }
 }
 
-function urlReady(url, expectedVersion, timeoutMs = 90_000) {
-  const startedAt = Date.now();
+// Total and per-attempt deadlines cover DNS/connect, headers and the complete
+// body, including an endless trickle. All terminal events converge once, and all
+// timers/sockets are disposed on success, timeout, process exit or cancellation.
+export function urlReady(url, expected, timeoutMs = 90_000, {
+  signal, attemptTimeoutMs = 1_500, retryMs = 400, maxBodyBytes = 32_000,
+} = {}) {
   return new Promise((resolve) => {
-    const schedule = () => {
-      if (Date.now() - startedAt >= timeoutMs) return resolve(false);
-      setTimeout(attempt, 400);
+    let settled = false;
+    let retryTimer;
+    let requestTimer;
+    let request;
+    let response;
+    const deadlineAt = performance.now() + timeoutMs;
+    const clearAttempt = () => {
+      clearTimeout(requestTimer);
+      response?.destroy();
+      request?.destroy();
+      response = undefined;
+      request = undefined;
     };
+    const finish = (ready) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      clearTimeout(retryTimer);
+      signal?.removeEventListener('abort', abort);
+      clearAttempt();
+      resolve(ready);
+    };
+    const abort = () => finish(false);
+    const deadline = setTimeout(abort, Math.max(0, timeoutMs));
     const attempt = () => {
-      const request = http.get(url, (response) => {
-        let body = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => { if (body.length < 32_000) body += chunk; });
-        response.on('end', () => {
-          const status = response.statusCode || 500;
-          if (status < 200 || status >= 400) return schedule();
-          if (!expectedVersion) return resolve(true);
-          try {
-            const parsed = JSON.parse(body);
-            if (parsed.ok === true && parsed.engineVersion === expectedVersion) return resolve(true);
-          } catch { }
-          schedule();
+      if (settled) return;
+      const remaining = deadlineAt - performance.now();
+      if (remaining <= 0) return finish(false);
+      const attemptDeadlineAt = performance.now() + Math.min(attemptTimeoutMs, remaining);
+      let completed = false;
+      const complete = (ready) => {
+        if (completed || settled) return;
+        completed = true;
+        clearAttempt();
+        if (performance.now() >= deadlineAt) return finish(false);
+        if (ready && performance.now() < attemptDeadlineAt) return finish(true);
+        retryTimer = setTimeout(attempt, Math.min(retryMs, Math.max(0, deadlineAt - performance.now())));
+      };
+      requestTimer = setTimeout(() => complete(false), Math.min(attemptTimeoutMs, remaining));
+      try {
+        request = http.get(url, { agent: false }, (incoming) => {
+          if (completed || settled) { incoming.destroy(); return; }
+          response = incoming;
+          incoming.on('error', () => complete(false));
+          incoming.on('aborted', () => complete(false));
+          incoming.on('close', () => complete(false));
+          if (incoming.statusCode !== 200
+            || incoming.headers[ACTIVATION_HEADER.toLowerCase()] !== expected.activationId
+            || Number(incoming.headers['content-length']) > maxBodyBytes) {
+            complete(false); return;
+          }
+          let bytes = 0;
+          const chunks = [];
+          incoming.on('data', (chunk) => {
+            if (completed || settled) return;
+            bytes += chunk.length;
+            if (bytes > maxBodyBytes) { complete(false); return; }
+            chunks.push(chunk);
+          });
+          incoming.on('end', () => {
+            if (completed || settled) return;
+            try {
+              const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+              const matches = expected.webBuildId
+                ? parsed.schemaVersion === 1 && parsed.service === 'sthang-studio-web'
+                  && parsed.version === expected.version && parsed.buildId === expected.webBuildId
+                : parsed.ok === true && parsed.engineVersion === expected.version;
+              complete(incoming.complete && matches);
+            } catch { complete(false); }
+          });
         });
-      });
-      request.setTimeout(1_500, () => request.destroy());
-      request.on('error', schedule);
+        request.on('error', () => complete(false));
+      } catch { complete(false); }
     };
-    attempt();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted || !expected?.version || !expected?.activationId || timeoutMs <= 0) abort();
+    else attempt();
   });
 }
 
-export function buildStudioStartSpec(installRoot, activation = false, platform = process.platform) {
+export function buildStudioStartSpec(installRoot, activation = false, platform = process.platform, activationId = crypto.randomUUID()) {
   const environment = { ...process.env };
-  if (activation) environment.STHANG_STUDIO_UPDATE_ACTIVATION = '1';
-  else delete environment.STHANG_STUDIO_UPDATE_ACTIVATION;
+  if (activation) {
+    environment.STHANG_STUDIO_UPDATE_ACTIVATION = '1';
+    environment.STHANG_STUDIO_ACTIVATION_ID = activationId;
+  } else {
+    delete environment.STHANG_STUDIO_UPDATE_ACTIVATION;
+    delete environment.STHANG_STUDIO_ACTIVATION_ID;
+  }
   if (platform === 'darwin') {
     const appRoot = path.join(installRoot, 'app');
     environment.STHANG_STUDIO_STATE_ROOT = installRoot;
@@ -269,8 +354,8 @@ export function buildStudioStartSpec(installRoot, activation = false, platform =
   };
 }
 
-function startStudio(installRoot, activation = false, platform = process.platform) {
-  const spec = buildStudioStartSpec(installRoot, activation, platform);
+async function startStudio(installRoot, activation = false, platform = process.platform, activationId) {
+  const spec = buildStudioStartSpec(installRoot, activation, platform, activationId);
   const child = spawn(spec.command, spec.args, {
     cwd: spec.cwd,
     detached: true,
@@ -278,8 +363,12 @@ function startStudio(installRoot, activation = false, platform = process.platfor
     stdio: 'ignore',
     env: spec.env,
   });
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
   child.unref();
-  return child.pid;
+  return child;
 }
 
 async function stopTree(pid) {
@@ -466,25 +555,27 @@ export async function applyPending(pendingPath) {
       relativePath: verified.pending.targetRelativePath,
       manifestDigest: verified.pending.manifestDigest,
     };
+    // The signed/prepared frontend supplies its own identity. Never synthesize
+    // it from API health, the expected version, or a generic successful HTML page.
+    const webIdentity = validateWebIdentity(await readRequiredJson(
+      path.join(verified.targetDirectory, 'apps', 'web', 'dist', WEB_IDENTITY_FILE),
+      'The prepared Studio web identity',
+    ), target.version);
+    const activationId = crypto.randomUUID();
+    const expected = { version: target.version, activationId };
     await activateWithRollback({
       installRoot,
       target,
-      launch: async () => startStudio(installRoot, true, updatePlatform === 'macos-arm64' ? 'darwin' : 'win32'),
-      healthCheck: async () => {
-        if (updatePlatform === 'macos-arm64') {
-          const [api, web] = await Promise.all([
-            urlReady('http://127.0.0.1:8787/api/health', target.version),
-            urlReady('http://127.0.0.1:8787/', ''),
-          ]);
-          return api && web;
-        }
+      launch: async () => startStudio(installRoot, true, updatePlatform === 'macos-arm64' ? 'darwin' : 'win32', activationId),
+      healthCheck: async (_child, signal) => {
+        const webPort = updatePlatform === 'macos-arm64' ? 8787 : 5188;
         const [api, web] = await Promise.all([
-          urlReady('http://127.0.0.1:8787/api/health', target.version),
-          urlReady('http://127.0.0.1:5188/', ''),
+          urlReady('http://127.0.0.1:8787/api/health', expected, 90_000, { signal }),
+          urlReady(`http://127.0.0.1:${webPort}${WEB_IDENTITY_PATH}`, { ...expected, webBuildId: webIdentity.buildId }, 90_000, { signal }),
         ]);
         return api && web;
       },
-      stop: async (pid) => stopTree(pid),
+      stop: async (child) => stopTree(child.pid),
     });
     await fs.rm(path.resolve(pendingPath), { force: true });
     await fs.rm(path.join(updateRoot, 'last-failure.json'), { force: true });
@@ -495,7 +586,7 @@ export async function applyPending(pendingPath) {
       ? path.join(installRoot, 'app', 'run-macos.sh')
       : path.join(installRoot, 'run-windows.bat');
     if (fsSync.existsSync(fallbackLauncher)) {
-      startStudio(installRoot, false, updatePlatform === 'macos-arm64' ? 'darwin' : 'win32');
+      await startStudio(installRoot, false, updatePlatform === 'macos-arm64' ? 'darwin' : 'win32');
     }
     throw error;
   } finally {

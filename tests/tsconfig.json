@@ -47,6 +47,9 @@
     "performance-batch4.test.mts",
     "project-store.test.mts",
     "playback-grouping.test.mts",
-    "playback-grouping-server.test.mts"
+    "playback-grouping-server.test.mts",
+    "job-admission.test.ts",
+    "job-admission-routes.test.mts",
+    "media-preview.test.mts"
   ]
 }

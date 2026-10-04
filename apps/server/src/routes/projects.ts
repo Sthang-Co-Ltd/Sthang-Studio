@@ -26,6 +26,7 @@ import {
 } from '../services/project-processing.js';
 import { historyStore } from '../services/history-store.js';
 import { proposalStore } from '../services/proposal-store.js';
+import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 import {
   CaptionWordTimingBusyError,
@@ -48,6 +49,18 @@ const upload = multer({
   limits: { fileSize: config.maxUploadMb * 1024 * 1024 },
 });
 const router = Router();
+
+/** Hold admission through response preparation and persisted compatibility results. */
+function admitProcessing(handler: RequestHandler<Record<string, string>>): RequestHandler<Record<string, string>> {
+  return async (req, res, next) => {
+    try { await jobAdmission.run(async () => { await handler(req, res, next); }); }
+    catch (error) {
+      if (error instanceof JobAdmissionError) { res.status(409).json({ error: error.message }); return; }
+      next(error);
+    }
+  };
+}
+
 
 function expectedMedia(value: unknown): Pick<CaptionProject['media'], 'filename' | 'size'> | null {
   const candidate = value as { filename?: unknown; size?: unknown } | null | undefined;
@@ -172,7 +185,7 @@ router.post('/:id/replace-media', upload.single('media'), async (req, res) => {
 });
 
 /** Compatibility endpoint. v0.7 UI normally uses the persistent background job API. */
-router.post('/:id/transcribe', async (req, res) => {
+router.post('/:id/transcribe', admitProcessing(async (req, res) => {
   try {
     res.json(await transcribeProject(req.params.id, req.body?.transcriptionContext, req.body?.force === true));
   } catch (error) {
@@ -180,10 +193,10 @@ router.post('/:id/transcribe', async (req, res) => {
     if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
     res.status(500).json({ error: error instanceof Error ? error.message : 'Local hybrid transcription failed' });
   }
-});
+}));
 
 /** Compatibility endpoint: create a preview and immediately accept it. */
-router.post('/:id/regenerate-range', async (req, res) => {
+router.post('/:id/regenerate-range', admitProcessing(async (req, res) => {
   try {
     const proposal = await createRangeRegenerationProposal(
       req.params.id,
@@ -196,7 +209,7 @@ router.post('/:id/regenerate-range', async (req, res) => {
     console.error('Selected-range regeneration failed:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Selected-range regeneration failed' });
   }
-});
+}));
 
 router.get('/:id/regeneration-proposals/:proposalId', async (req, res) => {
   const project = await store.get(req.params.id);
@@ -219,7 +232,7 @@ router.post('/:id/regeneration-proposals/:proposalId/apply', async (req, res) =>
 });
 
 /** Compatibility endpoint. The UI normally queues proposal refinement through /api/jobs. */
-router.post('/:id/regeneration-proposals/:proposalId/refine', async (req, res) => {
+router.post('/:id/regeneration-proposals/:proposalId/refine', admitProcessing(async (req, res) => {
   try {
     res.json(await refineRegenerationProposal(req.params.id, req.params.proposalId, {
       strategy: req.body?.strategy,
@@ -230,7 +243,7 @@ router.post('/:id/regeneration-proposals/:proposalId/refine', async (req, res) =
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Could not refine regeneration proposal' });
   }
-});
+}));
 
 router.get('/:id/normalized-audio.wav', async (req, res, next) => {
   try {
@@ -294,8 +307,9 @@ export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRo
       return;
     }
     try {
-      res.json(await dependencies.syncCaptionWords(projectId, caption, preparedFor));
+      res.json(await jobAdmission.run(() => dependencies.syncCaptionWords(projectId, caption, preparedFor)));
     } catch (error) {
+      if (error instanceof JobAdmissionError) { res.status(409).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingNotFoundError) { res.status(404).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingBusyError) { res.status(429).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingConflictError) { res.status(409).json({ error: error.message }); return; }
@@ -499,7 +513,7 @@ router.post('/:id/resegment', async (req, res) => {
   }
 });
 
-router.post('/:id/postprocess-timing', async (req, res) => {
+router.post('/:id/postprocess-timing', admitProcessing(async (req, res) => {
   const preparedFor = expectedMedia(req.body?.expectedMedia);
   if (!preparedFor) {
     return res.status(428).json({ error: 'Timing cleanup requires the media version it was prepared against.' });
@@ -512,7 +526,7 @@ router.post('/:id/postprocess-timing', async (req, res) => {
     if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Timing post-processing failed' });
   }
-});
+}));
 
 router.get('/:id/export.srt', async (req, res) => {
   const project = await store.get(req.params.id);

@@ -186,3 +186,33 @@ rollback, troubleshooting, and GitHub recovery documentation based on exact
 release and deployment evidence.
 
 The public verification key in 0.8.0 is not public OTA release evidence. No source branch, local build, signer deployment, private staged package, or successful signature is by itself proof that OTA is publicly available. A release is offered in-app only while the matching signed `latest.json` pointer is publicly available and verifies against Studio's committed trust root.
+
+
+## Source-only admission and activation hardening
+
+New source changes reserve one server-wide admission lease before updater
+preparation performs any asynchronous work. Job creation/resume (including
+export and direct compatibility processing) and playback-copy preparation share
+that boundary across browser tabs. An in-flight admission or active job prevents
+installation; preparation failure releases the lease, while successful preparation
+keeps it until the authorized restart, even if its requesting tab disconnects.
+
+Windows OTA preparation sets an updater-only strict KFA requirement. Both a fresh
+setup and an existing prepared target must pass dependency pins/checks, actual
+native imports, the Khmer tokenizer and the prepared model session. The normal
+manual installer retains its intentional Whisper-only fallback. This check never
+preloads the large Whisper model for perceived readiness.
+
+Activation probes now impose per-attempt and total wall-clock deadlines plus a
+bounded response body, including stalled or trickling responses. They accept only
+HTTP 200 with the expected API version and independently built frontend identity,
+and require the fresh launch identity on both services. The launched process must
+remain alive through transaction completion. Wrong identity, redirect, timeout,
+process exit or health failure restores the previous active pointer.
+
+These changes are not automatically delivered to an already installed stable
+broker by placing them in a later immutable OTA payload. A separately approved
+manual/bootstrap delivery and clean native Windows/macOS failure/rollback
+acceptance are still required. No existing signed object, pointer or release
+claim is changed by this source work. The macOS installed-bootstrap acceptance
+gate remains in force.

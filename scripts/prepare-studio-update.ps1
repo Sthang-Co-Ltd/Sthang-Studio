@@ -193,6 +193,7 @@ function Assert-PreparedTarget([string]$PreparedRoot) {
   foreach ($Required in @(
     'scripts\dev.mjs',
     'scripts\update-protocol.mjs',
+    'scripts\check-windows-timing.py',
     'node_modules\typescript\bin\tsc',
     '.venv\Scripts\python.exe',
     'apps\server\src\index.ts',
@@ -203,6 +204,8 @@ function Assert-PreparedTarget([string]$PreparedRoot) {
       throw "The existing immutable version is incomplete: $Required"
     }
   }
+  & (Join-Path $PreparedRoot '.venv\Scripts\python.exe') (Join-Path $PreparedRoot 'scripts\check-windows-timing.py')
+  if ($LASTEXITCODE -ne 0) { throw 'Required local Khmer timing readiness validation failed.' }
 }
 
 if (Test-Path -LiteralPath $Target) {
@@ -252,6 +255,7 @@ try {
   foreach ($Required in @(
     'scripts\dev.mjs',
     'scripts\update-protocol.mjs',
+    'scripts\check-windows-timing.py',
     'apps\server\src\index.ts',
     'apps\web\package.json',
     'config\update-trust-root.json',
@@ -262,11 +266,14 @@ try {
     }
   }
 
+  $PreviousNoninteractive = $env:KCS_NONINTERACTIVE
+  $PreviousRequireKfa = $env:KCS_REQUIRE_KFA
   Push-Location $ExtractRoot
   try {
     & npm.cmd ci --include=dev --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Node dependency preparation failed.' }
     $env:KCS_NONINTERACTIVE = '1'
+    $env:KCS_REQUIRE_KFA = '1'
     & $env:ComSpec /d /c 'setup-local-timing-windows.bat'
     if ($LASTEXITCODE -ne 0) { throw 'Local timing dependency preparation failed.' }
     & npm.cmd run typecheck -- --runtime-only
@@ -274,7 +281,8 @@ try {
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw 'The staged Studio application failed its production build.' }
   } finally {
-    Remove-Item Env:KCS_NONINTERACTIVE -ErrorAction SilentlyContinue
+    $env:KCS_NONINTERACTIVE = $PreviousNoninteractive
+    $env:KCS_REQUIRE_KFA = $PreviousRequireKfa
     Pop-Location
   }
 
