@@ -43,6 +43,7 @@ export function rebuildDiagnostics(tokens: TimedToken[], base: TimingDiagnostics
   const interpolatedTokens = tokens.length - anchored.length;
   const lowConfidenceTokens = tokens.filter((token) =>
     token.timingSource === 'interpolated'
+    || token.timingSource === 'stt-split'
     || (token.alignmentScore ?? 0) < 0.55
     || (typeof token.confidence === 'number' && token.confidence < 0.5),
   ).length;

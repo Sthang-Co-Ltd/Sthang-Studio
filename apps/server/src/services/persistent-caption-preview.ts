@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { planCaptionRenderStates, type CaptionAppearance, type CaptionPreviewFrame, type CaptionPreviewResult, type CaptionSegment } from '@kcs/shared';
 import { config } from '../config.js';
@@ -99,6 +100,7 @@ class NativePreviewWorker {
   private closed?: Promise<void>;
   private idle?: ReturnType<typeof setTimeout>;
   private writing: Promise<unknown> = Promise.resolve();
+  private readonly lastAss = new Map<string, string>();
   busy = false;
   touched = Date.now();
   readonly controller = new AbortController();
@@ -172,6 +174,17 @@ class NativePreviewWorker {
     pending.resolve({ png: pending.png.toString('base64'), bounds: pending.bounds, ...(this.focus ? { focusBounds: pending.focusBounds } : {}) });
   }
 
+  private async writeAssIfChanged(name: string, document: string) {
+    // Reinitializing the filter graph re-reads this exact native ASS file. An
+    // unchanged document need not be rewritten to disk on every preview seed.
+    // Track text only after a successful write so a failed write cannot leave a
+    // stale file falsely marked current. Workers own these private scratch files.
+    if (this.lastAss.get(name) === document) return;
+    await fs.writeFile(path.join(this.directory, name), document);
+    this.lastAss.set(name, document);
+    diagnostics.assWrites += 1;
+  }
+
   async render(input: FrameInput, signal?: AbortSignal): Promise<CaptionPreviewResult> {
     if (this.closing) throw new Error('Caption preview cancelled.');
     clearTimeout(this.idle);
@@ -184,8 +197,8 @@ class NativePreviewWorker {
         signal?.throwIfAborted(); this.controller.signal.throwIfAborted();
         const sample = previewSample(input, atMs);
         this.writing = Promise.all([
-          fs.writeFile(path.join(this.directory, 'captions.ass'), buildAssDocument(sample.captions, input.appearance, this.width, this.height, undefined, sample.sampleAtMs)),
-          ...(this.focus ? [fs.writeFile(path.join(this.directory, 'focus.ass'), buildAssDocument(sample.captions, input.appearance, this.width, this.height, sample.focus, sample.sampleAtMs))] : []),
+          this.writeAssIfChanged('captions.ass', buildAssDocument(sample.captions, input.appearance, this.width, this.height, undefined, sample.sampleAtMs)),
+          ...(this.focus ? [this.writeAssIfChanged('focus.ass', buildAssDocument(sample.captions, input.appearance, this.width, this.height, sample.focus, sample.sampleAtMs))] : []),
         ]);
         await this.writing;
         signal?.throwIfAborted(); this.controller.signal.throwIfAborted();
@@ -247,7 +260,7 @@ export function trackCaptionPreviewRequest(projectId: string) {
   return { signal: request.controller.signal, release: () => { admittedRequests.delete(request); } };
 }
 let allocation: Promise<void> = Promise.resolve();
-const diagnostics = { starts: 0, frames: 0, fallbacks: 0 };
+const diagnostics = { starts: 0, frames: 0, fallbacks: 0, assWrites: 0, sessionDirectories: 0 };
 let fallbackUntil = 0;
 export function persistentPreviewDiagnostics() { return { ...diagnostics, workers: workers.size }; }
 
@@ -263,7 +276,11 @@ export async function renderPersistentCaptionPreview(input: FrameInput, width: n
     signal?.throwIfAborted();
     const parent = path.join(config.exportDir, '.working');
     await fs.mkdir(parent, { recursive: true });
-    directory = await fs.mkdtemp(path.join(parent, 'preview-session-'));
+    // A recycled worker already owns its session directory. Only reserve a
+    // new path until the immutable font lease establishes whether that worker
+    // can be reused. Reusing it avoids needless Windows directory create/rm
+    // on every warm spoken-word paint request.
+    directory = path.join(parent, `preview-session-${randomUUID()}`);
     acquired = await preparePreviewFonts(directory, input.appearance);
     signal?.throwIfAborted();
     const focus = Boolean(input.focusIndices?.length);
@@ -274,6 +291,10 @@ export async function renderPersistentCaptionPreview(input: FrameInput, width: n
       if (!existing.busy && (existing.scope.projectId === scope.projectId || workers.size >= 2)) await existing.dispose();
     }
     if (workers.size >= 2) throw new Error('Caption preview is busy. Try again shortly.');
+    // preparePreviewFonts may already have created this directory when cache
+    // reuse was unavailable; otherwise create it only for a new native worker.
+    await fs.mkdir(directory, { recursive: true });
+    diagnostics.sessionDirectories += 1;
     worker = new NativePreviewWorker(scope, key, directory, acquired, width, height, focus, alphaMode, config.ffmpegPath);
     workers.add(worker);
     worker.busy = true; // reserve before releasing serialized allocation

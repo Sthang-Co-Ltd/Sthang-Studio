@@ -1,0 +1,37 @@
+.word-highlight-preparation {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #3c4932;
+  border-radius: 9px;
+  background: #0d140f;
+  color: #dce5d5;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.word-highlight-preparation.applied { border-color: #56673d; }
+.word-highlight-preparation-copy { display: flex; flex-direction: column; gap: 3px; }
+.word-highlight-preparation-copy strong { color: #edf4e8; font-size: 13px; }
+.appearance-word-highlight .word-highlight-preparation-copy p,
+.appearance-word-highlight .word-highlight-preparation-note { margin: 0; color: #aeb9aa; font-size: 13px; line-height: 1.5; }
+.word-highlight-preparation-note { margin-top: 8px !important; }
+
+.word-highlight-preparation-progress { margin-top: 10px; }
+.word-highlight-preparation-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; font-size: 12px; color: #c4cebf; }
+.word-highlight-preparation-progress b { color: #e5efd9; font-weight: 650; }
+.word-highlight-preparation-progress progress { display: block; width: 100%; height: 7px; accent-color: #d7ff4f; }
+
+.word-highlight-preparation-results { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.word-highlight-preparation-results span { min-width: 92px; padding: 6px 8px; border: 1px solid #33402b; border-radius: 7px; background: #111a12; color: #b9c4b3; font-size: 12px; }
+.word-highlight-preparation-results b { color: #eff7e8; font-size: 13px; }
+
+.word-highlight-preparation-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+.appearance-word-highlight .word-highlight-preparation-actions button { min-height: 36px; font-size: 13px; }
+.appearance-word-highlight .word-highlight-preparation-actions button.primary { border-color: #d7ff4f; background: #d7ff4f; color: #182108; font-weight: 650; }
+.appearance-word-highlight .word-highlight-preparation-actions button:disabled { opacity: .45; cursor: default; }
+.appearance-word-highlight .word-highlight-preparation :is(button,progress):focus-visible { outline: 2px solid #d7ff4f; outline-offset: 3px; }
+
+@media (max-width: 620px) {
+  .appearance-word-highlight .word-highlight-preparation-actions button { min-height: 44px; }
+  .word-highlight-preparation-actions button { flex: 1 1 150px; }
+}

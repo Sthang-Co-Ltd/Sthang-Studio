@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Source-only — responsive native word preview (Phase 3):** follow presented
+  video-frame boundaries for word paint without rerendering the full editor every
+  frame. Request the current native word paint before bounded future lookahead;
+  preserve strict paint-key validity, Khmer geometry, pauses, replay, and the
+  existing native-preview/MP4 parity. Reuse unchanged private ASS documents and
+  avoid redundant warm-preview scratch directories. No browser-drawn text or
+  new provider, model, export format, or released download is introduced.
+- **Source-only — spoken-word highlight preparation:** prepare unresolved captions
+  sequentially with existing local Khmer timing, review proposed ready/partial
+  results, apply all ready tracks in one revision-guarded History transaction,
+  and undo or prepare remaining captions. Retain existing word edits and avoid
+  overwriting newer caption/media changes.
+- **Source-only — Khmer word alignment refinement:** preserve measured KFA
+  orthographic acoustic spans instead of pre-splitting them by character length;
+  require exact normalized lexical correspondence before promoting direct KFA
+  word timing to highlight-ready. Retain uncertain splits and local ASR fallback
+  timestamps for review, without turning low raw KFA path scores into artificial
+  confidence warnings. Bump both normalized-timing and generation-stage caches
+  while reusing unchanged KFA acoustic emissions.
+
 ## 0.85.6 — Apple Silicon OTA bootstrap and Finder launcher
 
 - Repair Apple Silicon macOS first-run setup so missing Node.js, Python 3.12, or

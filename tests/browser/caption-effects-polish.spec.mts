@@ -40,13 +40,17 @@ test('an obsolete request cannot erase the pending states of its replacement', a
   try {
     await seek(page, 230);
     await first.promise;
-    await seek(page, 1230);
+    // Phase 3 sends a missing CURRENT native paint before any future-frame
+    // prefetch. Target the exact replacement paint instead of relying on the
+    // former eight-state batch to include a future 1260 ms paint.
+    await seek(page, 1260);
     const currentBatch = await second.promise;
     const times = currentBatch.postDataJSON().timesMs as number[];
     expect(times).toContain(1260);
     // The old abort settles after the replacement installed its pending set.
-    // Moving within that pending batch should reuse it, not cancel and restart.
-    await seek(page, 1260);
+    // Moving inside the same pending paint interval must reuse that request,
+    // not cancel it or launch a duplicate native render.
+    await seek(page, 1265);
     releaseFirst.resolve();
     releaseSecond.resolve();
     await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');

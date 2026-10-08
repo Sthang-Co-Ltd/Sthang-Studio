@@ -266,10 +266,29 @@ highlight bitmap remain labeled exact during a word transition or text correctio
 
 Put the optional **Spoken word highlight** toggle and color under Appearance, with
 counts of usable and unresolved captions and a direct **Review word timing** link.
+An optional **Prepare word highlights** section in the same workspace offers one
+action to check all unresolved captions locally. Show checked/total progress,
+cancel, ready/needs-review totals, explicit **Use ready timings / Keep current**,
+and **Review remaining** into the existing Fine Timing editor. After applying,
+offer a guarded **Undo batch**. Keep preparation non-modal and preserve playback;
+never imply estimated, stale, or locked words were made ready automatically.
+For Khmer word-boundary mismatches, display trusted KFA acoustic evidence without
+claiming a separate boundary when no separate measurement exists. A confirmed
+whole-word interval can be used for one exact displayed word; any proportional
+division into several displayed words stays visibly review-required. Fallback
+ASR timestamps are review evidence and must never be presented as independently
+verified acoustic word boundaries solely because a spelling match is strong.
 Do not animate or reshape words to communicate timing. The full sentence stays
 visible, only the active word changes color, and pauses restore base color. Export
 discloses any captions that remain plain; SRT copy explains that it carries no
 word-highlight metadata. Setup/provider names stay out of normal controls.
+In the Phase 3 development preview, prioritize the exact currently requested
+native word-paint frame before nearby future states. Use video-frame callbacks
+where supported to notice actual word/paint boundaries without refreshing the
+whole editor every decoded frame. Keep lookahead bounded and cancel safely on
+new project, media, word edits, visual changes or obsolete focus. Until new
+native pixels arrive, an older bitmap must never be marked exact for another
+word. Replay, motion, pauses and Review Focus continue to share export geometry.
 
 ### Caption rows
 

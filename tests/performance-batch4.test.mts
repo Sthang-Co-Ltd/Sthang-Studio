@@ -29,6 +29,36 @@ function stableAlignment(result: ReturnType<typeof alignGeminiToTiming>) {
   return JSON.parse(JSON.stringify({ ...result, tokens: result.tokens.map(({ id: _id, ...token }) => token) }));
 }
 
+/**
+ * The frozen pre-Batch-4 fixture is historical and must remain unchanged.
+ * Phase 2 deliberately downgrades legacy one-to-one ASR fallback anchors from
+ * ready ('stt') to review-required ('stt-split'): their word probability is not
+ * proof of exact forced alignment to final wording. The advisory low-confidence
+ * count now includes every such unverified word boundary as well, including
+ * already-estimated and interpolated tokens. All other fields still compare to
+ * the independent frozen golden: actual timestamps, text, lexical confidence,
+ * match score, model information and alignment coverage.
+ */
+function reviewedPhase2AlignmentExpected(expected: unknown, timing: TimingResult) {
+  const unverifiedAsr = timing.directAlignment === false
+    || timing.engine === 'faster-whisper-local'
+    || (Boolean(timing.fallbackReason) && timing.directAlignment !== true);
+  if (!unverifiedAsr || !expected || typeof expected !== 'object' || !('tokens' in expected)) return expected;
+  const entry = expected as {
+    tokens: Array<{ timingSource?: string }>;
+    diagnostics: { totalTokens: number; lowConfidenceTokens: number };
+  };
+  return {
+    ...entry,
+    tokens: entry.tokens.map((token) => token.timingSource === 'stt'
+      ? { ...token, timingSource: 'stt-split' }
+      : token),
+    // These frozen fixtures all use faster-whisper word timestamps, so every
+    // displayed token is either an ASR anchor, a derived split or interpolation.
+    diagnostics: { ...entry.diagnostics, lowConfidenceTokens: entry.diagnostics.totalTokens },
+  };
+}
+
 test('QA reuses segmentation setup and does not search the caption array while sorting', () => {
   let constructions = 0;
   const original = Intl.Segmenter;
@@ -69,12 +99,12 @@ test('QA duplicate-ID order is first occurrence and new calls see edits/reorderi
   assert.deepEqual(analyzeCaptions([{ id: 'a', text: 'hello', startMs: 0, endMs: 1000, approved: true }], [], QA_PROFILES['capcut-srt']), []);
 });
 
-test('reconciliation preserves full token/timing/diagnostic outputs and rejection messages', () => {
+test('reconciliation preserves frozen timings/diagnostics except reviewed Phase 2 fallback provenance', () => {
   for (const entry of golden.alignment) {
     const before = structuredClone(entry.timing);
     const run = () => alignGeminiToTiming(entry.fullText, entry.timing, entry.duration, entry.vocabulary);
     if (entry.error) assert.throws(run, { message: entry.error }, entry.name);
-    else assert.deepEqual(stableAlignment(run()), entry.expected, entry.name);
+    else assert.deepEqual(stableAlignment(run()), reviewedPhase2AlignmentExpected(entry.expected, entry.timing), entry.name);
     assert.deepEqual(entry.timing, before, `${entry.name}: input mutation`);
   }
 });

@@ -158,6 +158,28 @@ undoable. Manual word adjustments and confirmation provide a recovery path for
 uncertain or absent alignment. The operation changes no source media or wording
 and makes no new cloud transcription request.
 
+The source-only **Prepare word highlights** action checks unresolved captions
+sequentially using the same local exact-word alignment, skipping already-ready
+tracks and leaving locked/partial/failed captions for review. Progress and Cancel
+remain visible in Appearance; cancel stops further requests but the current local
+alignment may still finish cleaning up. Successful tracks are proposals until
+**Use ready timings**. The server applies all selected ready proposals in one
+revision-guarded, history-backed project write; any stale/locked changed target
+rejects the entire write. **Undo batch** uses the same guarded transaction to
+restore the previous tracks. Newer edits and other-project data must remain safe.
+These source changes are not a public-release availability claim.
+
+Source-only Khmer alignment refinement preserves each directly forced-aligned
+KFA acoustic word interval until the final wording is reconciled. Differences
+between Khmer display token boundaries and KFA orthography cannot create
+fabricated internal acoustic edges or make a proportional split highlight-ready.
+Raw KFA CTC path scores are not calibrated ASR confidence and must not themselves
+trigger word review; lexical correspondence, measured interval validity, and
+explicit uncertainty still govern readiness. Local faster-whisper fallback word
+timestamps retain usable caption timing but remain review-required for word
+highlighting until exact local alignment or manual confirmation. Existing stored
+word edits are not silently rewritten by this change.
+
 Appearance may enable an optional current-word color while the entire caption
 remains visible. It is off by default. Every spoken span in a caption must have
 usable timing; partial/stale/estimated tracks leave that caption plain and expose
@@ -166,6 +188,16 @@ not change Khmer shaping, line wrapping, placement, or Review-focus geometry.
 Native preview and rendered MP4 consume the same exact paint states. SRT remains
 plain cue text/start/end, with no word-highlight metadata. Appearance/export
 reports how many captions will remain plain before a render.
+
+Source-only Phase 3 responsiveness must favor the **currently spoken word** over
+future native paint requests. The video-frame clock can refresh the small native
+overlay at paint boundaries independently of slower whole-editor time updates;
+it must not force the full editor to render on every video frame. Native paints
+remain revision-/look-/media-owned, non-destructive and bounded; missing paint
+data may show a pending state but never mislabeled old word color as exact.
+Preview pixels, Review Focus, motion and Khmer layout continue to use the same
+native ASS rules as captioned MP4. Short prefetch batches and repeated-ASS reuse
+are optional performance aids, not new timing evidence or export semantics.
 
 ## Export contract
 
