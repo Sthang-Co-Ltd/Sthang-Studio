@@ -137,11 +137,18 @@ export interface CorrectionActionResponse {
   project: CaptionProject | null;
 }
 
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${res.status})`);
+    throw new ApiRequestError(typeof body?.error === 'string' ? body.error : `Request failed (${res.status})`, res.status);
   }
   return res.status === 204 ? undefined as T : res.json();
 }
@@ -242,6 +249,16 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ caption, expectedMedia }),
     signal,
+  }),
+  applyWordHighlightBatch: (
+    projectId: string,
+    expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+    changes: Array<{ before: CaptionSegment; after: CaptionSegment }>,
+    action: 'apply' | 'undo' = 'apply',
+  ) => request<{ project: CaptionProject; appliedCount: number }>(`/api/projects/${projectId}/caption-word-timing/batch-apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedMedia, changes, action }),
   }),
   resegment: (
     id: string,

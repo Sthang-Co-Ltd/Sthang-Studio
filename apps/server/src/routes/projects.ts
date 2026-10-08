@@ -35,6 +35,12 @@ import {
   CaptionWordTimingNotFoundError,
   syncCaptionWordsLocally,
 } from '../services/caption-word-timing.js';
+import {
+  applyCaptionWordBatch,
+  CaptionWordBatchConflictError,
+  CaptionWordBatchInputError,
+  CaptionWordBatchNotFoundError,
+} from '../services/caption-word-batch.js';
 
 await fs.mkdir(config.uploadDir, { recursive: true });
 await fs.mkdir(config.exportDir, { recursive: true });
@@ -321,6 +327,26 @@ export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRo
 }
 
 router.post('/:id/caption-word-timing', createCaptionWordTimingHandler());
+
+router.post('/:id/caption-word-timing/batch-apply', async (req, res) => {
+  const preparedFor = expectedMedia(req.body?.expectedMedia);
+  if (!preparedFor) {
+    return res.status(428).json({ error: 'Word timing batch apply requires the media version it was prepared against.' });
+  }
+  if (jobStore.hasActiveCaptionJobForProject(req.params.id)) {
+    return res.status(409).json({ error: 'Finish or cancel the active caption processing job before applying prepared word timings.' });
+  }
+  try {
+    res.json(await jobAdmission.run(() => applyCaptionWordBatch(req.params.id, preparedFor, req.body?.changes, req.body?.action)));
+  } catch (error) {
+    if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
+    if (error instanceof CaptionWordBatchNotFoundError) return res.status(404).json({ error: error.message });
+    if (error instanceof CaptionWordBatchConflictError) return res.status(409).json({ error: error.message });
+    if (error instanceof CaptionWordBatchInputError) return res.status(400).json({ error: error.message });
+    console.error('[word timing] Batch apply failed:', error);
+    return res.status(500).json({ error: 'Could not apply the prepared word timings. Your current captions were kept.' });
+  }
+});
 
 router.post('/:id/history/:historyId/restore', async (req, res) => {
   try {

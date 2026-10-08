@@ -17,6 +17,7 @@ import { useAppearanceInteraction } from '../use-appearance-interaction';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionLooksGallery } from './CaptionLooksGallery';
 import type { StudioConfirmOptions } from './ConfirmationDialog';
+import { WordHighlightPreparation, type WordHighlightPreparationView } from './WordHighlightPreparation';
 import './caption-appearance.css';
 import './caption-effects.css';
 import './word-highlight.css';
@@ -37,6 +38,7 @@ interface Props {
   replayPlaying?: boolean;
   replayDisabled?: boolean;
   sampleCaptionText?: string;
+  wordPreparation?: WordHighlightPreparationView;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -60,6 +62,7 @@ export function CaptionAppearanceWorkspace({
   replayPlaying = false,
   replayDisabled = false,
   sampleCaptionText,
+  wordPreparation,
 }: Props) {
   const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
@@ -91,7 +94,7 @@ export function CaptionAppearanceWorkspace({
   const fontGenerationRef = useRef(0);
   const presetGenerationRef = useRef(0);
   const wordReadiness = useMemo(() => {
-    const spoken = captions.filter((caption) => caption.text.trim());
+    const spoken = captions.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, ''));
     return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
   }, [captions]);
   const hasOverlappingCaptions = useMemo(() => {
@@ -654,6 +657,8 @@ export function CaptionAppearanceWorkspace({
         </div>
         <p className="appearance-highlight-note">Word highlights are included in captioned video. SRT keeps plain caption text and timing.</p>
       </>}
+      {wordPreparation && (appearance.highlightMode === 'word' || wordPreparation.status !== 'idle')
+        && <WordHighlightPreparation view={wordPreparation}/>}
     </section>
 
     <details className="appearance-more">

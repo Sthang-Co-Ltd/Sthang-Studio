@@ -14,6 +14,10 @@ interface MatchGroup {
 
 type Assigned = Omit<TimedToken, 'id' | 'text' | 'spaceBefore'> | undefined;
 
+const EXACT_LEXICAL_SCORE = 1 - 1e-9;
+const MAX_DIRECT_UNION_GAP_MS = 150;
+const MAX_DIRECT_UNION_OVERLAP_MS = 60;
+
 function buildEquivalenceMap(entries: VocabularyEntry[] | undefined) {
   const map = new Map<string, string>();
   for (const entry of entries || []) {
@@ -36,6 +40,10 @@ function similarity(a: string, b: string, equivalents: Map<string, string>) {
   return levenshteinSimilarity(aa, bb);
 }
 
+function exactlyEquivalent(a: string, b: string, equivalents: Map<string, string>) {
+  return Boolean(a && b && (equivalents.get(a) || a) === (equivalents.get(b) || b));
+}
+
 function concatNormalized<T>(items: T[], start: number, len: number, get: (x: T) => string) {
   let value = '';
   for (let i = start; i < start + len; i++) value += get(items[i]);
@@ -43,11 +51,19 @@ function concatNormalized<T>(items: T[], start: number, len: number, get: (x: T)
 }
 
 /**
- * Sequence alignment with 1..3 token merges on either side. Khmer token boundaries
- * can differ between Gemini/Intl.Segmenter and the timing ASR, so strict 1:1 matching is
- * intentionally not assumed.
+ * Sequence alignment with 1..3 token merges on either side. A single directly
+ * forced-aligned KFA orthographic span may represent up to eight displayed words
+ * because Khmer ICU word breaks can differ from KFA's phonemizer. Permit that
+ * wider match ONLY when all of the display tokens together exactly normalize to
+ * the one measured KFA word. The resulting internal word times remain estimated,
+ * never directly acoustic. All ordinary/fuzzy/ASR matches retain the prior bounds.
  */
-function alignSequences(gemini: ReturnType<typeof tokenizeText>, timingWords: TimingWord[], equivalents: Map<string, string>): MatchGroup[] {
+function alignSequences(
+  gemini: ReturnType<typeof tokenizeText>,
+  timingWords: TimingWord[],
+  equivalents: Map<string, string>,
+  directKfaEvidence: boolean,
+): MatchGroup[] {
   const n = gemini.length;
   const m = timingWords.length;
   // Reuse deterministic normalization only within this alignment call. Matching
@@ -76,9 +92,18 @@ function alignSequences(gemini: ReturnType<typeof tokenizeText>, timingWords: Ti
       if (i < n) relax(i + 1, j, current + 0.74, 1); // Gemini token absent from STT.
       if (j < m) relax(i, j + 1, current + 0.68, 2); // Extra/misrecognized STT token.
 
-      for (let gl = 1; gl <= 3 && i + gl <= n; gl++) {
+      for (let gl = 1; gl <= (directKfaEvidence ? 8 : 3) && i + gl <= n; gl++) {
         const ga = concatNormalized(gemini, i, gl, (x) => x.normalized);
         for (let sl = 1; sl <= 3 && j + sl <= m; sl++) {
+          // One directly measured KFA word may map to several display words,
+          // but only when their combined spelling really equals that acoustic
+          // word. A fuzzy grouping can swallow a genuinely missing display
+          // word into its neighbor (e.g. "hellos" -> "hello missing") and
+          // manufacture an apparently anchored estimate instead of leaving
+          // that word interpolated. Longer groups are KFA-only and exact-only.
+          if (directKfaEvidence && gl > 1 && sl === 1
+            && !exactlyEquivalent(ga, normalizedTiming[j], equivalents)) continue;
+          if (gl > 3 && (sl !== 1 || timingWords[j].derived)) continue;
           const sb = concatNormalized(normalizedTiming, j, sl, (text) => text);
           const sim = similarity(ga, sb, equivalents);
           // Merges are allowed for Khmer tokenizer-boundary differences, but they carry a
@@ -136,6 +161,14 @@ function splitRange(startMs: number, endMs: number, weights: number[]) {
     cursor = range.endMs;
     return range;
   });
+}
+
+function directUnionHasPlausibleContinuity(words: TimingWord[]) {
+  for (let index = 1; index < words.length; index += 1) {
+    const gap = words[index].startMs - words[index - 1].endMs;
+    if (gap > MAX_DIRECT_UNION_GAP_MS || gap < -MAX_DIRECT_UNION_OVERLAP_MS) return false;
+  }
+  return true;
 }
 
 function median(values: number[]) {
@@ -203,8 +236,12 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
   if (!gemini.length) throw new Error('Gemini transcript could not be tokenized for timing alignment.');
   if (!sttWords.length) throw new Error('The timing engine returned no timing words.');
 
-  const groups = alignSequences(gemini, sttWords, buildEquivalenceMap(vocabularyEntries));
+  const directKfaEvidence = timing.engine === 'kfa-local' && timing.directAlignment === true;
+  const groups = alignSequences(gemini, sttWords, buildEquivalenceMap(vocabularyEntries), directKfaEvidence);
   const assigned: Assigned[] = Array(gemini.length).fill(undefined);
+  const unverifiedAsrEvidence = timing.directAlignment === false
+    || timing.engine === 'faster-whisper-local'
+    || (Boolean(timing.fallbackReason) && timing.directAlignment !== true);
 
   for (const group of groups) {
     const words = sttWords.slice(group.sStart, group.sStart + group.sLen);
@@ -215,15 +252,32 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
     const sttConfidence = confidenceValues.length ? confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length : undefined;
     const weights = gemini.slice(group.gStart, group.gStart + group.gLen).map((t) => Math.max(1, [...t.normalized].length));
     const ranges = splitRange(startMs, endMs, weights);
-    const directAlignedUnion = timing.directAlignment === true
+    const hasDerivedTiming = words.some((word) => word.derived);
+    const directAlignedUnion = directKfaEvidence
       && group.gLen === 1
-      && !words.some((word) => word.derived);
+      && group.sLen > 1
+      && !hasDerivedTiming
+      && group.score >= EXACT_LEXICAL_SCORE
+      && directUnionHasPlausibleContinuity(words);
+    const directKfaOneToOne = directKfaEvidence
+      && group.gLen === 1
+      && group.sLen === 1
+      && !hasDerivedTiming
+      && group.score >= EXACT_LEXICAL_SCORE;
+    const legacyOneToOne = !directKfaEvidence
+      && group.gLen === 1
+      && group.sLen === 1
+      && !hasDerivedTiming
+      && !unverifiedAsrEvidence;
     ranges.forEach((range, offset) => {
       assigned[group.gStart + offset] = {
         ...range,
-        confidence: sttConfidence,
+        // KFA's word.score is a forced-alignment path score, not a calibrated
+        // recognition probability. Keep it in TimingResult for diagnostics/debugging,
+        // but do not let caption readiness treat it as ASR confidence.
+        confidence: directKfaEvidence ? undefined : sttConfidence,
         alignmentScore: group.score,
-        timingSource: directAlignedUnion || (group.gLen === 1 && group.sLen === 1 && !words.some((word) => word.derived)) ? 'stt' : 'stt-split',
+        timingSource: directAlignedUnion || directKfaOneToOne || legacyOneToOne ? 'stt' : 'stt-split',
       };
     });
   }
@@ -261,7 +315,14 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
   const meanAlignment = anchored.length
     ? anchored.reduce((sum, t) => sum + (t.alignmentScore ?? 0), 0) / anchored.length
     : 0;
-  const lowConfidence = tokens.filter((t) => t.timingSource === 'interpolated' || (t.alignmentScore ?? 0) < 0.55 || (typeof t.confidence === 'number' && t.confidence < 0.5)).length;
+  // Advisory candidate ranking must count timing derived from unverified ASR
+  // or proportional token splits as uncertain, even when the lexical match is
+  // exact and the ASR's word probability is high. One token counts only once.
+  const lowConfidence = tokens.filter((t) =>
+    t.timingSource === 'interpolated'
+    || t.timingSource === 'stt-split'
+    || (t.alignmentScore ?? 0) < 0.55
+    || (typeof t.confidence === 'number' && t.confidence < 0.5)).length;
   const coverage = anchored.length / tokens.length;
 
   if (coverage < 0.22) {

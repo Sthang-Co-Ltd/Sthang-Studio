@@ -254,28 +254,33 @@ test('exact-text builder keeps English spelling literal and refuses lexical mism
 });
 
 test('persisted spans do not depend on ICU reproducing the same Khmer word partition', () => {
-  const text = 'ខ្មែរ';
+  // Keep the token split on a stable grapheme boundary while deliberately using
+  // a contiguous Khmer+Latin string that ICU treats as one word-like segment.
+  // ICU 78 changed Khmer grapheme boundaries around coeng sequences, so splitting
+  // at `ខ្` would make this test depend on the runtime's Unicode data instead of
+  // the persisted-span invariant it is meant to exercise.
+  const text = 'ខ្មែរAI';
   const source = caption({ text, startMs: 1_000, endMs: 1_800 });
   const icuWords = [...new Intl.Segmenter('km', { granularity: 'word' }).segment(text)].filter((part) => part.isWordLike);
   assert.equal(icuWords.length, 1);
 
   const timing = buildCaptionWordTiming(source, [
-    token({ id: 'khmer-a', text: 'ខ្', startMs: 1_050, endMs: 1_220, spaceBefore: false }),
-    token({ id: 'khmer-b', text: 'មែរ', startMs: 1_230, endMs: 1_560, spaceBefore: false }),
+    token({ id: 'khmer', text: 'ខ្មែរ', startMs: 1_050, endMs: 1_450, spaceBefore: false }),
+    token({ id: 'ai', text: 'AI', startMs: 1_460, endMs: 1_700, spaceBefore: false }),
   ]);
   assert.ok(timing);
   assert.equal(timing.words.length, 2);
-  assert.deepEqual(timing.words.map((word) => text.slice(word.startOffset, word.endOffset)), ['ខ្', 'មែរ']);
+  assert.deepEqual(timing.words.map((word) => text.slice(word.startOffset, word.endOffset)), ['ខ្មែរ', 'AI']);
   assert.equal(resolveCaptionWordTiming({ ...source, wordTiming: timing }).state, 'ready');
 
   const splitInsideGrapheme = buildCaptionWordTiming(source, [
     token({ id: 'khmer-mid-a', text: 'ខ', startMs: 1_050, endMs: 1_130, spaceBefore: false }),
-    token({ id: 'khmer-mid-b', text: '្', startMs: 1_130, endMs: 1_220, spaceBefore: false }),
-    token({ id: 'khmer-mid-c', text: 'មែរ', startMs: 1_230, endMs: 1_560, spaceBefore: false }),
+    token({ id: 'khmer-mid-b', text: '្មែរ', startMs: 1_130, endMs: 1_450, spaceBefore: false }),
+    token({ id: 'ai', text: 'AI', startMs: 1_460, endMs: 1_700, spaceBefore: false }),
   ]);
   assert.ok(splitInsideGrapheme);
   assert.equal(splitInsideGrapheme.words.length, 2);
-  assert.equal(text.slice(splitInsideGrapheme.words[0].startOffset, splitInsideGrapheme.words[0].endOffset), 'ខ្');
+  assert.equal(text.slice(splitInsideGrapheme.words[0].startOffset, splitInsideGrapheme.words[0].endOffset), 'ខ្មែរ');
   assert.equal(resolveCaptionWordTiming({ ...source, wordTiming: splitInsideGrapheme }).state, 'ready');
 });
 

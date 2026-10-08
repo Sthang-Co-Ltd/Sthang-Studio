@@ -42,7 +42,10 @@ class LocalTimingWorkerTransportError extends Error {
 }
 
 const workerRequestTimeoutMs = 10 * 60 * 1000;
-const localTimingResultCacheVersion = 'local-timing-result-v1';
+// Normalized timing words are part of the deterministic cache contract. Bump this
+// whenever cleanup semantics change so an older result cannot bypass new anchor
+// provenance rules. Old files remain bounded by the existing cache trimmer.
+const localTimingResultCacheVersion = 'local-timing-result-v3';
 const maxTimingResultFiles = 256;
 const maxTimingResultBytes = 64 * 1024 * 1024;
 let workerProcess: ChildProcessWithoutNullStreams | null = null;
@@ -342,25 +345,42 @@ function splitTimingWord(word: TimingWord): TimingWord[] {
   });
 }
 
-function areDuplicate(a: TimingWord, b: TimingWord) {
+function areDuplicate(a: TimingWord, b: TimingWord, exactOnly = false) {
   const overlap = Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
   const shorter = Math.max(1, Math.min(a.endMs - a.startMs, b.endMs - b.startMs));
   if (overlap / shorter < 0.6) return false;
   const na = normalizeForMatch(a.text);
   const nb = normalizeForMatch(b.text);
   if (!na || !nb) return false;
-  return na === nb || levenshteinSimilarity(na, nb) >= 0.82;
+  // Direct KFA words are independently measured orthographic anchors. Two
+  // near-spelled words may genuinely be different lexical units; fuzzy removal
+  // would discard actual acoustic evidence. Retain the historical tolerance for
+  // Whisper ASR duplicate cleanup, but require exact normalized text for KFA.
+  return na === nb || (!exactOnly && levenshteinSimilarity(na, nb) >= 0.82);
 }
 
-function cleanWords(words: TimingWord[]) {
+export function normalizeLocalTimingWords(
+  words: TimingWord[],
+  context: Pick<TimingResult, 'engine' | 'directAlignment'>,
+) {
+  // KFA has already force-aligned this exact orthographic span against acoustic
+  // evidence. Keep that measured boundary intact even when Intl.Segmenter would
+  // divide its display text. If Gemini genuinely has several display tokens for
+  // the span, alignment.ts will match one KFA word to several Gemini tokens and
+  // mark the proportional subdivision stt-split. Whisper is different: its word
+  // timestamp output remains normalized through the established display-token
+  // splitting path because it did not directly align Gemini's exact transcript.
+  const keepDirectKfaAnchors = context.engine === 'kfa-local' && context.directAlignment === true;
   const sorted = words
     .filter((w) => w.text?.trim() && Number.isFinite(w.startMs) && Number.isFinite(w.endMs) && w.endMs > w.startMs)
-    .flatMap(splitTimingWord)
+    .flatMap((word) => keepDirectKfaAnchors
+      ? [{ ...word, text: word.text.trim() }]
+      : splitTimingWord(word))
     .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
   const out: TimingWord[] = [];
   for (const word of sorted) {
     const last = out.at(-1);
-    if (last && areDuplicate(last, word)) {
+    if (last && areDuplicate(last, word, keepDirectKfaAnchors)) {
       if ((word.confidence ?? 0) > (last.confidence ?? 0)) out[out.length - 1] = word;
       continue;
     }
@@ -370,7 +390,7 @@ function cleanWords(words: TimingWord[]) {
 }
 
 function normalizedTimingResult(parsed: WorkerResult): TimingResult {
-  const words = cleanWords(parsed.words || []);
+  const words = normalizeLocalTimingWords(parsed.words || [], parsed);
   if (!words.length) throw new Error('Local timing returned no usable word anchors.');
   return {
     transcript: parsed.transcript || words.map((w) => w.text).join(' '),

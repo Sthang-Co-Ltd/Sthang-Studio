@@ -53,6 +53,30 @@ separately reviewed bootstrap delivery path to receive broker changes. These
 source changes do not establish a new public download or completed native
 Windows/macOS acceptance. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
 
+## Source-only word-highlight preparation
+
+The development branch adds **Appearance → Prepare word highlights**. It checks
+unresolved captions with the existing local Khmer aligner, skips ready tracks,
+reports which captions still need review, and offers one explicit, guarded batch
+application with History-backed undo. Cancel stops future alignment requests;
+uncertain or locked captions remain plain until reviewed. It uses no new hosted
+provider or AI listening request. This feature has not been included in a public
+release; see [Fine Timing](docs/FINE-TIMING.md) for behavior and limitations.
+
+Phase 2 source refinement keeps original KFA acoustic word anchors intact when
+Khmer word segmentation differs, stops treating raw forced-alignment path scores
+as ordinary speech-recognition confidence, and marks local fallback ASR word
+timestamps for review rather than silently enabling highlights. The local
+alignment algorithms, cloud/privacy boundary and existing user-owned word edits
+are preserved. See [Khmer alignment Phase 2](docs/WORD-HIGHLIGHT-KHMER-ALIGNMENT-PHASE2.md).
+
+Phase 3 development work makes the spoken-word native preview more responsive:
+decoded video-frame boundaries update its paint clock, the currently spoken word
+gets a native render before future lookahead, and warm native workers avoid
+redundant scratch/ASS writes without changing export pixels. This is **source-only**
+and is not an update to the public `0.85.6` download. See
+[native word-preview Phase 3 evidence](docs/WORD-HIGHLIGHT-PREVIEW-PHASE3.md).
+
 ## Version 0.85.5
 
 Version `0.85.5` ships the Fine Timing, word-timing, caption-handoff, appearance,

@@ -134,7 +134,10 @@ export async function transcribeProject(
 
   await progress('alignment', 52, 'Force-aligning exact words with local Khmer timing…');
   const timingSignature = stageSignature({
-    version: 2,
+    // v4 invalidates both the original derived word partitions and the early
+    // Phase 2 fuzzy-deduplicated direct KFA anchors. Acoustic emissions remain
+    // reusable; old normalized timing must not bypass the final cleanup rules.
+    version: 4,
     mediaFingerprint: normalized.fingerprint,
     alignmentText: gemini.alignmentText,
     kfaEnabled: config.localKfaEnabled,
