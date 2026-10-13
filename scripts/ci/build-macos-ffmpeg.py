@@ -532,10 +532,33 @@ class Builder:
             "--without-bzip2", "--without-png", "--without-harfbuzz",
             "--without-brotli", "--without-zlib",
         ])
-        # FriBidi 1.0.17's dist configure has no --disable-docs switch.
-        # Preserve its recognized static-only options without Autoconf's
-        # dangerous silent acceptance of an unknown option.
-        self.autoconf_build("fribidi", [])
+        # FriBidi 1.0.17's dist configure has no --disable-docs option.
+        # Recursive make all also builds optional CLI manpages via the otherwise
+        # unpinned help2man utility. The shaping library is independent of this
+        # CLI, so build/install precisely its lib target and copy the generated
+        # pkgconfig metadata from the SHA-256 verified source tree.
+        fribidi = self.source_paths["fribidi"]
+        self.run("fribidi-configure", [
+            "/bin/bash", "configure", "--prefix=" + str(self.prefix),
+            "--disable-shared", "--enable-static",
+        ], cwd=fribidi)
+        self.run("fribidi-lib-make", [
+            "/usr/bin/make", "-C", "lib", "-j", self.make_jobs,
+        ], cwd=fribidi)
+        self.run("fribidi-lib-install", [
+            "/usr/bin/make", "-C", "lib", "install",
+        ], cwd=fribidi)
+        fribidi_pc = fribidi / "fribidi.pc"
+        require(fribidi_pc.is_file(), "Pinned FriBidi configure omitted its pkgconfig metadata.")
+        pkgconf_target = self.prefix / "lib/pkgconfig/fribidi.pc"
+        pkgconf_target.parent.mkdir(parents=True, exist_ok=True)
+        require(not pkgconf_target.exists(), "Refusing to overwrite FriBidi's package metadata.")
+        shutil.copy2(fribidi_pc, pkgconf_target)
+        self.commands.append({
+            "step": "fribidi-pkgconfig-install",
+            "source": str(fribidi_pc), "target": str(pkgconf_target),
+            "sourceSha256": digest(fribidi_pc), "installedSha256": digest(pkgconf_target),
+        })
         self.meson_build("harfbuzz", [
             "-Dglib=disabled", "-Dgobject=disabled", "-Dcairo=disabled",
             "-Dicu=disabled", "-Dgraphite2=disabled", "-Dfreetype=disabled",
