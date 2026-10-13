@@ -206,6 +206,17 @@ def zip_files(file: Path | io.BytesIO, *, windows_recovery: bool = False) -> dic
     return entries
 
 
+def verify_git_source_projection(ota_files: dict[str, bytes],
+                                 source_files: dict[str, bytes]) -> None:
+    # Git releases can use different ZIP compression/metadata across Git
+    # versions. The reviewed OTA ZIP SHA-256 is checked independently above;
+    # this gate binds every selected source path and its exact extracted bytes.
+    require(ota_files.keys() == source_files.keys(),
+            "The OTA archive file set differs from the exact Git source selection.")
+    require(all(ota_files[name] == contents for name, contents in source_files.items()),
+            "The OTA archive file contents differ from the exact Git source selection.")
+
+
 def assert_payload(entries: dict[str, bytes], version: str) -> dict[str, bytes]:
     prefix = f"Sthang Studio {version}/Sthang Studio Files/"
     require(f"Sthang Studio {version}/Install Sthang Studio.bat" in entries,
@@ -475,9 +486,8 @@ def acceptance() -> None:
     run(["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive",
          "--format=zip", "--output=" + str(archive), commit, "--", *OTA_PAYLOAD],
         label="Exact candidate source archive")
-    require(sha256(archive) == ota_sha,
-            "The OTA archive does not match the exact reviewed Git tree and package input set.")
-    print("PASS: selected OTA bytes match deterministic archive of candidate source commit.", flush=True)
+    verify_git_source_projection(ota_files, zip_files(archive))
+    print("PASS: selected OTA file set and every file's bytes match the exact Git source commit.", flush=True)
     extraction = work / "baseline-extracted"
     unpack(baseline_files, extraction)
     baseline_source = extraction / f"Sthang Studio {BASELINE}" / "Sthang Studio Files"
@@ -514,7 +524,12 @@ def acceptance() -> None:
                 "The baseline installation changed its production public trust root.")
         print("PASS: real 0.85.6 setup with original public trust and runner Desktop integration.", flush=True)
         node_script = PROJECT / "scripts" / "ci" / "windows-ota-acceptance.mjs"
-        request = {"installedRoot": str(installed), "workRoot": str(work),
+        # The native OTA helper requires its workspace to be disjoint from the
+        # installed app; both are sibling directories under this runner's work.
+        ota_work = work / "native-ota"
+        require(not ota_work.exists(), "The native OTA fixture work root must be fresh.")
+        ota_work.mkdir()
+        request = {"installedRoot": str(installed), "workRoot": str(ota_work),
                    "candidateZip": str(downloaded[ota_name]),
                    "unsignedManifest": str(unsigned_path), "expectedCommit": commit}
         child_env["STUDIO_WINDOWS_OTA_REQUEST"] = json.dumps(request, separators=(",", ":"))
@@ -535,6 +550,40 @@ def acceptance() -> None:
 def self_test(actual_recovery: Path | None = None) -> None:
     assert HEX40.fullmatch("a" * 40) and HEX64.fullmatch(BASELINE_SHA)
     assert safe_name("apps/server/src/index.ts") == "apps/server/src/index.ts"
+    simulated_work = Path("runner-temp") / "sthang-windows-acceptance"
+    simulated_install = simulated_work / "state" / "local" / "Sthang Studio" / "app"
+    simulated_ota_work = simulated_work / "native-ota"
+    simulated_candidate = simulated_work / "candidate" / f"Sthang-Studio-OTA-v{CANDIDATE}.zip"
+    assert (not simulated_install.is_relative_to(simulated_ota_work)
+            and not simulated_ota_work.is_relative_to(simulated_install)
+            and not simulated_candidate.is_relative_to(simulated_ota_work)
+            and simulated_install.is_relative_to(simulated_work)
+            and simulated_ota_work.is_relative_to(simulated_work))
+    source_files = {"apps/server/src/index.ts": b"source",
+                    "package.json": b'{"version":"0.86.0"}'}
+    verify_git_source_projection(dict(source_files), source_files)
+    # Repacked archives may have different compression and therefore different
+    # whole-ZIP hashes while still containing identical reviewed source bytes.
+    stored, compressed = io.BytesIO(), io.BytesIO()
+    for target, method in ((stored, zipfile.ZIP_STORED),
+                           (compressed, zipfile.ZIP_DEFLATED)):
+        with zipfile.ZipFile(target, "w", compression=method) as writer:
+            for name, data in source_files.items():
+                writer.writestr(name, data)
+    assert hashlib.sha256(stored.getvalue()).digest() != hashlib.sha256(compressed.getvalue()).digest()
+    verify_git_source_projection(zip_files(stored), zip_files(compressed))
+    for invalid in (
+        {"apps/server/src/index.ts": b"tampered",
+         "package.json": source_files["package.json"]},
+        {"package.json": source_files["package.json"]},
+        {**source_files, "unexpected.txt": b"extra"},
+    ):
+        try:
+            verify_git_source_projection(invalid, source_files)
+        except AcceptanceFailure:
+            pass
+        else:
+            raise AssertionError("Git source projection accepted tampered, missing or extra file.")
     sample = [
         {"tag_name": "v0.85.6", "draft": False, "assets": []},
         {"tag_name": "v0.86.0", "draft": True, "assets": []},
