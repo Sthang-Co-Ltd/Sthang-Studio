@@ -1,5 +1,12 @@
 # Browser playback and updater safety
 
+Release integration: the playback and preparation changes are included in the
+`0.86.0` source under `studio-v0-86-0-release-20261013`. Stable-broker changes are
+delivered by the manual installer; an OTA payload preserves the installed broker.
+The report below records the original development verification and intake scope.
+
+## Original implementation report
+
 Status: development source, not a released-build acceptance claim.
 
 ## Scope

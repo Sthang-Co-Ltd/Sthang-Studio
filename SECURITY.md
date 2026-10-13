@@ -102,6 +102,56 @@ replay. Report any way for browser/project-supplied values to inject caption/med
 content, filenames, project names, paths, context/vocabulary, SRT contents, API
 keys, names/email addresses, or Contributor ids into analytics.
 
+## macOS managed FFmpeg source and download integrity (v0.86 contract)
+
+For **v0.86**, the managed Apple Silicon fallback is a separately distributed
+FFmpeg 8.1.3/ffprobe build from nine fixed, SHA-256-verified upstream source
+archives. The Sthang GitHub Release tag is
+`runtime-ffmpeg-8.1.3-macos-arm64-r1`; its required immutable assets are
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip`,
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-corresponding-source.zip` and
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64.build-receipt.json`, each with an exact
+`.sha256` sidecar. The tools and source are not bundled into the Studio app ZIP;
+the installer selects the verified tools separately when necessary. **This is
+the required release contract, not proof of a verified runtime hash, completed
+native acceptance, uploaded assets or an available download.** The historical
+`v0.85.6` upstream fallback and its owner-approved exception remain strictly
+limited to that release, not authority for the v0.86 binary.
+
+The v0.86 Mac runtime selector requires both `ffmpeg` and `ffprobe` to identify
+stable numeric versions **8.1.3 or newer** in native arm64 executables; FFmpeg
+must also expose libass complex shaping and libx264 support. It rejects older,
+nightly and unparseable versions. Compatible user-installed newer runtimes do not require a
+Sthang-specific checksum; the **managed v0.86 tools** must instead be bound to
+the exact versioned Sthang-hosted tools URL and independently reviewed SHA-256
+in `scripts/macos-managed-runtime.sh`, checked before extraction or execution.
+If the verified runtime/URL/hash is unavailable, setup must fail safely, not
+fall back to an unreviewed old binary or bypass the version requirement. End-user
+setup does not compile FFmpeg or install Homebrew/`sudo` prerequisites.
+
+Before Sthang distributes the runtime, the native build and third-party source
+chain must match `config/macos-ffmpeg-build-lock.json` and the audited
+builder, including FFmpeg's GPL/version3/libass/libx264 configuration without
+nonfree/OpenSSL components, Apple Silicon Mach-O deployment floor **12.3**,
+system-only dynamic links and Khmer rendering/export checks. The FFmpeg GitHub
+Release must make the exact original source, build instructions, notices,
+checksum sidecars and provenance receipt durably available alongside the binary.
+The installer must preserve existing state and fail closed on download, checksum,
+capability or setup failure; an untrusted ZIP, mutable tag or local build alone is
+not sufficient release evidence. Do not place user media, credentials, project
+files, internal account identifiers, or private build-environment secrets in
+build logs, receipts or release assets. The combined FFmpeg+x264 executable is
+subject to GPL-3.0-or-later distribution terms separate from Sthang Studio's
+MIT-licensed application source; full corresponding source and independent legal
+review are required. Neither source publication nor a GPL notice establishes
+H.264 patent clearance, Apple code signing, or notarization.
+
+**Managed runtime SHA-256 validation is not the Studio Ed25519 OTA signature.**
+The FFmpeg prerequisite download is a separate setup-time supply-chain boundary;
+it does not create, authorize or promote a signed macOS application update offer.
+See `docs/MACOS-FFMPEG-PROVENANCE.md` and `THIRD_PARTY_NOTICES.md` for the
+source/license obligations and outstanding review gates.
+
 ## Signed update trust
 
 The updater uses a Studio-specific Ed25519 public trust root. The published
@@ -142,8 +192,9 @@ above.
 
 Security fixes target the latest accepted `main` branch and the most recent
 published release. Older development ZIPs and historical builds are not treated
-as supported releases. This release source corresponds to the `v0.85.6` Public
-Beta line. Signed-update availability still depends on the matching separately
+as supported releases. The current `v0.86` source is **prepublication**; it does
+not replace the published `v0.85.6` release or validate a new Mac runtime.
+Signed-update availability still depends on the matching separately
 verified and deliberately promoted platform `latest.json` pointer; publication of
 the recovery package alone does not make a Mac OTA offer live.
 

@@ -36,20 +36,20 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
-## Version 0.86.0 source
+## Version 0.86
 
-This source prepares **v0.86** (package version `0.86.0`) with Khmer word-highlight
+**v0.86** (package version `0.86.0`) brings Khmer word-highlight
 preparation, responsive native caption preview, playback recovery, reviewed local
 runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The
 [0.86.0 release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
-is the intended recovery-download location after its reviewed assets are
-published and byte-verified. Until then, `0.85.6` remains the verified public
+is the recovery-download location once its reviewed assets are
+published and byte-verified. Source version changes alone do not publish a
 download. Each platform's in-app offer additionally requires its own verified
 signed pointer and upgrade/rollback acceptance.
 
-## Source-only playback and update hardening
+## Playback and update hardening
 
-The current development source can prepare a local H.264/AAC playback copy when
+Version 0.86 can prepare a local H.264/AAC playback copy when
 HEVC/H.265 video is unsupported by the browser, or through **Prepare playback**
 when the picture is missing. Preparation shows progress and can be cancelled.
 The original upload, caption times and export source remain unchanged; the copy
@@ -57,35 +57,34 @@ is for playback only. Copies are limited to 720p, two-hour inputs, 15 minutes of
 preparation and 512 MiB per copy, with one encoder and a bounded 2 GiB local cache.
 An evicted copy can be rebuilt; replacing or deleting media removes its copy.
 
-The same unreleased work closes update/job-start races, requires working Khmer
+The update preparation closes update/job-start races, requires working Khmer
 timing for updater preparation, and checks bounded API and frontend build/launch
-identity before accepting activation. Existing installed stable brokers need a
-separately reviewed bootstrap delivery path to receive broker changes. These
-source changes do not establish a new public download or completed native
-Windows/macOS acceptance. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
+identity before accepting activation. The manual installer delivers stable-broker
+changes; an OTA preserves the already installed stable broker. Every public offer
+still requires verification of its exact package and native upgrade/rollback
+behavior. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
 
-## Source-only word-highlight preparation
+## Word-highlight preparation
 
-The development branch adds **Appearance → Prepare word highlights**. It checks
+Version 0.86 adds **Appearance → Prepare word highlights**. It checks
 unresolved captions with the existing local Khmer aligner, skips ready tracks,
 reports which captions still need review, and offers one explicit, guarded batch
 application with History-backed undo. Cancel stops future alignment requests;
 uncertain or locked captions remain plain until reviewed. It uses no new hosted
-provider or AI listening request. This feature has not been included in a public
-release; see [Fine Timing](docs/FINE-TIMING.md) for behavior and limitations.
+provider or AI listening request. See [Fine Timing](docs/FINE-TIMING.md) for
+behavior and limitations.
 
-Phase 2 source refinement keeps original KFA acoustic word anchors intact when
+Khmer alignment keeps original KFA acoustic word anchors intact when
 Khmer word segmentation differs, stops treating raw forced-alignment path scores
 as ordinary speech-recognition confidence, and marks local fallback ASR word
 timestamps for review rather than silently enabling highlights. The local
 alignment algorithms, cloud/privacy boundary and existing user-owned word edits
 are preserved. See [Khmer alignment Phase 2](docs/WORD-HIGHLIGHT-KHMER-ALIGNMENT-PHASE2.md).
 
-Phase 3 development work makes the spoken-word native preview more responsive:
+The spoken-word native preview follows the current playback position more closely:
 decoded video-frame boundaries update its paint clock, the currently spoken word
 gets a native render before future lookahead, and warm native workers avoid
-redundant scratch/ASS writes without changing export pixels. This is **source-only**
-and is not an update to the public `0.85.6` download. See
+redundant scratch/ASS writes without changing export pixels. See
 [native word-preview Phase 3 evidence](docs/WORD-HIGHLIGHT-PREVIEW-PHASE3.md).
 
 ## Version 0.85.5
@@ -132,9 +131,9 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-Sthang Studio `0.85.6` is the current Public Beta release identity for
+Sthang Studio `0.86.0` is this source's Public Beta release identity for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
-[0.85.6 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.85.6)
+[0.86.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
 is the governed recovery-download location after its assets are published and
 byte-verified.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
@@ -378,9 +377,11 @@ stay inside the checkout. Run
 `bash ./INSTALL-MACOS.sh` again to repair local source dependencies after changing
 the checkout.
 
-The dependency/runtime maintenance in this source branch is distinct from the
-accepted public `v0.85.6` downloads. Its exact dependency inventory, native
-acceptance requirements and deferred FFmpeg replacement are documented in
+Version 0.86 advances the reviewed dependencies and requires compatible Mac
+FFmpeg and ffprobe 8.1.3 or newer. The managed fallback uses a checksum-pinned
+Sthang build with its complete corresponding source and third-party licenses
+published together. Its exact dependency inventory and native acceptance
+requirements are documented in
 [Reviewed dependency and runtime maintenance](docs/DEPENDENCY-RUNTIME-MAINTENANCE.md).
 
 Monterey and Ventura use a dedicated native-dependency compatibility profile so Whisper
@@ -398,12 +399,13 @@ by that hardware; this does not make new Macs capable of booting Monterey.
 - Enough local disk space for local timing resources and your media.
 
 Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
-Curated public packages are available for Windows x64 and Apple Silicon macOS;
-Windows has the currently governed public signed OTA history. The Apple Silicon
-`0.85.6` package is the one-time macOS OTA bootstrap and includes the Finder
-launcher; users coming from the older manual-only Mac line install this GitHub
-package once. Later Mac in-app updates remain gated on a separately accepted
-signed release, real-Mac upgrade/rollback evidence, and promoted platform pointer.
+Curated public packages target Windows x64 and Apple Silicon macOS. Installed
+Windows updaters and the Apple Silicon `0.85.6` bootstrap can check their separate
+public update channels. Users on the older manual-only Mac line install the
+reviewed `0.86.0` recovery package once to obtain the Finder launcher and updater.
+Every offered platform version requires its own accepted signed release, native
+upgrade/rollback evidence, and deliberately promoted platform pointer. The manual
+installer also refreshes the stable broker; an OTA payload preserves that broker.
 
 ## Local and cloud data flow
 
@@ -437,13 +439,13 @@ media to Gemini or Sthang before the corresponding user action/consent.
 - relevant topic context, protected vocabulary, accuracy hints, and accepted or
   proposed wording when those are part of the requested pass.
 
-The current development source recommends Gemini 3.8 Flash followed by Gemini 3.6
+Version 0.86 recommends Gemini 3.8 Flash followed by Gemini 3.6
 Flash using the same Gemini API key and the same full Accuracy/topic prompt.
 Google's October 8, 2026 update routes `gemini-3.7-flash` to `gemini-3.8-flash`, so
-the previous 3.8/3.7 pair no longer provides a distinct fallback. Source builds
+the previous 3.8/3.7 pair no longer provides a distinct fallback. Version 0.86
 migrate that legacy default pair and avoid retrying a model through its alias.
-This correction is not yet a public-release claim; users of the published
-`0.85.6` build can select 3.8 primary and 3.6 fallback in **Settings → AI connection**.
+Users retaining `0.85.6` can select 3.8 primary and 3.6 fallback manually in
+**Settings → AI connection**.
 See [Gemini availability and recovery](docs/GEMINI-AVAILABILITY.md).
 
 HTTP 503 indicates temporary service unavailability; an unused daily quota does

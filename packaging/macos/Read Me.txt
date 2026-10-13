@@ -28,7 +28,8 @@ REQUIREMENTS
 - A Gemini Developer API key for AI caption wording
 - Enough free disk space for local runtimes, timing resources, projects, and media
 
-Setup reuses compatible native Node.js, Python 3.12, and FFmpeg/ffprobe when they are already available. If a compatible prerequisite is missing, setup downloads the exact reviewed Apple Silicon runtime into ~/Library/Application Support/Sthang Studio/tools, verifies its SHA-256 checksum, and keeps it private to Studio. Setup does not install Homebrew, invoke sudo, modify your shell startup files, or replace system runtimes.
+Setup reuses compatible native Node.js, Python 3.12, and FFmpeg/ffprobe 8.1.3 or newer when they are already available. If a compatible prerequisite is missing, setup downloads the exact reviewed Apple Silicon runtime into ~/Library/Application Support/Sthang Studio/tools, verifies its SHA-256 checksum, and keeps it private to Studio. Setup does not install Homebrew, invoke sudo, modify your shell startup files, or replace system runtimes.
+The managed FFmpeg download includes its GPL and third-party license notices; complete corresponding source is provided alongside it on the same GitHub runtime release. See THIRD_PARTY_NOTICES.md inside Sthang Studio Files for the source and build details.
 
 UPDATES
 Installed curated builds contain a stable Apple Silicon signed-update bootstrap. Studio may check the public macos-arm64 update channel once per session/startup, plus when you choose Check for updates. It never downloads or installs automatically. A future signed offer still requires your separate Download & verify and Install & restart choices. Prepared versions are verified before activation and a failed health check rolls back to the previous version.

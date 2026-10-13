@@ -14,10 +14,10 @@ STUDIO_MANAGED_PYTHON_ARCHIVE="cpython-3.12.15+20261003-aarch64-apple-darwin-ins
 STUDIO_MANAGED_PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-aarch64-apple-darwin-install_only.tar.gz"
 STUDIO_MANAGED_PYTHON_SHA256="316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213"
 
-STUDIO_MANAGED_FFMPEG_VERSION="8.1-20260424"
-STUDIO_MANAGED_FFMPEG_ARCHIVE="FFmpeg-arm-silicon-Tools-20260424.zip"
-STUDIO_MANAGED_FFMPEG_URL="https://github.com/kiimelon/FFmpeg-arm-silicon/releases/download/0.5.0/FFmpeg-arm-silicon-Tools-20260424.zip"
-STUDIO_MANAGED_FFMPEG_SHA256="7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc"
+STUDIO_MANAGED_FFMPEG_VERSION="8.1.3-r1"
+STUDIO_MANAGED_FFMPEG_ARCHIVE="Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip"
+STUDIO_MANAGED_FFMPEG_URL="https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/runtime-ffmpeg-8.1.3-macos-arm64-r1/Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip"
+STUDIO_MANAGED_FFMPEG_SHA256="adeadc9e75aea26ebed1fe1c2500d70957c51d6b102f26c967045b5e71231767"
 
 studio_macos_managed_paths() {
   STUDIO_MACOS_STATE_ROOT="${STHANG_STUDIO_STATE_ROOT:-$HOME/Library/Application Support/Sthang Studio}"
@@ -131,6 +131,34 @@ studio_macos_install_managed_python() {
   echo "Python $STUDIO_MANAGED_PYTHON_VERSION is ready in Sthang Studio's private tools folder."
 }
 
+# The independently source-built tools ZIP carries its source directions and
+# third-party licenses at the archive ROOT, beside Tools/ (not within Tools/).
+# Keep this fixed list aligned with the six runtime components' licensePaths in
+# config/macos-ffmpeg-build-lock.json. No Python/jq/network dependency is needed
+# to validate a cached runtime during early setup on macOS Bash 3.2.
+studio_macos_managed_ffmpeg_notices_ok() {
+  local root="$1" relative
+  [[ -s "$root/README-SOURCE-AND-LICENSES.txt" && ! -L "$root/README-SOURCE-AND-LICENSES.txt" ]] || return 1
+  [[ -d "$root/THIRD_PARTY_LICENSES" && ! -L "$root/THIRD_PARTY_LICENSES" ]] || return 1
+  for relative in \
+    ffmpeg/LICENSE.md \
+    ffmpeg/COPYING.GPLv2 \
+    ffmpeg/COPYING.GPLv3 \
+    ffmpeg/COPYING.LGPLv2.1 \
+    ffmpeg/COPYING.LGPLv3 \
+    freetype/LICENSE.TXT \
+    freetype/docs/FTL.TXT \
+    freetype/docs/GPLv2.TXT \
+    fribidi/COPYING \
+    harfbuzz/COPYING \
+    harfbuzz/src/ms-use/COPYING \
+    harfbuzz/test/COPYING \
+    libass/COPYING \
+    x264/COPYING; do
+    [[ -s "$root/THIRD_PARTY_LICENSES/$relative" && ! -L "$root/THIRD_PARTY_LICENSES/$relative" ]] || return 1
+  done
+}
+
 studio_macos_install_managed_ffmpeg() {
   studio_macos_managed_paths
   local unzip_bin="${STHANG_STUDIO_UNZIP:-/usr/bin/unzip}"
@@ -140,7 +168,7 @@ studio_macos_install_managed_ffmpeg() {
   local candidate="$work/runtime"
 
   mkdir -p "$STUDIO_MACOS_TOOLS_ROOT"
-  if [[ -x "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" && -x "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" ]] && studio_macos_ffmpeg_ok "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe"; then
+  if [[ -x "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" && -x "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" ]] && studio_macos_ffmpeg_ok "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" && studio_macos_managed_ffmpeg_notices_ok "$STUDIO_MANAGED_FFMPEG_ROOT"; then
     return 0
   fi
 
@@ -160,9 +188,21 @@ studio_macos_install_managed_ffmpeg() {
     echo "ERROR: The verified FFmpeg archives did not contain ffmpeg and ffprobe." >&2
     return 1
   fi
-  cp "$extract/Tools/ffmpeg" "$candidate/bin/ffmpeg"
-  cp "$extract/Tools/ffprobe" "$candidate/bin/ffprobe"
-  chmod 755 "$candidate/bin/ffmpeg" "$candidate/bin/ffprobe"
+  if ! studio_macos_managed_ffmpeg_notices_ok "$extract"; then
+    rm -rf -- "$work"
+    echo "ERROR: The verified FFmpeg tools archive is missing required source directions or third-party license notices." >&2
+    return 1
+  fi
+  if ! cp "$extract/Tools/ffmpeg" "$candidate/bin/ffmpeg" \
+    || ! cp "$extract/Tools/ffprobe" "$candidate/bin/ffprobe" \
+    || ! cp "$extract/README-SOURCE-AND-LICENSES.txt" "$candidate/README-SOURCE-AND-LICENSES.txt" \
+    || ! cp -R "$extract/THIRD_PARTY_LICENSES" "$candidate/THIRD_PARTY_LICENSES" \
+    || ! chmod 755 "$candidate/bin/ffmpeg" "$candidate/bin/ffprobe" \
+    || ! studio_macos_managed_ffmpeg_notices_ok "$candidate"; then
+    rm -rf -- "$work"
+    echo "ERROR: Could not preserve the verified FFmpeg tools and required third-party license notices." >&2
+    return 1
+  fi
   if ! studio_macos_managed_ffmpeg_build_ok "$candidate/bin/ffmpeg"; then
     rm -rf -- "$work"
     echo "ERROR: The verified FFmpeg runtime did not match the reviewed GPL/libass/libx264 build contract." >&2
@@ -213,7 +253,7 @@ studio_macos_promote_runtime() {
   case "$kind" in
     node) studio_macos_node_ok "$target/bin/node" && [[ -x "$target/bin/npm" ]] && ok=0 ;;
     python) studio_macos_python_ok "$target/bin/python3.12" && ok=0 ;;
-    ffmpeg) studio_macos_ffmpeg_ok "$target/bin/ffmpeg" "$target/bin/ffprobe" && ok=0 ;;
+    ffmpeg) studio_macos_ffmpeg_ok "$target/bin/ffmpeg" "$target/bin/ffprobe" && studio_macos_managed_ffmpeg_notices_ok "$target" && ok=0 ;;
   esac
   if [[ "$ok" -ne 0 ]]; then
     mv -- "$target" "$candidate"

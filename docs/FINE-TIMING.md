@@ -112,7 +112,7 @@ kept together. Timing a displayed word/unit does not promise syllable-level
 highlighting. Text composition uses a stable edit basis so temporary unfinished
 Khmer input does not progressively erase valid surrounding anchors.
 
-In the unreleased Phase 2 source, directly aligned KFA word intervals remain
+In version 0.86, directly aligned KFA word intervals remain
 acoustic anchors even when Khmer display segmentation disagrees. A single
 displayed word can use the entire measured KFA interval; splitting one measured
 word into several displayed words still creates tentative positions that need
@@ -135,9 +135,9 @@ that caption to highlight. Missing, stale, overlapping, out-of-range, estimated,
 or review-needed timings leave the entire caption plain. Correcting the text
 therefore cannot silently highlight the wrong old word.
 
-### Project-wide preparation (unreleased source workflow)
+### Project-wide preparation (version 0.86)
 
-In the development source, turn **Spoken word highlight** On in **Appearance**
+In version 0.86, turn **Spoken word highlight** On in **Appearance**
 and select **Prepare word highlights**. Studio first saves current caption edits,
 then checks unresolved, unlocked captions sequentially using local exact-word
 alignment. Already-ready tracks are reused; locked captions and any uncertain,
@@ -157,7 +157,7 @@ After applying a batch, **Prepare remaining** can retry captions that still have
 unresolved words, including captions changed by later text edits; starting a
 new batch retires the previous batch's quick Undo, while History preserves the
 saved checkpoints.
-This workflow is not included in the current published release.
+This workflow is part of the 0.86 source and its matching release packages.
 
 Native preview and captioned MP4 consume the same word intervals, whole-text
 layout, and color states. **SRT has no word-highlight or per-word timing metadata**;
@@ -165,7 +165,7 @@ the destination editor controls SRT styling. Export lists any captions that will
 remain plain. Per-word tracks and highlight settings remain local and are not
 added to Contributor or analytics payloads.
 
-In the unreleased Phase 3 source, Studio requests the currently spoken word's
+In version 0.86, Studio requests the currently spoken word's
 native picture first, then quietly prepares a few subsequent paint states. When
 the browser supports video-frame callbacks, the highlight preview follows
 decoded video frames instead of depending solely on less frequent editor time

@@ -1,5 +1,11 @@
 # Spoken-word highlighting — Responsive native preview Phase 3
 
+Release integration: these changes are included in the `0.86.0` source under
+`studio-v0-86-0-release-20261013`. The implementation handoff below records its
+original prepublication status; live release evidence belongs to the v0.86 release.
+
+## Original implementation handoff
+
 Change ID: `studio-word-preview-responsiveness-20261008`
 
 Status: **source-only; public impact required before any future release**.

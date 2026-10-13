@@ -1,22 +1,62 @@
 # Apple Silicon macOS compatibility and public Beta package
 
-## Dependency-maintenance source candidate
+## v0.86 Apple Silicon runtime requirements and release boundary
 
-The current maintenance source keeps the **macOS 12.3 / native arm64** floor but
-raises runtime security-patch requirements to **Node 22.23.3+ within 22.x**, or
-**Node 24.21.0+ within 24.x on macOS 13.5+**, and **Python 3.12.15+ within 3.12**.
-The managed Python candidate is Astral 3.12.15+20261003. These are source changes,
-not a claim that the public v0.85.6 archive has changed.
+The **v0.86** Mac runtime contract retains **macOS 12.3 or newer on native
+Apple Silicon arm64**. It requires **Node 22.23.3+ within 22.x**, or **Node
+24.21.0+ within 24.x on macOS 13.5+**, and **Python 3.12.15+ within 3.12**.
+The reviewed managed CPython archive is Astral 3.12.15+20261003. These rules
+apply to a verified v0.86 installation, not retroactively to the accepted public
+`v0.85.6` package.
+
+The v0.86 runtime requires **both `ffmpeg` and `ffprobe` 8.1.3 or newer**,
+as native arm64 executables; FFmpeg must expose libass complex subtitle shaping
+and libx264.
+Stable two-component release identifiers (for example `8.2` or `9.0`) are treated
+as `8.2.0`/`9.0.0`; `8.1`, nightly, unparseable or older tools fail validation.
+A compatible user-provided FFmpeg/ffprobe installation is accepted without
+requiring Sthang's managed-binary hash. Otherwise, setup uses the v0.86 managed
+FFmpeg 8.1.3 fallback from a **fixed, checksum-verified Sthang GitHub Release
+URL**; the launcher only reuses a runtime prepared at setup. Release packages
+must include that exact reviewed URL/SHA-256 contract and must fail closed if the
+verified managed asset or required capabilities are unavailable. The ordinary
+installer does **not** compile FFmpeg, install Homebrew, or invoke `sudo`.
+
+The managed FFmpeg is built from nine exactly pinned upstream archives and,
+subject to successful build verification, licensing review and publication,
+distributed separately from Studio's app ZIP under the GitHub Release tag
+`runtime-ffmpeg-8.1.3-macos-arm64-r1`. The exact builder output names are
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip` and
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-corresponding-source.zip`, with their
+`.sha256` sidecars and the accompanying
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64.build-receipt.json` and checksum.
+The tools ZIP carries both binaries and license/source directions. The complete
+corresponding-source ZIP carries all nine original source archives, build scripts,
+lock, logs, license texts and provenance. The combined FFmpeg+x264 binary is
+GPL-3.0-or-later; its source publication obligations are distinct from the MIT
+license for Studio's application source. GPL distribution does not assert H.264
+patent clearance or Apple notarization.
+
+**Prepublication status:** the exact produced runtime hash and receipt are subject
+to independent verification, and native Mac install, upgrade/rollback, license
+distribution review and release authorization remain outstanding. These
+requirements do not claim a publicly available FFmpeg download or a live Mac OTA
+offer. See
+[`MACOS-FFMPEG-PROVENANCE.md`](MACOS-FFMPEG-PROVENANCE.md) for the build-source
+review and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for the
+GPL/runtime and corresponding-source publication obligations.
 
 Monterey/Ventura and macOS 14+ now use separate exact version/hash locks. Native
-source builds remain prohibited except for the documented pure-Python emoji
-source package. Candidate timing environments live at stable private paths
+source builds of **Python timing dependencies on user Macs** remain prohibited
+except for the documented pure-Python emoji source package; the separate
+maintainer-controlled FFmpeg provenance build is not a timing-wheel exception.
+Reviewed timing environments live at stable private paths
 outside the relocatable OTA source tree; `.venv` selects one only after validation
 and preserves the old environment for rollback. Telemetry opt-outs are applied
 before ONNX/model-library initialization. The Safari 17 build target is unchanged.
 
-Native installation, inference, interruption/rollback and network acceptance of
-this candidate are still required. The historical release evidence and FFmpeg
+Native v0.86 installation, inference, interruption/rollback and network acceptance
+are required before publication. The historical release evidence and FFmpeg
 exception below apply only to their stated versions. See
 [Reviewed dependency and runtime maintenance](DEPENDENCY-RUNTIME-MAINTENANCE.md)
 for the inventory and release gates.
@@ -45,6 +85,10 @@ extensions.
 | 13.5+ Ventura | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12 + legacy profile | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
 | 14 Sonoma | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12, normal macOS requirements | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
 | 15+ | Node 22.12+ within 22.x, or compatible Node 24+ | Python 3.12, normal macOS requirements | Existing compatible runtime first; otherwise checksum-verified Studio-managed arm64 fallback |
+
+The table records the historical `v0.85.0` boundary, not the tightened v0.86
+Node/Python/FFmpeg security-patch requirements above. Both generations retain
+the **macOS 12.3** native-arm64 floor and **Safari 17** build target.
 
 Use a maintained browser that still supports your OS. The production syntax/CSS
 target includes Safari 17; Monterey's original Safari 15 is not the browser
@@ -155,13 +199,14 @@ must pass after activation or the prior pointer is restored. The updater uses a
 platform-specific signed namespace and never enables itself in a normal source
 checkout. Its presence does not establish that a public Mac OTA offer exists.
 
-The reviewed managed prerequisite pins for this change are Node.js 22.23.3 from
-nodejs.org and CPython 3.12.14+20260924 from Astral's python-build-standalone. The
-managed FFmpeg candidate is the Apple Silicon `FFmpeg-arm-silicon` 0.5.0 tools
+For the published **`v0.85.6` historical Mac bootstrap**, the managed prerequisite
+pins were Node.js 22.23.3 from nodejs.org and CPython 3.12.14+20260924 from
+Astral's python-build-standalone. That release's managed FFmpeg was the Apple
+Silicon `FFmpeg-arm-silicon` 0.5.0 tools
 archive, pinned by exact SHA-256 and separately validated for arm64, libass complex
 shaping, libx264, GPL/version3 configuration, and absence of nonfree/OpenSSL build
-flags. These files are downloaded at setup time from their upstream projects and
-are not committed, bundled, or rehosted by Sthang Studio. For the `0.85.6` Public
+flags. Those historical files were downloaded at setup time from their upstream
+projects and were not bundled or rehosted by Sthang Studio. For the `0.85.6` Public
 Beta, native-Mac acceptance of the pinned bytes passed and the owner explicitly
 approved a narrow exception to the stricter exact-source-provenance requirement.
 The exception is limited to the exact upstream 0.5.0 asset and SHA-256 recorded in
@@ -185,28 +230,38 @@ node -p 'process.versions.node + " " + process.arch'
 npm --version
 ```
 
-Install native Python 3.12 and FFmpeg/ffprobe built for your OS with libass complex
-shaping. Compatible existing installations are accepted; Homebrew is not
-mandatory. The official Python universal2 distribution or a Python 3.12 package
-from MacPorts can provide Python. Choose a maintained Python build, not an old
-installer solely for convenience.
+For a v0.86 **manual source installation**, use native Python **3.12.15 or newer within 3.12** and
+**both FFmpeg and ffprobe 8.1.3 or newer** for arm64, with libass complex shaping
+and libx264 available. Compatible newer local builds are accepted; Homebrew is
+not mandatory and a custom FFmpeg binary need not match Sthang's future managed
+archive checksum. The official Python universal2 distribution or a Python 3.12
+package from MacPorts can provide Python. Choose a maintained Python build, not
+an old installer solely for convenience.
 
-MacPorts publishes installers for Monterey and earlier systems. After installing
-the matching MacPorts version and its required Apple developer tools, a manual
-dependency route is:
+**Optional advanced/manual setup only:** MacPorts publishes installers for
+Monterey and earlier systems. Maintainers who deliberately manage their own
+system prerequisites may use the matching MacPorts version and Apple developer
+tools; this is **not** part of the ordinary v0.86 installation, which downloads
+approved runtimes without Homebrew, source compilation or `sudo`. An advanced
+manual route is:
 
 ```sh
 sudo port install python312 ffmpeg
 export PATH="/opt/local/bin:$PATH"
 python3.12 -c 'import platform, sys; print(sys.version); print(platform.machine())'
+ffmpeg -version
 ffmpeg -hide_banner -h filter=ass
 ffprobe -version
 ```
 
 MacPorts installation may build some components and is not performed automatically
-by Studio. The chosen FFmpeg must actually expose `shaping` and `complex`; the
-command name alone is insufficient. No third-party binaries or model weights are
-bundled or redistributed in this change. Upstream licenses remain applicable.
+by Studio. Check that **both** tools meet the 8.1.3 minimum and that FFmpeg exposes
+`shaping` and `complex` and a `libx264` encoder; the command name alone is
+insufficient. The source checkout does not embed FFmpeg binaries or model weights
+in its Mac application ZIP. The v0.86 managed fallback, when released and
+verified, is hosted separately on a Sthang GitHub Release alongside its complete
+corresponding source, exact checksums and license notices. Upstream licenses
+remain applicable.
 Keep the native Node 22 directory ahead of any incompatible Node on `PATH`.
 
 Then run:
@@ -246,6 +301,16 @@ fixed-hash failure, runtime reuse, dependency profile selection, paths with spac
 non-destructive venv failures, release-install rollback/retry, and metadata checks.
 Windows uses Git for Windows Bash; `STHANG_TEST_BASH` can name an explicit Bash
 executable. These are policy regressions, not execution on the simulated OS.
+
+### v0.86 FFmpeg selector regression record — October 13, 2026
+
+The `test:macos` suite passed **137 of 137** tests using the reviewed Windows
+Node 24.21.0 validation runtime. Its **21 focused FFmpeg cases** covered 8.1.3,
+stable `8.2`/`9.0` acceptance, old `8.1`/`ffprobe` rejection, nightly/malformed
+versions, simulated managed fallback and newer custom PATH runtimes. These are
+Windows-hosted synthetic Bash fixtures, **not** native Apple Silicon evidence,
+not verification of a published tools ZIP and not a substitute for the pending
+Mac runtime acceptance.
 
 ### Implementation validation record — September 16, 2026
 
@@ -289,6 +354,12 @@ must not be reported as completed unless it is actually run:
       preservation, source replacement, and restart/recovery.
 - [ ] Default-browser startup, supported-browser editing/playback/Review,
       Khmer SRT export, native preview and real mixed Khmer/English MP4 rendering.
+- [ ] Verify the **exact v0.86 8.1.3 managed archive** against its source
+      receipt, SHA-256, runtime license notices and complete corresponding source
+      on the same public GitHub Release; ensure the source remains accessible.
+      Test old 8.1 rejection, both-tool version checking, compatible newer user
+      builds, checksum failure, managed fallback and FFmpeg/ffprobe arm64/libass/
+      libx264 capabilities without changing the 12.3 deployment floor.
 - [ ] Finder shows `Sthang Studio.app` with the approved icon; double-click launch
       reaches the same stable broker, while `Sthang Studio.command` still works as
       the recovery launcher.
@@ -336,6 +407,14 @@ must close that provenance gap. Mac OTA availability remains separately gated un
 a later signed release completes the required native upgrade/rollback acceptance and
 latest-pointer promotion.
 
+The **v0.86 FFmpeg 8.1.3 release contract** additionally requires truthful
+public GPL and corresponding-source notices, exact binary/source/receipt hashes,
+real native compatibility evidence, a separately reviewed managed download pin,
+and consent-independent setup-network disclosure. Neither an Actions artifact
+nor this source documentation establishes public availability. The accepted
+`v0.85.6` exception cannot be reused. Prime/maintainers separately own the
+release publication, product manifest, HQ intake and Distribution `/studio/` sync.
+
 ## Upstream compatibility evidence
 
 - [Node 22 build/platform requirements](https://github.com/nodejs/node/blob/v22.x/BUILDING.md)
@@ -344,6 +423,8 @@ latest-pointer promotion.
 - [Node.js 22.23.3 distribution directory](https://nodejs.org/dist/v22.23.3/)
 - [python-build-standalone releases](https://github.com/astral-sh/python-build-standalone/releases)
 - [FFmpeg-arm-silicon 0.5.0 release](https://github.com/kiimelon/FFmpeg-arm-silicon/releases/tag/0.5.0)
+- [FFmpeg 8.1.3 upstream source archive](https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz)
+- [FFmpeg licensing and redistribution guidance](https://ffmpeg.org/legal.html)
 - [ONNX Runtime 1.19.2 wheels](https://pypi.org/project/onnxruntime/1.19.2/#files)
 - [SciPy 1.15.3 wheels](https://pypi.org/project/scipy/1.15.3/#files)
 - [SciPy 1.10.1 wheels](https://pypi.org/project/scipy/1.10.1/#files)

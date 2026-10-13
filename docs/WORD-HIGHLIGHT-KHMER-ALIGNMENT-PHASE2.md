@@ -1,5 +1,11 @@
 # Spoken-word highlighting — Khmer alignment Phase 2
 
+Release integration: these changes are included in the `0.86.0` source under
+`studio-v0-86-0-release-20261013`. The implementation handoff below records its
+original prepublication status; live release evidence belongs to the v0.86 release.
+
+## Original implementation handoff
+
 Change ID: `studio-khmer-word-alignment-20261008`
 
 Status: **unreleased source changes; public impact required before publication**.

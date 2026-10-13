@@ -92,6 +92,22 @@ studio_macos_select_python() {
   return 1
 }
 
+# A compatible custom FFmpeg is welcome, but both tools must identify an
+# official numeric release at least 8.1.3. Stable major.minor releases imply
+# patch zero. Reject nightly/unknown strings and an ffprobe below that floor.
+# Keep this portable to the macOS system Bash 3.2.
+studio_macos_ffmpeg_version_ok() {
+  local executable="$1" program="$2"
+  local version_line major minor patch
+  version_line="$("$executable" -version 2>/dev/null)" || return 1
+  version_line="${version_line%%$'\n'*}"
+  [[ "$version_line" =~ ^${program}[[:space:]]version[[:space:]]([0-9]{1,3})\.([0-9]{1,3})(\.([0-9]{1,3}))?([[:space:]]|$) ]] || return 1
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[2]}))
+  patch=$((10#${BASH_REMATCH[4]:-0}))
+  [[ "$major" -gt 8 ]] || { [[ "$major" -eq 8 ]] && { [[ "$minor" -gt 1 ]] || { [[ "$minor" -eq 1 && "$patch" -ge 3 ]]; }; }; }
+}
+
 studio_macos_ffmpeg_ok() {
   local ffmpeg_command="${1:-ffmpeg}"
   local ffprobe_command="${2:-ffprobe}"
@@ -103,7 +119,8 @@ studio_macos_ffmpeg_ok() {
   ffmpeg_info="$("$file_bin" -b "$ffmpeg_path" 2>/dev/null || true)"
   ffprobe_info="$("$file_bin" -b "$ffprobe_path" 2>/dev/null || true)"
   [[ "$ffmpeg_info" == *arm64* && "$ffprobe_info" == *arm64* ]] || return 1
-  "$ffmpeg_path" -version >/dev/null 2>&1 && "$ffprobe_path" -version >/dev/null 2>&1 || return 1
+  studio_macos_ffmpeg_version_ok "$ffmpeg_path" ffmpeg || return 1
+  studio_macos_ffmpeg_version_ok "$ffprobe_path" ffprobe || return 1
   help="$("$ffmpeg_path" -hide_banner -h filter=ass 2>&1)" || return 1
   # Capture first: grep -q in a producer pipeline can spuriously fail with pipefail.
   [[ "$help" == *shaping* && "$help" == *complex* ]] || return 1
@@ -112,16 +129,21 @@ studio_macos_ffmpeg_ok() {
 }
 
 studio_macos_select_ffmpeg() {
-  local prefix old_path
-  if studio_macos_ffmpeg_ok; then
-    STUDIO_FFMPEG_PATH="$(command -v ffmpeg)"
-    STUDIO_FFPROBE_PATH="$(command -v ffprobe)"
+  local prefix old_path path_ffmpeg path_ffprobe
+  studio_macos_managed_paths
+  path_ffmpeg="$(command -v ffmpeg 2>/dev/null || true)"
+  path_ffprobe="$(command -v ffprobe 2>/dev/null || true)"
+  if studio_macos_ffmpeg_ok "$path_ffmpeg" "$path_ffprobe" \
+    && { [[ "$path_ffmpeg" != "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" && "$path_ffprobe" != "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" ]] \
+      || studio_macos_managed_ffmpeg_notices_ok "$STUDIO_MANAGED_FFMPEG_ROOT"; }; then
+    STUDIO_FFMPEG_PATH="$path_ffmpeg"
+    STUDIO_FFPROBE_PATH="$path_ffprobe"
     export FFMPEG_PATH="$STUDIO_FFMPEG_PATH"
     export FFPROBE_PATH="$STUDIO_FFPROBE_PATH"
     return 0
   fi
-  studio_macos_managed_paths
-  if studio_macos_ffmpeg_ok "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe"; then
+  if studio_macos_ffmpeg_ok "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" \
+    && studio_macos_managed_ffmpeg_notices_ok "$STUDIO_MANAGED_FFMPEG_ROOT"; then
     export PATH="$STUDIO_MANAGED_FFMPEG_ROOT/bin:$PATH"
     STUDIO_FFMPEG_PATH="$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg"
     STUDIO_FFPROBE_PATH="$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe"

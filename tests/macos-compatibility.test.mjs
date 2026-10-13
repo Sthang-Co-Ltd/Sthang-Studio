@@ -8,6 +8,18 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// The source-built Mac tools ZIP must preserve every actual runtime licensePath
+// from the same source lock consumed by scripts/ci/build-macos-ffmpeg.py.
+const managedFFmpegLicensePaths = (() => {
+  const components = new Set(['ffmpeg', 'freetype', 'fribidi', 'harfbuzz', 'libass', 'x264']);
+  const sources = JSON.parse(fs.readFileSync(path.join(root, 'config/macos-ffmpeg-build-lock.json'), 'utf8'))
+    .sources.filter((source) => components.has(source.name));
+  assert.equal(sources.length, components.size, 'Every source-built Mac runtime component must be locked.');
+  const licenses = sources.flatMap((source) => source.licensePaths.map((relative) =>
+    `THIRD_PARTY_LICENSES/${source.name}/${relative}`));
+  assert.equal(licenses.length, 14, 'Update the managed installer and fixture together if source licenses change.');
+  return licenses;
+})();
 const entrypoints = ['INSTALL-MACOS.sh', 'setup-local-timing-macos.sh', 'run-macos.sh'];
 const releaseEntrypoints = ['packaging/macos/Install Sthang Studio.command', 'scripts/install-release-package-macos.sh'];
 const shell = process.env.STHANG_TEST_BASH || (process.platform === 'win32'
@@ -110,8 +122,8 @@ function fixture(t, changes = {}) {
   write('bin/node', 'if [[ "$1" == "-p" ]]; then echo "$MOCK_NODE_VERSION $MOCK_NODE_ARCH"; else printf "node %s\\n" "$*" >> "$MOCK_LOG"; fi');
   write('bin/npm', 'printf "npm %s\\n" "$*" >> "$MOCK_LOG"');
   write('bin/brew', 'printf "brew %s\\n" "$*" >> "$MOCK_LOG"; if [[ "$1" == "--prefix" && -n "${MOCK_BREW_PREFIX:-}" ]]; then printf "%s\\n" "$MOCK_BREW_PREFIX"; else exit 1; fi');
-  write('bin/ffmpeg', '[[ "$MOCK_FFMPEG" != "broken" ]] || exit 1; if [[ "$*" == *"filter=ass"* && "$MOCK_FFMPEG" == "good" ]]; then echo "shaping: auto simple complex"; elif [[ "$*" == *"-encoders"* ]]; then echo " V..... libx264 H.264"; fi');
-  write('bin/ffprobe', '[[ "$MOCK_FFPROBE" == "good" ]]');
+  write('bin/ffmpeg', '[[ "$MOCK_FFMPEG" != "broken" ]] || exit 1; if [[ "$1" == "-version" ]]; then printf "ffmpeg version %s Copyright (c) test\\n" "$MOCK_FFMPEG_VERSION"; elif [[ "$*" == *"filter=ass"* && "$MOCK_FFMPEG" == "good" ]]; then echo "shaping: auto simple complex"; elif [[ "$*" == *"-encoders"* ]]; then echo " V..... libx264 H.264"; fi');
+  write('bin/ffprobe', '[[ "$MOCK_FFPROBE" == "good" ]] || exit 1; if [[ "$1" == "-version" ]]; then printf "ffprobe version %s Copyright (c) test\\n" "$MOCK_FFPROBE_VERSION"; fi');
   write('bin/file', 'printf "Mach-O 64-bit executable %s\\n" "$MOCK_FILE_ARCH"');
   const python = `if [[ "$1" == "-c" ]]; then
   [[ "$MOCK_PYTHON" == "good" ]]
@@ -128,7 +140,9 @@ fi`;
   const env = {
     ...process.env, BASH_ENV: '', MOCK_OS: 'Darwin', MOCK_ARCH: 'arm64', MOCK_MACOS: '12.3',
     MOCK_NODE_VERSION: '22.23.3', MOCK_NODE_ARCH: 'arm64', MOCK_PYTHON: 'good',
-    MOCK_FFMPEG: 'good', MOCK_FFPROBE: 'good', MOCK_FILE_ARCH: 'arm64', MOCK_READY: 'yes',
+    MOCK_FFMPEG: 'good', MOCK_FFMPEG_VERSION: '8.1.3',
+    MOCK_FFPROBE: 'good', MOCK_FFPROBE_VERSION: '8.1.3',
+    MOCK_FILE_ARCH: 'arm64', MOCK_READY: 'yes',
     STHANG_STUDIO_FILE: shellPath(path.join(dir, 'bin/file')),
     MOCK_LOG: path.join(dir, 'calls.log').replaceAll('\\', '/'), ...changes,
   };
@@ -169,7 +183,7 @@ done
 case "$url" in
   *node-v22.23.3-darwin-arm64.tar.gz) payload=node ;;
   *cpython-3.12.15*) payload=python ;;
-  *FFmpeg-arm-silicon-Tools-20260424.zip) payload=ffmpeg ;;
+  *Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip) payload=ffmpeg ;;
   *) exit 3 ;;
 esac
 printf '%s' "$payload" > "$output"
@@ -182,7 +196,7 @@ fi
 case "$payload" in
   node) sha=23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53 ;;
   python) sha=316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213 ;;
-  ffmpeg) sha=7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc ;;
+  ffmpeg) sha=adeadc9e75aea26ebed1fe1c2500d70957c51d6b102f26c967045b5e71231767 ;;
   *) exit 4 ;;
 esac
 printf '%s  %s\\n' "$sha" "${'${3}'}"`);
@@ -253,7 +267,9 @@ if [[ "$payload" == ffmpeg ]]; then
   mkdir -p "$dest/Tools"
   cat > "$dest/Tools/ffmpeg" <<'EOF'
 #!/usr/bin/env bash
-if [[ "$*" == *"filter=ass"* ]]; then
+if [[ "$1" == "-version" ]]; then
+  echo 'ffmpeg version 8.1.3 Copyright (c) test'
+elif [[ "$*" == *"filter=ass"* ]]; then
   echo 'shaping: auto simple complex'
 elif [[ "$*" == *"-encoders"* ]]; then
   echo ' V..... libx264 H.264'
@@ -261,8 +277,19 @@ elif [[ "$*" == *"-buildconf"* ]]; then
   echo 'configuration: --enable-gpl --enable-version3 --enable-libass --enable-libharfbuzz --enable-libx264'
 fi
 EOF
-  printf '#!/usr/bin/env bash\\nexit 0\\n' > "$dest/Tools/ffprobe"
+  printf '#!/usr/bin/env bash\\necho "ffprobe version 8.1.3 Copyright (c) test"\\n' > "$dest/Tools/ffprobe"
   chmod +x "$dest/Tools/ffmpeg" "$dest/Tools/ffprobe"
+  if [[ "${'${MOCK_FFMPEG_MISSING_README:-}'}" != 1 ]]; then
+    echo 'Verified complete corresponding source: source-built FFmpeg 8.1.3' > "$dest/README-SOURCE-AND-LICENSES.txt"
+  fi
+  while IFS= read -r relative; do
+    [[ -n "$relative" ]] || continue
+    if [[ "$relative" == "${'${MOCK_FFMPEG_MISSING_NOTICE:-}'}" ]]; then continue; fi
+    mkdir -p "$dest/$(dirname "$relative")"
+    printf 'verified-license:%s\\n' "$relative" > "$dest/$relative"
+  done <<'MOCK_SOURCE_BUILT_LICENSE_PATHS'
+${managedFFmpegLicensePaths.join('\n')}
+MOCK_SOURCE_BUILT_LICENSE_PATHS
 else
   exit 6
 fi`);
@@ -278,6 +305,17 @@ fi`);
   Object.assign(f.env, changes);
   f.managedStateDir = stateDir;
   return f;
+}
+
+function managedFFmpegFixtureRoot(f) {
+  const source = fs.readFileSync(path.join(f.dir, 'scripts/macos-managed-runtime.sh'), 'utf8');
+  const pin = source.match(/^STUDIO_MANAGED_FFMPEG_VERSION="([^"]+)"$/m)?.[1];
+  assert.ok(pin, 'The selected managed FFmpeg path must match the versioned runtime pin.');
+  return path.join(f.managedStateDir, 'tools/macos-arm64', `ffmpeg-${pin}`);
+}
+
+function installFixtureManagedFFmpeg(f) {
+  return f.run('set -euo pipefail; source scripts/macos-common.sh; studio_macos_host; studio_macos_install_managed_ffmpeg');
 }
 
 function success(result) {
@@ -559,6 +597,97 @@ for (const [macos, node, arch, accepted] of [
   });
 }
 
+for (const [description, ffmpegVersion, ffprobeVersion, accepted] of [
+  ['FFmpeg 8.1 without patch remains below floor', '8.1', '8.2', false],
+  ['FFmpeg 8.1 before security floor', '8.1.0', '8.1.3', false],
+  ['FFmpeg 8.1.2 before security floor', '8.1.2', '8.1.3', false],
+  ['FFmpeg 8.1.3 minimum', '8.1.3', '8.1.3', true],
+  ['FFmpeg 8.1.4 newer patch', '8.1.4', '8.1.4', true],
+  ['FFmpeg 8.2 stable without patch', '8.2', '8.2', true],
+  ['FFmpeg 8.2.0 newer minor', '8.2.0', '8.2.0', true],
+  ['FFmpeg 9.0 stable without patch', '9.0', '9.0', true],
+  ['FFmpeg 9.0.0 newer major', '9.0.0', '9.0.0', true],
+  ['FFmpeg nightly', 'N-123456-gabcdef', '8.1.3', false],
+  ['FFmpeg version suffix', '8.1.3-gabcdef', '8.1.3', false],
+  ['FFmpeg minor prerelease suffix', '8.2-gabcdef', '8.2', false],
+  ['FFmpeg missing version', '', '8.1.3', false],
+  ['ffprobe 8.1 without patch below floor', '8.2', '8.1', false],
+  ['ffprobe 8.1.2 older than floor', '8.1.3', '8.1.2', false],
+  ['ffprobe nightly', '8.1.3', 'N-123456-gabcdef', false],
+  ['ffprobe missing version', '8.1.3', '', false],
+]) {
+  test(`macOS FFmpeg version policy: ${description}`, (t) => {
+    const f = fixture(t, {
+      MOCK_FFMPEG_VERSION: ffmpegVersion,
+      MOCK_FFPROBE_VERSION: ffprobeVersion,
+    });
+    const result = f.run('source scripts/macos-common.sh; studio_macos_host && studio_macos_ffmpeg_ok');
+    assert.equal(result.status, accepted ? 0 : 1, result.stdout + result.stderr);
+  });
+}
+
+test('macOS accepts stable FFmpeg 8.2 and matching ffprobe 8.2 release banners', (t) => {
+  const f = fixture(t, { MOCK_FFMPEG_VERSION: '8.2', MOCK_FFPROBE_VERSION: '8.2' });
+  const banners = f.run('ffmpeg -version; ffprobe -version');
+  success(banners);
+  assert.match(banners.stdout, /^ffmpeg version 8\.2 Copyright \(c\) test$/m);
+  assert.match(banners.stdout, /^ffprobe version 8\.2 Copyright \(c\) test$/m);
+  success(f.run('source scripts/macos-common.sh; studio_macos_host && studio_macos_ffmpeg_ok'));
+});
+
+for (const [description, changes] of [
+  ['outdated PATH ffmpeg', { MOCK_FFMPEG_VERSION: '8.1.0' }],
+  ['outdated PATH ffprobe', { MOCK_FFPROBE_VERSION: '8.1.2' }],
+]) {
+  test(`macOS FFmpeg selection falls back to prepared managed runtime for ${description}`, (t) => {
+    const f = fixture(t, changes);
+    const stateRoot = path.join(f.dir, 'state with spaces');
+    f.env.STHANG_STUDIO_STATE_ROOT = shellPath(stateRoot);
+    // Follow the configured managed directory, without asserting or changing
+    // its old release URL/hash (the new reviewed download is a separate task).
+    const managedPin = fs.readFileSync(path.join(root, 'scripts/macos-managed-runtime.sh'), 'utf8')
+      .match(/^STUDIO_MANAGED_FFMPEG_VERSION="([^"]+)"$/m)?.[1];
+    assert.ok(managedPin, 'The managed FFmpeg directory identity is required.');
+    const managedDir = path.join(stateRoot, 'tools/macos-arm64', `ffmpeg-${managedPin}`, 'bin');
+    fs.mkdirSync(managedDir, { recursive: true });
+    f.write(path.relative(f.dir, path.join(managedDir, 'ffmpeg')),
+      'if [[ "$1" == "-version" ]]; then echo "ffmpeg version 8.1.3"; elif [[ "$*" == *"filter=ass"* ]]; then echo "shaping: auto simple complex"; elif [[ "$*" == *"-encoders"* ]]; then echo " V..... libx264 H.264"; fi');
+    f.write(path.relative(f.dir, path.join(managedDir, 'ffprobe')),
+      'if [[ "$1" == "-version" ]]; then echo "ffprobe version 8.1.3"; fi');
+    for (const relative of ['README-SOURCE-AND-LICENSES.txt', ...managedFFmpegLicensePaths]) {
+      const notice = path.join(path.dirname(managedDir), ...relative.split('/'));
+      fs.mkdirSync(path.dirname(notice), { recursive: true });
+      fs.writeFileSync(notice, 'complete fixture notice\n');
+    }
+    const result = f.run(`set -euo pipefail
+source scripts/macos-common.sh
+studio_macos_host
+studio_macos_select_ffmpeg
+[[ "$STUDIO_FFMPEG_PATH" == "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" ]]
+[[ "$STUDIO_FFPROBE_PATH" == "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" ]]
+[[ "$FFMPEG_PATH" == "$STUDIO_FFMPEG_PATH" ]]
+[[ "$FFPROBE_PATH" == "$STUDIO_FFPROBE_PATH" ]]
+studio_macos_ffmpeg_ok "$STUDIO_FFMPEG_PATH" "$STUDIO_FFPROBE_PATH"
+`);
+    success(result);
+  });
+}
+
+test('macOS accepts newer compatible user FFmpeg from PATH before managed or Homebrew', (t) => {
+  const f = fixture(t, { MOCK_FFMPEG_VERSION: '8.1.4', MOCK_FFPROBE_VERSION: '9.0.0' });
+  const result = f.run(`set -euo pipefail
+source scripts/macos-common.sh
+studio_macos_host
+studio_macos_select_ffmpeg
+[[ "$STUDIO_FFMPEG_PATH" == "$PWD/bin/ffmpeg" ]]
+[[ "$STUDIO_FFPROBE_PATH" == "$PWD/bin/ffprobe" ]]
+[[ "$FFMPEG_PATH" == "$STUDIO_FFMPEG_PATH" ]]
+[[ "$FFPROBE_PATH" == "$STUDIO_FFPROBE_PATH" ]]
+`);
+  success(result);
+  assert.doesNotMatch(f.log(), /brew /);
+});
+
 for (const version of ['12.3', '13.4', '13.5', '14.7', '15.0', '26.0']) {
   test(`clean Apple Silicon macOS ${version} provisions verified private runtimes`, (t) => {
     const f = cleanFixture(t, { MOCK_MACOS: version });
@@ -566,7 +695,7 @@ for (const version of ['12.3', '13.4', '13.5', '14.7', '15.0', '26.0']) {
     const firstLog = f.log();
     assert.match(firstLog, /download .*node-v22\.23\.3-darwin-arm64\.tar\.gz/);
     assert.match(firstLog, /download .*cpython-3\.12\.15/);
-    assert.match(firstLog, /download .*FFmpeg-arm-silicon-Tools-20260424\.zip/);
+    assert.match(firstLog, /download .*Sthang-Studio-FFmpeg-8\.1\.3-macOS-arm64-tools\.zip/);
     assert.match(firstLog, /npm ci --include=dev/);
     assert.doesNotMatch(firstLog, /brew install|sudo/);
 
@@ -592,7 +721,121 @@ test('managed FFmpeg rejects the wrong executable architecture', (t) => {
   const result = f.run('bash ./INSTALL-MACOS.sh');
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stderr, /FFmpeg runtime failed native-arm64/);
-  assert.equal(fs.existsSync(path.join(f.managedStateDir, 'tools/macos-arm64/ffmpeg-8.1-20260424/bin/ffmpeg')), false);
+  assert.equal(fs.existsSync(path.join(f.managedStateDir, 'tools/macos-arm64/ffmpeg-8.1.3-r1/bin/ffmpeg')), false);
+});
+
+test('managed source-built FFmpeg copies root README and all locked licenses beside bin and reuses complete cache', (t) => {
+  const f = cleanFixture(t);
+  success(installFixtureManagedFFmpeg(f));
+  const managed = managedFFmpegFixtureRoot(f);
+  assert.equal(fs.existsSync(path.join(managed, 'bin/ffmpeg')), true);
+  assert.equal(fs.existsSync(path.join(managed, 'bin/ffprobe')), true);
+  assert.match(fs.readFileSync(path.join(managed, 'README-SOURCE-AND-LICENSES.txt'), 'utf8'), /complete corresponding source/);
+  for (const relative of managedFFmpegLicensePaths) {
+    assert.equal(fs.readFileSync(path.join(managed, ...relative.split('/')), 'utf8'),
+      `verified-license:${relative}\n`, `Missing/changed original source-built notice ${relative}`);
+  }
+  assert.equal(fs.existsSync(path.join(managed, 'Tools')), false,
+    'The source-built archive layout must be normalized into bin plus ROOT notices.');
+
+  const before = f.log();
+  f.env.MOCK_BAD_SHA = 'ffmpeg'; // A valid cached runtime must not redownload.
+  success(installFixtureManagedFFmpeg(f));
+  assert.equal(f.log(), before);
+});
+
+test('managed FFmpeg repairs a cached 8.1.3 runtime missing required license notices', (t) => {
+  const f = cleanFixture(t);
+  success(installFixtureManagedFFmpeg(f));
+  const managed = managedFFmpegFixtureRoot(f);
+  const missing = path.join(managed, 'THIRD_PARTY_LICENSES/harfbuzz/src/ms-use/COPYING');
+  fs.rmSync(missing);
+  fs.writeFileSync(path.join(managed, 'bin/preserve-in-previous.txt'), 'old cached runtime\n');
+  fs.writeFileSync(path.join(f.dir, 'calls.log'), '');
+
+  success(installFixtureManagedFFmpeg(f));
+  assert.match(f.log(), /download .*Sthang-Studio-FFmpeg-8\.1\.3-macOS-arm64-tools\.zip/,
+    'A functional but notice-incomplete cached runtime must not return early.');
+  assert.equal(fs.readFileSync(missing, 'utf8'),
+    'verified-license:THIRD_PARTY_LICENSES/harfbuzz/src/ms-use/COPYING\n');
+  assert.equal(fs.existsSync(path.join(managed, 'bin/preserve-in-previous.txt')), false);
+  const previous = fs.readdirSync(path.dirname(managed))
+    .filter((entry) => entry.startsWith(`${path.basename(managed)}.previous-`));
+  assert.equal(previous.length, 1, 'Atomic replacement retains the previous runtime for recovery.');
+  assert.equal(fs.readFileSync(path.join(path.dirname(managed), previous[0], 'bin/preserve-in-previous.txt'), 'utf8'),
+    'old cached runtime\n');
+});
+
+for (const onPath of [false, true]) {
+  test(`managed FFmpeg selection repairs missing notices before launch (on PATH: ${onPath})`, (t) => {
+    const f = cleanFixture(t);
+    success(installFixtureManagedFFmpeg(f));
+    const missing = path.join(managedFFmpegFixtureRoot(f), 'THIRD_PARTY_LICENSES/fribidi/COPYING');
+    fs.rmSync(missing);
+    fs.writeFileSync(path.join(f.dir, 'calls.log'), '');
+    const result = f.run(`set -euo pipefail
+source scripts/macos-common.sh
+studio_macos_host
+studio_macos_managed_paths
+${onPath ? 'export PATH="$STUDIO_MANAGED_FFMPEG_ROOT/bin:$PATH"' : ''}
+if studio_macos_select_ffmpeg; then exit 37; fi
+studio_macos_install_managed_ffmpeg
+studio_macos_select_ffmpeg
+[[ "$STUDIO_FFMPEG_PATH" == "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" ]]
+`);
+    success(result);
+    assert.match(f.log(), /download .*FFmpeg/);
+    assert.equal(fs.readFileSync(missing, 'utf8'), 'verified-license:THIRD_PARTY_LICENSES/fribidi/COPYING\n');
+  });
+}
+
+test('managed FFmpeg rejects a verified archive with a missing license and preserves the prior cache', (t) => {
+  const f = cleanFixture(t);
+  success(installFixtureManagedFFmpeg(f));
+  const managed = managedFFmpegFixtureRoot(f);
+  const priorBinary = fs.readFileSync(path.join(managed, 'bin/ffmpeg'));
+  const untouchedNotice = fs.readFileSync(path.join(managed, 'THIRD_PARTY_LICENSES/ffmpeg/COPYING.GPLv3'));
+  const missingRelative = 'THIRD_PARTY_LICENSES/harfbuzz/src/ms-use/COPYING';
+  const missing = path.join(managed, ...missingRelative.split('/'));
+  fs.rmSync(missing); // Cache is usable, but no longer distributable as complete.
+  fs.writeFileSync(path.join(managed, 'bin/user-marker.txt'), 'preserved state\n');
+  f.env.MOCK_FFMPEG_MISSING_NOTICE = missingRelative;
+
+  const result = installFixtureManagedFFmpeg(f);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /missing required source directions or third-party license notices/);
+  assert.deepEqual(fs.readFileSync(path.join(managed, 'bin/ffmpeg')), priorBinary);
+  assert.deepEqual(fs.readFileSync(path.join(managed, 'THIRD_PARTY_LICENSES/ffmpeg/COPYING.GPLv3')), untouchedNotice);
+  assert.equal(fs.readFileSync(path.join(managed, 'bin/user-marker.txt'), 'utf8'), 'preserved state\n');
+  assert.equal(fs.existsSync(missing), false, 'Failed replacement must not silently invent missing license text.');
+  assert.equal(fs.readdirSync(path.dirname(managed))
+    .filter((entry) => entry.startsWith(`${path.basename(managed)}.previous-`)).length, 0,
+  'Pre-promotion missing-notice failure must not swap out the existing runtime.');
+});
+
+test('managed FFmpeg refuses an archive missing its root-level source and license README', (t) => {
+  const f = cleanFixture(t, { MOCK_FFMPEG_MISSING_README: '1' });
+  const result = installFixtureManagedFFmpeg(f);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /missing required source directions or third-party license notices/);
+  assert.equal(fs.existsSync(managedFFmpegFixtureRoot(f)), false);
+});
+
+test('managed FFmpeg rolls back when copying source-built license notices fails', (t) => {
+  const f = cleanFixture(t);
+  success(installFixtureManagedFFmpeg(f));
+  const managed = managedFFmpegFixtureRoot(f);
+  const priorBinary = fs.readFileSync(path.join(managed, 'bin/ffmpeg'));
+  const missing = path.join(managed, 'THIRD_PARTY_LICENSES/fribidi/COPYING');
+  fs.rmSync(missing);
+  f.write('bin/cp', 'if [[ "$*" == *"THIRD_PARTY_LICENSES"* ]]; then exit 37; fi; exec /usr/bin/cp "$@"');
+  const result = installFixtureManagedFFmpeg(f);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Could not preserve the verified FFmpeg tools and required third-party license notices/);
+  assert.deepEqual(fs.readFileSync(path.join(managed, 'bin/ffmpeg')), priorBinary);
+  assert.equal(fs.existsSync(missing), false);
+  assert.equal(fs.readdirSync(path.dirname(managed))
+    .filter((entry) => entry.startsWith(`${path.basename(managed)}.previous-`)).length, 0);
 });
 
 test('managed runtime pins are fixed and installer never invokes sudo or installs Homebrew', () => {
@@ -602,8 +845,8 @@ test('managed runtime pins are fixed and installer never invokes sudo or install
   assert.match(managed, /23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53/);
   assert.match(managed, /cpython-3\.12\.15\+20261003-aarch64-apple-darwin-install_only\.tar\.gz/);
   assert.match(managed, /316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213/);
-  assert.match(managed, /FFmpeg-arm-silicon-Tools-20260424\.zip/);
-  assert.match(managed, /7262b3ff400c0e88235647d99ab79067010694f059c4aa8af0bb0c43a951b2fc/);
+  assert.match(managed, /Sthang-Studio-FFmpeg-8\.1\.3-macOS-arm64-tools\.zip/);
+  assert.match(managed, /adeadc9e75aea26ebed1fe1c2500d70957c51d6b102f26c967045b5e71231767/);
   assert.doesNotMatch(managed + installer, /\bsudo\b|brew install|releases\/latest/);
 });
 

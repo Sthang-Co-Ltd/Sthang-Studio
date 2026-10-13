@@ -16,6 +16,7 @@ Temporary provider failures honor bounded retry instructions; duplicate model al
 Both models receive the same context and Accuracy guidance. Fresh listens remain fresh requests.
 
 Reviewed local runtimes and dependency locks keep setup and updates tied to the tested dependency graph.
+The Apple Silicon managed FFmpeg 8.1.3 download has matching complete corresponding source and license notices; compatible newer user runtimes can still be used.
 Updater preparation and activation protect in-progress work, verify the offered version and retain rollback state on failure.
 Existing stable brokers receive broker changes through the reviewed manual installer; an OTA payload does not replace that stable broker.
 Studio never downloads or installs silently: use Download & verify, then Install & restart.

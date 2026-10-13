@@ -4,10 +4,13 @@ Change ID: `studio-dependency-runtime-hardening-20261004`
 
 ## Source change and release boundary
 
-This maintenance work is prepared against Studio main `814fb61`. It is separate
-from the playback/update-safety change in PR #65. It does not publish a release,
-promote an update pointer, or replace the accepted `v0.85.6` release evidence.
-The public-release manifest continues to describe that accepted release.
+The initial October 4 maintenance checkpoint was prepared against Studio main
+`814fb61`, separately from the playback/update-safety change in PR #65. Those
+historical checks did not publish a release, promote an update pointer, or replace
+the accepted `v0.85.6` release evidence. The final **v0.86 Mac FFmpeg 8.1.3
+runtime and corresponding-source release contract** is documented below. It
+remains conditional on independently verified binary/source hashes, native
+acceptance, license review and publication, not merely a successful compilation.
 
 The intended compatibility boundary remains Windows x64 and native Apple Silicon
 macOS 12.3 or newer. macOS 12.3–13.4 requires Node 22. Source/runtime validators
@@ -108,13 +111,15 @@ No package lifecycle hook is introduced to mutate the old broker's interpreter.
 Replacing the initial legacy process itself requires a separate broker/manual
 installation upgrade; it is not represented as solved by this source change.
 
-## Deferred replacements
+## Deferred replacements and historical FFmpeg boundary
 
-- **FFmpeg:** neither platform pin changes here. Windows 9.0.2 still needs native
-  codec/shaping/export acceptance. The Mac 0.5.0 vendor archive is covered only
-  by the exact `v0.85.6` provenance exception. Upstream 8.1.2 fixes
-  CVE-2026-8461 and CVE-2026-30999; a compatible, provenance-reviewed replacement
-  needs a separate decision and must not inherit that exception silently
+The original October 4 checkpoint did not replace either FFmpeg pin. The Mac
+0.5.0 vendor archive and its provenance exception remain **historical v0.85.6
+only**. Upstream FFmpeg 8.1.2 fixes CVE-2026-8461 and CVE-2026-30999; v0.86
+addresses the Mac security-patch floor through the separate fixed-source 8.1.3
+release contract below, **not** by extending the old exception. Windows 9.0.2
+still needs its own native codec/shaping/export acceptance.
+
 - **Tokenizer stack:** tqdm 4.65.0's CVE-2024-34062 concerns malicious CLI
   arguments; Studio does not invoke its CLI. Its exact pin remains required by
   the supported khmercut stack. A coordinated migration needs clean native tests
@@ -129,6 +134,75 @@ installation upgrade; it is not represented as solved by this source change.
   dotenv 18 and direct overrides of GenAI's major transitive versions are deferred
 - **Maintainer tooling:** no Wrangler deployment or Cloudflare compatibility-date
   change is included
+
+## v0.86 macOS FFmpeg 8.1.3 fixed-source runtime contract
+
+The **v0.86** managed Apple Silicon FFmpeg/ffprobe fallback retains **native
+macOS 12.3+**, the Safari 17 browser target, Node 22.23.3+ or 24.21.0+ subject
+to OS support, and Python 3.12.15+ timing locks. It does not change the Windows
+FFmpeg distribution, project/media cloud processing, enrollment, telemetry or
+consent destinations. This is a separately reviewable runtime distribution
+boundary, not an extension of the historical `v0.85.6` exception.
+
+The v0.86 selector in `scripts/macos-common.sh` requires **both** `ffmpeg` and
+`ffprobe` to report stable numeric **8.1.3-or-newer** versions as native arm64
+executables. FFmpeg must also expose libass complex-script shaping and libx264.
+Two-part releases such as `8.2` mean `8.2.0`; old, nightly and unparseable
+versions fail validation. Compatible user-installed runtimes may be reused
+without Sthang's specific binary hash. Otherwise **setup** must retrieve and
+verify the exact versioned Sthang-hosted managed tools ZIP using the approved
+SHA-256; normal **launch** never downloads or compiles FFmpeg. A missing or
+unverified asset fails closed. The ordinary installer requires no Homebrew,
+`sudo`, system-wide compiler, or local FFmpeg source build.
+
+The fixed-source builder and required license evidence are specified in
+[`config/macos-ffmpeg-build-lock.json`](../config/macos-ffmpeg-build-lock.json)
+and [`MACOS-FFMPEG-PROVENANCE.md`](MACOS-FFMPEG-PROVENANCE.md). The **nine
+original SHA-256-locked archives** are FFmpeg 8.1.3, FreeType 2.14.3, FriBidi
+1.0.17, HarfBuzz 14.6.0, libass 0.17.5, an exact VideoLAN x264 commit, and
+pkgconf 2.5.1, Meson 1.9.1 and Ninja 1.13.2 build tools. The build targets
+Apple Silicon using Xcode 16.4/macOS SDK 15.5 and macOS deployment 12.3,
+with static third-party libraries and allowed Apple CoreText/CoreFoundation
+frameworks and system zlib. Apple's SDK and system libraries are not rehosted.
+The verified executable must use GPL/version3, libass, HarfBuzz and libx264,
+must exclude nonfree/OpenSSL/FDK components, and must pass Mach-O, macOS floor,
+system-linkage, real Khmer ASS shaping, H.264/AAC/PNG and `ffprobe` checks.
+
+The Sthang Studio runtime GitHub Release tag is
+`runtime-ffmpeg-8.1.3-macos-arm64-r1`. Its **exact builder output assets** are:
+
+- `Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip`
+- `Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-corresponding-source.zip`
+- `Sthang-Studio-FFmpeg-8.1.3-macOS-arm64.build-receipt.json`
+
+Each also requires its own `.sha256` sidecar. The tools ZIP contains
+`Tools/ffmpeg`, `Tools/ffprobe`, a source/license README and original runtime
+license texts. The corresponding-source ZIP contains all nine verbatim archives,
+original licenses, builder/workflow/lock, patch or no-patch record, build commands,
+logs and toolchain provenance. The receipt must bind those inputs to the produced
+binary and archive hashes. **All must be durably downloadable together from the
+same public GitHub Release** before offering a managed binary; a short-lived
+Actions artifact or automatic GitHub source snapshot is insufficient.
+
+The combined FFmpeg+x264 executable is **GPL-3.0-or-later**, separately from
+Sthang Studio's MIT application license. FreeType is under its FTL alternative,
+static FriBidi remains LGPL-2.1-or-later, HarfBuzz's Old MIT/file-level licenses,
+libass/pkgconf ISC, Meson/Ninja Apache-2.0 and IJG attribution apply where
+required. LGPL static-link/relink rights, corresponding source, license notices,
+and distribution terms require **independent legal review**. Source publication
+does not grant H.264 patent clearance or Apple notarization. The `v0.85.6` vendor
+exception does not approve this separate Sthang-hosted build.
+
+The historical October 13 selector-policy record passed **21 focused FFmpeg
+tests** and **137/137 synthetic `test:macos` policy tests** on Windows Node
+24.21.0. These are not native Apple Silicon acceptance. A native compile run
+also does not establish a validated binary: the final build-verification receipt
+and exact tools/source SHA-256 values must pass independently before the release
+owner adds them to `scripts/macos-managed-runtime.sh` and publishes those assets.
+Native Apple Silicon installation, Khmer rendering, rollback, corresponding-source
+availability, independent license/distribution sign-off, product documentation
+and macOS signed-update verification remain separate gates. The macOS signed OTA
+pointer must not advance based solely on compilation or this source contract.
 
 ## Inherited transport-cancellation limitation
 

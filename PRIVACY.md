@@ -9,7 +9,10 @@ cloud paths: Khmer Caption Contributor and optional product analytics. Both are
 **off by default** and require separate explicit opt-in. Their production services
 are provisioned, but neither choice is required for caption generation, review,
 editing, saving, or export. Version `0.85.6` does not change these data flows or
-consent boundaries.
+consent boundaries. The **v0.86 Mac runtime contract** changes where a missing
+local FFmpeg prerequisite is downloaded from; it does not create an additional
+media-processing, analytics, or account service. Contributor and analytics
+consent boundaries remain unchanged. Availability still requires release approval.
 
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
@@ -332,18 +335,40 @@ revoke/rotate it with the provider immediately.
 ## Managed prerequisite downloads
 
 On Apple Silicon macOS, initial setup first reuses compatible Node.js, Python and
-FFmpeg runtimes already present on the Mac. When a required runtime is missing,
-setup may download an exact checksum-pinned prerequisite archive from its upstream
-project host and store the verified runtime under
-`~/Library/Application Support/Sthang Studio/tools`. These setup requests expose
-ordinary HTTPS metadata such as the source IP address and request headers to the
-upstream host. They do not contain projects, captions, source media, exports, the
-Gemini API key, Contributor data or the analytics identity. Studio does not install
-Homebrew or modify system-wide runtimes for this path.
+FFmpeg runtimes already present on the Mac. If a prerequisite is missing, setup
+downloads its exact checksum-pinned archive into the private Studio tools folder
+(`~/Library/Application Support/Sthang Studio/tools`, or the configured local
+state root). **Node.js and CPython** remain upstream-hosted downloads. The
+published `v0.85.6` Mac FFmpeg fallback used an upstream vendor under an exception
+restricted to its exact accepted archive.
 
-The dependency-maintenance source change applies minimum security-patch checks
-before runtime reuse and adds the same checksum-pinned app-private CPython
-provisioning on Windows. The Windows Python archive is downloaded directly from
+For **v0.86**, a missing compatible FFmpeg/ffprobe pair (both native arm64,
+version 8.1.3 or newer, with required shaping/encoder capabilities) uses the
+separately hosted, checksum-pinned Sthang FFmpeg 8.1.3 tools ZIP from the Studio
+GitHub Release tag `runtime-ffmpeg-8.1.3-macos-arm64-r1`. Its complete
+corresponding-source ZIP, license notices, checksums and build receipt must be
+available beside the tools. The separate archives are named
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip` and
+`Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-corresponding-source.zip`; the installer
+downloads the **tools only**, not their sources. **The runtime has not been
+declared publicly available:** verified
+binary hashes, independent source/license review, native acceptance and release
+approval must precede any user-facing download. Studio does not compile FFmpeg
+from source on the user's Mac, install Homebrew or run `sudo` for this fallback.
+Compatible user-provided FFmpeg/ffprobe installations may instead be reused.
+
+These prerequisite requests expose ordinary HTTPS transport metadata such as the
+source IP address and request headers to the relevant upstream host or, if the
+new runtime is published and selected, GitHub and its download delivery network.
+They do **not** upload projects, captions, source media, local renders or exports,
+the Gemini API key, Contributor data, or the analytics identity. Sthang Studio
+does not send model inputs to GitHub or start a new telemetry, account-enrollment
+or cloud-media processing channel through the FFmpeg replacement. Studio does
+not install Homebrew or modify system-wide runtimes for this path.
+
+The v0.86 runtime policy applies minimum security-patch checks before reuse and
+adds checksum-pinned app-private CPython provisioning on Windows. The Windows
+Python archive is downloaded directly from
 Astral's upstream `python-build-standalone` release and kept inside Studio's local
 tools folder. Windows also provisions the reviewed private Node.js archive from
 nodejs.org when needed, with an exact checksum. These private runtime selections
@@ -352,7 +377,7 @@ not save download credentials. Python packages are installed from exact version/
 for each supported platform. These download requests expose ordinary HTTPS
 metadata to their upstream hosts, not project/media content.
 
-That source change explicitly disables ONNX Runtime and Hugging Face telemetry
+The runtime policy explicitly disables ONNX Runtime and Hugging Face telemetry
 before initialization. The server sets opt-out environment variables before
 starting either persistent or one-shot Python workers; setup/checking paths also
 apply the controls. These are independent of the optional Sthang Contributor and
