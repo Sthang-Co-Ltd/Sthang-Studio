@@ -246,6 +246,7 @@ test('opening a cached copy before original metadata retains the selected editin
   await page.route('**/api/media-preview/second*', (route) => route.fulfill({ json: { ...preview('ready', 'second.mp4'), url: '/media/second.mp4?compatible=1' } }));
   await openProject(page); await expectReady(page, 0.5);
   await page.getByRole('button', { name: /^Fine timing$/i }).click();
+  await page.getByText('Snapping, playback speed and display', { exact: true }).click();
   await page.getByLabel('Timing playback speed', { exact: true }).selectOption('1.5');
   const release = deferred();
   await page.route('**/media/second.mp4', async (route) => { await release.promise; await route.continue().catch(() => {}); });

@@ -8,8 +8,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
+import venv
 from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("provision", Path(__file__).resolve().parents[1] / "scripts/provision-timing.py")
@@ -104,22 +106,72 @@ class ProvisionTests(unittest.TestCase):
             m.recover_activation(self.root)
         self.assertTrue((backup / "old.txt").is_file())
 
+    def test_recovery_removes_only_empty_pending_junction_placeholder(self):
+        for had_active in [False, True]:
+            with self.subTest(had_active=had_active):
+                if had_active:
+                    self.legacy()
+                _, pending = self.journal(had_active=had_active)
+                pending.mkdir()
+                m.recover_activation(self.root)
+                self.assertFalse(m.present(pending))
+                self.assertFalse((self.root / ".timing-transaction.json").exists())
+                if had_active:
+                    self.assertEqual((self.active / "old.txt").read_text(), "user-owned prior environment")
+                    shutil.rmtree(self.active)
+                else:
+                    self.assertFalse(m.present(self.active))
+
+    def test_recovery_refuses_nonempty_pending_directory(self):
+        self.legacy()
+        _, pending = self.journal()
+        pending.mkdir()
+        (pending / "user-data.txt").write_text("never remove")
+        with self.assertRaisesRegex(RuntimeError, "nonempty or inaccessible pending"):
+            m.recover_activation(self.root)
+        self.assertEqual((pending / "user-data.txt").read_text(), "never remove")
+        self.assertTrue((self.active / "old.txt").is_file())
+        self.assertTrue((self.root / ".timing-transaction.json").is_file())
+
+    def test_recovery_refuses_unexpected_pending_file_or_link(self):
+        self.legacy()
+        _, pending = self.journal()
+        pending.write_text("do not remove")
+        with self.assertRaisesRegex(RuntimeError, "unexpected pending entry"):
+            m.recover_activation(self.root)
+        self.assertEqual(pending.read_text(), "do not remove")
+        pending.unlink()
+        unrelated = self.store / "unrelated"
+        unrelated.mkdir()
+        m.make_link(unrelated, pending)
+        with self.assertRaisesRegex(RuntimeError, "unexpected pending link"):
+            m.recover_activation(self.root)
+        self.assertEqual(pending.resolve(), unrelated)
+        self.assertTrue((self.root / ".timing-transaction.json").exists())
+        self.assertTrue((self.active / "old.txt").exists())
+
     def test_environment_survives_ota_source_move_and_work_cleanup(self):
         binary = m.python_in(self.candidate)
-        binary.parent.mkdir()
         if os.name == "nt":
-            # Actual junction execution is a native Windows acceptance gate.
-            self.skipTest("Requires native Windows venv fixture")
-        binary.symlink_to(sys.executable)
+            # A native Windows venv uses launcher entrypoints that must keep
+            # working through the relocated .venv directory junction.
+            venv.EnvBuilder(with_pip=False, symlinks=False).create(self.candidate)
+        else:
+            binary.parent.mkdir()
+            binary.symlink_to(sys.executable)
         with patch.object(m, "validate"):
             m.activate(self.candidate, self.active, PROFILE)
         final = self.base / "versions/1.0.0"
         final.parent.mkdir()
         self.root.rename(final)
         shutil.rmtree(self.base / "work")
-        result = subprocess.run([str(m.python_in(final / '.venv')), '-c', 'print("healthy after move")'], capture_output=True, text=True)
+        command = 'import sys; print("healthy after move"); print("venv=" + str(sys.prefix != sys.base_prefix))'
+        result = subprocess.run([str(m.python_in(final / '.venv')), '-c', command],
+                                capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('healthy after move', result.stdout)
+        if os.name == "nt":
+            self.assertIn('venv=True', result.stdout)
 
     def test_stale_ready_environment_is_rebuilt_without_mutating_it(self):
         self.legacy()
@@ -179,7 +231,18 @@ class ProvisionTests(unittest.TestCase):
             child.terminate()
             child.wait(timeout=10)
             child.stdout.close()
-        with m.setup_lock(self.root): pass
+        # On Windows an immediately re-acquired file lock can still report
+        # contention briefly after the terminated owner's wait() completes.
+        # Fail after a finite deadline if the OS never releases the lock.
+        deadline = time.monotonic() + 3
+        while True:
+            try:
+                with m.setup_lock(self.root): pass
+                break
+            except RuntimeError as error:
+                if str(error) != "Another timing setup is running. Close it before retrying." or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
 
 
 @unittest.skipUnless(os.name == "nt", "Native Windows junction acceptance only")

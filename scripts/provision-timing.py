@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import stat
 import subprocess
 import sys
 import uuid
@@ -202,9 +203,21 @@ def recover_activation(root: Path):
     elif not present(active):
         raise RuntimeError("Timing recovery could not find the previous environment; retain the recovery record")
     if present(pending):
-        if not is_link(pending) or pending.resolve() != candidate.resolve():
-            raise RuntimeError("Timing recovery found an unexpected pending link")
-        remove_link(pending)
+        if is_link(pending):
+            if pending.resolve() != candidate.resolve():
+                raise RuntimeError("Timing recovery found an unexpected pending link")
+            remove_link(pending)
+        else:
+            # A process can die after Win32 junction creation's mkdir() but
+            # before FSCTL_SET_REPARSE_POINT. Only its exact journal-named,
+            # ordinary empty placeholder may be removed, never its contents.
+            entry = pending.lstat()
+            if not stat.S_ISDIR(entry.st_mode) or getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+                raise RuntimeError("Timing recovery found an unexpected pending entry")
+            try:
+                pending.rmdir()
+            except OSError as exc:
+                raise RuntimeError("Timing recovery found a nonempty or inaccessible pending directory") from exc
     fsync_directory(journal.parent)
     journal.unlink()
     fsync_directory(journal.parent)
