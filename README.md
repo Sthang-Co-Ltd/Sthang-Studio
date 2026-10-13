@@ -426,12 +426,20 @@ media to Gemini or Sthang before the corresponding user action/consent.
 - relevant topic context, protected vocabulary, accuracy hints, and accepted or
   proposed wording when those are part of the requested pass.
 
-The recommended caption chain is Gemini 3.8 Flash followed by Gemini 3.7 Flash using
-the same Gemini API key and the same full Accuracy/topic prompt. For HTTP 429
-rate-limit responses, Studio skips repeated Retry-After loops on the same model and
-advances to the configured fallback. If both context-aware models are unavailable,
-the job stops safely and remains resumable instead of automatically degrading to a
-lower-quality transcription-only model.
+The current development source recommends Gemini 3.8 Flash followed by Gemini 3.6
+Flash using the same Gemini API key and the same full Accuracy/topic prompt.
+Google's October 8, 2026 update routes `gemini-3.7-flash` to `gemini-3.8-flash`, so
+the previous 3.8/3.7 pair no longer provides a distinct fallback. Source builds
+migrate that legacy default pair and avoid retrying a model through its alias.
+This correction is not yet a public-release claim; users of the published
+`0.85.6` build can select 3.8 primary and 3.6 fallback in **Settings → AI connection**.
+See [Gemini availability and recovery](docs/GEMINI-AVAILABILITY.md).
+
+HTTP 503 indicates temporary service unavailability; an unused daily quota does
+not rule it out. HTTP 429 indicates rate limiting. For 429 responses, Studio skips
+repeated Retry-After loops on the same model and advances to the configured
+fallback. If both context-aware models are unavailable, the job stops safely and
+remains resumable instead of automatically degrading to a transcription-only model.
 
 Gemini 3.5 Transcribe remains available only as an experimental/manual compatibility
 path. Automatic rescue is disabled by default and requires an explicit development

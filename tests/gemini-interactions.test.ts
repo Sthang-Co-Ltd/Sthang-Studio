@@ -5,7 +5,9 @@ import { config } from '../apps/server/src/config.ts';
 import {
   buildTranscriptionRecognitionHints,
   createInteractionWithRetry,
+  geminiRetryDelayMs,
   GeminiLanguageMismatchError,
+  GeminiUnavailableError,
   implausibleEnglishOnlyKhmerRescue,
   inferTranscriptLanguageFromText,
   khmerTranscriptScriptIssue,
@@ -144,7 +146,293 @@ test('a 429 fast-fails the current context-aware model and is eligible for trans
   assert.equal(transcriptionRescueEligible(error), true);
 });
 
-test('default full generation rate-limit chain stops after 3.8 then 3.7 without Transcribe', async () => {
+test('ordinary 503 retries remain bounded and an exhausted chain never restarts itself', async () => {
+  const previous = {
+    geminiMaxRetries: config.geminiMaxRetries,
+    geminiRetryBaseMs: config.geminiRetryBaseMs,
+    geminiRetryMaxMs: config.geminiRetryMaxMs,
+    geminiTranscriptionRescueEnabled: config.geminiTranscriptionRescueEnabled,
+  };
+  Object.assign(config, {
+    geminiMaxRetries: 2,
+    geminiRetryBaseMs: 1,
+    geminiRetryMaxMs: 2,
+    geminiTranscriptionRescueEnabled: false,
+  });
+  try {
+    for (const fallbackModel of ['gemini-3.6-flash', 'gemini-3.7-flash', '']) {
+      const calls: string[] = [];
+      const ai = {
+        interactions: {
+          create: async (request: { model?: string }) => {
+            calls.push(String(request.model || ''));
+            throw Object.assign(new Error('synthetic provider unavailable'), { status: 503 });
+          },
+        },
+      } as unknown as GoogleGenAI;
+      await assert.rejects(
+        runGeminiModelChain(
+          ai, { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+          'Synthetic fixture.', [], undefined, { model: 'gemini-3.8-flash', fallbackModel },
+        ),
+        GeminiUnavailableError,
+      );
+      assert.deepEqual(calls, fallbackModel === 'gemini-3.6-flash'
+        ? ['gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.6-flash', 'gemini-3.6-flash']
+        : ['gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.8-flash']);
+    }
+  } finally {
+    Object.assign(config, previous);
+  }
+});
+
+test('alias requests and successful transcript provenance use the canonical model', async () => {
+  const calls: string[] = [];
+  const ai = {
+    interactions: {
+      create: async (request: { model?: string }) => {
+        calls.push(String(request.model || ''));
+        return { output_text: '{"language":"km-KH","fullText":"សួស្តី"}' };
+      },
+    },
+  } as unknown as GoogleGenAI;
+  const result = await runGeminiModelChain(
+    ai, { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+    'Synthetic fixture.', [], undefined, { model: 'models/gemini-3.7-flash', fallbackModel: '' },
+  );
+  assert.deepEqual(calls, ['gemini-3.8-flash']);
+  assert.equal(result.textModel, 'gemini-3.8-flash');
+  assert.equal(result.fallbackUsed, false);
+});
+
+test('a 503 beyond the retry budget tries the independent fallback without retrying early', async () => {
+  const calls: string[] = [];
+  const ai = {
+    interactions: {
+      create: async (request: { model?: string }) => {
+        const model = String(request.model || '');
+        calls.push(model);
+        if (model === 'gemini-3.8-flash') {
+          throw Object.assign(new Error('provider 503 response'), {
+            status: 503,
+            headers: new Headers({ 'Retry-After': '300' }),
+          });
+        }
+        return { output_text: '{"language":"km-KH","fullText":"សួស្តី"}' };
+      },
+    },
+  } as unknown as GoogleGenAI;
+
+  const result = await runGeminiModelChain(
+    ai,
+    { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+    'Transcribe synthetic audio.',
+    [],
+    undefined,
+    { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
+  );
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.textModel, 'gemini-3.6-flash');
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash']);
+});
+
+test('retry backoff honors supported provider delays and rejects over-budget delays', () => {
+  const originalBase = config.geminiRetryBaseMs;
+  const originalMax = config.geminiRetryMaxMs;
+  config.geminiRetryBaseMs = 250;
+  config.geminiRetryMaxMs = 1200;
+  try {
+    assert.equal(geminiRetryDelayMs({ status: 500, headers: { 'retry-after': '300' } }, 1, 750), null);
+    assert.equal(geminiRetryDelayMs({ status: 500, headers: { 'Retry-After': '0' } }, 1, 250), 500);
+    assert.equal(geminiRetryDelayMs({ status: 503, headers: new Headers({ 'retry-after': new Date(Date.now() + 60_000).toUTCString() }) }, 1), null);
+    config.geminiRetryMaxMs = 60_000;
+    assert.equal(geminiRetryDelayMs({ status: 503, headers: { 'retry-after': '30' } }, 1), 30_000);
+    assert.equal(geminiRetryDelayMs({ status: 503, headers: { 'retry-after': '30' } }, 1, 750), 30_750);
+    assert.equal(geminiRetryDelayMs({ status: 503, headers: { 'retry-after': '60' } }, 1, 750), 60_000);
+  } finally {
+    config.geminiRetryBaseMs = originalBase;
+    config.geminiRetryMaxMs = originalMax;
+  }
+});
+
+test('a provider Retry-After beyond the retry budget never causes an early retry', async () => {
+  const originalMax = config.geminiRetryMaxMs;
+  const originalRetries = config.geminiMaxRetries;
+  config.geminiRetryMaxMs = 1000;
+  config.geminiMaxRetries = 1;
+  let calls = 0;
+  const ai = {
+    interactions: {
+      create: async () => {
+        calls += 1;
+        throw Object.assign(new Error('upstream capacity unavailable'), {
+          status: 500,
+          headers: { 'retry-after': '300' },
+        });
+      },
+    },
+  } as unknown as GoogleGenAI;
+  try {
+    await assert.rejects(
+      createInteractionWithRetry(
+        ai,
+        'gemini-3.8-flash',
+        { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+        'Transcribe synthetic audio.',
+      ),
+      (error: unknown) => (error as { status?: number }).status === 500,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    config.geminiRetryMaxMs = originalMax;
+    config.geminiMaxRetries = originalRetries;
+  }
+});
+
+test('redirected aliases never trigger a second attempt on the same effective Gemini model', async () => {
+  for (const models of [
+    { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.7-flash' },
+    { model: 'gemini-3.7-flash', fallbackModel: 'models/gemini-3.8-flash' },
+  ]) {
+    const calls: string[] = [];
+    const ai = {
+      interactions: {
+        create: async (request: { model?: string }) => {
+          calls.push(String(request.model || ''));
+          throw Object.assign(new Error('provider sensitive payload'), { status: 429 });
+        },
+      },
+    } as unknown as GoogleGenAI;
+    await assert.rejects(
+      runGeminiModelChain(
+        ai,
+        { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+        'Transcribe synthetic audio.',
+        [],
+        undefined,
+        models,
+      ),
+      (error: unknown) => error instanceof GeminiUnavailableError
+        && /Google is rate-limiting/.test(error.message)
+        && !error.message.includes('sensitive payload'),
+    );
+    assert.deepEqual(calls, ['gemini-3.8-flash']);
+  }
+});
+
+test('terminal provider 503 is sanitized when no independent fallback is configured', async () => {
+  const calls: string[] = [];
+  const ai = {
+    interactions: {
+      create: async (request: { model?: string }) => {
+        calls.push(String(request.model || ''));
+        throw Object.assign(new Error('raw provider user-owned transcript and key fixture'), {
+          status: 503,
+          body: 'private input data fixture',
+          headers: { 'retry-after': '300' },
+        });
+      },
+    },
+  } as unknown as GoogleGenAI;
+  await assert.rejects(
+    runGeminiModelChain(
+      ai,
+      { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+      'Transcribe synthetic audio.',
+      [],
+      undefined,
+      { model: 'gemini-3.8-flash', fallbackModel: '' },
+    ),
+    (error: unknown) => error instanceof GeminiUnavailableError
+      && /temporarily unavailable/.test(error.message)
+      && !/raw provider|private input|key fixture/.test(error.message),
+  );
+  assert.deepEqual(calls, ['gemini-3.8-flash']);
+});
+
+test('explicit HTTP 400 remains terminal despite transient-looking provider text', async () => {
+  const calls: string[] = [];
+  const ai = {
+    interactions: {
+      create: async (request: { model?: string }) => {
+        calls.push(String(request.model || ''));
+        throw Object.assign(new Error('temporarily unavailable; includes private transcript fixture'), {
+          statusCode: 400,
+          body: 'private transcript fixture',
+        });
+      },
+    },
+  } as unknown as GoogleGenAI;
+  await assert.rejects(
+    runGeminiModelChain(
+      ai,
+      { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+      'Transcribe synthetic audio.',
+      [],
+      undefined,
+      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
+    ),
+    (error: unknown) => error instanceof Error
+      && /rejected the Gemini transcription request/.test(error.message)
+      && !/temporarily unavailable|private transcript fixture/.test(error.message),
+  );
+  assert.deepEqual(calls, ['gemini-3.8-flash']);
+});
+
+test('statusless terminal SDK errors never expose raw provider text', async () => {
+  let calls = 0;
+  const ai = {
+    interactions: {
+      create: async () => {
+        calls += 1;
+        throw new Error('raw provider body: user prompt fixture');
+      },
+    },
+  } as unknown as GoogleGenAI;
+  await assert.rejects(
+    runGeminiModelChain(
+      ai, { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+      'Synthetic fixture.', [], undefined, { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
+    ),
+    (error: unknown) => error instanceof Error
+      && /transcription request could not be completed/.test(error.message)
+      && !/raw provider|user prompt fixture/.test(error.message),
+  );
+  assert.equal(calls, 1);
+});
+
+test('authentication and missing-model provider errors show bounded guidance', async () => {
+  for (const [status, expected] of [
+    [403, /rejected access for this Gemini key/],
+    [404, /selected Gemini model is unavailable/],
+  ] as const) {
+    let calls = 0;
+    const ai = {
+      interactions: {
+        create: async () => {
+          calls += 1;
+          throw Object.assign(new Error('provider context and key fixture'), { status });
+        },
+      },
+    } as unknown as GoogleGenAI;
+    await assert.rejects(
+      runGeminiModelChain(
+        ai,
+        { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+        'Transcribe synthetic audio.',
+        [],
+        undefined,
+        { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
+      ),
+      (error: unknown) => error instanceof Error
+        && expected.test(error.message)
+        && !/provider context|key fixture/.test(error.message),
+    );
+    assert.equal(calls, 1);
+  }
+});
+
+test('default full generation rate-limit chain stops after distinct 3.8 then 3.6 without Transcribe', async () => {
   const calls: string[] = [];
   const ai = {
     interactions: {
@@ -163,13 +451,13 @@ test('default full generation rate-limit chain stops after 3.8 then 3.7 without 
       'Transcribe this audio with topic context.',
       parseVocabulary(['Sthang']),
       undefined,
-      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.7-flash' },
+      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
       contextRecognitionHints('This video compares GPT 5.6 Luna and Terra. Preserve the exact model names.'),
     ),
     /Google is rate-limiting this Gemini key\/project/,
   );
 
-  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.7-flash']);
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash']);
 });
 
 test('experimental rescue opt-in runs one strict-Khmer Transcribe pass with Accuracy hints', async () => {
@@ -180,7 +468,7 @@ test('experimental rescue opt-in runs one strict-Khmer Transcribe pass with Accu
       create: async (request: Record<string, unknown>) => {
         const model = String(request.model || '');
         calls.push(model);
-        if (model === 'gemini-3.8-flash' || model === 'gemini-3.7-flash') {
+        if (model === 'gemini-3.8-flash' || model === 'gemini-3.6-flash') {
           throw Object.assign(new Error('rate limited'), { status: 429, headers: { 'retry-after': '60' } });
         }
         if (model === 'gemini-3.5-transcribe') {
@@ -198,11 +486,11 @@ test('experimental rescue opt-in runs one strict-Khmer Transcribe pass with Accu
     'Transcribe this audio with topic context.',
     parseVocabulary(['Sthang']),
     undefined,
-    { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.7-flash' },
+    { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
     contextRecognitionHints('This video compares GPT 5.6 Luna and Terra. Preserve the exact model names.'),
   ));
 
-  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-transcribe']);
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-transcribe']);
   assert.equal(result.textModel, 'gemini-3.5-transcribe');
   assert.equal(result.contextMode, 'vocabulary-only');
   assert.equal(result.descriptionHintsUsed, 2);
@@ -235,7 +523,7 @@ test('blank fallback stops a 429 after the primary and does not run compatibilit
     ),
     /Google is rate-limiting this Gemini key\/project/,
   );
-  assert.deepEqual(calls, ['gemini-3.7-flash']);
+  assert.deepEqual(calls, ['gemini-3.8-flash']);
 });
 
 test('guided review never falls through to Transcribe on 429', async () => {
@@ -260,7 +548,7 @@ test('guided review never falls through to Transcribe on 429', async () => {
     ),
     /Google is rate-limiting this Gemini key\/project/,
   );
-  assert.deepEqual(calls, ['gemini-3.7-flash', 'gemini-3.6-flash']);
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash']);
 });
 
 test('opted-in Transcribe 429 is terminal after exactly three total model calls', async () => {
@@ -281,11 +569,11 @@ test('opted-in Transcribe 429 is terminal after exactly three total model calls'
       'Transcribe this audio.',
       [],
       undefined,
-      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.7-flash' },
+      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
     )),
     /Google is rate-limiting this Gemini key\/project/,
   );
-  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-transcribe']);
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-transcribe']);
 });
 
 test('transcription rescue is one audio-only verbatim request with bounded protected vocabulary', async () => {
@@ -433,7 +721,7 @@ test('opted-in Khmer compatibility rescue fails closed on substantial English-on
       create: async (request: { model?: string }) => {
         const model = String(request.model || '');
         calls.push(model);
-        if (model === 'gemini-3.8-flash' || model === 'gemini-3.7-flash') {
+        if (model === 'gemini-3.8-flash' || model === 'gemini-3.6-flash') {
           throw Object.assign(new Error('rate limited'), { status: 429 });
         }
         return { output_text: 'This is a fully English transcription of the entire source clip and should not be published.' };
@@ -448,12 +736,12 @@ test('opted-in Khmer compatibility rescue fails closed on substantial English-on
       'Transcribe this audio.',
       [],
       undefined,
-      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.7-flash' },
+      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
     )),
     (error: unknown) => error instanceof GeminiLanguageMismatchError
       && /AI transcription returned English-only text/.test(error.message),
   );
-  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-transcribe']);
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-transcribe']);
 });
 
 test('Khmer-first general Gemini output rejects unexpected Thai/Lao script before failover or persistence', async () => {

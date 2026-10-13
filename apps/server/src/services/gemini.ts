@@ -9,6 +9,7 @@ import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
 import { canonicalizeVocabularyAliases, contextRecognitionHints, parseVocabulary, type VocabularyEntry } from './vocabulary.js';
 import { GeminiRequestTimeoutError, withGeminiRequestTimeout } from './gemini-request-timeout.js';
+import { canonicalGeminiModel } from './gemini-model-policy.js';
 
 const schema = {
   type: 'object',
@@ -203,8 +204,10 @@ function retryAfterMs(error: unknown): number | null {
 
 function transientGeminiError(error: unknown): boolean {
   const status = statusFromError(error);
-  if (status === 408 || status === 429 || (status != null && status >= 500 && status <= 599)) return true;
-  return /high demand|temporar|unavailable|resource[_ ]?exhausted|timeout|timed out|overload|try again/.test(deepErrorText(error));
+  // A provider's explicit 4xx is authoritative even if its diagnostic text
+  // happens to include words such as "temporarily unavailable".
+  if (status != null) return status === 408 || status === 429 || (status >= 500 && status <= 599);
+  return /high demand|temporar|unavailable|resource[_ ]?exhausted|timeout|timed out|overload|try again|connection|network|fetch failed/.test(deepErrorText(error));
 }
 
 function longRequestTimeout(error: unknown) {
@@ -213,6 +216,16 @@ function longRequestTimeout(error: unknown) {
 
 function rateLimitedGeminiError(error: unknown) {
   return statusFromError(error) === 429;
+}
+
+export function geminiRetryDelayMs(error: unknown, attempt: number, jitterMs = 0): number | null {
+  const serverDelay = retryAfterMs(error);
+  // Never shorten Google's requested delay and retry early. A delay beyond
+  // the local retry budget stops this model; an independent fallback may run.
+  if (serverDelay != null && serverDelay > config.geminiRetryMaxMs) return null;
+  const exponent = Math.max(0, attempt - 1);
+  const exponential = Math.min(config.geminiRetryMaxMs, config.geminiRetryBaseMs * 2 ** exponent);
+  return Math.min(config.geminiRetryMaxMs, Math.max(exponential, serverDelay ?? 0) + Math.max(0, jitterMs));
 }
 
 export function transcriptionRescueEligible(error: unknown) {
@@ -385,16 +398,12 @@ export async function createInteractionWithRetry(
       if (!transientGeminiError(error) || attempt >= maxAttempts) throw error;
       // A 504 (or Studio's own per-request deadline) already consumed the long
       // request budget. A 429 often carries a long Retry-After and is usually a
-      // capacity/quota signal rather than a request-quality problem. In both cases
-      // fail over immediately instead of spending minutes retrying the same model.
+      // capacity/quota signal rather than a request-quality problem. Other
+      // transient responses retain the configured retries and provider delay;
+      // a delay beyond the retry budget stops this model without retrying early.
       if (longRequestTimeout(error) || rateLimitedGeminiError(error)) throw error;
-      const exponent = Math.max(0, attempt - 1);
-      const exponential = Math.min(config.geminiRetryMaxMs, config.geminiRetryBaseMs * 2 ** exponent);
-      const serverDelay = retryAfterMs(error);
-      const jitter = Math.floor(Math.random() * 751);
-      const delayMs = serverDelay == null
-        ? Math.min(config.geminiRetryMaxMs, exponential + jitter)
-        : Math.max(serverDelay, exponential) + jitter;
+      const delayMs = geminiRetryDelayMs(error, attempt, Math.floor(Math.random() * 751));
+      if (delayMs == null) throw error;
       console.warn(`[Gemini] ${model}: ${retryFailureLabel(error)}. Retrying automatically in ${(delayMs / 1000).toFixed(1)}s...`);
       await sleep(delayMs);
     }
@@ -507,6 +516,29 @@ function unavailableMessage(error: unknown, triedCompatibility: boolean) {
     : 'Gemini is temporarily unavailable. Your video and project are safe; use Resume in Activity when the service recovers.';
 }
 
+function safeTerminalGeminiError(error: unknown, triedCompatibility = false): Error {
+  if (error instanceof GeminiUnavailableError || error instanceof GeminiLanguageMismatchError || error instanceof GeminiGuidanceUnsupportedError) {
+    return error;
+  }
+  if (transientGeminiError(error)) return new GeminiUnavailableError(unavailableMessage(error, triedCompatibility), error);
+  const status = statusFromError(error);
+  // Job failures display error.message in Activity; never return the SDK's
+  // provider body, which may contain user-owned request context.
+  if (status === 400 || status === 422) {
+    return new Error('Google rejected the Gemini transcription request. Check the selected model in Settings → AI connection and try again.', { cause: error });
+  }
+  if (status === 401 || status === 403) {
+    return new Error('Google rejected access for this Gemini key or project. Check your API key and permissions in Settings → AI connection.', { cause: error });
+  }
+  if (status === 404) {
+    return new Error('The selected Gemini model is unavailable to this key or project. Choose another model in Settings → AI connection.', { cause: error });
+  }
+  if (status != null && status >= 400) {
+    return new Error('Google could not process the Gemini request. Check Settings → AI connection and try again.', { cause: error });
+  }
+  return new Error('The transcription request could not be completed. Your project is safe; use Resume in Activity to try again.', { cause: error });
+}
+
 export async function runGeminiModelChain(
   ai: GoogleGenAI,
   uploaded: { uri: string; mimeType: string },
@@ -516,6 +548,10 @@ export async function runGeminiModelChain(
   llm: Pick<ResolvedGeminiSettings, 'model' | 'fallbackModel'>,
   descriptionHints: string[] = [],
 ): Promise<GeminiTranscript> {
+  llm = {
+    model: canonicalGeminiModel(llm.model),
+    fallbackModel: canonicalGeminiModel(llm.fallbackModel),
+  };
   const finish = (
     raw: Pick<TranscriptResult, 'language' | 'fullText'>,
     model: string,
@@ -575,10 +611,7 @@ export async function runGeminiModelChain(
       return value;
     } catch (rescueError) {
       if (rescueError instanceof GeminiLanguageMismatchError) throw rescueError;
-      if (transientGeminiError(rescueError)) {
-        throw new GeminiUnavailableError(unavailableMessage(rescueError, true), rescueError);
-      }
-      throw rescueError;
+      throw safeTerminalGeminiError(rescueError, true);
     }
   };
 
@@ -598,9 +631,8 @@ export async function runGeminiModelChain(
     if (primaryError instanceof GeminiLanguageMismatchError) throw primaryError;
     const fallback = llm.fallbackModel.trim();
     const primaryCanFailOver = transientGeminiError(primaryError) || primaryError instanceof GeminiGuidanceUnsupportedError;
-    if (!fallback || fallback === llm.model || !primaryCanFailOver) {
-      if (rateLimitedGeminiError(primaryError)) throw new GeminiUnavailableError(unavailableMessage(primaryError, false), primaryError);
-      throw primaryError;
+    if (!fallback || canonicalGeminiModel(fallback) === canonicalGeminiModel(llm.model) || !primaryCanFailOver) {
+      throw safeTerminalGeminiError(primaryError);
     }
     console.warn(`[Gemini] ${llm.model}: ${retryFailureLabel(primaryError)}. Trying configured fallback ${fallback}.`);
     try {
@@ -619,19 +651,11 @@ export async function runGeminiModelChain(
       if (fallbackError instanceof GeminiLanguageMismatchError) throw fallbackError;
       const canRescue = !guidance
         && Boolean(rescueModel)
-        && rescueModel !== llm.model
-        && rescueModel !== fallback
+        && canonicalGeminiModel(rescueModel) !== canonicalGeminiModel(llm.model)
+        && canonicalGeminiModel(rescueModel) !== canonicalGeminiModel(fallback)
         && transcriptionRescueEligible(fallbackError);
       if (canRescue) return runCompatibilityRescue(fallback, fallbackError);
-      if (transientGeminiError(fallbackError)) {
-        throw new GeminiUnavailableError(
-          rateLimitedGeminiError(fallbackError)
-            ? unavailableMessage(fallbackError, false)
-            : `Gemini is temporarily unavailable. Studio tried ${llm.model} and ${fallback}. Your video and project are safe; use Resume in Activity when the service recovers.`,
-          fallbackError,
-        );
-      }
-      throw fallbackError;
+      throw safeTerminalGeminiError(fallbackError);
     }
   }
 }
@@ -756,7 +780,7 @@ export async function transcribeTextWithGemini(
         error,
       );
     }
-    throw error;
+    throw safeTerminalGeminiError(error);
   }
   const { ai, uploaded } = prepared;
   const entries = parseVocabulary(context?.vocabulary);

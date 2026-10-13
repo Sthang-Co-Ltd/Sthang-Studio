@@ -2,6 +2,9 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { defaultGeminiFallbackModel, defaultGeminiModel, resolveGeminiModelPair } from './services/gemini-model-policy.js';
+
+export { defaultGeminiFallbackModel, defaultGeminiModel } from './services/gemini-model-policy.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const rootDir = path.resolve(here, '../../..');
@@ -70,15 +73,19 @@ const publicAnalyticsEndpoint = publicServices.productAnalytics?.provisioned ===
   ? httpsOriginValue(publicServices.productAnalytics.endpoint)
   : '';
 
-export const defaultGeminiModel = 'gemini-3.8-flash';
-export const defaultGeminiFallbackModel = 'gemini-3.7-flash';
+// Normalize the former 3.8/3.7 environment defaults, including installed
+// .env files that predate Google's 2026-10-08 redirect of 3.7 to 3.8.
+const environmentGeminiModels = resolveGeminiModelPair(
+  process.env.GEMINI_MODEL || defaultGeminiModel,
+  process.env.GEMINI_FALLBACK_MODEL ?? defaultGeminiFallbackModel,
+);
 
 export const config = {
   port: Number(process.env.PORT || 8787),
   webOrigin: process.env.WEB_ORIGIN || 'http://localhost:5188',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || defaultGeminiModel,
-  geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? defaultGeminiFallbackModel,
+  geminiModel: environmentGeminiModels.model || defaultGeminiModel,
+  geminiFallbackModel: environmentGeminiModels.fallbackModel,
   geminiTranscriptionRescueEnabled: envBool('GEMINI_TRANSCRIPTION_RESCUE_ENABLED', false),
   geminiTranscriptionRescueModel: process.env.GEMINI_TRANSCRIPTION_RESCUE_MODEL ?? 'gemini-3.5-transcribe',
   geminiMaxRetries: Math.max(0, Math.min(6, Number(process.env.GEMINI_MAX_RETRIES || 2))),

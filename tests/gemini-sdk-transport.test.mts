@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../apps/server/src/config.js';
-import { makePromptOnlyInteraction, makeTranscriptionRescueInteraction } from '../apps/server/src/services/gemini.js';
+import { makePromptOnlyInteraction, makeTranscriptionRescueInteraction, runGeminiModelChain } from '../apps/server/src/services/gemini.js';
 
 const uploaded = { uri: 'https://example.invalid/synthetic-audio', mimeType: 'audio/wav' };
 const responseText = '{"language":"km-KH","fullText":"សួស្តី"}';
@@ -64,6 +64,40 @@ test('real GenAI SDK performs one transport attempt for a transient provider res
     });
   });
   assert.equal(calls, 1, 'Studio owns retries; the SDK must not add hidden attempts');
+});
+
+test('real GenAI SDK preserves over-budget Retry-After and reaches a distinct fallback without retrying early', async () => {
+  const calls: string[] = [];
+  await offlineSdk(async (client) => {
+    const result = await runGeminiModelChain(
+      client,
+      uploaded,
+      'Transcribe synthetic audio.',
+      [],
+      undefined,
+      { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' },
+    );
+    assert.equal(result.textModel, 'gemini-3.6-flash');
+    assert.equal(result.fallbackUsed, true);
+  }, async (input, options) => {
+    const request = input instanceof Request ? input : new Request(input, options);
+    const model = String((JSON.parse(await request.text()) as { model?: string }).model || '');
+    calls.push(model);
+    if (model === 'gemini-3.8-flash') {
+      return new Response(JSON.stringify({ error: { code: 503, message: 'offline test unavailable' } }), {
+        status: 503, headers: { 'content-type': 'application/json', 'retry-after': '300' },
+      });
+    }
+    return new Response(JSON.stringify({
+      id: 'offline-fallback-id',
+      object: 'interaction',
+      status: 'completed',
+      model,
+      output_text: responseText,
+      outputs: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash']);
 });
 
 // Strict transport-abort propagation is an explicitly known inherited Node

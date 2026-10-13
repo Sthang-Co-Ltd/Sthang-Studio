@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { config, defaultGeminiFallbackModel, defaultGeminiModel } from '../config.js';
+import { config } from '../config.js';
+import { canonicalGeminiModel, resolveGeminiModelPair } from './gemini-model-policy.js';
 
 export type LlmKeySource = 'secure-store' | 'environment' | 'none';
 
@@ -119,17 +120,17 @@ async function readMetadata(): Promise<StoredLlmMetadata> {
     const parsed = JSON.parse(await fs.readFile(metadataFile, 'utf8')) as Partial<StoredLlmMetadata>;
     const model = typeof parsed.model === 'string' ? parsed.model : undefined;
     const fallbackModel = typeof parsed.fallbackModel === 'string' ? parsed.fallbackModel : undefined;
-    // v1 stored the then-default 3.7/3.6 pair as ordinary model choices. Treat
-    // exactly that pair as legacy defaults so existing installs receive the new
-    // recommended 3.8/3.7 chain. Any other pair remains user-owned/custom.
-    const legacyDefaultPair = parsed.version !== 2
-      && model === 'gemini-3.7-flash'
-      && fallbackModel === 'gemini-3.6-flash';
+    // Older v1/v2 installs saved default models as ordinary selections.
+    // Upgrade those known pairs in memory; do not rewrite local metadata merely
+    // because a user opened Settings or resumed a processing job.
+    const models = model !== undefined && fallbackModel !== undefined
+      ? resolveGeminiModelPair(model, fallbackModel)
+      : null;
     return {
       version: 2,
       provider: 'gemini',
-      model: legacyDefaultPair ? defaultGeminiModel : model,
-      fallbackModel: legacyDefaultPair ? defaultGeminiFallbackModel : fallbackModel,
+      model: models?.model ?? model,
+      fallbackModel: models?.fallbackModel ?? fallbackModel,
       keyLast4: typeof parsed.keyLast4 === 'string' ? parsed.keyLast4 : undefined,
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
     };
@@ -262,13 +263,17 @@ export async function resolveGeminiSettings(): Promise<ResolvedGeminiSettings> {
   }
   const environmentKey = validConfiguredKey(config.geminiApiKey) ? config.geminiApiKey.trim() : '';
   const apiKey = secureKey || environmentKey;
+  const models = resolveGeminiModelPair(
+    normalizeModel(metadata.model, config.geminiModel),
+    normalizeModel(metadata.fallbackModel, config.geminiFallbackModel, true),
+  );
   const resolved: ResolvedGeminiSettings = {
     provider: 'gemini',
     configured: Boolean(apiKey),
     apiKey,
     keySource: secureKey ? 'secure-store' : environmentKey ? 'environment' : 'none',
-    model: normalizeModel(metadata.model, config.geminiModel),
-    fallbackModel: normalizeModel(metadata.fallbackModel, config.geminiFallbackModel, true),
+    model: models.model,
+    fallbackModel: models.fallbackModel,
     secureStorageAvailable: process.platform === 'win32' || process.platform === 'darwin',
     secureStorageLabel: process.platform === 'win32'
       ? 'Windows user-protected storage (DPAPI)'
@@ -301,8 +306,10 @@ export async function publicLlmSettings(): Promise<PublicLlmSettings> {
 
 export async function saveLlmSettings(input: { apiKey?: unknown; model?: unknown; fallbackModel?: unknown }): Promise<PublicLlmSettings> {
   const current = await readMetadata();
-  const model = normalizeModel(input.model, current.model || config.geminiModel);
-  const fallbackModel = normalizeModel(input.fallbackModel, current.fallbackModel ?? config.geminiFallbackModel, true);
+  const models = resolveGeminiModelPair(
+    normalizeModel(input.model, current.model || config.geminiModel),
+    normalizeModel(input.fallbackModel, current.fallbackModel ?? config.geminiFallbackModel, true),
+  );
   let keyLast4 = current.keyLast4;
   if (typeof input.apiKey === 'string' && input.apiKey.trim()) {
     const key = validateKeyInput(input.apiKey);
@@ -312,8 +319,8 @@ export async function saveLlmSettings(input: { apiKey?: unknown; model?: unknown
   await writeMetadata({
     version: 2,
     provider: 'gemini',
-    model,
-    fallbackModel,
+    model: models.model,
+    fallbackModel: models.fallbackModel,
     keyLast4,
     updatedAt: new Date().toISOString(),
   });
@@ -359,7 +366,7 @@ export async function testGeminiConnection(input?: { apiKey?: unknown; model?: u
     ? validateKeyInput(input.apiKey)
     : resolved.apiKey;
   if (!candidate) throw new Error('Add a Gemini API key before testing the connection.');
-  const model = normalizeModel(input?.model, resolved.model);
+  const model = canonicalGeminiModel(normalizeModel(input?.model, resolved.model));
   const started = Date.now();
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {
     method: 'GET',
@@ -375,7 +382,7 @@ export async function testGeminiConnection(input?: { apiKey?: unknown; model?: u
       provider: 'gemini',
       model,
       latencyMs,
-      message: `Connected to Gemini. ${model} is available for this key.`,
+      message: `Gemini model lookup succeeded for ${model}. Live generation capacity was not tested.`,
     };
   }
   if (response.status === 429 || response.status >= 500) {
