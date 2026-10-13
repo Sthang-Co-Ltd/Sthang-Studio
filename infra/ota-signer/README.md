@@ -76,8 +76,21 @@ matching GitHub release/tag and four recovery assets, and the public immutable
 update origin. It then uses the same Secrets Store key to sign `latest.json`,
 advances only to a newer version, writes it with a `no-store` cache policy, and
 verifies the exact bytes through the public update origin. If live-origin
-verification fails after the write, it restores the previous pointer (or removes
-the first pointer) before returning failure.
+verification fails after the write, it conditionally restores the previous signed
+pointer using the newly written object's ETag. If no previous pointer existed, it
+instead conditionally replaces only that exact ETag with an **inactive marker**.
+The marker has no signed update version or valid signature, so installed clients
+reject it and cannot treat it as an update offer. The signer recognizes only its
+exact platform-bound marker bytes and R2 metadata for a later owner-authorized
+compare-and-swap promotion retry; all ordinary latest pointers must still pass
+full signed verification and newer-version checks.
+
+Cloudflare R2's Workers API supports ETag-conditional `put` but does not provide
+ETag-conditional `delete`. The inactive marker is a fail-closed withdrawal, not
+deletion of the first object. If a concurrent writer has already replaced the
+promoted pointer, neither rollback path can overwrite it; the signer reports
+that recovery could not be confirmed and requires manual review. A failed
+origin check never returns successful promotion status.
 
 A public, non-sensitive result can be read from:
 

@@ -1286,6 +1286,65 @@ export async function restoreLatestPointerConditional(bucket, key, previous, pre
   return Boolean(restored);
 }
 
+// R2's Workers binding supports conditional put(), but delete() has no ETag
+// condition. An unconditional delete after a failed first promotion could remove
+// another request's newer pointer. A conditional inactive marker makes clients
+// reject the offer, while retaining a safe compare-and-swap retry path.
+const INACTIVE_LATEST_STATE = 'inactive-first-promotion';
+const INACTIVE_LATEST_METADATA = 'studioLatestState';
+function inactiveLatestBytes(platform) {
+  if (platform !== 'windows-x64' && platform !== 'macos-arm64') {
+    throw new SignerError('The Studio update platform is not supported.', 409);
+  }
+  return textEncoder.encode(`${JSON.stringify({
+    product: 'sthang-studio', platform, status: INACTIVE_LATEST_STATE,
+  })}\n`);
+}
+
+export function isInactiveLatestPointer(previous, bytes, platform) {
+  return previous?.customMetadata?.[INACTIVE_LATEST_METADATA] === INACTIVE_LATEST_STATE
+    && compareBytes(bytes, inactiveLatestBytes(platform));
+}
+
+export async function inactivateFirstLatestPointerConditional(bucket, key, promoted, platform) {
+  if (!promoted?.etag) return false;
+  const inactive = await bucket.put(key, inactiveLatestBytes(platform), {
+    onlyIf: { etagMatches: promoted.etag },
+    httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
+    customMetadata: { [INACTIVE_LATEST_METADATA]: INACTIVE_LATEST_STATE },
+  });
+  return Boolean(inactive);
+}
+
+export async function publishLatestPointerVerified(bucket, key, pointerBytes, {
+  previous = null,
+  previousBytes = null,
+  platform,
+  httpMetadata,
+  customMetadata,
+  verifyPublished,
+}) {
+  if (typeof verifyPublished !== 'function') throw new SignerError('Latest-pointer verification is required.', 409);
+  const promoted = await putLatestPointerConditional(bucket, key, pointerBytes, {
+    previous, httpMetadata, customMetadata,
+  });
+  try {
+    await verifyPublished();
+  } catch (error) {
+    let compensated = false;
+    try {
+      compensated = previousBytes
+        ? await restoreLatestPointerConditional(bucket, key, previous, previousBytes, promoted)
+        : await inactivateFirstLatestPointerConditional(bucket, key, promoted, platform);
+    } catch { /* A failed conditional recovery must be reported as unresolved. */ }
+    if (!compensated) {
+      throw new SignerError('Public latest-pointer verification failed and safe recovery could not be confirmed. Manual review is required.', 502);
+    }
+    throw error;
+  }
+  return promoted;
+}
+
 async function verifyPromotionEvidence(env, requestContext, platform = 'windows-x64') {
   const commit = await acceptedMain();
   const source = await sourceArchive(commit);
@@ -1346,17 +1405,13 @@ async function processPromotion(env, requestContext, deliveryId, platform = 'win
   const latestKey = platform === 'macos-arm64' ? 'studio/macos-arm64/latest.json' : 'studio/windows/latest.json';
   const previous = await env.STUDIO_UPDATES.get(latestKey);
   let previousBytes = null;
-  let previousEtag = '';
-  let previousHttpMetadata;
-  let previousCustomMetadata;
   if (previous) {
     previousBytes = new Uint8Array(await previous.arrayBuffer());
-    previousEtag = String(previous.etag || '');
-    previousHttpMetadata = previous.httpMetadata;
-    previousCustomMetadata = previous.customMetadata;
-    const current = await validateExistingLatest(previousBytes, platform);
-    if (compareStudioVersions(evidence.version, current.version) <= 0) {
-      throw new SignerError('The latest pointer may only advance to a newer verified version.', 409);
+    if (!isInactiveLatestPointer(previous, previousBytes, platform)) {
+      const current = await validateExistingLatest(previousBytes, platform);
+      if (compareStudioVersions(evidence.version, current.version) <= 0) {
+        throw new SignerError('The latest pointer may only advance to a newer verified version.', 409);
+      }
     }
   }
 
@@ -1367,31 +1422,22 @@ async function processPromotion(env, requestContext, deliveryId, platform = 'win
   const latestSha256 = await sha256Hex(pointerBytes);
   await requireMain(evidence.commit, 'Accepted main changed during latest-pointer promotion. No pointer was written.');
 
-  const storedPointer = await putLatestPointerConditional(env.STUDIO_UPDATES, latestKey, pointerBytes, {
+  await publishLatestPointerVerified(env.STUDIO_UPDATES, latestKey, pointerBytes, {
     previous,
+    previousBytes,
+    platform,
     httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
     customMetadata: { sourceCommit: evidence.commit, manifestSha256: evidence.manifestSha256, deliveryId },
+    verifyPublished: async () => {
+      const stored = await bucketBytes(env.STUDIO_UPDATES, latestKey, 'Promoted latest pointer', 32 * 1024);
+      if (!compareBytes(stored.bytes, pointerBytes)) throw new SignerError('Promoted latest pointer bytes could not be verified.', 502);
+      await validateExistingLatest(stored.bytes, platform);
+      const publicLatest = platform === 'macos-arm64'
+        ? `https://${STUDIO_UPDATE_HOST}/studio/macos-arm64/latest.json`
+        : `https://${STUDIO_UPDATE_HOST}/studio/windows/latest.json`;
+      await fetchExactPublic(publicLatest, pointerBytes, 'Public latest pointer');
+    },
   });
-  try {
-    const stored = await bucketBytes(env.STUDIO_UPDATES, latestKey, 'Promoted latest pointer', 32 * 1024);
-    if (!compareBytes(stored.bytes, pointerBytes)) throw new SignerError('Promoted latest pointer bytes could not be verified.', 502);
-    await validateExistingLatest(stored.bytes, platform);
-    const publicLatest = platform === 'macos-arm64'
-      ? `https://${STUDIO_UPDATE_HOST}/studio/macos-arm64/latest.json`
-      : `https://${STUDIO_UPDATE_HOST}/studio/windows/latest.json`;
-    await fetchExactPublic(publicLatest, pointerBytes, 'Public latest pointer');
-  } catch (error) {
-    if (previousBytes) {
-      await restoreLatestPointerConditional(
-        env.STUDIO_UPDATES,
-        latestKey,
-        { ...previous, etag: previousEtag, httpMetadata: previousHttpMetadata, customMetadata: previousCustomMetadata },
-        previousBytes,
-        storedPointer,
-      ).catch(() => {});
-    }
-    throw error;
-  }
 
   const status = {
     schemaVersion: 1,

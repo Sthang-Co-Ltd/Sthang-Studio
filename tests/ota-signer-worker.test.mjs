@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import zlib from 'node:zlib';
 import test from 'node:test';
+import { validateLatestPointer } from '../scripts/update-protocol.mjs';
 import {
   STUDIO_REPOSITORY,
   STUDIO_REPOSITORY_ID,
@@ -14,11 +16,13 @@ import {
   buildMacManifest,
   compareStudioVersions,
   handleRequest,
+  isInactiveLatestPointer,
   latestPointerDocument,
   macPromotionIssueCommand,
   macReleaseIssueCommand,
   parseZip,
   putLatestPointerConditional,
+  publishLatestPointerVerified,
   promotionIssueCommand,
   releaseChecksum,
   releaseIssueCommand,
@@ -408,6 +412,108 @@ test('latest pointer promotion uses conditional writes and never rolls an older 
     () => putLatestPointerConditional(bucket, 'latest.json', Buffer.from('stale'), { previous }),
     /latest pointer changed during promotion/i,
   );
+});
+
+function simulatedR2LatestBucket() {
+  let sequence = 0;
+  const state = { current: null, writes: [] };
+  const bucket = {
+    async put(_key, bytes, options = {}) {
+      const condition = options.onlyIf || {};
+      state.writes.push({ condition });
+      if (condition.etagDoesNotMatch === '*' && state.current) return null;
+      if (condition.etagMatches !== undefined && state.current?.etag !== condition.etagMatches) return null;
+      const stored = {
+        etag: `etag-${++sequence}`,
+        bytes: Buffer.from(bytes),
+        httpMetadata: options.httpMetadata,
+        customMetadata: options.customMetadata,
+      };
+      state.current = stored;
+      return stored;
+    },
+    // R2's real delete() has no conditional option. Using it here would race.
+    async delete() { throw new Error('Unconditional delete must never be called.'); },
+  };
+  return { bucket, state };
+}
+
+test('failed first macOS public-pointer verification withdraws the offer via conditional inactive marker and allows safe retry', async () => {
+  const { bucket, state } = simulatedR2LatestBucket();
+  const latestKey = 'studio/macos-arm64/latest.json';
+  const offered = Buffer.from('{"signed":"test-fixture-offer"}\n');
+  const trust = JSON.parse(fs.readFileSync(new URL('../config/update-trust-root-macos.json', import.meta.url), 'utf8'));
+  await assert.rejects(
+    () => publishLatestPointerVerified(bucket, latestKey, offered, {
+      platform: 'macos-arm64',
+      verifyPublished: async () => { throw new Error('Synthetic public latest-pointer mismatch'); },
+    }),
+    /Synthetic public latest-pointer mismatch/,
+  );
+  const withdrawn = { ...state.current };
+  assert.deepEqual(state.writes[0].condition, { etagDoesNotMatch: '*' });
+  assert.deepEqual(state.writes[1].condition, { etagMatches: 'etag-1' });
+  assert.equal(withdrawn.httpMetadata.cacheControl, 'no-store');
+  assert.equal(isInactiveLatestPointer(withdrawn, withdrawn.bytes, 'macos-arm64'), true);
+  assert.equal(isInactiveLatestPointer(withdrawn, withdrawn.bytes, 'windows-x64'), false);
+  assert.equal(isInactiveLatestPointer({ ...withdrawn, customMetadata: {} }, withdrawn.bytes, 'macos-arm64'), false);
+  assert.equal(isInactiveLatestPointer(withdrawn, Buffer.from('{}\n'), 'macos-arm64'), false);
+  assert.notDeepEqual(withdrawn.bytes, offered);
+  // The released client rejects this unsigned, versionless document as an offer.
+  assert.throws(() => validateLatestPointer(JSON.parse(withdrawn.bytes.toString()), trust));
+
+  const retried = Buffer.from('{"signed":"verified-retry"}\n');
+  await publishLatestPointerVerified(bucket, latestKey, retried, {
+    previous: withdrawn,
+    previousBytes: withdrawn.bytes,
+    platform: 'macos-arm64',
+    verifyPublished: async () => {},
+  });
+  assert.deepEqual(state.writes[2].condition, { etagMatches: withdrawn.etag });
+  assert.equal(state.current.bytes.toString(), retried.toString());
+});
+
+test('first macOS rollback never overwrites a concurrent newer pointer after public verification fails', async () => {
+  const { bucket, state } = simulatedR2LatestBucket();
+  const latestKey = 'studio/macos-arm64/latest.json';
+  const newer = Buffer.from('{"signed":"newer-pointer"}\n');
+  await assert.rejects(
+    () => publishLatestPointerVerified(bucket, latestKey, Buffer.from('{"signed":"first-pointer"}\n'), {
+      platform: 'macos-arm64',
+      verifyPublished: async () => {
+        // Another writer wins while the first is checking the public origin.
+        const current = state.current;
+        await putLatestPointerConditional(bucket, latestKey, newer, { previous: current });
+        throw new Error('Synthetic public origin unavailable');
+      },
+    }),
+    /safe recovery could not be confirmed/i,
+  );
+  assert.deepEqual(state.writes[2].condition, { etagMatches: 'etag-1' });
+  assert.equal(state.current.bytes.toString(), newer.toString());
+  assert.equal(isInactiveLatestPointer(state.current, state.current.bytes, 'macos-arm64'), false);
+});
+
+test('failed public verification of an existing signed pointer conditionally restores its original bytes and metadata', async () => {
+  const { bucket, state } = simulatedR2LatestBucket();
+  const key = 'studio/windows/latest.json';
+  const oldBytes = Buffer.from('{"signed":"previous"}\n');
+  const previous = await putLatestPointerConditional(bucket, key, oldBytes, {
+    httpMetadata: { contentType: 'application/json', cacheControl: 'no-store' },
+    customMetadata: { sourceCommit: 'old' },
+  });
+  await assert.rejects(
+    () => publishLatestPointerVerified(bucket, key, Buffer.from('{"signed":"candidate"}\n'), {
+      previous,
+      previousBytes: oldBytes,
+      platform: 'windows-x64',
+      verifyPublished: async () => { throw new Error('Synthetic immutable origin mismatch'); },
+    }),
+    /Synthetic immutable origin mismatch/,
+  );
+  assert.deepEqual(state.writes[2].condition, { etagMatches: 'etag-2' });
+  assert.equal(state.current.bytes.toString(), oldBytes.toString());
+  assert.deepEqual(state.current.customMetadata, { sourceCommit: 'old' });
 });
 
 test('GitHub webhook HMAC must match exact request body', async () => {

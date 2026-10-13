@@ -182,6 +182,36 @@ class ProvisionTests(unittest.TestCase):
         with m.setup_lock(self.root): pass
 
 
+@unittest.skipUnless(os.name == "nt", "Native Windows junction acceptance only")
+class WindowsJunctionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="studio junction & % ! ^ ( ) ")
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.target = self.base / "target & % ! ^ ( )"
+        self.target.mkdir()
+        (self.target / "user-data.txt").write_text("preserve this")
+
+    def test_junction_handles_shell_metacharacters_and_unlinks_safely(self):
+        link = self.base / "link & % ! ^ ( )"
+        m.make_link(self.target, link)
+        self.assertTrue(link.is_junction())
+        self.assertEqual(link.resolve(), self.target)
+        self.assertEqual((link / "user-data.txt").read_text(), "preserve this")
+        m.remove_link(link)
+        self.assertFalse(m.present(link))
+        self.assertEqual((self.target / "user-data.txt").read_text(), "preserve this")
+
+    def test_existing_directory_is_never_replaced(self):
+        link = self.base / "already-exists"
+        link.mkdir()
+        (link / "user-data.txt").write_text("original")
+        with self.assertRaises(FileExistsError):
+            m.make_link(self.target, link)
+        self.assertFalse(link.is_junction())
+        self.assertEqual((link / "user-data.txt").read_text(), "original")
+
+
 class WindowsFunctionalProbeTests(unittest.TestCase):
     """No network, native libraries, or real model weights are used here."""
     def setUp(self):

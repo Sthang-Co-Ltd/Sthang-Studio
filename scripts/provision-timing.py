@@ -89,14 +89,62 @@ def present(path: Path) -> bool:
 
 
 def make_link(target: Path, link: Path):
-    if os.name == "nt":
-        # cmd built-in directory junctions do not need Developer Mode or admin.
-        # Reject cmd metacharacters rather than interpolating unsafe paths.
-        if any(ch in str(target) + str(link) for ch in '\r\n"%'):
-            raise RuntimeError("The installation path contains unsupported characters")
-        run([os.environ.get("ComSpec", "cmd.exe"), "/d", "/v:off", "/c", f'mklink /J "{link}" "{target}"'])
-    else:
+    if os.name != "nt":
         link.symlink_to(target, target_is_directory=True)
+        return
+
+    # Create a Windows mount-point reparse point directly. cmd /c mklink /J
+    # misparses ordinary user paths containing &, %, and other shell characters.
+    import ctypes
+    from ctypes import wintypes
+    import struct
+
+    destination = str(target.resolve(strict=True))
+    native = destination.removeprefix("\\\\?\\")
+    if native.startswith("\\\\"):
+        native = "UNC\\" + native[2:]
+    substitute = ("\\??\\" + native).encode("utf-16-le")
+    printed = destination.encode("utf-16-le")
+    names = substitute + b"\0\0" + printed + b"\0\0"
+    if len(names) + 16 > 16 * 1024:
+        raise OSError("Windows junction target exceeds the reparse-point limit")
+    reparse = struct.pack("<IHHHHHH", 0xA0000003, len(names) + 8,
+                          0, 0, len(substitute), len(substitute) + 2,
+                          len(printed)) + names
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                            wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                            wintypes.HANDLE]
+    create_file.restype = wintypes.HANDLE
+    device_io = kernel32.DeviceIoControl
+    device_io.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID,
+                          wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                          ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+    device_io.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    # mkdir fails atomically if the link name exists, preserving prior data.
+    link.mkdir()
+    try:
+        handle = create_file(str(link), 0x40000000, 0x7, None, 3,
+                             0x02000000 | 0x00200000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            buffer = ctypes.create_string_buffer(reparse)
+            returned = wintypes.DWORD()
+            if not device_io(handle, 0x000900A4, buffer, len(reparse),
+                             None, 0, ctypes.byref(returned), None):
+                raise ctypes.WinError(ctypes.get_last_error())
+        finally:
+            close_handle(handle)
+    except BaseException:
+        link.rmdir()
+        raise
 
 
 def remove_link(link: Path):

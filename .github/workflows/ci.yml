@@ -82,3 +82,6 @@ jobs:
 
       - name: Check local timing worker syntax
         run: python -m py_compile local-timing/worker.py
+
+      - name: Local timing cache and provisioning regressions
+        run: npm run test:timing-dependencies

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **0.86.0 release preparation:** align workspace, runtime diagnostics and locked
+  package versions; retain verified 0.85.6 public evidence until the new recovery
+  assets and each platform's signed offer pass their release gates.
+- **Gemini availability:** use 3.8 Flash primary and a distinct 3.6 Flash fallback,
+  migrate the legacy default pair, canonicalize the 3.7 alias and avoid duplicate
+  fallback requests. Preserve custom models and an intentionally empty fallback,
+  honor bounded provider retry delays, and stop safely on permanent errors.
+- **Playback recovery:** prepare a bounded local H.264/AAC browser playback copy
+  for unsupported video, and replace failed decoders without losing pending
+  caption edits, position, playback speed or sound settings. Original media and
+  export inputs are preserved.
+- **Dependency and update preparation:** refresh reviewed local runtimes and
+  dependency locks, preserve durable timing-environment rollback, prevent
+  update/job-start races, and validate bounded API/frontend launch identity.
+  Existing stable brokers require manual bootstrap delivery for broker changes;
+  a new immutable OTA payload does not replace an installed stable broker.
 - **Source-only — responsive native word preview (Phase 3):** follow presented
   video-frame boundaries for word paint without rerendering the full editor every
   frame. Request the current native word paint before bounded future lookahead;
