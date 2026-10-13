@@ -112,7 +112,7 @@ def release(releases: list[dict], tag: str) -> dict:
 
 
 def source_identity(info: dict, commit: str) -> None:
-    """Draft releases can target a branch; an existing tag must peel to this commit."""
+    """Bind the exact draft source to freshly fetched accepted main, not the CI harness."""
     ref = info.get("target_commitish", "")
     if HEX40.fullmatch(ref):
         require(ref == commit, "The draft release targets a different source commit.")
@@ -122,13 +122,25 @@ def source_identity(info: dict, commit: str) -> None:
         line = git("ls-remote", "--heads", "origin", f"refs/heads/{ref}")
         require(line == f"{commit}\trefs/heads/{ref}",
                 "The draft release branch has drifted from the selected commit.")
-    require(git("rev-parse", "HEAD") == commit,
-            "The checked-out source is not the exact requested candidate commit.")
     tagged = git("ls-remote", "--tags", "--refs", "origin", f"refs/tags/v{CANDIDATE}")
     if tagged:
         peeled = git("ls-remote", "--tags", "origin", f"refs/tags/v{CANDIDATE}^{{}}")
         tag_commit = peeled.split("\t")[0] if peeled else tagged.split("\t")[0]
         require(tag_commit == commit, "The candidate tag points to a different commit.")
+    main_line = git("ls-remote", "--heads", "origin", "refs/heads/main")
+    match = re.fullmatch(r"([a-f0-9]{40})\trefs/heads/main", main_line)
+    require(match is not None, "Accepted origin/main must resolve to exactly one full commit.")
+    git("fetch", "--no-tags", "origin", "refs/heads/main")
+    require(git("rev-parse", "FETCH_HEAD") == match.group(1),
+            "Freshly fetched origin/main changed during acceptance.")
+    require(git("rev-parse", "--verify", f"{commit}^{{commit}}") == commit,
+            "The exact candidate source commit is unavailable in the accepted repository.")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, match.group(1)],
+        cwd=PROJECT, stdin=subprocess.DEVNULL, capture_output=True, timeout=45, check=False,
+    )
+    require(ancestor.returncode == 0,
+            "The exact candidate source commit is not an ancestor of freshly fetched origin/main.")
 
 
 def asset_record(info: dict, name: str, expected: str | None = None) -> None:
@@ -397,9 +409,7 @@ foreach ($name in $names) {
 @contextmanager
 def genuine_desktop_session(desktop: Path, installed: Path, environment: dict[str, str]):
     """Clean only COM-owned runner shortcuts, after all native children stop."""
-    try:
-        yield
-    finally:
+    def cleanup() -> None:
         if installed.is_dir():
             # Cleanup mode is separately confined to GitHub Actions and this
             # run's known RUNNER_TEMP application root. It is also used if the
@@ -412,6 +422,22 @@ def genuine_desktop_session(desktop: Path, installed: Path, environment: dict[st
                  "--stop-owned"], cwd=PROJECT, env=stop_env,
                 timeout=60, label="Stop native disposable Studio processes")
             desktop_shortcut_action(desktop, installed, environment, "cleanup")
+
+    try:
+        yield
+    except BaseException as original:
+        try:
+            cleanup()
+        except Exception as cleanup_error:
+            # Preserve the original native failure even if the separate
+            # Desktop safety guard also fails during final cleanup.
+            raise AcceptanceFailure(
+                f"Primary native acceptance failure: {original}. "
+                f"Secondary Desktop cleanup failure: {cleanup_error}."
+            ) from original
+        raise
+    else:
+        cleanup()
 
 
 def acceptance() -> None:
@@ -432,7 +458,10 @@ def acceptance() -> None:
     require(bool(HEX40.fullmatch(commit)) and bool(HEX64.fullmatch(recovery_sha))
             and bool(HEX64.fullmatch(ota_sha)),
             "Exact candidate commit and two independently reviewed archive digests are required.")
-    require(git("rev-parse", "HEAD") == commit, "Workflow checkout differs from selected commit.")
+    harness_sha = git("rev-parse", "HEAD")
+    require(bool(HEX40.fullmatch(harness_sha))
+            and harness_sha == os.environ.get("GITHUB_SHA", "").lower(),
+            "Workflow checkout does not match this exact reviewed CI harness commit.")
     node_version = run(["node", "-p", "process.version + ' ' + process.arch"], label="Native Node check")
     require(node_version.stdout.decode().strip() == "v24.21.0 x64", "Exact reviewed Node 24.21.0 x64 is required.")
     runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
@@ -445,6 +474,8 @@ def acceptance() -> None:
     releases = gh_json("api", "--method", "GET", f"repos/{REPO}/releases?per_page=100")
     chosen = release(releases, f"v{CANDIDATE}")
     source_identity(chosen, commit)
+    print(f"PASS: reviewed native harness {harness_sha}, accepted release candidate {commit}; "
+          "draft target and fresh origin/main ancestry verified.", flush=True)
     old = release(releases, f"v{BASELINE}")
     plans = [
         (old, BASELINE, f"Sthang-Studio-Windows-v{BASELINE}.zip", BASELINE_SHA, work / "baseline"),

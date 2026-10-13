@@ -202,6 +202,25 @@ async function nativeLogTail(file) {
     .slice(-1700);
 }
 
+function sanitizedError(error) {
+  return String(error?.message || 'unexpected failure')
+    .replace(/https?:\/\/[^\s"'<>]+/giu, '[service endpoint]')
+    .replace(/[A-Za-z]:\\[^\s"']+/gu, '[runner path]')
+    .replace(/(?:(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[:=]\s*)[^\s]+/giu, '[redacted setting]')
+    .slice(-2000);
+}
+
+function nativeStageFailure(primary, cleanupErrors) {
+  if (!primary && cleanupErrors.length === 0) return null;
+  if (primary && cleanupErrors.length === 0) return primary;
+  const details = cleanupErrors.map((error) => sanitizedError(error)).join(' | ');
+  if (primary) {
+    return new Error('Primary native acceptance failure: ' + sanitizedError(primary)
+      + '\nSecondary fixture cleanup failure: ' + details, { cause: primary });
+  }
+  return new Error('Native acceptance cleanup failure: ' + details);
+}
+
 async function portAvailable(port = 8787) {
   return await new Promise((resolve) => {
     const server = net.createServer();
@@ -210,42 +229,121 @@ async function portAvailable(port = 8787) {
   });
 }
 
+function ownedFixtureListener(listener, installRoot, installCreatedMs) {
+  if (!listener || ![8787, 5188].includes(listener.port)
+    || !Number.isSafeInteger(listener.pid) || listener.pid <= 1
+    || String(listener.name).toLowerCase() !== 'node.exe'
+    || typeof listener.command !== 'string') return false;
+  const command = listener.command.toLowerCase();
+  if (command.includes(installRoot.toLowerCase())) return true;
+  // Genuine v0.85.6 scripts/dev.mjs starts the backend as
+  // `node --import tsx src/index.ts` with cwd inside the installed server.
+  // Once its absolute-path launcher exits, the surviving listener's command
+  // line no longer contains installRoot. The fresh runner's ports were
+  // verified empty before this fixture launched; require this exact argv,
+  // port, executable, and creation after the private installation.
+  const started = Date.parse(listener.createdUtc);
+  const executable = path.win32.normalize(String(listener.executable || '')).toLowerCase();
+  const expectedNode = path.win32.normalize(process.execPath).toLowerCase();
+  return listener.port === 8787 && Number.isFinite(started)
+    && started >= installCreatedMs
+    && executable === expectedNode
+    && /(?:^|\s)--import\s+["']?tsx["']?\s+["']?src[\\/]index\.ts(?:["']|\s|$)/iu.test(listener.command);
+}
+
 async function stopOwnedStudio(installRoot) {
-  // Windows CI contains no real Studio user. Only terminate native processes
-  // whose actual Win32_Process command line names this exact test installation.
+  // Windows CI has an isolated, freshly installed Studio tree. Target only
+  // processes anchored in that tree or its exact known backend port-owner.
+  // Unknown listeners must survive and block Desktop shortcut cleanup.
   const environment = childEnv(installRoot);
   environment.STHANG_STUDIO_ACCEPTANCE_INSTALL_ROOT = installRoot;
+  const createdMs = (await fs.stat(installRoot)).birthtimeMs;
+  requireCondition(Number.isFinite(createdMs) && createdMs > 0,
+    'cannot attest creation time of the disposable Windows installation.');
   const script = `
+    $ErrorActionPreference = 'Stop'
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     $root = [Environment]::GetEnvironmentVariable('STHANG_STUDIO_ACCEPTANCE_INSTALL_ROOT')
     if (-not $root) { exit 2 }
-    $processes = @(Get-CimInstance Win32_Process | Where-Object {
+    $processes = @(Get-CimInstance Win32_Process)
+    $byPid = @{}
+    foreach ($proc in $processes) { $byPid[[int]$proc.ProcessId] = $proc }
+    $anchored = @($processes | Where-Object {
       $_.CommandLine -and $_.ProcessId -ne $PID -and
       $_.CommandLine.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
       ($_.Name -ieq 'node.exe' -or $_.Name -ieq 'cmd.exe' -or $_.Name -ieq 'powershell.exe')
+    } | ForEach-Object { [int]$_.ProcessId })
+    $listeners = @(foreach ($port in @(8787, 5188)) {
+      foreach ($connection in @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)) {
+        $id = [int]$connection.OwningProcess
+        $proc = $byPid[$id]
+        if ($null -eq $proc) {
+          [pscustomobject]@{
+            port = $port; pid = $id; name = ''; command = '';
+            executable = ''; createdUtc = ''; parentPid = 0
+          }
+        } else {
+          $started = if ($proc.CreationDate) { $proc.CreationDate.ToUniversalTime().ToString('o') } else { '' }
+          [pscustomobject]@{
+            port = $port; pid = $id; name = [string]$proc.Name;
+            command = [string]$proc.CommandLine; createdUtc = $started;
+            executable = [string]$proc.ExecutablePath; parentPid = [int]$proc.ParentProcessId
+          }
+        }
+      }
     })
-    foreach ($proc in $processes) { Write-Output $proc.ProcessId }
+    [pscustomobject]@{ anchored = @($anchored); listeners = @($listeners) } |
+      ConvertTo-Json -Compress -Depth 4
   `;
-  const ownedIds = () => {
+  const inspect = () => {
     const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      env: environment, cwd: installRoot, encoding: 'utf8', timeout: 20_000, windowsHide: true,
+      env: environment, cwd: installRoot, encoding: 'utf8', timeout: 20_000,
+      maxBuffer: 512 * 1024, windowsHide: true,
     });
-    requireCondition(result.status === 0, 'could not enumerate owned fixture processes safely.');
-    const ids = [...new Set(result.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean))];
-    requireCondition(ids.every((item) => /^[1-9]\d*$/u.test(item)),
-      'process ownership enumeration returned invalid process identifiers.');
-    return ids;
+    requireCondition(!result.error && result.status === 0,
+      'cannot inspect exact Windows fixture process ownership and listener ports.');
+    let snapshot;
+    try { snapshot = JSON.parse(result.stdout); } catch {
+      throw new Error('Windows OTA acceptance: fixture process ownership record is malformed.');
+    }
+    requireCondition(snapshot && Array.isArray(snapshot.anchored) && Array.isArray(snapshot.listeners)
+      && snapshot.anchored.length <= 40 && snapshot.listeners.length <= 16
+      && snapshot.anchored.every((pid) => Number.isSafeInteger(pid) && pid > 1)
+      && snapshot.listeners.every((item) => item && [8787, 5188].includes(item.port)
+        && Number.isSafeInteger(item.pid) && item.pid > 0),
+    'Windows fixture process ownership record exceeded its verified shape.');
+    const ids = new Set(snapshot.anchored);
+    for (const listener of snapshot.listeners) {
+      const ownedParent = Number.isSafeInteger(listener.parentPid)
+        && ids.has(listener.parentPid)
+        && String(listener.name).toLowerCase() === 'node.exe'
+        && Date.parse(listener.createdUtc) >= createdMs;
+      if (ownedParent || ownedFixtureListener(listener, installRoot, createdMs)) ids.add(listener.pid);
+    }
+    return { ids, listeners: snapshot.listeners };
   };
-  const ids = ownedIds();
-  for (const pid of ids) {
-    spawnSync('taskkill.exe', ['/PID', pid, '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-  }
   const until = Date.now() + 15_000;
+  let last = { ids: new Set(), listeners: [] };
   while (Date.now() < until) {
-    if (ownedIds().length === 0
-      && await portAvailable(8787) && await portAvailable(5188)) return;
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    last = inspect();
+    if (last.ids.size === 0 && await portAvailable(8787) && await portAvailable(5188)) return;
+    for (const pid of last.ids) {
+      spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore', windowsHide: true, timeout: 10_000,
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450));
   }
-  throw new Error('Windows OTA acceptance: owned native children or fixture ports remain active; Desktop cleanup is blocked.');
+  const unknownPorts = [...new Set(last.listeners.filter((item) =>
+    !ownedFixtureListener(item, installRoot, createdMs)).map((item) => item.port))];
+  const portState = await Promise.all([8787, 5188].map(async (port) =>
+    ({ port, free: await portAvailable(port) })));
+  throw new Error('Windows OTA acceptance: native cleanup incomplete: '
+    + (last.ids.size ? 'owned fixture processes remain; ' : '')
+    + (unknownPorts.length ? 'unrecognized listeners on ports ' + unknownPorts.join(',') + '; ' : '')
+    + 'port 8787 ' + (portState[0].free ? 'free' : 'occupied')
+    + ', port 5188 ' + (portState[1].free ? 'free' : 'occupied')
+    + '. Desktop cleanup remains blocked.');
 }
 
 async function stopOnlyFromPython(rawRoot) {
@@ -453,6 +551,7 @@ async function acceptance() {
     'the Windows test runner already has occupied Studio ports.');
   const logRoot = await fs.mkdtemp(path.join(workRoot, 'win-ota-native-'));
   let trustModified = false;
+  let primaryFailure = null;
   try {
     // This path exists ONLY under the runner's disposable LOCALAPPDATA override.
     // The private test key never leaves this process or reaches any release ZIP.
@@ -558,16 +657,23 @@ async function acceptance() {
     await failureActivationCore(runtime, installedRoot, pointer, confirmSentinels);
     await crashWindows(runtime, installedRoot, pointer, good.digest, confirmSentinels);
     console.log('PASS (SYNTHETIC): old activation core rejected forced-false health on a test Node child and recovered simulated crash-pointer states.');
-  } finally {
-    try {
-      if (trustModified) await fs.writeFile(trustFile, baseline);
-      requireCondition(hash(await fs.readFile(trustFile)) === hash(baseline),
-        'the genuine production public trust root was not restored byte for byte.');
-    } finally {
-      await stopOwnedStudio(installedRoot);
-      await confirmSentinels();
-    }
+  } catch (error) {
+    primaryFailure = error;
   }
+  const cleanupFailures = [];
+  try {
+    if (trustModified) await fs.writeFile(trustFile, baseline);
+    requireCondition(hash(await fs.readFile(trustFile)) === hash(baseline),
+      'the genuine production public trust root was not restored byte for byte.');
+  } catch (error) { cleanupFailures.push(error); }
+  try { await stopOwnedStudio(installedRoot); }
+  catch (error) { cleanupFailures.push(error); }
+  try { await confirmSentinels(); }
+  catch (error) { cleanupFailures.push(error); }
+  const failure = nativeStageFailure(primaryFailure, cleanupFailures);
+  if (failure) throw failure;
+  // All test release signatures remain ephemeral and the production trust
+  // root was restored before any native fixture success is reported.
   console.log('WINDOWS NATIVE FIXTURE OTA PASS: real v0.86.0 startup/health plus synthetic rollback probes; production signature and live pointer not exercised.');
 }
 
@@ -593,6 +699,35 @@ if (process.argv.length === 3 && process.argv[2] === '--stop-owned') {
   assert.throws(() => verifyActivationPair(currentId, null), /different activation identity/iu);
   assert.throws(() => verifyActivationPair(null, null), /must supply/iu);
   assert.throws(() => verifyActivationPair(currentId, currentId, true), /unexpectedly supplied/iu);
+  const root = path.win32.join('C:\\runner-temp', 'sthang-windows-acceptance',
+    'state', 'local', 'Sthang Studio', 'app');
+  const installedAt = Date.now() - 5_000;
+  const relativeBackend = {
+    port: 8787, pid: 12345, name: 'node.exe', executable: process.execPath,
+    createdUtc: new Date().toISOString(), command: '"node.exe" --import tsx src/index.ts',
+  };
+  assert.equal(ownedFixtureListener(relativeBackend, root, installedAt), true);
+  assert.equal(ownedFixtureListener({ ...relativeBackend, port: 5188 }, root, installedAt), false);
+  assert.equal(ownedFixtureListener({ ...relativeBackend, command: '"node.exe" other.js' },
+    root, installedAt), false);
+  assert.equal(ownedFixtureListener({ ...relativeBackend, executable: 'C:\\unknown\\node.exe' },
+    root, installedAt), false);
+  assert.equal(ownedFixtureListener({ ...relativeBackend, createdUtc: new Date(0).toISOString() },
+    root, installedAt), false);
+  assert.equal(ownedFixtureListener({ ...relativeBackend, name: 'powershell.exe' },
+    root, installedAt), false);
+  assert.equal(ownedFixtureListener({
+    ...relativeBackend, port: 5188,
+    command: path.win32.join(root, 'node_modules', 'vite', 'bin', 'vite.js'),
+  }, root, installedAt), true);
+  assert.equal(nativeStageFailure(null, []), null);
+  assert.equal(nativeStageFailure(new Error('native failing stage'), []).message, 'native failing stage');
+  const bothFailures = nativeStageFailure(new Error('native failing stage'),
+    [new Error('owned listener remains')]);
+  assert.match(bothFailures.message, /Primary native acceptance failure: native failing stage/iu);
+  assert.match(bothFailures.message, /Secondary fixture cleanup failure: owned listener remains/iu);
+  assert.equal(nativeStageFailure(null, [new Error('cleanup only')]).message,
+    'Native acceptance cleanup failure: cleanup only');
   console.log('Windows OTA acceptance static guards PASS (native broker not executed).');
 } else {
   acceptance().catch((error) => {

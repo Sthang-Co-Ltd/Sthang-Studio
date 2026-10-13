@@ -47,11 +47,13 @@ jobs:
       STUDIO_RECOVERY_SHA256: ${{ inputs.recovery_sha256 }}
       STUDIO_OTA_SHA256: ${{ inputs.ota_sha256 }}
     steps:
-      - name: Check out exact candidate source read-only
+      - name: Check out reviewed native-acceptance harness read-only
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_commit }}
-          fetch-depth: 1
+          # Native acceptance fixes may be independently reviewed without
+          # changing the exact release candidate packages and their SHA-256s.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Select reviewed Node 24.21.0 x64
