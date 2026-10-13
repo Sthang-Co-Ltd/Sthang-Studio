@@ -32,6 +32,7 @@ import zipfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 LOCK = ROOT / "config/macos-ffmpeg-build-lock.json"
 WORKFLOW = ROOT / ".github/workflows/macos-ffmpeg-runtime.yml"
+PYTHON_PIN_SOURCE = ROOT / "scripts/macos-managed-runtime.sh"
 EXPECTED_SOURCES = {
     "meson", "ninja", "pkgconf", "freetype", "fribidi",
     "harfbuzz", "libass", "x264", "ffmpeg",
@@ -158,6 +159,63 @@ def check_lock(path: pathlib.Path) -> dict:
             "sources": by_name, "lockSha256": digest(path)}
 
 
+def reviewed_python_bootstrap() -> dict:
+    """Verify the existing exact Studio Python pin and observed native bootstrap.
+
+    setup-python does not carry Python 3.12.15 arm64 for macOS 15. The separate,
+    checksum-verified Astral install-only archive is a build-tool prerequisite.
+    Its provenance is recorded without redistributing the Python binary.
+    """
+    require(PYTHON_PIN_SOURCE.is_file(), "Studio's pinned macOS Python provisioner is missing.")
+    script = PYTHON_PIN_SOURCE.read_text(encoding="utf-8")
+    pinned: dict[str, str] = {}
+    for key in ("VERSION", "RELEASE", "ARCHIVE", "URL", "SHA256"):
+        variable = "STUDIO_MANAGED_PYTHON_" + key
+        match = re.search(r"(?m)^" + variable + r'="([^"\r\n]+)"$', script)
+        require(match is not None, "Studio's managed Python " + key + " pin is not exact.")
+        pinned[key] = match.group(1)
+    require(pinned["VERSION"] == "3.12.15"
+            and pinned["RELEASE"] == "20261003"
+            and pinned["ARCHIVE"]
+            == "cpython-3.12.15+20261003-aarch64-apple-darwin-install_only.tar.gz"
+            and pinned["URL"]
+            == ("https://github.com/astral-sh/python-build-standalone/releases/download/"
+                "20261003/cpython-3.12.15%2B20261003-aarch64-apple-darwin-install_only.tar.gz")
+            and pinned["SHA256"]
+            == "316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213",
+            "Managed Python source pin differs from the reviewed Apple Silicon runtime.")
+    archive_var = os.environ.get("STUDIO_FFMPEG_PYTHON_ARCHIVE", "")
+    executable_var = os.environ.get("STUDIO_FFMPEG_PYTHON_BIN", "")
+    require(bool(archive_var) and bool(executable_var),
+            "The exact reviewed Python bootstrap was not passed by the workflow.")
+    archive = pathlib.Path(archive_var)
+    executable = pathlib.Path(executable_var)
+    require(archive.is_absolute() and archive.is_file()
+            and archive.name == pinned["ARCHIVE"] and archive.stat().st_size > 0,
+            "The reviewed Python bootstrap archive is unavailable.")
+    require(executable.is_absolute() and executable.is_file()
+            and executable.name == "python3.12"
+            and executable.resolve() == pathlib.Path(sys.executable).resolve(),
+            "The builder is not executing its exact verified native Python.")
+    require(digest(archive) == pinned["SHA256"],
+            "The native Python bootstrap no longer matches Studio's SHA-256 pin.")
+    require(platform.python_version() == pinned["VERSION"],
+            "The Python bootstrap runtime version differs from its pinned archive.")
+    return {
+        "version": pinned["VERSION"],
+        "release": pinned["RELEASE"],
+        "url": pinned["URL"],
+        "archive": pinned["ARCHIVE"],
+        "archiveSha256": pinned["SHA256"],
+        "archiveSizeBytes": archive.stat().st_size,
+        "sourcePinPath": "scripts/macos-managed-runtime.sh",
+        "sourcePinSha256": digest(PYTHON_PIN_SOURCE),
+        "executablePath": str(executable),
+        "executableSha256": digest(executable.resolve()),
+        "status": "build-time-only-verified-archive-not-redistributed",
+    }
+
+
 def native_identity() -> dict:
     require(platform.system() == "Darwin" and platform.machine() == "arm64",
             "This builder must run natively on Apple Silicon arm64.")
@@ -194,6 +252,7 @@ class Builder:
         self.env: dict[str, str] = {}
         self.sdk = ""
         self.meson_script = ""
+        self.python_bootstrap: dict = {}
 
     def prepare(self) -> None:
         # An explicitly new working directory prevents accidental deletion of
@@ -202,6 +261,7 @@ class Builder:
         host = self.lock["toolchain"]
         require(platform.python_version() == host["pythonVersion"],
                 "Native builder Python does not match the reviewed Python 3.12.15 lock.")
+        self.python_bootstrap = reviewed_python_bootstrap()
         selected_developer_dir = pathlib.Path(host["developerDir"])
         require(selected_developer_dir.is_dir(),
                 "Reviewed Xcode 16.4 developer directory is not installed.")
@@ -222,7 +282,9 @@ class Builder:
         require(pathlib.Path(self.sdk).is_dir(), "Selected Xcode SDK does not exist.")
         self.env = dict(os.environ)
         self.env.update({
-            "PATH": str(self.tools / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": str(self.tools / "bin") + ":"
+                    + str(pathlib.Path(sys.executable).parent)
+                    + ":/usr/bin:/bin:/usr/sbin:/sbin",
             "DEVELOPER_DIR": str(selected_developer_dir),
             "MACOSX_DEPLOYMENT_TARGET": MIN_MACOS,
             "SDKROOT": self.sdk,
@@ -583,6 +645,7 @@ class Builder:
             "macos": captured(["/usr/bin/sw_vers", "-productVersion"], env=self.env),
             "make": captured(["/usr/bin/make", "--version"], env=self.env),
             "pythonVersion": sys.version.split()[0],
+            "pythonBootstrap": self.python_bootstrap,
             "pinnedTools": {},
         }
         for name, path, args in (
@@ -796,11 +859,16 @@ class Builder:
             "scripts/ci/build-macos-ffmpeg.py": (pathlib.Path(__file__), False),
             "config/macos-ffmpeg-build-lock.json": (LOCK, False),
             ".github/workflows/macos-ffmpeg-runtime.yml": (WORKFLOW, False),
+            "scripts/macos-managed-runtime.sh": (PYTHON_PIN_SOURCE, False),
             "BUILD-INSTRUCTIONS.txt": (
                 ("Sources: nine exact SHA-256 verified source archives in sources/.\n"
                  "Build: on native Apple Silicon, Xcode clang/SDK and system make;\n"
-                 "run python3 -B scripts/ci/build-macos-ffmpeg.py after selecting\n"
-                 "a reviewed Python 3.12 and verifying the committed lock.\n"
+                 "use the checksum-pinned Apple Silicon Python 3.12.15 from\n"
+                 "scripts/macos-managed-runtime.sh for the build helper.\n"
+                 "Run that interpreter with -B scripts/ci/build-macos-ffmpeg.py\n"
+                 "after verifying the pinned archives and the committed lock.\n"
+                 "The Python bootstrap executable is not redistributed here;\n"
+                 "its exact original URL/SHA-256 are in BUILD-PROVENANCE.json.\n"
                  "No package manager, floating checkout or signing key is used.\n"
                  "The source distribution accompanies a GPL version 3 FFmpeg build.\n"
                  "No source patches were applied; the exact raw archives are included.\n"
