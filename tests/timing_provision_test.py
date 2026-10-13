@@ -24,7 +24,8 @@ class ProvisionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="studio provisioning & spaces ")
         self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
+        # GitHub Windows runners may expose TEMP through its 8.3 path alias.
+        self.base = Path(self.temp.name).resolve()
         self.root = self.base / "work/source"
         self.root.mkdir(parents=True)
         self.store = self.base / "state/.timing-envs"
@@ -250,7 +251,7 @@ class WindowsJunctionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="studio junction & % ! ^ ( ) ")
         self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
+        self.base = Path(self.temp.name).resolve()
         self.target = self.base / "target & % ! ^ ( )"
         self.target.mkdir()
         (self.target / "user-data.txt").write_text("preserve this")
