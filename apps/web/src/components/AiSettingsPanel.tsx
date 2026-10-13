@@ -69,8 +69,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       setApiKey('');
       setShowKey(false);
       setMessage(updated.keySource === 'secure-store'
-        ? 'Connected and saved securely on this computer. No restart is needed.'
-        : 'Connection verified and model settings saved. The environment key remains active.');
+        ? 'AI settings saved securely on this computer. No restart is needed.'
+        : 'AI model settings saved. The environment key remains active.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not verify and save AI settings.');
     } finally {
@@ -118,10 +118,10 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     <div className={`ai-connection-card ${settings.configured ? 'configured' : 'missing'}`}>
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
-        <strong>{settings.configured ? 'Gemini is ready' : 'Connect Gemini to generate captions'}</strong>
+        <strong>{settings.configured ? 'Gemini is configured' : 'Connect Gemini to generate captions'}</strong>
         <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'Paste your Gemini API key once. You will not need to edit an .env file.'}</span>
       </div>
-      <div className={`ai-status-pill ${settings.configured ? 'ready' : 'setup'}`}>{settings.configured ? 'Connected' : 'Setup needed'}</div>
+      <div className={`ai-status-pill ${settings.configured ? 'ready' : 'setup'}`}>{settings.configured ? 'Configured' : 'Setup needed'}</div>
     </div>
 
     <div className="ai-settings-grid">
@@ -152,14 +152,14 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
         <div className="ai-model-grid">
           <label><span>Primary model</span><input list="gemini-model-options" value={model} onChange={(event) => { setModel(event.target.value); resetFeedback(); }}/></label>
           <label><span>Fallback model <em>optional</em></span><input list="gemini-model-options" value={fallbackModel} onChange={(event) => { setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
-          <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-3.7-flash"/><option value="gemini-3.6-flash"/></datalist>
+          <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-3.6-flash"/></datalist>
         </div>
-        <p className="ai-model-help">Recommended: Gemini 3.8 Flash primary with Gemini 3.7 Flash fallback. The fallback uses the same key and runs only when the primary model is temporarily unavailable; a rate-limit response advances instead of waiting through repeated same-model Retry-After delays. Transcription-only Gemini Transcribe is experimental and is not part of the normal automatic chain. Leave the fallback blank to disable automatic model failover.</p>
+        <p className="ai-model-help">Recommended: Gemini 3.8 Flash primary with Gemini 3.6 Flash fallback. Google routes 3.7 Flash requests to 3.8, so those names cannot provide separate fallbacks. The fallback uses the same key when the primary is temporarily unavailable. Gemini Transcribe remains experimental and outside the normal automatic chain. Leave the fallback blank to disable automatic model failover.</p>
       </section>
     </div>
 
     {result && <div className={`ai-test-result ${result.level}`}>
-      {result.level === 'success' ? <CheckCircle2 size={17}/> : <TriangleAlert size={17}/>}<div><strong>{result.level === 'success' ? 'Connection verified' : 'Connection reached Google with a warning'}</strong><span>{result.message} · {result.latencyMs} ms</span></div>
+      {result.level === 'success' ? <CheckCircle2 size={17}/> : <TriangleAlert size={17}/>}<div><strong>{result.level === 'success' ? 'API key and model lookup checked' : 'Connection reached Google with a warning'}</strong><span>{result.message} · {result.latencyMs} ms</span></div>
     </div>}
     {message && <div className="ai-inline-message success"><CheckCircle2 size={15}/><span>{message}</span></div>}
     {error && <div className="ai-inline-message error"><TriangleAlert size={15}/><span>{error}</span></div>}
