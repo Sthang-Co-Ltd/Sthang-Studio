@@ -33,6 +33,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 LOCK = ROOT / "config/macos-ffmpeg-build-lock.json"
 WORKFLOW = ROOT / ".github/workflows/macos-ffmpeg-runtime.yml"
 PYTHON_PIN_SOURCE = ROOT / "scripts/macos-managed-runtime.sh"
+STUDIO_BUILD_TOOLS_LICENSE = ROOT / "LICENSE"
 EXPECTED_SOURCES = {
     "meson", "ninja", "pkgconf", "freetype", "fribidi",
     "harfbuzz", "libass", "x264", "ffmpeg",
@@ -765,8 +766,12 @@ class Builder:
         encoders = captured([str(ffmpeg), "-hide_banner", "-encoders"], env=self.env)
         decoders = captured([str(ffmpeg), "-hide_banner", "-decoders"], env=self.env)
         for filter_name in ("ass", "subtitles", "drawtext"):
-            require(bool(re.search(r"(?m)^\s*[A-Z.]{3,5}\s+"
-                                   + re.escape(filter_name) + r"\s", filters)),
+            # FFmpeg 8.1.3's fftools/opt_common.c show_filters() prints TWO
+            # feature columns (%c%c): timeline [T.] and threading [S.].
+            # Unlike -decoders, filter listing has no third feature column.
+            # Retain the exact filter name AND video-to-video pad contract.
+            require(bool(re.search(r"(?m)^\s*[T.][S.]\s+"
+                                   + re.escape(filter_name) + r"\s+V->V\s", filters)),
                     "Required FFmpeg filter missing: " + filter_name)
         require(re.search(r"\blibx264\b", encoders) is not None, "libx264 encoder missing.")
         for codec in ("h264", "hevc", "aac", "png"):
@@ -855,6 +860,9 @@ class Builder:
 
     def package(self, identity: dict, smoke: dict) -> None:
         base = "Sthang-Studio-FFmpeg-" + VERSION + "-macOS-arm64"
+        require(STUDIO_BUILD_TOOLS_LICENSE.is_file()
+                and STUDIO_BUILD_TOOLS_LICENSE.stat().st_size > 0,
+                "The Studio MIT license for included build scripts is missing.")
         corresponding_source_name = base + "-corresponding-source.zip"
         corresponding_source_url = (
             "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/"
@@ -892,10 +900,14 @@ class Builder:
                 )
         tools = self.artifact_zip(base + "-tools.zip", runtime_entries)
         source_entries: dict[str, tuple[pathlib.Path | bytes, bool]] = {
-            "scripts/ci/build-macos-ffmpeg.py": (pathlib.Path(__file__), False),
+            "scripts/ci/build-macos-ffmpeg.py": (pathlib.Path(__file__).resolve(), False),
             "config/macos-ffmpeg-build-lock.json": (LOCK, False),
             ".github/workflows/macos-ffmpeg-runtime.yml": (WORKFLOW, False),
             "scripts/macos-managed-runtime.sh": (PYTHON_PIN_SOURCE, False),
+            # Builder.package() reads ROOT/LICENSE, so the source ZIP must
+            # recreate that exact repository-root path for a later rebuild.
+            "LICENSE": (STUDIO_BUILD_TOOLS_LICENSE, False),
+            "licenses/sthang-build-tools/LICENSE": (STUDIO_BUILD_TOOLS_LICENSE, False),
             "BUILD-INSTRUCTIONS.txt": (
                 ("Sources: nine exact SHA-256 verified source archives in sources/.\n"
                  "Build: on native Apple Silicon, Xcode clang/SDK and system make;\n"
@@ -906,11 +918,25 @@ class Builder:
                  "The Python bootstrap executable is not redistributed here;\n"
                  "its exact original URL/SHA-256 are in BUILD-PROVENANCE.json.\n"
                  "No package manager, floating checkout or signing key is used.\n"
-                 "The source distribution accompanies a GPL version 3 FFmpeg build.\n"
+                 "Studio's included build recipes/scripts alone are MIT-licensed;\n"
+                 "see repository-root LICENSE (also at\n"
+                 "licenses/sthang-build-tools/LICENSE) for the full notice.\n"
+                 "The compiled FFmpeg/x264 tools remain GPL version 3 or later;\n"
+                 "other upstream components retain their own separate licenses.\n"
                  "No source patches were applied; the exact raw archives are included.\n"
                  "See each listed license, BUILD-PROVENANCE.json and the build receipt.\n").encode("utf-8"), False),
             "SOURCE-PATCHES.txt": (b"No patches. All nine source archives were used unchanged.\n", False),
         }
+        # Corresponding source must recreate every repository-root input this
+        # builder loads. Without root LICENSE, for example, a later rebuild
+        # would compile but fail at the final source-packaging stage.
+        for source_file in (pathlib.Path(__file__).resolve(), LOCK, WORKFLOW,
+                            PYTHON_PIN_SOURCE, STUDIO_BUILD_TOOLS_LICENSE):
+            relative = source_file.relative_to(ROOT).as_posix()
+            packaged = source_entries.get(relative)
+            require(packaged is not None and isinstance(packaged[0], pathlib.Path)
+                    and packaged[0].resolve() == source_file.resolve(),
+                    "Corresponding source is missing a repository-root build input: " + relative)
         sources_receipt = []
         for name, source in sorted(self.lock["sources"].items()):
             archive = self.downloads[name]
