@@ -470,7 +470,10 @@ class Builder:
             "--without-bzip2", "--without-png", "--without-harfbuzz",
             "--without-brotli", "--without-zlib",
         ])
-        self.autoconf_build("fribidi", ["--disable-docs"])
+        # FriBidi 1.0.17's dist configure has no --disable-docs switch.
+        # Preserve its recognized static-only options without Autoconf's
+        # dangerous silent acceptance of an unknown option.
+        self.autoconf_build("fribidi", [])
         self.meson_build("harfbuzz", [
             "-Dglib=disabled", "-Dgobject=disabled", "-Dcairo=disabled",
             "-Dicu=disabled", "-Dgraphite2=disabled", "-Dfreetype=disabled",

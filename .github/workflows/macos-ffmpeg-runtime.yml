@@ -27,7 +27,6 @@ jobs:
       CI: "true"
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_ANALYTICS: "1"
-      STUDIO_FFMPEG_WORK_DIR: ${{ runner.temp }}/sthang-ffmpeg-8.1.3
     steps:
       - name: Check out exact read-only source
         uses: actions/checkout@v4
@@ -35,6 +34,11 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Select isolated native-build directory
+        shell: bash
+        run: |
+          printf 'STUDIO_FFMPEG_WORK_DIR=%s/sthang-ffmpeg-8.1.3\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Select build Python (no dependency installation)
         uses: actions/setup-python@v5
