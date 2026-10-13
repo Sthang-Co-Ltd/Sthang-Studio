@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -87,20 +88,26 @@ def git(*args: str) -> str:
     return result.stdout.decode("utf-8", errors="strict").strip()
 
 
-def gh_json(*args: str) -> dict:
+def gh_json(*args: str) -> list[dict]:
     result = run(["gh", *args], label="GitHub release metadata")
     try:
         document = json.loads(result.stdout)
     except (UnicodeError, ValueError) as error:
         raise AcceptanceFailure("GitHub release metadata was malformed.") from error
-    require(isinstance(document, dict), "GitHub release metadata has an unexpected shape.")
+    require(isinstance(document, list) and len(document) <= 100
+            and all(isinstance(item, dict) for item in document),
+            "GitHub's first 100 releases have an unexpected response shape.")
     return document
 
 
-def release(tag: str) -> dict:
-    value = gh_json("api", f"repos/{REPO}/releases/tags/{tag}")
-    require(value.get("tag_name") == tag and isinstance(value.get("assets"), list),
-            "GitHub release tag or assets do not match the requested release.")
+def release(releases: list[dict], tag: str) -> dict:
+    # GET /releases/tags/{tag} may return 404 for existing draft releases.
+    matches = [item for item in releases if item.get("tag_name") == tag]
+    require(len(matches) == 1,
+            "Exact release tag is missing or duplicated in the first 100 releases.")
+    value = matches[0]
+    require(type(value.get("draft")) is bool and isinstance(value.get("assets"), list),
+            "GitHub release status or assets have an unexpected shape.")
     return value
 
 
@@ -170,14 +177,20 @@ def safe_name(name: str) -> str:
     return "/".join(segments)
 
 
-def zip_files(file: Path) -> dict[str, bytes]:
+def zip_files(file: Path | io.BytesIO, *, windows_recovery: bool = False) -> dict[str, bytes]:
     entries: dict[str, bytes] = {}
     seen: set[str] = set()
     total = 0
     with zipfile.ZipFile(file) as archive:
         require(len(archive.infolist()) <= 20000, "Release ZIP has too many entries.")
         for info in archive.infolist():
-            name = safe_name(info.filename)
+            # The sha-verified Windows recovery ZIPs use .NET's native '\'
+            # separators. OTA/Git source archives must remain strict POSIX ZIPs.
+            # On Windows, Python normalizes ZipInfo.filename automatically;
+            # orig_filename retains the ZIP's actual entry spelling so strict
+            # OTA validation cannot silently accept backslash separators.
+            raw = info.orig_filename
+            name = safe_name(raw.replace("\\", "/") if windows_recovery else raw)
             folded = name.casefold()
             require(folded not in seen, "Release ZIP has duplicate or case-conflicting paths.")
             seen.add(folded)
@@ -186,7 +199,8 @@ def zip_files(file: Path) -> dict[str, bytes]:
                     "Release ZIP has a link or special file.")
             total += info.file_size
             require(total <= MAX_EXPANDED_BYTES, "Release ZIP exceeds the uncompressed size ceiling.")
-            if info.is_dir():
+            if info.is_dir() or (windows_recovery and raw.endswith("\\")):
+                require(info.file_size == 0, "Release ZIP has a nonempty directory entry.")
                 continue
             entries[name] = archive.read(info)
     return entries
@@ -399,6 +413,8 @@ def acceptance() -> None:
     require(sys.version_info[:3] == (3, 12, 15), "Exact reviewed Python 3.12.15 is required.")
     require(shutil.which("gh") is not None and shutil.which("node") is not None,
             "Native runner is missing GitHub CLI or reviewed Node.")
+    require(os.environ.get("GH_TOKEN"),
+            "Authenticated GitHub workflow token is required for draft release assets.")
     commit = os.environ.get("STUDIO_CANDIDATE_COMMIT", "").lower()
     recovery_sha = os.environ.get("STUDIO_RECOVERY_SHA256", "").lower()
     ota_sha = os.environ.get("STUDIO_OTA_SHA256", "").lower()
@@ -415,9 +431,10 @@ def acceptance() -> None:
     require(not work.exists(), "The acceptance work root already exists; use a fresh runner.")
     work.mkdir()
     print("Selecting exact draft/source and immutable release checksums...", flush=True)
-    chosen = release(f"v{CANDIDATE}")
+    releases = gh_json("api", "--method", "GET", f"repos/{REPO}/releases?per_page=100")
+    chosen = release(releases, f"v{CANDIDATE}")
     source_identity(chosen, commit)
-    old = release(f"v{BASELINE}")
+    old = release(releases, f"v{BASELINE}")
     plans = [
         (old, BASELINE, f"Sthang-Studio-Windows-v{BASELINE}.zip", BASELINE_SHA, work / "baseline"),
         (chosen, CANDIDATE, f"Sthang-Studio-Windows-v{CANDIDATE}.zip", recovery_sha, work / "candidate"),
@@ -438,8 +455,8 @@ def acceptance() -> None:
     baseline_name = f"Sthang-Studio-Windows-v{BASELINE}.zip"
     recovery_name = f"Sthang-Studio-Windows-v{CANDIDATE}.zip"
     ota_name = f"Sthang-Studio-OTA-v{CANDIDATE}.zip"
-    baseline_files = zip_files(downloaded[baseline_name])
-    candidate_files = zip_files(downloaded[recovery_name])
+    baseline_files = zip_files(downloaded[baseline_name], windows_recovery=True)
+    candidate_files = zip_files(downloaded[recovery_name], windows_recovery=True)
     ota_files = zip_files(downloaded[ota_name])
     original = assert_payload(baseline_files, BASELINE)
     recovery = assert_payload(candidate_files, CANDIDATE)
@@ -515,17 +532,106 @@ def acceptance() -> None:
     print("WINDOWS 0.85.6 -> 0.86.0 NATIVE FIXTURE ACCEPTANCE PASS; production signature/pointer not exercised.", flush=True)
 
 
-if __name__ == "__main__":
-    if sys.argv[1:] == ["--self-test"]:
-        assert HEX40.fullmatch("a" * 40) and HEX64.fullmatch(BASELINE_SHA)
-        assert safe_name("apps/server/src/index.ts") == "apps/server/src/index.ts"
+def self_test(actual_recovery: Path | None = None) -> None:
+    assert HEX40.fullmatch("a" * 40) and HEX64.fullmatch(BASELINE_SHA)
+    assert safe_name("apps/server/src/index.ts") == "apps/server/src/index.ts"
+    sample = [
+        {"tag_name": "v0.85.6", "draft": False, "assets": []},
+        {"tag_name": "v0.86.0", "draft": True, "assets": []},
+    ]
+    assert release(sample, "v0.86.0") is sample[1]
+    assert release(sample, "v0.85.6") is sample[0]
+    for records, tag in (
+        (sample, "v0.86"),
+        (sample + [sample[1].copy()], "v0.86.0"),
+        ([{"tag_name": "v0.86.0", "draft": True}], "v0.86.0"),
+    ):
         try:
-            safe_name("../escape.txt")
+            release(records, tag)
         except AcceptanceFailure:
             pass
         else:
-            raise AssertionError("Unsafe ZIP path should be rejected")
-        print("Windows acceptance helper static guards PASS (no native installation).")
+            raise AssertionError("Missing, duplicate or malformed draft release was accepted.")
+
+    def fixture(*names: str) -> io.BytesIO:
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as writer:
+            for name in names:
+                # Python's ZipInfo constructor canonicalizes separators on
+                # Windows. Set the member name afterward to exercise raw .NET
+                # backslash entries and malformed mixed-separator archives.
+                record = zipfile.ZipInfo("placeholder")
+                record.filename = name
+                writer.writestr(record, b"fixture contents")
+        stream.seek(0)
+        return stream
+
+    genuine_windows_style = fixture(
+        r"Sthang Studio 0.86.0\Install Sthang Studio.bat",
+        r"Sthang Studio 0.86.0\Sthang Studio Files\scripts\update-runtime.mjs",
+    )
+    files = zip_files(genuine_windows_style, windows_recovery=True)
+    assert sorted(files) == [
+        "Sthang Studio 0.86.0/Install Sthang Studio.bat",
+        "Sthang Studio 0.86.0/Sthang Studio Files/scripts/update-runtime.mjs",
+    ]
+    assert zip_files(fixture("source/scripts/update-runtime.mjs")) == {
+        "source/scripts/update-runtime.mjs": b"fixture contents",
+    }
+
+    def must_reject(names: tuple[str, ...], *, recovery: bool = True) -> None:
+        try:
+            zip_files(fixture(*names), windows_recovery=recovery)
+        except AcceptanceFailure:
+            return
+        raise AssertionError(f"Unsafe archive path or collision was accepted: {names!r}")
+
+    # The strict OTA/Git parser must continue refusing Windows-style paths.
+    must_reject((r"source\scripts\update-runtime.mjs",), recovery=False)
+    for unsafe in (
+        r"..\escape.txt",
+        r"Root\..\escape.txt",
+        r"Root/subdir\..\escape.txt",
+        r"C:\escape.txt",
+        r"C:escape.txt",
+        r"\\server\share\escape.txt",
+        r"Root\CON.txt",
+        r"Root\\double-separator.txt",
+    ):
+        must_reject((unsafe,))
+    for duplicates in (
+        (r"Root\file.txt", "Root/file.txt"),
+        (r"Root\File.TXT", "root/file.txt"),
+    ):
+        must_reject(duplicates)
+
+    link = io.BytesIO()
+    with zipfile.ZipFile(link, "w") as writer:
+        record = zipfile.ZipInfo("placeholder")
+        record.filename = r"Root\linked-file"
+        record.create_system = 3
+        record.external_attr = 0o120777 << 16
+        writer.writestr(record, b"link target")
+    link.seek(0)
+    try:
+        zip_files(link, windows_recovery=True)
+    except AcceptanceFailure:
+        pass
+    else:
+        raise AssertionError("Windows recovery ZIP symlink was accepted")
+
+    if actual_recovery is not None:
+        require(actual_recovery.name == f"Sthang-Studio-Windows-v{CANDIDATE}.zip",
+                "The real recovery self-test requires the reviewed candidate filename.")
+        actual_files = zip_files(actual_recovery, windows_recovery=True)
+        assert_payload(actual_files, CANDIDATE)
+        print(f"PASS: real Windows v{CANDIDATE} recovery ZIP ({len(actual_files)} normalized file entries).")
+    print("Windows acceptance helper static guards PASS (no native installation).")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--self-test"] and len(sys.argv) in (2, 3):
+        self_test(Path(sys.argv[2]) if len(sys.argv) == 3 else None)
     else:
         try:
             require(not sys.argv[1:], "Unexpected Windows acceptance helper arguments.")

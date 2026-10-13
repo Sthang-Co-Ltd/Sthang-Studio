@@ -83,7 +83,7 @@ def git(*args: str, binary: bool = False):
     return process.stdout if binary else process.stdout.decode("utf-8").strip()
 
 
-def command_json(args: list[str]) -> dict:
+def command_json(args: list[str]) -> list[dict]:
     process = subprocess.run(
         args, cwd=PROJECT_ROOT, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, check=False, timeout=60,
@@ -93,14 +93,20 @@ def command_json(args: list[str]) -> dict:
         value = json.loads(process.stdout)
     except (ValueError, UnicodeError) as error:
         raise AcceptanceFailure("GitHub release metadata was not valid JSON.") from error
-    require(isinstance(value, dict), "GitHub release metadata has the wrong shape.")
+    require(isinstance(value, list) and len(value) <= 100
+            and all(isinstance(item, dict) for item in value),
+            "GitHub's first 100 releases have an unexpected response shape.")
     return value
 
 
-def release_metadata(tag: str) -> dict:
-    release = command_json(["gh", "api", f"repos/{REPOSITORY}/releases/tags/{tag}"])
-    require(release.get("tag_name") == tag, "Selected release tag does not match its metadata.")
-    require(release.get("draft") in (True, False), "Release draft status is missing.")
+def release_metadata(releases: list[dict], tag: str) -> dict:
+    # GET /releases/tags/{tag} can return 404 for an existing draft.
+    # The authenticated bounded list includes drafts with contents:write.
+    matches = [item for item in releases if item.get("tag_name") == tag]
+    require(len(matches) == 1,
+            "Exact release tag is missing or duplicated in the first 100 releases.")
+    release = matches[0]
+    require(type(release.get("draft")) is bool, "Release draft status is missing.")
     return release
 
 
@@ -597,6 +603,25 @@ def summary(results: list[str], commit: str, recovery_sha: str, ota_sha: str) ->
 
 def main() -> None:
     if sys.argv[1:] == ["--self-test"]:
+        # The exact tag must resolve uniquely in an authenticated draft-capable
+        # listing; a nearby published tag cannot stand in for a missing draft.
+        sample = [
+            {"tag_name": "v0.85.6", "draft": False, "assets": []},
+            {"tag_name": "v0.86.0", "draft": True, "assets": []},
+        ]
+        assert release_metadata(sample, "v0.86.0") is sample[1]
+        assert release_metadata(sample, "v0.85.6") is sample[0]
+        for records, tag in (
+            (sample, "v0.86"),
+            (sample + [sample[1].copy()], "v0.86.0"),
+            ([{"tag_name": "v0.86.0", "assets": []}], "v0.86.0"),
+        ):
+            try:
+                release_metadata(records, tag)
+            except AcceptanceFailure:
+                pass
+            else:
+                raise AssertionError("Missing, duplicate or malformed draft release was accepted.")
         fixture = io.BytesIO()
         with zipfile.ZipFile(fixture, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("valid/test.txt", "ok")
@@ -640,7 +665,7 @@ def main() -> None:
             "Native reviewed Python 3.12.15+ is required.")
     require(os.environ.get("GITHUB_REPOSITORY", "").casefold() == REPOSITORY.casefold(),
             "Workflow must run in the Sthang Studio GitHub repository.")
-    require(os.environ.get("GH_TOKEN"), "Read-only GitHub workflow token is required for draft release assets.")
+    require(os.environ.get("GH_TOKEN"), "Authenticated GitHub workflow token is required for draft release assets.")
     node = subprocess.run(
         ["node", "-p", 'process.versions.node + " " + process.arch'],
         cwd=PROJECT_ROOT, capture_output=True, check=False, timeout=15,
@@ -696,9 +721,12 @@ def main() -> None:
     results: list[str] = []
     print("Checking selected draft/release asset provenance...", flush=True)
     try:
-        release = release_metadata(tag)
+        releases = command_json([
+            "gh", "api", "--method", "GET", f"repos/{REPOSITORY}/releases?per_page=100",
+        ])
+        release = release_metadata(releases, tag)
         tree = resolve_release_source(release, commit)
-        baseline_release = release_metadata("v" + BASELINE_VERSION)
+        baseline_release = release_metadata(releases, "v" + BASELINE_VERSION)
         basename = f"Sthang-Studio-macOS-Apple-Silicon-v{BASELINE_VERSION}.zip"
         recovery_name = f"Sthang-Studio-macOS-Apple-Silicon-v{CANDIDATE_VERSION}.zip"
         ota_name = f"Sthang-Studio-OTA-macOS-Apple-Silicon-v{CANDIDATE_VERSION}.zip"

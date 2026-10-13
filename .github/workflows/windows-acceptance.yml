@@ -23,7 +23,9 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # GitHub draft releases require contents:write to be listed by GITHUB_TOKEN.
+  # This manual acceptance job only issues GETs and performs no publication.
+  contents: write
 
 concurrency:
   group: windows-native-acceptance-${{ github.ref }}-${{ inputs.candidate_commit }}
@@ -72,8 +74,8 @@ jobs:
         env:
           # runner.temp is only used after the runner is assigned, in step scope.
           STUDIO_WINDOWS_RUNNER_TEMP: ${{ runner.temp }}
-          # This token is read-only, scoped to the current repository and needed
-          # only by the verifier to download exact draft GitHub Release assets.
+          # contents:write permits authenticated GETs of draft releases; this
+          # token is never passed to installed Studio or any runtime child.
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'

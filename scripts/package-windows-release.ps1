@@ -87,7 +87,9 @@ try {
 
   Write-Host ''
   Write-Host "Creating clean Windows package for Sthang Studio $Version..." -ForegroundColor Cyan
-  & git archive --format=zip "--output=$PayloadZip" HEAD -- @PayloadPaths
+  # Match the signed OTA/source projection while retaining explicit native
+  # CRLF attributes for Windows launch/setup scripts.
+  & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$PayloadZip" HEAD -- @PayloadPaths
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the tracked release payload.' }
 
   Expand-Archive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force

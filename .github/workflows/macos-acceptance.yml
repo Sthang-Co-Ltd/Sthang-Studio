@@ -22,7 +22,9 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # GitHub draft releases require contents:write to be listed by GITHUB_TOKEN.
+  # This manual acceptance job only issues GETs and performs no publication.
+  contents: write
 
 concurrency:
   group: macos-acceptance-${{ github.ref }}-${{ inputs.candidate_commit }}
@@ -84,8 +86,9 @@ jobs:
         env:
           # The runner context is available here, after a native runner is assigned.
           STHANG_STUDIO_STATE_ROOT: ${{ runner.temp }}/sthang-studio-macos-native/state with spaces
-          # The automatic workflow token is read-only. No signing custody is made
-          # available to this job, including through GitHub Actions secrets.
+          # contents:write permits authenticated GETs of draft releases; this
+          # token is never passed to installed Studio or any runtime child.
+          # No signing keys are provided to this job.
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: python3 -B scripts/ci/macos-acceptance.py
