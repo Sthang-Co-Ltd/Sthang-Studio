@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-v0-85-6-macos-ota-bootstrap-20260929",
+    "id": "studio-v0-86-0-release-20261013",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Release Sthang Studio 0.85.6 with the Apple Silicon macOS signed-update bootstrap, Finder-launchable Sthang Studio.app wrapper plus Sthang Studio.command fallback, curated no-esbuild production runtime, managed private Node/Python/FFmpeg provisioning, and transactional rollback/state preservation. Windows retains the signed in-app updater; macOS 0.85.6 is the one-time bootstrap for later signed in-app updates after separate native acceptance and pointer promotion."
+      "summary": "Prepare Sthang Studio 0.86.0 with Khmer word-highlight preparation, responsive native caption preview, playback recovery, reviewed dependency runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. Publish Windows and Apple Silicon recovery downloads and platform OTA offers only after their exact release, provenance, native acceptance, signature, and pointer checks pass."
     },
     "releaseImpact": "version"
   },
@@ -48,7 +48,7 @@
       "automaticPublication": false
     },
     "release": {
-      "sourceVersion": "0.85.6",
+      "sourceVersion": "0.86.0",
       "publicVersion": "0.85.6",
       "publicVersionStatus": "verified",
       "channel": "preview"

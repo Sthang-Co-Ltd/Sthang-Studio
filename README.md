@@ -36,6 +36,17 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Version 0.86.0 source
+
+This source prepares **v0.86** (package version `0.86.0`) with Khmer word-highlight
+preparation, responsive native caption preview, playback recovery, reviewed local
+runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The
+[0.86.0 release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
+is the intended recovery-download location after its reviewed assets are
+published and byte-verified. Until then, `0.85.6` remains the verified public
+download. Each platform's in-app offer additionally requires its own verified
+signed pointer and upgrade/rollback acceptance.
+
 ## Source-only playback and update hardening
 
 The current development source can prepare a local H.264/AAC playback copy when

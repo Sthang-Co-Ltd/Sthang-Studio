@@ -1,0 +1,32 @@
+Sthang Studio 0.86.0 - Public Beta
+
+Version 0.86 brings the accepted caption, playback and Gemini improvements together.
+
+Appearance: Prepare word highlights aligns unresolved captions locally, skips ready tracks and offers one guarded batch application with History-backed undo.
+Uncertain, locked or unresolved captions remain plain until reviewed. Cancellation stops future alignment requests.
+Khmer word alignment preserves acoustic word anchors and makes fallback word timestamps reviewable.
+Native preview prioritizes the spoken word and follows decoded video-frame boundaries while retaining the same captioned-video export appearance.
+
+Playback recovery can prepare a local H.264/AAC copy for unsupported video and retry failed playback without discarding caption edits.
+The original upload, caption times and export source are preserved. Playback preparation is cancellable and its local cache is bounded.
+
+Gemini 3.8 Flash is the primary model and Gemini 3.6 Flash is the distinct fallback.
+The former 3.8/3.7 default pair is migrated because the 3.7 alias routes to 3.8; custom models and an intentionally blank fallback are preserved.
+Temporary provider failures honor bounded retry instructions; duplicate model aliases and permanent errors no longer waste repeated requests.
+Both models receive the same context and Accuracy guidance. Fresh listens remain fresh requests.
+
+Reviewed local runtimes and dependency locks keep setup and updates tied to the tested dependency graph.
+Updater preparation and activation protect in-progress work, verify the offered version and retain rollback state on failure.
+Existing stable brokers receive broker changes through the reviewed manual installer; an OTA payload does not replace that stable broker.
+Studio never downloads or installs silently: use Download & verify, then Install & restart.
+
+Requirements: Windows 10 or 11 x64, or Apple Silicon macOS 12.3+, internet for initial setup and AI wording, and a Gemini Developer API key.
+The macOS launcher is a local wrapper, not an Apple-signed or notarized native distribution.
+Studio requests store: false for Gemini interactions. Audio is uploaded separately through the Gemini Files API; Studio does not explicitly delete that remote file.
+Google documents Files API retention of up to 48 hours. Contributor and product analytics remain separate, off-by-default choices requiring explicit opt-in.
+
+Recovery assets, each with a matching SHA-256 file:
+- Sthang-Studio-Windows-v0.86.0.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.86.0.zip
+
+An in-app offer exists only after the matching platform release is independently verified and its signed latest pointer is promoted.
