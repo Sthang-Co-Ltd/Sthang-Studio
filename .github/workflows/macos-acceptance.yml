@@ -1,0 +1,77 @@
+name: Apple Silicon macOS release acceptance (manual)
+
+# Prepublication native evidence only. This never signs, publishes, or promotes OTA.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: "Exact Studio draft/release tag (v0.86.0)"
+        required: true
+        type: string
+      candidate_commit:
+        description: "40-character source commit used to build all candidate assets"
+        required: true
+        type: string
+      recovery_sha256:
+        description: "SHA-256 of the reviewed macOS recovery ZIP"
+        required: true
+        type: string
+      ota_sha256:
+        description: "SHA-256 of the reviewed unsigned macOS OTA ZIP"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-acceptance-${{ github.ref }}-${{ inputs.candidate_commit }}
+  cancel-in-progress: false
+
+jobs:
+  native-apple-silicon:
+    name: Native macOS 15 arm64 recovery and runtime
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CI: "true"
+      KCS_NONINTERACTIVE: "1"
+      KCS_OPEN_BROWSER: "false"
+      ORT_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
+      STUDIO_CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+      STUDIO_CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+      STUDIO_RECOVERY_SHA256: ${{ inputs.recovery_sha256 }}
+      STUDIO_OTA_SHA256: ${{ inputs.ota_sha256 }}
+      # This temporary state root has spaces deliberately, to cover path handling.
+      STHANG_STUDIO_STATE_ROOT: ${{ runner.temp }}/sthang-studio-macos-native/state with spaces
+    steps:
+      - name: Check out read-only workflow source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare reviewed native Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Prepare native Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.15"
+          architecture: arm64
+
+      - name: Check archive verifier's fail-closed cases
+        shell: bash
+        run: python3 -B scripts/ci/macos-acceptance.py --self-test
+
+      - name: Verify exact draft/release assets and exercise native Mac installer
+        env:
+          # The automatic workflow token is read-only. No signing custody is made
+          # available to this job, including through GitHub Actions secrets.
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: python3 -B scripts/ci/macos-acceptance.py
