@@ -124,18 +124,10 @@ function signedFixture(protocol, unsigned, privateKey, trust, packageBytes) {
   };
 }
 
-function childEnv(installRoot) {
-  const environment = { ...process.env,
-    STHANG_STUDIO_INSTALL_ROOT: installRoot,
-    STHANG_STUDIO_STATE_ROOT: installRoot,
-    STHANG_STUDIO_ENV_FILE: path.join(installRoot, 'apps', 'server', '.env'),
-    STHANG_STUDIO_UPDATE_TRUST_ROOT_FILE: path.join(installRoot, 'config', 'update-trust-root.json'),
-    STHANG_STUDIO_BROKER_VERSION: '1.0.0',
-    KCS_NONINTERACTIVE: '1', KCS_OPEN_BROWSER: 'false',
-    ORT_DISABLE_TELEMETRY: '1', HF_HUB_DISABLE_TELEMETRY: '1', DO_NOT_TRACK: '1',
-  };
+function stripAppChildEnvironment(environment) {
   for (const name of Object.keys(environment)) {
-    if (name === 'GH_TOKEN' || name === 'GITHUB_TOKEN' || name === 'GIT_ASKPASS'
+    if (name.toUpperCase() === 'PSMODULEPATH'
+      || name === 'GH_TOKEN' || name === 'GITHUB_TOKEN' || name === 'GIT_ASKPASS'
       || name === 'SSH_AUTH_SOCK' || name === 'NODE_OPTIONS'
       || name === 'ACTIONS_RUNTIME_TOKEN' || name === 'ACTIONS_ID_TOKEN_REQUEST_TOKEN'
       || name === 'ACTIONS_ID_TOKEN_REQUEST_URL' || name === 'STHANG_STUDIO_UPDATE_PRIVATE_KEY_FILE'
@@ -146,6 +138,21 @@ function childEnv(installRoot) {
     }
   }
   return environment;
+}
+
+function childEnv(installRoot) {
+  const environment = { ...process.env,
+    STHANG_STUDIO_INSTALL_ROOT: installRoot,
+    STHANG_STUDIO_STATE_ROOT: installRoot,
+    STHANG_STUDIO_ENV_FILE: path.join(installRoot, 'apps', 'server', '.env'),
+    STHANG_STUDIO_UPDATE_TRUST_ROOT_FILE: path.join(installRoot, 'config', 'update-trust-root.json'),
+    STHANG_STUDIO_BROKER_VERSION: '1.0.0',
+    KCS_NONINTERACTIVE: '1', KCS_OPEN_BROWSER: 'false',
+    ORT_DISABLE_TELEMETRY: '1', HF_HUB_DISABLE_TELEMETRY: '1', DO_NOT_TRACK: '1',
+  };
+  // Windows PowerShell 5.1 must construct its own module search paths.
+  // pwsh 7 module paths leaked via Python/cmd break Utility cmdlet autoload.
+  return stripAppChildEnvironment(environment);
 }
 
 async function waitForHealth(expectedVersion, timeoutMs = 90_000) {
@@ -687,6 +694,13 @@ if (process.argv.length === 3 && process.argv[2] === '--stop-owned') {
     process.exitCode = 1;
   });
 } else if (process.argv.slice(2).join(' ') === '--self-test') {
+  const inherited = {
+    PSModulePath: 'PS7 user', PSMODULEPATH: 'PS7 system',
+    psmodulepath: 'PS7 built-in', Path: 'untouched-path',
+    LOCALAPPDATA: 'untouched-local', GH_TOKEN: 'test-token',
+  };
+  assert.deepEqual(stripAppChildEnvironment(inherited),
+    { Path: 'untouched-path', LOCALAPPDATA: 'untouched-local' });
   assert.equal(within('C:\\runner', 'C:\\runner\\fixture'), process.platform === 'win32');
   assert.equal(hash(Buffer.from('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   const currentId = crypto.randomUUID();

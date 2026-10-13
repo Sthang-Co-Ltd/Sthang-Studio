@@ -293,8 +293,18 @@ def candidate_manifest(file: Path, ota: Path, entries: dict[str, bytes]) -> dict
     return manifest
 
 
+def strip_inherited_psmodulepath(child: dict[str, str]) -> None:
+    # pwsh.exe 7 -> Python/cmd.exe -> powershell.exe 5.1 would otherwise
+    # inherit PS7 module paths and resolve incompatible Utility modules.
+    # Windows PowerShell reconstructs its native defaults when this is absent.
+    for key in tuple(child):
+        if key.casefold() == "psmodulepath":
+            child.pop(key, None)
+
+
 def stripped_child_environment(local_app: Path, work: Path) -> dict[str, str]:
     child = dict(os.environ)
+    strip_inherited_psmodulepath(child)
     for key in list(child):
         if (key in {"GH_TOKEN", "GITHUB_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK",
                      "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
@@ -314,6 +324,25 @@ def stripped_child_environment(local_app: Path, work: Path) -> dict[str, str]:
                   "ORT_DISABLE_TELEMETRY": "1", "HF_HUB_DISABLE_TELEMETRY": "1",
                   "DO_NOT_TRACK": "1", "STHANG_STUDIO_ACCEPTANCE_RUN": "1"})
     return child
+
+
+def native_powershell_hash_preflight(child_env: dict[str, str]) -> None:
+    # Check the real WinPS 5.1 Utility cmdlet with the exact child environment
+    # that will reach the unmodified v0.85.6 launcher and OTA setup scripts.
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        "if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Windows PowerShell 5.1 required.' }; "
+        "Get-Command -Name Get-FileHash -ErrorAction Stop | Out-Null; "
+        "(Get-FileHash -LiteralPath 'scripts/ci/windows-acceptance.py' -Algorithm SHA256).Hash"
+    )
+    checked = run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=PROJECT, env=child_env, timeout=30,
+        label="Native Windows PowerShell 5.1 SHA-256 preflight",
+    )
+    require(checked.stdout.decode("ascii", errors="strict").strip().lower()
+            == sha256(PROJECT / "scripts/ci/windows-acceptance.py"),
+            "Native Windows PowerShell 5.1 Get-FileHash did not compute the expected SHA-256.")
 
 
 def desktop_preflight(runner_temp: Path) -> Path:
@@ -524,6 +553,8 @@ def acceptance() -> None:
     baseline_source = extraction / f"Sthang Studio {BASELINE}" / "Sthang Studio Files"
     local_app = work / "state" / "local"
     child_env = stripped_child_environment(local_app, work)
+    native_powershell_hash_preflight(child_env)
+    print("PASS: native Windows PowerShell 5.1 resolved Get-FileHash and verified the CI source SHA-256.", flush=True)
     installed = local_app / "Sthang Studio" / "app"
     require(not installed.exists(), "Native test installation root must be fresh.")
     # The genuine installer and later candidate use Windows' real KnownFolder.
@@ -581,6 +612,14 @@ def acceptance() -> None:
 def self_test(actual_recovery: Path | None = None) -> None:
     assert HEX40.fullmatch("a" * 40) and HEX64.fullmatch(BASELINE_SHA)
     assert safe_name("apps/server/src/index.ts") == "apps/server/src/index.ts"
+    sample_environment = {
+        "PSModulePath": "PS7-user-modules", "PSMODULEPATH": "PS7-system-modules",
+        "psmodulepath": "PS7-built-in-modules", "PATH": "unchanged-PATH",
+        "LOCALAPPDATA": "unchanged-LOCALAPPDATA",
+    }
+    strip_inherited_psmodulepath(sample_environment)
+    assert sample_environment == {"PATH": "unchanged-PATH",
+                                  "LOCALAPPDATA": "unchanged-LOCALAPPDATA"}
     simulated_work = Path("runner-temp") / "sthang-windows-acceptance"
     simulated_install = simulated_work / "state" / "local" / "Sthang Studio" / "app"
     simulated_ota_work = simulated_work / "native-ota"
