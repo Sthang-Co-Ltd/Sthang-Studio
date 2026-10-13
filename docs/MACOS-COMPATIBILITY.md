@@ -37,11 +37,11 @@ GPL-3.0-or-later; its source publication obligations are distinct from the MIT
 license for Studio's application source. GPL distribution does not assert H.264
 patent clearance or Apple notarization.
 
-**Prepublication status:** the exact produced runtime hash and receipt are subject
-to independent verification, and native Mac install, upgrade/rollback, license
-distribution review and release authorization remain outstanding. These
-requirements do not claim a publicly available FFmpeg download or a live Mac OTA
-offer. See
+The prerequisite runtime passed native build and independent artifact review and
+is published with its complete corresponding source and checksum receipt. Exact
+hashes and the build run are recorded in [v0.86 release evidence](V086-RELEASE.md).
+Native Studio installation/upgrade/rollback and signed public OTA verification
+are separate application release gates. See
 [`MACOS-FFMPEG-PROVENANCE.md`](MACOS-FFMPEG-PROVENANCE.md) for the build-source
 review and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for the
 GPL/runtime and corresponding-source publication obligations.

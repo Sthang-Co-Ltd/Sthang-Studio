@@ -50,7 +50,7 @@ SHA-256, source/license and release verification are complete:
 | Node.js 24.21.0 Windows x64 | App-private JavaScript runtime and npm for setup/build/application execution | MIT for Node.js, with bundled third-party notices in the upstream distribution |
 | Astral `python-build-standalone` CPython 3.12.15+20261003 arm64 / Windows x64 | Private Python 3.12 runtime used to create Studio's local timing virtual environment | `python-build-standalone` tooling: MPL-2.0; CPython and bundled runtime components retain their upstream licenses |
 | `FFmpeg-arm-silicon` 0.5.0 tools archive — historical `v0.85.6` | FFmpeg/ffprobe fallback for local media processing and libass caption rendering | Exact inspected binary reports GPL version 3 or later. The `v0.85.6`-only provenance exception permitted an upstream-hosted, checksum-pinned download without independently reproducible binary-to-source evidence; it does **not** authorize the v0.86 replacement. |
-| Sthang source-built FFmpeg 8.1.3 for macOS arm64 — v0.86 release contract, **not yet published** | Managed FFmpeg/ffprobe fallback for local media and ASS subtitles | Combined `--enable-gpl --enable-version3` FFmpeg+x264 executable: GPL-3.0-or-later, with original component licenses, complete corresponding source and independent distribution review required alongside the separately hosted tools. Do not infer an accepted runtime SHA-256 or publication before verified release evidence. |
+| Sthang source-built FFmpeg 8.1.3 for macOS arm64 | Managed FFmpeg/ffprobe fallback for local media and ASS subtitles | Combined `--enable-gpl --enable-version3` FFmpeg+x264 executable: GPL-3.0-or-later. The independently reviewed tools, original component licenses, complete corresponding source and build receipt are published together at `runtime-ffmpeg-8.1.3-macos-arm64-r1`; see `docs/V086-RELEASE.md` for exact hashes and native evidence. |
 
 Every managed archive must have a fixed versioned HTTPS URL and exact SHA-256
 digest in `scripts/macos-managed-runtime.sh` or
@@ -154,8 +154,9 @@ record, toolchain/compile logs and provenance/receipt. Users must have a clearly
 identified, durable source-download route and ability to inspect, modify and
 rebuild the LGPL-linked portions; a short-lived Actions artifact or GitHub source
 snapshot alone is insufficient. The build receipt must attest the exact binary,
-source, runner and toolchain hashes. **These files are release obligations, not
-a claim that the native build verification or publication has passed.**
+source, runner and toolchain hashes. The prerequisite runtime passed native build
+and independent artifact review and was published with all six required assets;
+the Studio application installer/OTA acceptance remains a separate release gate.
 
 | Component of v0.86 8.1.3 build | Source license / notice obligation |
 | --- | --- |

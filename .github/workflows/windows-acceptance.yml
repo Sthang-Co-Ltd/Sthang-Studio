@@ -1,0 +1,97 @@
+name: Windows v0.85.6 to v0.86.0 native acceptance (manual)
+
+# Prepublication acceptance evidence. This workflow does not sign any production
+# manifest, publish a release, stage R2, or promote a live Studio OTA pointer.
+# All app/runtime state and downloads are scoped to RUNNER_TEMP. The only
+# outside-TEMP shell effect is the genuine fresh Windows runner USERPROFILE
+# KnownFolder Desktop, where shortcut names must be absent before installation;
+# owned shortcuts are removed after all disposable native children stop.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_commit:
+        description: "Exact 40-character v0.86.0 candidate source commit"
+        required: true
+        type: string
+      recovery_sha256:
+        description: "Reviewed SHA-256 of Sthang-Studio-Windows-v0.86.0.zip"
+        required: true
+        type: string
+      ota_sha256:
+        description: "Reviewed SHA-256 of Sthang-Studio-OTA-v0.86.0.zip"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-native-acceptance-${{ github.ref }}-${{ inputs.candidate_commit }}
+  cancel-in-progress: false
+
+jobs:
+  native-windows:
+    name: Real Windows bootstrap and fixture-signed OTA rollback
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      CI: "true"
+      KCS_NONINTERACTIVE: "1"
+      KCS_OPEN_BROWSER: "false"
+      ORT_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
+      STUDIO_CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+      STUDIO_RECOVERY_SHA256: ${{ inputs.recovery_sha256 }}
+      STUDIO_OTA_SHA256: ${{ inputs.ota_sha256 }}
+    steps:
+      - name: Check out exact candidate source read-only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select reviewed Node 24.21.0 x64
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          architecture: x64
+
+      - name: Static syntax and native fixture guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --check scripts/ci/windows-ota-acceptance.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows OTA fixture JavaScript syntax failed.' }
+          node scripts/ci/windows-ota-acceptance.mjs --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Windows OTA fixture static guards failed.' }
+
+      - name: Install pinned Windows Python 3.12.15 and exercise native release
+        shell: pwsh
+        env:
+          # runner.temp is only used after the runner is assigned, in step scope.
+          STUDIO_WINDOWS_RUNNER_TEMP: ${{ runner.temp }}
+          # This token is read-only, scoped to the current repository and needed
+          # only by the verifier to download exact draft GitHub Release assets.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:STUDIO_WINDOWS_RUNNER_TEMP -or -not (Test-Path -LiteralPath $env:STUDIO_WINDOWS_RUNNER_TEMP -PathType Container)) {
+            throw 'The native Windows runner temporary root is not available.'
+          }
+          # Use the reviewed product-owned Astral Python 3.12.15+20261003
+          # URL and SHA-256. Its isolated LOCALAPPDATA is inside RUNNER_TEMP.
+          # No system-level Python installation or PATH mutation is required.
+          $env:LOCALAPPDATA = Join-Path $env:STUDIO_WINDOWS_RUNNER_TEMP 'sthang-native-python-local'
+          New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
+          $acceptanceToken = $env:GH_TOKEN
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          . ./scripts/windows-managed-runtime.ps1
+          $python = Get-StudioManagedPython
+          if (-not (Test-StudioPython $python)) { throw 'Reviewed Windows Python 3.12.15 failed its native runtime check.' }
+          $env:GH_TOKEN = $acceptanceToken
+          & $python -B scripts/ci/windows-acceptance.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Windows source/asset verifier static guards failed.' }
+          & $python -B scripts/ci/windows-acceptance.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows release and installed broker acceptance failed.' }

@@ -412,7 +412,7 @@ def installed_version(app: pathlib.Path) -> str:
         raise AcceptanceFailure("Installed Mac application version is missing.") from error
 
 
-def installed_python_version(app: pathlib.Path, env: dict[str, str]) -> str:
+def installed_python_version(app: pathlib.Path, version: str, env: dict[str, str]) -> str:
     process = subprocess.run(
         [str(app / ".venv/bin/python"), "-c",
          'import platform,sys; print(".".join(map(str,sys.version_info[:3]))+" "+platform.machine())'],
@@ -421,8 +421,12 @@ def installed_python_version(app: pathlib.Path, env: dict[str, str]) -> str:
     require(process.returncode == 0, "Installed native timing Python did not execute.")
     result = process.stdout.decode("ascii", errors="replace").strip()
     match = re.fullmatch(r"3\.12\.(\d+) arm64", result)
-    require(match is not None and int(match.group(1)) >= 15,
-            "Installed timing environment is not native Python 3.12.15+.")
+    # The genuine v0.85.6 release pins 3.12.14, while the v0.86.0
+    # candidate raises the supported floor to 3.12.15. The runner's
+    # modern bootstrap can also supply 3.12.15 to the old installer.
+    minimum_patch = 14 if version == BASELINE_VERSION else 15
+    require(match is not None and int(match.group(1)) >= minimum_patch,
+            f"Installed {version} timing environment is not native Python 3.12.{minimum_patch}+.")
     return result.split()[0]
 
 
@@ -501,7 +505,7 @@ cd "$WORK"
                ["node", str(app / "scripts/smoke-macos-curated-runtime.mjs"), str(app)],
                work, env=env, cwd=app, timeout=90)
     run_broker_probe(app, version, work, env)
-    return f"Python {installed_python_version(app, env)}, FFmpeg {installed_ffmpeg_version(app, env)}"
+    return f"Python {installed_python_version(app, version, env)}, FFmpeg {installed_ffmpeg_version(app, env)}"
 
 
 def run_broker_probe(app: pathlib.Path, version: str, work: pathlib.Path,
@@ -577,9 +581,9 @@ def summary(results: list[str], commit: str, recovery_sha: str, ota_sha: str) ->
         f"- Runtime host: macOS {platform.mac_ver()[0]} arm64 on a GitHub-hosted macOS 15 runner; "
         "other supported macOS versions untested.",
         *[f"- {item}" for item in results],
-        "- **Live signed Mac OTA: NOT TESTED / RELEASE GATE BLOCKED.** This run never signs, "
-        "promotes `macos-arm64/latest.json`, uses a production signing key, or simulates a "
-        "real user-confirmed OTA offer. Unsigned OTA manifests prove only candidate identity.",
+        "- **Production signature and public pointer verification: separate release gate.** "
+        "Installed-broker checks above use an ephemeral CI signing fixture and actual native candidate bytes. "
+        "This run never uses a production signing key or promotes `macos-arm64/latest.json`.",
         "- FFmpeg source provenance remains independently gated; native codec execution "
         "does not grant a v0.86 provenance exception.",
     ]
@@ -670,7 +674,7 @@ def main() -> None:
                  "ACTIONS_ID_TOKEN_REQUEST_TOKEN"):
         environment.pop(name, None)
     environment["STHANG_STUDIO_STATE_ROOT"] = str(state)
-    # Keep reviewed setup-node/setup-python tool directories and native macOS
+    # Keep the reviewed Node/private-Python tool directories and native macOS
     # system tools. Excluding Homebrew/system extras forces an actual test of
     # the release-managed, checksum-pinned FFmpeg fallback on this clean runner.
     node_path = shutil.which("node")
@@ -762,6 +766,29 @@ def main() -> None:
         records = state_sentinels(state)
         old_script_hash = file_digest(app / "run-macos.sh")
         old_trust_hash = file_digest(app / "config/update-trust-root-macos.json")
+        ota_work = work / "native-ota"
+        ota_work.mkdir()
+        print("Checking actual v0.85.6 broker preparation, OTA activation and rollback...", flush=True)
+        ota_request = {
+            "stateRoot": str(state),
+            "candidatePackagePath": str(downloaded[ota_name]),
+            "unsignedManifestPath": str(manifest_file),
+            "expectedCommit": commit,
+            "workRoot": str(ota_work),
+        }
+        run_logged("native-installed-ota",
+                   ["node", str(PROJECT_ROOT / "scripts/ci/macos-ota-acceptance.mjs"),
+                    "--request", json.dumps(ota_request, separators=(",", ":"))],
+                   work, env=environment, timeout=3600)
+        confirm_state(records)
+        require(installed_version(app) == BASELINE_VERSION
+                and file_digest(app / "run-macos.sh") == old_script_hash
+                and file_digest(app / "config/update-trust-root-macos.json") == old_trust_hash,
+                "Native OTA fixture did not restore the exact original baseline and production public trust.")
+        results.append("PASS: installed v0.85.6 broker checked/downloaded/prepared the actual v0.86.0 OTA ZIP, "
+                       "rejected corruption, recovered preparation/interruption and injected health failures, "
+                       "and served exact candidate API/web/KFA health while preserving state. "
+                       "Signatures used an ephemeral CI fixture key; production signing/pointer verification is separate.")
         update_pointer = state / "updates/active.json"
         update_pointer.parent.mkdir(parents=True, exist_ok=True)
         update_pointer.write_text('{"ci":"synthetic manual recovery pointer"}\n', encoding="utf-8")
@@ -812,7 +839,7 @@ def main() -> None:
         raise
     finally:
         summary(results, commit, recovery_sha, ota_sha)
-    print("Native prepublication installer/runtime checks PASSED; live signed OTA gate remains unexecuted.", flush=True)
+    print("Native installer and installed-broker OTA checks PASSED; production signature/pointer verification remains separate.", flush=True)
 
 
 if __name__ == "__main__":

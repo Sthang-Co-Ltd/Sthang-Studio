@@ -30,9 +30,9 @@ concurrency:
 
 jobs:
   native-apple-silicon:
-    name: Native macOS 15 arm64 recovery and runtime
+    name: Native macOS 15 arm64 recovery, OTA and rollback
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       CI: "true"
       KCS_NONINTERACTIVE: "1"
@@ -48,6 +48,7 @@ jobs:
       - name: Check out read-only workflow source
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.candidate_commit }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -56,17 +57,30 @@ jobs:
         with:
           node-version: 24.21.0
 
-      - name: Prepare native Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12.15"
-          architecture: arm64
+      - name: Prepare checksum-pinned native Python
+        shell: bash
+        env:
+          STHANG_STUDIO_STATE_ROOT: ${{ runner.temp }}/sthang-acceptance-python-bootstrap
+        run: |
+          set -euo pipefail
+          source scripts/macos-common.sh
+          studio_macos_host
+          if [[ "$STUDIO_MANAGED_PYTHON_VERSION" != "3.12.15" ||
+                "$STUDIO_MANAGED_PYTHON_SHA256" != "316a463172740e71d8dca1f2730784e325f3f720941137b5d674d5801a632213" ]]; then
+            echo "The reviewed Python bootstrap pin changed." >&2
+            exit 1
+          fi
+          studio_macos_install_managed_python
+          "$STUDIO_MANAGED_PYTHON_ROOT/bin/python3.12" -c 'import ensurepip, platform, ssl, sys, venv; assert platform.machine() == "arm64" and sys.version_info[:3] == (3, 12, 15)'
+          printf '%s/bin\n' "$STUDIO_MANAGED_PYTHON_ROOT" >> "$GITHUB_PATH"
 
       - name: Check archive verifier's fail-closed cases
         shell: bash
-        run: python3 -B scripts/ci/macos-acceptance.py --self-test
+        run: |
+          python3 -B scripts/ci/macos-acceptance.py --self-test
+          node scripts/ci/macos-ota-acceptance.mjs --self-test
 
-      - name: Verify exact draft/release assets and exercise native Mac installer
+      - name: Verify exact assets and exercise native Mac installer and installed OTA broker
         env:
           # The runner context is available here, after a native runner is assigned.
           STHANG_STUDIO_STATE_ROOT: ${{ runner.temp }}/sthang-studio-macos-native/state with spaces
