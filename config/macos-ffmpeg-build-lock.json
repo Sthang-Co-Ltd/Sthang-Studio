@@ -177,7 +177,7 @@
       "required": ["static library only", "disable optional zlib, bzip2, png, brotli and HarfBuzz dependency links"]
     },
     "harfbuzz": {
-      "required": ["static library only", "build primary shaping library", "disable optional GLib/GObject, Cairo, ICU, Graphite2, FreeType, CoreText, zlib/png, raster/vector/GPU, subset, tools, docs and tests", "Meson must not use wrap downloads"]
+      "required": ["static library only", "build primary shaping library and the FreeType bridge against the already-pinned static FreeType; install hb-ft.h required by FFmpeg drawtext", "disable optional GLib/GObject, Cairo, ICU, Graphite2, CoreText, zlib/png, raster/vector/GPU, subset, tools, docs and tests", "Meson must not use wrap downloads"]
     },
     "x264": {
       "required": ["static library only", "disable CLI and OpenCL", "arm64 native compile", "link GPL-compatible x264 without commercial/nonfree components"]

@@ -561,12 +561,18 @@ class Builder:
         })
         self.meson_build("harfbuzz", [
             "-Dglib=disabled", "-Dgobject=disabled", "-Dcairo=disabled",
-            "-Dicu=disabled", "-Dgraphite2=disabled", "-Dfreetype=disabled",
+            # FFmpeg's required drawtext filter consumes hb-ft.h and the
+            # hb_ft_* symbols. HarfBuzz 14.6 installs/builds those only with
+            # its FreeType bridge enabled; use our already-pinned static
+            # FreeType (it was built --without-harfbuzz, so no cycle).
+            "-Dicu=disabled", "-Dgraphite2=disabled", "-Dfreetype=enabled",
             "-Dcoretext=disabled", "-Dfontations=disabled", "-Dharfrust=disabled",
             "-Dzlib=disabled", "-Dpng=disabled", "-Draster=disabled",
             "-Dvector=disabled", "-Dgpu=disabled", "-Dsubset=disabled",
             "-Dtests=disabled", "-Ddocs=disabled", "-Dutilities=disabled",
         ])
+        require((self.prefix / "include/harfbuzz/hb-ft.h").is_file(),
+                "Pinned HarfBuzz omitted hb-ft.h; FFmpeg drawtext requires the static FreeType bridge.")
         self.autoconf_build("libass", [
             "--enable-coretext", "--disable-fontconfig",
             "--disable-directwrite", "--disable-libunibreak",
@@ -601,6 +607,9 @@ class Builder:
                               env=self.env)
             require(bool(output) and "-L" + str(self.prefix / "lib") in output,
                     "Static pkgconf source is incomplete: " + name)
+            if name == "harfbuzz":
+                require("-lfreetype" in output,
+                        "Pinned static HarfBuzz is missing FreeType linkage for FFmpeg drawtext.")
             self.commands.append({"step": "static-pkgconf-" + name, "output": output})
 
     def build_ffmpeg(self) -> None:
@@ -846,6 +855,11 @@ class Builder:
 
     def package(self, identity: dict, smoke: dict) -> None:
         base = "Sthang-Studio-FFmpeg-" + VERSION + "-macOS-arm64"
+        corresponding_source_name = base + "-corresponding-source.zip"
+        corresponding_source_url = (
+            "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/"
+            "runtime-ffmpeg-8.1.3-macos-arm64-r1/" + corresponding_source_name
+        )
         ffmpeg = self.prefix / "bin/ffmpeg"
         ffprobe = self.prefix / "bin/ffprobe"
         binary_evidence = {"ffmpeg": self.native_binary(ffmpeg),
@@ -858,7 +872,7 @@ class Builder:
         runtime_entries: dict[str, tuple[pathlib.Path | bytes, bool]] = {
             "Tools/ffmpeg": (ffmpeg, True), "Tools/ffprobe": (ffprobe, True),
             "README-SOURCE-AND-LICENSES.txt": (
-                ("STHANG STUDIO FFmpeg 8.1.3 arm64 native build candidate\n"
+                ("STHANG STUDIO FFmpeg 8.1.3 arm64 native build\n"
                  "The combined FFmpeg + x264 build uses GNU GPL version 3 or later.\n"
                  "All redistributed third-party license texts are preserved verbatim\n"
                  "under THIRD_PARTY_LICENSES/. FreeType is used under the FreeType\n"
@@ -866,9 +880,8 @@ class Builder:
                  "for the full original license text and copyright notices.\n"
                  "This software is based in part on the work of the Independent JPEG Group.\n"
                  "This is not an Apple-signed or notarized application.\n"
-                 "Required complete corresponding source asset:\n"
-                 + base + "-corresponding-source.zip\n"
-                 "Distribution requires separate independent legal and release approval.\n"
+                 "Complete corresponding source for these binaries:\n"
+                 + corresponding_source_url + "\n"
                  ).encode("utf-8"), False),
         }
         for name in sorted(("ffmpeg", "freetype", "fribidi", "harfbuzz", "libass", "x264")):
@@ -923,7 +936,7 @@ class Builder:
             "smoke": smoke, "sourcePatches": [],
             "licenseReviewStatus": "independent-review-required-before-distribution",
         }).encode("utf-8"), False)
-        sources_zip = self.artifact_zip(base + "-corresponding-source.zip", source_entries)
+        sources_zip = self.artifact_zip(corresponding_source_name, source_entries)
         for item in (tools, sources_zip):
             (self.artifacts / (item.name + ".sha256")).write_text(
                 digest(item) + "  " + item.name + "\n", encoding="ascii")
