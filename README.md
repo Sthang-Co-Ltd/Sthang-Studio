@@ -40,12 +40,15 @@ available without crowding the main editing flow.
 
 **v0.86** (package version `0.86.0`) brings Khmer word-highlight
 preparation, responsive native caption preview, playback recovery, reviewed local
-runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The
-[0.86.0 release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
-is the recovery-download location once its reviewed assets are
-published and byte-verified. Source version changes alone do not publish a
-download. Each platform's in-app offer additionally requires its own verified
-signed pointer and upgrade/rollback acceptance.
+runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The reviewed
+[0.86.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
+provides verified GitHub ZIPs for Windows 10/11 x64 and native Apple Silicon
+macOS 12.3+ installation or recovery. Signed 0.86.0 in-app updates are live on
+both platforms after separate package, signature, latest-pointer, and native
+upgrade/rollback verification. Updater-capable Windows installations can use
+**Check for updates**. Existing Macs using in-app updates need the one-time
+0.85.6 manual bootstrap and Finder launcher; older manual-only Mac installations
+can instead install the published 0.86.0 Mac ZIP directly.
 
 ## Playback and update hardening
 
