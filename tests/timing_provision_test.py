@@ -281,12 +281,18 @@ class WindowsFunctionalProbeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="studio probe ")
         self.addCleanup(self.temp.cleanup)
-        self.model = Path(self.temp.name) / "kfa/wav2vec2-km-base-1500.onnx"
-        self.model.parent.mkdir()
+        self.native_cache = Path(self.temp.name) / "native-known-folder-cache"
+        self.redirected_localappdata = Path(self.temp.name) / "redirected-localappdata"
+        self.redirected_localappdata.mkdir()
+        self.model = self.native_cache / "kfa/wav2vec2-km-base-1500.onnx"
+        self.model.parent.mkdir(parents=True)
         self.session = types.SimpleNamespace(get_inputs=Mock(return_value=["audio"]), get_outputs=Mock(return_value=["emissions"]))
         self.create_session = Mock(return_value=self.session)
         self.tokenize = Mock(return_value=["ភាសា", "ខ្មែរ"])
+        self.appdirs = types.ModuleType("appdirs")
+        self.appdirs.user_cache_dir = Mock(return_value=str(self.native_cache))
         self.modules = {
+            "appdirs": self.appdirs,
             "onnxruntime": types.SimpleNamespace(disable_telemetry_events=Mock()),
             "kfa": types.SimpleNamespace(create_session=self.create_session),
             "khmercut": types.SimpleNamespace(tokenize=self.tokenize),
@@ -297,8 +303,12 @@ class WindowsFunctionalProbeTests(unittest.TestCase):
         self.versions = {"khmercut": "0.0.2", "python-crfsuite": "0.9.9", "tqdm": "4.65.0", "sosap": "0.4.3"}
 
     def probe(self):
-        with patch.dict(os.environ, {"LOCALAPPDATA": self.temp.name}), patch.dict(sys.modules, self.modules), patch("importlib.metadata.version", side_effect=self.versions.__getitem__):
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(self.redirected_localappdata)}), patch.dict(sys.modules, self.modules), patch("importlib.metadata.version", side_effect=self.versions.__getitem__):
             exec(m.WINDOWS_FUNCTIONAL_PROBE, {})
+
+    def cache_check(self):
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(self.redirected_localappdata)}), patch.dict(sys.modules, self.modules):
+            exec(m.WINDOWS_MODEL_CACHE_CHECK, {})
 
     def test_missing_or_empty_model_never_opens_session(self):
         for exists in [False, True]:
@@ -310,11 +320,23 @@ class WindowsFunctionalProbeTests(unittest.TestCase):
     def test_real_tokenization_and_kfa_session_contract_are_required(self):
         self.model.write_bytes(b"synthetic graph fixture")
         self.probe()
+        self.appdirs.user_cache_dir.assert_called_once_with()
         self.tokenize.assert_called_once_with("ភាសាខ្មែរ")
         self.create_session.assert_called_once_with()
         self.session.get_inputs.assert_called_once_with()
         self.session.get_outputs.assert_called_once_with()
         self.modules["onnxruntime"].disable_telemetry_events.assert_called_once_with()
+
+    def test_redirected_localappdata_cache_cannot_replace_kfa_known_folder_cache(self):
+        alternate = self.redirected_localappdata / "kfa/wav2vec2-km-base-1500.onnx"
+        alternate.parent.mkdir()
+        alternate.write_bytes(b"wrong cache location")
+        with self.assertRaisesRegex(RuntimeError, "nonempty model cache"):
+            self.probe()
+        self.create_session.assert_not_called()
+        self.model.write_bytes(b"verified native-cache fixture")
+        self.probe()
+        self.create_session.assert_called_once_with()
 
     def test_tokenizer_failure_never_opens_session(self):
         self.model.write_bytes(b"synthetic graph fixture")
@@ -357,11 +379,42 @@ class WindowsFunctionalProbeTests(unittest.TestCase):
                 function.return_value = ["tensor"]
 
     def test_ready_path_rejects_empty_cache_before_functional_imports(self):
-        self.model.write_bytes(b"")
-        with patch.dict(os.environ, {"LOCALAPPDATA": self.temp.name}), patch.object(m, "run") as run:
-            with self.assertRaisesRegex(RuntimeError, "empty"):
-                m.validate(Path(self.temp.name) / "active", "windows-py312-x64", ready=True)
-        self.assertFalse(any(call.args[0][-1] == m.WINDOWS_FUNCTIONAL_PROBE for call in run.call_args_list))
+        target = Path(self.temp.name) / "target-venv"
+        for exists in (False, True):
+            with self.subTest(empty=exists):
+                if exists:
+                    self.model.write_bytes(b"")
+                commands = []
+                def run(args, **kwargs):
+                    commands.append(args)
+                    if args[-1] == m.WINDOWS_MODEL_CACHE_CHECK:
+                        self.cache_check()
+                with patch.object(m, "run", side_effect=run):
+                    with self.assertRaisesRegex(RuntimeError, "nonempty model cache"):
+                        m.validate(target, "windows-py312-x64", ready=True)
+                self.assertEqual(commands[-1], [m.python_in(target), "-c", m.WINDOWS_MODEL_CACHE_CHECK])
+                self.assertNotEqual(str(commands[-1][0]), sys.executable)
+                self.assertFalse(any(args[-1] == m.WINDOWS_FUNCTIONAL_PROBE for args in commands))
+                self.create_session.assert_not_called()
+
+    def test_ready_uses_target_venv_appdirs_not_ambient_or_localappdata(self):
+        self.model.write_bytes(b"verified native-cache fixture")
+        target = Path(self.temp.name) / "target-venv"
+        commands = []
+        def run(args, **kwargs):
+            commands.append(args)
+            if args[-1] == m.WINDOWS_MODEL_CACHE_CHECK:
+                self.cache_check()
+            if args[-1] == m.WINDOWS_FUNCTIONAL_PROBE:
+                self.probe()
+        with patch.object(m, "run", side_effect=run):
+            m.validate(target, "windows-py312-x64", ready=True)
+        self.assertEqual(commands[-2:], [
+            [m.python_in(target), "-c", m.WINDOWS_MODEL_CACHE_CHECK],
+            [m.python_in(target), "-c", m.WINDOWS_FUNCTIONAL_PROBE]])
+        self.assertNotEqual(str(m.python_in(target)), sys.executable)
+        self.create_session.assert_called_once_with()
+        self.assertEqual(self.appdirs.user_cache_dir.call_count, 2)
 
 
 if __name__ == '__main__': unittest.main()

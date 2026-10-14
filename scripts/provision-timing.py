@@ -32,9 +32,14 @@ PYTHON_PROBE = (
     'assert platform.machine().lower() in '
     '( ("amd64","x86_64") if sys.platform == "win32" else ("arm64",) )'
 )
-WINDOWS_FUNCTIONAL_PROBE = '''
-import os
+WINDOWS_MODEL_CACHE_CHECK = '''
 from pathlib import Path
+from appdirs import user_cache_dir
+model = Path(user_cache_dir()) / "kfa/wav2vec2-km-base-1500.onnx"
+if not model.is_file() or model.stat().st_size == 0:
+    raise RuntimeError("KFA model preload did not produce a nonempty model cache")
+'''
+WINDOWS_FUNCTIONAL_PROBE = '''
 from importlib.metadata import version
 import onnxruntime
 onnxruntime.disable_telemetry_events()
@@ -46,9 +51,7 @@ assert version("khmercut") == "0.0.2"
 assert version("python-crfsuite") == "0.9.9"
 assert version("tqdm") == "4.65.0"
 assert version("sosap") == "0.4.3"
-model = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "kfa" / "wav2vec2-km-base-1500.onnx"
-if not model.is_file() or model.stat().st_size == 0:
-    raise RuntimeError("KFA model preload did not produce a nonempty model cache")
+''' + WINDOWS_MODEL_CACHE_CHECK + '''
 if not tokenize("ភាសាខ្មែរ"):
     raise RuntimeError("The native Khmer tokenizer smoke check failed")
 # Use KFA's own session factory, as the timing worker does. A present cache file
@@ -77,11 +80,13 @@ def validate(environment: Path, profile: str, *, ready=False):
             command.append("--ready")
         run(command)
     else:
-        # Avoid a download in the fast readiness path. Imports can preload KFA.
+        # The installed KFA uses appdirs.user_cache_dir(), which may resolve
+        # Windows KnownFolder independently of a process LOCALAPPDATA override.
+        # Run the same cache check under the TARGET venv Python: the provisioning
+        # interpreter need not have appdirs. Never import KFA on the READY path
+        # before proving its model is already cached (KFA import may download).
         if ready:
-            model = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "kfa/wav2vec2-km-base-1500.onnx"
-            if not model.is_file() or model.stat().st_size == 0:
-                raise RuntimeError("The Khmer timing model is not cached yet or is empty")
+            run([python, "-c", WINDOWS_MODEL_CACHE_CHECK])
         run([python, "-c", WINDOWS_FUNCTIONAL_PROBE])
 
 

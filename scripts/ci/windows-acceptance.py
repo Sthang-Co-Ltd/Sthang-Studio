@@ -1,8 +1,9 @@
 """Native Windows 0.85.6 -> 0.86.0 acceptance on a fresh GitHub Windows runner.
 
 This prepublication gate never signs, publishes or promotes a production update.
-Application files, state, dependencies and downloads stay inside RUNNER_TEMP.
-The sole shell-integration exception is the actual Windows Desktop KnownFolder
+Application files, state and package downloads stay inside RUNNER_TEMP. KFA uses
+its initially empty native cache in the disposable runner USERPROFILE.
+The shell-integration exception is the actual Windows Desktop KnownFolder
 within the disposable runner USERPROFILE. The two Studio shortcut names must
 be absent before setup, and only newly created links into this install may be
 removed after all native test processes stop. Original release helpers stay intact.
@@ -496,6 +497,20 @@ def acceptance() -> None:
     runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
     require(runner_temp.is_dir(), "RUNNER_TEMP must already exist.")
     desktop = desktop_preflight(runner_temp)
+    # KFA/appdirs uses the native Windows cache KnownFolder, independent of a
+    # process LOCALAPPDATA override. Permit this ordinary model download only
+    # in an initially empty cache on this disposable GitHub-hosted profile.
+    native_cache = run([
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+        "[Console]::Out.Write([Environment]::GetFolderPath('LocalApplicationData'))",
+    ], timeout=30, label="Read native KFA cache KnownFolder")
+    cache_base = Path(native_cache.stdout.decode("utf-8-sig").strip()).resolve(strict=True)
+    runner_profile = Path(os.environ["USERPROFILE"]).resolve(strict=True)
+    require(runner_profile in cache_base.parents,
+            "Native KFA cache must stay within the disposable runner profile.")
+    require(not (cache_base / "kfa").exists(),
+            "The runner already contains a KFA cache; use a fresh hosted runner.")
+    print("Native KFA model cache uses the fresh runner's Windows KnownFolder; app state uses RUNNER_TEMP.", flush=True)
     work = runner_temp / "sthang-windows-acceptance"
     require(not work.exists(), "The acceptance work root already exists; use a fresh runner.")
     work.mkdir()

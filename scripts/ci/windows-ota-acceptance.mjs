@@ -5,7 +5,8 @@
  * Ed25519 private material exists in memory only; only the disposable installed
  * baseline's public trust file is temporarily swapped and restored afterward.
  * The signed production trust root in both release ZIPs stays unchanged.
- * App state/downloads stay under RUNNER_TEMP. Genuine unmodified Windows
+ * App state/package downloads stay under RUNNER_TEMP. KFA's guarded native
+ * model cache stays under the disposable runner USERPROFILE. Unmodified Windows
  * installation and OTA helpers integrate with the fresh GitHub runner Desktop
  * KnownFolder under USERPROFILE; the owning Python verifier guards and removes
  * only test-created Studio shortcuts after the native children are stopped.
@@ -199,14 +200,22 @@ async function waitForWebIdentity(installRoot, timeoutMs = 90_000) {
   throw new Error('Windows OTA acceptance: fresh candidate frontend did not serve its own exact build identity.');
 }
 
-async function nativeLogTail(file) {
-  let text;
-  try { text = await fs.readFile(file, 'utf8'); } catch { return '[no native log]'; }
-  return text.split(/\r?\n/u).slice(-18).join('\n')
+function nativeDiagnostic(text) {
+  const sanitized = String(text)
     .replace(/https?:\/\/\S+/giu, '[service endpoint]')
     .replace(/[A-Za-z]:\\[^\s"']+/gu, '[runner path]')
-    .replace(/(?:(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[:=]\s*)[^\s]+/giu, '[redacted setting]')
-    .slice(-1700);
+    .replace(/(?:(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[:=]\s*)[^\s]+/giu, '[redacted setting]');
+  const lines = sanitized.split(/\r?\n/u).slice(-150)
+    .filter((line) => !/CalledProcessError: Command|ERROR: Timing setup failed.*Command \[/u.test(line))
+    .map((line) => line.length > 400 ? line.slice(0, 400) + ' [line clipped]' : line);
+  const causes = lines.filter((line) => /(?:[A-Za-z][\w.]*Error|Exception|ONNXRuntimeError):|DLL load failed|failed to load|\[ONNXRuntimeError\]/iu.test(line)).slice(-4);
+  const tail = lines.slice(-12).join('\n').slice(-900);
+  return tail + (causes.length ? '\nNative failure causes:\n' + causes.join('\n').slice(-700) : '');
+}
+
+async function nativeLogTail(file) {
+  try { return nativeDiagnostic(await fs.readFile(file, 'utf8')); }
+  catch { return '[no native log]'; }
 }
 
 function sanitizedError(error) {
@@ -694,6 +703,18 @@ if (process.argv.length === 3 && process.argv[2] === '--stop-owned') {
     process.exitCode = 1;
   });
 } else if (process.argv.slice(2).join(' ') === '--self-test') {
+  const nestedFailure = [
+    'Traceback (most recent call last):',
+    'RuntimeError: KFA model preload did not produce a nonempty model cache',
+    ...Array(22).fill('safe setup detail'),
+    'subprocess.CalledProcessError: Command [python, -c, ' + 'inline-code '.repeat(1200) + '] returned non-zero exit status 1.',
+  ].join('\n');
+  const retainedFailure = sanitizedError(new Error(nativeDiagnostic(nestedFailure)));
+  assert.match(retainedFailure.split('\n').slice(-18).join('\n').slice(-1700),
+    /Native failure causes:\nRuntimeError: KFA model preload/);
+  assert.doesNotMatch(retainedFailure, /inline-code/);
+  assert.doesNotMatch(nativeDiagnostic('RuntimeError: TOKEN=private-value https://example.test/?secret=value'),
+    /private-value|example\.test|secret=value/);
   const inherited = {
     PSModulePath: 'PS7 user', PSMODULEPATH: 'PS7 system',
     psmodulepath: 'PS7 built-in', Path: 'untouched-path',

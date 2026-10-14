@@ -2,10 +2,10 @@ name: Windows v0.85.6 to v0.86.0 native acceptance (manual)
 
 # Prepublication acceptance evidence. This workflow does not sign any production
 # manifest, publish a release, stage R2, or promote a live Studio OTA pointer.
-# All app/runtime state and downloads are scoped to RUNNER_TEMP. The only
-# outside-TEMP shell effect is the genuine fresh Windows runner USERPROFILE
-# KnownFolder Desktop, where shortcut names must be absent before installation;
-# owned shortcuts are removed after all disposable native children stop.
+# App state and package downloads are scoped to RUNNER_TEMP. KFA uses its
+# initially empty native cache under the disposable runner USERPROFILE.
+# Genuine Desktop integration also stays in that profile; shortcut names must
+# be absent before setup and only owned links are removed after native shutdown.
 on:
   workflow_dispatch:
     inputs:

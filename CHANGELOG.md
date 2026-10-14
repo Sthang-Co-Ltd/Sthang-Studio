@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Windows timing readiness:** resolve the cached Khmer model through the same
+  native cache location used by KFA, including redirected installation profiles.
+  Readiness checks use the target Python environment and fail before a
+  download-triggering import when the model is missing or empty.
 - **0.86.0 release preparation:** align workspace, runtime diagnostics and locked
   package versions; retain verified 0.85.6 public evidence until the new recovery
   assets and each platform's signed offer pass their release gates.
