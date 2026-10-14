@@ -344,22 +344,20 @@ restricted to its exact accepted archive.
 
 For **v0.86**, a missing compatible FFmpeg/ffprobe pair (both native arm64,
 version 8.1.3 or newer, with required shaping/encoder capabilities) uses the
-separately hosted, checksum-pinned Sthang FFmpeg 8.1.3 tools ZIP from the Studio
-GitHub Release tag `runtime-ffmpeg-8.1.3-macos-arm64-r1`. Its complete
-corresponding-source ZIP, license notices, checksums and build receipt must be
-available beside the tools. The separate archives are named
+separately hosted, checksum-pinned Sthang FFmpeg 8.1.3 tools ZIP from the published
+Studio GitHub Release tag `runtime-ffmpeg-8.1.3-macos-arm64-r1`. The reviewed
+[FFmpeg support release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/runtime-ffmpeg-8.1.3-macos-arm64-r1)
+provides the tools, complete corresponding-source ZIP, third-party license
+notices, verified SHA-256 checksums and build receipt. The separate archives are named
 `Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-tools.zip` and
 `Sthang-Studio-FFmpeg-8.1.3-macOS-arm64-corresponding-source.zip`; the installer
-downloads the **tools only**, not their sources. **The runtime has not been
-declared publicly available:** verified
-binary hashes, independent source/license review, native acceptance and release
-approval must precede any user-facing download. Studio does not compile FFmpeg
+downloads the **tools only**, not their sources. Studio does not compile FFmpeg
 from source on the user's Mac, install Homebrew or run `sudo` for this fallback.
 Compatible user-provided FFmpeg/ffprobe installations may instead be reused.
 
 These prerequisite requests expose ordinary HTTPS transport metadata such as the
-source IP address and request headers to the relevant upstream host or, if the
-new runtime is published and selected, GitHub and its download delivery network.
+source IP address and request headers to the relevant upstream host or, when
+the managed FFmpeg fallback is downloaded, GitHub and its download delivery network.
 They do **not** upload projects, captions, source media, local renders or exports,
 the Gemini API key, Contributor data, or the analytics identity. Sthang Studio
 does not send model inputs to GitHub or start a new telemetry, account-enrollment
