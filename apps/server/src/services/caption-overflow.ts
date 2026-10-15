@@ -241,13 +241,43 @@ async function fontSignature(directory: string, spaces: ReadonlySet<number>) {
   return { signature: hash.digest('hex'), advance, spaceAdvances, line, glyphWidth, glyphHeight };
 }
 
+/** The output frame limit does not bound upstream filter evaluation on every
+ * FFmpeg scheduler. Bound the source before rendering so metadata cannot include
+ * a look-ahead frame after the final ASS state has ended. */
+export function captionOverflowSourceFilter(count: number) {
+  if (!Number.isInteger(count) || count < 1 || count > MAX_STATES) throw unverifiable();
+  return `trim=end_frame=${count},settb=1/1,setpts=PTS-STARTPTS`;
+}
+
+/** Every synthetic state occupies exactly one second at 1 fps. Fail closed on
+ * missing, repeated, reordered or mistimed samples, even if their boxes fit. */
+export function parseCaptionOverflowBounds(output: string, count: number): number[][] {
+  captionOverflowSourceFilter(count);
+  const frames = output.split(/(?=^frame:)/m).filter((frame) => frame.startsWith('frame:'));
+  if (frames.length !== count) throw unverifiable();
+  return frames.map((frame, index) => {
+    const header = /^frame:(\d+)\s+pts:\s*(-?\d+)\s+pts_time:\s*([^\s]+)[ \t]*\r?$/m.exec(frame);
+    if (!header || Number(header[1]) !== index || Number(header[2]) !== index
+      || Number(header[3]) !== index) throw unverifiable();
+    const bounds = ['x1', 'x2', 'y1', 'y2'].map((key) => {
+      const values = [...frame.matchAll(new RegExp(`^lavfi\\.bbox\\.${key}=(\\d+)$`, 'gm'))];
+      if (values.length !== 1) throw unverifiable();
+      const value = Number(values[0][1]);
+      if (!Number.isSafeInteger(value)) throw unverifiable();
+      return value;
+    });
+    if (bounds[0] > bounds[1] || bounds[2] > bounds[3]) throw unverifiable();
+    return bounds;
+  });
+}
+
 async function measure(file: string, fontDirectory: string, width: number, height: number, count: number, signal?: AbortSignal, shouldCancel?: () => boolean) {
   signal?.throwIfAborted();
   return new Promise<string>((resolve, reject) => {
     const child = spawn(config.ffmpegPath, [
       '-hide_banner', '-nostdin', '-loglevel', 'error',
       '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=1,format=rgba`,
-      '-filter_complex', `[0:v]split[black][whitebase];[black]${buildAssCaptionFilter(file, fontDirectory)}[ink];[whitebase]lutrgb=r=255:g=255:b=255,${buildAssCaptionFilter(file, fontDirectory)}[white];[white][ink]blend=all_mode=subtract,format=gbrp,extractplanes=r,lut=y=255-val,metadata=mode=add:key=preflight:value=1,bbox=min_val=0,metadata=mode=print:file=-[bounds]`,
+      '-filter_complex', `[0:v]${captionOverflowSourceFilter(count)},split[black][whitebase];[black]${buildAssCaptionFilter(file, fontDirectory)}[ink];[whitebase]lutrgb=r=255:g=255:b=255,${buildAssCaptionFilter(file, fontDirectory)}[white];[white][ink]blend=all_mode=subtract,format=gbrp,extractplanes=r,lut=y=255-val,metadata=mode=add:key=preflight:value=1,bbox=min_val=0,metadata=mode=print:file=-[bounds]`,
       '-map', '[bounds]',
       '-frames:v', String(count), '-f', 'null', '-',
     ], { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -364,16 +394,8 @@ export async function validateCaptionOverflow(input: {
     const file = path.join(directory, 'bounds.ass');
     await fs.writeFile(file, probe.document);
     const output = await measure(file, fontDirectory, canvasWidth, canvasHeight, probe.count, signal, shouldCancel);
-    const frames = output.split(/(?=^frame:)/m).filter((frame) => frame.startsWith('frame:'));
-    if (frames.length !== probe.count) throw unverifiable();
-    for (const frame of frames) {
-      const bounds = ['x1', 'x2', 'y1', 'y2'].map((key) => {
-        const match = frame.match(new RegExp(`^lavfi\\.bbox\\.${key}=(\\d+)$`, 'm'));
-        return match ? Number(match[1]) : NaN;
-      });
-      // Blank paint may be a legitimate fade endpoint; it cannot establish fit.
-      // Fail closed rather than miss a wholly off-canvas glyph/state.
-      if (bounds.some((value) => !Number.isFinite(value))) throw unverifiable();
+    for (const bounds of parseCaptionOverflowBounds(output, probe.count)) {
+      // A blank or incomplete measurement never establishes fit.
       const [left, right, top, bottom] = bounds;
       if (left === 0 || top === 0 || right === canvasWidth - 1 || bottom === canvasHeight - 1) throw unverifiable();
       if (left < padX || right >= padX + width || top < padY || bottom >= padY + height) throw new CaptionOverflowError();

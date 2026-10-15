@@ -9,7 +9,7 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'caption-overflow-native-')
 process.env.STHANG_STUDIO_STATE_ROOT = root;
 process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'missing.env');
 const { fontCapabilities, prepareCaptionFonts, buildAssDocument, buildAssCaptionFilter } = await import('../apps/server/src/services/caption-renderer.js');
-const { validateCaptionOverflow, CaptionOverflowError, invalidateCaptionOverflowCache, buildCaptionOverflowProbe, captionCmapGlyph } = await import('../apps/server/src/services/caption-overflow.js');
+const { validateCaptionOverflow, CaptionOverflowError, invalidateCaptionOverflowCache, buildCaptionOverflowProbe, captionCmapGlyph, captionOverflowSourceFilter, parseCaptionOverflowBounds } = await import('../apps/server/src/services/caption-overflow.js');
 after(async () => { invalidateCaptionOverflowCache(); await fs.rm(root, { recursive: true, force: true }); });
 const fonts = await fontCapabilities();
 const font = fonts.find((item) => item.available && item.boldAvailable);
@@ -122,4 +122,46 @@ test('bounded Unicode cmap lookup supports formats 4 and 12', () => {
   assert.equal(captionCmapGlyph(format12, 33), 4);
   assert.equal(captionCmapGlyph(format12, 35), 0);
   assert.throws(() => captionCmapGlyph(format12.subarray(0, 20), 32), CaptionOverflowError);
+});
+
+
+test('bounds source is finite before ASS and metadata evaluation', () => {
+  assert.equal(captionOverflowSourceFilter(3), 'trim=end_frame=3,settb=1/1,setpts=PTS-STARTPTS');
+  for (const count of [0, -1, 1.5, 8193, NaN]) assert.throws(() => captionOverflowSourceFilter(count), CaptionOverflowError);
+});
+test('bounds metadata requires every exact sample and complete unique coordinates', () => {
+  const frame = (n: number, time = n) => `frame:${n}    pts: ${time}    pts_time:${time}\npreflight=1\nlavfi.bbox.x1=600\nlavfi.bbox.x2=650\nlavfi.bbox.y1=700\nlavfi.bbox.y2=760\n`;
+  const expected = [[600, 650, 700, 760], [600, 650, 700, 760]];
+  assert.deepEqual(parseCaptionOverflowBounds(frame(0) + frame(1), 2), expected);
+  assert.deepEqual(parseCaptionOverflowBounds((frame(0) + frame(1)).replaceAll('\n', '\r\n'), 2), expected);
+  for (const output of [
+    frame(0) + frame(1).replace('x1=600', 'x1=' + '9'.repeat(400)), // non-finite coordinate
+    frame(0) + frame(1).replace('x1=600', 'x1=9007199254740992'), // unsafe integer
+    frame(0) + frame(1).replace('x1=600', 'x1=999'), // reversed horizontal bounds
+    frame(0) + frame(1).replace('y1=700', 'y1=999'), // reversed vertical bounds
+    frame(0), // dropped expected sample
+    frame(0) + frame(0), // duplicated identity
+    frame(1) + frame(0), // reordered samples
+    frame(0) + frame(1, 2), // wrong PTS
+    frame(0) + frame(1).replace('lavfi.bbox.x1=600\n', ''), // blank/incomplete sample
+    frame(0) + frame(1) + 'frame:2 pts:2 pts_time:2\npreflight=1\n', // Windows-style trailing blank look-ahead
+    frame(0) + frame(1) + frame(2), // extra painted sample is not ignored either
+    frame(0) + frame(1) + 'lavfi.bbox.x1=600\n', // ambiguous repeated coordinate
+  ]) assert.throws(() => parseCaptionOverflowBounds(output, 2), CaptionOverflowError);
+});
+test('finite native source measures every distinct state in a batch', async () => {
+  const captions = [cue('hello'), { ...cue('world'), id: 'second', startMs: 2000, endMs: 3000 }];
+  await validateCaptionOverflow({ ...base, captions });
+  await assert.rejects(validateCaptionOverflow({ ...base, captions: [...captions, {
+    ...cue('SUBSCRIPTION'), id: 'overflow-last', startMs: 4000, endMs: 5000,
+  }], appearance: { ...appearance, fontSize1080: 120 } }), CaptionOverflowError);
+});
+
+test('upstream finite source reaches EOF before an oversized output request', async () => {
+  const { config } = await import('../apps/server/src/config.js');
+  const output = execFileSync(config.ffmpegPath, ['-hide_banner', '-nostdin', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', 'color=c=white:s=16x16:r=1',
+    '-vf', `${captionOverflowSourceFilter(3)},bbox=min_val=0,metadata=mode=print:file=-`,
+    '-frames:v', '4', '-f', 'null', '-'], { windowsHide: true, timeout: 10000 }).toString();
+  assert.deepEqual(parseCaptionOverflowBounds(output, 3), Array(3).fill([0, 15, 0, 15]));
 });
