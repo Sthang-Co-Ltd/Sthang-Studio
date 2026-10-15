@@ -27,6 +27,7 @@ interface PreviewSession {
   cache: Map<string, ImageFrame>;
   pending: Set<string>;
   error: string;
+  blockedCueKey: string | null;
   retries: number;
   prefetchBlockedKey: string | null;
 }
@@ -76,7 +77,7 @@ function reservePreviewCache(
 }
 
 class CaptionPreviewResponseError extends Error {
-  constructor(message: string, readonly status = 0, readonly retryable = false) {
+  constructor(message: string, readonly status = 0, readonly retryable = false, readonly code = '') {
     super(message);
     this.name = 'CaptionPreviewResponseError';
   }
@@ -84,10 +85,10 @@ class CaptionPreviewResponseError extends Error {
 
 async function readCaptionPreviewResponse(response: Response, fallbackMessage: string): Promise<CaptionPreviewResult> {
   const text = await response.text();
-  let result: (CaptionPreviewResult & { error?: string }) | null = null;
+  let result: (CaptionPreviewResult & { error?: string; code?: string }) | null = null;
   if (text.trim()) {
     try {
-      result = JSON.parse(text) as CaptionPreviewResult & { error?: string };
+      result = JSON.parse(text) as CaptionPreviewResult & { error?: string; code?: string };
     } catch {
       throw new CaptionPreviewResponseError(
         response.ok ? 'Caption preview returned an invalid response. Retry preview.' : `${fallbackMessage} (${response.status}).`,
@@ -103,7 +104,7 @@ async function readCaptionPreviewResponse(response: Response, fallbackMessage: s
       : retryable
         ? 'Caption preview service is reconnecting. Studio will retry automatically.'
         : `${fallbackMessage} (${response.status}).`;
-    throw new CaptionPreviewResponseError(message, response.status, retryable);
+    throw new CaptionPreviewResponseError(message, response.status, retryable, typeof result?.code === 'string' ? result.code : '');
   }
   if (!result || !Number.isFinite(result.width) || !Number.isFinite(result.height) || !Array.isArray(result.frames)) {
     throw new CaptionPreviewResponseError('Caption preview returned an incomplete response. Retry preview.', response.status, true);
@@ -231,7 +232,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       activeRequest.current?.cancel();
       activeRequest.current = null;
       if (session.current?.signature !== signature) {
-        session.current = { signature, cache: new Map(), pending: new Set(), error: '', retries: 0, prefetchBlockedKey: null };
+        session.current = { signature, cache: new Map(), pending: new Set(), error: '', blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
       }
       const current = session.current;
       const selected = captionPreviewReplayStates(states, startMs, endMs);
@@ -244,6 +245,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       let timedOut = false;
       const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 20_000);
       current.error = '';
+      current.blockedCueKey = null;
       redraw();
       try {
         const missing = selected.filter((item) => !current.cache.has(captionPreviewPaintKey(item)));
@@ -289,7 +291,10 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
           : normalized.retryable
             ? 'Preparing the effect preview was interrupted. Try Replay effect again.'
             : normalized.message);
-        if (session.current === current) current.error = error.message;
+        if (session.current === current) {
+          current.error = error.message;
+          current.blockedCueKey = normalized.code === 'CAPTION_OVERFLOW' ? state?.key || '' : null;
+        }
         throw error;
       } finally {
         window.clearTimeout(timeout);
@@ -298,7 +303,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         redraw();
       }
     },
-  }), [signature, states, captions, payload, focusMask, project.id, resolution, interacting]);
+  }), [signature, states, captions, payload, focusMask, project.id, resolution, interacting, state?.key]);
 
   useEffect(() => {
     const preparing = replayPreparation.current;
@@ -308,7 +313,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       replayPreparation.current = null;
     }
     if (session.current?.signature !== signature) {
-      session.current = { signature, cache: new Map(), pending: new Set(), error: '', retries: 0, prefetchBlockedKey: null };
+      session.current = { signature, cache: new Map(), pending: new Set(), error: '', blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
     }
     const current = session.current;
     const currentState = states[index];
@@ -344,6 +349,13 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       }
     }
     if (index < 0 && liveTimeMs >= (states.at(-1)?.endMs ?? 0)) return;
+    if (current.blockedCueKey !== null && current.blockedCueKey !== currentState?.key) {
+      current.error = '';
+      current.blockedCueKey = null;
+      // The newly selected cue may already be cached, so no fetch completion
+      // would otherwise repaint this ref-only warning change while paused.
+      redraw();
+    }
     if (current.error) return;
     const batch = planNativePreviewBatch(states, start, new Set(current.cache.keys()), temporalPaint);
     const missingCurrent = batch?.kind === 'current';
@@ -355,7 +367,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     const missing = batch.kind === 'prefetch' && temporalPaint && media.current?.paused === false
       ? batch.states.slice(0, 1) : batch.states;
     const kind: ActivePreviewRequest['kind'] = batch.kind;
-    if (kind === 'prefetch' && temporalPaint && current.prefetchBlockedKey === key) return;
+    if (kind === 'prefetch' && current.prefetchBlockedKey === key) return;
     const pinned = new Set<string>(key ? [key] : []);
     if (kind === 'prefetch' && temporalPaint) {
       for (const item of states.slice(start, start + TEMPORAL_PREVIEW_WINDOW)) {
@@ -447,12 +459,17 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         } catch (reason) {
           if (!controller.signal.aborted && session.current === current) {
             const error = previewRequestError(reason, 'Caption preview is unavailable.');
+            if (error.code === 'CAPTION_OVERFLOW' && kind === 'prefetch') {
+              current.prefetchBlockedKey = key;
+              return;
+            }
             const retryLimit = error.status === 429 ? MAX_BUSY_PREVIEW_RETRIES : MAX_RECONNECT_PREVIEW_RETRIES;
             if (error.retryable && current.retries < retryLimit) {
               current.retries += 1;
               return;
             }
             current.error = error.message;
+            current.blockedCueKey = error.code === 'CAPTION_OVERFLOW' ? currentState?.key || '' : null;
           }
         } finally {
           if (activeRequest.current === request) activeRequest.current = null;
@@ -481,11 +498,13 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     if (exactImage && continuityKey) lastPresented.current = { continuityKey, image: exactImage };
   }, [exactImage, continuityKey]);
   const retainedImage = continuityKey && lastPresented.current?.continuityKey === continuityKey && lastPresented.current.image.resolution === resolution ? lastPresented.current.image : undefined;
-  const image = exactImage || retainedImage;
   const error = current?.error;
+  // A blocked layout must not leave a scaled, previously valid bitmap looking
+  // like the newly requested caption. Ordinary connection errors retain pixels.
+  const image = current?.blockedCueKey != null && current.blockedCueKey === state?.key ? undefined : exactImage || retainedImage;
   const transform = !exactImage && image && frame ? captionPreviewTransform(image.appearance, payload.appearance, image.width, image.height, image.bounds, frame.width, frame.height) : undefined;
   const box = focusMask ? image?.focusBounds : image?.bounds;
-  const retry = () => { if (current) { current.error = ''; current.retries = 0; redraw(); } };
+  const retry = () => { if (current) { current.error = ''; current.blockedCueKey = null; current.retries = 0; redraw(); } };
 
   return <>
     {frame && image && <div className="native-caption-surface" data-preview-mode={exactImage ? 'exact' : transform ? 'interpolated' : 'pending'} data-paint-key={renderKey} style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}>

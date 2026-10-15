@@ -2,6 +2,7 @@ import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { isVideoProject, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
 import { requireCaptionFont } from '../services/caption-renderer.js';
+import { CaptionOverflowError } from '../services/caption-overflow.js';
 import { parseCaptionPreviewInput, renderCaptionPreview } from '../services/caption-preview.js';
 import { disposePersistentCaptionPreviews, trackCaptionPreviewRequest } from '../services/persistent-caption-preview.js';
 import {
@@ -115,7 +116,7 @@ router.post('/:projectId/preview', async (req, res) => {
     }
     if (!controller.signal.aborted && !res.headersSent) {
       const message = error instanceof Error ? error.message : 'Caption preview failed.';
-      res.status(message.includes('preview is busy') ? 429 : 400).json({ error: message });
+      res.status(message.includes('preview is busy') ? 429 : 400).json({ error: message, ...(error instanceof CaptionOverflowError ? { code: error.code } : {}) });
     }
   } finally {
     tracked.release();

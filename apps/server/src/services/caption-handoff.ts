@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
 import {
@@ -19,7 +20,8 @@ import {
   type CaptionSegment,
   type SharedCaptionFileFormat,
 } from '@kcs/shared';
-import { buildAssDocument } from './caption-renderer.js';
+import { buildAssDocument, preparePreviewFonts } from './caption-renderer.js';
+import { CaptionOverflowError, validateCaptionOverflow } from './caption-overflow.js';
 import { config } from '../config.js';
 import { historyStore } from './history-store.js';
 import { jobStore } from './job-store.js';
@@ -113,7 +115,7 @@ export interface CaptionHandoffDependencies {
   hasActiveForProject(projectId: string): boolean;
   geometry(project: CaptionProject): Promise<{ width: number; height: number }>;
   mediaDuration(project: CaptionProject): Promise<number>;
-  buildAss(captions: CaptionSegment[], appearance: Partial<CaptionAppearance> | undefined, width: number, height: number): string;
+  buildAss(captions: CaptionSegment[], appearance: Partial<CaptionAppearance> | undefined, width: number, height: number, cacheScope?: string, signal?: AbortSignal): string | Promise<string>;
 }
 
 const MAX_DATA_CHARS = 8_000_000;
@@ -246,7 +248,7 @@ function assertTextPayload(value: string, label: string) {
   return value;
 }
 
-async function assDocument(project: CaptionProject, dependencies: CaptionHandoffDependencies) {
+async function assDocument(project: CaptionProject, dependencies: CaptionHandoffDependencies, signal?: AbortSignal) {
   if (!isVideoProject(project)) throw new CaptionHandoffError('Styled ASS export requires a video source with readable frame geometry.', 400);
   let snapshot: CaptionDataDocument;
   try {
@@ -262,7 +264,12 @@ async function assDocument(project: CaptionProject, dependencies: CaptionHandoff
   }
   const geometry = await dependencies.geometry(project).catch(() => null);
   if (!geometry?.width || !geometry.height) throw new CaptionHandoffError('Styled ASS export could not read this video frame geometry.', 400);
-  return dependencies.buildAss(project.captions, project.captionAppearance, geometry.width, geometry.height);
+  try {
+    return await dependencies.buildAss(project.captions, project.captionAppearance, geometry.width, geometry.height, project.id, signal);
+  } catch (error) {
+    if (error instanceof CaptionOverflowError) throw new CaptionHandoffError(error.message, 400);
+    throw error;
+  }
 }
 
 function readmeForBundle(input: { wordFilesIncluded: boolean; assIncluded: boolean; omissions: string[] }) {
@@ -506,7 +513,7 @@ export function createCaptionHandoffService(dependencies: CaptionHandoffDependen
     }
   };
 
-  const bundle = async (project: CaptionProject) => {
+  const bundle = async (project: CaptionProject, signal?: AbortSignal) => {
     const srt = serialize(project, 'srt');
     const vtt = serialize(project, 'vtt');
     const ttml = serialize(project, 'ttml');
@@ -535,9 +542,10 @@ export function createCaptionHandoffService(dependencies: CaptionHandoffDependen
 
     let assIncluded = false;
     try {
-      entries.push({ name: 'captions-styled.ass', contents: assertTextPayload(await assDocument(project, dependencies), 'Styled ASS') });
+      entries.push({ name: 'captions-styled.ass', contents: assertTextPayload(await assDocument(project, dependencies, signal), 'Styled ASS') });
       assIncluded = true;
     } catch (error) {
+      signal?.throwIfAborted();
       const reason = error instanceof CaptionHandoffError ? error.message : 'Styled ASS could not be produced from this source geometry.';
       omissions.push(reason);
       warnings.push(reason);
@@ -557,17 +565,19 @@ export function createCaptionHandoffService(dependencies: CaptionHandoffDependen
       return summaryForProject(hydrateCaptionWordTimings(project));
     },
 
-    async export(projectId: string, request: CaptionHandoffExportRequest): Promise<CaptionHandoffExportResult> {
+    async export(projectId: string, request: CaptionHandoffExportRequest, signal?: AbortSignal): Promise<CaptionHandoffExportResult> {
+      signal?.throwIfAborted();
       const project = await loadCurrent(projectId, request.expectedMedia, request.expectedRevision);
+      signal?.throwIfAborted();
       if (!project.captions.length) throw new CaptionHandoffError('There are no saved captions to export.', 400);
       const revision = captionHandoffRevision(project);
       if (request.format === 'bundle') {
-        const result = await bundle(project);
+        const result = await bundle(project, signal);
         await loadCurrent(projectId, request.expectedMedia, request.expectedRevision);
         return { ...result, contentType: contentTypes.bundle, filename: fixedFilenames.bundle, revision };
       }
       if (request.format === 'ass') {
-        const contents = assertTextPayload(await assDocument(project, dependencies), 'Styled ASS');
+        const contents = assertTextPayload(await assDocument(project, dependencies, signal), 'Styled ASS');
         await loadCurrent(projectId, request.expectedMedia, request.expectedRevision);
         return { body: Buffer.from(contents, 'utf8'), contentType: contentTypes.ass, filename: fixedFilenames.ass, warnings: [], revision };
       }
@@ -629,6 +639,8 @@ export type CaptionHandoffService = ReturnType<typeof createCaptionHandoffServic
  * Default server dependencies. Caption serialization/parsing is pure shared code;
  * server dependencies here are local persistence/rendering only.
  */
+let activeAssHandoffs = 0;
+
 export function defaultCaptionHandoffDependencies(): CaptionHandoffDependencies {
   return {
     getProject: (id) => store.get(id),
@@ -648,6 +660,25 @@ export function defaultCaptionHandoffDependencies(): CaptionHandoffDependencies 
       if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Media duration probe returned no usable duration.');
       return seconds * 1000;
     },
-    buildAss: (captions, appearance, width, height) => buildAssDocument(captions, appearance, width, height),
+    buildAss: async (captions, appearance, width, height, cacheScope, signal) => {
+      signal?.throwIfAborted();
+      if (activeAssHandoffs >= 1) throw new CaptionHandoffError('Styled caption export is busy. Try again shortly.', 503);
+      activeAssHandoffs += 1;
+      let workDir: string | undefined;
+      let lease: Awaited<ReturnType<typeof preparePreviewFonts>> | undefined;
+      try {
+        const normalized = normalizeCaptionAppearance(appearance);
+        const parent = path.join(config.exportDir, '.working');
+        await fs.mkdir(parent, { recursive: true });
+        workDir = await fs.mkdtemp(path.join(parent, 'handoff-layout-'));
+        lease = await preparePreviewFonts(workDir, normalized);
+        await validateCaptionOverflow({ captions, appearance: normalized, width, height, fontDirectory: lease.directory, workDir, cacheScope, signal });
+        return buildAssDocument(captions, normalized, width, height);
+      } finally {
+        lease?.release();
+        if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+        activeAssHandoffs -= 1;
+      }
+    },
   };
 }

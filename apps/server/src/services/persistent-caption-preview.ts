@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { planCaptionRenderStates, type CaptionAppearance, type CaptionPreviewFrame, type CaptionPreviewResult, type CaptionSegment } from '@kcs/shared';
 import { config } from '../config.js';
+import { validateCaptionOverflow, invalidateCaptionOverflowCache } from './caption-overflow.js';
 import { buildAssCaptionFilter, buildAssDocument, preparePreviewFonts } from './caption-renderer.js';
 import type { FontLease } from './preview-font-cache.js';
 
@@ -100,6 +101,7 @@ class NativePreviewWorker {
   private closed?: Promise<void>;
   private idle?: ReturnType<typeof setTimeout>;
   private writing: Promise<unknown> = Promise.resolve();
+  private validating: Promise<void> = Promise.resolve();
   private readonly lastAss = new Map<string, string>();
   busy = false;
   touched = Date.now();
@@ -185,6 +187,22 @@ class NativePreviewWorker {
     diagnostics.assWrites += 1;
   }
 
+  reserve() {
+    if (this.closing || this.controller.signal.aborted) throw new Error('Caption preview cancelled.');
+    clearTimeout(this.idle);
+    this.idle = undefined;
+    this.busy = true;
+  }
+
+  validate(input: FrameInput, signal?: AbortSignal) {
+    this.validating = validateCaptionOverflow({
+      captions: input.captions, appearance: input.appearance, width: this.width, height: this.height,
+      fontDirectory: this.lease.directory, workDir: this.directory, cacheScope: this.scope.projectId,
+      signal: AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]),
+    });
+    return this.validating;
+  }
+
   async render(input: FrameInput, signal?: AbortSignal): Promise<CaptionPreviewResult> {
     if (this.closing) throw new Error('Caption preview cancelled.');
     clearTimeout(this.idle);
@@ -238,6 +256,9 @@ class NativePreviewWorker {
         await this.closed;
         clearTimeout(hardKill);
       } else if (child) await this.closed;
+      // Native bounds measurement owns these same fonts/scratch until its child
+      // has closed. Aborting above stops it; await that cleanup before releasing.
+      await this.validating.catch(() => {});
       await this.writing.catch(() => {});
       await fs.rm(this.directory, { recursive: true, force: true }).catch(() => {});
       this.lease.release();
@@ -286,7 +307,7 @@ export async function renderPersistentCaptionPreview(input: FrameInput, width: n
     const focus = Boolean(input.focusIndices?.length);
     const key = JSON.stringify([scope, width, height, acquired.directory, focus, config.ffmpegPath, alphaMode]);
     worker = [...workers].find((item) => item.key === key && !item.busy && !item.controller.signal.aborted);
-    if (worker) { worker.busy = true; return; }
+    if (worker) { worker.reserve(); return; }
     for (const existing of [...workers].sort((a, b) => a.touched - b.touched)) {
       if (!existing.busy && (existing.scope.projectId === scope.projectId || workers.size >= 2)) await existing.dispose();
     }
@@ -297,13 +318,21 @@ export async function renderPersistentCaptionPreview(input: FrameInput, width: n
     diagnostics.sessionDirectories += 1;
     worker = new NativePreviewWorker(scope, key, directory, acquired, width, height, focus, alphaMode, config.ffmpegPath);
     workers.add(worker);
-    worker.busy = true; // reserve before releasing serialized allocation
+    worker.reserve(); // reserve before releasing serialized allocation
     directory = undefined; acquired = undefined; // worker owns scratch and lease now
   });
   allocation = allocate.then(() => {}, () => {});
   try {
     await allocate;
     if (signal?.aborted) { await worker!.dispose(); signal.throwIfAborted(); }
+    // Layout rejection is not a crashed pipe transport and must never fall back
+    // to a renderer that would silently deliver clipped text.
+    try {
+      await worker!.validate(input, signal);
+    } catch (error) {
+      await worker!.dispose();
+      throw error;
+    }
     const timeout = setTimeout(() => { void worker!.dispose(new Error('Caption preview timed out.')); }, 5000);
     try { return await worker!.render(input, signal); }
     catch (error) {
@@ -322,6 +351,7 @@ export async function renderPersistentCaptionPreview(input: FrameInput, width: n
 }
 
 export async function disposePersistentCaptionPreviews(projectId?: string) {
+  invalidateCaptionOverflowCache(projectId);
   for (const request of admittedRequests) {
     if (!projectId || request.projectId === projectId) request.controller.abort();
   }

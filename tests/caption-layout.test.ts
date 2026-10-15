@@ -1,37 +1,50 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { wrapCaptionText } from '@kcs/shared';
+import { captionWordBreakOffsets } from '@kcs/shared';
 
-test('caption wrapping preserves Khmer combining clusters and joined emoji', () => {
-  const cluster = 'កា';
-  const emoji = '👩‍💻';
-  assert.equal(wrapCaptionText(cluster.repeat(7), 6), `${cluster.repeat(6)}\n${cluster}`);
-  assert.equal(wrapCaptionText(`${cluster.repeat(5)}${emoji}${cluster}`, 6), `${cluster.repeat(5)}${emoji}\n${cluster}`);
+test('native layout keeps English words intact regardless of their character count', () => {
+  for (const text of ['SUBSCRIPTION', 'GENERATE', 'RECOMMEND', 'SUPERCALIFRAGILISTICEXPIALIDOCIOUS', 'abcdef ghijk']) {
+    assert.deepEqual(captionWordBreakOffsets(text), []);
+  }
 });
 
-test('caption wrapping leaves word-spaced text to native layout and hard-wraps only long unbroken runs', () => {
-  assert.equal(wrapCaptionText('abcdef ghijk', 8), 'abcdef ghijk');
-  assert.equal(wrapCaptionText('abcdef។ghijk', 8), 'abcdef។\nghijk');
-  assert.equal(wrapCaptionText('ab cdefghijk', 8), 'ab cdefghij\nk');
-  assert.equal(wrapCaptionText('abcdefghijk', 8), 'abcdefgh\nijk');
+test('Khmer uses linguistic word boundaries rather than estimated grapheme lengths', () => {
+  const text = 'ខ្មែរជាភាសារបស់យើង';
+  assert.deepEqual(captionWordBreakOffsets(text), [5, 7, 11, 15]);
+  assert.deepEqual(captionWordBreakOffsets('កម្ពុជា'), []);
+  assert.deepEqual(captionWordBreakOffsets('ខ្មែរ CapCut\r\nកម្ពុជា'), []);
 });
 
-test('caption wrapping preserves explicit nonempty lines and skips whitespace after a wrap', () => {
-  assert.equal(wrapCaptionText('កម្ពុជា\r\nCapCut', 20), 'កម្ពុជា\nCapCut');
-  assert.equal(wrapCaptionText('\nabc\n\ndef\n', 6), 'abc\ndef');
-  assert.equal(wrapCaptionText('abcdef   ghij', 6), 'abcdef   ghij');
-  assert.equal(wrapCaptionText('', 6), '');
-  assert.equal(wrapCaptionText('abcdef', 6), 'abcdef');
+test('break opportunities preserve graphemes, coeng, joined emoji and original UTF-16 offsets', () => {
+  const text = '👩‍💻 ខ្ញុំចូលចិត្តប្រទេសកម្ពុជាខ្លាំងណាស់\r\nSUBSCRIPTION ខ្មែរជាភាសា';
+  const breaks = captionWordBreakOffsets(text);
+  const boundaries = new Set([...new Intl.Segmenter('km', { granularity: 'grapheme' }).segment(text)].map((part) => part.index));
+  assert.ok(breaks.length > 3);
+  for (const offset of breaks) {
+    assert.ok(boundaries.has(offset));
+    assert.notEqual(text[offset - 1], '\u17D2');
+    assert.notEqual(text[offset - 1], '\u200D');
+    assert.doesNotMatch(text.slice(offset), /^[\p{M}\u200D]/u);
+  }
+  const pieces = [0, ...breaks].map((start, index) => text.slice(start, breaks[index]));
+  assert.equal(pieces.join(''), text);
 });
 
-test('caption wrapping retains the code-point fallback when Intl.Segmenter is unavailable', () => {
+test('no segmentation support fails safely without guessing or splitting combining characters', () => {
   const descriptor = Object.getOwnPropertyDescriptor(Intl, 'Segmenter');
   try {
     Object.defineProperty(Intl, 'Segmenter', { configurable: true, value: undefined });
-    assert.equal(wrapCaptionText('😀'.repeat(7), 6), `${'😀'.repeat(6)}\n😀`);
-    assert.equal(wrapCaptionText('abcdef ghijk', 8), 'abcdef ghijk');
+    assert.deepEqual(captionWordBreakOffsets('ខ្មែរជាភាសា'), []);
   } finally {
     if (descriptor) Object.defineProperty(Intl, 'Segmenter', descriptor);
-    else Reflect.deleteProperty(Intl, 'Segmenter');
   }
+});
+
+
+test('Khmer closing punctuation and explicit zero-width separators remain attached without losing break opportunities', () => {
+  assert.deepEqual(captionWordBreakOffsets('ខ្មែរ។កម្ពុជា'), [6]);
+  assert.deepEqual(captionWordBreakOffsets('ខ្មែរ\u200Bកម្ពុជា'), [6]);
+  assert.deepEqual(captionWordBreakOffsets('ខ្មែរ,កម្ពុជា'), [6]);
+  assert.deepEqual(captionWordBreakOffsets('ខ្មែរ។ កម្ពុជា'), []);
+  assert.deepEqual(captionWordBreakOffsets('SUBSCRIPTION.RECOMMEND'), []);
 });
