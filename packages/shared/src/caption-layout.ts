@@ -3,57 +3,30 @@ import type { CaptionAppearance } from './caption-settings.js';
 import { captionRenderTime } from './caption-settings.js';
 import { resolveCaptionWordTiming } from './word-timing.js';
 
-/**
- * Render-only line wrapping for the native preview and video renderer.
- * Callers supply a positive integer grapheme limit after resolving their geometry.
- * This never changes stored captions or SRT serialization.
+/** Render-only linguistic break opportunities, expressed in original UTF-16 offsets.
+ * Native libass measures the actual font and width; a character count must never
+ * force a newline inside an English or Khmer word. Stored text/timing stay intact.
  */
-export function wrapCaptionText(text: string, maxGraphemesPerLine: number) {
-  const lines = String(text || '').split(/\r?\n/);
-  const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('km', { granularity: 'grapheme' }) : null;
-  const graphemesFor = (value: string) => segmenter ? Array.from(segmenter.segment(value), (item) => item.segment) : Array.from(value);
-  const hardWrap = (value: string) => {
-    const graphemes = graphemesFor(value);
-    if (graphemes.length <= maxGraphemesPerLine) return value;
-    const chunks: string[] = [];
-    for (let cursor = 0; cursor < graphemes.length; cursor += maxGraphemesPerLine) {
-      chunks.push(graphemes.slice(cursor, cursor + maxGraphemesPerLine).join(''));
-    }
-    return chunks.join('\n');
-  };
-  const output: string[] = [];
-  for (const line of lines) {
-    const graphemes = graphemesFor(line);
-    if (graphemes.length <= maxGraphemesPerLine) {
-      output.push(line);
-      continue;
-    }
-    // Keep ordinary word-spaced captions intact so libass can measure the real
-    // glyph widths and keep them on one line when they fit. Only an individual
-    // unbroken run needs a render-only hard wrap.
-    if (/\s/u.test(line)) {
-      output.push(line.split(/(\s+)/u).map((part) => /\s/u.test(part) ? part : hardWrap(part)).join(''));
-      continue;
-    }
-    let cursor = 0;
-    while (cursor < graphemes.length) {
-      const hardEnd = Math.min(graphemes.length, cursor + maxGraphemesPerLine);
-      let end = hardEnd;
-      if (hardEnd < graphemes.length) {
-        const floor = cursor + Math.max(1, Math.floor(maxGraphemesPerLine * 0.62));
-        for (let index = hardEnd - 1; index >= floor; index -= 1) {
-          if (/\s|[។៕៖!?.,:;]/u.test(graphemes[index] || '')) {
-            end = index + 1;
-            break;
-          }
-        }
-      }
-      output.push(graphemes.slice(cursor, end).join('').trim());
-      cursor = end;
-      while (cursor < graphemes.length && /\s/u.test(graphemes[cursor] || '')) cursor += 1;
-    }
-  }
-  return output.filter(Boolean).join('\n');
+export function captionWordBreakOffsets(text: string): number[] {
+  if (typeof Intl.Segmenter !== 'function' || !/\p{Script=Khmer}/u.test(text)) return [];
+  const graphemes = new Set(Array.from(
+    new Intl.Segmenter('km', { granularity: 'grapheme' }).segment(text), (part) => part.index,
+  ));
+  const words = Array.from(new Intl.Segmenter('km', { granularity: 'word' }).segment(text));
+  return words.flatMap((word, index) => {
+    let previousIndex = index - 1;
+    // Keep closing punctuation with the preceding word and honor a creator's
+    // explicit zero-width separator; neither is a visible space in native ASS.
+    while (previousIndex >= 0 && /^[\u200B។៕៖!?.,:;\p{Pe}\p{Pf}]+$/u.test(words[previousIndex].segment)) previousIndex -= 1;
+    const previous = words[previousIndex];
+    if (!word.isWordLike || !previous?.isWordLike
+      || !/\p{Script=Khmer}/u.test(previous.segment + word.segment)
+      || !graphemes.has(word.index)) return [];
+    // Older ICU grapheme rules can expose a boundary after Khmer coeng. Never
+    // separate a subscript consonant or a joining/combining sequence there.
+    if (/[\u17D2\u200D]$/u.test(previous.segment) || /^[\p{M}\u200D]/u.test(word.segment)) return [];
+    return [word.index];
+  });
 }
 
 export interface CaptionRenderState {

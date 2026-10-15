@@ -90,3 +90,51 @@ test('review-focus mask files also remain exact when a focus state repeats', asy
   assert.equal(after.starts - before.starts, 1);
   assert.equal(after.fallbacks, before.fallbacks);
 });
+
+test('reservation clears the old idle timer and disposal waits for preflight scratch ownership', async (t) => {
+  await disposePersistentCaptionPreviews();
+  const scope = { projectId: 'preflight-lifetime', mediaIdentity: 'v1' };
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  let clearedIdle = false;
+  t.mock.method(globalThis, 'setTimeout', ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+    const handle = realSetTimeout(callback, delay, ...args);
+    if (delay === 15_000) idle = handle;
+    return handle;
+  }) as typeof setTimeout);
+  t.mock.method(globalThis, 'clearTimeout', ((handle: ReturnType<typeof setTimeout>) => {
+    if (handle === idle && idle) clearedIdle = true;
+    return realClearTimeout(handle);
+  }) as typeof clearTimeout);
+  await renderCaptionPreview(input(), capabilities, undefined, scope);
+  assert.ok(idle);
+  let entered!: () => void;
+  const writing = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const write = fs.writeFile.bind(fs);
+  let scratch = '';
+  t.mock.method(fs, 'writeFile', (async (file: any, ...args: any[]) => {
+    if (path.basename(String(file)) === 'bounds.ass') {
+      scratch = path.dirname(String(file));
+      entered();
+      await gate;
+    }
+    return (write as any)(file, ...args);
+  }) as typeof fs.writeFile);
+  const rendering = renderCaptionPreview(input('Changed caption'), capabilities, undefined, scope);
+  // Attach the rejection handler immediately so cancellation is never unhandled.
+  const rejected = assert.rejects(rendering, /cancelled|abort/i);
+  await writing;
+  assert.equal(clearedIdle, true, 'reservation must cancel idle expiry before preflight starts');
+  let disposed = false;
+  const disposal = disposePersistentCaptionPreviews(scope.projectId).then(() => { disposed = true; });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(disposed, false, 'disposal must await preflight ownership');
+  assert.ok((await fs.stat(scratch)).isDirectory());
+  release();
+  await rejected;
+  await disposal;
+  await assert.rejects(fs.stat(scratch), { code: 'ENOENT' });
+});

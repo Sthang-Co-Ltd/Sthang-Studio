@@ -20,6 +20,7 @@ import {
   type VideoResolutionPreset,
 } from '@kcs/shared';
 import { config } from '../config.js';
+import { validateCaptionOverflow } from './caption-overflow.js';
 import { runCommand } from './media.js';
 import { buildAssDocument, buildAssCaptionFilter, fontCapabilities, requireCaptionFont, prepareCaptionFonts } from './caption-renderer.js';
 import { invalidateCaptionFontCache } from './font-library.js';
@@ -573,6 +574,13 @@ export async function renderCaptionedVideo(
   try {
     await emitProgress(callbacks, 2, 'Preparing caption appearance and output settings…');
     const fontDirectory = await prepareCaptionFonts(workDir, appearance);
+    await emitProgress(callbacks, 2, 'Checking caption bounds before rendering…');
+    try {
+      await validateCaptionOverflow({ captions, appearance, width: dimensions.width, height: dimensions.height, fontDirectory, workDir, shouldCancel: callbacks.shouldCancel, cacheScope: project.id });
+    } catch (error) {
+      throwIfCancelled(callbacks);
+      throw error;
+    }
     await fs.writeFile(assPath, buildAssDocument(captions, appearance, dimensions.width, dimensions.height), 'utf8');
     throwIfCancelled(callbacks);
 

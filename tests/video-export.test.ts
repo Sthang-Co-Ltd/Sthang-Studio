@@ -102,7 +102,7 @@ test('ASS escaping prevents control injection while preserving explicit line bre
   assert.equal(escaped, 'ខ្មែរ\\{}N\\{\\{}bord50\\}\\NSecond');
 });
 
-test('ASS rendering scales style to output and wraps long Khmer on grapheme boundaries', () => {
+test('ASS rendering scales style and exposes Khmer word boundaries to native measured layout', () => {
   const longKhmer = 'ខ្មែរជាភាសារបស់យើងដែលត្រូវការការបង្ហាញច្បាស់លាស់ក្នុងវីដេអូខ្លីៗដោយមិនពឹងផ្អែកលើចន្លោះពាក្យ';
   const document = buildAssDocument([
     { id: '1', startMs: 0, endMs: 2500, text: longKhmer },
@@ -118,7 +118,8 @@ test('ASS rendering scales style to output and wraps long Khmer on grapheme boun
   assert.match(document, /PlayResY: 2160/);
   assert.match(document, /Style: Default,Khmer UI,144/);
   assert.match(document, /Dialogue: 0,0:00:00\.00,0:00:02\.50/);
-  assert.ok(document.includes('\\N'), 'long Khmer should receive an explicit render-only wrap');
+  assert.ok(document.includes('{\\fscx0} {\\fscx100}'), 'Khmer words should receive zero-width native break opportunities');
+  assert.ok(!document.includes('\\N'), 'glyph measurements, not estimated character counts, choose line breaks');
   assert.ok(document.includes(longKhmer.slice(0, 4)), 'Khmer graphemes should remain in the render document');
 });
 
@@ -129,7 +130,7 @@ test('ASS gives ordinary mixed-language captions a real single-line layout attem
 
   assert.match(document, /WrapStyle: 0/);
   const dialogue = document.split('\n').find((line) => line.startsWith('Dialogue:')) || '';
-  assert.ok(dialogue.includes('កម្ពុជាខ្មែរ CapCut caption generate'));
+  assert.ok(dialogue.replace(/\{\\fscx[^}]+\} ?/g, '').includes('កម្ពុជាខ្មែរ CapCut caption generate'));
   assert.doesNotMatch(dialogue, /\\N/, 'ordinary words must not be split before native glyph layout');
 });
 
@@ -185,4 +186,30 @@ test('supportsComplexAssFilterHelp detects complete complex-shaping help and rej
   assert.equal(supportsComplexAssFilterHelp('fontsdir and shaping only'), false);
   assert.equal(supportsComplexAssFilterHelp('shaping and complex only'), false);
   assert.equal(supportsComplexAssFilterHelp(''), false);
+});
+
+
+test('large-font screenshot words are never pre-split by a character-count heuristic', () => {
+  for (const text of ['SUBSCRIPTION', 'GENERATE', 'RECOMMEND']) {
+    for (const fontSize1080 of [56, 96, 120]) {
+      const document = buildAssDocument([{ id: 'word', startMs: 0, endMs: 1000, text }], {
+        ...DEFAULT_CAPTION_APPEARANCE, fontSize1080, maxWidthPct: 82,
+      }, 640, 1080);
+      const dialogue = document.split('\n').find((line) => line.startsWith('Dialogue:'))!;
+      assert.ok(dialogue.endsWith(text));
+      assert.doesNotMatch(dialogue, /\\N/);
+    }
+  }
+});
+
+test('Khmer soft breaks restore the active motion scale and retain explicit lines', () => {
+  const document = buildAssDocument([{ id: 'word', startMs: 0, endMs: 1000, text: 'ខ្មែរជាភាសា\r\nGENERATE' }], {
+    ...DEFAULT_CAPTION_APPEARANCE, motionPreset: 'soft-pop', motionDurationMs: 160,
+  }, 640, 1080, undefined, 20);
+  const dialogue = document.split('\n').find((line) => line.startsWith('Dialogue:'))!;
+  const scale = dialogue.match(/\\pos\([^)]+\)\\fscx([\d.]+)/)?.[1];
+  assert.ok(scale && Number(scale) < 100);
+  assert.ok(dialogue.includes(`{\\fscx0} {\\fscx${scale}}`));
+  assert.ok(!dialogue.includes('{\\fscx0} {\\fscx100}'));
+  assert.ok(dialogue.includes('\\NGENERATE'));
 });

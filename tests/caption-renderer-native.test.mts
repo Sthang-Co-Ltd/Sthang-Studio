@@ -15,6 +15,7 @@ process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'absent.env');
 const { config } = await import('../apps/server/src/config.js');
 const { buildAssDocument, buildAssCaptionFilter, fontCapabilities, prepareCaptionFonts } = await import('../apps/server/src/services/caption-renderer.js');
 const { renderCaptionPreview, parseCaptionPreviewInput, probeSetparamsAlphaMode, resetSetparamsAlphaModeCache } = await import('../apps/server/src/services/caption-preview.js');
+const { CaptionOverflowError } = await import('../apps/server/src/services/caption-overflow.js');
 const { renderCaptionedVideo, probeVideoExportCapabilities } = await import('../apps/server/src/services/video-export.js');
 after(() => fs.rm(root, { recursive: true, force: true }));
 
@@ -107,6 +108,12 @@ test('native preview matches ASS rasterization across fonts, sizes, layouts and 
   for (const [width, height] of [[640, 360], [360, 640], [1080, 1080]]) {
     for (const [index, style] of styles.entries()) {
       const caps = { ...capabilities, source: { ...source, displayWidth: width, displayHeight: height } };
+      // The former extreme-position fixture paints above the frame. It must now
+      // reject rather than compare two equally clipped images.
+      if (index === 2) {
+        await assert.rejects(renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(), timesMs: [200], appearance: style, resolution: 'source' }), caps), CaptionOverflowError);
+        continue;
+      }
       const result = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(), timesMs: [200], appearance: style, resolution: 'source' }), caps);
       const png = decodePng(result.frames[0].png);
       const reference = await referenceFrame(cue(), style, width, height, 200);
@@ -201,7 +208,7 @@ test('cancelled and rejected previews clean up after the native child has actual
     // setup, so removing process cancellation would fail this test instead of passing it.
     if (type === 'abort') { nativeStarted = true; queueMicrotask(() => controller.abort()); }
   });
-  await assert.rejects(renderCaptionPreview(input, capabilities, controller.signal), /Caption preview cancelled/);
+  await assert.rejects(renderCaptionPreview(input, capabilities, controller.signal), /Caption preview cancelled|operation was aborted/);
   assert.equal(nativeStarted, true, 'must exercise a running native child');
   await assert.rejects(renderCaptionPreview({ ...input, appearance: { ...appearance, fontFamily: 'Missing Font' } }, capabilities), /unavailable/);
   const remaining = await fs.readdir(path.join(config.exportDir, '.working')).catch(() => []);
@@ -237,6 +244,9 @@ test('real MP4 export matches spoken-word native preview and accepts valid small
     for (let channel = 0; channel < 3; channel += 1) { error += Math.abs(raw[offset + channel] - (pixels[offset + channel] * alpha + [32,64,96][channel] * (1 - alpha))); count += 1; }
   }
   assert.ok(error / count < 8, `lossy MP4 caption region differs unexpectedly: ${error / count}`);
+  const outputsBefore = await fs.readdir(config.exportDir);
+  await assert.rejects(renderCaptionedVideo(project, cue('SUBSCRIPTION'.repeat(12)), { ...style, fontSize1080: 120 }, { encoder: 'software', quality: 'high' }), CaptionOverflowError);
+  assert.deepEqual(await fs.readdir(config.exportDir), outputsBefore, 'blocked layout must not leave an output file');
 });
 
 
@@ -321,4 +331,93 @@ test('unsupported runtime without subtitlesFilter fails explicitly and actionabl
     renderCaptionPreview(input, unsupportedCaps),
     /cannot render the caption preview\. Run System check/,
   );
+});
+
+test('font-size reflow keeps screenshot English words whole when real glyphs fit', async () => {
+  const style = { ...appearance, bold: false, fontSize1080: 96, maxWidthPct: 82, outlineWidth1080: 0, shadowWidth1080: 0 };
+  const caps = { ...capabilities, source: { ...source, displayWidth: 640, displayHeight: 1080 } };
+  for (const [word, broken] of [['SUBSCRIPTION', 'SUBSCRI\nPTION'], ['GENERATE', 'GENERAT\nE'], ['RECOMMEND', 'RECOMME\nND']]) {
+    const whole = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(word), timesMs: [200], appearance: style, resolution: 'source' }), caps);
+    const split = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(broken), timesMs: [200], appearance: style, resolution: 'source' }), caps);
+    assert.ok(whole.frames[0].bounds && split.frames[0].bounds);
+    assert.ok(whole.frames[0].bounds!.height < split.frames[0].bounds!.height * 0.75, `${word}: must remain one native line`);
+    assert.ok(whole.frames[0].bounds!.width <= 640 * 0.82, `${word}: measured glyphs fit the saved width`);
+    compareComposite(decodePng(whole.frames[0].png), await referenceFrame(cue(word), style, 640, 1080, 200), word);
+  }
+});
+
+test('Khmer native line layout reflows at linguistic words as width and size change', async () => {
+  const captions = cue('ខ្ញុំចូលចិត្តប្រទេសកម្ពុជាខ្លាំងណាស់');
+  const caps = { ...capabilities, source: { ...source, displayWidth: 640, displayHeight: 480 } };
+  const render = async (fontSize1080: number, maxWidthPct: number) => {
+    const style = { ...appearance, bold: false, fontSize1080, maxWidthPct, outlineWidth1080: 0, shadowWidth1080: 0 };
+    const result = await renderCaptionPreview(parseCaptionPreviewInput({ captions, timesMs: [200], appearance: style, resolution: 'source' }), caps);
+    compareComposite(decodePng(result.frames[0].png), await referenceFrame(captions, style, 640, 480, 200), `Khmer ${fontSize1080}/${maxWidthPct}`);
+    return result.frames[0].bounds!;
+  };
+  const wide = await render(108, 82);
+  const narrow = await render(108, 45);
+  const small = await render(56, 45);
+  assert.ok(narrow.width <= 640 * 0.45, 'complete Khmer words must reflow inside the selected region');
+  assert.ok(narrow.height > wide.height * 1.5, 'narrower width must cause native line reflow');
+  assert.ok(small.height < narrow.height, 'reducing font size must recompute the native line layout');
+});
+
+test('word-break markers preserve native Khmer highlighting across available font families and decoration', async () => {
+  const captions = spokenWordCue();
+  for (const family of fonts.filter((candidate) => candidate.available && candidate.boldAvailable)) {
+    const style = { ...appearance, fontFamily: family.name, fontSize1080: 96, highlightMode: 'word' as const, backgroundEnabled: true, glowEnabled: true, motionPreset: 'soft-pop' as const };
+    const beforeSpeech = await referenceFrame(captions, style, 640, 360, 120, new Set([0]));
+    // Resting geometry avoids deliberately comparing different motion scales.
+    const first = await referenceFrame(captions, style, 640, 360, 300, new Set([0]));
+    const second = await referenceFrame(captions, style, 640, 360, 600, new Set([0]));
+    assert.notDeepEqual(beforeSpeech, first, `${family.name}: motion must remain active before resting geometry`);
+    assert.deepEqual(first, second, `${family.name}: highlight changes paint, never the native Khmer glyph mask`);
+  }
+});
+
+test('unsafe whole words block one-shot, persistent preview and styled ASS without transport fallback', async () => {
+  const { disposePersistentCaptionPreviews, persistentPreviewDiagnostics } = await import('../apps/server/src/services/persistent-caption-preview.js');
+  const { defaultCaptionHandoffDependencies } = await import('../apps/server/src/services/caption-handoff.js');
+  const caps = { ...capabilities, source: { ...source, displayWidth: 360, displayHeight: 640 } };
+  const style = { ...appearance, fontSize1080: 120, bold: false, outlineWidth1080: 0, shadowWidth1080: 0 };
+  const input = parseCaptionPreviewInput({ captions: cue('SUBSCRIPTION'), appearance: style, timesMs: [200], resolution: 'source' });
+  await assert.rejects(renderCaptionPreview(input, caps), CaptionOverflowError);
+  const before = persistentPreviewDiagnostics().fallbacks;
+  try {
+    await assert.rejects(renderCaptionPreview(input, caps, undefined, { projectId: 'overflow-regression', mediaIdentity: 'fixture' }), CaptionOverflowError);
+    assert.equal(persistentPreviewDiagnostics().fallbacks, before);
+    const safe = await renderCaptionPreview({ ...input, appearance: { ...style, fontSize1080: 64 } }, caps, undefined, { projectId: 'overflow-regression', mediaIdentity: 'fixture' });
+    assert.ok(safe.frames[0].bounds);
+    await assert.rejects(Promise.resolve(defaultCaptionHandoffDependencies().buildAss(input.captions, style, 360, 640, 'overflow-regression')), CaptionOverflowError);
+  } finally { await disposePersistentCaptionPreviews('overflow-regression'); }
+});
+
+test('styled ASS preflight admission is bounded and cancellation releases its slot and scratch', async (t) => {
+  const { defaultCaptionHandoffDependencies } = await import('../apps/server/src/services/caption-handoff.js');
+  const dependencies = defaultCaptionHandoffDependencies();
+  const controller = new AbortController();
+  let entered!: () => void;
+  const writing = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const write = fs.writeFile.bind(fs);
+  let scratch = '';
+  t.mock.method(fs, 'writeFile', (async (file: any, ...args: any[]) => {
+    if (path.basename(String(file)) === 'bounds.ass' && !scratch) {
+      scratch = path.dirname(String(file));
+      entered();
+      await gate;
+    }
+    return (write as any)(file, ...args);
+  }) as typeof fs.writeFile);
+  const first = Promise.resolve(dependencies.buildAss(cue('hello'), appearance, 640, 360, 'handoff-cancel', controller.signal));
+  const cancelled = assert.rejects(first, /cancelled|abort/i);
+  await writing;
+  await assert.rejects(Promise.resolve(dependencies.buildAss(cue('hello'), appearance, 640, 360)), /export is busy/);
+  controller.abort();
+  release();
+  await cancelled;
+  await assert.rejects(fs.stat(scratch), { code: 'ENOENT' });
+  assert.match(await dependencies.buildAss(cue('hello'), appearance, 640, 360), /Dialogue:/);
 });

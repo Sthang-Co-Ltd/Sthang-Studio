@@ -23,20 +23,20 @@ const appearance = {
   backgroundPadding1080: 8,
 };
 
-test('plain Fade/Glow/Box wraps each cue once instead of once per paint state and layer', () => {
+test('plain Fade/Glow/Box segments each Khmer cue once instead of once per paint state and layer', () => {
   const OriginalSegmenter = Intl.Segmenter;
   let segmentCalls = 0;
-  class CountingAsciiSegmenter {
+  class CountingSegmenter extends OriginalSegmenter {
     segment(input: string) {
       segmentCalls += 1;
-      return Array.from(input, (segment) => ({ segment }));
+      return super.segment(input);
     }
   }
-  Object.defineProperty(Intl, 'Segmenter', { configurable: true, value: CountingAsciiSegmenter });
+  Object.defineProperty(Intl, 'Segmenter', { configurable: true, value: CountingSegmenter });
   try {
-    const plain = captions.map((caption, index) => ({ ...caption, text: `Caption ${index}` }));
+    const plain = captions;
     const document = buildAssDocument(plain, appearance, 1920, 1080);
-    assert.equal(segmentCalls, plain.length, 'plain text should wrap once per rendered cue, not once per fade state/layer');
+    assert.equal(segmentCalls, plain.length * 2, 'word and grapheme segmentation must each run once per cue, not per paint state/layer');
     assert.equal((document.match(/^Dialogue:/gm) || []).length, 279);
   } finally {
     Object.defineProperty(Intl, 'Segmenter', { configurable: true, value: OriginalSegmenter });

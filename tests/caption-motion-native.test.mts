@@ -315,7 +315,7 @@ test('Soft Pop compensation preserves odd-width portrait wrap geometry and asymm
     const marginR = Number(fields[6]);
     assert.ok(Math.abs(marginL - marginR) <= 1, `${alignment}: odd-width compensation splits the integer residual by at most one pixel`);
     assert.match(dialogue, /\\pos\([^)]*\)\\fscx\d+(?:\.\d+)?\\fscy\d+(?:\.\d+)?/);
-    assert.doesNotMatch(neutralDocument.split('\n').find((line) => line.startsWith('Dialogue:'))!, /\\pos|\\fscx|\\fscy/, `${alignment}: neutral 100% state must retain the original no-override path`);
+    assert.doesNotMatch(neutralDocument.split('\n').find((line) => line.startsWith('Dialogue:'))!.replace(/\{\\fscx0\} \{\\fscx100\}/g, ''), /\\pos|\\fscx|\\fscy/, `${alignment}: neutral 100% state must retain the original no-override path`);
 
     const entry = paintedBounds(await renderFrozenAtSize([caption], style, 120, new Set([0]), frameWidth, frameHeight), frameWidth, frameHeight)!;
     const middle = paintedBounds(await renderFrozenAtSize([caption], style, 400, new Set([0]), frameWidth, frameHeight), frameWidth, frameHeight)!;

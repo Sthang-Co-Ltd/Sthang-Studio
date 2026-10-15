@@ -7,6 +7,7 @@ import {
   type VideoExportCapabilities, type VideoResolutionPreset,
 } from '@kcs/shared';
 import { config } from '../config.js';
+import { validateCaptionOverflow } from './caption-overflow.js';
 import { buildAssDocument, buildAssCaptionFilter, preparePreviewFonts, requireCaptionFont } from './caption-renderer.js';
 import { renderPersistentCaptionPreview, retireIdleCaptionPreviews, type PreviewScope } from './persistent-caption-preview.js';
 
@@ -143,6 +144,7 @@ export async function renderCaptionPreview(
     workDir = await fs.mkdtemp(path.join(parent, 'preview-'));
     fontLease = await preparePreviewFonts(workDir, input.appearance);
     const fonts = fontLease.directory;
+    await validateCaptionOverflow({ captions: input.captions, appearance: input.appearance, width, height, fontDirectory: fonts, workDir, signal, cacheScope: scope?.projectId });
     const assPath = path.join(workDir, 'captions.ass');
     await fs.writeFile(assPath, buildAssDocument(input.captions, input.appearance, width, height), 'utf8');
     signal?.throwIfAborted();

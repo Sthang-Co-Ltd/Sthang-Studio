@@ -76,20 +76,26 @@ export function createCaptionHandoffRouter(service: CaptionHandoffService = crea
     if (!media || !revision) return res.status(428).json({ error: 'Export requires the saved media and caption snapshot revision it was prepared from.' });
     const format = req.body?.format;
     if (typeof format !== 'string' || !formats.has(format as CaptionFileFormat)) return res.status(400).json({ error: 'Unsupported caption handoff format.' });
+    const controller = new AbortController();
+    const close = () => { if (!res.writableEnded) controller.abort(); };
+    res.on('close', close);
     try {
       const result = await service.export(id, {
         format: format as CaptionFileFormat,
         expectedMedia: media,
         expectedRevision: revision,
         ...(req.body?.options && typeof req.body.options === 'object' && !Array.isArray(req.body.options) ? { options: req.body.options as Record<string, unknown> } : {}),
-      });
+      }, controller.signal);
+      if (controller.signal.aborted) return;
       res.setHeader('Content-Type', result.contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
       res.setHeader('X-Sthang-Handoff-Revision', result.revision);
       if (result.warnings.length) res.setHeader('X-Sthang-Handoff-Warnings', warningHeader(result.warnings));
       res.send(result.body);
     } catch (error) {
-      respondError(res, error);
+      if (!controller.signal.aborted && !res.headersSent) respondError(res, error);
+    } finally {
+      res.off('close', close);
     }
   });
 
