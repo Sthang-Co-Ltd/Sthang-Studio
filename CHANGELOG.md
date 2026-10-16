@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Source-only — keep reviewed captions when replacing footage:** add an explicit
+  preserving workflow for visual-only revisions, local full-length audio/timeline
+  compatibility checks, and recoverable prior-media/project snapshots. Retain
+  wording, word timing, approvals, locks, and styling; incompatible or uncertain
+  media stops safely without automatic generation. Start-over remains separate.
+
 - **Windows timing readiness:** resolve the cached Khmer model through the same
   native cache location used by KFA, including redirected installation profiles.
   Readiness checks use the target Python environment and fail before a

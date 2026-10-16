@@ -56,6 +56,7 @@
     "performance-batch4.test.mts",
     "project-store.test.mts",
     "playback-grouping.test.mts",
+    "caption-selection-acknowledgement.test.ts",
     "playback-grouping-server.test.mts",
     "local-timing-privacy.test.mts",
     "gemini-sdk-transport.test.mts",
@@ -64,6 +65,11 @@
     "job-admission.test.ts",
     "job-admission-routes.test.mts",
     "media-preview.test.mts",
-    "media-playback-recovery.test.ts"
+    "media-playback-recovery.test.ts",
+    "media-compatibility.test.mts",
+    "preserve-media-server.test.mts",
+    "caption-appearance-save.test.ts",
+    "replace-media-dialog.test.mts",
+    "accuracy-context-draft.test.ts"
   ]
 }

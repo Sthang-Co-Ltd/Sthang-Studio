@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test, { after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -90,11 +90,62 @@ async function readDiskProject(id: string) {
   return JSON.parse(await fs.readFile(path.join(projectDir, `${id}.json`), 'utf8')) as CaptionProject;
 }
 
-async function replaceMedia(id: string, contents = 'replacement') {
+type ReplacedProject = CaptionProject & { replacementCleanupWarnings: string[] };
+
+async function assertRetiredGeneration(
+  previous: CaptionProject,
+  replacement: ReplacedProject,
+  durable: boolean,
+  previousHistory: Awaited<ReturnType<typeof historyStore.list>> = [],
+) {
+  // Ordinary race tests keep the real store policy, including Windows retention.
+  if (process.platform === 'win32') assert.equal(durable, false);
+  assert.deepEqual(replacement.replacementCleanupWarnings, durable ? [] : ['durability']);
+  const oldPath = path.join(config.uploadDir, previous.media.filename);
+  if (durable) await assert.rejects(fs.stat(oldPath), { code: 'ENOENT' });
+  else assert.deepEqual(await fs.readFile(oldPath), Buffer.from('old'), 'unconfirmed publication retains the exact old source');
+  assert.deepEqual(await historyStore.list(previous.id, previous.media), durable ? [] : previousHistory);
+  assert.equal((await fs.stat(path.join(config.uploadDir, replacement.media.filename))).isFile(), true);
+}
+
+async function withConfirmedDurability(t: TestContext, projectId: string, run: () => Promise<void>) {
+  // Synthetic branch coverage only: cleanup faults must run even on Windows,
+  // whose real directory durability remains unconfirmed in production.
+  const original = store.latestWriteIsDurable.bind(store);
+  let checked = 0;
+  const mocked = t.mock.method(store, 'latestWriteIsDurable', (id: string) => {
+    if (id !== projectId) return original(id);
+    checked += 1;
+    return true;
+  });
+  try {
+    await run();
+    assert.equal(checked, 1, 'replacement must reach the confirmed-durability cleanup decision');
+  } finally { mocked.mock.restore(); }
+}
+
+async function waitForCleanupGate(entered: Promise<void>, replacement: Promise<Response>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      entered,
+      replacement.then(() => { throw new Error('Replacement completed without entering retired-History cleanup'); }),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Replacement did not enter retired-History cleanup within 5 seconds')), 5_000);
+      }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function replaceMedia(id: string, contents = 'replacement', signal?: AbortSignal) {
   const form = new FormData();
+  const expected = await store.get(id);
+  form.append('mode', 'reset');
+  form.append('expectedMedia', JSON.stringify(expected?.media || {}));
+  form.append('expectedUpdatedAt', expected?.updatedAt || 'missing');
   form.append('media', new Blob([contents], { type: 'video/mp4' }), 'replacement.mp4');
   try {
-    return await fetch(`${baseUrl}/api/projects/${id}/replace-media`, { method: 'POST', body: form });
+    return await fetch(`${baseUrl}/api/projects/${id}/replace-media`, { method: 'POST', body: form, signal });
   } finally {
     // These state/API fixtures contain non-media bytes. Cancel preparation for
     // committed-error responses too, so FFmpeg cannot race fixture teardown.
@@ -161,7 +212,8 @@ async function postprocessTiming(id: string, expectedMedia: CaptionProject['medi
 }
 
 async function restoreHistory(id: string, historyId: string) {
-  return fetch(`${baseUrl}/api/projects/${id}/history/${historyId}/restore`, { method: 'POST' });
+  const current = await store.get(id);
+  return fetch(`${baseUrl}/api/projects/${id}/history/${historyId}/restore`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedMedia: current?.media }) });
 }
 
 async function listHistory(id: string) {
@@ -273,7 +325,8 @@ test('a caption save accepted before same-id replacement cannot restore the old 
     await gate.entered;
     const replacementResponse = await replaceMedia(project.id);
     assert.equal(replacementResponse.status, 200);
-    const replacement = await replacementResponse.json() as CaptionProject;
+    const replacement = await replacementResponse.json() as ReplacedProject;
+    const replacementDurable = store.latestWriteIsDurable(project.id);
     assert.notEqual(replacement.media.filename, project.media.filename);
     gate.release();
     const saveResponse = await staleSave;
@@ -281,8 +334,7 @@ test('a caption save accepted before same-id replacement cannot restore the old 
     const disk = await readDiskProject(project.id);
     assert.equal(disk.media.filename, replacement.media.filename);
     assert.deepEqual(disk.captions, []);
-    await assert.rejects(fs.stat(path.join(config.uploadDir, project.media.filename)), { code: 'ENOENT' });
-    assert.equal((await fs.stat(path.join(config.uploadDir, replacement.media.filename))).isFile(), true);
+    await assertRetiredGeneration(project, replacement, replacementDurable);
     assert.deepEqual(await historyStore.list(project.id), []);
   } finally {
     gate.release();
@@ -315,14 +367,14 @@ test('a caption save queued behind replacement sees the published media generati
     renameGate.release();
     const replacementResponse = await replacement;
     assert.equal(replacementResponse.status, 200);
-    const replacementProject = await replacementResponse.json() as CaptionProject;
+    const replacementProject = await replacementResponse.json() as ReplacedProject;
+    const replacementDurable = store.latestWriteIsDurable(project.id);
     const saveResponse = await staleSave;
     assert.equal(saveResponse.status, 409);
     const disk = await readDiskProject(project.id);
     assert.equal(disk.media.filename, replacementProject.media.filename);
     assert.deepEqual(disk.captions, []);
-    await assert.rejects(fs.stat(path.join(config.uploadDir, project.media.filename)), { code: 'ENOENT' });
-    assert.equal((await fs.stat(path.join(config.uploadDir, replacementProject.media.filename))).isFile(), true);
+    await assertRetiredGeneration(project, replacementProject, replacementDurable);
   } finally {
     renameGate.release();
     secondMutation.restore();
@@ -379,7 +431,8 @@ test('a project glossary correction queued after replacement cannot restore reti
     await mutationEntered.promise;
     const replacementResponse = await replaceMedia(project.id);
     assert.equal(replacementResponse.status, 200);
-    const replacement = await replacementResponse.json() as CaptionProject;
+    const replacement = await replacementResponse.json() as ReplacedProject;
+    const replacementDurable = store.latestWriteIsDurable(project.id);
     mutationRelease.release();
 
     const actionResponse = await actionPromise;
@@ -393,8 +446,7 @@ test('a project glossary correction queued after replacement cannot restore reti
     assert.equal(disk.media.filename, replacement.media.filename);
     assert.deepEqual(disk.captions, []);
     assert.ok(disk.transcriptionContext?.vocabulary?.includes(event.suggestedVocabularyLine));
-    await assert.rejects(fs.stat(path.join(config.uploadDir, project.media.filename)), { code: 'ENOENT' });
-    assert.equal((await fs.stat(path.join(config.uploadDir, replacement.media.filename))).isFile(), true);
+    await assertRetiredGeneration(project, replacement, replacementDurable);
   } finally {
     mutationRelease.release();
     candidate.withProjectWrite = originalWithProjectWrite;
@@ -428,7 +480,7 @@ test('a failed caption persistence does not publish partial state and the projec
   assert.equal(disk.captions[0].text, 'RECOVERED SAVE');
 });
 
-test('a regroup queued behind a replacement cannot restore the deleted media generation', { timeout: 10_000 }, async (t) => {
+test('a regroup queued behind a replacement cannot restore the retired media generation', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('queued-regroup', true);
   const renameGate = deferred();
   const renameEntered = deferred();
@@ -449,14 +501,14 @@ test('a regroup queued behind a replacement cannot restore the deleted media gen
     renameGate.release();
     const replacementResponse = await replacement;
     assert.equal(replacementResponse.status, 200);
-    const replacementProject = await replacementResponse.json() as CaptionProject;
+    const replacementProject = await replacementResponse.json() as ReplacedProject;
+    const replacementDurable = store.latestWriteIsDurable(project.id);
     const regroupResponse = await staleRegroup;
     assert.equal(regroupResponse.status, 409);
     const disk = await readDiskProject(project.id);
     assert.equal(disk.media.filename, replacementProject.media.filename);
     assert.deepEqual(disk.captions, []);
-    await assert.rejects(fs.stat(path.join(config.uploadDir, project.media.filename)), { code: 'ENOENT' });
-    assert.equal((await fs.stat(path.join(config.uploadDir, replacementProject.media.filename))).isFile(), true);
+    await assertRetiredGeneration(project, replacementProject, replacementDurable);
     assert.deepEqual(await listHistory(project.id), []);
   } finally {
     renameGate.release();
@@ -466,7 +518,7 @@ test('a regroup queued behind a replacement cannot restore the deleted media gen
   }
 });
 
-test('a regroup that owns the project write first may finish, then replacement retires its history', { timeout: 10_000 }, async () => {
+test('a regroup that finishes first makes the pending replacement revision stale', { timeout: 10_000 }, async () => {
   const project = await seedProject('regroup-before-replace', true);
   const gate = deferred();
   const entered = deferred();
@@ -489,12 +541,15 @@ test('a regroup that owns the project write first may finish, then replacement r
     const regroupResponse = await regroup;
     assert.equal(regroupResponse.status, 200);
     const replacementResponse = await replacement;
-    assert.equal(replacementResponse.status, 200);
-    const replacementProject = await replacementResponse.json() as CaptionProject;
+    assert.equal(replacementResponse.status, 409);
+    const regrouped = await regroupResponse.json() as CaptionProject;
     const disk = await readDiskProject(project.id);
-    assert.equal(disk.media.filename, replacementProject.media.filename);
-    assert.deepEqual(disk.captions, []);
-    assert.deepEqual(await listHistory(project.id), []);
+    assert.equal(disk.media.filename, project.media.filename);
+    assert.deepEqual(disk.captions, regrouped.captions);
+    assert.equal((await listHistory(project.id)).length, 1);
+    const retried = await replaceMedia(project.id);
+    assert.equal(retried.status, 200);
+    assert.deepEqual((await readDiskProject(project.id)).captions, []);
   } finally {
     gate.release();
     historyStore.checkpoint = originalCheckpoint;
@@ -520,6 +575,7 @@ test('a stale regroup arriving after replacement is rejected before history is w
 test('a spacing cleanup queued behind replacement cannot republish the retired media generation', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('queued-spacing', true);
   await historyStore.checkpoint(project, 'Old generation checkpoint', 'manual-save');
+  const previousHistory = await historyStore.list(project.id, project.media);
   const proposal = await seedProposal(project);
   const renameGate = deferred();
   const renameEntered = deferred();
@@ -564,7 +620,8 @@ test('a spacing cleanup queued behind replacement cannot republish the retired m
     renameGate.release();
     const replacementResponse = await replacementPromise;
     assert.equal(replacementResponse.status, 200);
-    const replacement = await replacementResponse.json() as CaptionProject;
+    const replacement = await replacementResponse.json() as ReplacedProject;
+    const replacementDurable = store.latestWriteIsDurable(project.id);
     const spacingResponse = await staleSpacingPromise;
     assert.equal(spacingResponse.status, 409);
 
@@ -573,8 +630,7 @@ test('a spacing cleanup queued behind replacement cannot republish the retired m
     assert.deepEqual(disk.captions, []);
     assert.deepEqual(await listHistory(project.id), []);
     assert.equal((await fetch(`${baseUrl}/api/projects/${project.id}/regeneration-proposals/${proposal.id}`)).status, 404);
-    await assert.rejects(fs.stat(path.join(config.uploadDir, project.media.filename)), { code: 'ENOENT' });
-    assert.equal((await fs.stat(path.join(config.uploadDir, replacement.media.filename))).isFile(), true);
+    await assertRetiredGeneration(project, replacement, replacementDurable, previousHistory);
   } finally {
     renameGate.release();
     cancelScheduledProjectPrewarm(project.id);
@@ -681,16 +737,17 @@ test('an in-flight old-generation proposal apply cannot republish replaced media
 
   const [applyResponse, replacementResponse] = await Promise.all([applyResponsePromise, replacementResponsePromise]);
   assert.equal(applyResponse.status, 200);
-  assert.equal(replacementResponse.status, 200);
-  const replacement = await replacementResponse.json() as CaptionProject;
-  cancelScheduledProjectPrewarm(project.id);
+  assert.equal(replacementResponse.status, 409);
+  const applied = await applyResponse.json() as CaptionProject;
   const disk = await readDiskProject(project.id);
-  assert.equal(disk.media.filename, replacement.media.filename);
-  assert.notEqual(disk.media.filename, project.media.filename);
-  assert.deepEqual(disk.captions, []);
-  await assert.rejects(fs.stat(path.join(config.uploadDir, project.media.filename)), { code: 'ENOENT' });
-  assert.equal((await fs.stat(path.join(config.uploadDir, replacement.media.filename))).isFile(), true);
-  assert.deepEqual(await listHistory(project.id), []);
+  assert.equal(disk.media.filename, project.media.filename);
+  assert.deepEqual(disk.captions, applied.captions);
+  assert.equal((await fs.stat(path.join(config.uploadDir, project.media.filename))).isFile(), true);
+  const retried = await replaceMedia(project.id);
+  assert.equal(retried.status, 200);
+  assert.notEqual((await readDiskProject(project.id)).media.filename, project.media.filename);
+  assert.deepEqual((await readDiskProject(project.id)).captions, []);
+  cancelScheduledProjectPrewarm(project.id);
 });
 
 test('replacement persistence failure leaves the old project, source and history usable', { timeout: 10_000 }, async (t) => {
@@ -709,7 +766,7 @@ test('replacement persistence failure leaves the old project, source and history
   });
   const response = await replaceMedia(project.id);
   assert.equal(response.status, 500);
-  assert.match(String((await response.json() as any).error), /Synthetic replacement persistence failure/);
+  assert.match(String((await response.json() as any).error), /previous project and media were kept/);
   assert.equal((await readDiskProject(project.id)).media.filename, project.media.filename);
   assert.equal((await fs.stat(path.join(config.uploadDir, project.media.filename))).isFile(), true);
   assert.equal((await listHistory(project.id)).length, 1);
@@ -719,202 +776,272 @@ test('replacement persistence failure leaves the old project, source and history
   assert.equal((await readDiskProject(project.id)).captions[0].text, 'OLD MEDIA STILL USABLE');
 });
 
-test('committed replacement reports history cleanup failure while old history stays retired', { timeout: 10_000 }, async (t) => {
-  const project = await seedProject('history-cleanup-failure', true);
-  await historyStore.checkpoint(project, 'Old generation history', 'manual-save');
-  const historyDir = path.join(config.historyDir, project.id);
+test('unconfirmed publication retains old source and History while retiring them from the active generation', { timeout: 10_000 }, async (t) => {
+  const project = await seedProject('unconfirmed-publication', true);
+  const oldEntry = await historyStore.checkpoint(project, 'History retained for unconfirmed publication', 'manual-save');
+  const previousHistory = await historyStore.list(project.id, project.media);
+  const previousCheckpoint = await historyStore.get(project.id, oldEntry.id, project.media);
+  const proposal = await seedProposal(project);
+  const oldPath = path.join(config.uploadDir, project.media.filename);
+  const latestWriteIsDurable = store.latestWriteIsDurable.bind(store);
+  let durabilityChecks = 0;
+  const durability = t.mock.method(store, 'latestWriteIsDurable', (id: string) => {
+    if (id !== project.id) return latestWriteIsDurable(id);
+    durabilityChecks += 1;
+    return false;
+  });
   const rm = fs.rm;
-  const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
-    if (path.resolve(String(args[0])) === path.resolve(historyDir)) throw new Error('Synthetic history cleanup failure');
+  let oldSourceCleanupCalls = 0;
+  t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
+    if (path.resolve(String(args[0])) === path.resolve(oldPath)) oldSourceCleanupCalls += 1;
     return rm(...args);
   });
-  const response = await replaceMedia(project.id);
-  assert.equal(response.status, 200);
-  const replacement = await response.json() as CaptionProject & { replacementCleanupWarnings?: string[] };
-  assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
-  assert.notEqual(replacement.media.filename, project.media.filename);
-  assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
-  assert.deepEqual(await listHistory(project.id), []);
-  const saved = await saveCaptions(project.id, [caption('NEW MEDIA SAVE')], replacement.media);
-  assert.equal(saved.status, 200);
-  mocked.mock.restore();
-  await historyStore.clear(project.id);
-  await assert.rejects(fs.stat(historyDir), { code: 'ENOENT' });
+  const removeMediaVersion = historyStore.removeMediaVersion.bind(historyStore);
+  let oldHistoryCleanupCalls = 0;
+  t.mock.method(historyStore, 'removeMediaVersion', async (id: string, media: Pick<CaptionProject['media'], 'filename' | 'size'>) => {
+    if (id === project.id && media.filename === project.media.filename) oldHistoryCleanupCalls += 1;
+    return removeMediaVersion(id, media);
+  });
+  try {
+    const response = await replaceMedia(project.id);
+    assert.equal(response.status, 200);
+    const replacement = await response.json() as ReplacedProject;
+    assert.equal(durabilityChecks, 1);
+    await assertRetiredGeneration(project, replacement, false, previousHistory);
+    assert.equal(oldSourceCleanupCalls, 0);
+    assert.equal(oldHistoryCleanupCalls, 0);
+    assert.notEqual(replacement.media.filename, project.media.filename);
+    assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
+    assert.equal((await store.get(project.id))!.media.filename, replacement.media.filename);
+    assert.deepEqual(await fs.readFile(path.join(config.uploadDir, replacement.media.filename)), Buffer.from('replacement'));
+    assert.deepEqual(await historyStore.get(project.id, oldEntry.id, project.media), previousCheckpoint);
+    assert.deepEqual(await listHistory(project.id), []);
+    assert.equal((await restoreHistory(project.id, oldEntry.id)).status, 404);
+    await assert.rejects(fs.stat(proposal.file), { code: 'ENOENT' });
+  } finally { durability.mock.restore(); cancelScheduledProjectPrewarm(project.id); }
+});
+
+test('committed replacement reports history cleanup failure while old history stays retired', { timeout: 10_000 }, async (t) => {
+  const project = await seedProject('history-cleanup-failure', true);
+  await withConfirmedDurability(t, project.id, async () => {
+    let cleanupFailureInjected = false;
+    await historyStore.checkpoint(project, 'Old generation history', 'manual-save');
+    const historyDir = path.join(config.historyDir, project.id);
+    const removeMediaVersion = historyStore.removeMediaVersion.bind(historyStore);
+    const mocked = t.mock.method(historyStore, 'removeMediaVersion', async (id: string, media: Pick<CaptionProject['media'], 'filename' | 'size'>) => {
+      if (id === project.id && media.filename === project.media.filename) {
+        cleanupFailureInjected = true;
+        throw new Error('Synthetic retired-media cleanup failure');
+      }
+      return removeMediaVersion(id, media);
+    });
+    const response = await replaceMedia(project.id);
+    assert.equal(response.status, 200);
+    const replacement = await response.json() as ReplacedProject;
+    assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
+    assert.equal(cleanupFailureInjected, true);
+    assert.notEqual(replacement.media.filename, project.media.filename);
+    assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
+    assert.deepEqual(await listHistory(project.id), []);
+    const saved = await saveCaptions(project.id, [caption('NEW MEDIA SAVE')], replacement.media);
+    assert.equal(saved.status, 200);
+    mocked.mock.restore();
+    await historyStore.clear(project.id);
+    await assert.rejects(fs.stat(historyDir), { code: 'ENOENT' });
+  });
 });
 
 test('committed replacement reports proposal cleanup failure and stale proposal is no longer visible', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('proposal-cleanup-failure', true);
-  const proposal = await seedProposal(project);
-  const rm = fs.rm;
-  const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
-    if (path.resolve(String(args[0])) === path.resolve(proposal.file)) throw new Error('Synthetic proposal cleanup failure');
-    return rm(...args);
+  await withConfirmedDurability(t, project.id, async () => {
+    let cleanupFailureInjected = false;
+    const proposal = await seedProposal(project);
+    const rm = fs.rm;
+    const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
+      if (path.resolve(String(args[0])) === path.resolve(proposal.file)) {
+        cleanupFailureInjected = true;
+        throw new Error('Synthetic proposal cleanup failure');
+      }
+      return rm(...args);
+    });
+    const response = await replaceMedia(project.id);
+    assert.equal(response.status, 200);
+    const replacement = await response.json() as ReplacedProject;
+    assert.deepEqual(replacement.replacementCleanupWarnings, ['proposals']);
+    assert.equal(cleanupFailureInjected, true);
+    assert.equal((await fs.stat(proposal.file)).isFile(), true);
+    const proposalResponse = await fetch(`${baseUrl}/api/projects/${project.id}/regeneration-proposals/${proposal.id}`);
+    assert.equal(proposalResponse.status, 404);
+    const staleApplyResponse = await applyProposal(project.id, proposal.id);
+    assert.equal(staleApplyResponse.status, 400);
+    assert.match(String((await staleApplyResponse.json() as any).error), /project changed/i);
+    assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
+    const saved = await saveCaptions(project.id, [caption('SAVE AFTER PROPOSAL WARNING')], replacement.media);
+    assert.equal(saved.status, 200);
+    mocked.mock.restore();
+    const cleanup = await proposalStore.removeProject(project.id);
+    assert.equal(cleanup.failed, 0);
+    await assert.rejects(fs.stat(proposal.file), { code: 'ENOENT' });
   });
-  const response = await replaceMedia(project.id);
-  assert.equal(response.status, 200);
-  const replacement = await response.json() as CaptionProject & { replacementCleanupWarnings?: string[] };
-  assert.deepEqual(replacement.replacementCleanupWarnings, ['proposals']);
-  assert.equal((await fs.stat(proposal.file)).isFile(), true);
-  const proposalResponse = await fetch(`${baseUrl}/api/projects/${project.id}/regeneration-proposals/${proposal.id}`);
-  assert.equal(proposalResponse.status, 404);
-  const staleApplyResponse = await applyProposal(project.id, proposal.id);
-  assert.equal(staleApplyResponse.status, 400);
-  assert.match(String((await staleApplyResponse.json() as any).error), /project changed/i);
-  assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
-  const saved = await saveCaptions(project.id, [caption('SAVE AFTER PROPOSAL WARNING')], replacement.media);
-  assert.equal(saved.status, 200);
-  mocked.mock.restore();
-  const cleanup = await proposalStore.removeProject(project.id);
-  assert.equal(cleanup.failed, 0);
-  await assert.rejects(fs.stat(proposal.file), { code: 'ENOENT' });
 });
 
 test('committed replacement reports old-media cleanup failure and keeps the replacement usable', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('old-media-cleanup-failure', true);
-  const oldPath = path.join(config.uploadDir, project.media.filename);
-  const rm = fs.rm;
-  const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
-    if (path.resolve(String(args[0])) === path.resolve(oldPath)) throw new Error('Synthetic old-media cleanup failure');
-    return rm(...args);
+  await withConfirmedDurability(t, project.id, async () => {
+    let cleanupFailureInjected = false;
+    const oldPath = path.join(config.uploadDir, project.media.filename);
+    const rm = fs.rm;
+    const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
+      if (path.resolve(String(args[0])) === path.resolve(oldPath)) {
+        cleanupFailureInjected = true;
+        throw new Error('Synthetic old-media cleanup failure');
+      }
+      return rm(...args);
+    });
+    const response = await replaceMedia(project.id);
+    assert.equal(response.status, 200);
+    const replacement = await response.json() as ReplacedProject;
+    assert.deepEqual(replacement.replacementCleanupWarnings, ['old-media']);
+    assert.equal(cleanupFailureInjected, true);
+    assert.notEqual(replacement.media.filename, project.media.filename);
+    assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
+    assert.equal((await fs.stat(oldPath)).isFile(), true);
+    const saved = await saveCaptions(project.id, [caption('SAVE AFTER SOURCE WARNING')], replacement.media);
+    assert.equal(saved.status, 200);
+    mocked.mock.restore();
+    await fs.rm(oldPath, { force: true });
+    await assert.rejects(fs.stat(oldPath), { code: 'ENOENT' });
   });
-  const response = await replaceMedia(project.id);
-  assert.equal(response.status, 200);
-  const replacement = await response.json() as CaptionProject & { replacementCleanupWarnings?: string[] };
-  assert.deepEqual(replacement.replacementCleanupWarnings, ['old-media']);
-  assert.notEqual(replacement.media.filename, project.media.filename);
-  assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
-  assert.equal((await fs.stat(oldPath)).isFile(), true);
-  const saved = await saveCaptions(project.id, [caption('SAVE AFTER SOURCE WARNING')], replacement.media);
-  assert.equal(saved.status, 200);
-  mocked.mock.restore();
-  await fs.rm(oldPath, { force: true });
-  await assert.rejects(fs.stat(oldPath), { code: 'ENOENT' });
 });
 
-test('replacement waits for every History cleanup sibling before reporting a cleanup warning', { timeout: 10_000 }, async (t) => {
+test('replacement waits for retired-media History cleanup before reporting a warning', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('history-clear-sibling', true);
-  await historyStore.checkpoint(project, 'Old history before replacement', 'manual-save');
-  const historyDir = path.join(config.historyDir, project.id);
-  const legacyPath = path.join(config.historyDir, `${project.id}.json`);
-  const historyRmEntered = deferred();
-  const historyRmRelease = deferred();
-  const legacyFailureObserved = deferred();
-  const rm = fs.rm;
-  t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
-    const target = path.resolve(String(args[0]));
-    if (target === path.resolve(historyDir)) {
-      historyRmEntered.release();
-      await historyRmRelease.promise;
-      return rm(...args);
+  await withConfirmedDurability(t, project.id, async () => {
+    let cleanupFailureInjected = false;
+    await historyStore.checkpoint(project, 'Old history before replacement', 'manual-save');
+    const entered = deferred();
+    const release = deferred();
+    const original = historyStore.removeMediaVersion.bind(historyStore);
+    t.mock.method(historyStore, 'removeMediaVersion', async (id: string, media: Pick<CaptionProject['media'], 'filename' | 'size'>) => {
+      if (id === project.id && media.filename === project.media.filename) {
+        entered.release();
+        await release.promise;
+        cleanupFailureInjected = true;
+        throw new Error('Synthetic retired-history cleanup failure');
+      }
+      return original(id, media);
+    });
+    let settled = false;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, t.signal]);
+    const replacementPromise = replaceMedia(project.id, 'replacement', signal);
+    void replacementPromise.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await waitForCleanupGate(entered.promise, replacementPromise);
+      assert.equal(settled, false);
+      release.release();
+      const response = await replacementPromise;
+      assert.equal(response.status, 200);
+      const replacement = await response.json() as ReplacedProject;
+      assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
+      assert.equal(cleanupFailureInjected, true);
+      assert.deepEqual(await listHistory(project.id), []);
+      const saved = await saveCaptions(project.id, [caption('NEW GENERATION CHECKPOINT')], replacement.media);
+      assert.equal(saved.status, 200);
+      const currentHistory = await listHistory(project.id);
+      assert.equal(currentHistory.length, 1);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal((await listHistory(project.id))[0]?.id, currentHistory[0].id);
+    } finally {
+      release.release();
+      controller.abort();
+      await replacementPromise.catch(() => {});
+      cancelScheduledProjectPrewarm(project.id);
     }
-    if (target === path.resolve(legacyPath)) {
-      legacyFailureObserved.release();
-      throw new Error('Synthetic legacy History cleanup failure');
-    }
-    return rm(...args);
   });
-
-  let proposalCleanupStarted = false;
-  const originalRemoveProject = proposalStore.removeProject.bind(proposalStore);
-  t.mock.method(proposalStore, 'removeProject', async (...args: Parameters<typeof proposalStore.removeProject>) => {
-    proposalCleanupStarted = true;
-    return originalRemoveProject(...args);
-  });
-
-  let replacementSettled = false;
-  const replacementPromise = replaceMedia(project.id);
-  void replacementPromise.then(() => { replacementSettled = true; }, () => { replacementSettled = true; });
-  try {
-    await historyRmEntered.promise;
-    await legacyFailureObserved.promise;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(proposalCleanupStarted, false, 'replacement must not begin later cleanup while a History removal sibling is pending');
-    assert.equal(replacementSettled, false, 'replacement must remain pending until the sibling History removal settles');
-    historyRmRelease.release();
-    const response = await replacementPromise;
-    assert.equal(response.status, 200);
-    const replacement = await response.json() as CaptionProject & { replacementCleanupWarnings?: string[] };
-    assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
-
-    const saved = await saveCaptions(project.id, [caption('NEW GENERATION CHECKPOINT')], replacement.media);
-    assert.equal(saved.status, 200);
-    const currentHistory = await listHistory(project.id);
-    assert.equal(currentHistory.length, 1);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal((await listHistory(project.id))[0]?.id, currentHistory[0].id);
-  } finally {
-    historyRmRelease.release();
-    cancelScheduledProjectPrewarm(project.id);
-    await replacementPromise.catch(() => {});
-  }
 });
 
 test('an identical old-generation checkpoint cannot suppress the replacement generation first checkpoint or be restored', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('generation-fingerprint');
-  const blankOld: CaptionProject = { ...project, captions: [], transcript: null };
-  await store.upsert(blankOld);
-  const oldEntry = await historyStore.checkpoint(blankOld, 'Old blank generation', 'manual-save');
-  const historyDir = path.join(config.historyDir, project.id);
-  const rm = fs.rm;
-  const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
-    if (path.resolve(String(args[0])) === path.resolve(historyDir)) throw new Error('Keep old generation History for regression coverage');
-    return rm(...args);
+  await withConfirmedDurability(t, project.id, async () => {
+    let cleanupFailureInjected = false;
+    const blankOld: CaptionProject = { ...project, captions: [], transcript: null };
+    await store.upsert(blankOld);
+    const oldEntry = await historyStore.checkpoint(blankOld, 'Old blank generation', 'manual-save');
+    const historyDir = path.join(config.historyDir, project.id);
+    const removeMediaVersion = historyStore.removeMediaVersion.bind(historyStore);
+    const mocked = t.mock.method(historyStore, 'removeMediaVersion', async (id: string, media: Pick<CaptionProject['media'], 'filename' | 'size'>) => {
+      if (id === project.id && media.filename === project.media.filename) {
+        cleanupFailureInjected = true;
+        throw new Error('Synthetic retired-media cleanup failure');
+      }
+      return removeMediaVersion(id, media);
+    });
+
+    const replacementResponse = await replaceMedia(project.id);
+    assert.equal(replacementResponse.status, 200);
+    const replacement = await replacementResponse.json() as ReplacedProject;
+    assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
+    assert.equal(cleanupFailureInjected, true);
+    assert.deepEqual(await listHistory(project.id), []);
+
+    const saved = await saveCaptions(project.id, [caption('FIRST NEW GENERATION EDIT')], replacement.media);
+    assert.equal(saved.status, 200);
+    const currentHistory = await listHistory(project.id);
+    assert.equal(currentHistory.length, 1);
+    assert.notEqual(currentHistory[0].id, oldEntry.id);
+
+    const staleRestore = await restoreHistory(project.id, oldEntry.id);
+    assert.equal(staleRestore.status, 404);
+    const restoredResponse = await restoreHistory(project.id, currentHistory[0].id);
+    assert.equal(restoredResponse.status, 200);
+    const restored = await restoredResponse.json() as CaptionProject;
+    assert.equal(restored.media.filename, replacement.media.filename);
+    assert.deepEqual(restored.captions, []);
+    assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
+
+    mocked.mock.restore();
+    await historyStore.clear(project.id);
+    cancelScheduledProjectPrewarm(project.id);
   });
-
-  const replacementResponse = await replaceMedia(project.id);
-  assert.equal(replacementResponse.status, 200);
-  const replacement = await replacementResponse.json() as CaptionProject & { replacementCleanupWarnings?: string[] };
-  assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
-  assert.deepEqual(await listHistory(project.id), []);
-
-  const saved = await saveCaptions(project.id, [caption('FIRST NEW GENERATION EDIT')], replacement.media);
-  assert.equal(saved.status, 200);
-  const currentHistory = await listHistory(project.id);
-  assert.equal(currentHistory.length, 1);
-  assert.notEqual(currentHistory[0].id, oldEntry.id);
-
-  const staleRestore = await restoreHistory(project.id, oldEntry.id);
-  assert.equal(staleRestore.status, 404);
-  const restoredResponse = await restoreHistory(project.id, currentHistory[0].id);
-  assert.equal(restoredResponse.status, 200);
-  const restored = await restoredResponse.json() as CaptionProject;
-  assert.equal(restored.media.filename, replacement.media.filename);
-  assert.deepEqual(restored.captions, []);
-  assert.equal((await readDiskProject(project.id)).media.filename, replacement.media.filename);
-
-  mocked.mock.restore();
-  await historyStore.clear(project.id);
-  cancelScheduledProjectPrewarm(project.id);
 });
 
 test('History dedupe and autosave coalescing stay inside one media generation', { timeout: 10_000 }, async (t) => {
   const project = await seedProject('history-generation-coalesce');
-  const blankOld: CaptionProject = { ...project, captions: [], transcript: null };
-  await store.upsert(blankOld);
-  const oldEntry = await historyStore.checkpoint(blankOld, 'Old autosave generation', 'autosave', { dedupeWindowMs: 60_000 });
-  const historyDir = path.join(config.historyDir, project.id);
-  const rm = fs.rm;
-  const mocked = t.mock.method(fs, 'rm', async (...args: Parameters<typeof fs.rm>) => {
-    if (path.resolve(String(args[0])) === path.resolve(historyDir)) throw new Error('Retain old History generation');
-    return rm(...args);
+  await withConfirmedDurability(t, project.id, async () => {
+    let cleanupFailureInjected = false;
+    const blankOld: CaptionProject = { ...project, captions: [], transcript: null };
+    await store.upsert(blankOld);
+    const oldEntry = await historyStore.checkpoint(blankOld, 'Old autosave generation', 'autosave', { dedupeWindowMs: 60_000 });
+    const historyDir = path.join(config.historyDir, project.id);
+    const removeMediaVersion = historyStore.removeMediaVersion.bind(historyStore);
+    const mocked = t.mock.method(historyStore, 'removeMediaVersion', async (id: string, media: Pick<CaptionProject['media'], 'filename' | 'size'>) => {
+      if (id === project.id && media.filename === project.media.filename) {
+        cleanupFailureInjected = true;
+        throw new Error('Synthetic retired-media cleanup failure');
+      }
+      return removeMediaVersion(id, media);
+    });
+
+    const replacementResponse = await replaceMedia(project.id);
+    assert.equal(replacementResponse.status, 200);
+    const replacement = await replacementResponse.json() as ReplacedProject;
+    assert.deepEqual(replacement.replacementCleanupWarnings, ['history']);
+    assert.equal(cleanupFailureInjected, true);
+    const firstCurrent = await historyStore.checkpoint(replacement, 'Current autosave generation', 'autosave', { dedupeWindowMs: 60_000 });
+    assert.notEqual(firstCurrent.id, oldEntry.id);
+
+    const changed: CaptionProject = { ...replacement, captions: [caption('CURRENT AUTOSAVE CHANGE')] };
+    const coalesced = await historyStore.checkpoint(changed, 'Current autosave update', 'autosave', { dedupeWindowMs: 60_000 });
+    assert.equal(coalesced.id, firstCurrent.id, 'same-generation autosaves inside the window should coalesce');
+    const duplicate = await historyStore.checkpoint(changed, 'Same generation duplicate', 'manual-save');
+    assert.equal(duplicate.id, firstCurrent.id, 'identical same-generation state should dedupe');
+    assert.equal((await historyStore.list(project.id, replacement.media)).length, 1);
+
+    mocked.mock.restore();
+    await historyStore.clear(project.id);
+    cancelScheduledProjectPrewarm(project.id);
   });
-
-  const replacementResponse = await replaceMedia(project.id);
-  assert.equal(replacementResponse.status, 200);
-  const replacement = await replacementResponse.json() as CaptionProject;
-  const firstCurrent = await historyStore.checkpoint(replacement, 'Current autosave generation', 'autosave', { dedupeWindowMs: 60_000 });
-  assert.notEqual(firstCurrent.id, oldEntry.id);
-
-  const changed: CaptionProject = { ...replacement, captions: [caption('CURRENT AUTOSAVE CHANGE')] };
-  const coalesced = await historyStore.checkpoint(changed, 'Current autosave update', 'autosave', { dedupeWindowMs: 60_000 });
-  assert.equal(coalesced.id, firstCurrent.id, 'same-generation autosaves inside the window should coalesce');
-  const duplicate = await historyStore.checkpoint(changed, 'Same generation duplicate', 'manual-save');
-  assert.equal(duplicate.id, firstCurrent.id, 'identical same-generation state should dedupe');
-  assert.equal((await historyStore.list(project.id, replacement.media)).length, 1);
-
-  mocked.mock.restore();
-  await historyStore.clear(project.id);
-  cancelScheduledProjectPrewarm(project.id);
 });
 
 test('modern History list uses media metadata without a full-project clone or per-entry snapshot reads', async (t) => {

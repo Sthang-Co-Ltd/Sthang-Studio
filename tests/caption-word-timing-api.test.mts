@@ -238,7 +238,7 @@ test('wordTiming-only history changes create distinct checkpoints and a real res
 
   await store.upsert(changed);
   cancelScheduledProjectPrewarm(changed.id);
-  const response = await fetch(`${baseUrl}/api/projects/${changed.id}/history/${checkpoint.id}/restore`, { method: 'POST' });
+  const response = await fetch(`${baseUrl}/api/projects/${changed.id}/history/${checkpoint.id}/restore`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedMedia: changed.media }) });
   assert.equal(response.status, 200);
   const restored = await response.json() as CaptionProject;
   assert.equal(restored.captions[0].wordTiming?.words[0].startMs, 1_050);

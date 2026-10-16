@@ -366,3 +366,20 @@ leaderboards. Quantity incentives must never encourage fabricated/noisy edits.
 - Preview/export line-count and layout parity on a stable caption appearance regression set.
 - User-visible caption-generation and export duration, derived from persisted job timestamps rather than analytics-only timing buckets.
 - Post-render verification failures, cancellations, and resumptions, using only coarse allow-listed operational buckets if analytics consent is granted.
+
+## Reviewed-caption media replacement (source-only)
+
+Visual revisions of already reviewed footage should not require starting caption
+review over. Tools progressively exposes a preserving choice and a distinct
+start-over choice. Preservation requires conservative local full-length audio and
+timeline verification; duration equality is never sufficient. Uncertainty leaves
+the current project unchanged and never falls through to destructive reset or
+paid generation. Preserve full caption objects, approvals, locks, transcript state,
+and appearance. Reload the new video geometry and ask the creator to inspect
+caption placement when the frame shape changes.
+
+A replacement keeps a local recovery of the previous project/media state.
+Restoration is an explicit destructive-to-current-state choice with revision guards
+and fresh media identity, so stale work cannot overwrite the restored project.
+Recovery access survives reopening the project. Clearly describe retention and
+local disk use. No released-download availability is implied by this source contract.

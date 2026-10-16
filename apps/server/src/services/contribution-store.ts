@@ -6,16 +6,19 @@ import type {
   CaptionProject,
   CaptionSegment,
   ConsentState,
-  ContributionCandidate,
+  ContributionCandidate as PublicContributionCandidate,
   ContributionStatus,
 } from '@kcs/shared';
 import { config } from '../config.js';
 import { APP_VERSION } from '../version.js';
 import { ensureNormalizedAudio, mediaFingerprint } from './cache.js';
+import { jobAdmission } from './job-admission.js';
 import { approvedContributionCandidates } from './contribution-core.js';
 import { makeAudioChunk } from './media.js';
 import { profileStore } from './profile-store.js';
 import { store } from './store.js';
+
+type ContributionCandidate = PublicContributionCandidate & { mediaFingerprint?: string };
 
 interface ContributionState {
   version: 1;
@@ -131,6 +134,7 @@ function ensureIdentity(state: ContributionState) {
 function minimizeRemoteCandidate(candidate: ContributionCandidate): ContributionCandidate {
   return {
     ...candidate,
+    mediaFingerprint: undefined,
     correctionEventIds: [],
     originalText: '',
     correctedText: '',
@@ -192,9 +196,13 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 9000
 }
 
 async function uploadCandidate(state: ContributionState, candidate: ContributionCandidate) {
+  return jobAdmission.runForProject(candidate.projectId, () => uploadCandidateForMedia(state, candidate));
+}
+
+async function uploadCandidateForMedia(state: ContributionState, candidate: ContributionCandidate) {
   if (!config.contributionEndpoint || !state.contributorId || !state.withdrawalToken) return null;
   const project = await store.get(candidate.projectId);
-  if (!project) return null;
+  if (!project || candidate.mediaFingerprint !== mediaFingerprint(project)) return null;
   const normalized = await ensureNormalizedAudio(project);
   const paddingMs = 180;
   const clipStartMs = Math.max(0, candidate.startMs - paddingMs);
@@ -417,7 +425,7 @@ export const contributionStore = {
       });
       if (!candidates.length) return [] as ContributionCandidate[];
       const known = new Set(state.candidates.map((item) => item.id));
-      const next = candidates.filter((item) => !known.has(item.id));
+      const next = candidates.filter((item) => !known.has(item.id)).map((item) => ({ ...item, mediaFingerprint: mediaFingerprint(project) }));
       if (next.length) state.candidates = [...state.candidates, ...next].slice(-5000);
       return next;
     });

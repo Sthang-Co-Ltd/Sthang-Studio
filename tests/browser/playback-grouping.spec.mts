@@ -9,6 +9,12 @@ test.afterAll(cleanFixtures);
 let state: FixtureState;
 test.beforeEach(async ({ page }) => { state = await installFixture(page); });
 
+async function confirmResetReplacement(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Replace media', exact: true });
+  await dialog.getByRole('radio', { name: /Start over/ }).check();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Start over with this media?' }).getByRole('button', { name: 'Replace and clear captions', exact: true }).click();
+}
 async function grouping(page: Page) {
   await page.getByRole('button', { name: 'Caption grouping', exact: true }).click();
   return page.locator('.controls-card');
@@ -17,6 +23,17 @@ async function activity(page: Page) {
   await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
   return page.getByRole('dialog', { name: 'Activity', exact: true });
+}
+async function selectedCaptionIds(page: Page) {
+  return page.locator('.caption-row.selected-range').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-caption-id')));
+}
+async function finishCaptionAcknowledgement(page: Page, release: () => void) {
+  const response = page.waitForResponse((value) => value.url().endsWith('/captions') && value.request().method() === 'PUT');
+  release();
+  await (await response).finished();
+  // Wait for the response handler and React commit, then assert UI state rather
+  // than treating the network response alone as an acknowledged save.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 function preview(): RegenerationProposal {
   return { id: 'proposal-old', projectId: 'landscape', projectTitle: 'Audit landscape',
@@ -191,23 +208,462 @@ test('committed media replacement with cleanup warnings still publishes the repl
       mimeType: 'video/mp4',
       buffer: Buffer.from('synthetic replacement media'),
     });
+    await confirmResetReplacement(page);
     await expect.poll(() => requested).toBe(true);
     await page.getByLabel('Caption 1 text', { exact: true }).fill('Edit typed while warning replacement is pending');
     release();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape-replacement.mp4');
     await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
     await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveCount(0);
-    const warning = page.locator('.toast.notice').filter({ hasText: 'the previous source file' });
-    await expect(warning).toContainText('Replacement saved.');
-    await expect(warning).toContainText('keep working with the replacement');
+    const warning = page.locator('.toast.notice').filter({ hasText: 'old derived files' });
+    await expect(warning).toContainText('Media replaced.');
+    await expect(warning).toContainText('replacement is usable');
     const recovery = page.locator('.replacement-edit-recovery');
     await expect(recovery).toContainText('were not applied to the replacement');
     await expect(recovery.getByRole('button', { name: 'Copy recovery', exact: true })).toBeVisible();
   } finally { release(); }
 });
 
-test('replacement recovery preserves old-media text, timing, order, locks, approval and source identity', async ({ page }) => {
+for (const { interaction, responseTiming } of [
+  { interaction: 'pointer', responseTiming: 'immediate' },
+  { interaction: 'pointer', responseTiming: 'held' },
+  { interaction: 'keyboard', responseTiming: 'held' },
+] as const) {
+  test(`caption row menu ${interaction} interaction survives the ${responseTiming} caption-save response`, async ({ page }, testInfo) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let requested = false;
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      state.projects[0].captions = structuredClone(route.request().postDataJSON().captions);
+      const reply = structuredClone(state.projects[0]);
+      requested = true;
+      if (responseTiming === 'held') await gate;
+      await route.fulfill({ json: { project: reply, correctionsCreated: 0 } });
+    });
+    try {
+      await openProject(page);
+      // Preserve the original ordinary-pointer reproduction separately from the
+      // recovery fixture. Do not preselect c2 or force the pointer click. Focus
+      // changes may move rows; the log distinguishes lost click from menu close.
+      await page.evaluate(() => {
+        const records: unknown[] = [];
+        (window as any).__captionMenuEvents = records;
+        const record = (phase: string, event?: Event) => {
+          const target = event?.target instanceof Element ? event.target : null;
+          records.push({
+            phase, time: performance.now(), type: event?.type,
+            target: target ? { tag: target.tagName, label: target.getAttribute('aria-label'), buttonLabel: target.closest('button')?.getAttribute('aria-label'), role: target.getAttribute('role'), row: target.closest('[data-caption-id]')?.getAttribute('data-caption-id') } : null,
+            rows: ['c1', 'c2'].map((id) => {
+              const row = document.querySelector(`[data-caption-id="${id}"]`);
+              const button = row?.querySelector('.row-more');
+              const bounds = button?.getBoundingClientRect();
+              return { id, className: row?.className, expanded: button?.getAttribute('aria-expanded'), button: bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null };
+            }),
+          });
+        };
+        for (const type of ['pointerdown', 'mousedown', 'blur', 'focusin', 'pointerup', 'mouseup', 'click']) {
+          document.addEventListener(type, (event) => { record('capture', event); queueMicrotask(() => record('after-event', event)); }, true);
+        }
+        const observer = new MutationObserver(() => record('menu-attribute-change'));
+        document.querySelectorAll('.row-more').forEach((button) => observer.observe(button, { attributes: true, attributeFilter: ['aria-expanded'] }));
+      });
+      await page.getByLabel('Caption 1 text', { exact: true }).fill('Stable edit saved before replacement');
+      const more = page.getByLabel('More actions for caption 2', { exact: true });
+      if (interaction === 'pointer') await more.click();
+      else {
+        // A separately labeled keyboard path, not a workaround substituted for
+        // the ordinary pointer reproduction above.
+        await more.focus();
+        await more.press('Enter');
+      }
+      if (interaction === 'pointer') {
+        const gesture = await page.evaluate(() => {
+          const records = (window as any).__captionMenuEvents as Array<{
+            phase: string; type?: string; target?: { row?: string; buttonLabel?: string };
+            rows?: Array<{ id: string; button: { x: number; y: number; width: number; height: number } | null }>;
+          }>;
+          const start = records.findIndex((entry) => entry.phase === 'capture' && entry.type === 'pointerdown' && entry.target?.row === 'c2');
+          return records.slice(start).filter((entry) => entry.phase === 'capture' && ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].includes(entry.type ?? ''));
+        });
+        expect(gesture.map((entry) => entry.type)).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
+        const firstBounds = gesture[0].rows?.find((row) => row.id === 'c2')?.button;
+        expect(firstBounds).toBeTruthy();
+        for (const entry of gesture) {
+          expect(entry.target?.buttonLabel, `${entry.type} must still hit the same row action`).toBe('More actions for caption 2');
+          const bounds = entry.rows?.find((row) => row.id === 'c2')?.button;
+          expect(bounds).toBeTruthy();
+          for (const axis of ['x', 'y', 'width', 'height'] as const) {
+            expect(Math.abs(bounds![axis] - firstBounds![axis]), `${entry.type} must not move the ${axis} of the pointer target before click`).toBeLessThanOrEqual(0.5);
+          }
+        }
+      }
+      await expect.poll(() => requested).toBe(true);
+      const lock = page.getByRole('menuitem', { name: 'Lock text', exact: true });
+      if (responseTiming === 'held') {
+        await expect(more, 'The menu must open before the held caption response is released').toHaveAttribute('aria-expanded', 'true');
+        await expect(lock).toBeVisible();
+        await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+        await page.evaluate(() => (window as any).__captionMenuEvents.push({ phase: 'release-caption-response', time: performance.now() }));
+        const response = page.waitForResponse((value) => value.url().endsWith('/captions') && value.request().method() === 'PUT');
+        release();
+        await (await response).finished();
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      }
+      await expect(page.locator('.save-action')).toBeDisabled();
+      await expect(more, 'A completed caption save must not silently discard an open row menu').toHaveAttribute('aria-expanded', 'true');
+      await expect(lock).toBeVisible();
+      // Check before any menu action can reselect c2 and hide a stale save's
+      // reversal. An open menu alone did not catch the V4 regression.
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+      if (interaction === 'pointer') await lock.click();
+      else { await lock.focus(); await lock.press('Enter'); }
+      await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveAttribute('readonly', '');
+      if (interaction === 'pointer') await more.click();
+      else await more.press('Enter');
+      const timing = page.getByRole('menuitem', { name: 'Lock timing', exact: true });
+      if (interaction === 'pointer') await timing.click();
+      else { await timing.focus(); await timing.press('Enter'); }
+      await expect(page.getByLabel('Caption 2 start time', { exact: true })).toBeDisabled();
+      const row = page.locator('[data-caption-id="c2"]');
+      await row.getByRole('button', { name: 'Approve caption', exact: true }).click();
+      await expect(row.getByRole('button', { name: 'Mark caption as needing review', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      release();
+      if (!page.isClosed()) {
+        const events = await page.evaluate(() => (window as any).__captionMenuEvents ?? []);
+        await testInfo.attach(`caption-menu-${interaction}-${responseTiming}-events.json`, { contentType: 'application/json', body: Buffer.from(JSON.stringify(events, null, 2)) });
+      }
+    }
+  });
+}
+
+for (const scenario of [
+  { name: 'newer single selection', anchor: 'c2', end: 'c2', replyIds: ['c1', 'c2', 'c3'], selected: ['c2'], extended: ['c1', 'c2'] },
+  { name: 'newer forward range', anchor: 'c2', end: 'c3', replyIds: ['c1', 'c2', 'c3'], selected: ['c2', 'c3'], extended: ['c1', 'c2'] },
+  { name: 'newer reversed range', anchor: 'c3', end: 'c2', replyIds: ['c1', 'c2', 'c3'], selected: ['c2', 'c3'], extended: ['c1', 'c2', 'c3'] },
+  { name: 'removed range end', anchor: 'c2', end: 'c3', replyIds: ['c1', 'c2'], selected: ['c2'], extended: ['c1', 'c2'] },
+  { name: 'removed range anchor', anchor: 'c3', end: 'c2', replyIds: ['c1', 'c2'], selected: ['c2'], extended: ['c1', 'c2'] },
+  { name: 'empty caption response', anchor: 'c2', end: 'c3', replyIds: [], selected: [], extended: [] },
+]) {
+  test(`held caption-save acknowledgement reconciles ${scenario.name}`, async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let requests = 0;
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      requests += 1;
+      const reply = structuredClone(state.projects[0]);
+      // Removed-ID and empty cases are deliberate route-mocked response
+      // boundaries, not claims that an ordinary server save deletes captions.
+      reply.captions = structuredClone(route.request().postDataJSON().captions)
+        .filter((caption: { id: string }) => scenario.replyIds.includes(caption.id));
+      await gate;
+      state.projects[0] = structuredClone(reply);
+      await route.fulfill({ json: { project: reply, correctionsCreated: 0 } });
+    });
+    try {
+      await openProject(page);
+      await page.getByLabel('Caption 1 text', { exact: true }).fill('Snapshot saved before newer selection');
+      // Blur while c1 remains selected so the captured save predates every
+      // selection below. Ordinary nonfocusable row-index targets allow Shift
+      // ranges without a button's focus handler collapsing the anchor first.
+      await page.locator('[data-caption-id="c1"] .row-index').click();
+      await expect.poll(() => requests).toBe(1);
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+      await page.locator(`[data-caption-id="${scenario.anchor}"] .row-index`).click();
+      if (scenario.end !== scenario.anchor) {
+        await page.locator(`[data-caption-id="${scenario.end}"] .row-index`).click({ modifiers: ['Shift'] });
+      }
+      const before = scenario.anchor === scenario.end ? ['c2'] : ['c2', 'c3'];
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(before);
+      // The removed-ID fallback is playhead-based. Observe the actual seek's
+      // rendered active row before releasing the acknowledgement.
+      await expect(page.locator(`[data-caption-id="${scenario.end}"]`)).toHaveClass(/\bactive\b/);
+      await expect(page.locator('.save-action')).toBeEnabled();
+      await finishCaptionAcknowledgement(page, release);
+      await expect(page.locator('.save-action')).toBeDisabled();
+      await expect(page.locator('.caption-row')).toHaveCount(scenario.replyIds.length);
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(scenario.selected);
+      expect(requests).toBe(1);
+      if (scenario.extended.length) {
+        // Forward and reversed ranges contain the same IDs. Extending again
+        // proves the acknowledgement also retained the original anchor.
+        await page.locator('[data-caption-id="c1"] .row-index').click({ modifiers: ['Shift'] });
+        await expect.poll(() => selectedCaptionIds(page)).toEqual(scenario.extended);
+        await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue('Snapshot saved before newer selection');
+      }
+    } finally { release(); }
+  });
+}
+
+test('direct caption approval remains clickable after editing a different caption', async ({ page }) => {
   state.profile.preferences.autosaveDelayMs = 60_000;
+  await openProject(page);
+  await page.getByLabel('Caption 1 text', { exact: true }).fill('Edit before direct pointer approval');
+  const row = page.locator('[data-caption-id="c2"]');
+  await expect(row).not.toHaveClass(/selected-range/);
+  // No row preselection, forced click, or substituted keyboard activation.
+  await row.getByRole('button', { name: 'Approve caption', exact: true }).click();
+  await expect(row.getByRole('button', { name: 'Mark caption as needing review', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(row).toHaveClass(/selected-range/);
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue('Edit before direct pointer approval');
+  // Approval is a fresh metadata edit after the blur save. Persist it
+  // explicitly instead of waiting for the deliberately long autosave delay.
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => state.projects[0].captions.find((caption) => caption.id === 'c2')?.approved).toBe(true);
+  expect(state.projects[0].captions[0].text).toBe('Edit before direct pointer approval');
+});
+
+for (const action of ['More actions', 'Approve'] as const) {
+  test(`dragging away from caption ${action} cancels activation and preserves subsequent keyboard navigation`, async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    await openProject(page);
+    const firstText = page.getByLabel('Caption 1 text', { exact: true });
+    await firstText.fill('Edit before canceled row action');
+    const row = page.locator('[data-caption-id="c2"]');
+    const more = page.getByLabel('More actions for caption 2', { exact: true });
+    const target = action === 'More actions' ? more : row.getByRole('button', { name: 'Approve caption', exact: true });
+    await expect(row).not.toHaveClass(/selected-range/);
+    const bounds = await target.boundingBox();
+    expect(bounds).toBeTruthy();
+    await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+    try {
+      await page.mouse.down();
+      await expect(more).toHaveAttribute('aria-expanded', 'false');
+      await expect(row.getByRole('button', { name: 'Approve caption', exact: true })).toHaveAttribute('aria-pressed', 'false');
+      await page.mouse.move(1, 1);
+    } finally { await page.mouse.up(); }
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(row.getByRole('button', { name: 'Approve caption', exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.save-action')).toBeDisabled();
+    expect(state.projects[0].captions[0].text).toBe('Edit before canceled row action');
+    expect(Boolean(state.projects[0].captions.find((caption) => caption.id === 'c2')?.approved)).toBe(false);
+
+    await firstText.focus();
+    // Use real Tab navigation after the canceled pointer gesture. Stale
+    // pointer-origin state must not suppress keyboard focus selection.
+    for (let tabs = 0; tabs < 12 && !await more.evaluate((button) => button === document.activeElement); tabs++) {
+      await page.keyboard.press('Tab');
+    }
+    await expect(more).toBeFocused();
+    await expect(row).toHaveClass(/selected-range/);
+    await page.keyboard.press('Enter');
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('menuitem', { name: 'Lock text', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+  });
+}
+
+test('synthetic pointer cancellation clears deferred row-action focus without activating the action', async ({ page }) => {
+  await openProject(page);
+  await page.getByLabel('Caption 1 text', { exact: true }).focus();
+  const row = page.locator('[data-caption-id="c2"]');
+  const more = page.getByLabel('More actions for caption 2', { exact: true });
+  await expect(row).not.toHaveClass(/selected-range/);
+  // Synthetic events isolate the pointercancel cleanup branch. This is not
+  // evidence of a native touch/scroll-cancellation sequence.
+  await more.dispatchEvent('pointerdown', { pointerId: 17, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1 });
+  await more.dispatchEvent('pointercancel', { pointerId: 17, pointerType: 'touch', isPrimary: true, button: 0, buttons: 0 });
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await expect(row).not.toHaveClass(/selected-range/);
+  await more.focus();
+  await expect(more).toBeFocused();
+  await expect(row).toHaveClass(/selected-range/);
+  await expect(row.getByRole('button', { name: 'Approve caption', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await more.press('Enter');
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+});
+
+for (const action of ['More actions', 'Approve'] as const) {
+  test(`synthetic delayed touch-compatibility focus keeps caption ${action} stationary until click`, async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let requested = false;
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      state.projects[0].captions = structuredClone(route.request().postDataJSON().captions);
+      const reply = structuredClone(state.projects[0]);
+      requested = true;
+      await gate;
+      await route.fulfill({ json: { project: reply, correctionsCreated: 0 } });
+    });
+    try {
+      await openProject(page);
+      await page.getByLabel('Caption 1 text', { exact: true }).fill('Edit before delayed compatibility focus');
+      const row = page.locator('[data-caption-id="c2"]');
+      const more = page.getByLabel('More actions for caption 2', { exact: true });
+      const approve = row.locator('.row-approve');
+      const target = action === 'More actions' ? more : approve;
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+
+      // This is a synthetic event-order regression, not native touchscreen
+      // evidence. Keep the ordinary .tap() tests below as separate coverage.
+      // Await a timer queued AFTER pointerup, so zero-delay pointer cleanup
+      // necessarily runs before the later compatibility mousedown and focus.
+      const initial = await target.evaluate(async (button) => {
+        const bounds = button.getBoundingClientRect();
+        const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+        const pointer = { bubbles: true, cancelable: true, pointerId: 23, pointerType: 'touch', isPrimary: true, button: 0, clientX: point.x, clientY: point.y };
+        button.dispatchEvent(new PointerEvent('pointerdown', { ...pointer, buttons: 1 }));
+        button.dispatchEvent(new PointerEvent('pointerup', { ...pointer, buttons: 0 }));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        return { ...point, bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } };
+      });
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+      await expect(more).toHaveAttribute('aria-expanded', 'false');
+      await expect(approve).toHaveAttribute('aria-pressed', 'false');
+
+      await target.evaluate((button, point) => {
+        button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX: point.x, clientY: point.y }));
+        // dispatchEvent has no native focus default, so model that step
+        // explicitly after mousedown and before mouseup/click.
+        (button as HTMLButtonElement).focus();
+      }, initial);
+      await expect(target).toBeFocused();
+      await expect.poll(() => requested).toBe(true);
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+      await expect(more).toHaveAttribute('aria-expanded', 'false');
+      await expect(approve).toHaveAttribute('aria-pressed', 'false');
+      const focusedBounds = await target.boundingBox();
+      expect(focusedBounds).toBeTruthy();
+      for (const axis of ['x', 'y', 'width', 'height'] as const) {
+        expect(Math.abs(focusedBounds![axis] - initial.bounds[axis]), `Compatibility focus must not move the ${axis} of the pending action`).toBeLessThanOrEqual(0.5);
+      }
+      const stillUnderPointer = await target.evaluate((button, point) => document.elementFromPoint(point.x, point.y)?.closest('button') === button, initial);
+      expect(stillUnderPointer, 'The original touch point must still hit the same action after compatibility focus').toBe(true);
+
+      // Resolve each completion target from the ORIGINAL point. Dispatching
+      // directly to the locator would conceal the row-moving regression.
+      const completionTargets = await page.evaluate((point) => {
+        return ['mouseup', 'click'].map((type) => {
+          const hit = document.elementFromPoint(point.x, point.y);
+          const label = hit?.closest('button')?.getAttribute('aria-label');
+          hit?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 0, detail: 1, clientX: point.x, clientY: point.y }));
+          return label;
+        });
+      }, initial);
+      const targetLabel = action === 'More actions' ? 'More actions for caption 2' : 'Approve caption';
+      expect(completionTargets).toEqual([targetLabel, targetLabel]);
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+      if (action === 'More actions') {
+        await expect(more).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.getByRole('menuitem', { name: 'Lock text', exact: true })).toBeVisible();
+      } else {
+        await expect(approve).toHaveAttribute('aria-pressed', 'true');
+        await expect(more).toHaveAttribute('aria-expanded', 'false');
+      }
+
+      await finishCaptionAcknowledgement(page, release);
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+      if (action === 'More actions') {
+        await expect(page.locator('.save-action')).toBeDisabled();
+        await expect(more).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.getByRole('menuitem', { name: 'Lock text', exact: true })).toBeVisible();
+      } else {
+        // Approval is newer than the blur-save snapshot. Its pending metadata
+        // must survive that acknowledgement and still be explicitly saveable.
+        await expect(approve).toHaveAttribute('aria-pressed', 'true');
+        await page.keyboard.press('ControlOrMeta+s');
+        await expect.poll(() => state.projects[0].captions.find((caption) => caption.id === 'c2')?.approved).toBe(true);
+      }
+      expect(state.projects[0].captions[0].text).toBe('Edit before delayed compatibility focus');
+    } finally { release(); }
+  });
+}
+
+test('synthetic compatibility mouse release clears unused row-action focus deferral', async ({ page }) => {
+  await openProject(page);
+  const firstText = page.getByLabel('Caption 1 text', { exact: true });
+  await firstText.focus();
+  const row = page.locator('[data-caption-id="c2"]');
+  const more = page.getByLabel('More actions for caption 2', { exact: true });
+  await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+  // Synthetic cleanup coverage only: release a compatibility mouse press
+  // without its focus or click. Await the release cleanup before later focus.
+  await more.evaluate(async (button) => {
+    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+    button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, buttons: 0 }));
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  });
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await expect(row.getByRole('button', { name: 'Approve caption', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+  // No intervening keydown: a keyboard event would independently clear the
+  // marker and hide broken mouseup cleanup from this assertion.
+  await more.focus();
+  await expect(more).toBeFocused();
+  await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+  await more.press('Enter');
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('menuitem', { name: 'Lock text', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+});
+
+test.describe('touch-capable caption row actions', () => {
+  test.use({ hasTouch: true });
+  test('a touchscreen tap opens the caption row menu after editing another caption', async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    await openProject(page);
+    await page.getByLabel('Caption 1 text', { exact: true }).fill('Edit before touchscreen row action');
+    const row = page.locator('[data-caption-id="c2"]');
+    const more = page.getByLabel('More actions for caption 2', { exact: true });
+    await expect(row).not.toHaveClass(/selected-range/);
+    await more.tap();
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
+    await expect(row).toHaveClass(/selected-range/);
+    await expect(page.locator('.save-action')).toBeDisabled();
+    await expect(page.getByRole('menuitem', { name: 'Lock text', exact: true })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Lock text', exact: true }).tap();
+    await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveAttribute('readonly', '');
+    expect(state.projects[0].captions[0].text).toBe('Edit before touchscreen row action');
+  });
+
+  test('a touchscreen row menu retains its exact selection after a held caption-save acknowledgement', async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let requested = false;
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      state.projects[0].captions = structuredClone(route.request().postDataJSON().captions);
+      const reply = structuredClone(state.projects[0]);
+      requested = true;
+      await gate;
+      await route.fulfill({ json: { project: reply, correctionsCreated: 0 } });
+    });
+    try {
+      await openProject(page);
+      await page.getByLabel('Caption 1 text', { exact: true }).fill('Edit before held touchscreen row action');
+      const more = page.getByLabel('More actions for caption 2', { exact: true });
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c1']);
+      // Preserve the original ordinary tap without preselection or forced input.
+      await more.tap();
+      await expect.poll(() => requested).toBe(true);
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+      await expect(page.locator('.save-action')).toBeEnabled();
+      await finishCaptionAcknowledgement(page, release);
+      await expect(page.locator('.save-action')).toBeDisabled();
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+      await expect.poll(() => selectedCaptionIds(page)).toEqual(['c2']);
+      const lock = page.getByRole('menuitem', { name: 'Lock text', exact: true });
+      await expect(lock).toBeVisible();
+      await lock.tap();
+      await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveAttribute('readonly', '');
+      expect(state.projects[0].captions[0].text).toBe('Edit before held touchscreen row action');
+    } finally { release(); }
+  });
+});
+
+test('replacement recovery retains late text/timing and pre-existing locks/approval while the pending modal blocks row actions', async ({ page }) => {
+  state.profile.preferences.autosaveDelayMs = 60_000;
+  // This case tests replacement recovery. Seed reviewed metadata before mount so
+  // a separate row-menu/caption-save race cannot prevent its safety assertions.
+  // The separate pointer and keyboard menu regressions retain that UI coverage.
+  state.projects[0].captions[1] = { ...state.projects[0].captions[1], textLocked: true, timingLocked: true, approved: true };
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let requested = false;
@@ -239,19 +695,44 @@ test('replacement recovery preserves old-media text, timing, order, locks, appro
     await openProject(page);
     const field = page.getByLabel('Caption 1 text', { exact: true });
     await field.fill('Stable edit saved before replacement');
+    // Keep caption 1 editable so the recovery assertions cover late input.
+    const reviewedRow = page.locator('[data-caption-id="c2"]');
+    await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveAttribute('readonly', '');
+    await expect(page.getByLabel('Caption 2 start time', { exact: true })).toBeDisabled();
+    const reviewedApproval = reviewedRow.getByRole('button', { name: 'Mark caption as needing review', exact: true });
+    await expect(reviewedApproval).toHaveAttribute('aria-pressed', 'true');
     await page.locator('input[type="file"][accept="video/*,audio/*"]').setInputFiles({
       name: 'clean-replacement.mp4', mimeType: 'video/mp4', buffer: Buffer.from('clean replacement'),
     });
+    await confirmResetReplacement(page);
     await expect.poll(() => requested).toBe(true);
     expect(savedBeforeReplacement).toBe('Stable edit saved before replacement');
+    const reviewedCaption = structuredClone(state.projects[0].captions[1]);
+    expect(reviewedCaption).toMatchObject({ id: 'c2', textLocked: true, timingLocked: true, approved: true });
+    const dialog = page.getByRole('dialog', { name: 'Replace media', exact: true });
+    const moreActions = page.getByLabel('More actions for caption 1', { exact: true });
+    await expect(dialog).toHaveAttribute('aria-busy', 'true');
+    for (const control of [moreActions, reviewedApproval]) {
+      await expect(control).toBeVisible();
+      const target = await control.evaluate((button) => {
+        const bounds = button.getBoundingClientRect();
+        const x = bounds.x + bounds.width / 2;
+        const y = bounds.y + bounds.height / 2;
+        return { x, y, blocked: document.elementFromPoint(x, y)?.classList.contains('media-replacement-backdrop') };
+      });
+      expect(target.blocked).toBe(true);
+      await page.mouse.click(target.x, target.y);
+      await expect(dialog).toHaveAttribute('aria-busy', 'true');
+    }
+    await expect(moreActions).toHaveAttribute('aria-expanded', 'false');
+    await expect(reviewedApproval).toHaveAttribute('aria-pressed', 'true');
+
+    // Inject late text/timing input to exercise the recovery race independently
+    // of the modal's normal pointer interaction, which is blocked above.
     await field.fill('Later edit that belongs to the old media');
-    await page.getByLabel('Caption 1 start time', { exact: true }).fill('00:00.777');
-    const row = page.locator('[data-caption-id="c1"]');
-    await page.getByLabel('More actions for caption 1', { exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Lock text', exact: true }).evaluate((button: HTMLButtonElement) => button.click());
-    await page.getByLabel('More actions for caption 1', { exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Lock timing', exact: true }).evaluate((button: HTMLButtonElement) => button.click());
-    await row.getByRole('button', { name: 'Approve caption', exact: true }).click();
+    const start = page.getByLabel('Caption 1 start time', { exact: true });
+    await start.fill('00:00.777');
+    await start.press('Enter');
     await page.evaluate(() => {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
@@ -276,10 +757,9 @@ test('replacement recovery preserves old-media text, timing, order, locks, appro
     expect(payload.captions[0]).toMatchObject({
       text: 'Later edit that belongs to the old media',
       startMs: 777,
-      textLocked: true,
-      timingLocked: true,
-      approved: true,
+      approved: false,
     });
+    expect(payload.captions[1]).toEqual(reviewedCaption);
   } finally { release(); }
 });
 
@@ -318,6 +798,7 @@ test('separate replacement recoveries are retained instead of silently overwriti
     await page.locator('input[type="file"][accept="video/*,audio/*"]').setInputFiles({
       name: 'replacement-one.mp4', mimeType: 'video/mp4', buffer: Buffer.from('replacement one'),
     });
+    await confirmResetReplacement(page);
     await expect.poll(() => calls).toBe(1);
     await firstField.fill('FIRST OLD-MEDIA RECOVERY');
     releases[0]();
@@ -334,6 +815,7 @@ test('separate replacement recoveries are retained instead of silently overwriti
     await page.locator('input[type="file"][accept="video/*,audio/*"]').setInputFiles({
       name: 'replacement-two.mp4', mimeType: 'video/mp4', buffer: Buffer.from('replacement two'),
     });
+    await confirmResetReplacement(page);
     await expect.poll(() => calls).toBe(2);
     await secondField.fill('SECOND OLD-MEDIA RECOVERY');
     releases[1]();
@@ -370,6 +852,7 @@ test('failed replacement keeps old media and edits typed while the request is pe
     await page.locator('input[type="file"][accept="video/*,audio/*"]').setInputFiles({
       name: 'failed-replacement.mp4', mimeType: 'video/mp4', buffer: Buffer.from('failed replacement'),
     });
+    await confirmResetReplacement(page);
     await expect.poll(() => requested).toBe(true);
     await field.fill('Keep this edit after replacement failure');
     release();
@@ -606,10 +1089,10 @@ test('saving accuracy context cannot publish stale caption text over newer input
   await page.route('**/api/projects/landscape/context', async (route) => {
     const body = route.request().postDataJSON();
     const response = structuredClone(state.projects[0]);
-    response.transcriptionContext = body;
+    response.transcriptionContext = structuredClone(body.transcriptionContext);
     requested = true;
     await gate;
-    state.projects[0].transcriptionContext = body;
+    state.projects[0].transcriptionContext = structuredClone(body.transcriptionContext);
     fulfilled = true;
     await route.fulfill({ json: response });
   });

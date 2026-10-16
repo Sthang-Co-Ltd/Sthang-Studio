@@ -39,3 +39,33 @@ test('failed admission and failed preparation both release, without stale releas
   releaseNext();
   assert.equal(await gate.run(async () => true), true);
 });
+
+test('media transaction excludes same-project jobs and updates but allows other projects', async () => {
+  const gate = createJobAdmissionGate();
+  const pending = deferred();
+  const swap = gate.changeProjectMedia('a', () => false, async () => pending.promise);
+  try {
+    await assert.rejects(gate.runForProject('a', async () => true), JobAdmissionError);
+    await assert.rejects(gate.changeProjectMedia('a', () => false, async () => true), JobAdmissionError);
+    assert.throws(() => gate.beginUpdate(() => false), JobAdmissionError);
+    assert.equal(await gate.runForProject('b', async () => 'unrelated'), 'unrelated');
+  } finally { pending.resolve(); await swap; }
+  assert.equal(await gate.runForProject('a', async () => 'released'), 'released');
+});
+
+test('project admission reserves before asynchronous lookup and releases on failure', async () => {
+  const gate = createJobAdmissionGate();
+  const pending = deferred();
+  const job = gate.runForProject('a', async () => pending.promise);
+  try {
+    await assert.rejects(gate.changeProjectMedia('a', () => false, async () => true), JobAdmissionError);
+  } finally { pending.resolve(); await job; }
+  await assert.rejects(gate.changeProjectMedia('a', () => true, async () => true), JobAdmissionError);
+  await assert.rejects(gate.changeProjectMedia('a', () => false, async () => { throw new Error('verification failed'); }), /verification failed/);
+  assert.equal(await gate.changeProjectMedia('a', () => false, async () => 'retried'), 'retried');
+  const release = gate.beginUpdate(() => false);
+  await assert.rejects(gate.runForProject('a', async () => true), JobAdmissionError);
+  await assert.rejects(gate.changeProjectMedia('a', () => false, async () => true), JobAdmissionError);
+  release();
+  assert.equal(await gate.changeProjectMedia('a', () => false, async () => 'after update'), 'after update');
+});

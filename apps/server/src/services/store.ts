@@ -13,6 +13,7 @@ let order: string[] = [];
 let initializePromise: Promise<void> | null = null;
 let orderWriteQueue: Promise<void> = Promise.resolve();
 const writeQueues = new Map<string, Promise<void>>();
+const durableProjectWrites = new Map<string, boolean>();
 
 function safeId(id: string) {
   const value = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
@@ -29,7 +30,20 @@ async function atomicWrite(filePath: string, value: string) {
   const temp = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   try {
     await fs.writeFile(temp, value, 'utf8');
+    const file = await fs.open(temp, 'r+');
+    try { await file.sync(); } finally { await file.close(); }
     await fs.rename(temp, filePath);
+    // Publication has happened. A directory-flush failure must not be reported
+    // as an aborted write, which could delete media referenced by this pointer.
+    if (process.platform === 'win32') return false;
+    try {
+      const directory = await fs.open(path.dirname(filePath), 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+      return true;
+    } catch {
+      console.warn('[project store] Project published, but directory durability could not be confirmed. Previous source media will be retained.');
+      return false;
+    }
   } finally {
     await fs.rm(temp, { force: true }).catch(() => {});
   }
@@ -142,10 +156,17 @@ function queueProjectWrite<T>(id: string, operation: () => Promise<T>) {
 
 async function persistProject(stored: CaptionProject) {
   const previous = projects.get(stored.id);
+  // A timestamp is the public optimistic revision. Two writes in one clock tick
+  // (or a backwards wall clock) must not let a stale replacement overwrite edits.
+  if (previous && (!Number.isFinite(Date.parse(stored.updatedAt)) || Date.parse(stored.updatedAt) <= Date.parse(previous.updatedAt))
+    && JSON.stringify(stored) !== JSON.stringify(previous)) {
+    stored.updatedAt = new Date(Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1)).toISOString();
+  }
   const mediaChanged = !previous
     || previous.media.filename !== stored.media.filename
     || previous.media.size !== stored.media.size;
-  await atomicWrite(projectFile(stored.id), `${JSON.stringify(stored)}\n`);
+  const durable = await atomicWrite(projectFile(stored.id), `${JSON.stringify(stored)}\n`);
+  durableProjectWrites.set(stored.id, durable);
   projects.set(stored.id, stored);
   if (!previous) await queueOrderUpdate((current) => [stored.id, ...current.filter((id) => id !== stored.id)]);
   if (mediaChanged) scheduleProjectMediaPrewarm(stored);
@@ -153,6 +174,8 @@ async function persistProject(stored: CaptionProject) {
 }
 
 export const store = {
+  /** False after a committed write whose directory flush is unavailable. */
+  latestWriteIsDurable(id: string) { return durableProjectWrites.get(id) !== false; },
   async listSummaries() {
     await ensureInitialized();
     return order
@@ -204,7 +227,7 @@ export const store = {
     id: string,
     operation: (
       current: CaptionProject | null,
-      persist: (next: CaptionProject) => Promise<CaptionProject>,
+      persist: (next: CaptionProject, options?: { restoreAppearance?: boolean }) => Promise<CaptionProject>,
     ) => Promise<T>,
   ): Promise<T> {
     await ensureInitialized();
@@ -212,12 +235,12 @@ export const store = {
       const current = projects.get(id);
       const detached = current ? structuredClone(current) : null;
       let persisted = false;
-      const persist = async (next: CaptionProject) => {
+      const persist = async (next: CaptionProject, options?: { restoreAppearance?: boolean }) => {
         if (next.id !== id) throw new Error('Project write cannot change project id');
         if (persisted) throw new Error('Project write already persisted');
         const snapshot = structuredClone(next);
         const published = projects.get(id);
-        if (published) snapshot.captionAppearance = published.captionAppearance;
+        if (published && !options?.restoreAppearance) snapshot.captionAppearance = published.captionAppearance;
         persisted = true;
         return persistProject(snapshot);
       };
@@ -242,6 +265,7 @@ export const store = {
       cancelScheduledProjectPrewarm(id);
       await fs.rm(projectFile(id), { force: true });
       projects.delete(id);
+      durableProjectWrites.delete(id);
       await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
     });
   },

@@ -14,7 +14,7 @@ import {
 } from '../services/font-library.js';
 import { config } from '../config.js';
 import { store } from '../services/store.js';
-import { JobAdmissionError } from '../services/job-admission.js';
+import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 
@@ -124,20 +124,40 @@ router.post('/:projectId/preview', async (req, res) => {
   }
 });
 
+function expectedMedia(body: { expectedMedia?: { filename?: unknown; size?: unknown } } | undefined) {
+  const value = body?.expectedMedia;
+  return value && typeof value.filename === 'string' && Number.isFinite(value.size)
+    ? { filename: value.filename, size: Number(value.size) } : null;
+}
+
 router.put('/:projectId/appearance', async (req, res) => {
+  const expected = expectedMedia(req.body);
+  if (!expected) return res.status(428).json({ error: 'Appearance save requires the media version it was edited against.' });
   try {
-    const project = await store.setCaptionAppearance(req.params.projectId, normalizeCaptionAppearance(req.body?.appearance));
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json(project);
+    const result = await store.withProjectWrite(req.params.projectId, async (current, persist) => {
+      if (!current) return { status: 'missing' as const };
+      if (current.media.filename !== expected.filename || current.media.size !== expected.size) return { status: 'stale' as const };
+      return { status: 'saved' as const, project: await persist({ ...current,
+        captionAppearance: normalizeCaptionAppearance(req.body?.appearance),
+        updatedAt: new Date(Math.max(Date.now(), (Date.parse(current.updatedAt) || 0) + 1)).toISOString(),
+      }, { restoreAppearance: true }) };
+    });
+    if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
+    if (result.status === 'stale') return res.status(409).json({ error: 'These appearance changes belong to an older media version. Reload the project before saving.' });
+    res.json(result.project);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Could not save caption appearance' });
   }
 });
 
 router.post('/:projectId/jobs', async (req, res) => {
+  const expected = expectedMedia(req.body);
+  if (!expected) return res.status(428).json({ error: 'Video export requires the media version it was prepared against.' });
   try {
+    await jobAdmission.runForProject(req.params.projectId, async () => {
     const project = await store.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.media.filename !== expected.filename || project.media.size !== expected.size) return res.status(409).json({ error: 'The source changed while preparing export. Open Export again.' });
     if (!isVideoProject(project)) return res.status(409).json({ error: 'Captioned-video export requires a video project. Audio-only projects can still export SRT.' });
     if (!project.captions.length) return res.status(400).json({ error: 'Generate or add captions before exporting a captioned video.' });
     const existing = (await jobStore.list(project.id)).find((job) => job.type === 'export-video' && ['queued', 'running'].includes(job.status));
@@ -158,6 +178,7 @@ router.post('/:projectId/jobs', async (req, res) => {
       exportMediaSize: project.media.size,
     });
     res.status(202).json(job);
+    });
   } catch (error) {
     if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Could not start captioned-video export' });

@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import type { CaptionProject, HistorySource, ProjectHistoryEntry } from '@kcs/shared';
 import { config } from '../config.js';
 
-interface StoredHistoryEntry extends ProjectHistoryEntry {
+export interface StoredHistoryEntry extends ProjectHistoryEntry {
   fingerprint: string;
   snapshot: CaptionProject;
 }
@@ -43,7 +43,13 @@ async function atomicWrite(filePath: string, value: string) {
   const temp = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   try {
     await fs.writeFile(temp, value, 'utf8');
+    const file = await fs.open(temp, 'r+');
+    try { await file.sync(); } finally { await file.close(); }
     await fs.rename(temp, filePath);
+    if (process.platform !== 'win32') {
+      const directory = await fs.open(path.dirname(filePath), 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+    }
   } finally {
     await fs.rm(temp, { force: true }).catch(() => {});
   }
@@ -198,6 +204,81 @@ async function checkpointInternal(project: CaptionProject, label: string, source
   return summary(entry);
 }
 
+// Recovery and preserved replacement histories live in immutable media namespaces.
+// Preparing one before the project swap never hides or prunes the active history.
+function mediaArchiveDir(projectId: string, media: ExpectedMedia) {
+  const version = crypto.createHash('sha256').update(JSON.stringify(mediaVersion(media as CaptionProject['media']))).digest('hex');
+  return path.join(projectDir(projectId), 'media-versions', version);
+}
+
+async function archivedIndex(projectId: string, media: ExpectedMedia): Promise<HistoryIndexEntry[]> {
+  const file = path.join(mediaArchiveDir(projectId, media), 'index.json');
+  // Ordinary projects retain the index-only fast path without probing snapshot
+  // JSON files; replacement archives also expose summaries separately.
+  if (!await fs.stat(file).then((stat) => stat.isFile()).catch(() => false)) return [];
+  const index = await readJson<HistoryIndexEntry[]>(file);
+  return Array.isArray(index) ? index.filter((entry) => matchesIndexMedia(entry, media)) : [];
+}
+
+async function archivedEntries(projectId: string, media: ExpectedMedia): Promise<StoredHistoryEntry[]> {
+  const entries = await readJson<StoredHistoryEntry[]>(path.join(mediaArchiveDir(projectId, media), 'entries.json'));
+  return Array.isArray(entries) ? entries.filter((entry) => entry?.snapshot?.id === projectId && matchesMedia(entry, media)) : [];
+}
+
+async function strictJson<T>(file: string, optional = false): Promise<T | null> {
+  try { return JSON.parse(await fs.readFile(file, 'utf8')) as T; }
+  catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error('Project history could not be backed up safely. The existing project was kept.');
+  }
+}
+
+function validateHistorySnapshot(entry: StoredHistoryEntry, projectId: string) {
+  if (!entry || typeof entry.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(entry.id)
+    || entry.projectId !== projectId || entry.snapshot?.id !== projectId || !entry.snapshot.media
+    || typeof entry.snapshot.media.filename !== 'string' || !Number.isFinite(entry.snapshot.media.size)
+    || !Array.isArray(entry.snapshot.captions)) throw new Error('A saved history checkpoint is unavailable or damaged. The existing project was kept.');
+}
+
+async function entriesForMedia(projectId: string, media: ExpectedMedia): Promise<StoredHistoryEntry[]> {
+  // This is a transaction backup, unlike the fail-open browsing projection.
+  // Never silently discard a checkpoint on an I/O or parse error then retire it.
+  const byId = new Map<string, StoredHistoryEntry>();
+  const archiveDirectory = mediaArchiveDir(projectId, media);
+  const archiveExists = await fs.stat(archiveDirectory).then((stat) => stat.isDirectory()).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  });
+  if (archiveExists) {
+    const archived = await strictJson<StoredHistoryEntry[]>(path.join(archiveDirectory, 'entries.json'));
+    if (!Array.isArray(archived)) throw new Error('Saved media history could not be backed up safely.');
+    for (const entry of archived) {
+      validateHistorySnapshot(entry, projectId);
+      if (!matchesMedia(entry, media)) throw new Error('Saved media history does not match its media version.');
+      byId.set(entry.id, entry);
+    }
+  }
+  const index = await strictJson<HistoryIndexEntry[]>(indexFile(projectId), true);
+  if (index !== null) {
+    if (!Array.isArray(index)) throw new Error('Project history could not be backed up safely.');
+    for (const metadata of index) {
+      if (!metadata || typeof metadata.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(metadata.id)) throw new Error('Project history contains an invalid checkpoint.');
+      if (metadata.media && !sameMedia(metadata.media, media)) continue;
+      const entry = await strictJson<StoredHistoryEntry>(entryFile(projectId, metadata.id));
+      validateHistorySnapshot(entry!, projectId);
+      if (matchesMedia(entry!, media)) byId.set(entry!.id, entry!);
+    }
+  } else {
+    const legacy = await strictJson<StoredHistoryEntry[]>(legacyFile(projectId), true);
+    if (legacy !== null && !Array.isArray(legacy)) throw new Error('Legacy project history could not be backed up safely.');
+    for (const entry of legacy || []) {
+      validateHistorySnapshot(entry, projectId);
+      if (matchesMedia(entry, media)) byId.set(entry.id, entry);
+    }
+  }
+  return [...byId.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, MAX_ENTRIES);
+}
+
 export const historyStore = {
   checkpoint(project: CaptionProject, label: string, source: HistorySource, options?: { dedupeWindowMs?: number }) {
     return queueHistory(project.id, () => checkpointInternal(project, label, source, options));
@@ -206,7 +287,11 @@ export const historyStore = {
   list(projectId: string, expectedMedia?: ExpectedMedia) {
     return queueHistory(projectId, async () => {
       const index = await loadIndex(projectId);
-      return index.filter((entry) => matchesIndexMedia(entry, expectedMedia)).map(summary);
+      if (!expectedMedia) return index.map(summary);
+      const archived = await archivedIndex(projectId, expectedMedia);
+      const byId = new Map(archived.map((entry) => [entry.id, summary(entry)]));
+      for (const entry of index.filter((item) => matchesIndexMedia(item, expectedMedia))) byId.set(entry.id, summary(entry));
+      return [...byId.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, MAX_ENTRIES);
     });
   },
 
@@ -214,9 +299,48 @@ export const historyStore = {
     return queueHistory(projectId, async () => {
       const index = await loadIndex(projectId);
       const indexed = index.find((entry) => entry.id === historyId);
-      if (!indexed || (expectedMedia && indexed.media && !matchesIndexMedia(indexed, expectedMedia))) return null;
-      const entry = await readJson<StoredHistoryEntry>(entryFile(projectId, historyId));
-      return entry && matchesMedia(entry, expectedMedia) ? entry : null;
+      if (indexed && (!expectedMedia || !indexed.media || matchesIndexMedia(indexed, expectedMedia))) {
+        const entry = await readJson<StoredHistoryEntry>(entryFile(projectId, historyId));
+        if (entry && matchesMedia(entry, expectedMedia)) return entry;
+      }
+      return expectedMedia ? (await archivedEntries(projectId, expectedMedia)).find((entry) => entry.id === historyId) || null : null;
+    });
+  },
+
+  exportForMedia(projectId: string, media: ExpectedMedia) {
+    return queueHistory(projectId, () => entriesForMedia(projectId, media));
+  },
+
+  prepareMediaVersion(projectId: string, media: CaptionProject['media'], entries: StoredHistoryEntry[]) {
+    return queueHistory(projectId, async () => {
+      const rebased = entries.filter((entry) => entry?.snapshot?.id === projectId).map((entry) => ({
+        ...structuredClone(entry),
+        snapshot: { ...structuredClone(entry.snapshot), media: structuredClone(media), pipelineCache: undefined },
+      }));
+      await atomicWrite(path.join(mediaArchiveDir(projectId, media), 'entries.json'), JSON.stringify(rebased));
+      await atomicWrite(path.join(mediaArchiveDir(projectId, media), 'index.json'), JSON.stringify(rebased.map(toIndex)));
+      // The namespace can be new. Flush its ancestors before publishing a
+      // project pointer that depends on this history; failures are still precommit.
+      if (process.platform !== 'win32') {
+        for (const directoryPath of [path.dirname(mediaArchiveDir(projectId, media)), projectDir(projectId), config.historyDir]) {
+          const directory = await fs.open(directoryPath, 'r');
+          try { await directory.sync(); } finally { await directory.close(); }
+        }
+      }
+    });
+  },
+
+  removeMediaVersion(projectId: string, media: ExpectedMedia) {
+    return queueHistory(projectId, async () => {
+      const index = await loadIndex(projectId);
+      const retired = index.filter((entry) => matchesIndexMedia(entry, media));
+      await persistIndex(projectId, index.filter((entry) => !matchesIndexMedia(entry, media)));
+      const settled = await Promise.allSettled([
+        ...retired.map((entry) => fs.rm(entryFile(projectId, entry.id), { force: true })),
+        fs.rm(mediaArchiveDir(projectId, media), { recursive: true, force: true }),
+      ]);
+      const failed = settled.find((result) => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
     });
   },
 

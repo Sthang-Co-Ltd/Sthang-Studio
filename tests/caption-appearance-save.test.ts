@@ -7,6 +7,8 @@ import {
   waitForCaptionAppearanceSaves,
 } from '../apps/web/src/caption-appearance-save.js';
 
+const sourceMedia = { filename: 'synthetic-source.mp4', size: 100 };
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
@@ -16,7 +18,7 @@ function deferred<T>() {
 
 test('an untouched project has no pending or recoverable appearance', async (t) => {
   assert.equal(await waitForCaptionAppearanceSaves(t.name), true);
-  assert.equal(recoverUnsavedCaptionAppearance(t.name), null);
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia), null);
 });
 
 test('same-project saves serialize immutable snapshots and barriers wait for the last write', async (t) => {
@@ -36,9 +38,9 @@ test('same-project saves serialize immutable snapshots and barriers wait for the
   });
 
   const appearance = { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 48 };
-  const first = queueCaptionAppearanceSave(t.name, appearance);
+  const first = queueCaptionAppearanceSave(t.name, appearance, sourceMedia);
   appearance.fontSize1080 = 72;
-  const second = queueCaptionAppearanceSave(t.name, appearance);
+  const second = queueCaptionAppearanceSave(t.name, appearance, sourceMedia);
   appearance.fontSize1080 = 90;
   const barrier = waitForCaptionAppearanceSaves(t.name);
 
@@ -59,7 +61,7 @@ test('same-project saves serialize immutable snapshots and barriers wait for the
   assert.equal(await second, false);
   assert.equal(await barrier, false);
   assert.equal(await lateBarrier, false);
-  assert.equal(recoverUnsavedCaptionAppearance(t.name)?.fontSize1080, 72);
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia)?.fontSize1080, 72);
 });
 
 test('a stalled project does not block appearance saves for another project', async (t) => {
@@ -73,10 +75,10 @@ test('a stalled project does not block appearance saves for another project', as
     }
     return Promise.resolve(new Response(null, { status: 204 }));
   });
-  const stalled = queueCaptionAppearanceSave(stalledId, DEFAULT_CAPTION_APPEARANCE);
+  const stalled = queueCaptionAppearanceSave(stalledId, DEFAULT_CAPTION_APPEARANCE, sourceMedia);
   await started.promise;
   try {
-    assert.equal(await queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE), true);
+    assert.equal(await queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE, sourceMedia), true);
     assert.equal(await waitForCaptionAppearanceSaves(t.name), true);
   } finally {
     response.resolve(new Response(null, { status: 204 }));
@@ -87,19 +89,19 @@ test('a stalled project does not block appearance saves for another project', as
 test('failed saves remain recoverable by copy until a successful retry', async (t) => {
   const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 500 }));
   const appearance = { ...DEFAULT_CAPTION_APPEARANCE, textColor: '#123456' };
-  assert.equal(await queueCaptionAppearanceSave(t.name, appearance), false);
+  assert.equal(await queueCaptionAppearanceSave(t.name, appearance, sourceMedia), false);
   assert.equal(await waitForCaptionAppearanceSaves(t.name), false);
   appearance.textColor = '#FFFFFF';
-  const recovered = recoverUnsavedCaptionAppearance(t.name);
+  const recovered = recoverUnsavedCaptionAppearance(t.name, sourceMedia);
   assert.ok(recovered);
   assert.equal(recovered.textColor, '#123456');
   recovered.textColor = '#000000';
-  assert.equal(recoverUnsavedCaptionAppearance(t.name)?.textColor, '#123456');
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia)?.textColor, '#123456');
 
   fetchMock.mock.mockImplementation(async () => new Response(null, { status: 204 }));
-  assert.equal(await queueCaptionAppearanceSave(t.name, recovered), true);
+  assert.equal(await queueCaptionAppearanceSave(t.name, recovered, sourceMedia), true);
   assert.equal(await waitForCaptionAppearanceSaves(t.name), true);
-  assert.equal(recoverUnsavedCaptionAppearance(t.name), null);
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia), null);
 });
 
 test('a failed write does not poison the next already-queued save', async (t) => {
@@ -114,8 +116,8 @@ test('a failed write does not poison the next already-queued save', async (t) =>
     }
     return Promise.resolve(new Response(null, { status: 204 }));
   });
-  const first = queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE);
-  const second = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, bold: false });
+  const first = queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE, sourceMedia);
+  const second = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, bold: false }, sourceMedia);
   const barrier = waitForCaptionAppearanceSaves(t.name);
   await started.promise;
   response.reject(new Error('synthetic connection failure'));
@@ -123,5 +125,29 @@ test('a failed write does not poison the next already-queued save', async (t) =>
   assert.equal(await second, true);
   assert.equal(await barrier, true);
   assert.equal(calls, 2);
-  assert.equal(recoverUnsavedCaptionAppearance(t.name), null);
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia), null);
+});
+
+
+test('queued appearance captures media identity and recovery cannot leak across replacement', async (t) => {
+  const source = { filename: 'retired.mp4', size: 42 };
+  const next = { filename: 'replacement.mp4', size: 84 };
+  const pending = deferred<Response>();
+  const started = deferred<void>();
+  const bodies: Array<Record<string, unknown>> = [];
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, options?: RequestInit) => {
+    bodies.push(JSON.parse(String(options?.body)));
+    started.resolve();
+    return pending.promise;
+  });
+  const save = queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE, source);
+  source.filename = next.filename;
+  source.size = next.size;
+  await started.promise;
+  assert.deepEqual(bodies[0].expectedMedia, { filename: 'retired.mp4', size: 42 });
+  pending.resolve(new Response('{}', { status: 409 }));
+  assert.equal(await save, false);
+  assert.ok(recoverUnsavedCaptionAppearance(t.name, { filename: 'retired.mp4', size: 42 }));
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, next), null);
+  assert.equal(await waitForCaptionAppearanceSaves(t.name, next), true);
 });

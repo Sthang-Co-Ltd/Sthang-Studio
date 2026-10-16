@@ -129,8 +129,23 @@ export interface CaptionWordTimingCandidate {
   warnings?: string[];
 }
 
-export type ReplacementCleanupWarning = 'history' | 'proposals' | 'old-media';
-export type ReplaceMediaResponse = CaptionProject & { replacementCleanupWarnings?: ReplacementCleanupWarning[] };
+export type ReplacementCleanupWarning = 'history' | 'proposals' | 'old-media' | 'durability';
+export type MediaReplacementMode = 'preserve' | 'reset';
+export interface MediaReplacementCheckpoint {
+  id: string;
+  mode: MediaReplacementMode | 'restore';
+  createdAt: string;
+  previousOriginalName: string;
+  retainedBytes?: number;
+}
+export interface MediaReplacementBasis {
+  expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>;
+  expectedUpdatedAt: string;
+}
+export type ReplaceMediaResponse = CaptionProject & {
+  mediaReplacement: MediaReplacementCheckpoint;
+  replacementCleanupWarnings?: ReplacementCleanupWarning[];
+};
 
 export interface CorrectionActionResponse {
   profile: AppProfile;
@@ -193,19 +208,29 @@ export const api = {
     fd.append('title', title);
     return request<CaptionProject>('/api/projects', { method: 'POST', body: fd });
   },
-  replaceMedia: (id: string, file: File) => {
+  replaceMedia: (id: string, file: File, mode: MediaReplacementMode, basis: MediaReplacementBasis) => {
     const fd = new FormData();
     fd.append('media', file);
+    fd.append('mode', mode);
+    fd.append('expectedMedia', JSON.stringify(basis.expectedMedia));
+    fd.append('expectedUpdatedAt', basis.expectedUpdatedAt);
     return request<ReplaceMediaResponse>(`/api/projects/${id}/replace-media`, { method: 'POST', body: fd });
   },
-  startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, force = false) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force }),
+  mediaReplacements: (id: string, signal?: AbortSignal) => request<MediaReplacementCheckpoint[]>(`/api/projects/${encodeURIComponent(id)}/media-replacements`, { signal }),
+  restoreMediaReplacement: (id: string, replacementId: string, basis: MediaReplacementBasis) => request<ReplaceMediaResponse>(`/api/projects/${encodeURIComponent(id)}/media-replacements/${encodeURIComponent(replacementId)}/restore`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(basis),
+  }),
+  deleteMediaReplacement: (id: string, replacementId: string, basis: MediaReplacementBasis) => request<void>(`/api/projects/${encodeURIComponent(id)}/media-replacements/${encodeURIComponent(replacementId)}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(basis),
+  }),
+  startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], force = false) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force, expectedMedia }),
   })),
-  startRegenerationJob: (projectId: string, startMs: number, endMs: number, transcriptionContext: TranscriptionContext) => jobMutation(() => request<ProcessingJob>('/api/jobs/regenerate-range', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, startMs, endMs, transcriptionContext }),
+  startRegenerationJob: (projectId: string, startMs: number, endMs: number, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia']) => jobMutation(() => request<ProcessingJob>('/api/jobs/regenerate-range', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, startMs, endMs, transcriptionContext, expectedMedia }),
   })),
-  startRefinementJob: (projectId: string, proposalId: string, input: RegenerationRefinementInput) => jobMutation(() => request<ProcessingJob>('/api/jobs/refine-proposal', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, proposalId, ...input }),
+  startRefinementJob: (projectId: string, proposalId: string, input: RegenerationRefinementInput, expectedMedia: MediaReplacementBasis['expectedMedia']) => jobMutation(() => request<ProcessingJob>('/api/jobs/refine-proposal', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, proposalId, ...input, expectedMedia }),
   })),
   jobs: jobsRequest,
   resumeJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' })),
@@ -218,18 +243,18 @@ export const api = {
     return request<CaptionFontImportResult>('/api/video-export/fonts', { method: 'POST', body: fd });
   },
   removeCaptionFont: (fontId: string) => request<{ fonts: VideoExportFontCapability[] }>(`/api/video-export/fonts/${encodeURIComponent(fontId)}`, { method: 'DELETE' }),
-  saveCaptionAppearance: (projectId: string, appearance: CaptionAppearance) => request<CaptionProject>(`/api/video-export/${projectId}/appearance`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appearance }),
+  saveCaptionAppearance: (projectId: string, appearance: CaptionAppearance, expectedMedia: MediaReplacementBasis['expectedMedia']) => request<CaptionProject>(`/api/video-export/${projectId}/appearance`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appearance, expectedMedia }),
   }),
-  startVideoExportJob: (projectId: string, settings: VideoExportSettings, appearance: CaptionAppearance) => jobMutation(() => request<ProcessingJob>(`/api/video-export/${projectId}/jobs`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, appearance }),
+  startVideoExportJob: (projectId: string, settings: VideoExportSettings, appearance: CaptionAppearance, expectedMedia: MediaReplacementBasis['expectedMedia']) => jobMutation(() => request<ProcessingJob>(`/api/video-export/${projectId}/jobs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, appearance, expectedMedia }),
   })),
   regenerationProposal: (projectId: string, proposalId: string) => request<RegenerationProposal>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}`),
   applyRegenerationProposal: (projectId: string, proposalId: string, mode: RegenerationApplyMode, editedText?: string) => request<CaptionProject>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}/apply`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, editedText }),
   }),
-  saveContext: (id: string, transcriptionContext: TranscriptionContext) => request<CaptionProject>(`/api/projects/${id}/context`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcriptionContext }),
+  saveContext: (id: string, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], expectedUpdatedAt?: string) => request<CaptionProject>(`/api/projects/${id}/context`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcriptionContext, expectedMedia, expectedUpdatedAt }),
   }),
   saveCaptions: (
     id: string,
@@ -275,7 +300,9 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, expectedMedia }),
   }),
   history: (id: string) => request<ProjectHistoryEntry[]>(`/api/projects/${id}/history`),
-  restoreHistory: (id: string, historyId: string) => request<CaptionProject>(`/api/projects/${id}/history/${historyId}/restore`, { method: 'POST' }),
+  restoreHistory: (id: string, historyId: string, expectedMedia: MediaReplacementBasis['expectedMedia']) => request<CaptionProject>(`/api/projects/${id}/history/${historyId}/restore`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia }),
+  }),
 
   profile: () => request<AppProfile>('/api/profile'),
   patchProfile: (patch: Partial<AppProfile>) => request<AppProfile>('/api/profile', {

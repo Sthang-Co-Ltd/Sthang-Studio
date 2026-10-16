@@ -534,6 +534,28 @@ longer rewrites every project or dozens of full history snapshots. Existing
 legacy project/history JSON is preserved while the new representation is
 migrated.
 
+### Replacing footage after review (source-only)
+
+In **Tools → Replace media**, choose **Keep reviewed captions** for a visual-only
+revision. Studio checks the complete audio and timeline locally before changing
+the active source. The same duration alone is not sufficient: trimming, moving
+speech, changing speed, or changing the audio can invalidate existing timings.
+If verification cannot establish compatibility, the original project stays active;
+Studio does not silently switch to start-over or generate captions.
+
+Successful preservation keeps caption wording, segment/word timings, approvals,
+locks, transcript state, and saved appearance. Check caption placement again if
+the new footage has a different crop or frame shape. **Start over** is a separate,
+explicit choice that clears the active captions. Neither choice requests AI work.
+
+A local replacement recovery contains the previous source and project state.
+Use the replacement recovery controls to restore it; restoration replaces the
+active editing state and requires confirmation. These backups take local disk
+space and remain private to the installation. See
+[`MEDIA-REPLACEMENT.md`](docs/MEDIA-REPLACEMENT.md)
+for the workflow, recovery limits, and source/release boundary. This documentation does not establish availability
+in the current public download.
+
 ## Development
 
 Read [`AGENTS.md`](AGENTS.md) before changing the application. Product and UX

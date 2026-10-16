@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   applyCaptionLook,
   DEFAULT_CAPTION_APPEARANCE,
@@ -39,6 +39,7 @@ interface Props {
   replayDisabled?: boolean;
   sampleCaptionText?: string;
   wordPreparation?: WordHighlightPreparationView;
+  flushSave?: RefObject<(() => Promise<boolean>) | null>;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -63,6 +64,7 @@ export function CaptionAppearanceWorkspace({
   replayDisabled = false,
   sampleCaptionText,
   wordPreparation,
+  flushSave,
 }: Props) {
   const initial = normalizeCaptionAppearance(project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
@@ -87,6 +89,7 @@ export function CaptionAppearanceWorkspace({
   const appearanceRef = useRef<CaptionAppearance>(initial);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const dirtyRef = useRef(false);
+  const appearanceSaveTimer = useRef<number | null>(null);
   const isRecoveringRef = useRef(false);
   const rangeHistoryActiveRef = useRef(false);
   const replayRequestRef = useRef(0);
@@ -113,7 +116,7 @@ export function CaptionAppearanceWorkspace({
   const persistAppearance = async (snapshot: CaptionAppearance): Promise<boolean> => {
     const snapshotKey = JSON.stringify(snapshot);
     setSaveState('saving');
-    const saved = await queueCaptionAppearanceSave(project.id, snapshot);
+    const saved = await queueCaptionAppearanceSave(project.id, snapshot, project.media);
     if (saved) {
       if (JSON.stringify(appearanceRef.current) === snapshotKey) {
         dirtyRef.current = false;
@@ -124,6 +127,22 @@ export function CaptionAppearanceWorkspace({
     if (JSON.stringify(appearanceRef.current) === snapshotKey) setSaveState('error');
     return false;
   };
+
+  // Media transactions must include even a change still in the debounce window.
+  useEffect(() => {
+    if (!flushSave) return;
+    const flush = async () => {
+      if (appearanceSaveTimer.current !== null) {
+        window.clearTimeout(appearanceSaveTimer.current);
+        appearanceSaveTimer.current = null;
+      }
+      return dirtyRef.current
+        ? persistAppearance({ ...appearanceRef.current })
+        : waitForCaptionAppearanceSaves(project.id, project.media);
+    };
+    flushSave.current = flush;
+    return () => { if (flushSave.current === flush) flushSave.current = null; };
+  });
 
   useEffect(() => {
     let active = true;
@@ -148,10 +167,10 @@ export function CaptionAppearanceWorkspace({
     setFontQuery('');
 
     void (async () => {
-      const priorSaved = await waitForCaptionAppearanceSaves(project.id);
+      const priorSaved = await waitForCaptionAppearanceSaves(project.id, project.media);
       if (!active) return;
       if (!priorSaved) {
-        const recovered = recoverUnsavedCaptionAppearance(project.id);
+        const recovered = recoverUnsavedCaptionAppearance(project.id, project.media);
         if (recovered) {
           isRecoveringRef.current = true;
           appearanceRef.current = recovered;
@@ -204,7 +223,7 @@ export function CaptionAppearanceWorkspace({
     return () => {
       if (dirtyRef.current) {
         const finalSnapshot = { ...appearanceRef.current };
-        void queueCaptionAppearanceSave(project.id, finalSnapshot);
+        void queueCaptionAppearanceSave(project.id, finalSnapshot, project.media);
       }
     };
   }, [project.id]);
@@ -236,8 +255,12 @@ export function CaptionAppearanceWorkspace({
     }
     setSaveState((state) => state === 'saving' ? state : 'pending');
     const snapshot = { ...appearance };
-    const timer = window.setTimeout(() => { void persistAppearance(snapshot); }, 650);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => { appearanceSaveTimer.current = null; void persistAppearance(snapshot); }, 650);
+    appearanceSaveTimer.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (appearanceSaveTimer.current === timer) appearanceSaveTimer.current = null;
+    };
   }, [appearance]);
 
   const currentFontAvailable = fonts.some((font) => font.name === appearance.fontFamily);

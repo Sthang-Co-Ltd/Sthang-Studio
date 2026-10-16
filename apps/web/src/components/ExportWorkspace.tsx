@@ -124,7 +124,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     setAdvancedOpen(false);
     void loadCapabilities(false);
     void (async () => {
-      const saved = await waitForCaptionAppearanceSaves(project.id);
+      const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
       if (!active) return;
       if (!saved) {
         setAppearanceSaveBlocked(true);
@@ -161,7 +161,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     setStartingExport(true);
     setActionError('');
     try {
-      const saved = await waitForCaptionAppearanceSaves(project.id);
+      const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
       if (!saved) {
         setAppearanceSaveBlocked(true);
         setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');

@@ -21,6 +21,8 @@ import { cleanupStaleVideoExportWork } from './export-maintenance.js';
 import { atomicJobWrite, createJobPersistence } from './job-persistence.js';
 
 interface JobPayload {
+  sourceMediaFilename?: string;
+  sourceMediaSize?: number;
   transcriptionContext?: TranscriptionContext;
   force?: boolean;
   startMs?: number;
@@ -204,6 +206,8 @@ async function completeJob(job: StoredJob, value: Partial<StoredJob>, captionCou
     ? {
       exportSettings: job.payload.exportSettings,
       exportAppearance: job.payload.exportAppearance,
+      sourceMediaFilename: job.payload.sourceMediaFilename,
+      sourceMediaSize: job.payload.sourceMediaSize,
       exportMediaFilename: job.payload.exportMediaFilename,
       exportMediaSize: job.payload.exportMediaSize,
     }
@@ -227,7 +231,19 @@ async function completeJob(job: StoredJob, value: Partial<StoredJob>, captionCou
   }
 }
 
+export class StaleJobMediaError extends Error {
+  constructor() { super('This saved job belongs to an older or unverified media version. Start a new operation from the current project.'); }
+}
+
+export async function assertJobMediaCurrent(projectId: string, payload: Pick<JobPayload, 'sourceMediaFilename' | 'sourceMediaSize' | 'exportMediaFilename' | 'exportMediaSize'>) {
+  const project = await store.getMedia(projectId);
+  const filename = payload.sourceMediaFilename ?? payload.exportMediaFilename;
+  const size = payload.sourceMediaSize ?? payload.exportMediaSize;
+  if (!project || !filename || !Number.isFinite(size) || project.media.filename !== filename || project.media.size !== size) throw new StaleJobMediaError();
+}
+
 async function executeJobOperation(job: StoredJob) {
+  await assertJobMediaCurrent(job.projectId, job.payload);
   if (job.type === 'export-video') {
     const project = await store.get(job.projectId);
     if (!project) throw new Error('Project not found');
@@ -326,7 +342,7 @@ async function execute(job: StoredJob) {
         : job.type === 'export-video' ? 'Video export failed. The source project and captions are unchanged.' : 'Processing failed. Saved checkpoints remain available for retry.',
       error: cancelled ? undefined : error instanceof Error ? error.message : 'Processing failed',
       completedAt: new Date().toISOString(),
-      canResume: !cancelled,
+      canResume: !cancelled && !(error instanceof StaleJobMediaError),
       performance: finalPerformance,
     });
     if (!cancelled && job.type !== 'export-video') {
@@ -402,7 +418,7 @@ export const jobStore = {
   },
 
   async create(type: ProcessingJobType, projectId: string, payload: JobPayload) {
-    return jobAdmission.run(async () => {
+    return jobAdmission.runForProject(projectId, async () => {
       const project = await store.get(projectId);
       if (!project) throw new Error('Project not found');
       const duplicate = jobs.find((job) => job.projectId === projectId && job.type === type && ['queued', 'running'].includes(job.status));
@@ -420,7 +436,7 @@ export const jobStore = {
         createdAt: now,
         updatedAt: now,
         canResume: false,
-        payload,
+        payload: { ...payload, sourceMediaFilename: project.media.filename, sourceMediaSize: project.media.size },
       };
       jobs.unshift(job);
       jobs = jobs.slice(0, 80);
@@ -434,9 +450,11 @@ export const jobStore = {
 
   async resume(id: string) {
     return jobAdmission.run(async () => {
-      const job = jobs.find((item) => item.id === id);
-      if (!job) throw new Error('Job not found');
+    const job = jobs.find((item) => item.id === id);
+    if (!job) throw new Error('Job not found');
+    return jobAdmission.runForProject(job.projectId, async () => {
       if (!['failed', 'interrupted'].includes(job.status)) throw new Error('Only failed or interrupted jobs can be resumed.');
+      await assertJobMediaCurrent(job.projectId, job.payload);
       if (job.type === 'export-video' && (!job.payload.exportCaptions || !job.payload.exportSettings || !job.payload.exportAppearance)) {
         throw new Error('This older export job no longer has a complete render snapshot. Start a new export.');
       }
@@ -456,6 +474,7 @@ export const jobStore = {
     if (job.type !== 'export-video') void captureAnalytics('generation_started', { job_type: job.type });
     pump();
     return (await this.get(id))!;
+    });
     });
   },
 

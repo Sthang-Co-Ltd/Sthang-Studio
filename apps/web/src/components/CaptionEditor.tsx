@@ -99,6 +99,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   const textareas = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const focusText = useRef<Record<string, string>>({});
   const focusTimingBasis = useRef<Record<string, CaptionSegment>>({});
+  const pointerActionFocus = useRef<HTMLButtonElement | null>(null);
   const pendingViewportRestore = useRef<PendingViewportRestore | null>(null);
   const autoScrollingUntil = useRef(0);
   const [followPlayback, setFollowPlayback] = useState(true);
@@ -124,6 +125,34 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     }
     return map;
   }, [captions]);
+
+  useEffect(() => {
+    let resetTimer: number | undefined;
+    const clearPointerFocus = () => {
+      window.clearTimeout(resetTimer);
+      resetTimer = undefined;
+      pointerActionFocus.current = null;
+    };
+    const clearAfterPointer = () => {
+      // Discard unused markers after release/capture loss. A later touch
+      // compatibility mousedown re-arms the marker before its native focus.
+      if (pointerActionFocus.current) {
+        window.clearTimeout(resetTimer);
+        resetTimer = window.setTimeout(clearPointerFocus, 0);
+      }
+    };
+    const immediateEvents = ['pointerdown', 'mousedown', 'pointercancel', 'keydown', 'click'] as const;
+    const completionEvents = ['pointerup', 'mouseup', 'lostpointercapture'] as const;
+    for (const type of immediateEvents) document.addEventListener(type, clearPointerFocus, true);
+    for (const type of completionEvents) document.addEventListener(type, clearAfterPointer, true);
+    window.addEventListener('blur', clearPointerFocus);
+    return () => {
+      clearPointerFocus();
+      for (const type of immediateEvents) document.removeEventListener(type, clearPointerFocus, true);
+      for (const type of completionEvents) document.removeEventListener(type, clearAfterPointer, true);
+      window.removeEventListener('blur', clearPointerFocus);
+    };
+  }, []);
 
   useEffect(() => setOpenMenuId(null), [reviewMode, captions.length]);
   useLayoutEffect(() => {
@@ -374,7 +403,15 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
           data-caption-id={caption.id}
           className={`caption-row ${active === caption.id ? 'active' : ''} ${selected.has(caption.id) ? 'selected-range' : ''} ${caption.approved ? 'approved' : ''} ${destructiveLocked ? 'locked' : ''}`}
           key={caption.id}
-          onFocusCapture={() => onSelect(caption.id, false)}
+          onFocusCapture={(event) => {
+            // Selecting can collapse an earlier row's risk details. Allow native
+            // blur/save and focus, but do not move a pressed action before click.
+            if (pointerActionFocus.current === event.nativeEvent.target) {
+              pointerActionFocus.current = null;
+              return;
+            }
+            onSelect(caption.id, false);
+          }}
           onClick={(event) => { onSelect(caption.id, event.shiftKey); onSeek(caption.startMs); }}
         >
           <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} role="img" aria-label={qualityTitle(caption)} title={qualityTitle(caption)}>{qualityIcon(caption)}</span>
@@ -435,7 +472,24 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               {selected.has(caption.id) && issue.reasons.slice(1, 3).map((reason) => <span key={reason}>{reason}</span>)}
             </div>}
           </div>
-          <div className="row-actions" data-caption-menu={caption.id}>
+          <div
+            className="row-actions"
+            data-caption-menu={caption.id}
+            onPointerDownCapture={(event) => {
+              const button = (event.target as Element).closest('button');
+              pointerActionFocus.current = event.isPrimary && event.button === 0 && button && !button.disabled ? button : null;
+            }}
+            onMouseDownCapture={(event) => {
+              // Touch compatibility events may follow pointerup in a later task.
+              // Defer selection through their focus too; activate only on click.
+              const button = (event.target as Element).closest('button');
+              pointerActionFocus.current = event.button === 0 && button && !button.disabled ? button : null;
+            }}
+            onClickCapture={(event) => {
+              const button = (event.target as Element).closest('button');
+              if (button && !button.disabled) onSelect(caption.id, false);
+            }}
+          >
             <button
               className={`row-approve ${caption.approved ? 'state-on' : ''}`}
               aria-label={caption.approved ? 'Mark caption as needing review' : reviewMode ? 'Approve caption and move to the next review item' : 'Approve caption'}

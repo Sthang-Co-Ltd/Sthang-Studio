@@ -1,0 +1,89 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+// UI CSS belongs to Vite; this smoke suite checks the actual React markup.
+registerHooks({ load(url, context, nextLoad) {
+  if (url.endsWith('.css')) return { format: 'module', source: '', shortCircuit: true };
+  return nextLoad(url, context);
+} });
+(globalThis as unknown as { React: typeof React }).React = React;
+const { ReplaceMediaDialog, RestoreMediaDialog } = await import('../apps/web/src/components/ReplaceMediaDialog.js');
+const noop = () => {};
+const replace = (extra = {}) => renderToStaticMarkup(React.createElement(ReplaceMediaDialog, {
+  filename: 'new-visual-edit.mp4', captionCount: 18, working: '', error: '', onCancel: noop, onReplace: noop, ...extra,
+}));
+const restore = (extra = {}) => renderToStaticMarkup(React.createElement(RestoreMediaDialog, {
+  checkpoints: [], loading: false, working: '', error: '', onCancel: noop, onReload: noop, onRestore: noop, onDelete: noop, ...extra,
+}));
+const input = (html: string, value: string) => [...html.matchAll(/<input\b[^>]*>/g)].map((match) => match[0]).find((tag) => tag.includes(`value="${value}"`))!;
+const button = (html: string, label: string) => [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map((match) => match[0]).find((tag) => tag.endsWith(`>${label}</button>`))!;
+
+test('replacement starts in preserve mode with an unchecked timeline acknowledgment and disabled action', () => {
+  const html = replace();
+  assert.match(input(html, 'preserve'), /checked=""/);
+  assert.doesNotMatch(input(html, 'reset'), /checked=/);
+  assert.match(html, /<input type="checkbox"\/>/);
+  assert.match(button(html, 'Replace and keep captions'), /disabled=""/);
+  assert.doesNotMatch(button(html, 'Cancel'), /disabled=/);
+  assert.match(html, /Matching duration alone is not enough/);
+  assert.match(html, /No captions are generated automatically/);
+  assert.match(html, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="replace-media-title"/);
+});
+
+test('pending replacement disables its form and cancel without pretending the request was cancelled', () => {
+  const html = replace({ working: 'Checking audio locally…' });
+  assert.match(html, /<fieldset disabled=""/);
+  assert.match(button(html, 'Cancel'), /disabled=""/);
+  assert.match(button(html, 'Replace and keep captions'), /disabled=""/);
+  assert.match(html, /aria-label="Cancel media replacement" disabled=""/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /Stay on this page until the result is confirmed/);
+});
+
+test('compatibility rejection remains visible and cannot select reset as a fallback', () => {
+  const html = replace({ error: 'The audio differs. This media change was not applied.' });
+  assert.match(html, /role="alert">The audio differs/);
+  assert.match(input(html, 'preserve'), /checked=""/);
+  assert.doesNotMatch(input(html, 'reset'), /checked=/);
+  assert.doesNotMatch(html, /<button[^>]*>Replace and clear captions/);
+});
+
+test('source filenames and server error text are escaped rather than interpreted', () => {
+  const html = replace({ filename: '<img src=x onerror=run()>.mp4', error: '<script>run()</script>' });
+  assert.match(html, /&lt;img/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<img|<script/);
+});
+
+test('empty and loading recovery states cannot restore or delete an arbitrary backup', () => {
+  const empty = restore();
+  assert.match(empty, /No saved replacement backups/);
+  assert.match(button(empty, 'Restore selected backup'), /disabled=""/);
+  assert.equal(button(empty, 'Delete backup'), undefined);
+  const loading = restore({ loading: true });
+  assert.match(loading, /Loading backups/);
+  assert.match(button(loading, 'Restore selected backup'), /disabled=""/);
+});
+
+test('recovery offers explicit restore and delete actions and communicates the whole-project scope', () => {
+  const html = restore({ checkpoints: [{ id: 'backup-1', mode: 'preserve', createdAt: '2026-10-15T00:00:00Z', previousOriginalName: 'original & reviewed.mp4', retainedBytes: 1024 * 1024 }] });
+  assert.match(html, /original &amp; reviewed\.mp4/);
+  assert.match(html, /1\.0 MB/);
+  assert.match(html, /name="replacement-backup" checked=""/);
+  assert.doesNotMatch(button(html, 'Restore selected backup'), /disabled=/);
+  assert.doesNotMatch(button(html, 'Delete backup'), /disabled=/);
+  assert.match(html, /captions, approvals, timing and appearance/);
+  assert.match(html, /current saved project becomes another backup/);
+  assert.match(html, /Up to five local backups/);
+});
+
+test('a pending restore blocks both deletion and closing while keeping progress visible', () => {
+  const html = restore({ working: 'Restoring previous media…', checkpoints: [{ id: 'backup-1', mode: 'restore', createdAt: '2026-10-15T00:00:00Z', previousOriginalName: 'reviewed.mp4' }] });
+  for (const label of ['Close', 'Delete backup', 'Restore selected backup']) assert.match(button(html, label), /disabled=""/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /role="status"/);
+});

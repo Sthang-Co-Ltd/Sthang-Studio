@@ -52,6 +52,25 @@ This describes current source behavior, not proof of a released package.
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.
 
+### Local media-replacement recovery (source-only)
+
+The reviewed-caption preserving replacement workflow compares the old and new
+audio locally with FFmpeg/ffprobe. It does not upload either source or request AI
+transcription. Temporary comparison audio is removed after the check. Successful
+replacement retains local recovery snapshots containing the prior source media,
+caption/transcript state, appearance, and history so the creator can explicitly
+restore that version. Recovery data remains in ignored project runtime storage;
+removing a recovery removes that snapshot and its retained source. When directory
+durability cannot be confirmed (including Windows), separate retired History
+entries may remain until project deletion. Deleting
+one backup is not a purge of all prior captions or History; project deletion
+removes the project-scoped recovery and History data. These snapshots consume
+local disk space and are not cloud backups.
+Accepted edits arriving after media submission can also appear in an editor-session
+Copy recovery notice, including exact raw Accuracy description/vocabulary and
+caption data bound to the previous source. Copying is explicit; this notice is not
+a persisted recovery snapshot and is lost when dismissed or the editor reloads.
+
 ### Local word timing and highlighting
 
 **Sync words** processes a bounded clip from the existing project audio and the

@@ -44,7 +44,7 @@
     "update:macos-build-evidence": "node scripts/update-macos-release-build-evidence.mjs",
     "package:ota": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-ota-release.ps1",
     "update:release": "node scripts/update-release.mjs",
-    "ci": "npm run test:timing-dependencies && npm run test:dependencies && npm run test:startup && npm run test:macos && npm run test:public && npm run test:contribution && npm run test:gemini && npm run test:media-clock && npm run test:fine-timing && npm run test:word-timing && npm run test:caption-handoff && npm run test:caption-effects && npm run test:video-export && npm run test:web-optimizations && npm run test:playback-grouping && npm run test:performance && npm run check:public && npm run test:media-preview && npm run test:updater && npm run typecheck && npm run build",
+    "ci": "npm run test:timing-dependencies && npm run test:dependencies && npm run test:startup && npm run test:macos && npm run test:public && npm run test:contribution && npm run test:gemini && npm run test:media-clock && npm run test:fine-timing && npm run test:word-timing && npm run test:caption-handoff && npm run test:caption-effects && npm run test:video-export && npm run test:web-optimizations && npm run test:playback-grouping && npm run test:media-replacement && npm run test:performance && npm run check:public && npm run test:media-preview && npm run test:updater && npm run typecheck && npm run build",
     "test:update-powershell": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/update-powershell.test.ps1",
     "test:caption-renderer": "npm run build --workspace @kcs/shared && node --import tsx --test tests/caption-renderer-native.test.mts tests/caption-overflow-native.test.mts tests/persistent-caption-preview.test.mts tests/persistent-caption-preview-phase3.test.mts tests/native-preview-scheduler.test.ts",
     "benchmark:caption-preview": "npm run build --workspace @kcs/shared && node --import tsx scripts/benchmark-caption-preview.mts",
@@ -54,14 +54,15 @@
     "benchmark:performance": "node --import tsx scripts/benchmark-performance.mts",
     "test:timing-cache": "node scripts/test-timing-cache.mjs",
     "test:batch4": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-batch4.test.mts && npm run test:timing-cache",
-    "test:playback-grouping": "node --import tsx --test tests/playback-grouping.test.mts tests/playback-grouping-server.test.mts",
+    "test:playback-grouping": "node --import tsx --test tests/playback-grouping.test.mts tests/playback-grouping-server.test.mts tests/caption-selection-acknowledgement.test.ts",
     "test:macos": "node --test tests/macos-compatibility.test.mjs",
     "test:startup": "node --experimental-vm-modules --test tests/dev-startup.test.mjs tests/source-watch-behavior.test.mjs",
     "test:dependencies": "npm run build --workspace @kcs/shared && node --test tests/dependency-runtime-policy.test.mjs tests/windows-node-bootstrap.test.mjs && node --import tsx --test tests/local-timing-privacy.test.mts",
     "test:timing-dependencies": "node scripts/test-timing-cache.mjs --all",
     "diagnose:gemini-abort": "node --expose-gc --import tsx --test tests/diagnostics/gemini-sdk-abort-known-limitation.mts",
     "diagnose:node-abort": "node --expose-gc tests/diagnostics/request-clone-abort-known-limitation.mjs",
-    "test:media-preview": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-preview.test.mts"
+    "test:media-preview": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-preview.test.mts",
+    "test:media-replacement": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-compatibility.test.mts tests/preserve-media-server.test.mts tests/replace-media-dialog.test.mts tests/accuracy-context-draft.test.ts"
   },
   "allowScripts": {
     "@google/genai": true,

@@ -1,8 +1,32 @@
 import { Router } from 'express';
-import { JobAdmissionError } from '../services/job-admission.js';
+import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
+import { store } from '../services/store.js';
 
 const router = Router();
+
+class JobMediaPreconditionError extends Error {
+  constructor(message: string, readonly httpStatus: number) { super(message); }
+}
+
+async function createForMedia(type: Parameters<typeof jobStore.create>[0], projectId: string,
+  payload: Parameters<typeof jobStore.create>[2], expected: unknown) {
+  return jobAdmission.runForProject(projectId, async () => {
+    const basis = expected as { filename?: unknown; size?: unknown } | undefined;
+    if (!basis || typeof basis.filename !== 'string' || typeof basis.size !== 'number' || !Number.isFinite(basis.size)) {
+      throw new JobMediaPreconditionError('This request needs the source media version. Reload the project before starting work.', 428);
+    }
+    const current = await store.getMedia(projectId);
+    if (!current) throw new JobMediaPreconditionError('Project not found', 404);
+    if (current.media.filename !== basis.filename || current.media.size !== basis.size) {
+      throw new JobMediaPreconditionError('This request belongs to an older source. Reload the project before starting work.', 409);
+    }
+    return jobStore.create(type, projectId, payload);
+  });
+}
+function jobErrorStatus(error: unknown) {
+  return error instanceof JobAdmissionError ? 409 : error instanceof JobMediaPreconditionError ? error.httpStatus : 400;
+}
 
 router.get('/', async (req, res) => {
   res.json(await jobStore.list(typeof req.query.projectId === 'string' ? req.query.projectId : undefined));
@@ -44,27 +68,27 @@ router.get('/:id', async (req, res) => {
 router.post('/transcribe', async (req, res) => {
   try {
     const projectId = String(req.body?.projectId || '');
-    const job = await jobStore.create('transcribe', projectId, {
+    const job = await createForMedia('transcribe', projectId, {
       transcriptionContext: req.body?.transcriptionContext,
       force: req.body?.force === true,
-    });
+    }, req.body?.expectedMedia);
     res.status(202).json(job);
   } catch (error) {
-    res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Could not create job' });
+    res.status(jobErrorStatus(error)).json({ error: error instanceof Error ? error.message : 'Could not create job' });
   }
 });
 
 router.post('/regenerate-range', async (req, res) => {
   try {
     const projectId = String(req.body?.projectId || '');
-    const job = await jobStore.create('regenerate-range', projectId, {
+    const job = await createForMedia('regenerate-range', projectId, {
       startMs: Number(req.body?.startMs),
       endMs: Number(req.body?.endMs),
       transcriptionContext: req.body?.transcriptionContext,
-    });
+    }, req.body?.expectedMedia);
     res.status(202).json(job);
   } catch (error) {
-    res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Could not create job' });
+    res.status(jobErrorStatus(error)).json({ error: error instanceof Error ? error.message : 'Could not create job' });
   }
 });
 
@@ -73,27 +97,27 @@ router.post('/refine-proposal', async (req, res) => {
     const projectId = String(req.body?.projectId || '');
     const proposalId = String(req.body?.proposalId || '');
     if (!proposalId) return res.status(400).json({ error: 'proposalId is required' });
-    const job = await jobStore.create('refine-proposal', projectId, {
+    const job = await createForMedia('refine-proposal', projectId, {
       proposalId,
       strategy: req.body?.strategy,
       accuracyHint: typeof req.body?.accuracyHint === 'string' ? req.body.accuracyHint : undefined,
       editedText: typeof req.body?.editedText === 'string' ? req.body.editedText : undefined,
       useProposalAsBaseline: req.body?.useProposalAsBaseline === true,
-    });
+    }, req.body?.expectedMedia);
     res.status(202).json(job);
   } catch (error) {
-    res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Could not create refinement job' });
+    res.status(jobErrorStatus(error)).json({ error: error instanceof Error ? error.message : 'Could not create refinement job' });
   }
 });
 
 router.post('/:id/resume', async (req, res) => {
   try { res.json(await jobStore.resume(req.params.id)); }
-  catch (error) { res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Resume failed' }); }
+  catch (error) { res.status(jobErrorStatus(error)).json({ error: error instanceof Error ? error.message : 'Resume failed' }); }
 });
 
 router.post('/:id/cancel', async (req, res) => {
   try { res.json(await jobStore.cancel(req.params.id)); }
-  catch (error) { res.status(error instanceof JobAdmissionError ? 409 : 400).json({ error: error instanceof Error ? error.message : 'Cancel failed' }); }
+  catch (error) { res.status(jobErrorStatus(error)).json({ error: error instanceof Error ? error.message : 'Cancel failed' }); }
 });
 
 export default router;
