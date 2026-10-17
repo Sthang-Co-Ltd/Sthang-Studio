@@ -26,6 +26,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          fetch-depth: ${{ runner.os == 'Windows' && 2 || 1 }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -73,16 +74,47 @@ jobs:
           }
       - name: Browser-compatible media preview tests
         run: npm run test:media-preview
+      - name: Gate the one approved Windows diagnostic candidate
+        id: preview-diagnostic-gate
+        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.number == 82 && github.run_attempt == 1 }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $line = git rev-list --parents -n 1 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify diagnostic candidate parent.' }
+          $commits = $line.Trim() -split '\s+'
+          if ($commits.Count -eq 2 -and $commits[1] -eq '7652c24966690da60004750acb5ae40846316ee6') {
+            'enabled=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
       - name: Native rasterization, cancellation and real MP4 tests
+        id: native-renderer
+        env:
+          STUDIO_NATIVE_PREVIEW_DIAGNOSTICS: ${{ steps.preview-diagnostic-gate.outputs.enabled == 'true' && format('{0}/native-preview-diagnostics', runner.temp) || '' }}
+          STUDIO_NATIVE_PREVIEW_DIAGNOSTIC_PHASE: concurrent
         run: npm run test:caption-renderer
+      # One diagnostic comparison, not a retry gate. The original step stays failed.
+      - name: Isolated Windows persistent-preview diagnostic comparison
+        if: ${{ !cancelled() && steps.preview-diagnostic-gate.outputs.enabled == 'true' && (steps.native-renderer.outcome == 'success' || steps.native-renderer.outcome == 'failure') }}
+        env:
+          STUDIO_NATIVE_PREVIEW_DIAGNOSTICS: ${{ runner.temp }}/native-preview-diagnostics
+          STUDIO_NATIVE_PREVIEW_DIAGNOSTIC_PHASE: isolated
+        run: node --import tsx --test tests/persistent-caption-preview.test.mts
+      - name: Retain bounded synthetic Windows native diagnostics
+        if: ${{ !cancelled() && steps.preview-diagnostic-gate.outputs.enabled == 'true' && (steps.native-renderer.outcome == 'success' || steps.native-renderer.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-native-preview-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-preview-diagnostics/*.json
+          retention-days: 5
+          if-no-files-found: error
       - name: Install isolated browser runtime
         if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
       - name: Real app interaction and geometry tests
         if: runner.os == 'Linux'
         run: npm run test:browser
-      - name: Retain synthetic browser failure evidence
-        if: failure() && runner.os == 'Linux'
+      - name: Retain synthetic browser evidence
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: caption-browser-failures

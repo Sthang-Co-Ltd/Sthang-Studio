@@ -17,6 +17,18 @@ consent boundaries remain unchanged. Availability still requires release approva
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
 
+## Browser interface font requests
+
+The existing interface stylesheet loads fonts from Google Fonts
+(`fonts.googleapis.com` and `fonts.gstatic.com`). Current source requests Plus
+Jakarta Sans for English interface text and Noto Sans Khmer for Khmer text.
+Loading the interface can therefore send ordinary HTTPS request metadata,
+including IP address and browser information, to Google independently of the
+optional analytics/Contributor choices. These font requests do not include
+caption text, project files, source media, or creator-added font files. The
+interface uses system fallbacks when the hosted fonts are unavailable; local
+native caption preview/export uses the project's separately selected font.
+
 ## What stays on your computer
 
 The application runs its frontend and local API on loopback (`127.0.0.1`).

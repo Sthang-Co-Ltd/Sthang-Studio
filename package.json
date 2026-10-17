@@ -48,7 +48,7 @@
     "test:update-powershell": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/update-powershell.test.ps1",
     "test:caption-renderer": "npm run build --workspace @kcs/shared && node --import tsx --test tests/caption-renderer-native.test.mts tests/caption-overflow-native.test.mts tests/persistent-caption-preview.test.mts tests/persistent-caption-preview-phase3.test.mts tests/native-preview-scheduler.test.ts",
     "benchmark:caption-preview": "npm run build --workspace @kcs/shared && node --import tsx scripts/benchmark-caption-preview.mts",
-    "test:web-optimizations": "node --import tsx --test tests/web-optimizations.test.ts",
+    "test:web-optimizations": "node --import tsx --test tests/web-optimizations.test.ts tests/interface-typography.test.mjs",
     "test:browser": "npm run build --workspace @kcs/shared && node scripts/run-browser-tests.mjs",
     "test:performance": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-selection.test.ts tests/waveform-peaks.test.ts tests/job-persistence.test.mts tests/preview-font-cache.test.mts tests/performance-batch4.test.mts && npm run test:timing-cache",
     "benchmark:performance": "node --import tsx scripts/benchmark-performance.mts",

@@ -31,6 +31,22 @@ The unreleased Sthang contribution and analytics relay Workers use Cloudflare's
 Worker/D1/R2 capabilities directly and add no Studio application npm runtime
 dependency.
 
+## Browser interface fonts
+
+The interface stylesheet requests **Plus Jakarta Sans** (Plus Jakarta Sans Project
+Authors) and **Noto Sans Khmer** (Noto Project Authors) through the existing Google
+Fonts service. Both use the SIL Open Font License 1.1; authoritative notices are
+[Plus Jakarta Sans OFL](https://github.com/google/fonts/blob/main/ofl/plusjakartasans/OFL.txt)
+and [Noto Sans Khmer OFL](https://github.com/google/fonts/blob/main/ofl/notosanskhmer/OFL.txt).
+These production browser-loaded faces are not bundled font binaries or additions
+to Studio's local caption-renderer font catalog. The isolated browser tests include
+an unmodified Plus Jakarta Sans variable font under `tests/browser/fonts/`, with
+the full [OFL notice](tests/browser/fonts/OFL.txt) and pinned upstream commit,
+origin, size and SHA-256 in [provenance](tests/browser/fonts/provenance.json).
+This fixture is served only by the owned test frontend and is not included in the
+production web bundle or local caption-renderer font catalog. Creator-selected preview/export fonts remain
+separate. The approved STHANG artwork is unchanged.
+
 ## Managed prerequisite runtimes
 
 The Apple Silicon macOS installer first reuses compatible local runtimes. When
