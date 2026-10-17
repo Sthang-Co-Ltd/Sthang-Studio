@@ -189,7 +189,7 @@ test('regular-only fonts automatically fall back to Regular without changing the
   await openProject(page); await appearancePanel(page);
   await page.getByLabel(/^Size /).fill('74');
   await page.getByLabel('Khmer font', { exact: true }).selectOption('Regular-only fixture');
-  await expect(page.getByText(/Studio switched Weight to Regular/)).toBeVisible();
+  await expect(page.getByText(/has no Bold face\. Switched to Regular/)).toBeVisible();
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
   expect(state.projects[0].captionAppearance?.fontSize1080).toBe(74);
   expect(state.projects[0].captionAppearance?.bold).toBe(false);
@@ -208,7 +208,7 @@ test('Add font is discoverable, selects the imported family, and Manage added fo
   })));
   await openProject(page); await appearancePanel(page);
   await expect(page.getByRole('button', { name: 'Add font…', exact: true })).toBeVisible();
-  await expect(page.getByText(/compatible Khmer fonts installed on this computer are ready to use/i)).toBeVisible();
+  await expect(page.getByText(/compatible Khmer fonts found on this PC/i)).toBeVisible();
   await expect(page.getByLabel('Khmer font', { exact: true }).locator('optgroup[label^="Installed on this computer"]')).toHaveCount(1);
   const fontSearch = page.getByLabel('Find Khmer font');
   await expect(fontSearch).toBeVisible();
@@ -227,7 +227,7 @@ test('Add font is discoverable, selects the imported family, and Manage added fo
   await expect.poll(() => state.requests.filter((request) => request.path === '/api/video-export/fonts' && request.method === 'POST').length).toBe(1);
   await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Creator Khmer');
   await expect(page.getByText(/Added “Creator Khmer”/)).toBeVisible();
-  await expect(page.getByText(/Studio is using Regular/)).toBeVisible();
+  await expect(page.getByText(/No Bold face; using Regular/)).toBeVisible();
   await expect.poll(() => state.projects[0].captionAppearance?.bold).toBe(false);
   await expect(page.getByText('Manage added fonts', { exact: false })).toBeVisible();
 
@@ -239,7 +239,7 @@ test('Add font is discoverable, selects the imported family, and Manage added fo
   expect((await remove.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await remove.click();
   const dialog = page.getByRole('alertdialog');
-  await expect(dialog).toContainText('This project will keep the font name');
+  await expect(dialog).toContainText('This project keeps the font name');
   await dialog.getByRole('button', { name: 'Remove font', exact: true }).click();
   await expect(page.getByText(/Removed “Creator Khmer” from Studio/)).toBeVisible();
   expect(state.fonts.some((font) => font.source === 'studio-imported')).toBe(false);
@@ -288,7 +288,7 @@ test('preset management and computed controls keep their real accessible states 
   await openProject(page); await appearancePanel(page);
   const size = page.getByLabel(/^Size /); await size.fill('74');
   await page.getByText('Manage presets', { exact: true }).click();
-  await page.getByLabel('Save current look as').fill('Khmer test look');
+  await page.getByLabel('Save current appearance as').fill('Khmer test look');
   await page.getByRole('button', { name: 'Save preset', exact: true }).click();
   await expect(page.getByLabel('Preset', { exact: true })).not.toHaveValue('');
   await expect(page.getByRole('button', { name: 'Delete preset', exact: true })).toBeVisible();
@@ -310,7 +310,7 @@ test('SRT remains a separate text-and-timing export mode without appearance cont
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: /Captions file/ }).click();
   await expect(page.getByRole('button', { name: /Captions file/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText(/Visual styling stays controlled by the destination editing app/)).toBeVisible();
+  await expect(page.getByText('Text and timing only. Set visual styling in the destination editor.')).toBeVisible();
   await expect(page.locator('.export-workspace input[type="color"]')).toHaveCount(0);
   expect(state.projects[0].captionAppearance).toEqual(appearance);
 });

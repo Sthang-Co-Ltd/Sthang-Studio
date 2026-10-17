@@ -55,7 +55,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       await onSave({ preferences: { ...liveProfile.preferences, [key]: consent } });
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Privacy preference update failed');
+      setError(reason instanceof Error ? reason.message : 'Could not save your privacy preference.');
     } finally {
       setWorking(false);
     }
@@ -69,7 +69,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       setStatus(await api.withdrawContributions());
       setLiveProfile(await api.profile());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Withdrawal request failed');
+      setError(reason instanceof Error ? reason.message : 'Could not request contribution deletion.');
     } finally {
       setWorking(false);
     }
@@ -86,7 +86,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       <div className="privacy-intro-icon"><ShieldCheck size={22}/></div>
       <div>
         <strong>Privacy &amp; contribution</strong>
-        <span>Caption contribution and product analytics are separate choices. Both stay off unless you explicitly turn them on.</span>
+        <span>Caption contribution and product analytics are separate. Both stay off until you enable them.</span>
       </div>
     </div>}
 
@@ -104,11 +104,11 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
           </header>
 
           <p className="privacy-value-line">Help make Khmer captions world-class.</p>
-          <p className="privacy-description">After you join, eligible caption corrections can contribute only the matching short audio, generated wording, corrected wording, timing, and technical quality evidence.</p>
+          <p className="privacy-description">If you join, eligible corrections may send matching short audio, generated and corrected wording, timing, and technical quality evidence.</p>
 
           <div className="privacy-boundary">
             <LockKeyhole size={17}/>
-            <span>Studio does not contribute your full video, project name, filename, API key, topic context, correction memory, or unrelated captions through this program. Corrections made before you join are not collected retroactively.</span>
+            <span>This program excludes your full video, project name, filename, API key, topic context, correction memory, and unrelated captions. Corrections made before you join are not collected retroactively.</span>
           </div>
 
           {status && <div className="contributor-stats" aria-label="Khmer Caption Contributor progress">
@@ -118,7 +118,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
             <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.queued}</b><span>Queued locally</span></div>
           </div>}
 
-          {status && !status.endpointConfigured && <div className="privacy-note">Contribution hosting is not configured in this build, so no correction audio can leave your computer even if you join.</div>}
+          {status && !status.endpointConfigured && <div className="privacy-note">Contribution hosting is not configured in this build, so the program cannot upload correction audio even if you join.</div>}
           {status?.lastError && <div className="privacy-note warning">{status.lastError}</div>}
 
           <div className="privacy-choice-row">
@@ -140,13 +140,13 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
             </button>
           </div>
 
-          <div className="privacy-choice-helper"><ShieldCheck size={14}/><span>You can change this choice anytime. It does not affect access to Studio.</span></div>
+          <div className="privacy-choice-helper"><ShieldCheck size={14}/><span>Change this choice anytime. Your access to Studio stays the same.</span></div>
 
           {status && (status.submitted > 0 || status.verified > 0 || status.withdrawalPending) && <div className="privacy-destructive-row">
             <button className="privacy-delete-button" disabled={disabled} onClick={() => void withdraw()}><Trash2 size={15}/>Request deletion</button>
-            <span>Removes contribution data already sent under this Contributor identity. Local projects stay on your computer.</span>
+            <span>Requests deletion of data already sent under this Contributor identity. Local projects stay on your computer.</span>
           </div>}
-          {status?.withdrawalPending && <div className="privacy-note warning">Deletion is pending until the Sthang contribution service can confirm the request.</div>}
+          {status?.withdrawalPending && <div className="privacy-note warning">Deletion is pending. The Sthang contribution service has not confirmed it yet.</div>}
         </div>
       </div>
     </section>
@@ -163,11 +163,11 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
           </header>
 
           <p className="privacy-value-line">Help us build a better Studio.</p>
-          <p className="privacy-description">Optionally share a small allow-listed set of usage events so Sthang can measure whether Studio gets creators from launch to a successful caption export and which workflow stages need improvement.</p>
+          <p className="privacy-description">Share limited usage events to help Sthang understand the path from launch to caption export and improve the workflow.</p>
 
           <div className="privacy-boundary">
             <LockKeyhole size={17}/>
-            <span>When enabled, Studio creates a random analytics installation ID and sends only event names plus coarse technical buckets. Analytics never includes caption text, audio, filenames, project names, local paths, vocabulary/context text, SRT contents, or your Gemini API key. It is independent from Khmer Caption Contributor.</span>
+            <span>When enabled, Studio sends a random installation ID, approved event names, coarse workflow categories, and Studio/platform versions. Analytics excludes caption text, audio, filenames, project names, local paths, vocabulary or context text, SRT contents, and your Gemini API key. It is separate from Khmer Caption Contributor.</span>
           </div>
 
           <div className="privacy-choice-row">
@@ -194,7 +194,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       </div>
     </section>
 
-    <div className="privacy-control-note"><ShieldCheck size={16}/><span>Your choices are saved on this computer, remain separate, and never limit access to Studio's core caption features.</span></div>
+    <div className="privacy-control-note"><ShieldCheck size={16}/><span>Both choices are saved separately on this computer. Neither limits Studio's caption features.</span></div>
     {error && <div className="privacy-note warning" role="alert">{error}</div>}
   </div>;
 }

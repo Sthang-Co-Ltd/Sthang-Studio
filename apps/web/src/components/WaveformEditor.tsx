@@ -761,7 +761,7 @@ export function WaveformEditor({
         <button aria-label="Next caption" disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>Next</span><ChevronRight size={16}/></button>
       </div>
       <p className="timing-caption-text">{currentCaption?.text || 'Choose a caption from the list to adjust its timing.'}</p>
-      {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next to time each caption individually.</p>}
+      {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next for the others.</p>}
     </div>
     <div className="timing-transport">
       <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} title="Replay this caption (R)"><Play size={15}/>Replay caption</button>
@@ -788,7 +788,7 @@ export function WaveformEditor({
       {loading && <div className="waveform-loading">Preparing waveform…</div>}
       {loadError && <div className="waveform-loading error waveform-recovery">
         <strong>The audio preview could not load.</strong>
-        <span>Your video and captions are safe. Rebuild only the waveform preview.</span>
+        <span>Your video and captions are safe. Try rebuilding the waveform.</span>
         <button type="button" onClick={() => setReloadKey((value) => value + 1)}>
           <RefreshCw size={14}/> Rebuild waveform
         </button>
@@ -798,7 +798,9 @@ export function WaveformEditor({
         ref={canvas}
         className="waveform-data-canvas"
         tabIndex={0}
-        aria-label="Timing waveform. Click audio to seek. Drag a caption edge to trim or its middle to move. Use the labeled time controls below for keyboard editing."
+        aria-label={editMode === 'words'
+          ? 'Audio timing view. Click audio to seek. Drag word edges to trim or the middle to move. Use the time controls below for keyboard editing.'
+          : 'Audio timing view. Click audio to seek. Drag caption edges to trim or the middle to move. Use the time controls below for keyboard editing.'}
         onPointerDown={(event: React.PointerEvent<HTMLCanvasElement>) => {
           if (!durationMs || loading || loadError || event.button !== 0) return;
           event.currentTarget.focus({ preventScroll: true });
@@ -870,9 +872,9 @@ export function WaveformEditor({
       />
       <span>{formatMs(viewEndMs)}</span>
     </div>
-    <p className="timing-hint">{editMode === 'words' ? 'Click a word above the caption bar. Drag its edges to trim, or its middle to move; other words stay in place.' : 'Click the audio to seek. Drag the caption edges to trim, or the middle to move. Hold Shift to ignore snapping.'}</p>
+    <p className="timing-hint">{editMode === 'words' ? 'Select a word above the caption bar. Drag an edge to trim or the middle to move it. Other words stay in place.' : 'Click audio to seek. Drag caption edges to trim or the middle to move. Hold Shift to disable snapping.'}</p>
     {currentCaption && editMode === 'caption' && <>
-      {currentCaption.timingLocked && <p className="timing-lock-status">Timing is locked. Unlock it in the caption menu to make changes; playback remains available.</p>}
+      {currentCaption.timingLocked && <p className="timing-lock-status">Timing locked. Unlock it in the caption menu to edit. You can still listen.</p>}
       <div className="timing-edge-grid">
         {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
           <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
@@ -888,7 +890,7 @@ export function WaveformEditor({
           </div>
         </div>)}
       </div>
-      <p className="timing-hint">{sharedBoundary ? 'Shared edges: changing Start also changes the previous caption’s End; changing End also changes the next caption’s Start.' : allowOverlap ? 'Overlaps allowed. Other captions stay in place.' : 'Neighbor protection is on. Edits stop before creating or increasing an overlap.'}</p>
+      <p className="timing-hint">{sharedBoundary ? 'Moving Start also moves the previous caption’s End; moving End also moves the next caption’s Start.' : allowOverlap ? 'Overlaps allowed. Other captions stay in place.' : 'Neighbor protection on: edits cannot create or increase overlaps.'}</p>
       <div className="timing-move-controls">
         <label>Step<select aria-label="Timing nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label>
         <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', -stepMs)} title="Move the whole caption earlier (Alt+Left)">Move earlier</button>
@@ -896,7 +898,7 @@ export function WaveformEditor({
         <span className="timing-duration">Duration {((currentCaption.endMs - currentCaption.startMs) / 1000).toFixed(3)} s</span>
       </div>
       {captions.some((caption) => caption.id !== currentCaption.id && caption.startMs < currentCaption.endMs && caption.endMs > currentCaption.startMs)
-        && <p className="timing-lock-status">This caption overlaps another caption. Adjust its edges to separate them; other captions stay in place.</p>}
+        && <p className="timing-lock-status">This caption overlaps another. Adjust its edges to separate them; other captions stay in place.</p>}
     </>}
     {selectedCaption && editMode === 'words' && <WordTimingPanel key={selectedCaption.id} caption={selectedCaption} selectedWordId={selectedWordId}
       playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop} highlightEnabled={highlightEnabled}
@@ -917,9 +919,9 @@ export function WaveformEditor({
         </select></label>
         <button className={mode === 'waveform' ? 'selected' : ''} aria-pressed={mode === 'waveform'} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} title="Waveform"><AudioLines size={15}/>Waveform</button>
         <button className={mode === 'spectrum' ? 'selected' : ''} aria-pressed={mode === 'spectrum'} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} title="Spectral view"><ScanLine size={15}/>Spectrum overview</button>
-        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} title={follow ? 'Pause follow' : 'Follow playhead'}><LocateFixed size={15}/>Follow playhead</button>
+        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} title={follow ? 'Pause follow' : 'Follow playhead'}><LocateFixed size={15}/>{follow ? 'Following playhead' : 'Follow playhead'}</button>
       </div>
-      <p className="timing-hint">Word marks are existing timing estimates. Quiet-gap snapping requires a clear drop in audio energy. Undo is available here until this workspace closes.</p>
+      <p className="timing-hint">Word marks show timing estimates. Quiet-gap snapping needs a clear drop in audio volume. Undo history clears when this tool closes.</p>
     </details>
   </section>;
 }

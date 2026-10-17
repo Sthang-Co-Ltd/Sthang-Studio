@@ -173,7 +173,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       setAppearanceSaveBlocked(false);
       const fontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily && (!latestAppearance.bold || font.boldAvailable)));
       if (fontUnavailable) {
-        setActionError(`${latestAppearance.bold ? 'Bold ' : ''}${latestAppearance.fontFamily} is not available on this PC. Edit appearance and choose an available Khmer font before rendering.`);
+        setActionError(`Studio can't export with the saved font selection (${latestAppearance.fontFamily}${latestAppearance.bold ? ' Bold' : ''}). Choose an available Khmer font or weight in Appearance.`);
         return;
       }
       await onStartVideoExport(settings, latestAppearance);
@@ -187,16 +187,16 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
   return <div className="export-workspace">
     <div className="export-workspace-head">
-      <div><strong>Export</strong><span>Choose the output and quality. Caption styling stays in the editor, where you can judge it on the video.</span></div>
+      <div><strong>Export</strong><span>Choose a file or captioned video. Edit the look in Appearance.</span></div>
       {videoProject && outputMode === 'video' && <button onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} title="Recheck video export support"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck</button>}
     </div>
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
       <button aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
-      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT + more</small></button>
+      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT</small></button>
     </div>
 
-    {!videoProject && <p className="export-mode-help">This audio project can export editable caption files. Captioned-video export requires a video source.</p>}
+    {!videoProject && <p className="export-mode-help">Audio projects can export editable caption files. Captioned video requires a video source.</p>}
 
     {outputMode === 'captions' && (captionImportPreview
       ? <CaptionRestoreReview review={captionImportPreview} busy={busy} onApply={onApplyCaptionImport} onCancel={onCancelCaptionImport}/>
@@ -204,7 +204,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
           onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => setOutputMode('video') : undefined}/>)}
 
     {outputMode === 'video' && <>
-      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · you can keep editing while this saved snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
+      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · keep editing while this snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
       {loadingCapabilities && <div className="export-status" role="status"><LoaderCircle className="spin" size={16}/>Checking video export support…</div>}
       {capabilityError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Video export check failed</strong><span>{capabilityError}</span></div></div>}
       {actionError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Export needs attention</strong><span>{actionError}</span></div></div>}
@@ -212,7 +212,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
       {capabilities?.supported && <>
         <section className="export-section" aria-labelledby="video-quality-title">
-          <div className="export-section-title"><div><strong id="video-quality-title">Video</strong><span>Match source + Recommended is the safest default.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
+          <div className="export-section-title"><div><strong id="video-quality-title">Video</strong><span>For most videos, use Match source + Recommended.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
 
           <div className="export-setting-grid">
             <label htmlFor="export-resolution-select">
@@ -257,7 +257,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
                 <input id="export-bitrate-input" aria-label="Custom bitrate (Mbps)" type="number" min="1" max="200" step="0.5" value={settings.customBitrateMbps ?? ''} placeholder="Use quality preset" onChange={(event) => setSettings((current) => ({ ...current, customBitrateMbps: event.target.value ? Math.max(1, Math.min(200, Number(event.target.value))) : undefined }))}/>
               </label>
             </div>
-            <span className="export-advanced-help">Auto tests encoders on this PC and falls back safely when needed.</span>
+            <span className="export-advanced-help">Auto tests local encoders and uses a fallback if needed.</span>
           </details>
         </section>
 
@@ -267,17 +267,17 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
         </section>
 
         {appearance.highlightMode === 'word' && <div className="export-warnings" role="status">
-          <div><Palette size={14}/><span>Spoken-word highlights are enabled for captioned video.
-            {plainWordCaptions.length > 0 ? ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.` : ' All nonempty captions have usable word timing.'}</span></div>
+          <div><Palette size={14}/><span>Word highlights appear in captioned video.
+            {plainWordCaptions.length > 0 ? ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.` : ' All captions with text have usable word timing.'}</span></div>
           {plainWordCaptions.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(plainWordCaptions[0].id)}>Review word timing</button>}
         </div>}
 
-        {appearanceFontUnavailable && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Choose an available caption font</strong><span>{appearance.fontFamily} is not available on this PC. Edit appearance and select an available Khmer font before rendering so the export does not silently substitute typography.</span></div></div>}
+        {appearanceFontUnavailable && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Font selection unavailable</strong><span>Studio can't export with the saved font selection ({appearance.fontFamily}{appearance.bold ? ' Bold' : ''}). Choose an available Khmer font or weight in Appearance; Studio won't substitute another.</span></div></div>}
 
         {capabilities.warnings.length > 0 && <div className="export-warnings" aria-label="Video export notices">{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={14}/><span>{warning}</span></div>)}</div>}
 
         <div className="export-finalize">
-          <div><ShieldCheck size={17}/><span>Source stays untouched. Studio snapshots the current captions, appearance and quality settings, then verifies the finished file.</span></div>
+          <div><ShieldCheck size={17}/><span>Your source stays unchanged. Studio renders from a snapshot of your captions, appearance and settings, then verifies the file.</span></div>
           <button className="primary" disabled={exportBlocked} onClick={() => void startExport()}>{startingExport ? <LoaderCircle className="spin" size={16}/> : <Film size={16}/>} {activeExportJob ? 'Export already running' : startingExport ? 'Starting…' : 'Render captioned video'}</button>
         </div>
       </>}

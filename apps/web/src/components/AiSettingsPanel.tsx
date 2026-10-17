@@ -45,7 +45,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       const value = (await navigator.clipboard.readText()).trim();
       if (!value) throw new Error('Clipboard is empty.');
       setApiKey(value);
-      setMessage('API key pasted. Test it or save the settings.');
+      setMessage('API key pasted. Test or save your settings.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Clipboard access was blocked. Use Ctrl+V inside the field.');
     }
@@ -69,8 +69,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       setApiKey('');
       setShowKey(false);
       setMessage(updated.keySource === 'secure-store'
-        ? 'AI settings saved securely on this computer. No restart is needed.'
-        : 'AI model settings saved. The environment key remains active.');
+        ? 'AI settings saved securely on this computer. No restart needed.'
+        : 'Model settings saved. The environment key remains active.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not verify and save AI settings.');
     } finally {
@@ -99,8 +99,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       const updated = await onForget();
       setApiKey('');
       setMessage(updated.configured
-        ? 'The securely saved key was removed. Sthang Studio is now using the environment key.'
-        : 'The securely saved key was removed. Add another key before generating captions.');
+        ? 'Saved key removed. Studio now uses the environment key.'
+        : 'Saved key removed. Add another key to generate captions.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not forget the saved API key.');
     } finally {
@@ -118,15 +118,15 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     <div className={`ai-connection-card ${settings.configured ? 'configured' : 'missing'}`}>
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
-        <strong>{settings.configured ? 'Gemini is configured' : 'Connect Gemini to generate captions'}</strong>
-        <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'Paste your Gemini API key once. You will not need to edit an .env file.'}</span>
+        <strong>{settings.configured ? 'Gemini key available' : 'Connect Gemini to generate captions'}</strong>
+        <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'Add a Gemini API key to generate captions.'}</span>
       </div>
       <div className={`ai-status-pill ${settings.configured ? 'ready' : 'setup'}`}>{settings.configured ? 'Configured' : 'Setup needed'}</div>
     </div>
 
     <div className="ai-settings-grid">
       <section className="ai-settings-section">
-        <div className="ai-section-title"><div><strong>Gemini API key</strong><span>The key stays behind Sthang Studio’s local backend and is never returned to the browser after saving.</span></div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Get a key <ExternalLink size={13}/></a></div>
+        <div className="ai-section-title"><div><strong>Gemini API key</strong><span>The key stays behind Studio's local service and is never returned to your browser after saving.</span></div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Get a key <ExternalLink size={13}/></a></div>
         <label className="ai-key-field">
           <span>{settings.configured ? 'Replace current key' : 'API key'}</span>
           <div>
@@ -135,7 +135,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(event) => { setApiKey(event.target.value); resetFeedback(); }}
-              placeholder={settings.configured ? `Current: ${settings.maskedKey} · paste only to replace` : 'Paste Gemini API key'}
+              placeholder={settings.configured ? 'Paste new key' : 'Paste Gemini API key'}
               autoComplete="off"
               autoCapitalize="off"
               spellCheck={false}
@@ -144,17 +144,17 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
             <button type="button" title="Paste from clipboard" onClick={() => void pasteKey()}><ClipboardPaste size={15}/></button>
           </div>
         </label>
-        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'The saved secret is protected by your operating-system account. Profile exports never include it.' : 'Use a server environment variable on this platform.'}</span></div></div>
+        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'Your operating-system account protects the saved key. Profile exports exclude it.' : 'Set a server environment variable on this platform.'}</span></div></div>
       </section>
 
       <section className="ai-settings-section">
-        <div className="ai-section-title"><div><strong>Models</strong><span>Keep the recommended defaults, or enter another Gemini model ID later without touching source files.</span></div></div>
+        <div className="ai-section-title"><div><strong>Models</strong><span>Use the defaults or enter another Gemini model ID.</span></div></div>
         <div className="ai-model-grid">
           <label><span>Primary model</span><input list="gemini-model-options" value={model} onChange={(event) => { setModel(event.target.value); resetFeedback(); }}/></label>
           <label><span>Fallback model <em>optional</em></span><input list="gemini-model-options" value={fallbackModel} onChange={(event) => { setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
           <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-3.6-flash"/></datalist>
         </div>
-        <p className="ai-model-help">Recommended: Gemini 3.8 Flash primary with Gemini 3.6 Flash fallback. Google routes 3.7 Flash requests to 3.8, so those names cannot provide separate fallbacks. The fallback uses the same key when the primary is temporarily unavailable. Gemini Transcribe remains experimental and outside the normal automatic chain. Leave the fallback blank to disable automatic model failover.</p>
+        <p className="ai-model-help">Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p>
       </section>
     </div>
 
@@ -166,9 +166,9 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
 
     <div className="ai-settings-actions">
       {settings.canForgetSecureKey && <button className="danger-quiet" disabled={!!working} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}Forget saved key</button>}
-      <span>{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'Not yet saved in the app'}</span>
-      <button disabled={!!working || (!settings.configured && !apiKey.trim())} onClick={() => void test()}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test only</button>
-      <button className="primary" disabled={!!working} onClick={() => void save()}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Save & connect</button>
+      <span>{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'No settings saved yet'}</span>
+      <button disabled={!!working || (!settings.configured && !apiKey.trim())} onClick={() => void test()}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
+      <button className="primary" disabled={!!working} onClick={() => void save()}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
     </div>
   </div>;
 }

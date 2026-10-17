@@ -86,8 +86,8 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
       changed += 1;
       return { ...caption, text, approved: false };
     });
-    if (!changed) { setError(preview.locked ? 'Every match is text-locked. Unlock it first.' : 'No editable matches found.'); return; }
-    onApply(next, `Corrected ${changed} caption${changed === 1 ? '' : 's'}${preview.locked ? `; ${preview.locked} locked match${preview.locked === 1 ? '' : 'es'} preserved` : ''}.`);
+    if (!changed) { setError(preview.locked ? 'All matches are text-locked. Unlock the captions first.' : 'No editable matches found.'); return; }
+    onApply(next, `Updated ${changed} caption${changed === 1 ? '' : 's'}${preview.locked ? `; ${preview.locked} locked match${preview.locked === 1 ? '' : 'es'} preserved` : ''}.`);
     if (remember !== 'none' && replacement.trim()) {
       const line = query.trim() && query.trim() !== replacement.trim() ? `${replacement.trim()} | ${query.trim()}` : replacement.trim();
       try { await onRemember(line, remember); }
@@ -98,22 +98,22 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal find-replace-modal" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-head"><div><Search size={18}/><div><strong>Find & Correct Everywhere</strong><span>Preview every occurrence before changing it. Text locks are always respected.</span></div></div><button aria-label="Close find and correct" onClick={onClose}><X size={17}/></button></div>
+      <div className="modal-head"><div><Search size={18}/><div><strong>Find & Correct Everywhere</strong><span>Preview every occurrence. Locked text stays unchanged.</span></div></div><button aria-label="Close find and correct" onClick={onClose}><X size={17}/></button></div>
       <div className="find-grid">
         <label><span>Find</span><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
         <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Terra or GPT 5.6 Luna"/></label>
-        <label><span>Match</span><select value={mode} onChange={(event) => setMode(event.target.value as MatchMode)}><option value="literal">Exact literal</option><option value="case-insensitive">Ignore Latin case</option><option value="regex">Regular expression</option></select></label>
+        <label><span>Match</span><select value={mode} onChange={(event) => setMode(event.target.value as MatchMode)}><option value="literal">Case-sensitive text</option><option value="case-insensitive">Ignore Latin case</option><option value="regex">Regular expression</option></select></label>
         <label><span>Scope</span><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option value="project">Entire project</option><option value="selection" disabled={!selectedIds.length}>Selected captions ({selectedIds.length})</option></select></label>
       </div>
       <div className="replace-memory">
-        <ShieldPlus size={16}/><div><strong>Remember for later?</strong><span>Safe aliases can become project/global vocabulary. Different product names should usually be protected terms, not universal aliases.</span></div>
-        <select value={remember} disabled={mode === 'regex'} title={mode === 'regex' ? 'Regex replacements are not saved as glossary rules.' : undefined} onChange={(event) => setRemember(event.target.value as typeof remember)}><option value="none">Do not remember</option><option value="project">Add to project glossary</option><option value="global">Add to global glossary</option></select>
+        <ShieldPlus size={16}/><div><strong>Remember this correction?</strong><span>Save reusable aliases in a project or global glossary. Use protected terms for distinct names.</span></div>
+        <select value={remember} disabled={mode === 'regex'} title={mode === 'regex' ? 'Regex patterns cannot be saved as glossary rules.' : undefined} onChange={(event) => setRemember(event.target.value as typeof remember)}><option value="none">Do not remember</option><option value="project">Add to project glossary</option><option value="global">Add to global glossary</option></select>
       </div>
-      <div className="find-summary"><b>{preview.count}</b><span>matches in {preview.captions.length} captions</span>{preview.locked > 0 && <em>{preview.locked} protected by text locks</em>}</div>
+      <div className="find-summary"><b>{preview.count}</b><span>match{preview.count === 1 ? '' : 'es'} in {preview.captions.length} caption{preview.captions.length === 1 ? '' : 's'}</span>{preview.locked > 0 && <em>{preview.locked} protected by text locks</em>}</div>
       <div className="find-preview">
         {preview.captions.slice(0, 30).map((caption) => <div key={caption.id}><time>{(caption.startMs / 1000).toFixed(1)}s</time><p>{caption.text}</p>{caption.textLocked && <span>Locked</span>}</div>)}
         {preview.captions.length > 30 && <small>+ {preview.captions.length - 30} more captions</small>}
-        {!preview.captions.length && <div className="review-empty">No matches yet.</div>}
+        {!preview.captions.length && <div className="review-empty">{query ? 'No matches found.' : 'Enter text to find matches.'}</div>}
       </div>
       {error && <div className="inline-form-error">{error}</div>}
       <div className="modal-actions"><button onClick={onClose}>Cancel</button><button className="primary" onClick={() => void apply()} disabled={!preview.count}><Replace size={15}/>Replace editable matches</button></div>

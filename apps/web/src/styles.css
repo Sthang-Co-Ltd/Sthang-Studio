@@ -437,6 +437,21 @@ body{color:var(--text);caret-color:var(--accent)}
 :is(.correction-pair label,.diff-summary-grid span,.diff-item-meta span,.diff-item-meta em,.diff-pair label,.history-badges i,.regen-title-copy p,.regen-beginner-guide,.regen-change-nav,.regen-summary>span,.regen-change-focus b,.regen-change-focus em,.regen-comparison header span,.regen-comparison header button,.regen-comparison small,.regen-honesty-note,.regen-refine-copy span,.regen-hint>span,.regen-accuracy-truth,.regen-job-progress span,.regen-candidates article strong,.regen-candidates article small,.regen-candidate-note,.new-user-guide>footer){font-size:10px!important;line-height:1.45}
 :is(.correction-actions button,.history-toolbar button,.history-list article>button,.job-actions button,.ai-settings-actions button,.waveform-controls button,.waveform-controls select,.regen-playback-bar>button,.regen-change-nav button,.regen-comparison header button,.regen-refine-actions button,.regen-apply-actions button,.regen-preview-switch button){font-size:10.5px!important;min-height:34px}
 
+/* Settings keep privacy and connection guidance legible at phone and desktop sizes.
+   Its sheet stays above the shared toast stack while an action is being chosen. */
+.profile-settings-backdrop{z-index:100}
+.profile-modal .ai-connection-copy strong,.profile-modal .ai-section-title strong{font-size:13px}
+.profile-modal .ai-connection-copy span,.profile-modal .ai-section-title a,.profile-modal .secure-storage-note strong,.profile-modal .ai-key-field>span,.profile-modal .ai-model-grid label>span,.profile-modal .ai-settings-actions>span{font-size:12px!important;line-height:1.5}
+.profile-modal .ai-section-title span,.profile-modal .secure-storage-note span,.profile-modal .ai-model-help,.profile-modal .ai-test-result span,.profile-modal .ai-inline-message span{font-size:13px!important;line-height:1.55}
+.profile-modal .ai-test-result strong{font-size:12px!important}
+.profile-modal .ai-status-pill{font-size:10px}
+.profile-modal .ai-key-field input,.profile-modal .ai-model-grid input{font-size:13px}
+.profile-modal .ai-settings-actions button{font-size:13px!important;min-height:40px}
+@media(max-width:380px){
+  .profile-modal .settings-tabs{padding-inline:8px}
+  .profile-modal .settings-tabs button{padding-inline:5px;gap:4px;font-size:10.5px}
+}
+
 @media(max-width:900px){
   .stage-column.workspace-tool-collapsed{display:block;overflow:visible}
   .workspace-tool-collapsed .media-stage{height:min(58vh,580px);min-height:260px;max-height:580px}
@@ -504,4 +519,25 @@ body{color:var(--text);caret-color:var(--accent)}
 @media(max-width:380px){
   .header-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .header-actions>button,.workspace-tools-menu>summary{width:100%;min-height:44px}
+}
+
+/* The Find & Correct side sheet is narrower than the viewport on desktop. */
+.find-replace-modal .modal-head>div{flex-direction:row;align-items:center;gap:10px;min-width:0}
+.find-replace-modal .modal-head>div>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.find-replace-modal .find-grid label{min-width:0}
+.find-replace-modal .find-grid input,.find-replace-modal .find-grid select{min-width:0;width:100%}
+@media(min-width:901px){.find-replace-modal .find-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){
+  .find-replace-modal{overflow-y:auto}
+  .find-replace-modal .find-preview{flex-shrink:0;max-height:min(310px,30vh)}
+  .find-replace-modal .modal-actions{flex-shrink:0}
+  .find-replace-modal .modal-head>button{width:44px;height:44px;flex:none}
+  .find-replace-modal .find-grid input,.find-replace-modal .find-grid select,.find-replace-modal .replace-memory select{min-height:44px}
+  .find-replace-modal .modal-actions button{min-height:44px;font-size:11px}
+  .regeneration-dock .regen-close{width:44px;height:44px}
+  .regeneration-dock .regen-change-focus{min-height:44px}
+  .regeneration-dock .regen-preview-switch{height:44px}
+  .regeneration-dock .regen-playback-bar>button,.regeneration-dock .regen-change-nav button,.regeneration-dock .regen-refine-actions button,.regeneration-dock .regen-apply-actions button{min-height:44px}
+  .regeneration-dock .regen-comparison header{height:44px}
+  .regeneration-dock .regen-comparison header button,.regeneration-dock .regen-hint input{min-height:44px}
 }

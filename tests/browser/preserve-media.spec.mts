@@ -109,7 +109,7 @@ async function submitReplacement(page: Page, mode: 'preserve' | 'reset') {
   }
   return dialog;
 }
-const acceptTimingLabel = 'I accept keeping the existing caption and word times.';
+const acceptTimingLabel = 'I accept the existing times and will check their alignment.';
 async function requestAudioWarning(page: Page, filename?: string) {
   const dialog = await chooseFile(page, filename);
   await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
@@ -152,7 +152,7 @@ test('Accuracy fields keep native labels and exact accessible names across edits
       expect(association.id).not.toBe('');
       expect(association.labels).toEqual([{ htmlFor: association.id, text: name, controlMatches: true, containsField: false }]);
     }
-    await expect(fields.description).toHaveAccessibleDescription(/Use this to help Studio recognize unusual names/);
+    await expect(fields.description).toHaveAccessibleDescription(/^Help recognize names, brands, versions, and Khmer-English speech\. Full-context transcription uses the topic description; experimental transcription-only mode uses selected terms as hints\.$/);
     await expect(fields.vocabulary).toHaveAccessibleDescription(new RegExp(`^${count} terms One term per line\\.`));
     await expect(page.locator('.accuracy-card .context-field b')).toHaveText(String(count));
   };
@@ -248,8 +248,8 @@ test('changed audio needs unchecked explicit acceptance and cancellation cannot 
   const f = await fixture(page); f.changeAudio();
   await openProject(page);
   const dialog = await requestAudioWarning(page);
-  await expect(dialog).toContainText('Existing caption and word times will be kept');
-  await expect(dialog).toContainText('alignment is your responsibility');
+  await expect(dialog).toContainText('Caption and word times will stay unchanged');
+  await expect(dialog).toContainText('You must check their alignment against the new audio');
   expect(f.requests).toHaveLength(1);
   expect(f.requests[0].audioChangeConfirmation).toBeUndefined();
   expect(f.state.projects[0]).toEqual(f.original);
@@ -663,7 +663,7 @@ for (const mode of ['preserve', 'reset'] as const) {
       await expect(replacementFields.vocabulary).toHaveValue(f.original.transcriptionContext!.vocabulary!.join('\n'));
       const recovery = page.locator('.replacement-edit-recovery').filter({ has: page.getByRole('button', { name: 'Copy recovery', exact: true }) });
       await expect(recovery).toHaveCount(1);
-      await expect(recovery).toContainText('belong to that previous media');
+      await expect(recovery).toContainText('belong to the previous media and were not applied here');
       await recovery.getByRole('button', { name: 'Copy recovery', exact: true }).click();
       await expect.poll(() => page.evaluate(() => (window as any).__copiedAccuracyRecovery ?? null)).not.toBeNull();
       const payload = await page.evaluate(() => JSON.parse((window as any).__copiedAccuracyRecovery));

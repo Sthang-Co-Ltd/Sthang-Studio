@@ -1,0 +1,13 @@
+.history-modal-head > .history-heading-row { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; min-width: 0; }
+.history-heading-row > svg { flex: none; margin-top: 2px; color: #bfc8d2; }
+.history-modal .history-heading-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.history-heading-copy strong { color: #e9edf1; font-size: 14px; line-height: 1.25; }
+.history-heading-copy span { color: #8a939e; font-size: 11px; line-height: 1.45; }
+.history-modal-close { flex: none; width: 36px; height: 36px; border: 1px solid #303741; border-radius: 9px; background: #15191e; color: #aeb7c0; display: grid; place-items: center; cursor: pointer; }
+.history-modal :focus-visible { outline: 2px solid #d7ff4f; outline-offset: 2px; }
+@media (max-width: 620px) {
+  .history-modal-head { padding: 14px; gap: 10px; }
+  .history-modal-close { width: 44px; height: 44px; }
+  .history-modal .history-toolbar button, .history-modal .history-list article > button { min-height: 44px !important; }
+  .history-modal .history-list article { grid-template-columns: 28px minmax(0,1fr) auto; gap: 7px; }
+}

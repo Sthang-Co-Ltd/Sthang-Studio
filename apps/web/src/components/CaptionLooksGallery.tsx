@@ -75,7 +75,7 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
     <div className="caption-effects-section-head">
       <div>
         <strong id="appearance-look-title">Look</strong>
-        <span>Choose a Look for all captions. Your font, weight, size, position, Motion and word emphasis stay as they are.</span>
+        <span>Looks change decoration for all captions. Font, weight, size, position, motion and word emphasis stay unchanged.</span>
       </div>
       <button type="button" className="effect-reset-button" onClick={onReset}>
         <RotateCcw size={14}/>Reset look
@@ -99,6 +99,6 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
         </span>
       </button>)}
     </div>
-    <small className="appearance-look-note">Style samples only. Check the video above for final layout.</small>
+    <small className="appearance-look-note">Samples show style only. Check the video for final layout.</small>
   </section>;
 }

@@ -9,15 +9,14 @@ export function Upload({ onUpload, busy, beforeDropzone }: { onUpload:(file:File
   return <div className="empty-stage">
     <StudioBrand variant="hero" moduleLabel="CAPTIONS" moduleDescriptor=""/>
     <h1>Accurate Khmer captions, ready for CapCut.</h1>
-    <p className="lead">Drop in a video, generate captions, review, and export.</p>
+    <p className="lead">Upload, generate, review, and export.</p>
     {beforeDropzone}
     <button aria-label="Choose a video or audio file" className={`dropzone ${drag?'drag':''}`} onClick={()=>ref.current?.click()}
       onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)}
       onDrop={e=>{e.preventDefault();setDrag(false);accept(e.dataTransfer.files[0])}} disabled={busy}>
-      <FileUp className="upload-file-icon" size={34}/><strong>{busy?'Uploading…':'Choose a video or audio file'}</strong><span>Drag it here, or click to browse · MP4, MOV, MP3, WAV and more</span>
+      <FileUp className="upload-file-icon" size={34}/><strong>{busy?'Uploading…':'Choose a video or audio file'}</strong><span>Or drag a file here · MP4, MOV, MP3, WAV and more</span>
     </button>
     <input ref={ref} hidden type="file" accept="video/*,audio/*" onChange={e=>accept(e.target.files?.[0])}/>
-    <div className="feature-pills"><span>Khmer-first text</span><span>Precise Khmer timing</span><span>CapCut-ready SRT</span></div>
     <div className="sthang-parent-note">A STHANG PRODUCT</div>
   </div>;
 }

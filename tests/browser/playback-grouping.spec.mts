@@ -219,7 +219,7 @@ test('committed media replacement with cleanup warnings still publishes the repl
     await expect(warning).toContainText('Media replaced.');
     await expect(warning).toContainText('replacement is usable');
     const recovery = page.locator('.replacement-edit-recovery');
-    await expect(recovery).toContainText('were not applied to the replacement');
+    await expect(recovery).toContainText('were not applied here');
     await expect(recovery.getByRole('button', { name: 'Copy recovery', exact: true })).toBeVisible();
   } finally { release(); }
 });

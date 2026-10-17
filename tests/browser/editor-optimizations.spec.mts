@@ -30,7 +30,7 @@ test('Find & Replace suppresses background scans while closed and recalculates u
   // 1. Open Find & Replace and search for 'កម្ពុជា'
   const modal = await openFindReplace(page);
   await modal.getByLabel('Find', { exact: true }).fill('កម្ពុជា');
-  await expect(modal.locator('.find-summary')).toContainText(/1\s*matches in 1 captions/);
+  await expect(modal.locator('.find-summary')).toContainText(/1\s*match in 1 caption/);
 
   const scanCountOpen = await getFindReplaceScanCount(page);
   expect(scanCountOpen).toBeGreaterThanOrEqual(1);
@@ -76,7 +76,7 @@ test('Find & Replace literal mode handles dollar signs safely without regex back
   await modal.getByLabel('Replace with', { exact: true }).fill('$100');
 
   // Preview shows 1 match
-  await expect(modal.locator('.find-summary')).toContainText(/1\s*matches in 1 captions/);
+  await expect(modal.locator('.find-summary')).toContainText(/1\s*match in 1 caption/);
 
   // Apply replacement
   await modal.getByRole('button', { name: /Replace editable matches/ }).click();
@@ -147,7 +147,7 @@ test('Find & Replace regex mode replaces with backreferences and disables glossa
   await modal.getByLabel('Find', { exact: true }).fill('(Cap)(Cut)');
   await modal.getByLabel('Replace with', { exact: true }).fill('$2-$1-Pro');
 
-  await expect(modal.locator('.find-summary')).toContainText(/1\s*matches in 1 captions/);
+  await expect(modal.locator('.find-summary')).toContainText(/1\s*match in 1 caption/);
 
   // Apply replacement
   await modal.getByRole('button', { name: /Replace editable matches/ }).click();

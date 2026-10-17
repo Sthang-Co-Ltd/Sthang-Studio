@@ -11,3 +11,8 @@
 @media(max-width:560px){.update-panel{width:100%}.update-overlay{backdrop-filter:none}}
 .update-failure{display:flex;align-items:flex-start;gap:10px;padding:14px;border-radius:10px;border:1px solid rgba(255,190,74,.25);background:rgba(255,190,74,.07)}
 .update-failure strong{display:block;font-size:13px}.update-failure span{display:block;margin-top:4px;color:var(--text-muted,#9aa2ad);font-size:12px;line-height:1.5}
+.update-panel button{min-height:40px;border:1px solid #303741;border-radius:9px;background:#171b20;color:#d9dde3;font-size:13px;padding:0 12px;cursor:pointer}
+.update-panel>header>button{width:40px;padding:0;background:#171b20}
+.update-panel button:focus-visible{outline:2px solid var(--accent,#d7ff4f);outline-offset:2px}
+.update-panel button:disabled{opacity:.45;cursor:not-allowed}
+.update-notes pre{font-family:inherit;font-size:13px;line-height:1.55}

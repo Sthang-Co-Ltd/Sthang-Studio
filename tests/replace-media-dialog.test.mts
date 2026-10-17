@@ -28,17 +28,17 @@ test('replacement starts in preserve mode with ordinary verification and no adva
   assert.doesNotMatch(html, /type="checkbox"/);
   assert.doesNotMatch(button(html, 'Replace and keep captions'), /disabled=/);
   assert.doesNotMatch(button(html, 'Cancel'), /disabled=/);
-  assert.match(html, /Studio checks the audio before replacing/);
+  assert.match(html, /Studio checks the new audio first/);
   assert.match(html, /No captions are generated automatically/);
   assert.match(html, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="replace-media-title"/);
 });
 
 test('only a supplied audio mismatch confirmation reveals an unchecked honest timing warning', () => {
   const html = replace({ preserveAudioConfirmation: { token: 'opaque-selected-file-and-revision', expiresAt: '2099-01-01T00:00:00.000Z' } });
-  assert.match(html, /Keep existing timing with different audio\?/);
-  assert.match(html, /Existing caption and word times will be kept/);
-  assert.match(html, /alignment is your responsibility/);
-  assert.match(html, /I accept keeping the existing caption and word times\./);
+  assert.match(html, /Keep old timing with different audio\?/);
+  assert.match(html, /Caption and word times will stay unchanged/);
+  assert.match(html, /You must check their alignment against the new audio/);
+  assert.match(html, /I accept the existing times and will check their alignment\./);
   const checkbox = [...html.matchAll(/<input\b[^>]*>/g)].map((match) => match[0]).find((tag) => tag.includes('type="checkbox"'))!;
   assert.ok(checkbox);
   assert.doesNotMatch(checkbox, /checked=/);
@@ -84,7 +84,7 @@ test('source filenames and server error text are escaped rather than interpreted
 
 test('empty and loading recovery states cannot restore or delete an arbitrary backup', () => {
   const empty = restore();
-  assert.match(empty, /No saved replacement backups/);
+  assert.match(empty, /No replacement backups yet/);
   assert.match(button(empty, 'Restore selected backup'), /disabled=""/);
   assert.equal(button(empty, 'Delete backup'), undefined);
   const loading = restore({ loading: true });
@@ -99,9 +99,9 @@ test('recovery offers explicit restore and delete actions and communicates the w
   assert.match(html, /name="replacement-backup" checked=""/);
   assert.doesNotMatch(button(html, 'Restore selected backup'), /disabled=/);
   assert.doesNotMatch(button(html, 'Delete backup'), /disabled=/);
-  assert.match(html, /captions, approvals, timing and appearance/);
+  assert.match(html, /captions, approvals, timing, and appearance/);
   assert.match(html, /current saved project becomes another backup/);
-  assert.match(html, /Up to five local backups/);
+  assert.match(html, /Studio keeps up to five local backups/);
 });
 
 test('a pending restore blocks both deletion and closing while keeping progress visible', () => {
