@@ -101,7 +101,7 @@ test('changing the slider applies the requested limit only on Apply grouping', a
   expect(current.captions.map((caption) => caption.text)).not.toEqual(before);
   await controls.getByRole('button', { name: /^Word/ }).click();
   await expect(slider).toBeDisabled();
-  await expect(controls).toContainText('not a word count');
+  await expect(controls).toContainText('Character limit, not word count.');
 });
 
 test('failed edit-save prevents regrouping and keeps the draft', async ({ page }) => {
@@ -744,7 +744,7 @@ test('replacement recovery retains late text/timing and pre-existing locks/appro
     await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveCount(0);
     await expect(page.locator('.project-title')).toContainText('clean-replacement.mp4 · saved');
     const recovery = page.locator('.replacement-edit-recovery');
-    await expect(recovery).toContainText('belong to that previous media');
+    await expect(recovery).toContainText('belong to the previous media and were not applied here.');
     await recovery.getByRole('button', { name: 'Copy recovery', exact: true }).click();
     await expect.poll(() => page.evaluate(() => {
       const raw = (window as any).__copiedReplacementEdits;
@@ -1029,7 +1029,8 @@ test('History restore publishes normally and preserves a newer local draft while
   const restore = async () => {
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /History/ }).click();
-    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Project history', exact: true })
+      .getByRole('button', { name: /^Restore Synthetic restore point saved / }).click();
     await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
   };
   try {
@@ -1041,6 +1042,8 @@ test('History restore publishes normally and preserves a newer local draft while
 
     await restore();
     await expect.poll(() => calls).toBe(2);
+    await page.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Project history', exact: true })).toHaveCount(0);
     await field.fill('NEWER EDIT DURING HISTORY RESTORE');
     await page.getByLabel('Caption 1 start time', { exact: true }).fill('00:00.888');
     await page.getByLabel('Caption 1 start time', { exact: true }).press('Enter');
@@ -1133,7 +1136,7 @@ test('failed dirty-caption save blocks correction navigation', async ({ page }) 
   await field.fill('Dirty correction that must be saved before leaving');
   await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Correction inbox/ }).click();
-  await page.getByRole('button', { name: 'Play spoken audio', exact: true }).click();
+  await page.getByRole('button', { name: 'Review audio', exact: true }).click();
   await expect.poll(() => saveCalls).toBe(2);
   expect(saveSources).toEqual(['text-edit', 'manual-save']);
   await expect(page.getByRole('alert')).toContainText('Synthetic correction pre-save failure');
@@ -1169,7 +1172,7 @@ test('correction project read keeps edits typed after its successful pre-save', 
     await field.fill('Saved before correction navigation');
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /Correction inbox/ }).click();
-    await page.getByRole('button', { name: 'Play spoken audio', exact: true }).click();
+    await page.getByRole('button', { name: 'Review audio', exact: true }).click();
     await expect.poll(() => targetReadStarted).toBe(true);
     expect(state.projects[0].captions[0].text).toBe('Saved before correction navigation');
     await field.fill('Newer edit while correction project is loading');

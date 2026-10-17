@@ -154,7 +154,7 @@ test('a font added during initial discovery remains selected and completes loadi
     await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Creator Khmer');
     release.resolve();
     await expect(page.getByRole('button', { name: 'Replay effect', exact: true })).toBeEnabled();
-    await expect(page.locator('.appearance-inline-warning').filter({ hasText: 'Creator Khmer is not available' })).toHaveCount(0);
+    await expect(page.locator('.appearance-inline-warning').filter({ hasText: 'Creator Khmer is unavailable' })).toHaveCount(0);
     await expect.poll(() => state.projects[0].captionAppearance?.fontFamily).toBe('Creator Khmer');
   } finally { release.resolve(); }
 });

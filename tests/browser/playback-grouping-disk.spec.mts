@@ -385,9 +385,12 @@ test('disk-backed History restore cannot falsely mark a newer saved edit as save
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /History/ }).click();
     await page.locator('.history-list article').filter({ hasText: 'Disk-backed restore point' })
-      .getByRole('button', { name: 'Restore', exact: true }).click();
+      .getByRole('button', { name: /^Restore Disk-backed restore point saved / }).click();
     await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
     await expect.poll(() => restoreRequested).toBe(true);
+    // Dismiss the focus-trapped history dialog while the submitted restore remains pending.
+    await page.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Project history', exact: true })).toHaveCount(0);
     await field.fill('LATEST VISIBLE EDIT');
 
     const restoreResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history/history/history-old/restore'));
@@ -465,9 +468,12 @@ test('disk-backed History restore serializes a later save until the restore resp
 
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /History/ }).click();
-    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Project history', exact: true }).getByRole('button', { name: /^Restore Serialized restore point saved / }).click();
     await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
     await expect.poll(() => restoreRequested).toBe(true);
+    // Dismiss the focus-trapped history dialog while the submitted restore remains pending.
+    await page.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Project history', exact: true })).toHaveCount(0);
 
     await field.fill('NEWER EDIT QUEUED BEHIND RESTORE');
     await page.keyboard.press('Control+s');
@@ -547,9 +553,12 @@ test('clean Ctrl+S queued behind History restore cannot write its pre-restore sn
 
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /History/ }).click();
-    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Project history', exact: true }).getByRole('button', { name: /^Restore Queued snapshot restore point saved / }).click();
     await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
     await expect.poll(() => restoreRequested).toBe(true);
+    // Dismiss the focus-trapped history dialog while the submitted restore remains pending.
+    await page.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Project history', exact: true })).toHaveCount(0);
 
     // No caption edit: Ctrl+S may be coalesced/no-op rather than entering the queue.
     await field.focus();
@@ -644,9 +653,12 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
 
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /History/ }).click();
-    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Project history', exact: true }).getByRole('button', { name: /^Restore Mixed save restore point saved / }).click();
     await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
     await expect.poll(() => restoreRequested).toBe(true);
+    // Dismiss the focus-trapped history dialog while the submitted restore remains pending.
+    await page.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Project history', exact: true })).toHaveCount(0);
 
     // S1 is redundant and should not become queued persistence work.
     await field.focus();
@@ -747,19 +759,20 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
 
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /History/ }).click();
-    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Project history', exact: true }).getByRole('button', { name: /^Restore Navigation restore point saved / }).click();
     await page.getByRole('button', { name: 'Restore checkpoint', exact: true }).click();
     await expect.poll(() => restoreRequested).toBe(true);
+    // Dismiss the focus-trapped history dialog while the submitted restore remains pending.
+    await page.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Project history', exact: true })).toHaveCount(0);
 
     await field.focus();
     await page.keyboard.press('Control+s');
     expect(oldProjectSaveBodies).toHaveLength(0);
 
     // Leave the old editor session while its already-submitted restore is still held.
-    await page.getByLabel('Back to projects', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+    await page.getByLabel('Back to projects', { exact: true }).click();
     await expect(page.getByRole('button', { name: /Serialized Save Ack Race/ })).toBeVisible();
-    await page.locator('.history-modal .modal-head button').evaluate((button: HTMLButtonElement) => button.click());
-    await expect(page.locator('.history-modal')).toHaveCount(0);
     await page.getByRole('button', { name: /Serialized Save Ack Race/ }).click();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/disk-history-serialized.mp4');
     const otherField = page.getByLabel('Caption 1 text', { exact: true });
