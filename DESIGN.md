@@ -308,6 +308,13 @@ whole editor every decoded frame. Keep lookahead bounded and cancel safely on
 new project, media, word edits, visual changes or obsolete focus. Until new
 native pixels arrive, an older bitmap must never be marked exact for another
 word. Replay, motion, pauses and Review Focus continue to share export geometry.
+If a current native paint finishes after playback has passed it, one bounded
+lookahead attempt may target the predicted completion time to recover useful
+exact pixels. This best-effort recovery never changes playback or saved timing
+and cannot guarantee every paint on a slower renderer. Keep that attempt within
+nine nearby states, one second of timeline lookahead and one second of wall time;
+seek, pause, playback-rate changes and edits reset it. Unavailable speculative
+work must yield back to the exact current paint.
 
 ### Caption rows
 
