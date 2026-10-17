@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
-import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, fixtureExportUrl, fixtureMedia, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 import type { ProcessingJob } from '@kcs/shared';
 
 test.beforeAll(prepareFixtures);
@@ -13,7 +13,7 @@ function job(id: string, status: ProcessingJob['status']): ProcessingJob {
     stage: 'rendering', progress: status === 'completed' ? 100 : 55, message: `${id} render`,
     canResume: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:02Z',
     startedAt: '2026-01-01T00:00:00Z', ...(status === 'completed' ? { completedAt: '2026-01-01T00:00:02Z', resultExport: {
-      filename: 'synthetic-captioned.mp4', url: '/exports/synthetic-captioned.mp4', sizeBytes: 12000,
+      filename: 'synthetic-captioned.mp4', url: fixtureExportUrl(), sizeBytes: 12000,
       width: 640, height: 360, frameRate: 25, videoCodec: 'h264', encoder: 'libx264', audioCodec: null,
       durationMs: 4000, createdAt: '2026-01-01T00:00:02Z',
     } } : {}) };

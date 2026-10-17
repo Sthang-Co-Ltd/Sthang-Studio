@@ -40,7 +40,9 @@ export function playTimingRange(
   const ended = () => { if (range.loop) restart(); else cleanup(); };
   const tick = () => {
     if (!active) return;
-    if (media.currentTime >= end) {
+    // A new seek position is visible before its queued seeking handler can
+    // release range ownership. Never clamp or restart that pending seek.
+    if (!media.seeking && media.currentTime >= end) {
       if (range.loop) restart();
       else { stop(); media.currentTime = end; return; }
     }

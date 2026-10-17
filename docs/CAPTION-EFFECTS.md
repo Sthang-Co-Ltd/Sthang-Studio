@@ -251,3 +251,14 @@ with reviewed release evidence before public advertising; do not reuse an old
 release exception. There are no cross-repository writes, new cloud services,
 dependencies, copied effect assets, font distributions or telemetry categories
 in this implementation.
+
+The source-only manual-seek correction uses change ID
+`studio-replay-seek-correction-20261017`. It restores the existing contract that
+source-player seeking takes over from replay without changing the chosen position
+or playback. It adds no effect, dependency, data transfer or released-download
+claim. Product evidence is this guide's replay contract, the Unreleased changelog,
+and the playback/browser regressions. Proposed HQ follow-up is a source-correction
+and validation-evidence entry; the known `/studio/` Distribution surfaces above
+need synchronization only when the governed release evidence is updated. The
+accepted v0.86.0 manifest remains unchanged; downstream writes and release work
+retain their separate approvals.

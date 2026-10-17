@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { continueOwnedRoute } from './owned-browser-routes.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, seek } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
@@ -203,7 +204,7 @@ test('repeated Retry before metadata keeps the original recovery position', asyn
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.seeking)).toBe(false);
   const release = deferred(); let requests = 0;
   await page.route('**/media/landscape.mp4?compatible=1', async (route) => {
-    requests++; await release.promise; await route.continue().catch(() => {});
+    requests++; await release.promise; await continueOwnedRoute(route).catch(() => {});
   });
   try {
     await page.locator('video').dispatchEvent('error');
@@ -249,7 +250,7 @@ test('opening a cached copy before original metadata retains the selected editin
   await page.getByText('Snapping, playback speed and display', { exact: true }).click();
   await page.getByLabel('Timing playback speed', { exact: true }).selectOption('1.5');
   const release = deferred();
-  await page.route('**/media/second.mp4', async (route) => { await release.promise; await route.continue().catch(() => {}); });
+  await page.route('**/media/second.mp4', async (route) => { await release.promise; await continueOwnedRoute(route).catch(() => {}); });
   try {
     await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();

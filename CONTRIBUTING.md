@@ -51,6 +51,38 @@ The Python timing worker can be syntax-checked without downloading models:
 python -m py_compile local-timing/worker.py
 ```
 
+### Browser tests
+
+Run `npm run test:browser` with an already installed Playwright browser. The test
+launcher selects explicit per-run loopback ports and creates fresh project and
+credential-storage directories. Use the launcher rather than invoking Playwright
+directly; the test configuration requires its ownership information.
+
+Mock and disk-backed fixtures share the same port and random route namespace.
+Browser forwarding adds that namespace before transport and rejects redirects,
+including requests held by test route handlers.
+The native HTTP download fixture uses an absolute, namespaced URL on the
+continuously owned mock API listener, a different origin from the frontend.
+That fixed attachment endpoint does not
+redirect or proxy, and stays bound through download and test-context cleanup. Its
+filename and byte assertions cover Chromium's native HTTP attachment path and
+`Content-Disposition` filename; they do not
+cover relative `/exports` URL resolution through the frontend. A cross-origin
+attachment navigation may enter Playwright routing: only this exact URL may
+continue to the live owned listener after its ownership is checked again.
+Native downloads may bypass routing, so this fixture is not a generic redirect
+guard.
+The disk fixture waits for its own child process to report a successful listener
+and verifies the launch identity before navigation. The frontend also reports
+readiness only after its own loopback bind succeeds. Fixture preferences are seeded
+only in its fresh local store, without an HTTP setup update. Startup, ownership or
+routing failures stop the test; an existing Studio service is never a substitute
+for the test server. Do not stop another app or change its settings to make a test
+pass. Retain failure evidence and report any isolation failure before continuing.
+
+The strict harness currently runs on Windows and Linux. It stops on macOS until
+the test credential store can be isolated from the system Keychain.
+
 ## Pull requests
 
 A good PR:

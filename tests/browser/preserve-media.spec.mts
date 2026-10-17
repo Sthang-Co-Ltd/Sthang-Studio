@@ -322,8 +322,10 @@ test('accepted audio difference submits once and keeps reviewed words, locks and
     await expect.poll(() => f.restoreCount()).toBe(1);
     expect(f.state.projects[0].captions).toEqual(before.captions);
     expect(f.state.projects[0].mediaAlignment).toBeUndefined();
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/rollback-fresh.mp4');
     const detailsButton = page.getByRole('button', { name: 'Details', exact: true });
-    if (await detailsButton.getAttribute('aria-pressed') !== 'true') await detailsButton.click();
+    await expect(detailsButton).toHaveAttribute('aria-pressed', 'false');
+    await detailsButton.click();
     await expect(page.locator('.timing-card')).toContainText('KFA Khmer alignment active');
     await expect(page.locator('.timing-card')).not.toContainText('Previous audio timing evidence');
     noGeneration(f.state);

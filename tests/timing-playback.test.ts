@@ -9,6 +9,7 @@ class FakeMedia {
   currentTime = 0;
   paused = true;
   ended = false;
+  seeking = false;
   playCalls = 0;
   pauseCalls = 0;
   playResult: () => Promise<void> = async () => {};
@@ -305,5 +306,106 @@ test('a delayed pause event from earlier playback does not retire the current re
     assert.equal(media.currentTime, 2);
     release();
     assert.equal(finished, 1);
+  } finally { raf.restore(); }
+});
+
+for (const loop of [false, true]) {
+  test(`a pending user seek keeps its target before replay ownership is released (loop=${loop})`, async () => {
+    const raf = installAnimationFrame();
+    try {
+      const media = new FakeMedia();
+      let finished = 0;
+      const release = playTimingRange(asMedia(media), { startMs: 1000, endMs: 2000, loop },
+        () => assert.fail('seeking should not report an error'), () => { finished += 1; });
+
+      // Assigning currentTime marks a native seek before its queued seeking
+      // notification lets the caller release the audition's range ownership.
+      media.currentTime = 6;
+      media.seeking = true;
+      media.emit('pause'); // A queued older pause must not retire current playback.
+      for (let frame = 0; frame < 3; frame += 1) {
+        assert.equal(raf.runOneFrame(), true);
+        assert.equal(media.currentTime, 6, 'a frame must not clamp or restart the pending user seek');
+        assert.equal(media.paused, false);
+        assert.equal(media.pauseCalls, 0);
+        assert.equal(media.playCalls, 1);
+        assert.equal(finished, 0);
+        assert.equal(raf.pending(), 1);
+      }
+
+      // Model the caller's delayed native seeking notification.
+      release(false);
+      media.seeking = false;
+      assert.equal(media.currentTime, 6);
+      assert.equal(media.paused, false);
+      assert.equal(finished, 1);
+      assert.equal(raf.pending(), 0);
+      assert.equal(raf.runOneFrame(), false);
+      assert.equal(media.listenerCount('pause'), 0);
+      assert.equal(media.listenerCount('ended'), 0);
+      release();
+      assert.equal(media.pauseCalls, 0, 'a retired disposer cannot pause the user playback');
+      assert.equal(finished, 1);
+      await settlePromises();
+    } finally { raf.restore(); }
+  });
+}
+
+test('pending initial and internal loop seeks keep the timing session active until settled', () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let finished = 0;
+    const dispose = playTimingRange(asMedia(media), { startMs: 500, endMs: 2000, loop: true },
+      () => assert.fail('internal seeks should not report an error'), () => { finished += 1; });
+    media.seeking = true;
+    assert.equal(raf.runOneFrame(), true);
+    assert.equal(media.currentTime, 0.5);
+    assert.equal(media.playCalls, 1);
+    assert.equal(finished, 0);
+
+    media.seeking = false;
+    media.currentTime = 2;
+    assert.equal(raf.runOneFrame(), true);
+    assert.equal(media.currentTime, 0.5);
+    assert.equal(media.playCalls, 2);
+    media.seeking = true;
+    assert.equal(raf.runOneFrame(), true);
+    assert.equal(media.currentTime, 0.5);
+    assert.equal(media.playCalls, 2);
+    assert.equal(media.pauseCalls, 0);
+    assert.equal(finished, 0);
+    assert.equal(raf.pending(), 1);
+
+    media.seeking = false;
+    media.currentTime = 1;
+    assert.equal(raf.runOneFrame(), true);
+    dispose();
+    assert.equal(finished, 1);
+    assert.equal(media.pauseCalls, 1);
+    assert.equal(raf.pending(), 0);
+  } finally { raf.restore(); }
+});
+
+test('explicit cancellation still retires a timing session during a pending seek', () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let finished = 0;
+    const dispose = playTimingRange(asMedia(media), { startMs: 1000, endMs: 2000, loop: false },
+      () => assert.fail('cancellation should not report an error'), () => { finished += 1; });
+    media.currentTime = 1.5;
+    media.seeking = true;
+    assert.equal(raf.runOneFrame(), true);
+    dispose();
+    assert.equal(media.currentTime, 1.5);
+    assert.equal(media.paused, true);
+    assert.equal(media.pauseCalls, 1);
+    assert.equal(finished, 1);
+    assert.equal(media.listenerCount('pause'), 0);
+    assert.equal(media.listenerCount('ended'), 0);
+    assert.equal(raf.pending(), 0);
+    dispose();
+    assert.equal(media.pauseCalls, 1);
   } finally { raf.restore(); }
 });

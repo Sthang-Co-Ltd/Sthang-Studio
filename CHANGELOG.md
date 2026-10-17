@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Source-only - preserve manual seeks during replay:** a pending source-player
+  seek takes precedence over the bounded replay endpoint, keeping the chosen
+  position and playback instead of snapping back and pausing.
+
 - **Source-only - accept edited audio while keeping reviewed times:** after local
   file, decoder and timeline safety checks, offer explicit acceptance for volume
   changes, added music and sound effects. Keep exact captions/word times, approvals

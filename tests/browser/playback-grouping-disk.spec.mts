@@ -1,20 +1,21 @@
 import { test, expect } from '@playwright/test';
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { CaptionProject } from '@kcs/shared';
+import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
+import { startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
+import { continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const harness = requireHarnessConfig();
 let root = '';
 let projectFile = '';
 let serializedProjectFile = '';
 let queuedSnapshotProjectFile = '';
 let mixedSaveProjectFile = '';
 let navigationProjectFile = '';
-let server: ChildProcess | null = null;
-let serverOutput = '';
+let server: OwnedApi | null = null;
+let detachChildExit: (() => void) | null = null;
 
 function caption(text: string) {
   return {
@@ -28,28 +29,12 @@ function caption(text: string) {
   };
 }
 
-async function waitForServer() {
-  // Cold tsx startup on Windows was measured at 10.3 seconds locally. The old
-  // six-second readiness gate failed before these history assertions could run.
-  // Bound startup separately; do not extend or weaken any interaction assertion.
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (server?.exitCode != null) throw new Error(`Disk-backed test server exited early (${server.exitCode}).\n${serverOutput}`);
-    try {
-      const response = await fetch('http://127.0.0.1:8787/api/projects?summary=1', { signal: AbortSignal.timeout(1000) });
-      if (response.ok) return;
-    } catch { /* startup */ }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for disk-backed test server.\n${serverOutput}`);
-}
-
 test.beforeAll(async () => {
   // The hook also creates several disk fixtures and a real media sample before
   // starting the server. Give that bounded cold-start path room beyond the
   // suite's normal 30s interaction budget without relaxing any test assertion.
   test.setTimeout(90_000);
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-playback-disk-browser-'));
+  root = await prepareOwnedStateRoot(harness, 'disk-state-');
   const uploads = path.join(root, 'uploads');
   const projects = path.join(root, 'data', 'projects');
   const history = path.join(root, 'data', 'history', 'disk-history');
@@ -331,46 +316,29 @@ test.beforeAll(async () => {
     fs.writeFile(path.join(navigationHistory, 'index.json'), JSON.stringify(navigationHistoryIndex), 'utf8'),
   ]);
 
-  server = spawn(process.execPath, ['--import', 'tsx', 'apps/server/src/index.ts'], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      PORT: '8787',
-      WEB_ORIGIN: 'http://127.0.0.1:5199',
-      STHANG_STUDIO_STATE_ROOT: root,
-      STHANG_STUDIO_ENV_FILE: path.join(root, 'absent.env'),
-      GEMINI_API_KEY: '',
-      GOOGLE_API_KEY: '',
-      OPENAI_API_KEY: '',
-      ANTHROPIC_API_KEY: '',
-      STHANG_CONTRIBUTION_ENDPOINT: '',
-      STHANG_ANALYTICS_ENDPOINT: '',
-      LOCAL_TIMING_PYTHON: path.join(root, 'missing-python.exe'),
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  server.stdout?.on('data', (chunk) => { serverOutput += String(chunk); });
-  server.stderr?.on('data', (chunk) => { serverOutput += String(chunk); });
-  await waitForServer();
-  const profileResponse = await fetch('http://127.0.0.1:8787/api/profile', {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ preferences: { autosaveDelayMs: 60_000, privacyUpgradeNoticeVersion: '0.8' } }),
-  });
-  if (!profileResponse.ok) throw new Error(`Could not prepare disk-backed browser profile: ${profileResponse.status}`);
+  server = await startOwnedApi(root);
 });
 
 test.afterAll(async () => {
-  if (server && server.exitCode == null) {
-    server.kill();
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 2000);
-      server!.once('exit', () => { clearTimeout(timer); resolve(); });
-    });
+  // A failed startup may have no handle and an unconfirmed child exit. Retain
+  // that state rather than deleting files a child might still be using.
+  if (server) {
+    await stopOwnedApi(server);
+    if (root) await fs.rm(verifyOwnedStateRoot(root, harness), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
-  if (root) await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
+test.beforeEach(async ({ page }) => {
+  await installBrowserNetworkGuard(page.context(), harness);
+  if (!server) throw new Error('Owned API is not ready.');
+  const owned = server;
+  owned.assertAlive();
+  const abortPage = () => { void page.close({ reason: 'Owned synthetic API exited; this test cannot continue.' }).catch(() => {}); };
+  owned.child.once('exit', abortPage);
+  detachChildExit = () => owned.child.off('exit', abortPage);
+  // Re-check after registering so an exit cannot fall between the two.
+  owned.assertAlive();
+});
+test.afterEach(() => { detachChildExit?.(); detachChildExit = null; });
 
 test('disk-backed History restore cannot falsely mark a newer saved edit as saved', async ({ page }) => {
   // This test deliberately holds a real disk-backed restore while exercising a
@@ -396,7 +364,7 @@ test('disk-backed History restore cannot falsely mark a newer saved edit as save
   await page.route('**/api/projects/disk-history/history/history-old/restore', async (route) => {
     restoreRequested = true;
     await restoreGate;
-    await route.continue();
+    await continueOwnedRoute(route);
   });
 
   try {
@@ -469,7 +437,7 @@ test('disk-backed History restore serializes a later save until the restore resp
   await page.route('**/api/projects/disk-history-serialized/history/history-serialized/restore', async (route) => {
     restoreRequested = true;
     await restoreGate;
-    await route.continue();
+    await continueOwnedRoute(route);
   });
 
   let releaseSaveToServer!: () => void;
@@ -481,7 +449,7 @@ test('disk-backed History restore serializes a later save until the restore resp
   await page.route('**/api/projects/disk-history-serialized/captions', async (route) => {
     saveRequestStarted = true;
     await saveServerGate;
-    const response = await route.fetch();
+    const response = await fetchOwnedRoute(route);
     const body = await response.body();
     savePersisted = true;
     await saveAcknowledgementGate;
@@ -557,14 +525,14 @@ test('clean Ctrl+S queued behind History restore cannot write its pre-restore sn
   await page.route('**/api/projects/disk-history-queued-snapshot/history/history-queued-snapshot/restore', async (route) => {
     restoreRequested = true;
     await restoreGate;
-    await route.continue();
+    await continueOwnedRoute(route);
   });
 
   const saveBodies: any[] = [];
   await page.route('**/api/projects/disk-history-queued-snapshot/captions', async (route) => {
     const body = route.request().postDataJSON();
     saveBodies.push(body);
-    const response = await route.fetch();
+    const response = await fetchOwnedRoute(route);
     const responseBody = await response.body();
     await route.fulfill({ response, body: responseBody });
   });
@@ -638,7 +606,7 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
   await page.route('**/api/projects/disk-history-mixed-saves/history/history-mixed-saves/restore', async (route) => {
     restoreRequested = true;
     await restoreGate;
-    await route.continue();
+    await continueOwnedRoute(route);
   });
 
   let releaseFirstSaveToServer!: () => void;
@@ -654,14 +622,14 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
     if (saveBodies.length === 1) {
       firstSaveStarted = true;
       await firstSaveServerGate;
-      const response = await route.fetch();
+      const response = await fetchOwnedRoute(route);
       const responseBody = await response.body();
       firstSavePersisted = true;
       await firstSaveAcknowledgementGate;
       await route.fulfill({ response, body: responseBody });
       return;
     }
-    const response = await route.fetch();
+    const response = await fetchOwnedRoute(route);
     const responseBody = await response.body();
     await route.fulfill({ response, body: responseBody });
   });
@@ -759,13 +727,13 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
   await page.route('**/api/projects/disk-history-navigation-clean/history/history-navigation-clean/restore', async (route) => {
     restoreRequested = true;
     await restoreGate;
-    await route.continue();
+    await continueOwnedRoute(route);
   });
 
   const oldProjectSaveBodies: any[] = [];
   await page.route('**/api/projects/disk-history-navigation-clean/captions', async (route) => {
     oldProjectSaveBodies.push(route.request().postDataJSON());
-    const response = await route.fetch();
+    const response = await fetchOwnedRoute(route);
     const responseBody = await response.body();
     await route.fulfill({ response, body: responseBody });
   });

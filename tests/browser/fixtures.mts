@@ -2,9 +2,10 @@ import { expect, type Page } from '@playwright/test';
 import { DEFAULT_CAPTION_APPEARANCE, summarizeProject, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities, type VideoExportFontCapability } from '@kcs/shared';
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { addTestNamespace, guardNamespacedRequest, prepareOwnedStateRoot, requireHarnessConfig, safeFrontendUrl, verifyOwnedStateRoot } from './harness-config.mjs';
+import { installBrowserNetworkGuard, installNativeExportGuard, ownedNativeExportUrl } from './owned-browser-routes.mjs';
 
 export const source = { width: 640, height: 360, displayWidth: 640, displayHeight: 360, rotation: 0, durationMs: 4000, frameRate: 25, variableFrameRate: false, videoCodec: 'h264', pixelFormat: 'yuv420p', bitDepth: 8, hdr: 'sdr' as const, audioCodecs: [], audioStreams: 0 };
 export const appearance = { ...DEFAULT_CAPTION_APPEARANCE, fontFamily: process.platform === 'win32' ? 'Khmer UI' : 'Noto Sans Khmer' };
@@ -43,12 +44,11 @@ let scratch: string;
 let media: Buffer;
 let nativeModules: { renderCaptionPreview: any; parseCaptionPreviewInput: any };
 let mockServer: http.Server | null = null;
-const fixturePort = Number(process.env.STHANG_BROWSER_FIXTURE_PORT || 8787);
-if (!Number.isInteger(fixturePort) || fixturePort < 1024 || fixturePort > 65535) throw new Error('STHANG_BROWSER_FIXTURE_PORT must be an integer from 1024 to 65535.');
+const harness = requireHarnessConfig();
 const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 
 export async function prepareFixtures() {
-  scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-browser-test-'));
+  scratch = await prepareOwnedStateRoot(harness, 'mock-state-');
   process.env.STHANG_STUDIO_STATE_ROOT = scratch;
   process.env.STHANG_STUDIO_ENV_FILE = path.join(scratch, 'absent.env');
   const file = path.join(scratch, 'synthetic.mp4');
@@ -67,13 +67,23 @@ export async function prepareFixtures() {
       source: candidate.source,
     };
   }
-  mockServer = http.createServer((req, res) => {
+  mockServer = http.createServer(guardNamespacedRequest((req, res) => {
+    if (req.url === '/api/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'X-Sthang-Studio-Activation': harness.marker });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
     if (req.url?.startsWith('/exports/')) {
+      if (req.url !== '/exports/synthetic-captioned.mp4' || !['GET', 'HEAD'].includes(req.method || '')) {
+        res.writeHead(404); res.end(); return;
+      }
       res.writeHead(200, {
         'Content-Type': 'video/mp4',
         'Content-Disposition': 'attachment; filename="synthetic-captioned.mp4"',
+        'Content-Length': String(media.length),
+        'Cache-Control': 'no-store',
       });
-      res.end(media);
+      res.end(req.method === 'HEAD' ? undefined : media);
       return;
     }
     if (req.url?.includes('/normalized-audio.wav')) {
@@ -115,13 +125,25 @@ export async function prepareFixtures() {
     }
     res.writeHead(404);
     res.end();
-  });
+  }, harness));
   await new Promise<void>((resolve, reject) => {
-    mockServer!.listen(fixturePort, '127.0.0.1', () => resolve());
     mockServer!.on('error', reject);
+    mockServer!.listen({ port: harness.apiPort, host: '127.0.0.1', exclusive: true }, () => resolve());
   });
+  for (const url of [`${harness.apiOrigin}${addTestNamespace('/api/health', harness)}`, safeFrontendUrl(`${harness.webOrigin}/api/health`, harness), safeFrontendUrl(`${harness.webOrigin}/studio-web-identity.json`, harness)]) {
+    const address = mockServer.address();
+    if (!address || typeof address === 'string' || address.port !== harness.apiPort || address.address !== '127.0.0.1') throw new Error('Owned synthetic listener is not ready.');
+    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(1000) });
+    if (!mockServer.listening || !response.ok || response.headers.get('X-Sthang-Studio-Activation') !== harness.marker) throw new Error('Synthetic API/frontend ownership probe failed.');
+    const body = await response.json();
+    if (url.endsWith('/studio-web-identity.json') ? body.service !== 'sthang-studio-web' || body.schemaVersion !== 1 || !/^[a-f0-9]{64}$/.test(body.buildId) : body.ok !== true) throw new Error('Synthetic ownership health payload is invalid.');
+  }
 }
 export function fixtureMedia() { return Buffer.from(media); }
+export function fixtureExportUrl(): string {
+  if (!mockServer) throw new Error('The owned native export fixture is not ready.');
+  return ownedNativeExportUrl(mockServer, scratch, harness);
+}
 export async function cleanFixtures() {
   const { disposePersistentCaptionPreviews } = await import('../../apps/server/src/services/persistent-caption-preview.js');
   await disposePersistentCaptionPreviews();
@@ -129,7 +151,7 @@ export async function cleanFixtures() {
     await new Promise<void>((resolve) => mockServer!.close(() => resolve()));
     mockServer = null;
   }
-  if (scratch) await fs.rm(scratch, { recursive: true, force: true });
+  if (scratch) await fs.rm(verifyOwnedStateRoot(scratch, harness), { recursive: true, force: true });
 }
 
 export function createSyntheticWav(durationSeconds: number, frequency = 440, sampleRate = 44100): Buffer {
@@ -164,6 +186,10 @@ export function createSyntheticWav(durationSeconds: number, frequency = 440, sam
 }
 
 export async function installFixture(page: Page): Promise<FixtureState> {
+  await installBrowserNetworkGuard(page.context(), harness);
+  if (!mockServer) throw new Error('The owned native export fixture is not ready.');
+  await installNativeExportGuard(page.context(), mockServer, scratch, harness);
+  const nativeExportUrl = fixtureExportUrl();
   const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, fonts: structuredClone(capabilities.fonts), jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '', previewGatewayFailures: 0 };
   await page.addInitScript(() => {
     for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
@@ -253,7 +279,14 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       body: media,
     });
   });
-  await page.route('**/exports/*.mp4', (route) => route.fulfill({ contentType: 'video/mp4', body: media, headers: { 'Content-Disposition': 'attachment; filename="synthetic-captioned.mp4"' } }));
+  await page.route('**/exports/*.mp4', (route) => {
+    const request = route.request();
+    if (request.url() === nativeExportUrl) {
+      state.requests.push({ path: new URL(request.url()).pathname, method: request.method(), body: null });
+      return route.fallback();
+    }
+    return route.fulfill({ contentType: 'video/mp4', body: media, headers: { 'Content-Disposition': 'attachment; filename="synthetic-captioned.mp4"' } });
+  });
   await page.route('**/api/**', async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method();
     let body: any = null;
