@@ -52,7 +52,10 @@ export function requireHarnessConfig(env: NodeJS.ProcessEnv = process.env): Harn
 export async function createHarnessRun(parentDir: string): Promise<HarnessConfig> {
   if (process.platform === 'darwin') throw new Error('Strict browser isolation does not support the macOS Keychain.');
   await fsp.mkdir(parentDir, { recursive: true });
-  const runRoot = await fsp.realpath(await fsp.mkdtemp(path.join(parentDir, 'studio-browser-owned-')));
+  // Chromium puts a Unix socket below its TMPDIR. Do not nest Linux state
+  // beneath an inherited isolated temp/evidence directory and exhaust sun_path.
+  const runParent = process.platform === 'linux' ? canonicalDirectory('/tmp') : parentDir;
+  const runRoot = await fsp.realpath(await fsp.mkdtemp(path.join(runParent, 'studio-browser-owned-')));
   const marker = crypto.randomBytes(32).toString('hex');
   const reservations: net.Server[] = [];
   try {

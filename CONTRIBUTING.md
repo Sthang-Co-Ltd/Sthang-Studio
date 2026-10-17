@@ -82,6 +82,10 @@ pass. Retain failure evidence and report any isolation failure before continuing
 
 The strict harness currently runs on Windows and Linux. It stops on macOS until
 the test credential store can be isolated from the system Keychain.
+Linux state roots use physical `/tmp` so nested evidence or inherited temp paths
+cannot overflow Chromium's Unix socket path. Ownership markers, state/vault
+containment and isolated child environments still apply; metadata and outcomes
+remain in the requested evidence directory.
 
 ## Pull requests
 

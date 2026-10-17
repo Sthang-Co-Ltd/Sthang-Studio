@@ -6,6 +6,7 @@ import os from 'node:os';
 import http from 'node:http';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import type { APIResponse, BrowserContext, Route } from '@playwright/test';
 import {
@@ -654,6 +655,62 @@ test('READY pure validation rejects malformed identities without an HTTP fallbac
   assert.doesNotThrow(() => assertOwnedReady(good, identity));
   for (const malformed of [null, {}, { ...good, type: 'listening' }, { ...good, pid: process.pid + 1 }, { ...good, root: path.dirname(root) }, { ...good, marker: '' }, { ...good, port: config.apiPort + 1 }, { ...good, address: '0.0.0.0' }]) {
     assert.throws(() => assertOwnedReady(malformed, identity));
+  }
+});
+
+test('inherited long nested temp paths preserve owned roots without overflowing Linux browser sockets', async () => {
+  const caseRoot = await fs.mkdtemp(path.join(suiteRoot, 'nested-temp-'));
+  let deep = path.join(caseRoot, 'tmp');
+  while (Buffer.byteLength(deep) < 140) deep = path.join(deep, 'nested-temp-parent');
+  await fs.mkdir(deep, { recursive: true });
+  const keys = ['TEMP', 'TMP', 'TMPDIR'] as const;
+  const before = keys.map((key) => process.env[key]);
+  const child = JSON.parse(execFileSync(process.execPath,
+    ['--import', 'tsx', path.join(repoRoot, 'tests/fixtures/browser-temp-path-child.mts')],
+    { cwd: repoRoot, env: { ...process.env, TEMP: deep, TMP: deep, TMPDIR: deep },
+      encoding: 'utf8', timeout: 15_000, windowsHide: true })) as {
+        config: HarnessConfig; root: string; inheritedTemp: string; evidenceParent: string;
+        temp: Record<typeof keys[number], string>; socketPath: string; socketBytes: number;
+      };
+  const oldSocketPath = path.join(child.evidenceParent, 'studio-browser-owned-XXXXXX',
+    'adversarial-childXXXXXX', 'tmp', 'org.chromium.Chromium.XXXXXX', 'SingletonSocket');
+  const outcome: Record<string, unknown> = { case: 'long-nested-browser-temp', platform: process.platform,
+    inheritedTemp: child.inheritedTemp, evidenceParent: child.evidenceParent,
+    ownedRunRoot: child.config.runRoot, socketPath: child.socketPath, socketBytes: child.socketBytes,
+    oldSocketBytes: Buffer.byteLength(oldSocketPath), childExited: true, ownedRootRemoved: false };
+  outcomes.push(outcome);
+  try {
+    const config = requireHarnessConfig({ STHANG_BROWSER_API_PORT: String(child.config.apiPort),
+      STHANG_BROWSER_WEB_PORT: String(child.config.webPort), STHANG_BROWSER_RUN_ROOT: child.config.runRoot,
+      STHANG_BROWSER_RUN_MARKER: child.config.marker });
+    assert.equal(path.resolve(child.inheritedTemp), path.resolve(deep));
+    assert.deepEqual(config, child.config);
+    assert.equal(verifyOwnedStateRoot(child.root, config), child.root);
+    for (const key of keys) assert.equal(child.temp[key], path.join(child.root, 'tmp'));
+    assert.deepEqual(keys.map((key) => process.env[key]), before, 'only the child environment may change');
+    outcome.parentEnvironmentUnchanged = true;
+    assert.ok(Buffer.byteLength(oldSocketPath) >= 108, 'the fixture must expose the old Unix socket overflow');
+    if (process.platform === 'linux') {
+      assert.equal(path.dirname(config.runRoot), await fs.realpath('/tmp'));
+      assert.ok(child.socketBytes < 108, 'the actual Linux browser socket path must fit sun_path including its terminator');
+      assert.equal(path.relative(child.evidenceParent, config.runRoot).startsWith('..'), true);
+    } else {
+      assert.equal(path.dirname(config.runRoot), await fs.realpath(child.evidenceParent), 'Windows retains its requested owned parent');
+    }
+    const probes = [http.createServer(), http.createServer()];
+    try { await listen(probes[0], config.apiPort); await listen(probes[1], config.webPort); }
+    finally { await close(probes[0]); await close(probes[1]); }
+    outcome.portsReleased = true;
+  } finally {
+    // The fixture has exited; verify the exact returned markers again before removal.
+    const owned = requireHarnessConfig({ STHANG_BROWSER_API_PORT: String(child.config.apiPort),
+      STHANG_BROWSER_WEB_PORT: String(child.config.webPort), STHANG_BROWSER_RUN_ROOT: child.config.runRoot,
+      STHANG_BROWSER_RUN_MARKER: child.config.marker });
+    assert.equal(owned.runRoot, child.config.runRoot);
+    verifyOwnedStateRoot(child.root, owned);
+    await fs.rm(owned.runRoot, { recursive: true });
+    assert.equal(await fs.stat(owned.runRoot).then(() => true, () => false), false);
+    outcome.ownedRootRemoved = true;
   }
 });
 
