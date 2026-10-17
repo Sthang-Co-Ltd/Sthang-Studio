@@ -2,7 +2,7 @@ import type { CaptionRenderState } from '@kcs/shared';
 import { captionPreviewLookahead, captionPreviewPaintKey } from './caption-preview-plan.js';
 
 export interface NativePreviewBatch {
-  kind: 'current' | 'prefetch';
+  kind: 'current' | 'prefetch' | 'catchup';
   states: CaptionRenderState[];
 }
 
@@ -38,15 +38,58 @@ export function planNativePreviewBatch(
     window,
     temporalPaint ? 0 : start,
     cached,
-    temporalPaint && current?.key ? current.key : undefined,
   );
   if (!wanted.length) return null;
   // Keep the established low-churn prefetch threshold for ordinary static
-  // captions. Temporal highlights instead prefer a short same-cue lookahead;
-  // it should never monopolize the native worker at the next word transition.
+  // captions. Temporal highlights warm nearby paints across cue boundaries too;
+  // restricting them to the current cue makes every adjacent caption start cold.
+  // The nine-state window and four-paint batch still bound speculative work.
   if (!temporalPaint && current?.key && wanted.length < 4) return null;
   return {
     kind: 'prefetch',
     states: temporalPaint ? wanted.slice(0, 4) : wanted,
   };
+}
+
+/** One bounded attempt to get ahead after a current paint completed too late.
+ * The caller consumes the allowance even when no candidate is available. This
+ * never changes the media clock or claims that slow rendering can paint every word.
+ */
+export function planNativePreviewCatchup(
+  states: readonly CaptionRenderState[], index: number,
+  cached: ReadonlySet<string>, nowMs: number, renderDurationMs: number, playbackRate: number,
+): NativePreviewBatch | null {
+  if (index < 0 || !Number.isFinite(nowMs) || !Number.isFinite(renderDurationMs)
+    || renderDurationMs <= 0 || !Number.isFinite(playbackRate) || playbackRate <= 0) return null;
+  const current = states[index];
+  if (!current?.key || cached.has(captionPreviewPaintKey(current))) return null;
+  // Include a small scheduling margin, but never chase an arbitrarily distant
+  // paint when the renderer is too slow. Both time and state-count bounds apply.
+  const leadMs = (renderDurationMs + 25) * playbackRate;
+  if (leadMs > 1000) return null;
+  const targetMs = nowMs + leadMs;
+  const target = states.slice(index + 1, index + TEMPORAL_PREVIEW_WINDOW).find((state) =>
+    Boolean(state.key) && state.endMs > targetMs && state.atMs <= nowMs + 1000
+    && !cached.has(captionPreviewPaintKey(state)));
+  return target ? { kind: 'catchup', states: [target] } : null;
+}
+
+/** Wall-time budget for a speculative singleton, including a short late grace. */
+export function nativePreviewCatchupTimeoutMs(endMs: number, nowMs: number, playbackRate: number) {
+  if (![endMs, nowMs, playbackRate].every(Number.isFinite) || playbackRate <= 0) return 100;
+  return Math.min(1000, Math.max(100, (endMs - nowMs) / playbackRate + 100));
+}
+
+/** Keep useful singleton lookahead through cached paints and real gaps only.
+ * Any unrelated missing current paint must still preempt speculative work.
+ */
+export function retainNativePreviewPrefetch(
+  states: readonly CaptionRenderState[], index: number, cached: ReadonlySet<string>,
+  pending: ReadonlySet<string>, nowMs: number,
+) {
+  if (pending.size !== 1 || !Number.isFinite(nowMs)) return false;
+  const current = index >= 0 ? states[index] : undefined;
+  if (current?.key && !cached.has(captionPreviewPaintKey(current))) return false;
+  return states.slice(Math.max(0, index), Math.max(0, index) + TEMPORAL_PREVIEW_WINDOW)
+    .some((state) => Boolean(state.key) && state.endMs > nowMs && pending.has(captionPreviewPaintKey(state)));
 }

@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useReducer, useRef
 import { normalizeCaptionAppearance, planCaptionRenderStates, type CaptionAppearance, type CaptionPreviewFrame, type CaptionPreviewResult, type CaptionProject, type CaptionSegment, type VideoResolutionPreset } from '@kcs/shared';
 import { captionPreviewPaintKey, captionPreviewReplayStates, captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
 import { captionPreviewSelection, captionPreviewTransform } from '../caption-preview-interaction';
-import { planNativePreviewBatch, TEMPORAL_PREVIEW_WINDOW } from '../native-preview-scheduler';
+import { planNativePreviewBatch, planNativePreviewCatchup, nativePreviewCatchupTimeoutMs, retainNativePreviewPrefetch, TEMPORAL_PREVIEW_WINDOW } from '../native-preview-scheduler';
 import './native-caption-preview.css';
 
 interface Props {
@@ -36,7 +36,9 @@ interface ActivePreviewRequest {
   signature: string;
   continuityKey: string;
   cueKey: string;
-  kind: 'current' | 'prefetch';
+  kind: 'current' | 'prefetch' | 'catchup';
+  playbackEpoch: number;
+  playbackRate: number;
   started: boolean;
   interactive: boolean;
   cancel(): void;
@@ -162,14 +164,36 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
   const replayPreparation = useRef<{ controller: AbortController; signature: string } | null>(null);
   const lastPresented = useRef<PresentedFrame | null>(null);
   const lastStart = useRef(0);
+  const playbackEpoch = useRef(0);
+  const catchupDemand = useRef<{ signature: string; epoch: number; durationMs: number; rate: number } | null>(null);
   const changedAt = useRef({ signature, time: performance.now() });
   if (changedAt.current.signature !== signature) changedAt.current = { signature, time: performance.now() };
   const [revision, redraw] = useReducer((value: number) => value + 1, 0);
   const [frame, setFrame] = useState<ReturnType<typeof containedVideoFrame>>(null);
   const renderKey = state?.key ? captionPreviewPaintKey(state) : '';
   const continuityKey = state?.key
-    ? JSON.stringify([project.id, project.media.filename, renderKey, state.text])
+    ? JSON.stringify([project.id, project.media.filename, renderKey, state.text, focusMask ? [...new Set(focusMask)].sort((a, b) => a - b) : null])
     : '';
+
+  // These events can occur without changing the paint index. A speculative
+  // speculative request is useful only for uninterrupted playback at the same rate.
+  useEffect(() => {
+    if (!mediaElement) return;
+    const reset = () => {
+      playbackEpoch.current += 1;
+      catchupDemand.current = null;
+      if (activeRequest.current && activeRequest.current.kind !== 'current') {
+        activeRequest.current.cancel();
+        activeRequest.current = null;
+        redraw();
+      }
+    };
+    for (const event of ['seeking', 'pause', 'ratechange', 'emptied']) mediaElement.addEventListener(event, reset);
+    return () => {
+      for (const event of ['seeking', 'pause', 'ratechange', 'emptied']) mediaElement.removeEventListener(event, reset);
+      reset();
+    };
+  }, [mediaElement]);
 
   useEffect(() => {
     if (!video || typeof video.requestVideoFrameCallback !== 'function') return;
@@ -229,6 +253,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     async prepareReplay(startMs, endMs, signal) {
       if (signal.aborted || interacting) return false;
       replayPreparation.current?.controller.abort();
+      catchupDemand.current = null;
       activeRequest.current?.cancel();
       activeRequest.current = null;
       if (session.current?.signature !== signature) {
@@ -316,17 +341,32 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       session.current = { signature, cache: new Map(), pending: new Set(), error: '', blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
     }
     const current = session.current;
+    const playback = media.current;
+    if (interacting || playback?.paused !== false || playback.seeking
+      || catchupDemand.current?.signature !== signature) catchupDemand.current = null;
     const currentState = states[index];
     const key = currentState?.key ? captionPreviewPaintKey(currentState) : '';
     // Gaps still prefetch the next caption, but never show a stale caption in that gap.
     const start = Math.max(0, index);
     const active = activeRequest.current;
-    if (active) {
+    if (active?.kind === 'catchup') {
+      if (active.signature === signature && !interacting && playback?.paused === false
+        && !playback.seeking && active.playbackEpoch === playbackEpoch.current
+        && active.playbackRate === playback.playbackRate) return;
+      active.cancel();
+      if (activeRequest.current === active) activeRequest.current = null;
+    } else if (active) {
       const pendingCurrent = Boolean(key && active.signature === signature && current.pending.has(key));
       // A one-paint prefetch already renders the newly current word by itself.
       // A multi-paint batch must yield: its HTTP response cannot deliver that
       // word until the server finishes rendering every later sample as well.
       if (pendingCurrent && (active.kind === 'current' || current.pending.size === 1)) return;
+      // A nearby future singleton remains useful through cached word paints or
+      // a real gap. Do not restart its native preflight at each such boundary.
+      if (temporalPaint && active.kind === 'prefetch' && active.signature === signature
+        && !interacting && !playback?.seeking && active.playbackEpoch === playbackEpoch.current
+        && active.playbackRate === playback?.playbackRate
+        && retainNativePreviewPrefetch(states, index, new Set(current.cache.keys()), current.pending, liveTimeMs)) return;
       const sameCaption = Boolean(continuityKey && active.continuityKey === continuityKey);
       const sameCueRender = Boolean(currentState?.key && active.cueKey === currentState.key
         && active.signature === signature && active.kind === 'current' && active.started);
@@ -357,19 +397,39 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       redraw();
     }
     if (current.error) return;
-    const batch = planNativePreviewBatch(states, start, new Set(current.cache.keys()), temporalPaint);
+    const cachedKeys = new Set(current.cache.keys());
+    const demand = catchupDemand.current;
+    catchupDemand.current = null; // one attempt, including no target or budget refusal
+    const catchupTimeMs = playback ? playback.currentTime * 1000 : liveTimeMs;
+    const catchupIndex = captionPreviewStateIndex(states, catchupTimeMs);
+    const catchup = temporalPaint && demand && performance.now() - changedAt.current.time >= 150
+      && demand.epoch === playbackEpoch.current
+      && demand.rate === playback?.playbackRate && !current.cache.has(key)
+      ? planNativePreviewCatchup(states, catchupIndex, cachedKeys, catchupTimeMs, demand.durationMs, demand.rate)
+      : null;
+    const batch = catchup || planNativePreviewBatch(states, start, cachedKeys, temporalPaint);
     const missingCurrent = batch?.kind === 'current';
     if (!missingCurrent && (interacting || performance.now() - changedAt.current.time < 150)) return;
     if (!batch) return;
     // While playing, only warm the very next paint. A request for four frames
     // made during a pause can be preempted on seek; single-frame prefetches are
     // already current-priority when playback catches up to them.
-    const missing = batch.kind === 'prefetch' && temporalPaint && media.current?.paused === false
+    let missing = batch.kind === 'prefetch' && temporalPaint && media.current?.paused === false
       ? batch.states.slice(0, 1) : batch.states;
-    const kind: ActivePreviewRequest['kind'] = batch.kind;
-    if (kind === 'prefetch' && current.prefetchBlockedKey === key) return;
-    const pinned = new Set<string>(key ? [key] : []);
-    if (kind === 'prefetch' && temporalPaint) {
+    let kind: ActivePreviewRequest['kind'] = batch.kind;
+    let pinned = new Set<string>(key ? [key] : []);
+    const fallbackToCurrent = () => {
+      const fallback = planNativePreviewBatch(states, start, new Set(current.cache.keys()), temporalPaint);
+      if (fallback?.kind !== 'current') return false;
+      missing = fallback.states;
+      kind = 'current';
+      pinned = new Set<string>(key ? [key] : []);
+      return true;
+    };
+    if (kind !== 'current' && current.prefetchBlockedKey === key) {
+      if (kind !== 'catchup' || !fallbackToCurrent()) return;
+    }
+    if (kind !== 'current' && temporalPaint) {
       for (const item of states.slice(start, start + TEMPORAL_PREVIEW_WINDOW)) {
         if (item.key) pinned.add(captionPreviewPaintKey(item));
       }
@@ -384,7 +444,9 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       const maxBytesBefore = Math.min(PREFETCH_PRESSURE_BYTES - 1,
         MAX_CACHED_PREVIEW_BYTES - estimatedIncomingBytes);
       if (maxBytesBefore < 0 || !reservePreviewCache(current.cache, pinned,
-        MAX_CACHED_PREVIEW_FRAMES - missing.length, maxBytesBefore)) return;
+        MAX_CACHED_PREVIEW_FRAMES - missing.length, maxBytesBefore)) {
+        if (kind !== 'catchup' || !fallbackToCurrent()) return;
+      }
     }
     const controller = new AbortController();
     const pendingKeys = new Set(missing.map(captionPreviewPaintKey));
@@ -404,9 +466,23 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         : media.current?.paused === false
           ? 0
           : 120;
+    let catchupDeadline = 0;
     const timer = window.setTimeout(() => {
       request.started = true;
       lastStart.current = performance.now();
+      const startedAt = performance.now();
+      const startedPlaying = media.current?.paused === false && !media.current.seeking;
+      if (kind === 'catchup') {
+        // Native preflight can outlive a word (or several cues). Speculation
+        // must not monopolize playback until a long server timeout completes.
+        const timeoutMs = nativePreviewCatchupTimeoutMs(missing[0].endMs, (media.current?.currentTime ?? 0) * 1000, request.playbackRate);
+        catchupDeadline = window.setTimeout(() => {
+          if (activeRequest.current !== request) return;
+          request.cancel();
+          activeRequest.current = null;
+          redraw();
+        }, timeoutMs);
+      }
       void (async () => {
         try {
           const response = await fetch(`/api/video-export/${encodeURIComponent(project.id)}/preview`, {
@@ -442,7 +518,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
           // Only compressed caption images are retained, only for this project/look. They never
           // enter localStorage, exported project data, analytics, or the contribution queue.
           if (!reservePreviewCache(staged, pinned, MAX_CACHED_PREVIEW_FRAMES, MAX_CACHED_PREVIEW_BYTES)) {
-            if (kind === 'prefetch' && temporalPaint) {
+            if (kind !== 'current' && temporalPaint) {
               // The near-playhead cache itself exceeds a safe prefetch budget.
               // Retry after the playhead advances; never fetch the same oversized
               // batch repeatedly while paused at one word.
@@ -452,14 +528,23 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             throw new Error('This caption preview exceeds its local image limit. Choose a smaller preview resolution.');
           }
           if (controller.signal.aborted) return;
+          if (kind === 'catchup' && session.current !== current) return;
           current.cache = staged;
           if (presented) lastPresented.current = { continuityKey, image: presented };
           current.prefetchBlockedKey = null;
           current.retries = 0;
+          const latest = media.current;
+          if (kind === 'current' && temporalPaint && startedPlaying && session.current === current
+            && request.playbackEpoch === playbackEpoch.current && latest?.paused === false
+            && !latest.seeking && latest.playbackRate === request.playbackRate
+            && Number.isFinite(latest.currentTime) && latest.currentTime * 1000 >= missing[0].endMs) {
+            catchupDemand.current = { signature, epoch: playbackEpoch.current,
+              durationMs: performance.now() - startedAt, rate: latest.playbackRate };
+          }
         } catch (reason) {
           if (!controller.signal.aborted && session.current === current) {
             const error = previewRequestError(reason, 'Caption preview is unavailable.');
-            if (error.code === 'CAPTION_OVERFLOW' && kind === 'prefetch') {
+            if (kind === 'catchup' || error.code === 'CAPTION_OVERFLOW' && kind === 'prefetch') {
               current.prefetchBlockedKey = key;
               return;
             }
@@ -472,6 +557,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             current.blockedCueKey = error.code === 'CAPTION_OVERFLOW' ? currentState?.key || '' : null;
           }
         } finally {
+          window.clearTimeout(catchupDeadline);
           if (activeRequest.current === request) activeRequest.current = null;
           clearOwnedPending();
           if (!controller.signal.aborted) redraw();
@@ -480,16 +566,18 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     }, delay);
     const request: ActivePreviewRequest = {
       signature,
+      playbackEpoch: playbackEpoch.current,
+      playbackRate: playback?.playbackRate ?? 1,
       continuityKey,
       cueKey: currentState?.key || '',
       kind,
       started: false,
       interactive: interacting,
-      cancel: () => { window.clearTimeout(timer); controller.abort(); clearOwnedPending(); },
+      cancel: () => { window.clearTimeout(timer); window.clearTimeout(catchupDeadline); controller.abort(); clearOwnedPending(); },
     };
     activeRequest.current = request;
-    // An index change does not cancel a useful current-frame render; word captions can be
-    // shorter than one render request. A different caption/project or obsolete lookahead does.
+    // A current render can finish within its cue; a catch-up singleton may survive
+    // forward word/cue transitions only until its short deadline or a playback reset.
   }, [signature, index, revision, continuityKey, interacting, temporalPaint]);
 
   const current = session.current?.signature === signature ? session.current : null;
