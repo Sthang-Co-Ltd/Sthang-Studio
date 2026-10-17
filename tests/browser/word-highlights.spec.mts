@@ -52,7 +52,7 @@ test('caption moves stop at the next caption and translate owned words exactly o
   await page.getByLabel('Allow overlaps', { exact: true }).check();
   await page.getByRole('button', { name: 'Move later', exact: true }).click();
   await expect.poll(() => first().endMs).toBe(2900);
-  await expect(page.locator('.fine-timing')).toContainText('This caption overlaps another caption');
+  await expect(page.locator('.fine-timing')).toContainText('This caption overlaps another.');
 });
 
 test('shared edge edits and undo keep both neighbors in one transaction', async ({ page }) => {
@@ -113,11 +113,11 @@ test('corrected spelling keeps tentative timing until the user confirms that wor
   await expect.poll(() => first().wordTiming!.words[3].needsReview).toBe(true);
   expect(first().wordTiming!.words[0].startMs).toBe(200);
   expect(first().wordTiming!.words[3].startMs).toBe(1550);
-  await expect(page.locator('.word-timing-panel')).toContainText('Highlighting stays off');
+  await expect(page.locator('.word-timing-panel')).toContainText('Word highlighting stays off until every word has usable timing.');
   await page.getByRole('button', { name: 'Confirm this word', exact: true }).click();
   await expect.poll(() => first().wordTiming!.words[3].source).toBe('manual');
   expect(first().wordTiming!.words[3].needsReview).not.toBe(true);
-  await expect(page.locator('.word-timing-panel')).toContainText('Each word has usable timing');
+  await expect(page.locator('.word-timing-panel')).toContainText('Every word has usable timing.');
 });
 
 test('an inserted word starts untimed and can be assigned without stretching other words', async ({ page }) => {
@@ -158,7 +158,7 @@ test('an untimed word with no available gap explains recovery and becomes editab
   await openTiming(page);
   await page.getByLabel('Caption 1 text', { exact: true }).fill('I love you so very much');
   await selectWord(page, 4, 'so');
-  await expect(page.locator('.word-timing-panel')).toContainText('No room for this word');
+  await expect(page.locator('.word-timing-panel')).toContainText('No space between word boundaries.');
   await expect(page.getByLabel('Word start time', { exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Apply word timing', exact: true })).toBeDisabled();
   await page.locator('.word-timing-selected').scrollIntoViewIfNeeded();
@@ -282,7 +282,7 @@ test('an older multi-caption project hydrates only its exact owned word windows'
   delete project().captions[1].wordTiming;
   await openTiming(page);
   await expect(page.getByRole('button', { name: 'Word 4: very', exact: true })).toBeVisible();
-  await expect(page.locator('.word-timing-panel')).toContainText('Each word has usable timing');
+  await expect(page.locator('.word-timing-panel')).toContainText('Every word has usable timing.');
   await page.getByRole('button', { name: 'Next caption', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word 1: Next', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Word 4: very', exact: true })).toHaveCount(0);
@@ -302,7 +302,7 @@ test('temporary Khmer composition does not destroy the original word timings', a
   await text.dispatchEvent('compositionend');
   await page.getByRole('button', { name: 'Word timing', exact: true }).click();
   await expect.poll(() => first().wordTiming).toEqual(original);
-  await expect(page.locator('.word-timing-panel')).toContainText('Each word has usable timing');
+  await expect(page.locator('.word-timing-panel')).toContainText('Every word has usable timing.');
 });
 
 test('spoken-word highlight setting saves and links directly to the word editor', async ({ page }) => {

@@ -182,7 +182,7 @@ test('a slider gesture has one appearance undo step and an unavailable font is n
   await look(page, 'Bold Outline').click();
   await expect.poll(() => current().captionAppearance?.outlineWidth1080).toBe(6);
   expect(current().captionAppearance?.fontFamily).toBe('Missing creator font');
-  await expect(panel(page)).toContainText('is not available');
+  await expect(panel(page)).toContainText('is unavailable on this PC');
   const size = panel(page).getByRole('slider').first();
   const before = await size.inputValue();
   await size.focus();
