@@ -74,17 +74,17 @@ test('cross-cue temporal lookahead remains bounded to nine states and preserves 
 });
 
 
-test('one catch-up targets a native paint that is still valid at predicted completion', () => {
+test('one catch-up prepares a complete native interval after predicted completion', () => {
   const result = planNativePreviewCatchup(paints, 1, new Set(['0|word:0']), 150, 150, 1);
   assert.equal(result?.kind, 'catchup');
-  assert.deepEqual(result?.states, [paints[3]]);
+  assert.deepEqual(result?.states, [paints[4]]);
   assert.equal(result?.states.length, 1);
   assert.deepEqual(planNativePreviewCatchup(paints, 1, new Set(), 150, 150, 2)?.states, [paints[5]]);
 });
 
 test('catch-up yields to cached current pixels and skips cached future pixels', () => {
   assert.equal(planNativePreviewCatchup(paints, 1, new Set(['0|word:1']), 150, 150, 1), null);
-  assert.deepEqual(planNativePreviewCatchup(paints, 1, new Set(['0|word:3']), 150, 150, 1)?.states, [paints[4]]);
+  assert.deepEqual(planNativePreviewCatchup(paints, 1, new Set(['0|word:4']), 150, 150, 1)?.states, [paints[5]]);
   assert.equal(planNativePreviewCatchup(paints, 1, new Set(paints.map((state) => state.paintKey!)), 150, 150, 1), null);
 });
 
@@ -110,8 +110,8 @@ test('150 ms renders can prepare an exact future 100 ms word instead of only exp
   const baseline = planNativePreviewBatch(paints, 1, cached, true)!;
   assert.ok(baseline.states[0].endMs <= 300, 'another current-only render expires by its arrival');
   const catchup = planNativePreviewCatchup(paints, 1, cached, 150, 150, 1)!;
-  assert.ok(catchup.states[0].atMs <= 300 && catchup.states[0].endMs > 300);
-  assert.equal(catchup.states[0].paintKey, paints[3].paintKey, 'arrival is cached under its own exact word identity');
+  assert.ok(catchup.states[0].atMs >= 300, 'the exact future pixels can be ready before their interval begins');
+  assert.equal(catchup.states[0].paintKey, paints[4].paintKey, 'arrival is cached under its own exact future word identity');
 });
 
 
@@ -151,4 +151,17 @@ test('prefetch retention rejects expired, out-of-window and multi-paint work', (
   assert.equal(retainNativePreviewPrefetch(timeline, 0, cached, new Set(['word:1', 'word:2']), 50), false);
   assert.equal(retainNativePreviewPrefetch(timeline, -1, cached, new Set(['word:0']), 1200), false);
   assert.equal(retainNativePreviewPrefetch(timeline, 0, cached, new Set(['word:1']), NaN), false);
+});
+
+
+test('catch-up reserves the next full word when predicted completion is at the tail of a word', () => {
+  const timeline: CaptionRenderState[] = Array.from({ length: 30 }, (_, index) => ({
+    atMs: index * 100, endMs: (index + 1) * 100, key: '0', paintKey: `word:${index}`, text: 'caption',
+  }));
+  // CI trace: preceding request took about 230 ms. At media 1544 ms, a
+  // 25 ms margin predicts 1799 ms. Rendering 1700–1800 leaves only 1 ms to
+  // publish; preparing 1800–1900 instead leaves a complete valid interval.
+  const result = planNativePreviewCatchup(timeline, 15, new Set(), 1544, 230, 1);
+  assert.deepEqual(result?.states, [timeline[18]]);
+  assert.ok(result!.states[0].atMs >= 1544 + 230 + 25);
 });

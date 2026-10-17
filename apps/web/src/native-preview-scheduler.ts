@@ -68,8 +68,10 @@ export function planNativePreviewCatchup(
   const leadMs = (renderDurationMs + 25) * playbackRate;
   if (leadMs > 1000) return null;
   const targetMs = nowMs + leadMs;
+  // Prepare a complete future interval, not the tail containing the estimate.
+  // A few milliseconds of response/commit jitter can consume that entire tail.
   const target = states.slice(index + 1, index + TEMPORAL_PREVIEW_WINDOW).find((state) =>
-    Boolean(state.key) && state.endMs > targetMs && state.atMs <= nowMs + 1000
+    Boolean(state.key) && state.atMs >= targetMs && state.atMs <= nowMs + 1000
     && !cached.has(captionPreviewPaintKey(state)));
   return target ? { kind: 'catchup', states: [target] } : null;
 }

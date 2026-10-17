@@ -6,9 +6,11 @@ test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 test.setTimeout(120_000);
 
-type Sample = { ms: number; key: string | null; mode: string | null; src: string | null; preparing: boolean };
-type Decode = { ms: number; src: string };
-type Probe = { samples: Sample[]; decoded: Decode[]; collecting: boolean };
+type Sample = { ms: number; wall: number; presentedMs: number | null; key: string | null; mode: string | null; src: string | null; preparing: boolean };
+type Decode = { ms: number; wall: number; src: string };
+type Dispatch = { times: number[]; color: string; ms: number; wall: number; paused: boolean; seeking: boolean; rate: number; claimed: boolean;
+  responseWall?: number; responseMs?: number; status?: number; abortWall?: number };
+type Probe = { samples: Sample[]; decoded: Decode[]; dispatches: Dispatch[]; collecting: boolean };
 type RecordedRequest = { times: number[]; ms: number; color: string };
 const RED = '#FF0000';
 const BLUE = '#0000FF';
@@ -37,20 +39,53 @@ function configure(state: FixtureState, captions: CaptionSegment[]) {
 // runs independently of the test driver's expectations and media keeps playing.
 async function installProbe(page: Page, decodeDelay: number) {
   await page.addInitScript(({ decodeDelay }) => {
-    const probe: Probe = { samples: [], decoded: [], collecting: false };
+    const probe: Probe = { samples: [], decoded: [], dispatches: [], collecting: false };
     (window as unknown as { __continuousPreview: Probe }).__continuousPreview = probe;
+    const originalFetch = window.fetch;
+    window.fetch = async function (input, init) {
+      let dispatch: Dispatch | undefined;
+      if (String(input).endsWith('/api/video-export/landscape/preview') && typeof init?.body === 'string') {
+        const body = JSON.parse(init.body) as { timesMs: number[]; appearance: { highlightColor: string } };
+        const video = document.querySelector('video');
+        dispatch = { times: body.timesMs, color: body.appearance.highlightColor,
+          ms: (video?.currentTime ?? 0) * 1000, wall: performance.now(),
+          paused: video?.paused ?? true, seeking: video?.seeking ?? false, rate: video?.playbackRate ?? 1, claimed: false };
+        probe.dispatches.push(dispatch);
+        const observed = dispatch;
+        init.signal?.addEventListener('abort', () => { observed.abortWall = performance.now(); }, { once: true });
+      }
+      const response = await originalFetch.call(this, input, init);
+      if (dispatch) {
+        dispatch.responseWall = performance.now();
+        dispatch.responseMs = (document.querySelector('video')?.currentTime ?? 0) * 1000;
+        dispatch.status = response.status;
+      }
+      return response;
+    };
     const decode = HTMLImageElement.prototype.decode;
     HTMLImageElement.prototype.decode = async function () {
       await decode.call(this);
       if (!this.src.startsWith('data:image/png;base64,')) return;
       await new Promise<void>((resolve) => setTimeout(resolve, decodeDelay));
-      probe.decoded.push({ ms: (document.querySelector('video')?.currentTime ?? 0) * 1000, src: this.src });
+      probe.decoded.push({ ms: (document.querySelector('video')?.currentTime ?? 0) * 1000, wall: performance.now(), src: this.src });
     };
+    let observedVideo: HTMLVideoElement | null = null;
+    let presentedMs: number | null = null;
     function sample() {
       const video = document.querySelector('video');
+      if (video && video !== observedVideo) {
+        observedVideo = video;
+        presentedMs = null;
+        const captureFrame: VideoFrameRequestCallback = (_now, metadata) => {
+          if (observedVideo !== video) return;
+          presentedMs = metadata.mediaTime * 1000;
+          video.requestVideoFrameCallback(captureFrame);
+        };
+        video.requestVideoFrameCallback(captureFrame);
+      }
       if (probe.collecting && video) {
         const surface = document.querySelector('.native-caption-surface');
-        probe.samples.push({ ms: video.currentTime * 1000,
+        probe.samples.push({ ms: video.currentTime * 1000, wall: performance.now(), presentedMs,
           key: surface?.getAttribute('data-paint-key') ?? null,
           mode: surface?.getAttribute('data-preview-mode') ?? null,
           src: surface?.querySelector('img')?.getAttribute('src') ?? null,
@@ -61,6 +96,29 @@ async function installProbe(page: Page, decodeDelay: number) {
     requestAnimationFrame(sample);
   }, { decodeDelay });
 }
+
+test.afterEach(async ({ page }, testInfo) => {
+  // Keep clock-domain evidence on success and failure without retaining raw
+  // response payloads or PNG data. PNG IDs are local to this diagnostic file.
+  const diagnostics = await page.evaluate(() => {
+    const probe = (window as unknown as { __continuousPreview?: Probe }).__continuousPreview;
+    if (!probe) return null;
+    const ids = new Map<string, number>();
+    const pngId = (src: string | null) => {
+      if (!src) return null;
+      if (!ids.has(src)) ids.set(src, ids.size + 1);
+      return ids.get(src)!;
+    };
+    return {
+      dispatches: probe.dispatches.map(({ claimed: _claimed, ...dispatch }) => dispatch),
+      decoded: probe.decoded.map(({ src, ...decode }) => ({ ...decode, pngId: pngId(src) })),
+      samples: probe.samples.map(({ src, ...sample }) => ({ ...sample, pngId: pngId(src) })),
+    };
+  }).catch(() => null);
+  if (diagnostics) await testInfo.attach('native-preview-clock-diagnostics', {
+    body: JSON.stringify(diagnostics, null, 2), contentType: 'application/json',
+  });
+});
 
 // Generate authentic PNGs BEFORE the latency experiment. This models a known
 // transport/render budget without pretending cloud FFmpeg timing is a user-PC
@@ -88,22 +146,50 @@ async function serveNativeReferences(page: Page, references: Awaited<ReturnType<
   beforeReply?: (request: RecordedRequest, route: Route) => Promise<number | void>) {
   const requests: RecordedRequest[] = [];
   await page.route('**/api/video-export/landscape/preview', async (route) => {
+    const responseDelay = sleep(delay);
     const body = route.request().postDataJSON();
     const times = body.timesMs as number[];
     const color = body.appearance.highlightColor as string;
     expect(body.resolution).toBe('source');
     expect(body.appearance.highlightMode).toBe('word');
-    const ms = await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime * 1000);
+    // The browser records this synchronously when fetch starts. Reading the
+    // live clock through Playwright here can cross a 100 ms word boundary.
+    // Only lifecycle tests need an immediate held-request decision. Ordinary
+    // continuous playback does no browser round trip on its response path;
+    // dispatch clocks are correlated after the playback pass instead.
+    const ms = beforeReply ? await page.evaluate(({ times, color }) => {
+      const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
+      const dispatch = probe.dispatches.find((item) => !item.claimed && item.color === color
+        && JSON.stringify(item.times) === JSON.stringify(times));
+      if (!dispatch) throw new Error('Preview request has no browser dispatch-clock observation.');
+      dispatch.claimed = true;
+      return dispatch.ms;
+    }, { times, color }) : Number.NaN;
     const recorded = { times, ms, color };
     requests.push(recorded);
     const frames = times.map((atMs) => references.get(`${color}:${atMs}`));
     expect(frames.every(Boolean), `Unplanned native reference: ${color} ${times}`).toBe(true);
     const overrideDelay = await beforeReply?.(recorded, route);
-    await sleep(overrideDelay ?? delay);
+    // Diagnostic retrieval runs inside, rather than on top of, the declared
+    // synthetic delay. Explicit lifecycle overrides still control held replies.
+    if (overrideDelay === undefined || overrideDelay === delay) await responseDelay;
+    else await sleep(overrideDelay);
     // An intentionally superseded request may already have been aborted.
     await route.fulfill({ json: { width: 640, height: 360, frames } }).catch(() => {});
   });
   return requests;
+}
+
+async function collectDispatchClocks(page: Page, requests: RecordedRequest[]) {
+  const dispatches = await page.evaluate(() => (window as unknown as { __continuousPreview: Probe }).__continuousPreview.dispatches);
+  const consumed = new Set<number>();
+  for (const request of requests) {
+    const index = dispatches.findIndex((item, index) => !consumed.has(index) && item.color === request.color
+      && JSON.stringify(item.times) === JSON.stringify(request.times));
+    expect(index, 'Every routed request must match its synchronous browser dispatch in sequence').toBeGreaterThanOrEqual(0);
+    consumed.add(index);
+    request.ms = dispatches[index].ms;
+  }
 }
 
 async function playThrough(page: Page, endMs: number): Promise<Sample[]> {
@@ -153,6 +239,7 @@ test('continuous native playback after opening preparation decodes the next capt
   await openProject(page);
   await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');
   const samples = await playThrough(page, 3200);
+  await collectDispatchClocks(page, requests);
   assertNativeCorrespondence(samples, paints, references);
   const opening = paints.find((paint) => paint.atMs === 1800)!;
   const openingSrc = `data:image/png;base64,${references.get(`${RED}:1800`)!.png}`;
@@ -208,6 +295,36 @@ test('dense words with slower native responses recover after pause and backward 
   expect(requests.every((request) => request.times.length <= 4)).toBe(true);
   expect(state.projects[0].captions).toEqual(saved);
   expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toEqual([]);
+});
+
+test('cached exact word paints follow the live media clock even when video-frame metadata lags', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = HTMLVideoElement.prototype.requestVideoFrameCallback;
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) {
+      return original.call(this, (now, metadata) => callback(now, {
+        ...metadata, mediaTime: Math.max(0, metadata.mediaTime - 0.24),
+      }));
+    };
+  });
+  await installProbe(page, 10);
+  const state = await installFixture(page);
+  const { project, paints } = configure(state, [cue('clock', ['one', 'two', 'three', 'four'], 200, 600)]);
+  const references = await nativeReferences(project, paints);
+  await serveNativeReferences(page, references, 80);
+  await openProject(page);
+  // Warm this bounded four-word example before playback to isolate clock
+  // invalidation from response latency. Never wait between playback boundaries.
+  await expect.poll(() => page.evaluate(() => new Set((window as unknown as { __continuousPreview: Probe })
+    .__continuousPreview.decoded.map((item) => item.src)).size)).toBe(paints.length);
+  const samples = await playThrough(page, 2500);
+  assertNativeCorrespondence(samples, paints, references);
+  expect(new Set(samples.filter((sample) => sample.mode === 'exact').map((sample) => sample.key)).size).toBe(4);
+  for (const sample of samples) {
+    const current = paints.find((paint) => paint.atMs + 40 <= sample.ms && sample.ms < paint.endMs);
+    if (!current) continue;
+    expect(sample.mode, `Cached current paint must stay available at ${sample.ms}`).toBe('exact');
+    expect(sample.key).toBe(current.paintKey);
+  }
 });
 
 test('a delayed obsolete appearance cannot replace native pixels after a backward seek and edit', async ({ page }) => {
@@ -319,7 +436,10 @@ for (const change of ['same-index seek', 'rate change', 'deadline'] as const) {
 test('changing review focus inside overlapping captions hides old native focus bounds while replacement is held', async ({ page }) => {
   const state = await installFixture(page);
   state.native = true;
-  configure(state, [cue('focus-a', ['first'], 200, 2400), cue('focus-b', ['second'], 200, 2400)]);
+  // Review intentionally filters out captions without a review issue. Keep
+  // exact word timing while making both overlapping cues eligible for review.
+  configure(state, [cue('focus-a', ['first'], 200, 2400), cue('focus-b', ['second'], 200, 2400)]
+    .map((caption) => ({ ...caption, timingQuality: 'low' as const })));
   await openProject(page);
   await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
   await page.locator('[data-caption-id="focus-a"] .row-index').click();

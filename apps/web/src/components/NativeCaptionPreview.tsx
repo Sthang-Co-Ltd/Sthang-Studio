@@ -196,35 +196,60 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
   }, [mediaElement]);
 
   useEffect(() => {
-    if (!video || typeof video.requestVideoFrameCallback !== 'function') return;
+    if (!video) return;
     let disposed = false;
     let callbackId = 0;
-    let latestIndex = captionPreviewStateIndex(states, video.currentTime * 1000);
-    const repaintOnTransition = (atMs: number) => {
+    let animationId = 0;
+    // Begin with the index actually rendered, then reconcile immediately in
+    // case the media clock advanced between render and effect setup.
+    let latestIndex = index;
+    const repaintOnTransition = () => {
+      const atMs = video.currentTime * 1000;
       if (disposed || !Number.isFinite(atMs)) return;
       const nextIndex = captionPreviewStateIndex(states, atMs);
       if (nextIndex === latestIndex) return;
       latestIndex = nextIndex;
       redraw();
     };
-    const onVideoFrame: VideoFrameRequestCallback = (_now, metadata) => {
+    const cancelAnimation = () => {
+      if (animationId) window.cancelAnimationFrame(animationId);
+      animationId = 0;
+    };
+    const onAnimationFrame = () => {
+      animationId = 0;
+      if (disposed || video.paused || video.ended || video.seeking) return;
+      repaintOnTransition();
+      animationId = window.requestAnimationFrame(onAnimationFrame);
+    };
+    const resumeAnimation = () => {
+      repaintOnTransition();
+      if (!disposed && !video.paused && !video.ended && !video.seeking && !animationId) {
+        animationId = window.requestAnimationFrame(onAnimationFrame);
+      }
+    };
+    const stopAnimation = () => { cancelAnimation(); repaintOnTransition(); };
+    const onRateChange = () => { cancelAnimation(); resumeAnimation(); };
+    const onVideoFrame: VideoFrameRequestCallback = () => {
       if (disposed) return;
-      repaintOnTransition(metadata.mediaTime * 1000);
+      // Render selection uses currentTime too. Mixing metadata.mediaTime here
+      // with that clock can leave old pixels for a source-frame interval plus
+      // React's commit delay. The playing-only rAF observer also catches word
+      // boundaries between decoded frames without refreshing the whole editor.
+      repaintOnTransition();
       callbackId = video.requestVideoFrameCallback(onVideoFrame);
     };
-    const onTimelineEvent = () => repaintOnTransition(video.currentTime * 1000);
-    video.addEventListener('seeked', onTimelineEvent);
-    video.addEventListener('timeupdate', onTimelineEvent);
-    video.addEventListener('loadedmetadata', onTimelineEvent);
-    video.addEventListener('pause', onTimelineEvent);
-    callbackId = video.requestVideoFrameCallback(onVideoFrame);
+    for (const event of ['play', 'playing', 'seeked', 'loadedmetadata', 'timeupdate']) video.addEventListener(event, resumeAnimation);
+    for (const event of ['pause', 'ended', 'seeking', 'emptied']) video.addEventListener(event, stopAnimation);
+    video.addEventListener('ratechange', onRateChange);
+    if (typeof video.requestVideoFrameCallback === 'function') callbackId = video.requestVideoFrameCallback(onVideoFrame);
+    resumeAnimation();
     return () => {
       disposed = true;
-      video.cancelVideoFrameCallback(callbackId);
-      video.removeEventListener('seeked', onTimelineEvent);
-      video.removeEventListener('timeupdate', onTimelineEvent);
-      video.removeEventListener('loadedmetadata', onTimelineEvent);
-      video.removeEventListener('pause', onTimelineEvent);
+      cancelAnimation();
+      if (typeof video.cancelVideoFrameCallback === 'function') video.cancelVideoFrameCallback(callbackId);
+      for (const event of ['play', 'playing', 'seeked', 'loadedmetadata', 'timeupdate']) video.removeEventListener(event, resumeAnimation);
+      for (const event of ['pause', 'ended', 'seeking', 'emptied']) video.removeEventListener(event, stopAnimation);
+      video.removeEventListener('ratechange', onRateChange);
     };
   }, [video, states]);
 
