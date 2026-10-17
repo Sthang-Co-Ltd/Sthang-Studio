@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test, { after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -7,12 +7,19 @@ import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionSegment, type TimedToken, type VideoExportCapabilities } from '@kcs/shared';
 
+import { installNativePreviewRecorder } from './diagnostics/native-preview-recorder.mjs';
+
+const nativeRecorder = installNativePreviewRecorder('persistent-caption-preview');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-warm-preview-'));
 process.env.STHANG_STUDIO_STATE_ROOT = root;
 process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'absent.env');
 const { fontCapabilities } = await import('../apps/server/src/services/caption-renderer.js');
 const { renderCaptionPreview, parseCaptionPreviewInput } = await import('../apps/server/src/services/caption-preview.js');
 const { disposePersistentCaptionPreviews, persistentPreviewDiagnostics, trackCaptionPreviewRequest } = await import('../apps/server/src/services/persistent-caption-preview.js');
+if (nativeRecorder) {
+  beforeEach((t) => nativeRecorder.checkpoint('before', t.name, persistentPreviewDiagnostics()));
+  afterEach((t) => nativeRecorder.checkpoint('after', t.name, persistentPreviewDiagnostics()));
+}
 const { config } = await import('../apps/server/src/config.js');
 after(async () => { await disposePersistentCaptionPreviews(); await fs.rm(root, { recursive: true, force: true }); });
 const fonts = await fontCapabilities();
