@@ -83,10 +83,10 @@ export function ProfileDoctor({
     await navigator.clipboard.writeText(JSON.stringify(doctor, null, 2));
   };
 
-  return <div className="modal-backdrop" onMouseDown={onClose}>
+  return <div className="modal-backdrop profile-settings-backdrop" onMouseDown={onClose}>
     <section className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong>Settings</strong><span>Connect AI, manage your creator profile and privacy, or run a system check.</span></div>
+        <div><strong>Settings</strong><span>Manage AI, your profile, privacy, and system checks.</span></div>
         <button className="icon-btn" aria-label="Close settings" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>
@@ -97,15 +97,15 @@ export function ProfileDoctor({
         <div className="profile-actions"><button disabled={busy} onClick={saveGlossary}><Save size={15}/>Save glossary</button><a href="/api/profile/export" download><Download size={15}/>Export profile</a><button onClick={() => importRef.current?.click()}><FileUp size={15}/>Import profile</button><input ref={importRef} hidden type="file" accept="application/json,.json" onChange={(event) => importFile(event.target.files?.[0])}/></div>
 
         <div className="topic-pack-section">
-          <div className="section-title"><div><strong>Topic packs</strong><span>Save the current context + vocabulary as a reusable pack.</span></div></div>
-          {currentContext && <div className="pack-create"><input value={packName} onChange={(event) => setPackName(event.target.value)} placeholder="Example: AI / Coding"/><button disabled={!packName.trim() || busy} onClick={createPack}><PackagePlus size={15}/>Save current project as pack</button></div>}
+          <div className="section-title"><div><strong>Topic packs</strong><span>Reuse the current context and vocabulary in other projects.</span></div></div>
+          {currentContext && <div className="pack-create"><input value={packName} onChange={(event) => setPackName(event.target.value)} placeholder="Example: AI / Coding"/><button disabled={!packName.trim() || busy} onClick={createPack}><PackagePlus size={15}/>Save context as pack</button></div>}
           <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={() => removePack(pack.id)}><Trash2 size={14}/></button></div>)}</div>
         </div>
       </div> : tab === 'privacy' ? <ContributorSettings profile={profile} busy={busy} onSave={onSave}/> : <div className="doctor-body">
-        <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. It never includes your API key.</span></div><button className="primary" disabled={busy} onClick={onRunDoctor}>Run checks</button></div>
-        {!doctor && <div className="modal-empty"><HeartPulse size={28}/><strong>No report yet</strong><span>Run the check after installing on a new PC or whenever caption generation fails.</span></div>}
+        <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. The report excludes your API key.</span></div><button className="primary" disabled={busy} onClick={onRunDoctor}>Run checks</button></div>
+        {!doctor && <div className="modal-empty"><HeartPulse size={28}/><strong>No report yet</strong><span>Run checks after setup or if caption generation fails.</span></div>}
         {doctor && <>
-          <div className={`doctor-summary doctor-${doctor.overall}`}><strong>{doctor.overall === 'ok' ? 'Everything important is ready' : doctor.overall === 'warning' ? 'Ready with warnings' : 'Setup needs attention'}</strong><span>{new Date(doctor.generatedAt).toLocaleString()} · {doctor.environment.platform} · Node {doctor.environment.node}</span><button onClick={copyDoctor}><Clipboard size={14}/>Copy diagnostic report</button></div>
+          <div className={`doctor-summary doctor-${doctor.overall}`}><strong>{doctor.overall === 'ok' ? 'System checks passed' : doctor.overall === 'warning' ? 'Ready with warnings' : 'Setup needs attention'}</strong><span>{new Date(doctor.generatedAt).toLocaleString()} · {doctor.environment.platform} · Node {doctor.environment.node}</span><button onClick={copyDoctor}><Clipboard size={14}/>Copy diagnostic report</button></div>
           <div className="doctor-checks">{doctor.checks.map((item) => <div className={`doctor-check check-${item.status}`} key={item.id}><i/>
             <div><strong>{item.label}</strong><span>{item.detail}</span>{item.fix && <em>{item.fix}</em>}</div>
           </div>)}</div>

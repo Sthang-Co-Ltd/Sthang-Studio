@@ -83,7 +83,7 @@ test('mobile guidance explains the supported external sync route without startin
   const guide = page.locator('.handoff-destination-guide');
   await expect(guide).toContainText('does not provide direct subtitle-file import');
   await expect(guide).toContainText('cloud sync');
-  await expect(guide).toContainText('CapCut, not Studio');
+  await expect(guide).toContainText('CapCut handles cloud sync');
   expect(handoffCalls).toHaveLength(0);
   await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
 });
@@ -166,7 +166,7 @@ test('caption data is previewed before restore, and Keep current performs no mut
   await openHandoff(page);
   await openAdvanced(page);
   await page.locator('.handoff-restore input[type=file]').setInputFiles(importFile());
-  await expect(page.getByRole('heading', { name: 'Review caption data' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review caption import' })).toBeVisible();
   await expect(page.locator('.caption-restore-samples')).toContainText('Restored ខ្មែរ captions');
   expect(current().captions).toEqual(before);
   await page.getByRole('button', { name: 'Keep current captions', exact: true }).click();
@@ -205,7 +205,7 @@ test('malformed caption data fails without a false success preview', async ({ pa
   await openAdvanced(page);
   await page.locator('.handoff-restore input[type=file]').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from('{"version":999}') });
   await expect(page.locator('.handoff-restore input[type=file]')).toBeEnabled();
-  await expect(page.getByRole('heading', { name: 'Review caption data' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Review caption import' })).toHaveCount(0);
   await expect(page.locator('.handoff-action-status')).toHaveCount(0);
   expect(handoffCalls.some((call) => call.action === 'restore')).toBe(false);
 });

@@ -2643,25 +2643,25 @@ export default function App() {
     {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
-    {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits made while replacing <b>{recovery.sourceMedia.originalName}</b> belong to that previous media and were not applied to the replacement.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
+    {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
     {reviewUndo && <div className="toast notice review-undo-toast"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
     {notice && <div className="toast notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
   </div>;
 
   if (!project) return <main>
     <div className="home-tools">
-      <button onClick={() => setShowGuide(true)} title="Open the beginner guide"><HelpCircle size={16}/>Guide</button>
+      <button onClick={() => setShowGuide(true)} title="Open guide"><HelpCircle size={16}/>Guide</button>
       {activeJobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity<b>{activeJobs.length}</b></button>}
       {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
-      <button onClick={() => setShowUpdates(true)} title="Review signed Studio updates"><RefreshCw size={16}/>Check for updates</button>
-      <button className={llmSettings?.configured ? '' : 'setup-needed'} title="Connection, profile, and system check" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
+      <button onClick={() => setShowUpdates(true)} title="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
+      <button className={llmSettings?.configured ? '' : 'setup-needed'} title="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
     </div>
-    {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI once</strong><span>Paste your key in Settings. Studio saves it securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
+    {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
     <Upload onUpload={upload} busy={!!busy || !profile} beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
-    {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing is not ready yet. Open Settings → System check for the exact next step.</span></div>}
-    {startupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {startupErrors.join(', ')}. Other available tools can still be used.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
+    {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
+    {startupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {startupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
     {!profile && startupErrors.length === 0 && <div className="setup-warning" role="status">Loading preferences…</div>}
-    {projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><span>Continue where you left off</span></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
+    {projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {statusToasts}
     {overlays}
   </main>;
@@ -2839,7 +2839,7 @@ export default function App() {
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">
-            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span id="accuracy-context-help">Use this to help Studio recognize unusual names, brands, versions, and mixed Khmer-English speech. Full-context transcription uses the complete topic description; the experimental transcription-only option uses selected terms as recognition hints.</span></div>
+            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span id="accuracy-context-help">Help recognize names, brands, versions, and Khmer-English speech. Full-context transcription uses the topic description; experimental transcription-only mode uses selected terms as hints.</span></div>
             <div className="context-field">
               <span><label htmlFor="accuracy-context-description">What is this clip about?</label></span>
               <textarea id="accuracy-context-description" aria-describedby="accuracy-context-help" rows={3} value={contextDescription} onChange={(event) => editAccuracyFields({ description: event.target.value })} placeholder="Example: This video compares GPT 5.6 Luna and Terra. Preserve the exact model names."/>
@@ -2852,7 +2852,7 @@ export default function App() {
           </div>}
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
-            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with accurate local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild it with the current caption timing.' : 'Studio creates the Khmer text and syncs it to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div><button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
+            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild with current timing.' : 'Create Khmer text aligned to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div><button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
 
           {workspaceTool === 'details' && hasHybrid && <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
@@ -2862,20 +2862,20 @@ export default function App() {
             {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align {audioAlignmentUnverified ? 'the previous audio' : 'this clip'}, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
             {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>Text and canonical timing no longer fully match. Lock reviewed captions before regrouping.</span></div>}
             <div className="timing-metrics" aria-label={audioAlignmentUnverified ? 'Timing measurements from the previous audio' : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>review</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>
-            {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>Local processing checkpoints are ready, so interrupted jobs can resume without repeating completed stages.</span></div>}
+            {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>Local checkpoints let interrupted jobs resume without repeating completed work.</span></div>}
           </div>}
 
           {workspaceTool === 'rhythm' && hasHybrid && <div className="controls-card">
-            <div className="control-title"><strong>Caption grouping</strong><span>Choose a grouping and character limit, then apply them. Speech timing is not recalculated.</span></div>
+            <div className="control-title"><strong>Caption grouping</strong><span>Change how captions are grouped without recalculating speech timing.</span></div>
             <div className="mode-grid">{modes.map((mode) => <button key={mode.id} className={groupingMode === mode.id ? 'selected' : ''}
               aria-pressed={groupingMode === mode.id} disabled={!!busy || groupingApplying} onClick={() => setGroupingMode(mode.id)}>
               <strong>{mode.label}</strong><span>{mode.desc}</span></button>)}</div>
             <label className="slider"><span>Target maximum characters <b>{maxChars}</b></span>
               <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
                 aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
-            <p id="grouping-limit-help">This is a character limit, not a word count. Dynamic rhythm, pauses, duration and protected phrases can take priority. Word mode always shows one timed token.</p>
+            <p id="grouping-limit-help">Character limit, not word count. Rhythm, pauses, duration and protected phrases may take priority. Word mode shows one timed token.</p>
             <div className="preset-actions">
-              <span>Current captions use {modes.find((mode) => mode.id === project.mode)?.label || project.mode}. Choose Apply grouping to update them. Locked captions are preserved and History keeps the previous captions.</span>
+              <span>Using {modes.find((mode) => mode.id === project.mode)?.label || project.mode}. Apply grouping to update captions; locks stay intact and History keeps the previous version.</span>
               <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
                 {groupingApplying ? 'Applying grouping…' : 'Apply grouping'}</button>
               <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>Clean Khmer spacing</button>

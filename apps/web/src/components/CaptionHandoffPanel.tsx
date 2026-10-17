@@ -40,11 +40,11 @@ const DESTINATIONS: DestinationGuide[] = [
     label: 'CapCut Desktop',
     summary: 'Recommended starting point',
     steps: [
-      'Download the UTF-8 SRT from Studio.',
+      'Download the UTF-8 SRT.',
       'In CapCut Desktop, use Captions → Add Captions to import it.',
-      'Place the imported subtitles on the timeline at source 0:00, then style them in CapCut.',
+      'Align subtitles with the source clip at 0:00, then style them in CapCut.',
     ],
-    note: 'SRT keeps caption text and timing. It does not carry Studio font, color, position, animation, or word-highlight styling.',
+    note: 'SRT carries text and timing, not Studio font, color, position, motion, or word highlights.',
     doc: { label: 'CapCut subtitle import guide', href: 'https://www.capcut.com/help/how-to-import-subtitles' },
   },
   {
@@ -54,9 +54,9 @@ const DESTINATIONS: DestinationGuide[] = [
     steps: [
       'CapCut mobile does not provide direct subtitle-file import.',
       'Import the SRT in CapCut Desktop or Web first.',
-      'If CapCut project cloud sync is available, sync that project on the same account and continue editing on mobile.',
+      'If cloud sync is available, sync the CapCut project on the same account, then open it on mobile.',
     ],
-    note: 'Cloud sync is handled by CapCut, not Studio. Account, region, app version, and feature availability can vary.',
+    note: 'CapCut handles cloud sync. Availability varies by account, region, and app version.',
     doc: { label: 'CapCut subtitle import guide', href: 'https://www.capcut.com/help/how-to-import-subtitles' },
   },
   {
@@ -64,9 +64,9 @@ const DESTINATIONS: DestinationGuide[] = [
     label: 'Premiere Pro',
     summary: 'Start with SRT',
     steps: [
-      'Download SRT for the most portable caption handoff.',
-      'Import it into the project as captions, then review the caption track against the source clip.',
-      'Set typography, placement, and any animation inside Premiere Pro.',
+      'Download the SRT.',
+      'Import it as captions and check the timing against the source clip.',
+      'Set typography, position, and animation in Premiere Pro.',
     ],
   },
   {
@@ -75,8 +75,8 @@ const DESTINATIONS: DestinationGuide[] = [
     summary: 'Start with SRT',
     steps: [
       'Download SRT and import it as a subtitle track.',
-      'Check the imported cue timing against the source clip.',
-      'Set subtitle styling or convert the workflow further inside Resolve as needed.',
+      'Check cue timing against the source clip.',
+      'Style or convert captions within Resolve as needed.',
     ],
   },
   {
@@ -85,7 +85,7 @@ const DESTINATIONS: DestinationGuide[] = [
     summary: 'Start with SRT',
     steps: [
       'Download SRT and import it as captions.',
-      'Check language, timing, and caption placement after import.',
+      'Check language, timing, and placement.',
       'Apply the look you want inside Final Cut Pro.',
     ],
   },
@@ -94,8 +94,8 @@ const DESTINATIONS: DestinationGuide[] = [
     label: 'Web / other editor',
     summary: 'SRT first; VTT when requested',
     steps: [
-      'Try SRT first because it is the most portable option here.',
-      'If the destination specifically asks for WebVTT, choose VTT under Advanced formats.',
+      'Start with SRT.',
+      'If the destination asks for WebVTT, choose VTT under Advanced formats.',
       'Check a short section after import before doing detailed styling.',
     ],
   },
@@ -104,9 +104,9 @@ const DESTINATIONS: DestinationGuide[] = [
     label: 'Subtitle tools',
     summary: 'Choose the format the tool documents',
     steps: [
-      'SRT is the safest general exchange format.',
-      'Use VTT, TTML, or ASS only when the destination explicitly supports the format and behavior you need.',
-      'Word-timed variants are specialist exports; verify how the destination interprets them before relying on highlights.',
+      'Start with SRT for general exchange.',
+      'Use VTT, TTML, or ASS only when the destination supports the format and features you need.',
+      'Check how the tool handles word-timed cues before relying on highlights.',
     ],
   },
 ];
@@ -116,45 +116,45 @@ const ADVANCED_FORMATS: FormatGuide[] = [
     id: 'word-srt',
     label: 'One word per caption (SRT)',
     badge: 'WORD SRT',
-    description: 'One timed word per subtitle cue for editors that can work with dense subtitle tracks.',
+    description: 'One timed word per cue for compatible editors. This is not a full-sentence highlight effect.',
     requiresCompleteWords: true,
   },
   {
     id: 'vtt',
     label: 'WebVTT',
     badge: 'VTT',
-    description: 'Portable WebVTT cue text and timing, useful when a web/player workflow asks for VTT.',
+    description: 'Caption text and timing in WebVTT for compatible players and editors.',
   },
   {
     id: 'word-vtt',
     label: 'One word per caption (VTT)',
     badge: 'WORD VTT',
-    description: 'Exports each ready word as its own timed VTT cue. Editor/player behavior varies; this does not preserve Studio current-word highlight styling.',
+    description: 'One timed word per VTT cue. Player support varies; Studio word-highlight styling does not transfer.',
     requiresCompleteWords: true,
   },
   {
     id: 'ttml',
     label: 'TTML',
     badge: 'TTML',
-    description: 'Timed-text XML for compatible professional and subtitle workflows.',
+    description: 'Timed-text XML for compatible subtitle tools.',
   },
   {
     id: 'ass',
     label: 'ASS',
     badge: 'ASS',
-    description: 'For compatible ASS renderers. It can carry Studio current-word color, but some editors import only the text and timing. Repeated render events may be awkward to edit.',
+    description: 'Can carry Studio current-word color in compatible ASS renderers. Some editors keep only text and timing; repeated events may need cleanup.',
   },
   {
     id: 'data',
     label: 'Studio caption data',
     badge: 'JSON',
-    description: 'Versioned Sthang Studio caption data for backup/restore. It is not a general editor-import format.',
+    description: 'Versioned Studio backup data. Not a general editor-import format.',
   },
   {
     id: 'bundle',
     label: 'Caption handoff kit',
     badge: 'ZIP',
-    description: 'Captions, optional ready word-timed files, Studio backup data, and a handoff guide. No source media or font files.',
+    description: 'Captions, optional ready word-timed files, Studio backup, and a guide. No media or fonts.',
   },
 ];
 
@@ -245,7 +245,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
   return <div className="caption-handoff-panel">
     <section className="handoff-destination" aria-labelledby="handoff-destination-title">
       <div className="handoff-section-head">
-        <div><strong id="handoff-destination-title">Where are you continuing?</strong><span>Pick a destination first. Studio keeps SRT as the safest default.</span></div>
+        <div><strong id="handoff-destination-title">Where will you use the captions?</strong><span>See the import steps for your editor.</span></div>
       </div>
       <label className="handoff-destination-select-wrap">
         <span>Destination</span>
@@ -258,7 +258,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
             setAdvancedFormat(null);
           }}
         >
-          {DESTINATIONS.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.summary}</option>)}
+          {DESTINATIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>
       </label>
 
@@ -273,7 +273,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
     <section className="handoff-primary" aria-labelledby="caption-handoff-srt-title">
       <div className="handoff-primary-copy">
         <span className="handoff-format-icon"><FileText size={17}/></span>
-        <div><strong id="caption-handoff-srt-title">Captions file (SRT)</strong><span>Caption text + timing. Visual styling stays controlled by the destination editing app.</span></div>
+        <div><strong id="caption-handoff-srt-title">Captions file (SRT)</strong><span>Text and timing only. Set visual styling in the destination editor.</span></div>
       </div>
       <button className="handoff-download-primary" type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring} onClick={() => void exportFormat('srt')}>
         <Download size={15}/>{exporting === 'srt' ? 'Preparing…' : 'Download SRT'}
@@ -285,16 +285,16 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
       <div><strong>Set again in editor</strong><span>{summary.reset}</span></div>
     </div>
 
-    <p className="handoff-time-note"><TriangleAlert size={14}/><span>Timecodes start at the source media's 0:00. If you trim, offset, or change clip speed in another editor, retime the captions there to match.</span></p>
+    <p className="handoff-time-note"><TriangleAlert size={14}/><span>Timing starts at source 0:00. If you trim, shift, or change clip speed in another editor, adjust caption timing there.</span></p>
     {overlapPairs > 0 && <div className="handoff-overlap-warning" role="status">
-      <TriangleAlert size={15}/><div><strong>{overlapPairs} overlapping cue pair{overlapPairs === 1 ? '' : 's'}</strong><span>Check overlaps in the destination editor. Studio exports your timing as-is and does not silently retime captions.{destination === 'final-cut' ? ' Final Cut Pro cannot keep overlapping captions, so resolve them before relying on the handoff.' : ''}</span></div>
+      <TriangleAlert size={15}/><div><strong>{overlapPairs} overlapping cue pair{overlapPairs === 1 ? '' : 's'}</strong><span>Studio exports timing as-is. Check overlaps in your editor; Studio will not retime them.{destination === 'final-cut' ? ' Final Cut Pro cannot keep overlapping captions; resolve them before relying on the import.' : ''}</span></div>
     </div>}
 
     <details className="handoff-advanced" onToggle={(event) => { if (!event.currentTarget.open) setAdvancedFormat(null); }}>
-      <summary>Advanced caption formats <span>For specific editor or archive needs</span></summary>
+      <summary>Advanced caption formats <span>For compatible editors and backups</span></summary>
       <div className="handoff-advanced-body">
         <div className="handoff-word-readiness" role="status">
-          <div><strong>Word timing</strong><span>{readyWordCount} of {nonemptyCaptions.length} nonempty caption{nonemptyCaptions.length === 1 ? '' : 's'} ready for word-timed export.</span></div>
+          <div><strong>Word timing</strong><span>{readyWordCount} of {nonemptyCaptions.length} caption{nonemptyCaptions.length === 1 ? '' : 's'} with text ready for word-timed export.</span></div>
           {unresolvedWords.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(unresolvedWords[0]?.id)}>Review word timing</button>}
         </div>
 
@@ -315,7 +315,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
               <span className="handoff-format-top"><strong>{format.label}</strong><small>{format.badge}</small></span>
               <span>{format.description}</span>
               {assBlocked
-                ? <em>ASS needs a video project so Studio can use the real media geometry.</em>
+                ? <em>ASS requires a video project to match source geometry.</em>
                 : wordBlocked && <em>{nonemptyCaptions.length === 0 ? 'Needs caption text and complete word timing' : `${unresolvedWords.length} caption${unresolvedWords.length === 1 ? '' : 's'} need word timing review`}</em>}
             </button>;
           })}
@@ -330,7 +330,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
         </div>}
 
         <div className="handoff-restore">
-          <div><RotateCcw size={16}/><div><strong>Restore Studio caption data…</strong><span>Choose a Studio JSON backup. Preview before replacing captions. Current appearance stays unchanged.</span></div></div>
+          <div><RotateCcw size={16}/><div><strong>Restore Studio caption data…</strong><span>Choose a Studio JSON backup and preview it before replacing captions. Current appearance stays unchanged.</span></div></div>
           <label className={busy || restoring || Boolean(exporting) ? 'disabled' : ''}>
             {restoring ? 'Reading…' : 'Choose JSON…'}
             <input type="file" accept=".json,application/json" disabled={busy || restoring || Boolean(exporting)} onChange={(event) => void restore(event)}/>
@@ -340,11 +340,11 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
     </details>
 
     {onRenderedVideo && <div className="handoff-rendered-video">
-      <div><strong>Need Studio's exact visual appearance?</strong><span>A captioned video bakes the saved Studio look into the picture instead of transferring editable subtitle styling.</span></div>
+      <div><strong>Want the saved Studio look?</strong><span>Render a captioned video with styling in the picture. Captions won't be separately editable in the MP4.</span></div>
       <button type="button" onClick={onRenderedVideo}>Captioned video</button>
     </div>}
 
-    <div className="handoff-local-note">Studio prepares local files only. It never uploads captions to the destination editor or its cloud account.</div>
+    <div className="handoff-local-note">Studio prepares files locally. Your destination handles import and cloud sync, not Studio.</div>
     {actionError && <div className="handoff-action-error" role="alert"><TriangleAlert size={15}/><span>{actionError}</span></div>}
     {status && <div className="handoff-action-status" role="status">{status}</div>}
   </div>;

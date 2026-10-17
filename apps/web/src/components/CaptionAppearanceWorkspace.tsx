@@ -293,24 +293,24 @@ export function CaptionAppearanceWorkspace({
   const replayUnavailable = replayDisabled || replayFontUnavailable || explicitReplayTargetMissing;
   const replayIsPreparing = !replayPlaying && (replayPreparing || replayPending);
   const replayUnavailableCopy = loadingFonts && replayFontUnavailable
-    ? 'Studio is checking this Khmer font before replay.'
+    ? 'Checking this Khmer font before replay…'
     : fontDiscoveryFailed && replayFontUnavailable
-      ? 'Studio could not confirm this Khmer font for replay. Your saved font choice is unchanged.'
+      ? 'Could not verify this Khmer font for replay. Your saved choice is unchanged.'
       : confirmedFontUnavailable
-        ? 'Choose an available Khmer font before replaying this appearance.'
+        ? 'Choose an available Khmer font to replay.'
         : explicitReplayTargetMissing
-          ? 'Choose a caption with text before replaying this appearance.'
+          ? 'Choose a caption with text to replay.'
             : replayDisabled
               ? 'Replay is unavailable for the current selection.'
               : '';
   const motionPreset = appearance.motionPreset || 'none';
   const motionDescription = motionPreset === 'rise'
-    ? 'Rise brings the whole caption upward into its saved position, then fades out.'
+    ? 'The caption rises into its saved position, then fades out.'
     : motionPreset === 'soft-pop'
-      ? 'Soft Pop gently scales the whole caption into place, then fades out.'
+      ? 'The caption scales into place, then fades out.'
       : motionPreset === 'fade'
-        ? 'Fade softly brings the whole caption in and out.'
-        : 'No caption motion is applied.';
+        ? 'The caption fades in and out.'
+        : 'Captions stay still.';
   const motionDurationLabel = motionPreset === 'fade' ? 'Fade duration' : 'Motion duration';
 
   const commitAppearance = (
@@ -403,7 +403,7 @@ export function CaptionAppearanceWorkspace({
     const font = fonts.find((item) => item.name === appearanceRef.current.fontFamily);
     if (!font || font.boldAvailable) return;
     updateAppearance((current) => ({ ...current, bold: false }), { history: 'none' });
-    setFontNotice(`${font.name} does not include a Bold face, so Studio switched Weight to Regular. Your other appearance settings were kept.`);
+    setFontNotice(`${font.name} has no Bold face. Switched to Regular; other appearance settings are unchanged.`);
   }, [loadingFonts, fonts, project.id]);
 
   const chooseFont = (name: string) => {
@@ -413,7 +413,7 @@ export function CaptionAppearanceWorkspace({
     setFontWarnings([]);
     if (chosen && appearanceRef.current.bold && !chosen.boldAvailable) {
       updateAppearance((current) => ({ ...current, fontFamily: name, bold: false }));
-      setFontNotice(`${name} does not include a Bold face, so Studio switched Weight to Regular. Your other appearance settings were kept.`);
+      setFontNotice(`${name} has no Bold face. Switched to Regular; other appearance settings are unchanged.`);
       return;
     }
     updateAppearance((current) => ({ ...current, fontFamily: name }));
@@ -446,7 +446,7 @@ export function CaptionAppearanceWorkspace({
       const boldMismatch = appearanceRef.current.bold && !first.boldAvailable;
       updateAppearance((current) => ({ ...current, fontFamily: first.name, ...(boldMismatch ? { bold: false } : {}) }));
       const count = result.imported.length;
-      setFontNotice(`${count === 1 ? `Added “${first.name}”` : `Added ${count} Khmer font families`}. ${first.name} is selected.${boldMismatch ? ' It has no Bold face, so Studio is using Regular; your other appearance settings were kept.' : ''}`);
+      setFontNotice(`${count === 1 ? `Added “${first.name}”` : `Added ${count} Khmer font families`}. ${first.name} is selected.${boldMismatch ? ' No Bold face; using Regular. Other settings are unchanged.' : ''}`);
     } catch (error) {
       setFontError(error instanceof Error ? error.message : 'Could not add the selected font files');
     } finally {
@@ -460,8 +460,8 @@ export function CaptionAppearanceWorkspace({
     const confirmed = await onConfirm({
       title: `Remove “${font.name}” from Studio?`,
       message: selectedHere
-        ? 'This project will keep the font name, but preview and captioned-video export will pause until you add it again or choose another available font.'
-        : 'This removes the copy you added to Studio. Projects that use this font keep the saved font name and will ask for an available font before preview or render.',
+        ? 'This project keeps the font name, but preview and captioned-video export need you to add it again or choose another available font.'
+        : 'This removes your Studio copy. Projects using it keep the font name and need an available font before preview or render.',
       confirmLabel: 'Remove font',
       tone: 'warning',
     });
@@ -478,7 +478,7 @@ export function CaptionAppearanceWorkspace({
       setFontDiscoveryFailed(false);
       setFontError('');
       onFontLibraryChange?.();
-      setFontNotice(`Removed “${font.name}” from Studio. Fonts installed on your computer were not changed.`);
+      setFontNotice(`Removed “${font.name}” from Studio. Fonts installed on your PC are unchanged.`);
     } catch (error) {
       setFontError(error instanceof Error ? error.message : 'Could not remove that font from Studio');
     } finally {
@@ -499,7 +499,7 @@ export function CaptionAppearanceWorkspace({
     setFontQuery('');
     setFontWarnings([]);
     setFontNotice(fallbackToRegular
-      ? `${requested.fontFamily} does not include a Bold face, so this preset is using Regular. Other preset settings were kept.`
+      ? `${requested.fontFamily} has no Bold face. This preset uses Regular; other settings are unchanged.`
       : '');
   };
 
@@ -538,7 +538,7 @@ export function CaptionAppearanceWorkspace({
     const target = presets.find((item) => item.id === targetId);
     const confirmed = await onConfirm({
       title: `Delete “${target?.name || 'Preset'}”?`,
-      message: 'This removes the preset from your profile. Existing projects that use this appearance are not changed.',
+      message: 'This removes the preset from your profile. Existing projects keep their appearance.',
       confirmLabel: 'Delete preset',
       tone: 'warning',
     });
@@ -561,7 +561,7 @@ export function CaptionAppearanceWorkspace({
 
   return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title" {...interactionHandlers}>
     <div className="caption-appearance-head">
-      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions while watching the video above. Size and position respond immediately when possible, then refine to the exact export layout. Video compression and display scaling can soften edges.</span></div>
+      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions against your video. Size and position may update before the exact export preview is ready. Compression and display scaling can soften edges.</span></div>
       <div className={`appearance-save-state ${saveState}`} role="status" aria-live="polite">
         {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{saveStateCopy(saveState)}</span>{saveState === 'error' && <button onClick={() => void persistAppearance({ ...appearanceRef.current })}>Retry</button>}
       </div>
@@ -585,7 +585,7 @@ export function CaptionAppearanceWorkspace({
       <details className="appearance-preset-tools">
         <summary>Manage presets</summary>
         <div className="appearance-preset-tools-body">
-          <label><span>Save current look as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
+          <label><span>Save current appearance as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
           <button disabled={!presetName.trim() || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
           {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
         </div>
@@ -596,7 +596,7 @@ export function CaptionAppearanceWorkspace({
     {fontError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{fontError}. Your current appearance remains unchanged.</span></div>}
     {fontWarnings.length > 0 && <div className="appearance-inline-warning" role="status"><TriangleAlert size={15}/><span>{fontWarnings.join(' ')}</span></div>}
     {fontNotice && <div className="appearance-font-notice" role="status"><CheckCircle2 size={15}/><span>{fontNotice}</span></div>}
-    {confirmedFontUnavailable && <div className="appearance-inline-warning"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is not available on this PC. Choose an available Khmer font before previewing or rendering. The saved font has not been substituted.</span></div>}
+    {confirmedFontUnavailable && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is unavailable on this PC. Choose an available Khmer font to preview or render. Your saved font choice is unchanged.</span></div>}
 
     <CaptionLooksGallery
       appearance={appearance}
@@ -606,7 +606,7 @@ export function CaptionAppearanceWorkspace({
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <div className="appearance-font-search-wrap"><input className="appearance-font-search" type="search" aria-label="Find Khmer font" aria-expanded={Boolean(normalizedFontQuery)} aria-controls="appearance-font-search-results" value={fontQuery} onChange={(event) => setFontQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFontQuery(''); else if (event.key === 'Enter' && fontSearchResults[0]) { event.preventDefault(); chooseFont(fontSearchResults[0].name); } }} placeholder={`Find among ${installedFonts.length} installed Khmer fonts…`}/>{normalizedFontQuery && <div id="appearance-font-search-results" className="appearance-font-search-results" aria-label="Matching Khmer fonts">{fontSearchResults.length > 0 ? fontSearchResults.map((font) => <button type="button" key={`${font.source}:${font.name}`} className={font.name === appearance.fontFamily ? 'selected' : ''} onClick={() => chooseFont(font.name)}><span>{font.name}</span><small>{font.source === 'studio-imported' ? 'Added to Studio' : 'Installed'} · {font.boldAvailable ? 'Regular + Bold' : 'Regular only'}</small></button>) : <div className="appearance-font-search-empty">No matching Khmer fonts</div>}</div>}</div>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts installed on this computer are ready to use. ` : 'Compatible Khmer fonts installed on this computer appear automatically. '}Add your own .ttf or .otf files only to Studio.</small></div>
+      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <div className="appearance-font-search-wrap"><input className="appearance-font-search" type="search" aria-label="Find Khmer font" aria-expanded={Boolean(normalizedFontQuery)} aria-controls="appearance-font-search-results" value={fontQuery} onChange={(event) => setFontQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFontQuery(''); else if (event.key === 'Enter' && fontSearchResults[0]) { event.preventDefault(); chooseFont(fontSearchResults[0].name); } }} placeholder={`Find among ${installedFonts.length} installed Khmer fonts…`}/>{normalizedFontQuery && <div id="appearance-font-search-results" className="appearance-font-search-results" aria-label="Matching Khmer fonts">{fontSearchResults.length > 0 ? fontSearchResults.map((font) => <button type="button" key={`${font.source}:${font.name}`} className={font.name === appearance.fontFamily ? 'selected' : ''} onClick={() => chooseFont(font.name)}><span>{font.name}</span><small>{font.source === 'studio-imported' ? 'Added to Studio' : 'Installed'} · {font.boldAvailable ? 'Regular + Bold' : 'Regular only'}</small></button>) : <div className="appearance-font-search-empty">No matching Khmer fonts</div>}</div>}</div>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
       <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }), { history: 'range' })}/></label>
       <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }), { history: 'range' })}/></label>
@@ -618,7 +618,7 @@ export function CaptionAppearanceWorkspace({
       <div className="caption-effects-section-head">
         <div>
           <strong id="appearance-motion-title">Motion</strong>
-          <span>Choose a simple whole-caption motion. Motion does not change caption timing or word emphasis.</span>
+          <span>Animate whole captions without changing timing or word emphasis.</span>
         </div>
       </div>
       <div className="appearance-motion-controls">
@@ -631,9 +631,9 @@ export function CaptionAppearanceWorkspace({
             <button type="button" aria-pressed={motionPreset === 'soft-pop'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'soft-pop' }))}>Soft Pop</button>
           </div>
           <span className="appearance-motion-selection-note">{motionDescription}</span>
-          {motionPreset !== 'none' && <span className="appearance-motion-selection-note">Very short captions appear without animation to stay visible.</span>}
+          {motionPreset !== 'none' && <span className="appearance-motion-selection-note">Very short captions skip motion to stay visible.</span>}
           {(motionPreset === 'rise' || motionPreset === 'soft-pop') && hasOverlappingCaptions
-            && <span className="appearance-motion-overlap-note">Overlapping captions stay still and fade to keep both readable.</span>}
+            && <span className="appearance-motion-overlap-note">Overlapping captions stay still and fade for readability.</span>}
         </div>
         {motionPreset !== 'none' && <label className="appearance-motion-duration range-field">
           <span>{motionDurationLabel} <b>{appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs} ms</b></span>
@@ -658,13 +658,13 @@ export function CaptionAppearanceWorkspace({
         {motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
       </div>
       {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label="Replay target caption"><span>Replay target</span><b>{sampleCaptionText.trim()}</b></div>}
-      <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay the selected caption once to judge Look, Motion and word emphasis. Studio prepares its opening first; later frames are prepared as needed.'}</span>
+      <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay the selected caption once to check its look, motion and word emphasis. Opening frames are prepared first; later frames as needed.'}</span>
     </section>
 
     <section className="appearance-word-highlight" aria-label="Spoken word highlight">
-      <div className="appearance-word-emphasis-title"><strong>Word emphasis</strong><span>Optional timing-aware emphasis for the word currently being spoken.</span></div>
+      <div className="appearance-word-emphasis-title"><strong>Word emphasis</strong><span>Highlight the current spoken word using word timing.</span></div>
       <div className="appearance-word-highlight-head">
-        <div><strong>Spoken word highlight</strong><p>Keep the whole caption visible and color the word being spoken.</p></div>
+        <div><strong>Spoken word highlight</strong><p>Color each spoken word while keeping the full caption visible.</p></div>
         <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
           onClick={() => updateAppearance((current) => ({ ...current, highlightMode: current.highlightMode === 'word' ? 'off' : 'word' }))}>
           {appearance.highlightMode === 'word' ? 'On' : 'Off'}
@@ -678,7 +678,7 @@ export function CaptionAppearanceWorkspace({
             {wordReadiness.unresolved.length > 0 ? ` ${wordReadiness.unresolved.length} will stay plain until their words are synced or confirmed.` : ' Pauses keep the normal text color.'}</span>
           <button type="button" onClick={() => onEditWordTiming(wordReadiness.unresolved[0]?.id)}>{wordReadiness.unresolved.length ? 'Review word timing' : 'Edit word timing'}</button>
         </div>
-        <p className="appearance-highlight-note">Word highlights are included in captioned video. SRT keeps plain caption text and timing.</p>
+        <p className="appearance-highlight-note">Captioned video includes word highlights. SRT carries only text and timing.</p>
       </>}
       {wordPreparation && (appearance.highlightMode === 'word' || wordPreparation.status !== 'idle')
         && <WordHighlightPreparation view={wordPreparation}/>}
@@ -702,6 +702,6 @@ export function CaptionAppearanceWorkspace({
       </div>
     </details>
 
-    <div className="appearance-workspace-footer"><span>Appearance is project styling. It never changes caption text, timing, locks, correction memory, source media, or SRT output.</span></div>
+    <div className="appearance-workspace-footer"><span>Appearance changes only styling. Caption text, timing, locks, correction memory, source media, and SRT stay unchanged.</span></div>
   </section>;
 }

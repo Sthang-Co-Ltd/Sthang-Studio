@@ -128,7 +128,7 @@
 
 .privacy-card p { margin: 0; }
 .privacy-value-line { margin-top: 12px !important; color: var(--privacy-accent); font-size: 13px; line-height: 1.45; font-weight: 700; }
-.privacy-description { margin-top: 5px !important; max-width: 650px; color: #d2d7dc; font-size: 12.5px; line-height: 1.58; }
+.privacy-description { margin-top: 5px !important; max-width: 650px; color: #d2d7dc; font-size: 13px; line-height: 1.58; }
 .privacy-boundary {
   margin-top: 13px;
   display: grid;
@@ -213,6 +213,13 @@
 .privacy-control-note { min-height: 46px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #293039; border-radius: 11px; color: #8f99a2; background: #11151a; }
 .privacy-control-note svg { flex: none; color: #a9c83f; }
 .privacy-control-note span { font-size: 10.5px; line-height: 1.45; }
+
+/* Data boundaries and choice consequences must stay readable at phone width. */
+.privacy-boundary span { font-size: 13px; }
+.contributor-stats > div > span:last-child { font-size: 11px; }
+.privacy-choice-helper span,
+.privacy-control-note span { font-size: 12px; }
+.privacy-destructive-row > span { font-size: 12px; }
 
 /* Existing-user v0.8 privacy introduction. It is deliberately separate from
    first-use onboarding and never turns analytics on implicitly. */

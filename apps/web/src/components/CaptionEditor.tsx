@@ -40,7 +40,7 @@ const qualityTitle = (caption: CaptionSegment) => caption.timingSource === 'manu
   : caption.timingQuality === 'high'
     ? 'Timing looks precise'
     : caption.timingQuality === 'medium'
-      ? 'Timing may need a quick listen'
+      ? 'Listen to check timing'
       : 'Timing needs review';
 
 export interface CaptionEditorHandle {
@@ -377,8 +377,8 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   return <div className="caption-panel">
     <div className="panel-head">
       <div className="panel-head-copy">
-        <strong>{reviewMode ? 'Review queue' : 'Timeline captions'}</strong>
-        <span>{visible.length} shown · {captions.length} total · {followPlayback ? 'following playback' : 'follow paused — browse freely'}</span>
+        <strong>{reviewMode ? 'Review queue' : 'Captions'}</strong>
+        <span>{visible.length} shown · {captions.length} total · {followPlayback ? 'Following playback' : 'Follow paused'}</span>
       </div>
       <div className="panel-tools">
         <button className="panel-tool" title="Jump to current caption" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
@@ -393,7 +393,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onTouchMove={pauseFollowForBrowsing}
       onScroll={() => { if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
-      {visible.length === 0 && <div className="review-empty">You're all caught up. No unapproved captions need attention.</div>}
+      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'No captions yet. Add one to start.'}</div>}
       {visible.map((caption) => {
         const index = captionIndexMap.get(caption.id) ?? -1;
         const issue = issueMap.get(caption.id);
@@ -465,7 +465,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               {caption.approved && <span className="state-approved"><CheckCircle2 size={11}/>Approved</span>}
               {caption.textLocked && <span><LockKeyhole size={10}/>Text locked</span>}
               {caption.timingLocked && <span><Clock3 size={10}/>Timing locked</span>}
-              {wordsNeedingReview.has(caption.id) && selected.has(caption.id) && <button type="button" onClick={(event) => { event.stopPropagation(); onWordTiming?.(caption.id); }}>Word timing needs review</button>}
+              {wordsNeedingReview.has(caption.id) && selected.has(caption.id) && <button type="button" onClick={(event) => { event.stopPropagation(); onWordTiming?.(caption.id); }}>Review word timing</button>}
             </div>
             {issue && <div className={`risk-reasons risk-${issue.severity} ${selected.has(caption.id) ? 'expanded' : ''}`}>
               <span>{selected.has(caption.id) ? issue.reasons[0] : `Review suggested · ${issue.reasons.length}`}</span>

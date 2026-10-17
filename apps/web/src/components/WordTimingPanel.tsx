@@ -79,7 +79,7 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
     if (candidate && !sameTimingRevision(caption, candidate.basis)) {
       setCandidate(null);
       previewCallback.current(candidate.basis, null);
-      setMessage('The caption changed. Its newer edits were kept; sync again for the new wording.');
+      setMessage('Caption changed. Your edits were kept. Sync again for the new wording.');
     }
   }, [caption, candidate]);
   useEffect(() => () => {
@@ -113,7 +113,7 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
       const resolved = resolveCaptionWordTiming(after);
       if (resolved.state === 'stale' || resolved.state === 'missing') throw new Error('The returned word timing does not match this caption. Your current timing was kept.');
       if (automatic && resolved.state !== 'ready') {
-        setMessage('Studio could not fully sync this caption automatically. Retry Sync words or use the detailed word controls if this caption needs manual timing.');
+        setMessage('Automatic sync could not time every word. Retry Sync words or adjust the words below.');
         return;
       }
       setCandidate(result);
@@ -191,24 +191,24 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
   return <div className="word-timing-panel" aria-label="Word timing controls">
     <div className="word-timing-head">
       <div><strong>{candidate ? 'Proposed word timing' : 'Words in this caption'}</strong>
-        <p className="timing-hint">{resolution.state === 'ready' ? 'Each word has usable timing. Adjust only the word that is off.' : 'Highlighting stays off for this caption until every word has usable timing.'}</p></div>
+        <p className="timing-hint">{resolution.state === 'ready' ? 'Every word has usable timing. Adjust only what sounds off.' : 'Word highlighting stays off until every word has usable timing.'}</p></div>
       <button disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
         {syncing ? <LoaderCircle size={15} className="spin"/> : <RefreshCw size={15}/>} {syncing ? 'Syncing…' : 'Sync words'}
       </button>
       {syncing && <button onClick={cancelSync}>Cancel sync</button>}
     </div>
-    <p className="timing-hint">Sync uses this caption’s current wording and local audio. Correct the text first; the wording will not be rewritten.</p>
+    <p className="timing-hint">Sync words aligns the current text to local audio. Edit the text first; syncing will not rewrite it.</p>
     <div className="word-timing-links"><button onClick={onEditText}>Edit caption text</button><button onClick={onOpenAppearance}>{highlightEnabled ? 'Highlight settings' : 'Enable word highlighting…'}</button></div>
     {candidate && <div className="word-timing-candidate" role="status">
-      <strong>Previewing the proposed timing. Saved captions are unchanged.</strong>
-      <p>Select words to listen and inspect. Choose Use timing or Keep current before editing.</p>
+      <strong>Previewing word timing. Saved captions are unchanged.</strong>
+      <p>Listen to the words, then choose Use timing or Keep current before editing.</p>
       {candidate.warnings?.map((warning, warningIndex) => <p key={warningIndex}>{warning}</p>)}
       <div><button className="timing-primary" onClick={useCandidate}>Use timing</button><button onClick={dismissCandidate}>Keep current</button></div>
     </div>}
-    {caption.timingLocked && <p className="timing-lock-status">Timing is locked. Unlock it in the caption menu to make changes; playback remains available.</p>}
+    {caption.timingLocked && <p className="timing-lock-status">Timing locked. Unlock it in the caption menu to edit. You can still listen.</p>}
     {message && <p className="timing-lock-status" role="status">{message}</p>}
     {!words.length ? <div className="word-timing-empty">
-      <p>No editable word timings are available for this wording yet.</p>
+      <p>No editable word timings yet.</p>
       <button disabled={locked} onClick={() => { const after = createUntimedCaptionWordTiming(caption); if (after !== caption) onChange(caption, { ...after, approved: false }); }}>Set words manually</button>
     </div> : <>
       <div className="word-timing-chips" role="group" aria-label="Select a word to time">
@@ -221,8 +221,8 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
       </div>
       {selected && <div className="word-timing-selected">
         <div className="word-timing-selected-head"><strong>Word {index + 1}: {wordLabel}</strong><button disabled={!assigned} onClick={hearWord}><Play size={14}/>Hear word</button></div>
-        {!hasRoom && <p className="timing-lock-status" role="status">No room for this word between the current boundaries. Adjust a neighboring word or the caption edges to make space, or use Sync words to review a new timing proposal.</p>}
-        {!assigned && hasRoom && <p className="timing-hint">This word has no assigned times. Set its start and end, then choose Apply word timing. The suggested available interval is not an alignment.</p>}
+        {!hasRoom && <p className="timing-lock-status" role="status">No space between word boundaries. Adjust a neighboring word or caption edge, or try Sync words.</p>}
+        {!assigned && hasRoom && <p className="timing-hint">No timing assigned. Set Start and End, then Apply word timing. The available range is not measured timing.</p>}
         {assigned && (selected.needsReview || selected.source === 'estimated') && <p className="timing-hint">
           {assignedEndOutside && !assignedStartOutside
             ? `This word extends past the available caption timing. Set End to ${formatTimestamp(limits.max)} or earlier; that manual edit will confirm it.`
@@ -230,7 +230,7 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
               ? `This word starts before the available caption timing. Set Start to ${formatTimestamp(limits.min)} or later; that manual edit will confirm it.`
               : assignedOutsideAvailableRange
                 ? `This word must stay between ${formatTimestamp(limits.min)} and ${formatTimestamp(limits.max)}. Adjusting it manually will confirm the word.`
-                : 'These times need a listen after the wording or timing changed. Adjust them, or confirm this word after checking.'}
+                : 'This timing needs review. Listen, then adjust or confirm this word.'}
         </p>}
         <div className="timing-edge-grid">
           {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>

@@ -30,10 +30,10 @@ function activityLabel(job: ProcessingJob) {
 }
 
 function jobLabel(job: ProcessingJob) {
-  if (job.type === 'transcribe') return 'Full caption generation';
-  if (job.type === 'export-video') return 'Captioned video export';
-  if (job.type === 'refine-proposal') return 'Regeneration refinement';
-  return 'Selected-range regeneration';
+  if (job.type === 'transcribe') return 'Generate captions';
+  if (job.type === 'export-video') return 'Export captioned video';
+  if (job.type === 'refine-proposal') return 'Refine regenerated captions';
+  return 'Regenerate selected captions';
 }
 
 function icon(job: ProcessingJob) {
@@ -123,10 +123,10 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
   const runningJobs = activeJobs.filter((job) => job.status === 'running');
   const queueSummary = runningJobs.length
-    ? 'Caption processing and video exports update independently when both are active.'
+    ? 'Caption and video export jobs update separately.'
     : activeJobs.length
-      ? 'Work is queued and will start automatically.'
-      : 'Recent caption processing and video exports.';
+      ? 'Queued work starts automatically.'
+      : 'Recent caption and video export jobs.';
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="activity-title" tabIndex={-1} className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
@@ -136,7 +136,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
       </div>
       <div className="history-toolbar job-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
       {hasCompletedExport && <div className="activity-export-location" aria-label="Video export location" aria-live="polite">
-        <span>Exports folder</span>
+        <span>Export folder</span>
         <code title={exportDirectory || undefined}>{exportDirectory || exportDirectoryError || 'Loading location…'}</code>
       </div>}
       <div className="job-list">
@@ -169,7 +169,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
             </div>
           </article>;
         })}
-        {!jobs.length && <div className="review-empty">No activity yet.</div>}
+        {!jobs.length && <div className="review-empty">No jobs yet.</div>}
       </div>
     </section>
   </div>;

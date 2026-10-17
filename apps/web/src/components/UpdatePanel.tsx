@@ -34,7 +34,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
         else if (next.status === 'up-to-date') onNotice('Sthang Studio is up to date.');
         else onNotice(next.message);
       } else if (next.status === 'available') {
-        onNotice(`Sthang Studio ${next.offer.version} is available. Open Check for updates when your work is saved.`);
+        onNotice(`Sthang Studio ${next.offer.version} is available. Open Updates to review it.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Studio could not check for updates. Your installed version is unchanged.';
@@ -103,7 +103,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
 
   const installUpdate = async () => {
     if (!offer || !offer.downloaded || unsafe || operation.current) return;
-    if (!window.confirm(`Install Sthang Studio ${offer.version} now? Studio will close, verify the staged release again, prepare dependencies, restart, and roll back automatically if health checks fail.`)) return;
+    if (!window.confirm(`Install Sthang Studio ${offer.version} now? Studio will close, verify the staged release again, prepare dependencies, and restart. It will roll back if health checks fail.`)) return;
     operation.current = true;
     setWorking('install');
     try {
@@ -121,7 +121,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
   return <div className="update-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
     <section className="update-panel" role="dialog" aria-modal="true" aria-labelledby="update-title">
       <header>
-        <div><ShieldCheck size={19}/><div><strong id="update-title">Studio updates</strong><span>Signed releases, installed only with your confirmation</span></div></div>
+        <div><ShieldCheck size={19}/><div><strong id="update-title">Studio updates</strong><span>Signed releases. You choose when to install.</span></div></div>
         <button aria-label="Close updates" onClick={onClose} disabled={!!working}><X size={17}/></button>
       </header>
       <div className="update-content">
@@ -143,7 +143,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
         </>}
         {!working && !offer && <div className="update-actions"><button onClick={() => void check({ announce: true, surfaceError: true })}><RefreshCw size={15}/>Check again</button></div>}
       </div>
-      <footer>Updates are staged and verified before the active version changes. The GitHub Release download remains the manual recovery path.</footer>
+      <footer>Studio verifies staged updates before activation. GitHub Releases provides a manual recovery download.</footer>
     </section>
   </div>;
 }

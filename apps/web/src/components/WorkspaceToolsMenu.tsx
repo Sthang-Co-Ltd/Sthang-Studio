@@ -73,10 +73,10 @@ export function WorkspaceToolsMenu({
       {attentionCount > 0 && <b className="tool-badge">{attentionCount}</b>}
     </summary>
     <div className="workspace-tools-popover" role="menu">
-      <div className="tools-menu-intro"><strong>Project tools</strong><span>Less-used actions stay here so the editor remains calm.</span></div>
+      <div className="tools-menu-intro"><strong>Project tools</strong><span>More project actions and settings.</span></div>
       <div className="tools-menu-section">
         <span>Edit and review</span>
-        <button role="menuitem" onClick={() => run(onCorrect)}><Search size={16}/><span><b>Correct everywhere</b><small>Find repeated wording safely</small></span></button>
+        <button role="menuitem" onClick={() => run(onCorrect)}><Search size={16}/><span><b>Correct everywhere</b><small>Find and correct repeated wording</small></span></button>
         <button role="menuitem" onClick={() => run(onHistory)}><History size={16}/><span><b>History</b><small>Restore an earlier checkpoint</small></span></button>
       </div>
       <div className="tools-menu-section">
@@ -88,9 +88,9 @@ export function WorkspaceToolsMenu({
         <span>Project and setup</span>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>Replace media</b><small>{replaceDisabled ? 'Finish current work first' : 'Choose whether to keep reviewed captions'}</small></span></button>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onUndoMedia)}><RotateCcw size={16}/><span><b>Undo media replacement</b><small>Restore or manage saved source backups</small></span></button>
-        <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Quick guide</b><small>See the simple first workflow</small></span></button>
+        <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Quick guide</b><small>Review the caption workflow</small></span></button>
         <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>Check for updates</b><small>Review signed Studio releases</small></span></button>
-        <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>Settings</b><small>{llmConfigured ? 'Connected · profile and system' : 'Connection setup required'}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>
+        <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>Settings</b><small>{llmConfigured ? 'AI, profile, privacy, and system' : 'AI key setup needed'}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>
       </div>
     </div>
   </details>;
