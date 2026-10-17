@@ -564,7 +564,7 @@ export function WaveformEditor({
       ctx.strokeStyle = token.timingSource === 'interpolated' ? '#d56565' : '#697748';
       ctx.beginPath(); ctx.moveTo(x, 112); ctx.lineTo(x, 124); ctx.stroke();
       if (showWords) {
-        ctx.font = '11px "Noto Sans Khmer", Inter, sans-serif';
+        ctx.font = '11px "Noto Sans Khmer", "Plus Jakarta Sans", sans-serif';
         ctx.save();
         ctx.beginPath(); ctx.rect(x + 2, 96, Math.max(0, timeToX(token.endMs) - x - 4), 20); ctx.clip();
         ctx.fillStyle = 'rgba(8,13,19,.88)';

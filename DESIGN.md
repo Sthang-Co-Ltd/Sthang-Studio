@@ -14,6 +14,25 @@
 - In product lockups, the in-house STHANG wordmark is dominant. Pair it with a forward-slanted lime divider and a smaller, lighter, widely tracked `STUDIO` descriptor; never re-typeset STHANG with a substitute font.
 - Angular geometry may appear in branding; operational UI uses calm, readable rectangles with 9–14px radii.
 
+## Typography
+
+English interface text uses **Plus Jakarta Sans**, with Noto Sans Khmer and system
+sans-serif fallbacks. Form controls, including selects, inherit that interface
+family. Caption-content fields keep **Noto Sans Khmer first**; timing values keep
+their monospace stacks. The waveform caption-label fallback follows the same
+Khmer-first order. These UI choices never change the saved caption appearance,
+native preview/export font, or approved brand artwork.
+
+Use a restrained operational scale: 13px controls/body text, 12px helper text,
+11px compact metadata, 10px badges, and 14px section titles. Preserve larger
+existing primary headings and Khmer-friendly caption leading; do not scale native
+video-caption text with the interface. Responsive controls retain their labeled
+44px touch targets.
+
+The existing Google Fonts stylesheet supplies the interface fonts with
+`display=swap`; system fallbacks remain usable when it is unavailable. See
+`PRIVACY.md` and `THIRD_PARTY_NOTICES.md` for the hosted-font boundary and licenses.
+
 ## Hierarchy
 
 ### Operational icons
