@@ -13,7 +13,7 @@ import { config } from '../config.js';
 export type MediaCompatibilityCode = 'MEDIA_AUDIO_MISMATCH' | 'MEDIA_AUDIO_UNVERIFIABLE' | 'MEDIA_TIMELINE_MISMATCH';
 export class MediaCompatibilityError extends Error {
   readonly httpStatus = 422;
-  constructor(message: string, readonly code: MediaCompatibilityCode = 'MEDIA_AUDIO_UNVERIFIABLE') {
+  constructor(message: string, readonly code: MediaCompatibilityCode = 'MEDIA_AUDIO_UNVERIFIABLE', readonly audioChangeEvidence?: MediaCompatibilityEvidence) {
     super(message);
     this.name = 'MediaCompatibilityError';
   }
@@ -22,6 +22,8 @@ export interface MediaCompatibilityOptions {
   captions?: readonly { startMs: number; endMs: number }[];
   expectedDurationMs?: number;
   signal?: AbortSignal;
+  /** Only the replacement transaction can accept changed audio after explicit file-bound consent. */
+  allowAudioChanges?: boolean;
 }
 export interface MediaCompatibilityEvidence {
   method: 'full-timeline-pcm-v1';
@@ -33,6 +35,8 @@ export interface MediaCompatibilityEvidence {
   channels: number;
   checkedWindows: number;
   informativeDurationMs: number;
+  /** False means only media safety was checked; reviewed timing alignment is unverified. */
+  audioMatches?: boolean;
 }
 
 // Every decoded sample is checked in aligned 20 ms windows. No searching for a
@@ -40,7 +44,7 @@ export interface MediaCompatibilityEvidence {
 const SAMPLE_RATE = 48_000;
 const WINDOW_SAMPLES = 960;
 const MAX_DURATION_MS = 2 * 60 * 60 * 1000;
-const MAX_SOURCE_BYTES = 4 * 1024 ** 3;
+export const MAX_MEDIA_COMPATIBILITY_SOURCE_BYTES = 4 * 1024 ** 3;
 const MAX_PROCESS_MS = 5 * 60 * 1000;
 const MAX_PROBE_BYTES = 256 * 1024;
 const MAX_CONCURRENT = 2;
@@ -55,8 +59,8 @@ let running = 0;
 function unverifiable(message = 'The audio could not be verified safely. Keep the current media or use a full caption reset.') {
   return new MediaCompatibilityError(message);
 }
-function mismatch() {
-  return new MediaCompatibilityError('The audio is different or no longer aligned with the reviewed captions. Use a full caption reset for this file.', 'MEDIA_AUDIO_MISMATCH');
+function mismatch(evidence: MediaCompatibilityEvidence) {
+  return new MediaCompatibilityError('The audio has changed. You can keep the existing captions and word times after accepting responsibility for their alignment.', 'MEDIA_AUDIO_MISMATCH', evidence);
 }
 function timeline(message: string) {
   return new MediaCompatibilityError(message, 'MEDIA_TIMELINE_MISMATCH');
@@ -146,7 +150,7 @@ function numeric(value: unknown): number | undefined {
 }
 async function probe(source: string, signal?: AbortSignal): Promise<Probe> {
   const stat = await fs.lstat(source).catch(() => null);
-  if (!path.isAbsolute(source) || !stat?.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > MAX_SOURCE_BYTES) {
+  if (!path.isAbsolute(source) || !stat?.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > MAX_MEDIA_COMPATIBILITY_SOURCE_BYTES) {
     throw unverifiable('The local source media is unavailable or exceeds the verification limit.');
   }
   const process = localProcess(config.ffprobePath, [
@@ -238,6 +242,7 @@ function compareWindow(left: Buffer, right: Buffer, channels: number) {
   if (left.length !== right.length || left.length % (2 * channels)) throw unverifiable();
   const samples = left.length / (2 * channels);
   let informative = false;
+  let matches = true;
   for (let channel = 0; channel < channels; channel++) {
     let energyA = 0; let energyB = 0; let product = 0; let error = 0;
     let sumA = 0; let sumB = 0;
@@ -254,17 +259,23 @@ function compareWindow(left: Buffer, right: Buffer, channels: number) {
     const errorRms = Math.sqrt(error / samples);
     // Absolute and relative error both matter. This deliberately rejects gain
     // changes and localized edits, even when most of the clip matches perfectly.
-    if (errorRms > Math.max(QUIET_RMS, maxRms * 0.06)) throw mismatch();
+    const residualMismatch = errorRms > Math.max(QUIET_RMS, maxRms * 0.06);
+    if (residualMismatch) matches = false;
     if (maxRms >= INFORMATIVE_RMS) {
       const varianceA = energyA - sumA * sumA / samples;
       const varianceB = energyB - sumB * sumB / samples;
       const correlation = (product - sumA * sumB / samples) / Math.sqrt(varianceA * varianceB);
-      if (!Number.isFinite(correlation) || correlation < 0.995) throw mismatch();
+      // An audible degenerate window cannot establish a match. A proven local
+      // residual difference (for example SFX added over silence) establishes
+      // changed audio only; it never certifies alignment. Without that evidence,
+      // other informative windows must not turn uncertainty into confirmation.
+      if (!Number.isFinite(correlation) && !residualMismatch) throw unverifiable('The audio contains an audible window whose alignment could not be verified safely.');
+      if (correlation < 0.995) matches = false;
       // DC and almost-flat samples do not establish usable matching audio.
       if (Math.sqrt(Math.min(varianceA, varianceB) / samples) >= INFORMATIVE_RMS) informative = true;
     }
   }
-  return { informative, samples };
+  return { informative, samples, matches };
 }
 function quietPadding(bytes: Buffer) {
   if (bytes.length % 2) return false;
@@ -313,7 +324,7 @@ export async function verifyReplacementAudio(currentPath: string, replacementPat
     const channels = previous.channels;
     const maxSamples = Math.ceil((Math.max(previous.durationMs, replacement.durationMs) + 1000) * SAMPLE_RATE / 1000);
     const args = (source: string) => [
-      '-hide_banner', '-loglevel', 'info', '-nostdin', '-threads', '1',
+      '-hide_banner', '-loglevel', 'info', '-nostdin', '-xerror', '-threads', '1',
       '-protocol_whitelist', 'file,pipe', '-format_whitelist', INPUT_FORMATS, '-i', source,
       '-map', '0:a:0', '-vn', '-sn', '-dn', '-threads', '1',
       '-af', `asettb=1/${SAMPLE_RATE},ashowinfo,aresample=${SAMPLE_RATE}:async=1:first_pts=0`,
@@ -326,7 +337,7 @@ export async function verifyReplacementAudio(currentPath: string, replacementPat
     const oldWindows = windows(oldProcess.output, WINDOW_SAMPLES * channels * 2);
     const newWindows = windows(newProcess.output, WINDOW_SAMPLES * channels * 2);
     let oldSamples = 0; let newSamples = 0; let comparedSamples = 0;
-    let informativeSamples = 0; let checkedWindows = 0; let paddingSamples = 0;
+    let informativeSamples = 0; let checkedWindows = 0; let paddingSamples = 0; let audioMatches = true;
     try {
       for (;;) {
         const [a, b] = await Promise.all([oldWindows.next(), newWindows.next()]);
@@ -338,6 +349,7 @@ export async function verifyReplacementAudio(currentPath: string, replacementPat
         const commonLength = Math.min(left.length, right.length);
         if (commonLength) {
           const checked = compareWindow(left.subarray(0, commonLength), right.subarray(0, commonLength), channels);
+          audioMatches &&= checked.matches;
           comparedSamples += checked.samples;
           if (checked.informative) informativeSamples += checked.samples;
           checkedWindows++;
@@ -345,7 +357,10 @@ export async function verifyReplacementAudio(currentPath: string, replacementPat
         const extra = left.length > right.length ? left.subarray(commonLength) : right.subarray(commonLength);
         if (extra.length) {
           paddingSamples += extra.length / (2 * channels);
-          if (!quietPadding(extra) || paddingSamples > SAMPLE_RATE * PADDING_TOLERANCE_MS / 1000) throw mismatch();
+          if (paddingSamples > SAMPLE_RATE * PADDING_TOLERANCE_MS / 1000) {
+            throw timeline('The decoded audio timeline lengths differ. Keep the current media or use a full caption reset.');
+          }
+          if (!quietPadding(extra)) audioMatches = false;
         }
       }
       await Promise.all([oldProcess.completion, newProcess.completion]);
@@ -361,14 +376,18 @@ export async function verifyReplacementAudio(currentPath: string, replacementPat
         }
       }
       const informativeDurationMs = informativeSamples * 1000 / SAMPLE_RATE;
-      if (informativeDurationMs < Math.min(500, previous.durationMs * 0.1)) {
+      if (audioMatches && informativeDurationMs < Math.min(500, previous.durationMs * 0.1)) {
         throw unverifiable('There is not enough audible evidence to keep reviewed captions safely. Silence alone cannot verify this replacement.');
       }
-      return {
+      const evidence: MediaCompatibilityEvidence = {
         method: 'full-timeline-pcm-v1', durationMs: Math.round(replacement.durationMs),
         previousDurationMs: Math.round(previous.durationMs), audioDurationMs: Math.round(newSamples * 1000 / SAMPLE_RATE),
-        comparedSamples, sampleRate: SAMPLE_RATE, channels, checkedWindows, informativeDurationMs,
+        comparedSamples, sampleRate: SAMPLE_RATE, channels, checkedWindows, informativeDurationMs, audioMatches,
       };
+      // Signal differences never short-circuit decode: both files, clocks and
+      // complete durations must be safe before a confirmation can be offered.
+      if (!audioMatches && !options.allowAudioChanges) throw mismatch(evidence);
+      return evidence;
     } finally {
       oldProcess.stop(); newProcess.stop();
       await Promise.allSettled([oldProcess.completion, newProcess.completion]);

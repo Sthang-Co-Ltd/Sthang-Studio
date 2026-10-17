@@ -371,12 +371,21 @@ leaderboards. Quantity incentives must never encourage fabricated/noisy edits.
 
 Visual revisions of already reviewed footage should not require starting caption
 review over. Tools progressively exposes a preserving choice and a distinct
-start-over choice. Preservation requires conservative local full-length audio and
-timeline verification; duration equality is never sufficient. Uncertainty leaves
-the current project unchanged and never falls through to destructive reset or
-paid generation. Preserve full caption objects, approvals, locks, transcript state,
-and appearance. Reload the new video geometry and ask the creator to inspect
-caption placement when the frame shape changes.
+start-over choice. Unchanged audio uses conservative local full-length audio and
+timeline verification; duration equality is never sufficient. After complete
+file/decoder/timeline validation finds an audio difference, including volume,
+music or sound effects, the creator may explicitly accept keeping existing
+caption and word times. Bind acceptance to the exact replacement and current
+saved project revision. Show a concise alignment-responsibility warning and keep
+an unverified-alignment reminder in the reopened project; never call this verified
+alignment. Missing, expired, changed-file or stale acceptance cannot replace media.
+Overall duration changes, captions beyond EOF, unsafe timestamps, corrupt files,
+decode and storage failures remain hard failures. Preserve full caption objects,
+approvals, locks, transcript state and appearance. No automatic regeneration or
+destructive reset. Block automatic old-transcript regrouping/timing cleanup for
+accepted changed audio; retain explicit manual/sync/regeneration review workflows.
+Reload new video geometry and ask the creator to inspect caption placement when
+the frame shape changes.
 
 A replacement keeps a local recovery of the previous project/media state.
 Restoration is an explicit destructive-to-current-state choice with revision guards

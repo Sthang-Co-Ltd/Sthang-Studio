@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle, Replace, RotateCcw, X } from 'lucide-react';
-import type { MediaReplacementCheckpoint, MediaReplacementMode } from '../api';
+import type { MediaReplacementCheckpoint, MediaReplacementMode, PreserveAudioConfirmation } from '../api';
 import { useModalFocus } from '../use-modal-focus';
 import './replace-media-dialog.css';
 
@@ -9,15 +9,32 @@ interface ReplaceProps {
   captionCount: number;
   working: string;
   error: string;
+  preserveAudioConfirmation?: PreserveAudioConfirmation;
   onCancel(): void;
-  onReplace(mode: MediaReplacementMode): void;
+  onModeChange(): void;
+  onReplace(mode: MediaReplacementMode, audioChangeConfirmation?: string): void;
 }
 
-export function ReplaceMediaDialog({ filename, captionCount, working, error, onCancel, onReplace }: ReplaceProps) {
+export function ReplaceMediaDialog({ filename, captionCount, working, error, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const [mode, setMode] = useState<MediaReplacementMode>('preserve');
-  const [unchanged, setUnchanged] = useState(false);
+  const [audioChangeAccepted, setAudioChangeAccepted] = useState(false);
+  const [confirmationExpired, setConfirmationExpired] = useState(() => Boolean(preserveAudioConfirmation && Date.parse(preserveAudioConfirmation.expiresAt) <= Date.now()));
+  useEffect(() => {
+    setAudioChangeAccepted(false);
+    const expiresAt = preserveAudioConfirmation ? Date.parse(preserveAudioConfirmation.expiresAt) : 0;
+    setConfirmationExpired(Boolean(preserveAudioConfirmation && expiresAt <= Date.now()));
+    if (!preserveAudioConfirmation || expiresAt <= Date.now()) return;
+    const timer = window.setTimeout(() => { setAudioChangeAccepted(false); setConfirmationExpired(true); }, Math.min(expiresAt - Date.now(), 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [preserveAudioConfirmation?.token, preserveAudioConfirmation?.expiresAt]);
+  const chooseMode = (next: MediaReplacementMode) => {
+    setMode(next);
+    setAudioChangeAccepted(false);
+    onModeChange();
+  };
+  const needsAudioAcceptance = mode === 'preserve' && Boolean(preserveAudioConfirmation) && !confirmationExpired;
   const dismiss = () => { if (!working) onCancel(); };
   useModalFocus(true, dialog, dismiss, cancel);
 
@@ -29,24 +46,27 @@ export function ReplaceMediaDialog({ filename, captionCount, working, error, onC
       <fieldset disabled={Boolean(working)} className="media-replacement-options">
         <legend className="sr-only">What happens to your captions</legend>
         <label className={`media-replacement-option ${mode === 'preserve' ? 'selected' : ''}`}>
-          <input type="radio" name="media-replacement-mode" value="preserve" checked={mode === 'preserve'} onChange={() => setMode('preserve')}/>
-          <span><strong>Keep reviewed captions</strong><small>Keep wording, timing, approvals, locks and appearance. Best for a new visual edit with the same audio timeline.</small></span>
+          <input type="radio" name="media-replacement-mode" value="preserve" checked={mode === 'preserve'} onChange={() => chooseMode('preserve')}/>
+          <span><strong>Keep reviewed captions</strong><small>Keep text, caption and word times, approvals, locks and appearance. Studio checks the audio before replacing.</small></span>
         </label>
         <label className={`media-replacement-option ${mode === 'reset' ? 'selected' : ''}`}>
-          <input type="radio" name="media-replacement-mode" value="reset" checked={mode === 'reset'} onChange={() => setMode('reset')}/>
+          <input type="radio" name="media-replacement-mode" value="reset" checked={mode === 'reset'} onChange={() => chooseMode('reset')}/>
           <span><strong>Start over</strong><small>Clear {captionCount ? `${captionCount} caption${captionCount === 1 ? '' : 's'} and the` : 'captions and'} transcript. Generate new captions yourself when ready.</small></span>
         </label>
       </fieldset>
       {mode === 'preserve' && <div className="media-replacement-check">
-        <p>Studio checks the audio locally before replacing. Matching duration alone is not enough. Changed speech, cuts, speed or audio timing cannot keep reviewed captions.</p>
-        <label><input type="checkbox" checked={unchanged} disabled={Boolean(working)} onChange={(event) => setUnchanged(event.target.checked)}/><span>The audio, cuts and timing are unchanged.</span></label>
+        {preserveAudioConfirmation ? <div className="media-replacement-audio-warning" role="status">
+          <h3>Keep existing timing with different audio?</h3>
+          <p>The audio differs. Existing caption and word times will be kept. Check them against the new audio; alignment is your responsibility.</p>
+          {confirmationExpired ? <p>This check expired. Check the replacement again before accepting.</p> : <label><input type="checkbox" checked={audioChangeAccepted} disabled={Boolean(working)} onChange={(event) => setAudioChangeAccepted(event.target.checked)}/><span>I accept keeping the existing caption and word times.</span></label>}
+        </div> : <p>Louder or quieter audio, music and sound effects may need your confirmation. The overall duration must stay the same.</p>}
       </div>}
       <p className="media-replacement-helper">A local backup keeps the previous media and project for Undo replacement. No captions are generated automatically.</p>
       {error && <p className="media-replacement-error" role="alert">{error}</p>}
       {working && <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/><span>{working} Stay on this page until the result is confirmed.</span></p>}
       <div className="media-replacement-actions">
         <button ref={cancel} disabled={Boolean(working)} onClick={dismiss}>Cancel</button>
-        <button className={mode === 'preserve' ? 'primary' : ''} disabled={Boolean(working) || (mode === 'preserve' && !unchanged)} onClick={() => onReplace(mode)}>{mode === 'preserve' ? 'Replace and keep captions' : 'Continue'}</button>
+        <button className={mode === 'preserve' ? 'primary' : ''} disabled={Boolean(working) || (needsAudioAcceptance && !audioChangeAccepted)} onClick={() => onReplace(mode, needsAudioAcceptance && audioChangeAccepted ? preserveAudioConfirmation?.token : undefined)}>{mode === 'reset' ? 'Continue' : confirmationExpired ? 'Check replacement again' : needsAudioAcceptance ? 'Replace and keep existing times' : 'Replace and keep captions'}</button>
       </div>
     </div>
   </div>;

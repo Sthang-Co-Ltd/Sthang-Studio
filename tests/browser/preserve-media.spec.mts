@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import type { CaptionProject } from '@kcs/shared';
+import { hydrateCaptionWordTimings, type CaptionProject } from '@kcs/shared';
 import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
@@ -14,20 +14,21 @@ function multipartField(route: Route, name: string) {
   const body = route.request().postDataBuffer()?.toString('utf8') || '';
   return new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`).exec(body)?.[1];
 }
-async function chooseFile(page: Page) {
+async function chooseFile(page: Page, filename = 'synthetic-regraded.mp4') {
   await page.getByLabel('Open project tools', { exact: true }).click();
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('menuitem', { name: /^Replace media/ }).click();
-  await (await chooser).setFiles({ name: 'synthetic-regraded.mp4', mimeType: 'video/mp4', buffer: fixtureMedia() });
+  await (await chooser).setFiles({ name: filename, mimeType: 'video/mp4', buffer: fixtureMedia() });
   const dialog = page.getByRole('dialog', { name: 'Replace media', exact: true });
   await expect(dialog).toBeVisible();
   return dialog;
 }
 function noGeneration(state: FixtureState) {
-  expect(state.requests.filter((r) => r.method === 'POST' && /(?:\/jobs|\/transcribe|\/regenerate-range|\/postprocess-timing)$/.test(r.path))).toEqual([]);
+  expect(state.requests.filter((r) => r.method === 'POST' && /(?:\/jobs|\/transcribe|\/regenerate-range|\/refine-proposal|\/postprocess-timing|\/resegment|\/caption-word-timing(?:\/batch-apply)?)$/.test(r.path))).toEqual([]);
 }
 async function fixture(page: Page) {
   const state = await installFixture(page);
+  state.projects[0] = hydrateCaptionWordTimings(state.projects[0]);
   state.projects[0].captions[0] = { ...state.projects[0].captions[0], approved: true, textLocked: true, timingLocked: true };
   state.projects[0].transcriptNeedsSync = true;
   state.projects[0].transcriptionContext = { description: 'Saved synthetic context', vocabulary: ['SavedBrand | saved alias'] };
@@ -35,19 +36,42 @@ async function fixture(page: Page) {
   const replacements: Array<{id: string; mode: string; createdAt: string; previousOriginalName: string}> = [];
   // Route-mocked checkpoint contents, not evidence of a real durable disk backup.
   const backupSnapshots: CaptionProject[] = [];
-  const requests: Array<{ mode: string | undefined; expectedMedia: unknown; expectedUpdatedAt: string | undefined }> = [];
+  const requests: Array<{ mode: string | undefined; expectedMedia: unknown; expectedUpdatedAt: string | undefined; audioChangeConfirmation?: string }> = [];
   let hold: Promise<void> | undefined;
-  let error: { status: number; message: string } | undefined;
+  let error: { status: number; message: string; code: string } | undefined;
+  let changedAudio = false;
+  let challenge: { token: string; expectedUpdatedAt: string; filename: string } | undefined;
+  let challenges = 0;
   let restores = 0;
   await page.route('**/api/projects/*/media-replacements', (route) => route.fulfill({ json: replacements }));
   await page.route('**/api/projects/landscape/replace-media', async (route) => {
     const mode = multipartField(route, 'mode');
     const identity = multipartField(route, 'expectedMedia');
-    requests.push({ mode, expectedMedia: identity ? JSON.parse(identity) : undefined, expectedUpdatedAt: multipartField(route, 'expectedUpdatedAt') });
+    const expectedUpdatedAt = multipartField(route, 'expectedUpdatedAt');
+    const audioChangeConfirmation = multipartField(route, 'audioChangeConfirmation');
+    const filename = /name="media"; filename="([^"]+)"/.exec(route.request().postDataBuffer()?.toString('utf8') || '')?.[1] || '';
+    requests.push({ mode, expectedMedia: identity ? JSON.parse(identity) : undefined, expectedUpdatedAt, ...(audioChangeConfirmation ? { audioChangeConfirmation } : {}) });
     if (hold) await hold;
-    if (error) return route.fulfill({ status: error.status, json: { error: error.message, code: 'MEDIA_AUDIO_MISMATCH' } });
+    if (error) return route.fulfill({ status: error.status, json: { error: error.message, code: error.code } });
+    if (expectedUpdatedAt !== state.projects[0].updatedAt || identity !== JSON.stringify({ filename: state.projects[0].media.filename, size: state.projects[0].media.size })) {
+      return route.fulfill({ status: 409, json: { error: 'The saved project changed. Check the replacement again.', code: 'MEDIA_REPLACEMENT_STALE' } });
+    }
+    if (changedAudio && mode === 'preserve') {
+      if (!audioChangeConfirmation) {
+        challenge = { token: `synthetic-confirmation-${++challenges}`, expectedUpdatedAt: state.projects[0].updatedAt, filename };
+        return route.fulfill({ status: 422, json: {
+          error: 'The replacement audio differs from the reviewed source.', code: 'MEDIA_AUDIO_MISMATCH',
+          preserveAudioConfirmation: { token: challenge.token, expiresAt: '2099-01-01T00:00:00.000Z' },
+        } });
+      }
+      if (!challenge || audioChangeConfirmation !== challenge.token || expectedUpdatedAt !== challenge.expectedUpdatedAt || expectedUpdatedAt !== state.projects[0].updatedAt || filename !== challenge.filename) {
+        return route.fulfill({ status: 409, json: { error: 'This confirmation is stale. Check the replacement again.', code: 'MEDIA_AUDIO_CONFIRMATION_STALE' } });
+      }
+      challenge = undefined;
+    }
     backupSnapshots.push(structuredClone(state.projects[0]));
-    const next: CaptionProject = { ...structuredClone(state.projects[0]), updatedAt: '2026-10-01T01:00:00.000Z', media: { ...state.projects[0].media, filename: 'regraded.mp4', originalName: 'synthetic-regraded.mp4', url: '/media/regraded.mp4', size: fixtureMedia().length }, ...(mode === 'reset' ? { captions: [], transcript: null, transcriptNeedsSync: false } : {}) };
+    const nextFilename = replacements.length ? `regraded-${replacements.length + 1}.mp4` : 'regraded.mp4';
+    const next: CaptionProject = { ...structuredClone(state.projects[0]), updatedAt: `2026-10-01T01:00:0${replacements.length}.000Z`, media: { ...state.projects[0].media, filename: nextFilename, originalName: filename, url: `/media/${nextFilename}`, size: fixtureMedia().length }, ...(mode === 'reset' ? { captions: [], transcript: null, transcriptNeedsSync: false, mediaAlignment: undefined } : audioChangeConfirmation ? { mediaAlignment: { state: 'unverified-audio-change' as const, acceptedAt: '2026-10-01T01:00:00.000Z', sourceRevision: state.projects[0].updatedAt } } : {}) };
     const summary = { id: 'durable-replacement', mode: mode || 'unknown', createdAt: next.updatedAt, previousOriginalName: original.media.originalName };
     replacements.unshift(summary);
     state.projects[0] = next;
@@ -62,7 +86,7 @@ async function fixture(page: Page) {
     state.projects[0] = next;
     return route.fulfill({ json: { ...next, mediaReplacement: { id: 'redo-replacement', mode: 'preserve', createdAt: next.updatedAt, previousOriginalName: 'synthetic-regraded.mp4' } } });
   });
-  return { state, original, requests, replacements, backupSnapshots, hold: (promise: Promise<void>) => { hold = promise; }, fail: (status: number, message: string) => { error = { status, message }; }, restoreCount: () => restores };
+  return { state, original, requests, replacements, backupSnapshots, hold: (promise: Promise<void>) => { hold = promise; }, fail: (status: number, message: string, code = 'MEDIA_AUDIO_MISMATCH') => { error = { status, message, code }; }, changeAudio: () => { changedAudio = true; }, restoreCount: () => restores };
 }
 
 async function openAccuracy(page: Page) {
@@ -76,7 +100,6 @@ async function openAccuracy(page: Page) {
 async function submitReplacement(page: Page, mode: 'preserve' | 'reset') {
   const dialog = await chooseFile(page);
   if (mode === 'preserve') {
-    await dialog.getByRole('checkbox', { name: 'The audio, cuts and timing are unchanged.', exact: true }).check();
     await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
   } else {
     await dialog.getByRole('radio', { name: /^Start over/ }).check();
@@ -84,6 +107,14 @@ async function submitReplacement(page: Page, mode: 'preserve' | 'reset') {
     await page.getByRole('alertdialog', { name: 'Start over with this media?', exact: true })
       .getByRole('button', { name: 'Replace and clear captions', exact: true }).click();
   }
+  return dialog;
+}
+const acceptTimingLabel = 'I accept keeping the existing caption and word times.';
+async function requestAudioWarning(page: Page, filename?: string) {
+  const dialog = await chooseFile(page, filename);
+  await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true })).not.toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'Replace and keep existing times', exact: true })).toBeDisabled();
   return dialog;
 }
 async function finishResponse(page: Page, pathname: string, release: () => void) {
@@ -156,7 +187,7 @@ test('replacement defaults to preserving reviewed work and cancelling or Escape 
   let dialog = await chooseFile(page);
   await expect(dialog.getByRole('radio', { name: /^Keep reviewed captions/ })).toBeChecked();
   await expect(dialog.getByRole('radio', { name: /^Start over/ })).not.toBeChecked();
-  await expect(dialog.getByRole('button', { name: 'Replace and keep captions', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Replace and keep captions', exact: true })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(f.requests).toHaveLength(0);
@@ -175,7 +206,6 @@ test('preserve submits a revision-bound snapshot once, blocks interruption while
   await openProject(page);
   await seek(page, 1500);
   const dialog = await chooseFile(page);
-  await dialog.getByRole('checkbox', { name: 'The audio, cuts and timing are unchanged.', exact: true }).check();
   try {
     const submit = dialog.getByRole('button', { name: 'Replace and keep captions', exact: true });
     await submit.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
@@ -194,6 +224,7 @@ test('preserve submits a revision-bound snapshot once, blocks interruption while
     expect(f.state.projects[0].captionAppearance).toEqual(f.original.captionAppearance);
     expect(f.state.projects[0].transcript).toEqual(f.original.transcript);
     expect(f.state.projects[0].transcriptNeedsSync).toBe(true);
+    expect(f.state.projects[0].mediaAlignment).toBeUndefined();
     noGeneration(f.state);
   } finally { gate.resolve(); }
 });
@@ -203,7 +234,6 @@ test('audio mismatch leaves source, draft, approval and undo state intact withou
   f.fail(422, 'The audio is different or no longer aligned with the reviewed captions.');
   await openProject(page);
   const dialog = await chooseFile(page);
-  await dialog.getByRole('checkbox', { name: 'The audio, cuts and timing are unchanged.', exact: true }).check();
   await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('The audio is different');
   expect(f.requests).toHaveLength(1);
@@ -213,6 +243,181 @@ test('audio mismatch leaves source, draft, approval and undo state intact withou
   expect(f.replacements).toHaveLength(0);
   noGeneration(f.state);
 });
+
+test('changed audio needs unchecked explicit acceptance and cancellation cannot reuse it for a different selection', async ({ page }) => {
+  const f = await fixture(page); f.changeAudio();
+  await openProject(page);
+  const dialog = await requestAudioWarning(page);
+  await expect(dialog).toContainText('Existing caption and word times will be kept');
+  await expect(dialog).toContainText('alignment is your responsibility');
+  expect(f.requests).toHaveLength(1);
+  expect(f.requests[0].audioChangeConfirmation).toBeUndefined();
+  expect(f.state.projects[0]).toEqual(f.original);
+  expect(f.backupSnapshots).toHaveLength(0);
+  await dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true }).check();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const next = await chooseFile(page, 'synthetic-with-music.mp4');
+  await expect(next).toContainText('synthetic-with-music.mp4');
+  await expect(next.getByRole('checkbox', { name: acceptTimingLabel, exact: true })).toHaveCount(0);
+  await expect(next.getByRole('button', { name: 'Replace and keep captions', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  expect(f.requests).toHaveLength(1);
+  expect(f.state.projects[0]).toEqual(f.original);
+  noGeneration(f.state);
+});
+
+test('accepted audio difference submits once and keeps reviewed words, locks and highlight timing across reload and Undo', async ({ page }, testInfo) => {
+  const f = await fixture(page); f.changeAudio();
+  f.state.projects[0].captionAppearance = { ...f.state.projects[0].captionAppearance!, highlightMode: 'word' };
+  const before = structuredClone(f.state.projects[0]);
+  const gate = deferred();
+  await openProject(page);
+  const dialog = await requestAudioWarning(page);
+  await page.screenshot({ path: testInfo.outputPath('audio-change-warning-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(dialog).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('audio-change-warning-narrow.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true }).check();
+  f.hold(gate.promise);
+  try {
+    await dialog.getByRole('button', { name: 'Replace and keep existing times', exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+    await expect.poll(() => f.requests.length).toBe(2);
+    expect(f.requests[1]).toEqual({ mode: 'preserve', expectedMedia: { filename: before.media.filename, size: before.media.size }, expectedUpdatedAt: before.updatedAt, audioChangeConfirmation: 'synthetic-confirmation-1' });
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    gate.resolve();
+    await expect(dialog).toHaveCount(0);
+    expect(f.backupSnapshots).toHaveLength(1);
+    expect(f.backupSnapshots[0]).toEqual(before);
+    expect(f.state.projects[0].captions).toEqual(before.captions);
+    expect(f.state.projects[0].captions.every((caption) => caption.wordTiming?.words.length)).toBe(true);
+    expect(f.state.projects[0].captions[0]).toMatchObject({ approved: true, textLocked: true, timingLocked: true });
+    expect(f.state.projects[0].captionAppearance).toEqual(before.captionAppearance);
+    expect(f.state.projects[0].transcript).toEqual(before.transcript);
+    expect(f.state.projects[0].mediaAlignment?.state).toBe('unverified-audio-change');
+    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.appearance-highlight-readiness')).toContainText('3 of 3 captions');
+    await page.reload();
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/regraded.mp4');
+    await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(before.captions[0].text);
+    await expect(page.getByRole('note').filter({ hasText: 'Audio alignment not verified.' })).toContainText('Existing caption and word times were kept');
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    const details = page.locator('.timing-card');
+    await expect(details).toContainText('Previous audio timing evidence');
+    await expect(details).toContainText('These measurements belong to the previous audio');
+    await expect(details).not.toContainText(/KFA Khmer alignment active|Local Whisper fallback active/);
+    await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
+    await seek(page, 500);
+    await page.screenshot({ path: testInfo.outputPath('retained-timing-reminder-desktop.png'), fullPage: true });
+    expect(f.state.projects[0].captions).toEqual(before.captions);
+    await page.getByLabel('Open project tools', { exact: true }).click();
+    await page.getByRole('menuitem', { name: /^Undo media replacement/ }).click();
+    await page.getByRole('dialog', { name: 'Undo media replacement', exact: true }).getByRole('button', { name: 'Restore selected backup', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Restore previous media?', exact: true }).getByRole('button', { name: 'Restore previous media', exact: true }).click();
+    await expect.poll(() => f.restoreCount()).toBe(1);
+    expect(f.state.projects[0].captions).toEqual(before.captions);
+    expect(f.state.projects[0].mediaAlignment).toBeUndefined();
+    const detailsButton = page.getByRole('button', { name: 'Details', exact: true });
+    if (await detailsButton.getAttribute('aria-pressed') !== 'true') await detailsButton.click();
+    await expect(page.locator('.timing-card')).toContainText('KFA Khmer alignment active');
+    await expect(page.locator('.timing-card')).not.toContainText('Previous audio timing evidence');
+    noGeneration(f.state);
+  } finally { gate.resolve(); }
+});
+
+test('choosing Start over discards audio consent and still requires its separate destructive confirmation', async ({ page }) => {
+  const f = await fixture(page); f.changeAudio();
+  await openProject(page);
+  const dialog = await requestAudioWarning(page);
+  await dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true }).check();
+  await dialog.getByRole('radio', { name: /^Start over/ }).check();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Start over with this media?', exact: true }).getByRole('button', { name: 'Keep current project', exact: true }).click();
+  expect(f.requests).toHaveLength(1);
+  expect(f.state.projects[0]).toEqual(f.original);
+  await dialog.getByRole('radio', { name: /^Keep reviewed captions/ }).check();
+  await expect(dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Replace and keep captions', exact: true })).toBeEnabled();
+  noGeneration(f.state);
+});
+
+test('new caption edits invalidate accepted audio warning before any override request', async ({ page }) => {
+  const f = await fixture(page); f.changeAudio();
+  f.state.profile.preferences.autosaveDelayMs = 60_000;
+  await openProject(page);
+  const dialog = await requestAudioWarning(page);
+  await dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true }).check();
+  await page.getByLabel('Caption 2 text', { exact: true }).fill('New reviewed correction needs its own confirmation');
+  await expect(dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Replace and keep captions', exact: true })).toBeEnabled();
+  expect(f.requests).toHaveLength(1);
+  expect(f.replacements).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveValue('New reviewed correction needs its own confirmation');
+  await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+  noGeneration(f.state);
+});
+
+test('an externally changed project revision cannot consume old audio consent or silently reset', async ({ page }) => {
+  const f = await fixture(page); f.changeAudio();
+  await openProject(page);
+  const dialog = await requestAudioWarning(page);
+  await dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true }).check();
+  f.state.projects[0].updatedAt = '2026-10-01T00:59:00.000Z';
+  await dialog.getByRole('button', { name: 'Replace and keep existing times', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText(/changed|stale|check/i);
+  expect(f.replacements).toHaveLength(0);
+  expect(f.backupSnapshots).toHaveLength(0);
+  expect(f.state.projects[0].captions).toEqual(f.original.captions);
+  await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+  noGeneration(f.state);
+});
+
+test('two successive audio replacements each require a fresh unchecked warning bound to that source', async ({ page }) => {
+  const f = await fixture(page); f.changeAudio();
+  await openProject(page);
+  for (const filename of ['synthetic-louder.mp4', 'synthetic-with-sfx.mp4']) {
+    const previous = structuredClone(f.state.projects[0]);
+    const dialog = await requestAudioWarning(page, filename);
+    const verification = f.requests.at(-1)!;
+    expect(verification.audioChangeConfirmation).toBeUndefined();
+    expect(verification.expectedUpdatedAt).toBe(previous.updatedAt);
+    expect(verification.expectedMedia).toEqual({ filename: previous.media.filename, size: previous.media.size });
+    await dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true }).check();
+    await dialog.getByRole('button', { name: 'Replace and keep existing times', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(f.state.projects[0].media.originalName).toBe(filename);
+    expect(f.state.projects[0].captions).toEqual(f.original.captions);
+  }
+  expect(f.requests).toHaveLength(4);
+  expect(f.requests[1].audioChangeConfirmation).not.toBe(f.requests[3].audioChangeConfirmation);
+  expect(f.backupSnapshots).toHaveLength(2);
+  noGeneration(f.state);
+});
+
+for (const [code, message] of [
+  ['MEDIA_DURATION_MISMATCH', 'The overall duration differs. Use the same duration to keep existing times.'],
+  ['MEDIA_INVALID', 'The replacement could not be decoded.'],
+  ['MEDIA_CAPTION_BOUNDS', 'A caption ends beyond the replacement media.'],
+] as const) {
+  test(`${code} never offers audio acceptance or silently resets`, async ({ page }) => {
+    const f = await fixture(page); f.fail(422, message, code);
+    await openProject(page);
+    const dialog = await submitReplacement(page, 'preserve');
+    await expect(dialog.getByRole('alert')).toContainText(message);
+    await expect(dialog.getByRole('checkbox', { name: acceptTimingLabel, exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Replace and keep existing times', exact: true })).toHaveCount(0);
+    expect(f.requests).toHaveLength(1);
+    expect(f.state.projects[0]).toEqual(f.original);
+    expect(f.backupSnapshots).toHaveLength(0);
+    noGeneration(f.state);
+  });
+}
 
 test('Start over requires a separate destructive confirmation; cancellation and Back do not submit', async ({ page }) => {
   const f = await fixture(page);
@@ -260,7 +465,6 @@ test('failed prerequisite save keeps the unsaved caption and never starts replac
   const text = page.getByLabel('Caption 2 text', { exact: true });
   await text.fill('Unsaved correction must survive');
   const dialog = await chooseFile(page);
-  await dialog.getByRole('checkbox', { name: 'The audio, cuts and timing are unchanged.', exact: true }).check();
   await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('The current captions could not be saved. Resolve the save error before changing media.');
   expect(f.requests).toHaveLength(0);
@@ -289,7 +493,6 @@ test('preserve replacement retains the open Review workspace and its decision ta
   await seek(page, 1500);
   await expect(review).toHaveAttribute('aria-pressed', 'true');
   const dialog = await chooseFile(page);
-  await dialog.getByRole('checkbox', { name: 'The audio, cuts and timing are unchanged.', exact: true }).check();
   await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('video')).toHaveAttribute('src', '/media/regraded.mp4');

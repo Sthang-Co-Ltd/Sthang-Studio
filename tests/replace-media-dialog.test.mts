@@ -13,7 +13,7 @@ registerHooks({ load(url, context, nextLoad) {
 const { ReplaceMediaDialog, RestoreMediaDialog } = await import('../apps/web/src/components/ReplaceMediaDialog.js');
 const noop = () => {};
 const replace = (extra = {}) => renderToStaticMarkup(React.createElement(ReplaceMediaDialog, {
-  filename: 'new-visual-edit.mp4', captionCount: 18, working: '', error: '', onCancel: noop, onReplace: noop, ...extra,
+  filename: 'new-visual-edit.mp4', captionCount: 18, working: '', error: '', onCancel: noop, onModeChange: noop, onReplace: noop, ...extra,
 }));
 const restore = (extra = {}) => renderToStaticMarkup(React.createElement(RestoreMediaDialog, {
   checkpoints: [], loading: false, working: '', error: '', onCancel: noop, onReload: noop, onRestore: noop, onDelete: noop, ...extra,
@@ -21,16 +21,37 @@ const restore = (extra = {}) => renderToStaticMarkup(React.createElement(Restore
 const input = (html: string, value: string) => [...html.matchAll(/<input\b[^>]*>/g)].map((match) => match[0]).find((tag) => tag.includes(`value="${value}"`))!;
 const button = (html: string, label: string) => [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map((match) => match[0]).find((tag) => tag.endsWith(`>${label}</button>`))!;
 
-test('replacement starts in preserve mode with an unchecked timeline acknowledgment and disabled action', () => {
+test('replacement starts in preserve mode with ordinary verification and no advance audio override', () => {
   const html = replace();
   assert.match(input(html, 'preserve'), /checked=""/);
   assert.doesNotMatch(input(html, 'reset'), /checked=/);
-  assert.match(html, /<input type="checkbox"\/>/);
-  assert.match(button(html, 'Replace and keep captions'), /disabled=""/);
+  assert.doesNotMatch(html, /type="checkbox"/);
+  assert.doesNotMatch(button(html, 'Replace and keep captions'), /disabled=/);
   assert.doesNotMatch(button(html, 'Cancel'), /disabled=/);
-  assert.match(html, /Matching duration alone is not enough/);
+  assert.match(html, /Studio checks the audio before replacing/);
   assert.match(html, /No captions are generated automatically/);
   assert.match(html, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="replace-media-title"/);
+});
+
+test('only a supplied audio mismatch confirmation reveals an unchecked honest timing warning', () => {
+  const html = replace({ preserveAudioConfirmation: { token: 'opaque-selected-file-and-revision', expiresAt: '2099-01-01T00:00:00.000Z' } });
+  assert.match(html, /Keep existing timing with different audio\?/);
+  assert.match(html, /Existing caption and word times will be kept/);
+  assert.match(html, /alignment is your responsibility/);
+  assert.match(html, /I accept keeping the existing caption and word times\./);
+  const checkbox = [...html.matchAll(/<input\b[^>]*>/g)].map((match) => match[0]).find((tag) => tag.includes('type="checkbox"'))!;
+  assert.ok(checkbox);
+  assert.doesNotMatch(checkbox, /checked=/);
+  assert.match(button(html, 'Replace and keep existing times'), /disabled=""/);
+  assert.equal(button(html, 'Replace and clear captions'), undefined);
+  assert.doesNotMatch(html, /audio.{0,15}(?:verified|unchanged)|alignment.{0,15}verified/i);
+});
+
+test('an expired audio confirmation requires checking again instead of accepting a stale warning', () => {
+  const html = replace({ preserveAudioConfirmation: { token: 'expired', expiresAt: '2020-01-01T00:00:00.000Z' } });
+  assert.doesNotMatch(html, /type="checkbox"/);
+  assert.doesNotMatch(button(html, 'Check replacement again'), /disabled=/);
+  assert.equal(button(html, 'Replace and keep existing times'), undefined);
 });
 
 test('pending replacement disables its form and cancel without pretending the request was cancelled', () => {
@@ -50,6 +71,8 @@ test('compatibility rejection remains visible and cannot select reset as a fallb
   assert.match(input(html, 'preserve'), /checked=""/);
   assert.doesNotMatch(input(html, 'reset'), /checked=/);
   assert.doesNotMatch(html, /<button[^>]*>Replace and clear captions/);
+  assert.doesNotMatch(html, /type="checkbox"/);
+  assert.equal(button(html, 'Replace and keep existing times'), undefined);
 });
 
 test('source filenames and server error text are escaped rather than interpreted', () => {

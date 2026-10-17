@@ -32,6 +32,7 @@ import { proposalStore, type StoredRegenerationProposal } from './proposal-store
 import { historyStore } from './history-store.js';
 import { resolveGeminiSettings } from './llm-settings.js';
 import { settlePairWithPrimaryFollowup } from './pipeline-overlap.js';
+import { assertRetainedTimingCanBeDerived } from './media-alignment.js';
 
 export type ProgressReporter = (stage: string, progress: number, message: string) => Promise<void> | void;
 type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
@@ -792,6 +793,7 @@ export async function postprocessProjectTiming(projectId: string, settings: QaPr
   return store.withProjectWrite(projectId, async (project, persist) => {
     if (!project) throw new Error('Project not found');
     if (!matchesMedia(project, expectedMedia)) throw new StaleProjectMediaError();
+    assertRetainedTimingCanBeDerived(project);
     if (!project.captions.length) throw new Error('There are no captions to process.');
     await historyStore.checkpoint(project, `Before timing cleanup: ${settings.name}`, 'timing-fix');
     const tokens = project.transcript?.tokens;

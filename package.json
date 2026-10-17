@@ -62,7 +62,7 @@
     "diagnose:gemini-abort": "node --expose-gc --import tsx --test tests/diagnostics/gemini-sdk-abort-known-limitation.mts",
     "diagnose:node-abort": "node --expose-gc tests/diagnostics/request-clone-abort-known-limitation.mjs",
     "test:media-preview": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-preview.test.mts",
-    "test:media-replacement": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-compatibility.test.mts tests/preserve-media-server.test.mts tests/replace-media-dialog.test.mts tests/accuracy-context-draft.test.ts"
+    "test:media-replacement": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-compatibility.test.mts tests/preserve-media-server.test.mts tests/replace-media-dialog.test.mts tests/accuracy-context-draft.test.ts tests/media-audio-override.test.mts tests/media-audio-override-recovery.test.mts tests/media-audio-override-timing.test.mts tests/media-audio-override-export.test.mts"
   },
   "allowScripts": {
     "@google/genai": true,

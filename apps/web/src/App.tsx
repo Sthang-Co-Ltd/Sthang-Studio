@@ -51,7 +51,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { api, ApiRequestError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementCheckpoint, type MediaReplacementMode, type ReplaceMediaResponse } from './api';
+import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
 import { Upload } from './components/Upload';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
@@ -177,6 +177,17 @@ type ReplacementEditRecovery = {
   accuracyContext?: AccuracyFields;
 };
 
+type PendingMediaReplacement = {
+  id: number;
+  file: File;
+  ticket: ProjectTicket;
+  audioConfirmation?: PreserveAudioConfirmation & {
+    basis: MediaReplacementBasis;
+    editRevision: number;
+    contextRevision: number;
+  };
+};
+
 type RetainedMediaView = {
   key: string;
   workspace: WorkspaceTool;
@@ -245,7 +256,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [replacementEditRecoveries, setReplacementEditRecoveries] = useState<ReplacementEditRecovery[]>([]);
-  const [pendingMediaReplacement, setPendingMediaReplacement] = useState<{ file: File; ticket: ProjectTicket } | null>(null);
+  const [pendingMediaReplacement, setPendingMediaReplacement] = useState<PendingMediaReplacement | null>(null);
+  const mediaReplacementSequence = useRef(0);
   const [showMediaBackups, setShowMediaBackups] = useState(false);
   const [mediaBackups, setMediaBackups] = useState<MediaReplacementCheckpoint[]>([]);
   const [mediaBackupsLoading, setMediaBackupsLoading] = useState(false);
@@ -558,6 +570,19 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', protectPending);
   }, [mediaMutationStatus]);
   useEffect(() => () => { mediaBackupsRequest.current?.abort(); }, []);
+
+  useEffect(() => {
+    const pending = pendingMediaReplacement;
+    if (!pending?.audioConfirmation || mediaMutationInFlight.current) return;
+    const confirmation = pending.audioConfirmation;
+    if (!projectScope.current.isCurrent(pending.ticket)
+      || project?.updatedAt !== confirmation.basis.expectedUpdatedAt
+      || draftEditRevision.current !== confirmation.editRevision
+      || accuracyDraft.current.editRevision !== confirmation.contextRevision || dirtyRef.current) {
+      setPendingMediaReplacement((current) => current?.id === pending.id ? { ...current, audioConfirmation: undefined } : current);
+      setMediaMutationError('The project changed since the audio was checked. Check the replacement again before accepting existing times.');
+    }
+  }, [pendingMediaReplacement, project?.updatedAt, draft, accuracyFields]);
 
   useEffect(() => {
     wordBatchController.current?.abort();
@@ -1539,7 +1564,7 @@ export default function App() {
     setShowMediaBackups(false);
     mediaBackupsRequest.current?.abort();
     setMediaMutationError('');
-    setPendingMediaReplacement({ file, ticket: projectScope.current.capture() });
+    setPendingMediaReplacement({ id: ++mediaReplacementSequence.current, file, ticket: projectScope.current.capture() });
   };
 
   const loadMediaBackups = async () => {
@@ -1683,12 +1708,21 @@ export default function App() {
       setMediaMutationError(`${message} Studio could not confirm the saved source. Close this dialog and reopen the project before trying again.`);
     }
   };
-  const submitMediaReplacement = async (mode: MediaReplacementMode) => {
+  const submitMediaReplacement = async (mode: MediaReplacementMode, audioChangeConfirmation?: string) => {
     if (!project || !pendingMediaReplacement || mediaMutationInFlight.current) return;
     if (currentProjectAnyActiveJob) { setMediaMutationError('Wait for the active processing job to finish before replacing media.'); return; }
     const pending = pendingMediaReplacement;
     if (!projectScope.current.isCurrent(pending.ticket)) { setPendingMediaReplacement(null); return; }
+    const accepted = mode === 'preserve' && audioChangeConfirmation ? pending.audioConfirmation : undefined;
+    if (audioChangeConfirmation && (!accepted || accepted.token !== audioChangeConfirmation
+      || Date.parse(accepted.expiresAt) <= Date.now() || project.updatedAt !== accepted.basis.expectedUpdatedAt
+      || draftEditRevision.current !== accepted.editRevision || accuracyDraft.current.editRevision !== accepted.contextRevision || dirtyRef.current)) {
+      setPendingMediaReplacement({ ...pending, audioConfirmation: undefined });
+      setMediaMutationError('The audio check or project changed. Check the replacement again and review the warning before accepting existing times.');
+      return;
+    }
     mediaMutationInFlight.current = true;
+    setPendingMediaReplacement({ ...pending, audioConfirmation: undefined });
     setMediaMutationStatus(mode === 'reset' ? 'Review the confirmation…' : 'Saving current work…');
     setMediaMutationError('');
     setError('');
@@ -1698,6 +1732,7 @@ export default function App() {
     let editRevision = draftEditRevision.current;
     let contextRevision = accuracyDraft.current.editRevision;
     let submitted = false;
+    let submittedBasis: MediaReplacementBasis | undefined;
     try {
       if (mode === 'reset' && !await confirmInStudio({
         title: 'Start over with this media?',
@@ -1710,24 +1745,37 @@ export default function App() {
       const ready = await mediaMutationBasis(target, ticket);
       editRevision = ready.editRevision;
       contextRevision = ready.contextRevision;
+      if (accepted && (ready.basis.expectedUpdatedAt !== accepted.basis.expectedUpdatedAt
+        || ready.basis.expectedMedia.filename !== accepted.basis.expectedMedia.filename
+        || ready.basis.expectedMedia.size !== accepted.basis.expectedMedia.size
+        || editRevision !== accepted.editRevision || contextRevision !== accepted.contextRevision)) {
+        throw new Error('The saved project changed since the audio was checked. Check the replacement again before accepting existing times.');
+      }
       projectScope.current.invalidate();
       ticket = projectScope.current.capture();
-      setPendingMediaReplacement({ ...pending, ticket });
+      setPendingMediaReplacement({ ...pending, ticket, audioConfirmation: undefined });
       wordBatchController.current?.abort();
       setProposal(null);
       setQueuedSeekMs(null);
       setBusy(mode === 'preserve' ? 'Checking replacement audio…' : 'Replacing media…');
       setMediaMutationStatus(mode === 'preserve' ? 'Uploading and checking the audio locally…' : 'Saving replacement and backup…');
       submitted = true;
-      const result = await api.replaceMedia(target.id, pending.file, mode, ready.basis);
+      submittedBasis = ready.basis;
+      const result = await api.replaceMedia(target.id, pending.file, mode, ready.basis, accepted?.token);
       if (!publishMediaReplacement(result, target, editRevision, contextRevision, ticket, mode === 'preserve' ? retained : undefined)) return;
       const warning = result.replacementCleanupWarnings?.some((item) => item !== 'durability') ? ' Some old derived files could not be cleaned up; the saved replacement is usable.' : '';
-      setNotice(`${mode === 'preserve' ? 'Media replaced. Your reviewed captions and appearance were kept.' : 'Media replaced. Captions were cleared; generate them when ready.'}${warning}`);
+      setNotice(`${mode === 'preserve' ? result.mediaAlignment?.state === 'unverified-audio-change'
+        ? 'Media replaced. Existing captions and word times were kept. Check alignment against the edited audio.'
+        : 'Media replaced. Your reviewed captions and appearance were kept.' : 'Media replaced. Captions were cleared; generate them when ready.'}${warning}`);
       if (result.replacementCleanupWarnings?.includes('durability')) {
         setError('The replacement was saved, but its final storage flush could not be confirmed. The previous source and backup were retained for recovery. Check your storage before closing Studio.');
       }
     } catch (reason) {
-      if (submitted) await reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
+      if (reason instanceof MediaAudioMismatchError && submittedBasis && mode === 'preserve' && projectScope.current.isCurrent(ticket)) {
+        if (editRevision === draftEditRevision.current && contextRevision === accuracyDraft.current.editRevision && !dirtyRef.current) {
+          setPendingMediaReplacement({ ...pending, ticket, audioConfirmation: { ...reason.preserveAudioConfirmation, basis: submittedBasis, editRevision, contextRevision } });
+        } else setMediaMutationError('The project changed during the audio check. Check the replacement again before accepting existing times. This media change was not applied.');
+      } else if (submitted) await reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
       else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : 'Save current work before replacing media.');
     } finally {
       mediaMutationInFlight.current = false;
@@ -2485,6 +2533,7 @@ export default function App() {
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
   const usedFallback = timing?.engine === 'faster-whisper-local';
+  const audioAlignmentUnverified = project?.mediaAlignment?.state === 'unverified-audio-change';
   const timingConfigured = health?.timing.configured ?? true;
 
   const openReviewWorkspace = () => {
@@ -2554,8 +2603,10 @@ export default function App() {
   };
 
   const overlays = <>
-    {pendingMediaReplacement && <ReplaceMediaDialog filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError}
-      onCancel={() => { if (!mediaMutationInFlight.current) setPendingMediaReplacement(null); }} onReplace={(mode) => void submitMediaReplacement(mode)}/>}
+    {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError}
+      preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
+      onModeChange={() => { setPendingMediaReplacement((current) => current ? { ...current, audioConfirmation: undefined } : current); setMediaMutationError(''); }}
+      onCancel={() => { if (!mediaMutationInFlight.current) setPendingMediaReplacement(null); }} onReplace={(mode, confirmation) => void submitMediaReplacement(mode, confirmation)}/>}
     {showMediaBackups && <RestoreMediaDialog checkpoints={mediaBackups} loading={mediaBackupsLoading} working={mediaMutationStatus} error={mediaMutationError}
       onCancel={() => { if (!mediaMutationInFlight.current) { mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
@@ -2641,6 +2692,8 @@ export default function App() {
         <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
+
+    {project.mediaAlignment?.state === 'unverified-audio-change' && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span><strong>Audio alignment not verified.</strong> Existing caption and word times were kept. Check them against the edited audio before exporting.</span></div>}
 
     <section className="editor-grid">
       <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''} ${workspaceTool === 'appearance' && !proposal ? 'appearance-workspace-active' : ''}`}>
@@ -2802,12 +2855,13 @@ export default function App() {
             <Captions size={28}/><div><strong>{legacy ? 'Rebuild with accurate local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild it with the current caption timing.' : 'Studio creates the Khmer text and syncs it to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div><button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
 
-          {workspaceTool === 'details' && hasHybrid && <div className="timing-card">
-            <div className="timing-card-title"><CheckCircle2 size={18}/><div><strong>{usedFallback ? 'Local Whisper fallback active' : 'KFA Khmer alignment active'}</strong><span>Text: {project.transcript?.textModel || health?.geminiModel}{project.transcript?.textModelFallback ? ' (fallback)' : ''} · Timing: {timing?.model}{timing?.device ? ` · ${timing.device}` : ''}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{project.transcript?.vocabularyTerms?.length} protected terms · native bias {project.transcript?.nativeVocabularyBias ? 'on' : project.transcript?.contextMode === 'audio-only' ? 'not applied' : 'prompt-only'}</span>}</div></div>
+          {workspaceTool === 'details' && hasHybrid && <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
+            <div className="timing-card-title">{audioAlignmentUnverified ? <TriangleAlert size={18}/> : <CheckCircle2 size={18}/>}<div><strong>{audioAlignmentUnverified ? 'Previous audio timing evidence' : usedFallback ? 'Local Whisper fallback active' : 'KFA Khmer alignment active'}</strong><span>Text: {project.transcript?.textModel || health?.geminiModel}{project.transcript?.textModelFallback ? ' (fallback)' : ''} · Timing: {timing?.model}{timing?.device ? ` · ${timing.device}` : ''}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{project.transcript?.vocabularyTerms?.length} protected terms · native bias {project.transcript?.nativeVocabularyBias ? 'on' : project.transcript?.contextMode === 'audio-only' ? 'not applied' : 'prompt-only'}</span>}</div></div>
+            {audioAlignmentUnverified && <div className="inline-warning"><TriangleAlert size={16}/><span>These measurements belong to the previous audio. Existing caption and word times were kept; check alignment against the edited audio.</span></div>}
             {project.transcript?.contextMode && project.transcript.contextMode !== 'full' && <div className="inline-warning"><TriangleAlert size={16}/><span>{compatibilityTranscriptionNotice(project)}</span></div>}
-            {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align this clip, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
+            {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align {audioAlignmentUnverified ? 'the previous audio' : 'this clip'}, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
             {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>Text and canonical timing no longer fully match. Lock reviewed captions before regrouping.</span></div>}
-            <div className="timing-metrics"><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>review</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>
+            <div className="timing-metrics" aria-label={audioAlignmentUnverified ? 'Timing measurements from the previous audio' : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>review</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>
             {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>Local processing checkpoints are ready, so interrupted jobs can resume without repeating completed stages.</span></div>}
           </div>}
 

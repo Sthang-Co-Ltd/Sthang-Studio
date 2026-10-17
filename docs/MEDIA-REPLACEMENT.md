@@ -1,16 +1,23 @@
-# Replacing visual footage while keeping reviewed captions
+# Replacing media while keeping reviewed captions
 
 Status: source-only. This does not establish availability in a published package.
 
 ## Creator workflow
 
-1. Finish the visual edit without moving, trimming, adding, or retiming audio.
+1. Keep the overall timeline duration and ensure every existing caption remains
+   inside the replacement's duration. Volume edits, added music and sound effects
+   can be accepted without changing the reviewed caption and word times.
 2. Open the reviewed Studio project, then **Tools → Replace media** and select the
    revised export.
-3. Choose **Keep reviewed captions**, acknowledge unchanged audio/timing, and let
-   Studio check the two files locally. Saving pending caption and appearance edits
+3. Choose **Keep reviewed captions** and let Studio check the two files locally.
+   Saving pending caption and appearance edits
    is a prerequisite; a failed save stops replacement.
-4. After successful replacement, review caption placement against the new visuals,
+4. If otherwise valid audio differs, Studio offers a warning. Accept only if you
+   want the existing caption and word times kept and take responsibility for
+   their alignment against the edited audio. Leaving it unchecked or canceling
+   keeps the old source and project. Changed files or project revisions require
+   a fresh check and acceptance.
+5. After successful replacement, review alignment and caption placement,
    particularly when crop, rotation, dimensions, or aspect ratio changed.
 
 **Start over** is a separate confirmed choice. It clears the active transcript and
@@ -24,11 +31,19 @@ timing, approvals and locks. Canonical transcript/tokens, transcript-sync status
 mode, and saved appearance are retained. Source-derived caches and native preview
 sessions are retired; new preview/export work uses the new source identity.
 
-The comparison is conservative signal evidence, not a semantic speech-recognition
-proof. No cloud request or model listen is used. It rejects uncertainty, which can
-include a legitimate visual edit whose re-encoding changes the audio too much.
-Do not work around rejection by choosing Start over unless losing the active
-caption set is what you intend.
+The unchanged-audio comparison is conservative signal evidence, not a semantic
+speech-recognition proof. No cloud request or model listen is used. Different
+audio can be explicitly accepted only after complete file/decoder/timeline safety
+validation. This records **unverified alignment**, not a compatibility certificate:
+old captions and word times are retained unchanged, and an alignment reminder
+stays visible after reopening and during export. Overall duration changes, unsafe
+timestamps, undecodable/corrupt inputs and caption bounds beyond EOF cannot be
+overridden. Do not choose Start over unless losing the active caption set is intended.
+
+For accepted audio changes, automatic timing cleanup and regrouping from the old
+transcript are blocked before changing captions. Existing ready word timing stays
+exportable. Manual timing edits and explicit word-sync or regeneration previews
+remain available; they do not silently clear the alignment reminder.
 
 ## Local recovery
 
@@ -62,6 +77,14 @@ not bound all retained History storage.
 
 - Multipart replacement requires explicit `preserve` or `reset`, the expected
   media identity, and saved project revision. Missing/stale preconditions fail.
+- A complete safe audio mismatch offers a ten-minute confirmation tied to the
+  exact old/new source hashes, replacement size, project and saved revision.
+  Acceptance retries the exact selected file. Changed file bytes, stale revisions,
+  replay after replacement, expiry or server restart invalidate the confirmation.
+  No source swap or recovery-slot consumption happens while asking for acceptance.
+- Both complete decodes and frame clocks remain required before a warning can be
+  offered or accepted. Audio differences never hide a later decode/timestamp error.
+  Staged replacement bytes and the old-source backup are rechecked before publication.
 - Verification and staging occur before atomic project publication; active jobs,
   concurrent media transactions and updater activation are excluded.
 - New processing requests carry the source identity from the open project. Saved
@@ -73,7 +96,8 @@ not bound all retained History storage.
   does not repair pre-existing damage.
 - Recovery history is rebased to fresh media identities, preserving older review
   decisions without making delayed old requests valid.
-- Comparison uses complete aligned mono/stereo PCM, independently per channel,
+- Comparison uses complete aligned mono/stereo PCM with compatible channel
+  layouts, independently per channel,
   rather than a duration check or a few sampled excerpts. Resource limits and
   cancellation terminate local subprocesses; no comparison audio is retained.
 
@@ -101,7 +125,7 @@ npm run test:browser -- tests/browser/preserve-media.spec.mts tests/browser/play
 ```
 
 Check that canceling file selection/confirmation does nothing; preserving keeps
-review approvals, word timing, style, playhead and selection; incompatible audio
+review approvals, word timing, style, playhead and selection; unaccepted changed audio
 leaves the original active; start-over requires explicit confirmation; double
 clicks submit once; dirty caption, appearance and Accuracy edits are saved before
 backup; reopening still exposes recovery; restore warns about replacing newer
@@ -110,9 +134,10 @@ navigation never apply an older result to a different project. Inspect desktop
 and narrow/mobile layouts, focus handling, and readable status/error copy. Run a
 native Windows/macOS re-encoded clip smoke test before publishing that platform.
 
-The implementation task's Linux browser launch was blocked before application
-execution by the sandbox's socket policy. Browser test source and type-checking
-are not a substitute for completing this runtime qualification.
+An earlier Linux sandbox qualification could not launch the browser. Later results
+must identify the executed platform, runtime and suites; source-only browser tests
+or type-checking alone do not establish runtime acceptance. Route-mocked UI checks
+also do not establish durable filesystem recovery or native media export.
 
 ## Pending Accuracy edits and copied recovery (source-only correction)
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Source-only - accept edited audio while keeping reviewed times:** after local
+  file, decoder and timeline safety checks, offer explicit acceptance for volume
+  changes, added music and sound effects. Keep exact captions/word times, approvals
+  and locks with a persistent unverified-alignment reminder and recoverable backup.
+  Confirmation is file/revision-bound; duration/bounds/corrupt-file failures stay
+  blocked. No automatic retiming, generation or silent reset.
+
 - **Source-only — keep reviewed captions when replacing footage:** add an explicit
   preserving workflow for visual-only revisions, local full-length audio/timeline
   compatibility checks, and recoverable prior-media/project snapshots. Retain

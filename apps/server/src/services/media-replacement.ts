@@ -12,7 +12,7 @@ import { jobAdmission } from './job-admission.js';
 import { invalidateProjectCache } from './cache.js';
 import { cancelScheduledProjectPrewarm } from './prewarm.js';
 import { proposalStore } from './proposal-store.js';
-import { verifyReplacementAudio, type MediaCompatibilityEvidence } from './media-compatibility.js';
+import { MAX_MEDIA_COMPATIBILITY_SOURCE_BYTES, MediaCompatibilityError, verifyReplacementAudio, type MediaCompatibilityEvidence } from './media-compatibility.js';
 
 export type MediaReplacementMode = 'preserve' | 'reset';
 type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
@@ -21,6 +21,8 @@ export interface MediaReplacementOptions {
   expectedMedia?: ExpectedMedia;
   expectedUpdatedAt?: string;
   signal?: AbortSignal;
+  /** Server-issued, file/revision-bound token sent only after the user accepts the audio-change warning. */
+  audioChangeConfirmation?: string;
 }
 export interface ReplacementUpload { path: string; originalname: string; mimetype: string; size: number }
 export interface MediaReplacementSummary {
@@ -39,11 +41,42 @@ interface RecoverySnapshot extends MediaReplacementSummary {
   verification?: MediaCompatibilityEvidence;
 }
 export class MediaReplacementError extends Error {
-  constructor(message: string, readonly httpStatus: number, readonly code: string) {
+  constructor(message: string, readonly httpStatus: number, readonly code: string, readonly preserveAudioConfirmation?: { token: string; expiresAt: string }) {
     super(message); this.name = 'MediaReplacementError';
   }
 }
 const MAX_RECOVERIES = 5;
+const CONFIRMATION_LIFETIME_MS = 10 * 60 * 1000;
+// Restart invalidates pending confirmations; accepted provenance lives in the project.
+const confirmationSecret = crypto.randomBytes(32);
+interface ConfirmationBinding {
+  projectId: string;
+  revision: string;
+  mediaFilename: string;
+  mediaSize: number;
+  previousSha256: string;
+  replacementSha256: string;
+  replacementSize: number;
+}
+function issueConfirmation(binding: ConfirmationBinding) {
+  const expiresAt = new Date(Date.now() + CONFIRMATION_LIFETIME_MS).toISOString();
+  const payload = Buffer.from(JSON.stringify({ ...binding, expiresAt })).toString('base64url');
+  const signature = crypto.createHmac('sha256', confirmationSecret).update(payload).digest('base64url');
+  return { token: `${payload}.${signature}`, expiresAt };
+}
+function validateConfirmation(token: string, binding: ConfirmationBinding) {
+  const reject = () => { throw new MediaReplacementError('This audio-change confirmation expired or belongs to another file or project version. Check the replacement again before accepting.', 409, 'MEDIA_AUDIO_CONFIRMATION_STALE'); };
+  if (token.length > 4096) return reject();
+  const [payload, signature, extra] = token.split('.');
+  if (!payload || !/^[A-Za-z0-9_-]+$/.test(payload) || !/^[A-Za-z0-9_-]{43}$/.test(signature || '') || extra !== undefined) return reject();
+  const expected = crypto.createHmac('sha256', confirmationSecret).update(payload).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(expected, actual)) return reject();
+  let decoded: ConfirmationBinding & { expiresAt: string };
+  try { decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return reject(); }
+  if (!decoded || !Number.isFinite(Date.parse(decoded.expiresAt)) || Date.parse(decoded.expiresAt) <= Date.now()
+    || Object.entries(binding).some(([key, value]) => decoded[key as keyof ConfirmationBinding] !== value)) return reject();
+}
 const dependencies = {
   store, historyStore, jobAdmission,
   hasActiveJobs: (id: string) => jobStore.hasActiveForProject(id),
@@ -138,7 +171,7 @@ async function ensureRecoveryCapacity(projectId: string) {
 
 export function createMediaReplacementService(overrides: Partial<MediaReplacementDependencies> = {}) {
   const deps = { ...dependencies, ...overrides };
-  async function capture(project: CaptionProject, mode: MediaReplacementSummary['mode'], verification?: MediaCompatibilityEvidence, signal?: AbortSignal) {
+  async function capture(project: CaptionProject, mode: MediaReplacementSummary['mode'], verification?: MediaCompatibilityEvidence, signal?: AbortSignal, expectedSourceSha256?: string) {
     await ensureRecoveryCapacity(project.id);
     const id = nanoid(18);
     const directory = recoveryPath(project.id, id);
@@ -148,6 +181,7 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
     try {
       await fs.mkdir(temporary, { recursive: true });
       const beforeHash = await hashFile(currentSource, signal);
+      if (expectedSourceSha256 && beforeHash !== expectedSourceSha256) throw new MediaReplacementError('The source changed after its audio was checked. Your project was kept.', 409, 'MEDIA_SOURCE_UNAVAILABLE');
       await fs.copyFile(currentSource, path.join(temporary, 'source'), constants.COPYFILE_EXCL);
       await syncFile(path.join(temporary, 'source'));
       const copiedHash = await hashFile(path.join(temporary, 'source'), signal);
@@ -191,6 +225,8 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
         let target: CaptionProject;
         let history: StoredHistoryEntry[];
         let evidence: MediaCompatibilityEvidence | undefined;
+        let verifiedSourceSha256: string | undefined;
+        let verifiedReplacementSha256: string | undefined;
         const recovered = restoreId ? await readSnapshot(projectId, restoreId) : null;
         if (restoreId && !recovered) throw new MediaReplacementError('Saved media backup not found.', 404, 'MEDIA_RECOVERY_NOT_FOUND');
         if (recovered) {
@@ -209,24 +245,60 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
           if (!uploaded) throw new MediaReplacementError('Choose a replacement video or audio file.', 400, 'MEDIA_REPLACEMENT_INPUT');
           await regularFile(uploaded.path, uploaded.size);
           if (options.mode === 'preserve') {
-            evidence = await deps.verifyAudio(sourcePath(current.media.filename), uploaded.path, {
-              captions: current.captions, expectedDurationMs: current.pipelineCache?.normalizedAudioDurationMs || current.transcript?.timing?.audioDurationMs, signal: options.signal,
-            });
+            const previousPath = sourcePath(current.media.filename);
+            await regularFile(previousPath, current.media.size);
+            if (current.media.size <= 0 || uploaded.size <= 0 || current.media.size > MAX_MEDIA_COMPATIBILITY_SOURCE_BYTES || uploaded.size > MAX_MEDIA_COMPATIBILITY_SOURCE_BYTES) {
+              throw new MediaCompatibilityError('The local source media is unavailable or exceeds the verification limit.');
+            }
+            const [previousSha256, replacementSha256] = await Promise.all([hashFile(previousPath, options.signal), hashFile(uploaded.path, options.signal)]);
+            const binding: ConfirmationBinding = { projectId, revision: current.updatedAt, mediaFilename: current.media.filename, mediaSize: current.media.size,
+              previousSha256, replacementSha256, replacementSize: uploaded.size };
+            if (options.audioChangeConfirmation) validateConfirmation(options.audioChangeConfirmation, binding);
+            let difference: MediaCompatibilityError | undefined;
+            try {
+              evidence = await deps.verifyAudio(previousPath, uploaded.path, {
+                captions: current.captions, expectedDurationMs: current.pipelineCache?.normalizedAudioDurationMs || current.transcript?.timing?.audioDurationMs,
+                signal: options.signal, allowAudioChanges: Boolean(options.audioChangeConfirmation),
+              });
+            } catch (error) {
+              if (!(error instanceof MediaCompatibilityError) || error.code !== 'MEDIA_AUDIO_MISMATCH' || !error.audioChangeEvidence) throw error;
+              difference = error;
+            }
+            const [checkedPrevious, checkedReplacement] = await Promise.all([hashFile(previousPath, options.signal), hashFile(uploaded.path, options.signal)]);
+            if (checkedPrevious !== previousSha256 || checkedReplacement !== replacementSha256) {
+              throw new MediaReplacementError('The source or replacement changed while its audio was checked. Your project was kept.', 409, 'MEDIA_SOURCE_UNAVAILABLE');
+            }
+            if (difference) throw new MediaReplacementError(difference.message, 422, difference.code, issueConfirmation(binding));
+            if (evidence?.audioMatches === false && !options.audioChangeConfirmation) {
+              throw new MediaReplacementError('The audio has changed. Accept the warning before keeping the existing caption and word times.', 422, 'MEDIA_AUDIO_MISMATCH', issueConfirmation(binding));
+            }
+            verifiedSourceSha256 = previousSha256;
+            verifiedReplacementSha256 = replacementSha256;
           }
           abortIfRequested(options.signal);
           const filename = `${projectId}-${nanoid(16)}${extension(uploaded.originalname)}`;
           stagedPath = sourcePath(filename);
           await fs.rename(uploaded.path, stagedPath);
           await syncFile(stagedPath);
+          if (verifiedReplacementSha256) {
+            await regularFile(stagedPath, uploaded.size);
+            if (await hashFile(stagedPath, options.signal) !== verifiedReplacementSha256) {
+              throw new MediaReplacementError('The replacement changed after its audio was checked. Your project was kept.', 409, 'MEDIA_SOURCE_UNAVAILABLE');
+            }
+          }
           stagedMedia = { filename, originalName: uploaded.originalname, mimeType: uploaded.mimetype || 'application/octet-stream', size: uploaded.size,
             url: `/media/${encodeURIComponent(filename)}`, ...(evidence ? { durationMs: evidence.durationMs } : {}) };
           target = { ...current, media: stagedMedia, pipelineCache: undefined, updatedAt: nextRevision(current),
-            ...(options.mode === 'reset' ? { transcript: null, captions: [], transcriptNeedsSync: false, engineVersion: '0.7.10' } : {}) };
+            ...(options.mode === 'reset' ? { transcript: null, captions: [], transcriptNeedsSync: false, mediaAlignment: undefined, engineVersion: '0.7.10' }
+              : evidence?.audioMatches === false ? { mediaAlignment: { state: 'unverified-audio-change', acceptedAt: new Date().toISOString(), sourceRevision: current.updatedAt } } : {}) };
           history = options.mode === 'preserve' ? await deps.historyStore.exportForMedia(projectId, current.media) : [];
         }
         await syncDirectory(config.uploadDir);
-        recovery = await capture(current, restoreId ? 'restore' : options.mode!, evidence, options.signal);
-        await deps.historyStore.prepareMediaVersion(projectId, target.media, history);
+        recovery = await capture(current, restoreId ? 'restore' : options.mode!, evidence, options.signal, verifiedSourceSha256);
+        // Caption history now belongs to the replacement audio. Restoring older
+        // text/timing must never erase the current media's unverified alignment.
+        const rebasedHistory = history.map((entry) => ({ ...entry, snapshot: { ...entry.snapshot, mediaAlignment: target.mediaAlignment } }));
+        await deps.historyStore.prepareMediaVersion(projectId, target.media, rebasedHistory);
         abortIfRequested(options.signal);
         // Every operation capable of rejecting is staged before the single atomic
         // project publication. Invalidation also drains in-flight normalization.
@@ -258,6 +330,10 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
       if (options.mode !== 'preserve' && options.mode !== 'reset') {
         await fs.rm(uploaded.path, { force: true }).catch(() => {});
         throw new MediaReplacementError('Choose whether to keep captions or reset the project before replacing media.', 400, 'MEDIA_REPLACEMENT_MODE');
+      }
+      if (options.audioChangeConfirmation !== undefined && (options.mode !== 'preserve' || typeof options.audioChangeConfirmation !== 'string' || !options.audioChangeConfirmation)) {
+        await fs.rm(uploaded.path, { force: true }).catch(() => {});
+        throw new MediaReplacementError('Audio-change confirmation is only valid when keeping captions for the checked replacement.', 400, 'MEDIA_REPLACEMENT_INPUT');
       }
       return swap(projectId, options, uploaded);
     },

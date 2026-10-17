@@ -1,18 +1,24 @@
 # Reviewed-caption media replacement — public-impact record
 
-Change ID: `studio-preserve-reviewed-media-20261015`
+Change ID: `studio-preserve-edited-audio-20261017`
 
 Status: source-only implementation, not a released-download claim.
-**Public impact: required.** This changes the replacement workflow and adds local
-recovery state for visual revisions of an already reviewed project.
+**Public impact: required.** This extends the preserving workflow to explicitly
+accepted audio changes and records local unverified-alignment provenance.
 
 ## Intended scope
 
-Creators can explicitly choose to keep reviewed captions when replacing footage
-with a visual-only revision. Local verification must find compatible full-length
-audio and timeline evidence before the replacement becomes active. Equal file
-duration is not enough. Uncertain or incompatible evidence stops the preserving
-operation; it must never silently reset captions or request generation.
+Creators can keep reviewed captions for visual-only revisions through the existing
+verified-audio path. They can additionally accept volume edits, music or sound
+effects after complete local file/decoder/timeline safety validation finds audio
+differences. The concise warning states that existing caption/word times remain
+and alignment is the creator's responsibility. Acceptance is bound to replacement
+bytes and current project/media revision, expires, and cannot survive a restart.
+An unverified-alignment flag persists through reload and History. Equal duration
+alone is not proof, and overall duration changes, caption bounds beyond EOF,
+unsafe timestamps, corruption, decoder errors or storage failures remain blocked.
+Unaccepted/stale/canceled requests leave the active project unchanged; no silent
+reset or automatic generation is permitted.
 
 Caption wording, segment and word timing, approval and lock flags, canonical
 transcript state, and project appearance remain editing state. A new frame shape
@@ -41,7 +47,11 @@ without overwriting that accepted release evidence or weakening its validator.
 
 Before public representation or release, prepare a new HQ Phase 3 intake covering
 Studio's replacement/recovery workflow, supported audio-compatibility limitations,
-and local-data retention. After exact-plan approval, synchronize the Distribution
+audio-change acceptance, unchanged duration/bounds limits, unverified-alignment
+reminders, blocked old-transcript automatic retiming and local-data retention.
+Proposed HQ fields are the source-change intake/workflow capability, compatibility
+limits and local-retention evidence; this is not a new public-download claim.
+After exact-plan approval, synchronize the Distribution
 website and documentation under `/studio/` (known surfaces
 `landing/studio/index.html` and `docs/studio/index.md`) through its Phase 2 workflow.
 HQ/Distribution writes, publication, releases, and deployment are not authorized

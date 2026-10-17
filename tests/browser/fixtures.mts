@@ -43,6 +43,8 @@ let scratch: string;
 let media: Buffer;
 let nativeModules: { renderCaptionPreview: any; parseCaptionPreviewInput: any };
 let mockServer: http.Server | null = null;
+const fixturePort = Number(process.env.STHANG_BROWSER_FIXTURE_PORT || 8787);
+if (!Number.isInteger(fixturePort) || fixturePort < 1024 || fixturePort > 65535) throw new Error('STHANG_BROWSER_FIXTURE_PORT must be an integer from 1024 to 65535.');
 const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 
 export async function prepareFixtures() {
@@ -115,7 +117,7 @@ export async function prepareFixtures() {
     res.end();
   });
   await new Promise<void>((resolve, reject) => {
-    mockServer!.listen(8787, '127.0.0.1', () => resolve());
+    mockServer!.listen(fixturePort, '127.0.0.1', () => resolve());
     mockServer!.on('error', reject);
   });
 }

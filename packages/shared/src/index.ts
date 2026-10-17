@@ -233,6 +233,12 @@ export interface CaptionProject {
   pipelineCache?: PipelineCacheInfo;
   /** Set when accepted caption-only diffs no longer exactly mirror canonical transcript tokens. */
   transcriptNeedsSync?: boolean;
+  /** Reviewed caption/word times were explicitly kept after a different audio track was accepted. */
+  mediaAlignment?: {
+    state: 'unverified-audio-change';
+    acceptedAt: string;
+    sourceRevision: string;
+  };
 }
 
 export interface SegmentOptions {

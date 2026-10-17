@@ -142,6 +142,10 @@ export interface MediaReplacementBasis {
   expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>;
   expectedUpdatedAt: string;
 }
+export interface PreserveAudioConfirmation {
+  token: string;
+  expiresAt: string;
+}
 export type ReplaceMediaResponse = CaptionProject & {
   mediaReplacement: MediaReplacementCheckpoint;
   replacementCleanupWarnings?: ReplacementCleanupWarning[];
@@ -159,11 +163,25 @@ export class ApiRequestError extends Error {
   }
 }
 
+export class MediaAudioMismatchError extends ApiRequestError {
+  constructor(message: string, readonly preserveAudioConfirmation: PreserveAudioConfirmation) {
+    super(message, 422);
+    this.name = 'MediaAudioMismatchError';
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiRequestError(typeof body?.error === 'string' ? body.error : `Request failed (${res.status})`, res.status);
+    const message = typeof body?.error === 'string' ? body.error : `Request failed (${res.status})`;
+    const confirmation = body?.preserveAudioConfirmation;
+    if (res.status === 422 && body?.code === 'MEDIA_AUDIO_MISMATCH'
+      && typeof confirmation?.token === 'string' && confirmation.token.length > 0 && confirmation.token.length <= 4096
+      && typeof confirmation?.expiresAt === 'string' && Number.isFinite(Date.parse(confirmation.expiresAt))) {
+      throw new MediaAudioMismatchError(message, { token: confirmation.token, expiresAt: confirmation.expiresAt });
+    }
+    throw new ApiRequestError(message, res.status);
   }
   return res.status === 204 ? undefined as T : res.json();
 }
@@ -208,12 +226,13 @@ export const api = {
     fd.append('title', title);
     return request<CaptionProject>('/api/projects', { method: 'POST', body: fd });
   },
-  replaceMedia: (id: string, file: File, mode: MediaReplacementMode, basis: MediaReplacementBasis) => {
+  replaceMedia: (id: string, file: File, mode: MediaReplacementMode, basis: MediaReplacementBasis, audioChangeConfirmation?: string) => {
     const fd = new FormData();
     fd.append('media', file);
     fd.append('mode', mode);
     fd.append('expectedMedia', JSON.stringify(basis.expectedMedia));
     fd.append('expectedUpdatedAt', basis.expectedUpdatedAt);
+    if (audioChangeConfirmation && mode === 'preserve') fd.append('audioChangeConfirmation', audioChangeConfirmation);
     return request<ReplaceMediaResponse>(`/api/projects/${id}/replace-media`, { method: 'POST', body: fd });
   },
   mediaReplacements: (id: string, signal?: AbortSignal) => request<MediaReplacementCheckpoint[]>(`/api/projects/${encodeURIComponent(id)}/media-replacements`, { signal }),

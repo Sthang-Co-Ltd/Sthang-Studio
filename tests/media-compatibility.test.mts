@@ -222,3 +222,106 @@ test('probe output and active decoder cancellation are bounded and release admis
   }
   assert.equal((await verifyReplacementAudio(original, original)).durationMs, 4000);
 });
+
+test('explicit audio-change checking keeps the verified path and reports complete mismatching evidence honestly', async () => {
+  const verified = await verifyReplacementAudio(original, original, { captions, allowAudioChanges: true });
+  assert.equal(verified.audioMatches, true);
+  const changed = signal.map((sample, i) => sample * 1.7 + 0.025 * Math.sin(2 * Math.PI * 1234 * i / rate));
+  const replacement = await wav('accepted-gain-and-music.wav', changed);
+  const accepted = await verifyReplacementAudio(original, replacement, { captions, expectedDurationMs: 4000, allowAudioChanges: true });
+  assert.equal(accepted.audioMatches, false);
+  assert.equal(accepted.comparedSamples, signal.length, 'an early mismatch must not stop validation of the remaining source');
+  assert.equal(accepted.checkedWindows, 200);
+  assert.equal(accepted.audioDurationMs, 4000);
+  assert.deepEqual(JSON.parse(JSON.stringify(accepted)), accepted);
+  await assert.rejects(verifyReplacementAudio(original, replacement, { captions }), (error: any) => {
+    assert.equal(error.code, 'MEDIA_AUDIO_MISMATCH');
+    assert.equal(error.audioChangeEvidence?.comparedSamples, signal.length, 'a confirmation challenge requires complete decode evidence');
+    assert.equal(error.audioChangeEvidence?.audioMatches, false);
+    return true;
+  });
+});
+
+test('audio-change permission cannot bypass duration, invalid caption bounds, corruption, decoder failures or cancellation', async () => {
+  const replacement = await wav('unsafe-override-gain.wav', signal.map((sample) => sample * 0.4));
+  for (const options of [
+    { captions: [{ startMs: 10, endMs: 4100 }] },
+    { captions: [{ startMs: -1, endMs: 100 }] },
+    { captions: [{ startMs: 10, endMs: NaN }] },
+    { expectedDurationMs: 3000 },
+  ]) await assert.rejects(verifyReplacementAudio(original, replacement, { ...options, allowAudioChanges: true }), { code: 'MEDIA_TIMELINE_MISMATCH' });
+  const short = await wav('unsafe-override-short.wav', signal.slice(0, rate * 3));
+  await assert.rejects(verifyReplacementAudio(original, short, { allowAudioChanges: true }), { code: 'MEDIA_TIMELINE_MISMATCH' });
+  const corrupt = path.join(root, 'unsafe-override-corrupt.wav');
+  await fs.writeFile(corrupt, 'not decodable media');
+  await assert.rejects(verifyReplacementAudio(original, corrupt, { allowAudioChanges: true }), (error: any) => {
+    assert.equal(error.code, 'MEDIA_AUDIO_UNVERIFIABLE');
+    assert.equal(error.audioChangeEvidence, undefined);
+    return true;
+  });
+  const dc = await wav('unsafe-override-dc.wav', new Float64Array(signal.length).fill(0.1));
+  await assert.rejects(verifyReplacementAudio(dc, dc, { allowAudioChanges: true }), { code: 'MEDIA_AUDIO_UNVERIFIABLE' });
+  const decoder = config.ffmpegPath;
+  try {
+    config.ffmpegPath = path.join(root, 'nonexistent-decoder');
+    await assert.rejects(verifyReplacementAudio(original, replacement, { allowAudioChanges: true }), (error: any) => {
+      assert.equal(error.code, 'MEDIA_AUDIO_UNVERIFIABLE');
+      assert.equal(error.audioChangeEvidence, undefined);
+      return true;
+    });
+  } finally { config.ffmpegPath = decoder; }
+  await assert.rejects(verifyReplacementAudio(original, replacement, { allowAudioChanges: true, signal: AbortSignal.abort() }), { code: 'MEDIA_AUDIO_UNVERIFIABLE' });
+  assert.equal((await verifyReplacementAudio(original, original)).comparedSamples, signal.length, 'decoder failure/cancellation release admission');
+});
+
+test('a late timestamp discontinuity cannot become an accepted mismatch after an earlier audio edit', async () => {
+  const normal = path.join(root, 'override-clock-normal.mkv');
+  const gap = path.join(root, 'override-clock-gap.mkv');
+  ffmpeg(['-f', 'lavfi', '-i', 'color=s=160x90:r=25:d=4', '-i', original, '-c:v', 'libx264', '-threads', '1', '-c:a', 'pcm_s16le', '-t', '4', normal]);
+  ffmpeg(['-f', 'lavfi', '-i', 'color=s=160x90:r=25:d=4', '-i', original, '-af', "volume=1.7,asetpts=PTS+if(between(T\\,2\\,3)\\,0.01/TB\\,0)", '-c:v', 'libx264', '-threads', '1', '-c:a', 'pcm_s16le', '-t', '4', gap]);
+  for (const allowAudioChanges of [false, true]) await assert.rejects(verifyReplacementAudio(normal, gap, { allowAudioChanges }), (error: any) => {
+    assert.equal(error.code, 'MEDIA_TIMELINE_MISMATCH');
+    assert.equal(error.audioChangeEvidence, undefined, 'unsafe full timeline must never issue confirmation evidence');
+    return true;
+  });
+});
+
+test('an audible flat window remains unverifiable even when the rest of the timeline contains enough voice evidence', async () => {
+  const flat = signal.slice();
+  const start = rate;
+  const end = start + 2 * 960;
+  flat.fill(0.125, start, end);
+  const slightlyDifferent = flat.slice();
+  slightlyDifferent.fill(0.13, start, end); // Residual below 6%; correlation is undefined for both flat windows.
+  const sourceWithDc = await wav('voice-and-dc.wav', flat);
+  const changedDc = await wav('voice-and-different-dc.wav', slightlyDifferent);
+  for (const replacement of [sourceWithDc, changedDc]) for (const allowAudioChanges of [false, true]) {
+    await assert.rejects(verifyReplacementAudio(sourceWithDc, replacement, { captions, allowAudioChanges }), (error: any) => {
+      assert.equal(error.code, 'MEDIA_AUDIO_UNVERIFIABLE');
+      assert.equal(error.audioChangeEvidence, undefined, 'undefined audible correlation must never certify audio or offer confirmation');
+      return true;
+    });
+  }
+});
+
+test('added music and SFX over exact source silence are explicit audio differences after complete safe decoding', async () => {
+  const paused = signal.slice();
+  paused.fill(0, rate, rate * 1.5);
+  const pausedSource = await wav('voice-with-zero-pause.wav', paused);
+  for (const kind of ['music', 'sfx'] as const) {
+    const changed = paused.map((sample) => sample * 1.4);
+    const start = kind === 'music' ? rate : Math.round(rate * 1.2);
+    const end = kind === 'music' ? rate * 1.5 : start + 2 * 960;
+    for (let i = start; i < end; i++) changed[i] += 0.08 * Math.sin(2 * Math.PI * (kind === 'music' ? 367 : 2300) * i / rate);
+    const replacement = await wav(`pause-with-${kind}.wav`, changed);
+    await assert.rejects(verifyReplacementAudio(pausedSource, replacement, { captions }), (error: any) => {
+      assert.equal(error.code, 'MEDIA_AUDIO_MISMATCH', `${kind}: a proven signal addition may offer explicit confirmation`);
+      assert.equal(error.audioChangeEvidence?.audioMatches, false);
+      assert.equal(error.audioChangeEvidence?.comparedSamples, signal.length);
+      return true;
+    });
+    const accepted = await verifyReplacementAudio(pausedSource, replacement, { captions, allowAudioChanges: true });
+    assert.equal(accepted.audioMatches, false, `${kind}: explicit acceptance must never certify the new audio as matching`);
+    assert.equal(accepted.comparedSamples, signal.length);
+  }
+});

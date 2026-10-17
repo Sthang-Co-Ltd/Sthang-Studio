@@ -56,8 +56,14 @@ from Git by `.gitignore`.
 
 The reviewed-caption preserving replacement workflow compares the old and new
 audio locally with FFmpeg/ffprobe. It does not upload either source or request AI
-transcription. Temporary comparison audio is removed after the check. Successful
-replacement retains local recovery snapshots containing the prior source media,
+transcription. Temporary comparison audio is removed after the check. Keeping
+reviewed times with different audio requires explicit acceptance tied to the file
+and saved project version. The short-lived confirmation is checked locally; the
+project stores an acceptance time, prior revision and unverified-alignment flag.
+This does not certify alignment or send audio, captions or confirmation data to
+a hosted service. Pending confirmation expires and cannot survive a server restart.
+Successful replacement retains local recovery snapshots containing the prior
+source media,
 caption/transcript state, appearance, and history so the creator can explicitly
 restore that version. Recovery data remains in ignored project runtime storage;
 removing a recovery removes that snapshot and its retained source. When directory

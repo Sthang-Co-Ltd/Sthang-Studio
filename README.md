@@ -538,13 +538,20 @@ migrated.
 
 In **Tools → Replace media**, choose **Keep reviewed captions** for a visual-only
 revision. Studio checks the complete audio and timeline locally before changing
-the active source. The same duration alone is not sufficient: trimming, moving
-speech, changing speed, or changing the audio can invalidate existing timings.
-If verification cannot establish compatibility, the original project stays active;
-Studio does not silently switch to start-over or generate captions.
+the active source. If otherwise valid audio differs, including volume edits,
+added music or sound effects, you can explicitly accept keeping the existing
+caption and word times. Alignment with the edited audio is then your
+responsibility; Studio keeps an alignment-unverified reminder after reopening.
+Overall duration changes, captions beyond the new end, unsafe timestamps and
+unreadable or undecodable files remain blocked. Canceling or leaving the warning
+unaccepted keeps the original project. Studio never silently starts over or
+generates captions.
 
 Successful preservation keeps caption wording, segment/word timings, approvals,
-locks, transcript state, and saved appearance. Check caption placement again if
+locks, transcript state, and saved appearance. Old-transcript regrouping and
+automatic timing cleanup stay blocked after an accepted audio change; manual
+timing edits and explicit word-sync/regeneration previews remain available.
+Check caption placement again if
 the new footage has a different crop or frame shape. **Start over** is a separate,
 explicit choice that clears the active captions. Neither choice requests AI work.
 

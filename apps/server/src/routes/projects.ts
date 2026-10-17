@@ -29,6 +29,7 @@ import { proposalStore } from '../services/proposal-store.js';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 import { MediaCompatibilityError } from '../services/media-compatibility.js';
+import { assertRetainedTimingCanBeDerived, MediaAlignmentUnverifiedError } from '../services/media-alignment.js';
 import {
   replaceProjectMedia, restoreProjectMedia, listMediaReplacements, discardMediaReplacement, clearRetiredMediaSources,
   MediaReplacementError, type MediaReplacementMode,
@@ -149,12 +150,14 @@ function mediaReplacementOptions(body: Record<string, unknown> | undefined) {
     mode: body?.mode as MediaReplacementMode | undefined,
     expectedMedia: expectedMedia(media) || undefined,
     expectedUpdatedAt: typeof body?.expectedUpdatedAt === 'string' ? body.expectedUpdatedAt : undefined,
+    audioChangeConfirmation: typeof body?.audioChangeConfirmation === 'string' ? body.audioChangeConfirmation : undefined,
   };
 }
 
 function mediaReplacementFailure(res: Parameters<RequestHandler>[1], error: unknown) {
   if (error instanceof MediaReplacementError || error instanceof MediaCompatibilityError) {
-    return res.status(error.httpStatus).json({ error: error.message, code: error.code });
+    return res.status(error.httpStatus).json({ error: error.message, code: error.code,
+      ...(error instanceof MediaReplacementError && error.preserveAudioConfirmation ? { preserveAudioConfirmation: error.preserveAudioConfirmation } : {}) });
   }
   if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message, code: 'MEDIA_PROJECT_BUSY' });
   console.error('[media replacement] Local transaction failed:', error);
@@ -376,6 +379,7 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
         ...entry.snapshot,
         id: current.id,
         media: current.media,
+        mediaAlignment: current.mediaAlignment,
         captions: entry.snapshot.captions.map(sanitizeCaptionWordTiming),
         captionAppearance: current.captionAppearance,
         createdAt: current.createdAt,
@@ -540,6 +544,7 @@ router.post('/:id/resegment', async (req, res) => {
         return { status: 'stale' as const };
       }
       if (!project.transcript) return { status: 'untranscribed' as const };
+      assertRetainedTimingCanBeDerived(project);
       await historyStore.checkpoint(project, 'Before caption regrouping', 'regroup');
       const tokens = requireTimedTokens(project.transcript.tokens);
       const mode = String(req.body.mode || 'dynamic') as CaptionMode;
@@ -565,6 +570,7 @@ router.post('/:id/resegment', async (req, res) => {
     if (result.status === 'untranscribed') return res.status(400).json({ error: 'Transcribe this project first.' });
     res.json(result.project);
   } catch (error) {
+    if (error instanceof MediaAlignmentUnverifiedError) return res.status(409).json({ error: error.message, code: 'MEDIA_ALIGNMENT_UNVERIFIED' });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Regrouping failed' });
   }
 });
@@ -580,6 +586,7 @@ router.post('/:id/postprocess-timing', admitProcessing(async (req, res) => {
     res.json(await postprocessProjectTiming(req.params.id, settings, preparedFor));
   } catch (error) {
     if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
+    if (error instanceof MediaAlignmentUnverifiedError) return res.status(409).json({ error: error.message, code: 'MEDIA_ALIGNMENT_UNVERIFIED' });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Timing post-processing failed' });
   }
 }));
