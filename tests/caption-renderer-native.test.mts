@@ -23,6 +23,18 @@ const fonts = await fontCapabilities();
 const font = fonts.find((item) => item.available && item.boldAvailable);
 assert.ok(font, 'Native tests require a reviewed regular+bold Khmer font (Windows Khmer UI or Linux Noto Sans Khmer).');
 const appearance = { ...DEFAULT_CAPTION_APPEARANCE, fontFamily: font.name };
+function geometryFixtureAppearance(): CaptionAppearance {
+  // These width/line-count fixtures require known metrics, not whichever Khmer
+  // family sorts first on the machine. Other native tests retain broad font coverage.
+  const family = process.platform === 'win32' ? 'Leelawadee UI' : process.platform === 'linux' ? 'Noto Sans Khmer' : font!.name;
+  assert.ok(fonts.some((item) => item.name === family && item.available && item.boldAvailable), `Native geometry fixtures require ${family} regular and bold faces.`);
+  return { ...appearance, fontFamily: family };
+}
+async function fontEvidence(family: string) {
+  const selected = fonts.find((item) => item.name === family)!;
+  const face = async (file: string) => ({ file: path.basename(file), sha256: createHash('sha256').update(await fs.readFile(file)).digest('hex') });
+  return { family, regular: await face(selected.regularPath), bold: selected.boldPath ? await face(selected.boldPath) : null };
+}
 const source = { width: 640, height: 360, displayWidth: 640, displayHeight: 360, rotation: 0, durationMs: 4000, frameRate: 25, variableFrameRate: false, videoCodec: 'h264', pixelFormat: 'yuv420p', bitDepth: 8, hdr: 'sdr' as const, audioCodecs: [], audioStreams: 0 };
 const capabilities: VideoExportCapabilities = { supported: true, source, fonts, subtitlesFilter: true, encoders: [], resolutions: [], availableDiskBytes: 0, warnings: [] };
 
@@ -333,12 +345,14 @@ test('unsupported runtime without subtitlesFilter fails explicitly and actionabl
   );
 });
 
-test('font-size reflow keeps screenshot English words whole when real glyphs fit', async () => {
-  const style = { ...appearance, bold: false, fontSize1080: 96, maxWidthPct: 82, outlineWidth1080: 0, shadowWidth1080: 0 };
+test('font-size reflow keeps screenshot English words whole when real glyphs fit', async (t) => {
+  const style = { ...geometryFixtureAppearance(), bold: false, fontSize1080: 96, maxWidthPct: 82, outlineWidth1080: 0, shadowWidth1080: 0 };
   const caps = { ...capabilities, source: { ...source, displayWidth: 640, displayHeight: 1080 } };
+  t.diagnostic(JSON.stringify({ requestedFont: await fontEvidence(style.fontFamily), bold: style.bold, fontSize1080: style.fontSize1080, frame: [640, 1080], maxWidthPct: style.maxWidthPct }));
   for (const [word, broken] of [['SUBSCRIPTION', 'SUBSCRI\nPTION'], ['GENERATE', 'GENERAT\nE'], ['RECOMMEND', 'RECOMME\nND']]) {
     const whole = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(word), timesMs: [200], appearance: style, resolution: 'source' }), caps);
     const split = await renderCaptionPreview(parseCaptionPreviewInput({ captions: cue(broken), timesMs: [200], appearance: style, resolution: 'source' }), caps);
+    t.diagnostic(JSON.stringify({ word, whole: whole.frames[0].bounds, split: split.frames[0].bounds }));
     assert.ok(whole.frames[0].bounds && split.frames[0].bounds);
     assert.ok(whole.frames[0].bounds!.height < split.frames[0].bounds!.height * 0.75, `${word}: must remain one native line`);
     assert.ok(whole.frames[0].bounds!.width <= 640 * 0.82, `${word}: measured glyphs fit the saved width`);
@@ -346,12 +360,15 @@ test('font-size reflow keeps screenshot English words whole when real glyphs fit
   }
 });
 
-test('Khmer native line layout reflows at linguistic words as width and size change', async () => {
+test('Khmer native line layout reflows at linguistic words as width and size change', async (t) => {
+  const fixtureAppearance = geometryFixtureAppearance();
+  t.diagnostic(JSON.stringify({ requestedFont: await fontEvidence(fixtureAppearance.fontFamily), bold: false, frame: [640, 480] }));
   const captions = cue('ខ្ញុំចូលចិត្តប្រទេសកម្ពុជាខ្លាំងណាស់');
   const caps = { ...capabilities, source: { ...source, displayWidth: 640, displayHeight: 480 } };
   const render = async (fontSize1080: number, maxWidthPct: number) => {
-    const style = { ...appearance, bold: false, fontSize1080, maxWidthPct, outlineWidth1080: 0, shadowWidth1080: 0 };
+    const style = { ...fixtureAppearance, bold: false, fontSize1080, maxWidthPct, outlineWidth1080: 0, shadowWidth1080: 0 };
     const result = await renderCaptionPreview(parseCaptionPreviewInput({ captions, timesMs: [200], appearance: style, resolution: 'source' }), caps);
+    t.diagnostic(JSON.stringify({ fontSize1080, maxWidthPct, bounds: result.frames[0].bounds }));
     compareComposite(decodePng(result.frames[0].png), await referenceFrame(captions, style, 640, 480, 200), `Khmer ${fontSize1080}/${maxWidthPct}`);
     return result.frames[0].bounds!;
   };

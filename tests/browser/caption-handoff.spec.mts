@@ -1,5 +1,5 @@
 import { test, expect, type Download, type Page } from '@playwright/test';
-import { createCaptionData, hydrateCaptionWordTimings, parseCaptionData, serializeCaptionFile, type CaptionProject, type CaptionSegment, type SharedCaptionFileFormat } from '../../packages/shared/src/index.js';
+import { createCaptionData, hydrateCaptionWordTimings, parseCaptionData, resolveCaptionWordTiming, serializeCaptionFile, type CaptionProject, type CaptionSegment, type SharedCaptionFileFormat } from '../../packages/shared/src/index.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
@@ -103,12 +103,27 @@ test('VTT exports escaped cue text and destination changes reset advanced select
 });
 
 test('word exports stay blocked when a caption has no usable word timings', async ({ page }) => {
+  // Legacy transcript tokens can hydrate word timing even without a persisted track.
+  current().transcript!.tokens = [];
+  for (const caption of current().captions) delete caption.wordTiming;
+  expect(hydrateCaptionWordTimings(current()).captions.every((caption) => resolveCaptionWordTiming(caption).state === 'missing')).toBe(true);
   await openHandoff(page);
   await openAdvanced(page);
   await expect(page.getByRole('button', { name: /^One word per caption \(SRT\)/ })).toBeDisabled();
   await expect(page.getByRole('button', { name: /^One word per caption \(VTT\)/ })).toBeDisabled();
   await page.getByRole('button', { name: 'Review word timing', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(handoffCalls).toHaveLength(0);
+});
+
+test('word exports are ready when matching legacy transcript tokens hydrate missing tracks', async ({ page }) => {
+  expect(current().captions.every((caption) => !caption.wordTiming)).toBe(true);
+  const hydrated = hydrateCaptionWordTimings(current());
+  expect(hydrated.captions.every((caption) => resolveCaptionWordTiming(caption).state === 'ready')).toBe(true);
+  await openHandoff(page);
+  await openAdvanced(page);
+  await expect(page.getByRole('button', { name: /^One word per caption \(SRT\)/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /^One word per caption \(VTT\)/ })).toBeEnabled();
   expect(handoffCalls).toHaveLength(0);
 });
 
