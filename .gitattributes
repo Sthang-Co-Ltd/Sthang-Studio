@@ -30,3 +30,7 @@ apps/web/public/brand/*.svg -text
 # Signed Python lock inventory hashes exact bytes across Windows/macOS checkouts.
 local-timing/locks/*.txt text eol=lf
 local-timing/locks/*.json text eol=lf
+
+# Preserve the pinned, licensed browser-test font bytes.
+tests/browser/fonts/PlusJakartaSans\[wght\].ttf -text
+tests/browser/fonts/OFL.txt text eol=lf

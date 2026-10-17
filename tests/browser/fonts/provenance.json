@@ -1,0 +1,13 @@
+{
+  "family": "Plus Jakarta Sans",
+  "purpose": "Isolated browser interface typography qualification only; not a production font source or native caption renderer font.",
+  "upstream": "https://github.com/google/fonts",
+  "commit": "8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5",
+  "sourcePath": "ofl/plusjakartasans/PlusJakartaSans[wght].ttf",
+  "fontSha256": "89b3fb38aa0d275d7a731d0d817a4f1622b316b4d7fbdedcf02ee9099ff68bc8",
+  "fontBytes": 176288,
+  "license": "SIL Open Font License 1.1",
+  "licenseSourcePath": "ofl/plusjakartasans/OFL.txt",
+  "licenseSha256": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99",
+  "modified": false
+}

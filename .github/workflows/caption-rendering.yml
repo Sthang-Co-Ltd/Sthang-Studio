@@ -81,8 +81,8 @@ jobs:
       - name: Real app interaction and geometry tests
         if: runner.os == 'Linux'
         run: npm run test:browser
-      - name: Retain synthetic browser failure evidence
-        if: failure() && runner.os == 'Linux'
+      - name: Retain synthetic browser evidence
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: caption-browser-failures

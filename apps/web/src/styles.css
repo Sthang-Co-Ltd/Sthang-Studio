@@ -516,7 +516,7 @@ body{color:var(--text);caret-color:var(--accent)}
 /* Operational icons keep their intended shape in dense controls. */
 .lucide{flex-shrink:0}
 .dropzone>.upload-file-icon{color:var(--accent)}
-@media(max-width:380px){
+@media(max-width:620px){
   .header-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .header-actions>button,.workspace-tools-menu>summary{width:100%;min-height:44px}
 }

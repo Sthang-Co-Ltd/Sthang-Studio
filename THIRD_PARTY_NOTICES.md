@@ -38,8 +38,13 @@ Authors) and **Noto Sans Khmer** (Noto Project Authors) through the existing Goo
 Fonts service. Both use the SIL Open Font License 1.1; authoritative notices are
 [Plus Jakarta Sans OFL](https://github.com/google/fonts/blob/main/ofl/plusjakartasans/OFL.txt)
 and [Noto Sans Khmer OFL](https://github.com/google/fonts/blob/main/ofl/notosanskhmer/OFL.txt).
-These browser-loaded faces are not bundled font binaries or additions to Studio's
-local caption-renderer font catalog. Creator-selected preview/export fonts remain
+These production browser-loaded faces are not bundled font binaries or additions
+to Studio's local caption-renderer font catalog. The isolated browser tests include
+an unmodified Plus Jakarta Sans variable font under `tests/browser/fonts/`, with
+the full [OFL notice](tests/browser/fonts/OFL.txt) and pinned upstream commit,
+origin, size and SHA-256 in [provenance](tests/browser/fonts/provenance.json).
+This fixture is served only by the owned test frontend and is not included in the
+production web bundle or local caption-renderer font catalog. Creator-selected preview/export fonts remain
 separate. The approved STHANG artwork is unchanged.
 
 ## Managed prerequisite runtimes
