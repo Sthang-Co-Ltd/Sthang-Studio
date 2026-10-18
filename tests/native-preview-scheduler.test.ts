@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { CaptionRenderState } from '@kcs/shared';
+import { captionPreviewPaintKey, captionPreviewStateIndex } from '../apps/web/src/caption-preview-plan.js';
 import { planNativePreviewBatch, planNativePreviewCatchup, nativePreviewCatchupTimeoutMs, retainNativePreviewPrefetch } from '../apps/web/src/native-preview-scheduler.js';
 
 const paints: CaptionRenderState[] = Array.from({ length: 9 }, (_, index) => ({
@@ -82,10 +83,43 @@ test('one catch-up prepares a complete native interval after predicted completio
   assert.deepEqual(planNativePreviewCatchup(paints, 1, new Set(), 150, 150, 2)?.states, [paints[5]]);
 });
 
-test('catch-up yields to cached current pixels and skips cached future pixels', () => {
-  assert.equal(planNativePreviewCatchup(paints, 1, new Set(['0|word:1']), 150, 150, 1), null);
+test('catch-up preserves cached current pixels and skips cached future pixels', () => {
+  const cached = new Set(['0|word:1', '0|word:4']);
+  assert.deepEqual(planNativePreviewCatchup(paints, 1, cached, 150, 150, 1)?.states, [paints[5]]);
+  assert.deepEqual([...cached], ['0|word:1', '0|word:4'], 'planning preserves both cached paint identities');
   assert.deepEqual(planNativePreviewCatchup(paints, 1, new Set(['0|word:4']), 150, 150, 1)?.states, [paints[5]]);
   assert.equal(planNativePreviewCatchup(paints, 1, new Set(paints.map((state) => state.paintKey!)), 150, 150, 1), null);
+});
+
+test('a late 1400 ms current render recovers ahead of cached 1600 ms pixels instead of prefetching an expired word', () => {
+  const timeline: CaptionRenderState[] = Array.from({ length: 30 }, (_, index) => ({
+    atMs: index * 100, endMs: (index + 1) * 100, key: '0', paintKey: `word:${index}`, text: 'caption',
+  }));
+  // Rounded post-merge trace: a 1400 ms current paint completes at 1666 ms
+  // after about 207 ms, when the 1600 ms paint is already cached.
+  const completedAtMs = 1666;
+  const renderDurationMs = 207;
+  const startedAtMs = completedAtMs - renderDurationMs;
+  const cached = new Set([captionPreviewPaintKey(timeline[16])]);
+  const lateCurrent = planNativePreviewBatch(timeline, captionPreviewStateIndex(timeline, startedAtMs), cached, true)!;
+  assert.equal(lateCurrent.kind, 'current');
+  assert.deepEqual(lateCurrent.states, [timeline[14]]);
+  assert.ok(lateCurrent.states[0].endMs < completedAtMs);
+  cached.add(captionPreviewPaintKey(lateCurrent.states[0]));
+
+  const currentIndex = captionPreviewStateIndex(timeline, completedAtMs);
+  assert.equal(currentIndex, 16);
+  const ordinaryPrefetch = planNativePreviewBatch(timeline, currentIndex, cached, true)!;
+  assert.equal(ordinaryPrefetch.kind, 'prefetch');
+  assert.equal(ordinaryPrefetch.states[0], timeline[17]);
+  assert.ok(ordinaryPrefetch.states[0].endMs < completedAtMs + renderDurationMs,
+    'the ordinary next-word prefetch would expire before another equally slow render finishes');
+
+  const catchup = planNativePreviewCatchup(timeline, currentIndex, cached, completedAtMs, renderDurationMs, 1);
+  assert.equal(catchup?.kind, 'catchup');
+  assert.deepEqual(catchup?.states, [timeline[19]], 'the one-shot recovery prepares only the complete 1900 ms interval');
+  assert.ok(catchup!.states[0].atMs >= completedAtMs + renderDurationMs + 25);
+  assert.deepEqual([...cached], ['word:16', 'word:14'], 'the exact current pixels remain cached under their own identity');
 });
 
 test('catch-up rejects invalid estimates and work beyond time or state bounds', () => {
