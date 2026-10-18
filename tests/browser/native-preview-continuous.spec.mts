@@ -6,7 +6,7 @@ test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 test.setTimeout(120_000);
 
-type Sample = { ms: number; wall: number; presentedMs: number | null; key: string | null; mode: string | null; src: string | null; preparing: boolean };
+type Sample = { ms: number; wall: number; presentedMs: number | null; key: string | null; mode: string | null; src: string | null; preparing: boolean; paused: boolean; seeking: boolean; rate: number };
 type Decode = { ms: number; wall: number; src: string };
 type Dispatch = { times: number[]; color: string; ms: number; wall: number; paused: boolean; seeking: boolean; rate: number; claimed: boolean;
   responseWall?: number; responseMs?: number; status?: number; abortWall?: number };
@@ -37,8 +37,8 @@ function configure(state: FixtureState, captions: CaptionSegment[]) {
 
 // Delay the REAL decode, rather than replace it with a resolved fake. Sampling
 // runs independently of the test driver's expectations and media keeps playing.
-async function installProbe(page: Page, decodeDelay: number) {
-  await page.addInitScript(({ decodeDelay }) => {
+async function installProbe(page: Page, decodeDelay: number, decodeGate?: { src: string; releaseAtMs: number }) {
+  await page.addInitScript(({ decodeDelay, decodeGate }) => {
     const probe: Probe = { samples: [], decoded: [], dispatches: [], collecting: false };
     (window as unknown as { __continuousPreview: Probe }).__continuousPreview = probe;
     const originalFetch = window.fetch;
@@ -67,6 +67,24 @@ async function installProbe(page: Page, decodeDelay: number) {
       await decode.call(this);
       if (!this.src.startsWith('data:image/png;base64,')) return;
       await new Promise<void>((resolve) => setTimeout(resolve, decodeDelay));
+      if (decodeGate && this.src === decodeGate.src) {
+        // Only withhold completion of this authentic decode. The real player
+        // keeps advancing; neither its clock nor the preview cache is changed.
+        await new Promise<void>((resolve, reject) => {
+          let frame = 0;
+          const timeout = setTimeout(() => {
+            cancelAnimationFrame(frame);
+            reject(new Error('The playing media did not reach the controlled decode boundary.'));
+          }, 5000);
+          const release = () => {
+            if ((document.querySelector('video')?.currentTime ?? 0) * 1000 >= decodeGate.releaseAtMs) {
+              clearTimeout(timeout);
+              resolve();
+            } else frame = requestAnimationFrame(release);
+          };
+          release();
+        });
+      }
       probe.decoded.push({ ms: (document.querySelector('video')?.currentTime ?? 0) * 1000, wall: performance.now(), src: this.src });
     };
     let observedVideo: HTMLVideoElement | null = null;
@@ -89,12 +107,13 @@ async function installProbe(page: Page, decodeDelay: number) {
           key: surface?.getAttribute('data-paint-key') ?? null,
           mode: surface?.getAttribute('data-preview-mode') ?? null,
           src: surface?.querySelector('img')?.getAttribute('src') ?? null,
-          preparing: Boolean(document.querySelector('.native-preview-status')) });
+          preparing: Boolean(document.querySelector('.native-preview-status')),
+          paused: video.paused, seeking: video.seeking, rate: video.playbackRate });
       }
       requestAnimationFrame(sample);
     }
     requestAnimationFrame(sample);
-  }, { decodeDelay });
+  }, { decodeDelay, decodeGate });
 }
 
 test.afterEach(async ({ page }, testInfo) => {
@@ -295,6 +314,99 @@ test('dense words with slower native responses recover after pause and backward 
   expect(requests.every((request) => request.times.length <= 4)).toBe(true);
   expect(state.projects[0].captions).toEqual(saved);
   expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toEqual([]);
+});
+
+test('a late current decode still recovers ahead when playback has reached a cached exact word', async ({ page }) => {
+  const state = await installFixture(page);
+  const { project, paints } = configure(state, [cue('cached-recovery', Array.from({ length: 24 }, (_, index) => String.fromCharCode(97 + index)), 200, 100)]);
+  const saved = structuredClone(project.captions);
+  const references = await nativeReferences(project, paints);
+  const src = (atMs: number) => `data:image/png;base64,${references.get(`${RED}:${atMs}`)!.png}`;
+  await installProbe(page, 35, { src: src(1400), releaseAtMs: 1620 });
+  let playing = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const held: RecordedRequest[] = [];
+  await serveNativeReferences(page, references, 0, async (request) => {
+    if (playing) return 700;
+    // Establish real cache entries only through visible paused paints. Hold
+    // every speculative reply so no other future PNG can mask the regression.
+    if (request.times.length === 1 && [500, 1300, 1600].includes(request.times[0])) return 0;
+    held.push(request);
+    await gate;
+    return 0;
+  });
+  try {
+    await openProject(page);
+    await expect(page.locator('.native-caption-image')).toHaveAttribute('src', src(500));
+    // Quarter speed widens the observation window while a 700 ms transport plus
+    // real 35 ms decode still costs almost two 100 ms word intervals. This is a
+    // controlled lifecycle case; the separate dense 1x playback test is intact.
+    await page.locator('video').evaluate((video: HTMLVideoElement) => { video.playbackRate = 0.25; });
+    await seek(page, 1625);
+    await expect(page.locator('.native-caption-image')).toHaveAttribute('src', src(1600));
+    await seek(page, 1390);
+    await expect(page.locator('.native-caption-image')).toHaveAttribute('src', src(1300));
+    await expect.poll(() => held.some((request) => request.times.length > 1 && request.times.includes(1400))).toBe(true);
+    await page.waitForFunction(() => document.querySelector('video')?.seeking === false);
+    const primed = await page.evaluate(() => {
+      const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
+      return { decoded: probe.decoded, dispatches: probe.dispatches };
+    });
+    expect([...new Set(primed.decoded.map((item) => item.src))].sort(), 'Only the three explicitly displayed native paints may be warm')
+      .toEqual([src(500), src(1300), src(1600)].sort());
+    const heldPrefetch = primed.dispatches.filter((request) => request.times.length > 1 && request.times.includes(1400)).at(-1)!;
+    expect(heldPrefetch).toBeDefined();
+    expect(heldPrefetch.abortWall).toBeUndefined();
+    playing = true;
+    const samples = await playThrough(page, 2300);
+    assertNativeCorrespondence(samples, paints, references);
+    const measured = samples.filter((sample) => sample.ms >= 1400 && sample.ms < 2300);
+    expect(measured.length).toBeGreaterThan(20);
+    expect(measured.every((sample) => !sample.paused && !sample.seeking && sample.rate === 0.25),
+      'The measured pass must remain real uninterrupted playback at its declared rate').toBe(true);
+    const probe = await page.evaluate(() => {
+      const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
+      return { decoded: probe.decoded, dispatches: probe.dispatches };
+    });
+    const current = probe.dispatches.find((request) => request.wall > heldPrefetch.wall
+      && request.times.length === 1 && request.times[0] === 1400)!;
+    expect(current, 'The held multi-paint prefetch must yield to a current-only render at the boundary').toBeDefined();
+    expect(current.paused).toBe(false);
+    expect(current.seeking).toBe(false);
+    expect(current.rate).toBe(0.25);
+    expect(current.ms).toBeGreaterThanOrEqual(1400);
+    expect(current.ms).toBeLessThan(1500);
+    expect(probe.dispatches.find((request) => request.wall === heldPrefetch.wall)?.abortWall).toBeLessThan(current.wall);
+    const late = probe.decoded.find((item) => item.src === src(1400) && item.wall > current.wall)!;
+    expect(late, 'The authentic 1400 PNG must actually finish decoding late').toBeDefined();
+    expect(late.ms).toBeGreaterThanOrEqual(1600);
+    expect(late.ms).toBeLessThan(1700);
+    const beforeLate = samples.filter((sample) => sample.wall <= late.wall && sample.ms >= 1600).at(-1);
+    expect(beforeLate?.src, 'The cached current PNG must already be visible before late completion').toBe(src(1600));
+    expect(beforeLate?.mode).toBe('exact');
+    const cached = samples.filter((sample) => sample.ms >= 1640 && sample.ms < 1700);
+    expect(cached.length).toBeGreaterThan(2);
+    expect(cached.every((sample) => sample.mode === 'exact' && sample.src === src(1600)),
+      'The late-demand decision must occur while a real cached current paint stays visible').toBe(true);
+    const recovery = probe.dispatches.find((request) => request.wall > late.wall)!;
+    expect(recovery, 'Late demand must issue one useful recovery request even with cached current pixels').toBeDefined();
+    expect(recovery.times).toHaveLength(1);
+    const target = paints.find((paint) => paint.atMs === recovery.times[0])!;
+    // Use observed clocks rather than insist on exactly 1900 under host jitter.
+    // The old cached-current veto instead consumes demand and requests 1700.
+    const predictedReadyMs = late.ms + (late.wall - current.wall + 25) * current.rate;
+    expect(target.atMs).toBeGreaterThanOrEqual(predictedReadyMs);
+    expect(target.atMs).toBeGreaterThan(1700);
+    expect(target.atMs).toBeLessThanOrEqual(late.ms + 1000);
+    expect(paints.indexOf(target) - paints.findIndex((paint) => paint.atMs === 1600)).toBeLessThan(9);
+    const recovered = samples.filter((sample) => sample.ms >= target.atMs + 40 && sample.ms < target.endMs);
+    expect(recovered.length).toBeGreaterThan(2);
+    expect(recovered.every((sample) => sample.mode === 'exact' && sample.key === target.paintKey && sample.src === src(target.atMs)),
+      'The selected recovery paint must display its own native pixels during its real interval').toBe(true);
+    expect(state.projects[0].captions).toEqual(saved);
+    expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toEqual([]);
+  } finally { release(); }
 });
 
 test('cached exact word paints follow the live media clock even when video-frame metadata lags', async ({ page }) => {

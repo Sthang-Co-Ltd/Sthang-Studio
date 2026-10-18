@@ -62,7 +62,10 @@ export function planNativePreviewCatchup(
   if (index < 0 || !Number.isFinite(nowMs) || !Number.isFinite(renderDurationMs)
     || renderDurationMs <= 0 || !Number.isFinite(playbackRate) || playbackRate <= 0) return null;
   const current = states[index];
-  if (!current?.key || cached.has(captionPreviewPaintKey(current))) return null;
+  if (!current?.key) return null;
+  // A late current render still needs its one recovery attempt when playback
+  // lands on an already-cached paint. Keep those exact current pixels while
+  // preparing a future interval that can outlive the measured render latency.
   // Include a small scheduling margin, but never chase an arbitrarily distant
   // paint when the renderer is too slow. Both time and state-count bounds apply.
   const leadMs = (renderDurationMs + 25) * playbackRate;

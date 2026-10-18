@@ -427,9 +427,11 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     catchupDemand.current = null; // one attempt, including no target or budget refusal
     const catchupTimeMs = playback ? playback.currentTime * 1000 : liveTimeMs;
     const catchupIndex = captionPreviewStateIndex(states, catchupTimeMs);
+    // Cached current pixels remain visible; they must not consume a late
+    // current render's one recovery attempt without preparing useful lookahead.
     const catchup = temporalPaint && demand && performance.now() - changedAt.current.time >= 150
       && demand.epoch === playbackEpoch.current
-      && demand.rate === playback?.playbackRate && !current.cache.has(key)
+      && demand.rate === playback?.playbackRate
       ? planNativePreviewCatchup(states, catchupIndex, cachedKeys, catchupTimeMs, demand.durationMs, demand.rate)
       : null;
     const batch = catchup || planNativePreviewBatch(states, start, cachedKeys, temporalPaint);
