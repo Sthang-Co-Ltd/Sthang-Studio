@@ -52,6 +52,9 @@ export function createAccuracyContextDraft() {
     get saved() { return saved; },
     get fields() { return fields; },
     get editRevision() { return editRevision; },
+    hasChanges(defaults?: string[]) {
+      return !sameAccuracyContext(accuracyPayload(fields, defaults), accuracyPayload(contextFields(saved, defaults), defaults));
+    },
     retainProject(next: CaptionProject): CaptionProject {
       return projectMediaKey(next) === key ? { ...next, transcriptionContext: saved } : next;
     },

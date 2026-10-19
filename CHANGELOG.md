@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Source-only - protect unfinished edits:** warn before closing/reloading with
+  unfinished caption or Accuracy work; wait for pending writes and save both before
+  leaving a project. Keep failed saves visible with Retry and Download edits.
+  Bounded browser recovery captures focused text and Khmer composition, requires
+  explicit restore against fresh saved captions/context/media, and preserves newer
+  typing through delayed acknowledgements. Changed restored captions are
+  unapproved; recovery saves do not create correction or Contributor evidence.
+
 - **Source-only - preserve manual seeks during replay:** a pending source-player
   seek takes precedence over the bounded replay endpoint, keeping the chosen
   position and playback instead of snapping back and pausing.

@@ -1,0 +1,15 @@
+.toast-stack .unfinished-recovery{display:grid;gap:10px;padding:14px;border-color:#4c5835;color:#eef1e8;font-size:13px;line-height:1.5}
+.unfinished-recovery-heading{display:grid;gap:3px}
+.unfinished-recovery-heading strong{font-size:14px}
+.unfinished-recovery-heading span,.unfinished-recovery-hint{color:#aab19f;font-size:12px}
+.unfinished-recovery p{margin:0;overflow-wrap:anywhere}
+.unfinished-recovery details{border-top:1px solid var(--line);padding-top:8px}
+.unfinished-recovery summary{cursor:pointer;min-height:28px;display:list-item;list-style-position:inside}
+.unfinished-recovery-preview{display:grid;gap:6px;max-height:180px;overflow:auto;padding-top:7px}
+.unfinished-recovery-preview p{font-family:'Noto Sans Khmer','Plus Jakarta Sans',sans-serif;white-space:pre-wrap;line-height:1.65}
+.unfinished-recovery-actions{display:flex;flex-wrap:wrap;gap:7px}
+.unfinished-recovery-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:7px 10px;border:1px solid #3a4048;border-radius:9px;background:#171b20;color:inherit;font-size:13px;cursor:pointer}
+.unfinished-recovery-actions button:disabled{opacity:.5;cursor:not-allowed}
+.unfinished-recovery-actions button:focus-visible,.unfinished-recovery summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.toast-stack .save-failure>.toast-action{min-height:36px;flex-shrink:0;white-space:nowrap}
+@media(max-width:620px){.unfinished-recovery-actions button,.unfinished-recovery summary,.toast-stack .save-failure>.toast-action{min-height:44px}.unfinished-recovery-actions{gap:8px}.unfinished-recovery-actions button{flex:1 1 auto}}
