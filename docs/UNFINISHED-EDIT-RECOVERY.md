@@ -19,6 +19,11 @@ reload/close protection applies while changes or relevant saves remain pending.
 Browsers can suppress an unload prompt or terminate without delivering it, so the
 local copy is written during editing rather than relying on that prompt alone.
 
+Requesting navigation cancels generation, regeneration, or video export actions
+still waiting on a save or confirmation. Retrying a failed save does not restart
+those actions. Already submitted saves still finish before Studio leaves the
+project.
+
 Reopen the project in the same browser profile and at the same Studio address to
 look for a recovery offer:
 
@@ -106,3 +111,16 @@ delayed acknowledgements, save failure/retry, mixed caption and Accuracy saves,
 navigation, storage failure, conflicts, and fresh timing provenance. The task's
 verification receipt owns the actual results; these pointers do not assert a
 passing test run or a released build.
+
+Browser qualification also checks the native caption image during continuous
+playback. Once an external media/frame callback recognizes a different interval,
+the preview commits that interval before the callback returns. Initial effect
+setup keeps ordinary React scheduling. This avoids an additional paint
+opportunity with the previously selected image; it does not guarantee when a
+delayed browser callback will run. Native request deadlines, cancellation,
+project ownership, and rejection of cancelled decoded output remain in force.
+
+The native browser fixture measures its synthetic response delay from request
+admission, including lifecycle overrides, and drains its page routes before
+teardown while retaining the context's ownership guard. Those harness checks do
+not replace actual component, native-image, disk-save, or recovery coverage.

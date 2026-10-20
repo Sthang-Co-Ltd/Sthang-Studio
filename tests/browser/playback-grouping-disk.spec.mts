@@ -338,7 +338,24 @@ test.beforeEach(async ({ page }) => {
   // Re-check after registering so an exit cannot fall between the two.
   owned.assertAlive();
 });
-test.afterEach(() => { detachChildExit?.(); detachChildExit = null; });
+test.afterEach(async ({ page, context }) => {
+  try {
+    // Stop the real app while its network guard is still installed, then drain
+    // native previews and held forwards before Playwright disposes the context.
+    if (!page.isClosed()) {
+      page.once('dialog', async (dialog) => {
+        expect(dialog.type()).toBe('beforeunload');
+        await dialog.accept();
+      });
+      await page.goto('about:blank');
+    }
+    await page.unrouteAll({ behavior: 'wait' });
+    await context.unrouteAll({ behavior: 'wait' });
+  } finally {
+    detachChildExit?.();
+    detachChildExit = null;
+  }
+});
 
 test('disk-backed History restore cannot falsely mark a newer saved edit as saved', async ({ page }) => {
   // This test deliberately holds a real disk-backed restore while exercising a
@@ -488,7 +505,10 @@ test('disk-backed History restore serializes a later save until the restore resp
     await expect.poll(() => saveRequestStarted).toBe(true);
     expect(await page.evaluate(() => (window as any).__serializedCaptionSaveFetchStarts)).toBe(1);
     await expect(field).toHaveValue('NEWER EDIT QUEUED BEHIND RESTORE');
-    await expect(page.locator('.project-title')).toContainText('autosave pending');
+    // The queued request has started, but neither persistence nor its ACK is
+    // complete. Report the active save without presenting this edit as saved.
+    await expect(page.locator('.project-title')).toContainText('saving…');
+    await expect(page.locator('.save-action')).toHaveText('Save');
     disk = JSON.parse(await fs.readFile(serializedProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('SERIALIZED HISTORY STATE');
 
@@ -497,12 +517,15 @@ test('disk-backed History restore serializes a later save until the restore resp
     disk = JSON.parse(await fs.readFile(serializedProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('NEWER EDIT QUEUED BEHIND RESTORE');
     await expect(field).toHaveValue('NEWER EDIT QUEUED BEHIND RESTORE');
-    await expect(page.locator('.project-title')).toContainText('autosave pending');
+    await expect(page.locator('.project-title')).toContainText('saving…');
+    await expect(page.locator('.save-action')).toHaveText('Save');
 
     const saveResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-serialized/captions') && response.request().method() === 'PUT');
     releaseSaveAcknowledgement();
     expect((await saveResponse).status()).toBe(200);
-    await expect(page.locator('.project-title')).toContainText('saved');
+    await expect(page.locator('.project-title')).toContainText(' · saved');
+    await expect(page.locator('.save-action')).toHaveText('Saved');
+    await expect(page.locator('.save-action')).toBeDisabled();
     disk = JSON.parse(await fs.readFile(serializedProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('NEWER EDIT QUEUED BEHIND RESTORE');
   } finally {
@@ -665,12 +688,13 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
     await page.keyboard.press('Control+s');
     expect(saveBodies).toHaveLength(0);
 
-    // S2 is a genuine dirty save and must retain exactly FIRST NEW EDIT.
+    // Unified Save waits for the earlier mutation before capturing its payload.
+    // S2 requests a save; input accepted before dispatch belongs to that save.
     await field.fill('FIRST NEW EDIT');
     await page.keyboard.press('Control+s');
     expect(saveBodies).toHaveLength(0);
 
-    // This edit is deliberately not requested for saving yet.
+    // This newer input arrives while Save is still waiting for History.
     await field.fill('LATEST USER EDIT');
     await expect(page.locator('.project-title')).toContainText('autosave pending');
 
@@ -679,8 +703,13 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
     expect((await restoreResponse).status()).toBe(200);
     await expect.poll(() => firstSaveStarted).toBe(true);
     expect(saveBodies).toHaveLength(1);
-    expect(saveBodies[0].captions[0].text).toBe('FIRST NEW EDIT');
+    expect(saveBodies[0].captions[0].text).toBe('LATEST USER EDIT');
     await expect(field).toHaveValue('LATEST USER EDIT');
+    await expect(page.locator('.project-title')).toContainText('saving…');
+
+    // This edit arrives after the actual request captured its immutable payload.
+    // The older ACK must neither overwrite it nor falsely mark it as saved.
+    await field.fill('NEWER EDIT AFTER SAVE DISPATCH');
     await expect(page.locator('.project-title')).toContainText('autosave pending');
     let disk = JSON.parse(await fs.readFile(mixedSaveProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('MIXED HISTORY SNAPSHOT');
@@ -688,31 +717,37 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
     releaseFirstSaveToServer();
     await expect.poll(() => firstSavePersisted).toBe(true);
     disk = JSON.parse(await fs.readFile(mixedSaveProjectFile, 'utf8')) as CaptionProject;
-    expect(disk.captions[0].text).toBe('FIRST NEW EDIT');
-    await expect(field).toHaveValue('LATEST USER EDIT');
+    expect(disk.captions[0].text).toBe('LATEST USER EDIT');
+    await expect(field).toHaveValue('NEWER EDIT AFTER SAVE DISPATCH');
     await expect(page.locator('.project-title')).toContainText('autosave pending');
 
     const firstSaveResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-mixed-saves/captions')
       && response.request().method() === 'PUT'
-      && response.request().postDataJSON().captions?.[0]?.text === 'FIRST NEW EDIT');
+      && response.request().postDataJSON().captions?.[0]?.text === 'LATEST USER EDIT');
     releaseFirstSaveAcknowledgement();
     expect((await firstSaveResponse).status()).toBe(200);
-    await expect(field).toHaveValue('LATEST USER EDIT');
+    await expect(field).toHaveValue('NEWER EDIT AFTER SAVE DISPATCH');
     await expect(page.locator('.project-title')).toContainText('autosave pending');
-    disk = JSON.parse(await fs.readFile(mixedSaveProjectFile, 'utf8')) as CaptionProject;
-    expect(disk.captions[0].text).toBe('FIRST NEW EDIT');
-
-    // A later normal save is the first operation authorized to persist LATEST USER EDIT.
-    const latestSave = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-mixed-saves/captions')
-      && response.request().method() === 'PUT'
-      && response.request().postDataJSON().captions?.[0]?.text === 'LATEST USER EDIT');
-    await page.keyboard.press('Control+s');
-    expect((await latestSave).status()).toBe(200);
-    expect(saveBodies.at(-1)?.captions[0]?.text).toBe('LATEST USER EDIT');
-    await expect(field).toHaveValue('LATEST USER EDIT');
-    await expect(page.locator('.project-title')).toContainText('saved');
+    await expect(page.locator('.save-action')).toHaveText('Save');
+    await expect(page.locator('.save-action')).toBeEnabled();
+    expect(saveBodies).toHaveLength(1);
     disk = JSON.parse(await fs.readFile(mixedSaveProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('LATEST USER EDIT');
+
+    // A later normal save persists the input accepted after the first dispatch.
+    const latestSave = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-mixed-saves/captions')
+      && response.request().method() === 'PUT'
+      && response.request().postDataJSON().captions?.[0]?.text === 'NEWER EDIT AFTER SAVE DISPATCH');
+    await page.keyboard.press('Control+s');
+    expect((await latestSave).status()).toBe(200);
+    expect(saveBodies).toHaveLength(2);
+    expect(saveBodies.at(-1)?.captions[0]?.text).toBe('NEWER EDIT AFTER SAVE DISPATCH');
+    await expect(field).toHaveValue('NEWER EDIT AFTER SAVE DISPATCH');
+    await expect(page.locator('.project-title')).toContainText(' · saved');
+    await expect(page.locator('.save-action')).toHaveText('Saved');
+    await expect(page.locator('.save-action')).toBeDisabled();
+    disk = JSON.parse(await fs.readFile(mixedSaveProjectFile, 'utf8')) as CaptionProject;
+    expect(disk.captions[0].text).toBe('NEWER EDIT AFTER SAVE DISPATCH');
   } finally {
     releaseRestore();
     releaseFirstSaveToServer();
@@ -770,9 +805,22 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
     await page.keyboard.press('Control+s');
     expect(oldProjectSaveBodies).toHaveLength(0);
 
-    // Leave the old editor session while its already-submitted restore is still held.
+    // Navigation must retain this editor until the submitted History write is
+    // reconciled. A clean Ctrl+S must not create an old-snapshot write meanwhile.
     await page.getByLabel('Back to projects', { exact: true }).click();
+    await expect(page.locator('.project-title strong')).toHaveText('Navigation Clean Save Authority');
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/disk-history-navigation-clean.mp4');
+    await expect(field).toHaveValue('BEFORE NAVIGATION RESTORE');
+    await expect(page.getByRole('button', { name: /Serialized Save Ack Race/ })).toHaveCount(0);
+    expect(oldProjectSaveBodies).toHaveLength(0);
+    let disk = JSON.parse(await fs.readFile(navigationProjectFile, 'utf8')) as CaptionProject;
+    expect(disk.captions[0].text).toBe('BEFORE NAVIGATION RESTORE');
+
+    const restoreResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-navigation-clean/history/history-navigation-clean/restore'));
+    releaseRestore();
+    expect((await restoreResponse).status()).toBe(200);
     await expect(page.getByRole('button', { name: /Serialized Save Ack Race/ })).toBeVisible();
+    expect(oldProjectSaveBodies).toHaveLength(0);
     await page.getByRole('button', { name: /Serialized Save Ack Race/ }).click();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/disk-history-serialized.mp4');
     const otherField = page.getByLabel('Caption 1 text', { exact: true });
@@ -782,14 +830,11 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
       && response.request().postDataJSON().captions?.[0]?.text === 'OTHER PROJECT BARRIER EDIT');
     await page.keyboard.press('Control+s');
 
-    const restoreResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-navigation-clean/history/history-navigation-clean/restore'));
-    releaseRestore();
-    expect((await restoreResponse).status()).toBe(200);
     expect((await barrierSave).status()).toBe(200);
 
     // Waiting for the later new-project save proves all earlier queued work settled.
     expect(oldProjectSaveBodies).toHaveLength(0);
-    let disk = JSON.parse(await fs.readFile(navigationProjectFile, 'utf8')) as CaptionProject;
+    disk = JSON.parse(await fs.readFile(navigationProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('NAVIGATION HISTORY SNAPSHOT');
     await expect(page.locator('.project-title strong')).toHaveText('Serialized Save Ack Race');
     await expect(otherField).toHaveValue('OTHER PROJECT BARRIER EDIT');
@@ -798,7 +843,7 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
     await page.getByRole('button', { name: /Navigation Clean Save Authority/ }).click();
     const reopenedField = page.getByLabel('Caption 1 text', { exact: true });
     await expect(reopenedField).toHaveValue('NAVIGATION HISTORY SNAPSHOT');
-    await expect(page.locator('.project-title')).toContainText('saved');
+    await expect(page.locator('.project-title')).toContainText(' · saved');
     disk = JSON.parse(await fs.readFile(navigationProjectFile, 'utf8')) as CaptionProject;
     expect(disk.captions[0].text).toBe('NAVIGATION HISTORY SNAPSHOT');
   } finally {

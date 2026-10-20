@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Request } from '@playwright/test';
 import { DEFAULT_CAPTION_APPEARANCE, summarizeProject, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities, type VideoExportFontCapability } from '@kcs/shared';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -340,18 +340,52 @@ export async function installFixture(page: Page): Promise<FixtureState> {
     }
     if (current && url.pathname.endsWith('/capabilities')) return json(capabilities);
     if (current && url.pathname.endsWith('/preview')) {
-      const delay = state.previewDelay(body); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-      if (state.previewGatewayFailures > 0) {
-        state.previewGatewayFailures -= 1;
-        return route.fulfill({ status: 502, contentType: 'text/plain', body: '' });
-      }
-      if (state.previewError) return json({ error: state.previewError }, 400);
+      const controller = new AbortController();
+      const close = () => controller.abort();
+      const requestFailed = (failed: Request) => {
+        if (failed === request && failed.failure()?.errorText === 'net::ERR_ABORTED') controller.abort();
+      };
+      const cancelled = () => {
+        if (page.isClosed() || request.failure()?.errorText === 'net::ERR_ABORTED') controller.abort();
+        return controller.signal.aborted;
+      };
+      const finishCancelledRoute = async () => {
+        // Complete Playwright's handler promise without sending an HTTP reply.
+        try { await route.abort('aborted'); }
+        catch (error) { if (!cancelled()) throw error; }
+      };
+      // Match the production response-close lifetime for this exact request.
+      // Cancellation releases native work without aborting another preview.
+      page.on('requestfailed', requestFailed);
+      page.on('close', close);
       try {
-        const result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), capabilities, undefined, { projectId: current.id, mediaIdentity: current.media.filename }) : {
-          width: 640, height: 360, frames: body.timesMs.map((atMs: number) => ({ atMs, png: transparentPng, bounds: { x: 160, y: 270, width: 320, height: 40 } })),
-        };
+        if (cancelled()) return await finishCancelledRoute();
+        const delay = state.previewDelay(body); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (cancelled()) return await finishCancelledRoute();
+        if (state.previewGatewayFailures > 0) {
+          state.previewGatewayFailures -= 1;
+          return await route.fulfill({ status: 502, contentType: 'text/plain', body: '' });
+        }
+        if (state.previewError) return await json({ error: state.previewError }, 400);
+        let result;
+        try {
+          result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), capabilities, controller.signal, { projectId: current.id, mediaIdentity: current.media.filename }) : {
+            width: 640, height: 360, frames: body.timesMs.map((atMs: number) => ({ atMs, png: transparentPng, bounds: { x: 160, y: 270, width: 320, height: 40 } })),
+          };
+        } catch (error) {
+          if (cancelled()) return await finishCancelledRoute();
+          const message = error instanceof Error ? error.message : 'Fixture failure';
+          return await json({ error: message }, message.includes('preview is busy') ? 429 : 400);
+        }
+        if (cancelled()) return await finishCancelledRoute();
         return await json(result);
-      } catch (error) { return json({ error: error instanceof Error ? error.message : 'Fixture failure' }, 400).catch(() => {}); }
+      } catch (error) {
+        if (cancelled()) return await finishCancelledRoute();
+        throw error;
+      } finally {
+        page.off('requestfailed', requestFailed);
+        page.off('close', close);
+      }
     }
     if (current && url.pathname.endsWith('/appearance')) {
       if (state.appearanceFailure) return json({ error: 'Synthetic save failure' }, 500);

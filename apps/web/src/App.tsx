@@ -307,6 +307,8 @@ export default function App() {
   const [proposalEntry, setProposalEntry] = useState<{ ticket: ProjectTicket; value: RegenerationProposal } | null>(null);
   const projectScope = useRef(createProjectScope());
   const proposalRead = useRef(0);
+  const historyRead = useRef(0);
+  const operationRevision = useRef(0);
   const playbackTimers = useRef(new Set<number>());
   const timingPreviewCancel = useRef<(() => void) | null>(null);
   const viewTicket = projectScope.current.capture();
@@ -500,8 +502,29 @@ export default function App() {
     if (projectMediaKey(next) !== projectScope.current.capture().key) return;
     savedProject.current = { ...withCaptionWordTimings(next), transcriptionContext: accuracyDraft.current.saved };
   }
+  function captureOperationIntent() {
+    return { ticket: projectScope.current.capture(), key: projectMediaKey(project), revision: operationRevision.current };
+  }
+  function isCurrentOperation(intent: ReturnType<typeof captureOperationIntent>) {
+    return projectScope.current.isCurrent(intent.ticket) && intent.ticket.key === intent.key
+      && intent.revision === operationRevision.current;
+  }
+  function requestNavigation() {
+    // Cancel actions waiting to submit now. Their prerequisite save responses
+    // still own the current project until navigation has safely drained them.
+    operationRevision.current += 1;
+    return captureOperationIntent();
+  }
+  function closeHistory() {
+    historyRead.current += 1;
+    setShowHistory(false);
+    setHistoryEntries([]);
+  }
   function beginNavigation() {
+    operationRevision.current += 1;
     captureUnfinishedRecovery();
+    closeHistory();
+    setNotice('');
     setPendingMediaReplacement(null);
     setShowMediaBackups(false);
     mediaBackupsRequest.current?.abort();
@@ -533,8 +556,8 @@ export default function App() {
       setNotice('Finish saving prepared word timings before leaving this project.');
       return;
     }
-    const ticket = projectScope.current.capture();
-    if (!await saveUnfinishedChanges() || !projectScope.current.isCurrent(ticket)) return;
+    const intent = requestNavigation();
+    if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
     beginNavigation();
     projectScope.current.select(null);
     setProject(null);
@@ -709,6 +732,7 @@ export default function App() {
     setOpeningProjectId(null);
     const changedMedia = projectScope.current.capture().key !== projectMediaKey(next);
     if (changedMedia) {
+      closeHistory();
       const retained = retainedMediaView.current?.key === projectMediaKey(next) ? retainedMediaView.current : null;
       setAccuracyFields(accuracyDraft.current.reset(projectMediaKey(next), next.transcriptionContext, profile?.defaultVocabulary,
         retained ? { description: retained.description, vocabulary: retained.vocabulary } : undefined));
@@ -734,9 +758,9 @@ export default function App() {
       setDirty(false);
       dirtyRef.current = false;
       setAutosaveState('saved');
-      // A caption-save acknowledgement does not own selection. Keep the current
-      // endpoints (including newer queued input); the validity effect below
-      // repairs removed IDs. Navigation and explicit project actions still reset.
+      // Caption-save acknowledgements and unfinished-draft recovery keep the
+      // current selection. The validity effect below repairs removed IDs;
+      // navigation and History continue to use the default selection behavior.
       if (!options.preserveSelection || changedMedia) {
         const validSelection = next.captions.find((caption) => caption.id === selectionAnchor) || next.captions[0];
         if (validSelection) { setSelectionAnchor(validSelection.id); setSelectionEnd(validSelection.id); }
@@ -1368,10 +1392,11 @@ export default function App() {
       setNotice('Finish saving prepared word timings before opening another result.');
       return;
     }
-    let ticket = projectScope.current.capture();
+    const intent = requestNavigation();
+    let ticket = intent.ticket;
     setError('');
     try {
-      if (!await saveUnfinishedChanges() || !projectScope.current.isCurrent(ticket)) return;
+      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
       ticket = beginNavigation();
       const readRevision = draftEditRevision.current;
       const contextRevision = accuracyDraft.current.editRevision;
@@ -1447,21 +1472,23 @@ export default function App() {
     }
   }, [jobs, project?.id, pendingMediaReplacement, showMediaBackups, mediaMutationStatus]);
 
-  const startJob = async (operation: () => Promise<ProcessingJob>, message: string, openQueue = true) => {
-    const ticket = projectScope.current.capture();
+  const startJob = async (intent: ReturnType<typeof captureOperationIntent>, operation: () => Promise<ProcessingJob>, message: string, openQueue = true) => {
+    // Callers retain this intent across confirmation and prerequisite saves;
+    // capturing a new project ticket here would revive a canceled action.
+    if (!isCurrentOperation(intent) || mediaMutationInFlight.current) return null;
     setError('');
     try {
       const job = await operation();
       trackedJobIds.current.add(job.id);
       handledJobIds.current.delete(job.id);
       setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
-      if (projectScope.current.isCurrent(ticket)) {
+      if (isCurrentOperation(intent)) {
         if (openQueue) setShowJobs(true);
         setNotice(message);
       }
       return job;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not start processing job');
+      if (isCurrentOperation(intent)) setError(reason instanceof Error ? reason.message : 'Could not start processing job');
       return null;
     }
   };
@@ -1557,7 +1584,7 @@ export default function App() {
         if (proposal) { setProposal(null); return; }
         if (showGuide) { setShowGuide(false); return; }
         if (showCorrections || showProfile || showFindReplace || showHistory || showJobs || showUpdates) {
-          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); setShowHistory(false); setShowJobs(false); setShowUpdates(false); return;
+          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
         }
         if (workspaceTool) { setWorkspaceTool(null); setReviewMode(false); return; }
         return;
@@ -1625,7 +1652,8 @@ export default function App() {
 
   const openRecentProject = async (id: string) => {
     if (!profile || busy || mediaMutationInFlight.current) return;
-    if (!await saveUnfinishedChanges()) return;
+    const intent = requestNavigation();
+    if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
     const ticket = beginNavigation();
     const request = new AbortController();
     projectOpen.current = request;
@@ -1829,6 +1857,7 @@ export default function App() {
       setMediaMutationError('The audio check or project changed. Check the replacement again and review the warning before accepting existing times.');
       return;
     }
+    operationRevision.current += 1;
     mediaMutationInFlight.current = true;
     setPendingMediaReplacement({ ...pending, audioConfirmation: undefined });
     setMediaMutationStatus(mode === 'reset' ? 'Review the confirmation…' : 'Saving current work…');
@@ -1903,6 +1932,7 @@ export default function App() {
     let editRevision = draftEditRevision.current;
     let contextRevision = accuracyDraft.current.editRevision;
     let submitted = false;
+    operationRevision.current += 1;
     mediaMutationInFlight.current = true;
     setMediaMutationStatus('Review the confirmation…');
     setMediaMutationError('');
@@ -1980,21 +2010,21 @@ export default function App() {
       return;
     }
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
     const requestContext = contextPayload();
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return;
-    if (!projectScope.current.isCurrent(ticket)
+    if (!isCurrentOperation(intent)
       || draftEditRevision.current !== editRevision
       || accuracyDraft.current.editRevision !== contextRevision) return;
     const fullDuration = targetProject.transcript?.timing?.audioDurationMs;
     if (targetProject.transcript?.tokens?.length && fullDuration) {
-      await startJob(() => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
+      await startJob(intent, () => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
     } else {
-      await startJob(() => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript)), 'Caption generation queued. You can keep the browser open or return later.');
+      await startJob(intent, () => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript)), 'Caption generation queued. You can keep the browser open or return later.');
     }
   };
   const saveContext = async (silent = false): Promise<boolean> => {
@@ -2047,7 +2077,8 @@ export default function App() {
     }
   };
 
-  async function saveUnfinishedChanges(silent = true): Promise<boolean> {
+  async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true): Promise<boolean> {
+    if (!isCurrentIntent()) return false;
     if (!project) return true;
     if (compositionInProgress.current) {
       setNotice('Finish the current text input before saving or leaving.');
@@ -2056,7 +2087,7 @@ export default function App() {
     const ticket = projectScope.current.capture();
     const pending = saveQueue.current;
     await pending;
-    if (!projectScope.current.isCurrent(ticket)) return false;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (pending !== saveQueue.current || compositionInProgress.current) {
       setNotice('Changes are still being saved or entered. Wait for them to finish before leaving.');
       return false;
@@ -2064,9 +2095,9 @@ export default function App() {
     const captionRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
     if (dirtyRef.current && !await saveDraft(silent, 'manual-save', true)) return false;
-    if (!projectScope.current.isCurrent(ticket)) return false;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && !await saveContext(silent)) return false;
-    if (!projectScope.current.isCurrent(ticket)) return false;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
       || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) {
       setNotice('Newer changes are still unsaved. Save them before leaving.');
@@ -2114,7 +2145,7 @@ export default function App() {
       if (!captions && entry.draft.accuracy) { setWorkspaceTool('accuracy'); setReviewMode(false); }
       setNotice('Draft restored for review. Changed captions need approval again.');
     } catch {
-      setError('Could not check the saved project. Your recovery draft is still available; try restoring again.');
+      if (projectScope.current.isCurrent(ticket)) setError('Could not check the saved project. Your recovery draft is still available; try restoring again.');
     } finally { setRecoveryWorking(false); }
   };
 
@@ -2232,7 +2263,7 @@ export default function App() {
       return;
     }
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
     const selected = { ...selectionIntent.current, ids: [...selectionIntent.current.ids] };
@@ -2245,7 +2276,7 @@ export default function App() {
         confirmLabel: 'Build preview',
       });
       if (!confirmed
-        || !projectScope.current.isCurrent(ticket)
+        || !isCurrentOperation(intent)
         || draftEditRevision.current !== editRevision
         || accuracyDraft.current.editRevision !== contextRevision
         || selectionIntentKey(selectionIntent.current) !== selectedKey) return;
@@ -2253,11 +2284,12 @@ export default function App() {
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return;
-    if (!projectScope.current.isCurrent(ticket)
+    if (!isCurrentOperation(intent)
       || draftEditRevision.current !== editRevision
       || accuracyDraft.current.editRevision !== contextRevision
       || selectionIntentKey(selectionIntent.current) !== selectedKey) return;
     await startJob(
+      intent,
       () => api.startRegenerationJob(targetProject.id, selected.startMs, selected.endMs, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }),
       `Regeneration preview queued for ${rangeLabel(selected.startMs, selected.endMs)}.`,
     );
@@ -2281,7 +2313,7 @@ export default function App() {
         : input.useProposalAsBaseline
           ? 'Refinement queued using this take as the accepted baseline.'
           : 'Alternative take queued. Keep reviewing while it runs.';
-    await startJob(() => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }), label, false);
+    await startJob(captureOperationIntent(), () => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }), label, false);
   };
 
   const applyProposal = async (mode: RegenerationApplyMode, editedText?: string) => {
@@ -2546,7 +2578,7 @@ export default function App() {
   const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null> => {
     if (!project) return null;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
     const severe = issues.filter((issue) => issue.severity !== 'info').length;
     if (severe > 0) {
@@ -2555,13 +2587,14 @@ export default function App() {
         message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Studio can render anyway, but the finished video will use the current caption text and timing.`,
         confirmLabel: 'Render anyway',
       });
-      if (!confirmed || !projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return null;
+      if (!confirmed || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     }
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return null;
-    if (!projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return null;
+    if (!isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     return startJob(
+      intent,
       () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }),
       'Captioned video export queued. Studio saved a caption/settings snapshot, so you can keep editing while it renders.',
       false,
@@ -2604,9 +2637,10 @@ export default function App() {
       setNotice('Finish saving prepared word timings before opening another project.');
       return;
     }
-    let ticket = projectScope.current.capture();
+    const intent = requestNavigation();
+    let ticket = intent.ticket;
     try {
-      if (!await saveUnfinishedChanges() || !projectScope.current.isCurrent(ticket)) return;
+      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
       ticket = beginNavigation();
       setShowCorrections(false); setBusy('Opening correction audio…');
       const readRevision = draftEditRevision.current;
@@ -2715,11 +2749,24 @@ export default function App() {
     }
   };
 
+  const loadHistory = async () => {
+    if (!project) return;
+    const ticket = projectScope.current.capture();
+    if (ticket.key !== projectMediaKey(project)) return;
+    const request = ++historyRead.current;
+    try {
+      const entries = await api.history(project.id);
+      if (projectScope.current.isCurrent(ticket) && request === historyRead.current) setHistoryEntries(entries);
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket) && request === historyRead.current) {
+        setError(reason instanceof Error ? reason.message : 'Could not load history');
+      }
+    }
+  };
   const openHistory = async () => {
     if (!project) return;
     setShowHistory(true);
-    try { setHistoryEntries(await api.history(project.id)); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load history'); }
+    await loadHistory();
   };
   const restoreHistory = async (historyId: string) => {
     if (!project) return;
@@ -2753,7 +2800,7 @@ export default function App() {
         'History was restored on disk. Your newer caption edits remain unsaved in the editor.',
       );
       if (published === 'stale') return;
-      setShowHistory(false);
+      closeHistory();
       if (published === 'applied') setNotice('Earlier project version restored.');
     }
     catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Restore failed'); }
@@ -2845,7 +2892,7 @@ export default function App() {
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
     {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey}/>}
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
-    <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={() => setShowHistory(false)} onRefresh={() => { if (project) void api.history(project.id).then(setHistoryEntries); }} onRestore={(id) => void restoreHistory(id)}/>
+    <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
     <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide

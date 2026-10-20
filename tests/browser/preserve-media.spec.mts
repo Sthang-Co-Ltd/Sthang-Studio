@@ -125,6 +125,13 @@ async function finishResponse(page: Page, pathname: string, release: () => void)
   // timer racing the response that this regression intentionally controls.
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
+async function hasUnloadGuard(page: Page) {
+  return page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+}
 
 test('Accuracy fields keep native labels and exact accessible names across edits, term counts and reopening', async ({ page }) => {
   const f = await fixture(page);
@@ -551,9 +558,13 @@ for (const mode of ['preserve', 'reset'] as const) {
       await expect(fields.vocabulary).toHaveValue('ExactBrand | exact alias\nAnotherTerm');
       expect(events).toEqual(['caption-request']);
       await finishResponse(page, '/api/projects/landscape/captions', captionGate.resolve);
-      await expect(page.locator('.save-action')).toBeDisabled();
+      // Caption persistence is complete, but combined Save still owns the newer
+      // Accuracy draft. The caption reply cannot mark that work as saved.
+      await expect(page.locator('.save-action')).toBeEnabled();
+      await expect(page.locator('.project-title')).toContainText('Accuracy changes unsaved');
       await expect(fields.description).toHaveValue('Newer Accuracy description must survive');
       await expect(fields.vocabulary).toHaveValue('ExactBrand | exact alias\nAnotherTerm');
+      expect(f.state.projects[0].captions[1].text).toBe('Correction saved while Accuracy is being edited');
       expect(f.state.projects[0].transcriptionContext).toEqual(f.original.transcriptionContext);
       expect(contextWrites).toHaveLength(0);
 
@@ -709,29 +720,36 @@ test('newer Accuracy edits survive their older context acknowledgment and a late
     const captionReply = page.waitForResponse((value) => value.url().endsWith('/captions') && value.request().method() === 'PUT');
     await fields.description.focus(); // Commit caption without a second context save.
     await (await captionReply).finished();
-    await expect(page.locator('.save-action')).toBeDisabled();
+    await expect(page.locator('.save-action')).toBeEnabled();
+    await expect(page.locator('.project-title')).toContainText('Accuracy changes unsaved');
     await expect(fields.description).toHaveValue('Newer unsaved description');
     await expect(fields.vocabulary).toHaveValue('NewerBrand | newer alias');
+    expect(writes).toHaveLength(1);
     const newReply = page.waitForResponse((value) => value.url().endsWith('/context') && value.request().method() === 'PUT');
-    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await page.locator('.save-action').click();
     await (await newReply).finished();
     expect(writes).toHaveLength(2);
     expect(writes[1].transcriptionContext).toEqual({ description: 'Newer unsaved description', vocabulary: ['NewerBrand | newer alias'] });
     expect(f.state.projects[0].transcriptionContext).toEqual(writes[1].transcriptionContext);
+    await expect(fields.description).toHaveValue('Newer unsaved description');
+    await expect(fields.vocabulary).toHaveValue('NewerBrand | newer alias');
+    await expect(page.locator('.save-action')).toHaveText('Saved');
+    await expect(page.locator('.save-action')).toBeDisabled();
     noGeneration(f.state);
   } finally { gate.resolve(); }
 });
 
 for (const destination of ['another project', 'a new source in the same project'] as const) {
-  test(`a late Accuracy acknowledgment cannot overwrite ${destination}`, async ({ page }) => {
+  test(`a pending Accuracy save is reconciled before leaving and cannot overwrite ${destination}`, async ({ page }) => {
     const f = await fixture(page);
     const gate = deferred();
-    let requested = false;
+    const writes: any[] = [];
     await page.route('**/api/projects/landscape/context', async (route) => {
+      expect(route.request().method()).toBe('PUT');
       const body = route.request().postDataJSON();
+      writes.push(body);
       f.state.projects[0].transcriptionContext = structuredClone(body.transcriptionContext);
       const reply = structuredClone(f.state.projects[0]);
-      requested = true;
       await gate.promise;
       await route.fulfill({ json: reply });
     });
@@ -741,15 +759,33 @@ for (const destination of ['another project', 'a new source in the same project'
       await oldFields.description.fill('Old-source submitted description');
       await oldFields.vocabulary.fill('OldBrand | old alias');
       await page.getByRole('button', { name: 'Save for project', exact: true }).click();
-      await expect.poll(() => requested).toBe(true);
+      await expect.poll(() => writes.length).toBe(1);
+      expect(writes[0]).toEqual({
+        transcriptionContext: { description: 'Old-source submitted description', vocabulary: ['OldBrand | old alias'] },
+        expectedMedia: { filename: f.original.media.filename, size: f.original.media.size },
+      });
       await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+      // Home drains the existing write before leaving. The old source, raw
+      // Accuracy fields and unload protection stay owned by this editor meanwhile.
+      await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+      await expect(page.locator('video')).toHaveAttribute('src', f.original.media.url);
+      await expect(oldFields.description).toHaveValue('Old-source submitted description');
+      await expect(oldFields.vocabulary).toHaveValue('OldBrand | old alias');
+      await expect(page.getByRole('button', { name: /Audit landscape/ })).toHaveCount(0);
+      await expect.poll(() => hasUnloadGuard(page)).toBe(true);
+      expect(writes).toHaveLength(1);
+      await finishResponse(page, '/api/projects/landscape/context', gate.resolve);
+      await expect(page.getByRole('button', { name: /Audit landscape/ })).toBeVisible();
+      expect(writes).toHaveLength(1);
+
       const target = destination === 'another project' ? f.state.projects[1] : f.state.projects[0];
       target.transcriptionContext = { description: 'Target saved description', vocabulary: ['TargetBrand'] };
       if (destination !== 'another project') {
-        // A synthetic external source change while the editor is closed. The
-        // delayed reply is still bound to landscape.mp4 and its old session.
+        // A synthetic external source change while the editor is closed, after
+        // its old-source write settled. Reopening must adopt this fresh source.
         target.media = { ...target.media, filename: 'new-source.mp4', url: '/media/new-source.mp4', size: 6000 };
       }
+      const targetCaptions = structuredClone(target.captions);
       await page.getByRole('button', { name: new RegExp(`Audit ${target.id}`) }).click();
       await expect(page.locator('video')).toHaveAttribute('src', target.media.url);
       const fields = await openAccuracy(page);
@@ -757,12 +793,16 @@ for (const destination of ['another project', 'a new source in the same project'
       await expect(fields.vocabulary).toHaveValue('TargetBrand');
       await fields.description.fill('Target newer unsaved description');
       await fields.vocabulary.fill('TargetNewBrand | target alias');
-      await finishResponse(page, '/api/projects/landscape/context', gate.resolve);
       await expect(page.locator('.project-title strong')).toHaveText(`Audit ${target.id}`);
       await expect(page.locator('video')).toHaveAttribute('src', target.media.url);
+      await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(targetCaptions[0].text);
       await expect(fields.description).toHaveValue('Target newer unsaved description');
       await expect(fields.vocabulary).toHaveValue('TargetNewBrand | target alias');
       expect(target.transcriptionContext).toEqual({ description: 'Target saved description', vocabulary: ['TargetBrand'] });
+      expect(target.captions).toEqual(targetCaptions);
+      expect(writes).toHaveLength(1);
+      await expect(page.locator('.save-action')).toBeEnabled();
+      await expect.poll(() => hasUnloadGuard(page)).toBe(true);
       noGeneration(f.state);
     } finally { gate.resolve(); }
   });

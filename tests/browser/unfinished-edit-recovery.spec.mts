@@ -534,3 +534,96 @@ test('Khmer composition blocks forced saving and preserves the composition-final
   expect(f.captionWrites).toEqual([]);
   noLearningOrGeneration(f.state);
 });
+
+test('a failed recovery check from a previous project cannot surface its error or disturb current edits', async ({ page }, testInfo) => {
+  const f = await fixture(page);
+  const recoveredText = 'Unfinished caption awaiting recovery in the first project';
+  const secondText = 'Newer caption in the second project while the old recovery check waits';
+  const secondDescription = '  Current second-project Accuracy description  ';
+  const secondVocabulary = ' TS11 | second project \nពាក្យថ្មី\n';
+  const secondContext = { description: secondDescription.trim(), vocabulary: ['TS11 | second project', 'ពាក្យថ្មី'] };
+  const secondContextWrites: ContextWrite[] = [];
+  await page.route('**/api/projects/second/context', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'PUT') return route.fallback();
+    const body = request.postDataJSON() as ContextWrite;
+    secondContextWrites.push(structuredClone(body));
+    f.state.requests.push({ path: '/api/projects/second/context', method: request.method(), body });
+    f.state.projects[1].transcriptionContext = structuredClone(body.transcriptionContext);
+    await route.fulfill({ json: f.state.projects[1] });
+  });
+
+  await openProject(page);
+  const caption = page.getByLabel('Caption 1 text', { exact: true });
+  await caption.fill(recoveredText);
+  await expectCapturedWhileFocused(page, caption, recoveredText);
+  await reloadAndReopen(page);
+  await expect(caption).toHaveValue(f.original.captions[0].text);
+  await expect(recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true })).toBeEnabled();
+
+  const gate = deferred();
+  let canonicalReads = 0;
+  await page.route('**/api/projects/landscape', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const read = ++canonicalReads;
+    f.state.requests.push({ path: '/api/projects/landscape', method: 'GET', body: null });
+    if (read === 1) {
+      await gate.promise;
+      return route.fulfill({ status: 503, json: { error: 'Synthetic previous-project recovery check failure' } });
+    }
+    return route.fulfill({ json: f.state.projects[0] });
+  });
+  try {
+    await recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true }).click();
+    await expect.poll(() => canonicalReads).toBe(1);
+    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: /Audit second/ }).click();
+    await expect(page.locator('.project-title strong')).toHaveText('Audit second');
+    const fields = await openAccuracy(page);
+    await fields.description.fill(secondDescription);
+    await fields.vocabulary.fill(secondVocabulary);
+    await caption.fill(secondText);
+    await expectCapturedWhileFocused(page, caption, secondText);
+    expect(f.captionWrites).toEqual([]);
+    expect(f.contextWrites).toEqual([]);
+    expect(secondContextWrites).toEqual([]);
+
+    const staleResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/landscape') && response.request().method() === 'GET');
+    gate.resolve();
+    const response = await staleResponse;
+    expect(response.status()).toBe(503);
+    await response.finished();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+    await expect(page.getByRole('alert').filter({ hasText: 'Could not check the saved project.' })).toHaveCount(0);
+    await expect(page.locator('.project-title strong')).toHaveText('Audit second');
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
+    await expect(caption).toHaveValue(secondText);
+    await expect(fields.description).toHaveValue(secondDescription);
+    await expect(fields.vocabulary).toHaveValue(secondVocabulary);
+    await expect(page.locator('.save-action')).toBeEnabled();
+    expect(await hasUnloadGuard(page)).toBe(true);
+    expect(f.state.projects[0]).toEqual(f.original);
+    expect(f.captionWrites).toEqual([]);
+    expect(f.contextWrites).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath('recovery-check-failed-other-project.png'), fullPage: true });
+
+    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toBeVisible();
+    expect(f.state.projects[1].captions[0].text).toBe(secondText);
+    expect(secondContextWrites).toHaveLength(1);
+    expect(secondContextWrites[0].transcriptionContext).toEqual(secondContext);
+    expect(f.state.projects[1].transcriptionContext).toEqual(secondContext);
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    await expect(recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true })).toBeEnabled();
+    await expect(caption).toHaveValue(f.original.captions[0].text);
+    await recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true }).click();
+    await expect(caption).toHaveValue(recoveredText);
+    expect(canonicalReads).toBe(3);
+    expect(f.state.projects[0]).toEqual(f.original);
+    expect(f.captionWrites).toEqual([]);
+    expect(f.contextWrites).toEqual([]);
+    expect(await hasUnloadGuard(page)).toBe(true);
+    noLearningOrGeneration(f.state);
+  } finally { gate.resolve(); }
+});

@@ -1,17 +1,23 @@
 import { test, expect, type Page, type Route, type Request } from '@playwright/test';
 import { buildCaptionWordTiming, planCaptionRenderStates, type CaptionProject, type CaptionSegment, type CaptionRenderState, type TimedToken } from '../../packages/shared/src/index.js';
 import { capabilities, cleanFixtures, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
+import { nativePreviewCatchupTimeoutMs } from '../../apps/web/src/native-preview-scheduler.js';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 test.setTimeout(120_000);
 
 type Sample = { ms: number; wall: number; presentedMs: number | null; key: string | null; mode: string | null; src: string | null; preparing: boolean; paused: boolean; seeking: boolean; rate: number };
-type Decode = { ms: number; wall: number; src: string };
+type Playback = Pick<Sample, 'ms' | 'paused' | 'seeking' | 'rate'>;
+type Decode = Playback & { wall: number; src: string };
+type MediaReset = Playback & { type: string; wall: number; createdWall: number; trusted: boolean };
 type Dispatch = { times: number[]; color: string; ms: number; wall: number; paused: boolean; seeking: boolean; rate: number; claimed: boolean;
-  responseWall?: number; responseMs?: number; status?: number; abortWall?: number };
-type Probe = { samples: Sample[]; decoded: Decode[]; dispatches: Dispatch[]; collecting: boolean };
-type RecordedRequest = { times: number[]; ms: number; color: string };
+  responseWall?: number; responseMs?: number; status?: number; abortWall?: number; signalAbortedAtDispatch?: boolean; abortPlayback?: Playback;
+  initialCurrent?: { atMs: number; ms: number; wall: number; responseWall?: number; responseMs?: number; status?: number; abortWall?: number; decodeWall?: number; decodeMs?: number; decodePlayback?: Playback; referenceDecoded: boolean };
+  lifecycle?: { actionWall: number; liveAtAction: boolean; eventWall?: number; eventTrusted?: boolean; liveAtEvent?: boolean; abortedInEvent?: boolean;
+    before: number; after: number; beforePlayback: Playback; afterPlayback: Playback; earliestDeadlineWall: number } };
+type Probe = { samples: Sample[]; decoded: Decode[]; dispatches: Dispatch[]; collecting: boolean; mediaResets: MediaReset[] };
+type RecordedRequest = { times: number[]; ms: number; wall: number; color: string };
 const RED = '#FF0000';
 const BLUE = '#0000FF';
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -39,8 +45,19 @@ function configure(state: FixtureState, captions: CaptionSegment[]) {
 // runs independently of the test driver's expectations and media keeps playing.
 async function installProbe(page: Page, decodeDelay: number, decodeGate?: { src: string; releaseAtMs: number }) {
   await page.addInitScript(({ decodeDelay, decodeGate }) => {
-    const probe: Probe = { samples: [], decoded: [], dispatches: [], collecting: false };
+    const probe: Probe = { samples: [], decoded: [], dispatches: [], collecting: false, mediaResets: [] };
     (window as unknown as { __continuousPreview: Probe }).__continuousPreview = probe;
+    const playback = (): Playback => {
+      const video = document.querySelector('video');
+      return { ms: (video?.currentTime ?? 0) * 1000, paused: video?.paused ?? true,
+        seeking: video?.seeking ?? false, rate: video?.playbackRate ?? 1 };
+    };
+    // Keep actual media-reset evidence from the initial decode through the
+    // action. Observers never change media state, event delivery or timers.
+    for (const type of ['seeking', 'pause', 'ratechange', 'emptied']) document.addEventListener(type, (event) => {
+      if (!(event.target instanceof HTMLVideoElement)) return;
+      probe.mediaResets.push({ ...playback(), type, wall: performance.now(), createdWall: event.timeStamp, trusted: event.isTrusted });
+    }, true);
     const originalFetch = window.fetch;
     window.fetch = async function (input, init) {
       let dispatch: Dispatch | undefined;
@@ -49,10 +66,13 @@ async function installProbe(page: Page, decodeDelay: number, decodeGate?: { src:
         const video = document.querySelector('video');
         dispatch = { times: body.timesMs, color: body.appearance.highlightColor,
           ms: (video?.currentTime ?? 0) * 1000, wall: performance.now(),
-          paused: video?.paused ?? true, seeking: video?.seeking ?? false, rate: video?.playbackRate ?? 1, claimed: false };
+          paused: video?.paused ?? true, seeking: video?.seeking ?? false, rate: video?.playbackRate ?? 1, claimed: false,
+          signalAbortedAtDispatch: init.signal?.aborted };
         probe.dispatches.push(dispatch);
         const observed = dispatch;
-        init.signal?.addEventListener('abort', () => { observed.abortWall = performance.now(); }, { once: true });
+        init.signal?.addEventListener('abort', () => {
+          observed.abortWall = performance.now(); observed.abortPlayback = playback();
+        }, { once: true });
       }
       const response = await originalFetch.call(this, input, init);
       if (dispatch) {
@@ -85,7 +105,7 @@ async function installProbe(page: Page, decodeDelay: number, decodeGate?: { src:
           release();
         });
       }
-      probe.decoded.push({ ms: (document.querySelector('video')?.currentTime ?? 0) * 1000, wall: performance.now(), src: this.src });
+      probe.decoded.push({ ...playback(), wall: performance.now(), src: this.src });
     };
     let observedVideo: HTMLVideoElement | null = null;
     let presentedMs: number | null = null;
@@ -129,6 +149,7 @@ test.afterEach(async ({ page }, testInfo) => {
       return ids.get(src)!;
     };
     return {
+      mediaResets: probe.mediaResets,
       dispatches: probe.dispatches.map(({ claimed: _claimed, ...dispatch }) => dispatch),
       decoded: probe.decoded.map(({ src, ...decode }) => ({ ...decode, pngId: pngId(src) })),
       samples: probe.samples.map(({ src, ...sample }) => ({ ...sample, pngId: pngId(src) })),
@@ -137,6 +158,9 @@ test.afterEach(async ({ page }, testInfo) => {
   if (diagnostics) await testInfo.attach('native-preview-clock-diagnostics', {
     body: JSON.stringify(diagnostics, null, 2), contentType: 'application/json',
   });
+  // Keep the page and its dispatch journal alive until held route callbacks
+  // finish. The context's owned-network guard remains installed throughout.
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 // Generate authentic PNGs BEFORE the latency experiment. This models a known
@@ -165,6 +189,7 @@ async function serveNativeReferences(page: Page, references: Awaited<ReturnType<
   beforeReply?: (request: RecordedRequest, route: Route) => Promise<number | void>) {
   const requests: RecordedRequest[] = [];
   await page.route('**/api/video-export/landscape/preview', async (route) => {
+    const admittedAt = performance.now();
     const responseDelay = sleep(delay);
     const body = route.request().postDataJSON();
     const times = body.timesMs as number[];
@@ -176,23 +201,23 @@ async function serveNativeReferences(page: Page, references: Awaited<ReturnType<
     // Only lifecycle tests need an immediate held-request decision. Ordinary
     // continuous playback does no browser round trip on its response path;
     // dispatch clocks are correlated after the playback pass instead.
-    const ms = beforeReply ? await page.evaluate(({ times, color }) => {
+    const clock = beforeReply ? await page.evaluate(({ times, color }) => {
       const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
       const dispatch = probe.dispatches.find((item) => !item.claimed && item.color === color
         && JSON.stringify(item.times) === JSON.stringify(times));
       if (!dispatch) throw new Error('Preview request has no browser dispatch-clock observation.');
       dispatch.claimed = true;
-      return dispatch.ms;
-    }, { times, color }) : Number.NaN;
-    const recorded = { times, ms, color };
+      return { ms: dispatch.ms, wall: dispatch.wall };
+    }, { times, color }) : { ms: Number.NaN, wall: Number.NaN };
+    const recorded = { times, ...clock, color };
     requests.push(recorded);
     const frames = times.map((atMs) => references.get(`${color}:${atMs}`));
     expect(frames.every(Boolean), `Unplanned native reference: ${color} ${times}`).toBe(true);
     const overrideDelay = await beforeReply?.(recorded, route);
-    // Diagnostic retrieval runs inside, rather than on top of, the declared
-    // synthetic delay. Explicit lifecycle overrides still control held replies.
+    // Every delay is a minimum from route admission, including overrides.
+    // Awaiting the lifecycle callback above still preserves its explicit gate.
     if (overrideDelay === undefined || overrideDelay === delay) await responseDelay;
-    else await sleep(overrideDelay);
+    else await sleep(Math.max(0, overrideDelay - (performance.now() - admittedAt)));
     // An intentionally superseded request may already have been aborted.
     await route.fulfill({ json: { width: 640, height: 360, frames } }).catch(() => {});
   });
@@ -208,6 +233,7 @@ async function collectDispatchClocks(page: Page, requests: RecordedRequest[]) {
     expect(index, 'Every routed request must match its synchronous browser dispatch in sequence').toBeGreaterThanOrEqual(0);
     consumed.add(index);
     request.ms = dispatches[index].ms;
+    request.wall = dispatches[index].wall;
   }
 }
 
@@ -219,13 +245,18 @@ async function playThrough(page: Page, endMs: number): Promise<Sample[]> {
     video.muted = true;
     await video.play();
   });
-  // No seek or wait-for-future-paint between start and end. The only wait is for
-  // the media clock to reach the endpoint of this continuous playback pass.
-  await page.waitForFunction((end) => document.querySelector('video')!.currentTime * 1000 >= end, endMs);
+  // No seek or wait-for-future-paint between start and end. Pause in the same
+  // browser callback that observes the endpoint; a later driver round trip
+  // can otherwise leave playback beyond the caption whose paused paint is tested.
+  await page.waitForFunction((end) => {
+    const video = document.querySelector('video')!;
+    if (!(video.currentTime * 1000 >= end)) return false;
+    video.pause();
+    (window as unknown as { __continuousPreview: Probe }).__continuousPreview.collecting = false;
+    return true;
+  }, endMs);
   return page.evaluate(() => {
-    document.querySelector('video')!.pause();
     const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
-    probe.collecting = false;
     return probe.samples;
   });
 }
@@ -272,6 +303,16 @@ test('continuous native playback after opening preparation decodes the next capt
     expect(sample.mode).toBe('exact');
     expect(sample.src).toBe(openingSrc);
     expect(sample.preparing).toBe(false);
+  }
+  // The cold pass may deliberately skip a paint while catching up. Establish
+  // all eight authentic cached paints before measuring reuse; a first render
+  // of a skipped paint is not a cache miss for an already prepared image.
+  for (const paint of paints) {
+    await seek(page, paint.atMs + 50);
+    await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-paint-key', paint.paintKey!);
+    await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');
+    await expect(page.locator('.native-caption-image')).toHaveAttribute('src',
+      'data:image/png;base64,' + references.get(RED + ':' + paint.atMs)!.png);
   }
   const beforeWarm = requests.length;
   await seek(page, 500);
@@ -482,31 +523,88 @@ for (const change of ['same-index seek', 'rate change', 'deadline'] as const) {
     const references = await nativeReferences(project, paints, [RED, BLUE]);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    let sawBlueCurrent = false;
-    let held: { request: Request; atMs: number; started: number; before: number; after: number; actionDone: boolean } | undefined;
+    let initialBlue: RecordedRequest | undefined;
+    let held: { request: Request; atMs: number; wall: number; started: number; before: number; after: number; actionDone: boolean } | undefined;
     let aborted = false;
-    let abortedAt = 0;
     const afterHeld: RecordedRequest[] = [];
-    page.on('requestfailed', (request) => { if (request === held?.request) { aborted = true; abortedAt = Date.now(); } });
+    page.on('requestfailed', (request) => { if (request === held?.request) aborted = true; });
     await serveNativeReferences(page, references, 180, async (request, route) => {
       if (held) { afterHeld.push(request); return 0; }
       if (request.color !== BLUE) return;
       const current = paints.find((paint) => paint.atMs <= request.ms && request.ms < paint.endMs);
-      // New appearance means no warm blue cache. After a slow current response,
-      // a singleton strictly ahead of the media clock is observable catch-up.
-      if (sawBlueCurrent && request.times.length === 1 && request.times[0] > request.ms) {
-        held = { request: route.request(), atMs: request.times[0], started: Date.now(), before: 0, after: 0, actionDone: false };
-        const clock = await page.locator('video').evaluate((video: HTMLVideoElement, change) => {
-          const before = video.currentTime * 1000;
-          if (change === 'same-index seek') video.currentTime = (Math.floor(before / 100) * 100 + 50) / 1000;
+      if (!initialBlue) {
+        // A cold appearance starts with current work. Its fetch timer may run
+        // after the short paint ends; that does not make it speculative work.
+        const target = paints.find((paint) => paint.atMs === request.times[0]);
+        expect(request.times, 'The cold blue appearance must begin with one current paint').toHaveLength(1);
+        expect(current, 'The blue appearance begins inside the continuous caption').toBeDefined();
+        expect(target, 'The initial blue request must identify an authentic reference paint').toBeDefined();
+        expect(target!.key, 'The initial current work belongs to the playing caption').toBe(current!.key);
+        expect(target!.atMs, 'Future work cannot establish the initial current request').toBeLessThanOrEqual(request.ms);
+        initialBlue = request;
+        return 180;
+      }
+      // Hold only a strictly future singleton after the cold current work.
+      // Its successful native decode is checked below before the reset runs.
+      if (request.times.length === 1 && request.times[0] > request.ms) {
+        held = { request: route.request(), atMs: request.times[0], wall: request.wall, started: Date.now(), before: 0, after: 0, actionDone: false };
+        const target = paints.find((paint) => paint.atMs === request.times[0])!;
+        // The fixture starts at 1x; the browser checks this remains unchanged
+        // from the exact current decode through the requested lifecycle action.
+        const deadlineMs = nativePreviewCatchupTimeoutMs(target.endMs, request.ms, 1);
+        const clock = await page.evaluate(({ change, wall, initial, initialSrc, deadlineMs }) => {
+          const video = document.querySelector('video');
+          if (!video) throw new Error('The lifecycle reset requires the playing video.');
+          const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
+          const dispatch = probe.dispatches.find((item) => item.wall === wall);
+          if (!dispatch || dispatch.abortWall !== undefined) throw new Error('The held native request must still be live before the lifecycle reset.');
+          const first = probe.dispatches.find((item) => item.wall === initial.wall);
+          const decoded = probe.decoded.find((item) => item.src === initialSrc
+            && first?.responseWall !== undefined && item.wall >= first.responseWall && item.wall < dispatch.wall);
+          dispatch.initialCurrent = { atMs: initial.times[0], ms: initial.ms, wall: initial.wall,
+            responseWall: first?.responseWall, responseMs: first?.responseMs, status: first?.status, abortWall: first?.abortWall,
+            decodeWall: decoded?.wall, decodeMs: decoded?.ms,
+            decodePlayback: decoded && { ms: decoded.ms, paused: decoded.paused, seeking: decoded.seeking, rate: decoded.rate },
+            referenceDecoded: Boolean(decoded) };
+          if (!first || first.color !== initial.color || first.times.length !== 1 || first.times[0] !== initial.times[0]
+            || first.status !== 200 || first.abortWall !== undefined || first.responseWall === undefined
+            || first.responseWall < first.wall || !decoded) {
+            throw new Error('The initial cold blue current paint must successfully decode before future work begins.');
+          }
+          const playback = (): Playback => ({ ms: video.currentTime * 1000, paused: video.paused, seeking: video.seeking, rate: video.playbackRate });
+          // Future work can only schedule after the current PNG has decoded.
+          // Forward playback makes timeout(dispatch.media) no larger than the
+          // timeout computed at scheduling. This is an EARLIEST deadline, not
+          // an estimate of the later timer's actual firing time.
+          const lifecycle = { earliestDeadlineWall: decoded.wall + deadlineMs } as NonNullable<Dispatch['lifecycle']>;
+          dispatch.lifecycle = lifecycle;
+          if (change !== 'deadline') {
+            const event = change === 'same-index seek' ? 'seeking' : 'ratechange';
+            video.addEventListener(event, (value) => {
+              lifecycle.eventWall = performance.now(); lifecycle.eventTrusted = value.isTrusted;
+              lifecycle.liveAtEvent = dispatch.abortWall === undefined;
+            }, { once: true, capture: true });
+            video.addEventListener(event, () => {
+              lifecycle.abortedInEvent = dispatch.abortWall !== undefined;
+            }, { once: true });
+          }
+          lifecycle.beforePlayback = playback();
+          lifecycle.before = lifecycle.beforePlayback.ms;
+          lifecycle.liveAtAction = dispatch.signalAbortedAtDispatch === false
+            && dispatch.abortWall === undefined && dispatch.responseWall === undefined;
+          if (!lifecycle.liveAtAction) throw new Error('The exact held signal must be live and unanswered at the setter.');
+          lifecycle.actionWall = performance.now();
+          if (change === 'same-index seek') video.currentTime = (Math.floor(lifecycle.before / 100) * 100 + 50) / 1000;
           if (change === 'rate change') video.playbackRate = 0.25;
-          return { before, after: video.currentTime * 1000 };
-        }, change);
+          lifecycle.afterPlayback = playback();
+          lifecycle.after = lifecycle.afterPlayback.ms;
+          return { before: lifecycle.before, after: lifecycle.after };
+        }, { change, wall: request.wall, initial: initialBlue, deadlineMs,
+          initialSrc: `data:image/png;base64,${references.get(`${BLUE}:${initialBlue.times[0]}`)!.png}` });
         held.before = clock.before; held.after = clock.after; held.actionDone = true;
         await gate;
         return 0;
       }
-      if (request.times.length === 1 && request.times[0] === current?.atMs) sawBlueCurrent = true;
       return 180;
     });
     try {
@@ -518,11 +616,54 @@ for (const change of ['same-index seek', 'rate change', 'deadline'] as const) {
       await expect.poll(() => held?.actionDone, { timeout: 8000 }).toBe(true);
       expect(held!.atMs).toBeGreaterThan(held!.before - 40);
       if (change !== 'deadline') expect(Math.floor(held!.after / 100)).toBe(Math.floor(held!.before / 100));
-      // Event resets must abort promptly, rather than pass only because the
-      // later speculative deadline eventually expires. The held target is
-      // predicted >180 ms ahead; a 150 ms event budget precedes that deadline.
+      // Measure the actual action, media event and abort in the browser's clock.
+      // The Node route callback and locator lookup can consume this entire
+      // budget before the reset happens. A queued effect may observe the new
+      // rate/seeking state before its native event is delivered; that earlier
+      // cancellation is valid only with independent evidence excluding the
+      // deadline. The response stays held throughout the same 150 ms budget.
       await expect.poll(() => aborted, { timeout: change === 'deadline' ? 1800 : 150, intervals: [10, 20, 30] }).toBe(true);
-      if (change !== 'deadline') expect(abortedAt - held!.started, 'Lifecycle reset must beat the future-paint deadline').toBeLessThan(150);
+      if (change !== 'deadline') {
+        const reset = await page.evaluate((wall) => {
+          const probe = (window as unknown as { __continuousPreview: Probe }).__continuousPreview;
+          const dispatch = probe.dispatches.find((item) => item.wall === wall);
+          return { ...dispatch?.lifecycle, abortWall: dispatch?.abortWall, abortPlayback: dispatch?.abortPlayback,
+            responseWall: dispatch?.responseWall, initialCurrent: dispatch?.initialCurrent, mediaResets: probe.mediaResets,
+            dispatchPlayback: dispatch && { ms: dispatch.ms, paused: dispatch.paused, seeking: dispatch.seeking, rate: dispatch.rate } };
+        }, held!.wall);
+        const expectedEvent = change === 'same-index seek' ? 'seeking' : 'ratechange';
+        const decoded = reset.initialCurrent!;
+        expect(reset.liveAtAction, 'The exact held request must still be live at the actual setter').toBe(true);
+        expect(reset.responseWall, 'The held response must remain unanswered').toBeUndefined();
+        for (const playback of [decoded.decodePlayback, reset.dispatchPlayback, reset.beforePlayback]) {
+          expect(playback, 'The pre-action interval must be forward playback at the original rate').toMatchObject({ paused: false, seeking: false, rate: 1 });
+        }
+        expect(decoded.decodeMs).toBeLessThanOrEqual(reset.dispatchPlayback!.ms);
+        expect(reset.dispatchPlayback!.ms).toBeLessThanOrEqual(reset.before!);
+        expect(reset.mediaResets.filter((event) => (event.wall >= decoded.decodeWall! && event.wall < reset.actionWall!)
+          || (event.createdWall >= decoded.decodeWall! && event.createdWall < reset.actionWall!)),
+        'No media reset may invalidate the uninterrupted pre-action deadline bound').toEqual([]);
+        expect(reset.eventTrusted, 'The requested lifecycle event must be generated by the real media element').toBe(true);
+        expect(reset.eventWall, 'The requested media lifecycle event must occur').toBeGreaterThanOrEqual(reset.actionWall!);
+        expect(reset.abortedInEvent, 'A request still live at event entry must abort before event dispatch completes').toBe(true);
+        expect(reset.abortWall, 'The same held signal must abort after the requested action').toBeGreaterThanOrEqual(reset.actionWall!);
+        expect(reset.abortWall! - reset.actionWall!, 'Lifecycle reset must beat the future-paint deadline').toBeLessThan(150);
+        expect(reset.afterPlayback).toMatchObject({ paused: false, rate: change === 'rate change' ? 0.25 : 1 });
+        expect(reset.abortPlayback).toMatchObject({ paused: false, rate: change === 'rate change' ? 0.25 : 1 });
+        expect(reset.mediaResets.filter((event) => event.wall >= reset.actionWall! && event.wall <= reset.abortWall!
+          && (event.type !== expectedEvent || event.createdWall < reset.actionWall!)),
+        'An unrelated lifecycle reset must not stand in for the requested action').toEqual([]);
+        if (reset.liveAtEvent) {
+          // Timer tasks cannot interleave inside this native event dispatch.
+          expect(reset.abortWall).toBeGreaterThanOrEqual(reset.eventWall!);
+        } else {
+          expect(reset.abortWall).toBeLessThan(reset.eventWall!);
+          expect(reset.abortWall, 'Early state invalidation needs evidence that even the earliest deadline was still in the future')
+            .toBeLessThan(reset.earliestDeadlineWall!);
+          expect(reset.abortPlayback).toMatchObject(change === 'same-index seek'
+            ? { seeking: true, rate: 1 } : { seeking: false, rate: 0.25 });
+        }
+      }
       expect(Date.now() - held!.started, 'Held speculative work must not survive indefinitely').toBeLessThan(1500);
       await expect.poll(() => afterHeld.some((request) => request.color === BLUE && request.times.length === 1
         && paints.some((paint) => paint.atMs <= request.ms && request.ms < paint.endMs && request.times[0] === paint.atMs))).toBe(true);

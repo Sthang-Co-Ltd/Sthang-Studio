@@ -1,6 +1,7 @@
 # Unfinished edit recovery: public-impact intake
 
-- **Change ID:** `studio-unfinished-edit-recovery-20261019`
+- **Change ID:** `studio-unfinished-edit-qualification-20261020`
+- **Related local proposal:** `studio-unfinished-edit-recovery-20261019`
 - **State:** source-only implementation and intake proposal
 - **Public impact:** required for the editing workflow and local retention disclosure
 - **Downstream assessment:** uncertain until the missing HQ intake evidence and
@@ -13,6 +14,12 @@ fields, combined Save/navigation protection, visible save failures with retry,
 and explicit recovery/download/discard actions. Restoration checks saved project
 and media compatibility. Changed rows need approval again, and the guarded
 recovery save does not create learning, Contributor, or approval-analytics events.
+
+The qualification continuation also commits a recognized native caption interval
+within its media/frame callback, avoiding a further paint opportunity before the
+selected cached image is committed. This is a source-level preview correction,
+not a measured user-PC speedup or a promise of a fixed presentation deadline.
+It adds no provider, external transfer, stored data, or installation dependency.
 
 The new storage is local to the browser profile and origin. It includes editable
 caption text/edges/locks, raw Accuracy text, media identity, and canonical equality
@@ -31,6 +38,12 @@ the recovery/Accuracy unit suites, `tests/unfinished-edit-recovery-api.test.mts`
 and `tests/browser/unfinished-edit-recovery.spec.mts`. Actual validation outcomes
 belong to the task's final receipt.
 
+Additional preview evidence is `apps/web/src/components/NativeCaptionPreview.tsx`
+and `tests/browser/native-preview-continuous.spec.mts`. The final receipt must
+separate ordinary browser qualification from instrumented timing experiments,
+retain unsuccessful attempts, and identify any unresolved historical timing or
+opening failures. Passing a local check does not establish published availability.
+
 The existing `.sthang/product-manifest.json` binds a separately governed
 `v0.86.0` release and its download/update evidence. This new intake leaves that
 manifest and its release claims unchanged. Presence of this implementation does
@@ -42,6 +55,7 @@ not establish that a `v0.86.0` download or any published update contains it.
 | --- | --- |
 | HQ Studio workflow/feature representation | Describe combined caption/Accuracy Save, failure/retry, and explicit recovery of unfinished fields, with source-only availability until release evidence authorizes a stronger claim |
 | HQ Studio limitations and local data-processing evidence | Add browser-profile/origin scope, exact retention/admission bounds, failure and clearing behavior, no media/keys, and the narrow recovery scope |
+| HQ Studio preview/workflow evidence | Carry the bounded source-level transition correction only with its actual qualification limitations; make no fixed-latency or released-availability claim |
 | `landing/studio/index.html` | Review the `/studio/` workflow and feature copy after HQ acceptance; avoid automatic-backup, universal multi-tab protection, or released-availability claims |
 | `docs/studio/index.md` | Carry the approved Save/recovery instructions, conflict/download path, privacy/retention details, and limitations |
 | `governance/hq/portfolio.json`; `governance/hq/sync-lock.json` | Use the governed Phase 2 transport/synchronization workflow after an exact accepted HQ input; do not hand-edit around its authority checks |
