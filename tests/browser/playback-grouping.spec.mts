@@ -123,6 +123,94 @@ test('failed edit-save prevents regrouping and keeps the draft', async ({ page }
   expect(regroupCalls).toBe(0);
 });
 
+for (const decision of ['cancel', 'navigate'] as const) {
+  test(`regrouping intent: ${decision} while confirmation is pending`, async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    const corrected = `Confirmed wording kept on ${decision}`;
+    const saveBodies: any[] = [];
+    const regroupBodies: any[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      const body = route.request().postDataJSON();
+      saveBodies.push(body);
+      await gate;
+      state.projects[0].captions = structuredClone(body.captions);
+      await route.fulfill({ json: { project: state.projects[0], correctionsCreated: 0 } });
+    });
+    await page.route('**/api/projects/landscape/resegment', async (route) => {
+      regroupBodies.push(route.request().postDataJSON());
+      await route.fulfill({ json: state.projects[0] });
+    });
+    try {
+      await openProject(page);
+      const controls = await grouping(page);
+      const field = page.getByLabel('Caption 1 text', { exact: true });
+      await field.fill(corrected);
+      await controls.getByRole('button', { name: 'Apply grouping', exact: true }).click();
+      const confirmation = page.getByRole('alertdialog', { name: 'Regroup from timed wording?', exact: true });
+      await expect(confirmation).toBeVisible();
+      // Blurring edited caption text starts its normal save independently of
+      // the decision. Keep that acknowledgement pending across cancellation.
+      await expect.poll(() => saveBodies.length).toBe(1);
+      if (decision === 'navigate') {
+        // The modal traps physical focus. Exercise the real Home handler as an
+        // external navigation request while its confirmation remains unresolved.
+        await page.getByLabel('Back to projects', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await confirmation.getByRole('button', { name: 'Save and regroup', exact: true }).click();
+      } else {
+        await confirmation.getByRole('button', { name: 'Cancel', exact: true }).last().click();
+      }
+      release();
+      if (decision === 'cancel') {
+        await expect(controls.getByRole('button', { name: 'Apply grouping', exact: true })).toBeEnabled();
+        await expect(field).toHaveValue(corrected);
+        await expect(page.locator('.save-action')).toBeDisabled();
+        await page.getByLabel('Back to projects', { exact: true }).click();
+      }
+      const home = page.getByRole('button', { name: /Audit landscape/ });
+      await expect.soft(home).toBeVisible();
+      expect(regroupBodies).toEqual([]);
+      expect(saveBodies).toHaveLength(1);
+      expect(saveBodies[0].captions[0].text).toBe(corrected);
+      expect(state.projects[0].captions[0].text).toBe(corrected);
+      await home.click();
+      await expect(field).toHaveValue(corrected);
+      expect(regroupBodies).toEqual([]);
+    } finally { release(); }
+  });
+}
+
+test('regrouping intent: navigation after queuing cancels before API dispatch', async ({ page }) => {
+  const original = structuredClone(state.projects[0].captions);
+  const regroupBodies: any[] = [];
+  await page.route('**/api/projects/landscape/resegment', async (route) => {
+    regroupBodies.push(route.request().postDataJSON());
+    await route.fulfill({ json: state.projects[0] });
+  });
+  await openProject(page);
+  const controls = await grouping(page);
+  await controls.getByRole('button', { name: 'Apply grouping', exact: true }).evaluate((button: HTMLButtonElement) => {
+    // The clean prerequisite resolves immediately. Its first continuation
+    // enqueues regrouping; this microtask invokes Home before the queued callback
+    // can dispatch. Both clicks execute the actual component handlers.
+    button.click();
+    queueMicrotask(() => {
+      const home = document.querySelector<HTMLButtonElement>('button[aria-label="Back to projects"]');
+      if (!home) throw new Error('Home action is missing at queued cancellation.');
+      home.click();
+    });
+  });
+  const home = page.getByRole('button', { name: /Audit landscape/ });
+  await expect(home).toBeVisible();
+  expect(regroupBodies).toEqual([]);
+  expect(state.requests.filter((request) => request.method === 'PUT' && request.path.endsWith('/captions'))).toEqual([]);
+  expect(state.projects[0].captions).toEqual(original);
+  await home.click();
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(original[0].text);
+  expect(regroupBodies).toEqual([]);
+});
+
 test('old proposal image and loop do not follow a switch to another video', async ({ page }) => {
   state.jobs = [completedJob()];
   await page.route('**/regeneration-proposals/proposal-old', route => route.fulfill({ json: preview() }));

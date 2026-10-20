@@ -76,3 +76,25 @@ publication, deployment, release promotion, commit, or push, and does not grant
 approval for those actions. The local documentation requirement is established;
 the exact downstream diff and approval requirements remain uncertain until HQ
 evidence is available.
+
+## Regrouping cancellation correction
+
+The separate source-only follow-up `studio-regrouping-cancellation-20261020`
+closes a navigation gap in **Save and regroup**. Navigation cancels the original
+regrouping action while confirmation, prerequisite saves, or queued dispatch are
+pending. Caption saves still complete, so the corrected wording remains saved
+when the project reopens. A regroup request that was already submitted completes
+before navigation; leaving cannot undo that operation.
+
+Public impact is required for this workflow clarification in
+`docs/UNFINISHED-EDIT-RECOVERY.md`. Source and regression evidence are
+`apps/web/src/App.tsx`, `tests/browser/playback-grouping.spec.mts`, and
+`tests/browser/playback-grouping-disk.spec.mts`. This correction adds no storage,
+provider, external transfer, installation dependency, or released-availability
+claim. Its exact validation results belong to the separate correction receipt.
+
+Carry this cancellation boundary into the pending HQ Studio workflow/limitations
+intake and, after acceptance, the corresponding `landing/studio/index.html` and
+`docs/studio/index.md` review. The broader recovery/privacy intake, exact plan
+digests, approval-class decisions, and Phase 2 synchronization described above
+remain outstanding; this correction does not authorize or complete them.

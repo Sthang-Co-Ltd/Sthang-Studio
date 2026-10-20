@@ -19,10 +19,12 @@ reload/close protection applies while changes or relevant saves remain pending.
 Browsers can suppress an unload prompt or terminate without delivering it, so the
 local copy is written during editing rather than relying on that prompt alone.
 
-Requesting navigation cancels generation, regeneration, or video export actions
-still waiting on a save or confirmation. Retrying a failed save does not restart
-those actions. Already submitted saves still finish before Studio leaves the
-project.
+Requesting navigation cancels generation, regeneration, regrouping, or video
+export actions still waiting on a save or confirmation. Regrouping that is queued
+but has not been submitted is cancelled too. Retrying a failed save does not
+restart those actions. Already submitted saves still finish before Studio leaves
+the project. If regrouping has already been submitted, Studio waits for its result
+before leaving; navigation cannot undo that server operation.
 
 Reopen the project in the same browser profile and at the same Studio address to
 look for a recovery offer:

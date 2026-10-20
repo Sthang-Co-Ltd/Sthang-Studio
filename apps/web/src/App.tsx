@@ -2199,7 +2199,8 @@ export default function App() {
     if (!project || busy || groupingInFlight.current || currentProjectActiveJob) return;
     groupingInFlight.current = true;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
+    const ticket = intent.ticket;
     setGroupingApplying(true);
     try {
       if (groupingChangesWording(project, draftRef.current)) {
@@ -2208,18 +2209,20 @@ export default function App() {
           message: 'Unlocked wording may return to the timed transcript. Your current captions will be saved in History first. Lock corrections you want to keep unchanged.',
           confirmLabel: 'Save and regroup',
         });
-        if (!confirmed || !projectScope.current.isCurrent(ticket)) return;
+        if (!confirmed || !isCurrentOperation(intent)) return;
       }
       setBusy('Applying caption grouping…');
       setError('');
       const hadEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadEdits && !saved)) return;
+      // Navigation cancels this intent before its saves drain and the project changes.
+      // Do not extend that save queue for a cancelled regrouping action.
+      if (!isCurrentOperation(intent) || (hadEdits && !saved)) return;
       if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before applying grouping.'); return; }
       const version = draftVersion.current;
       // Share the save queue: a later edit-save cannot be overtaken by regrouping.
       const task = saveQueue.current.then(async () => {
-        if (!projectScope.current.isCurrent(ticket)) return;
+        if (!isCurrentOperation(intent)) return;
         const result = await api.resegment(
           targetProject.id,
           mode,

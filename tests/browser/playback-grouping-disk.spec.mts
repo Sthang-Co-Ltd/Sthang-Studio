@@ -17,6 +17,13 @@ let navigationProjectFile = '';
 let server: OwnedApi | null = null;
 let detachChildExit: (() => void) | null = null;
 
+const groupingCases = [
+  { name: 'Home before dispatch', leave: 'save' },
+  { name: 'same project', leave: 'finished' },
+  { name: 'Home after dispatch', leave: 'regroup' },
+] as const;
+const groupingFixture = { id: 'disk-grouping', title: 'Grouping cancellation authority' };
+
 function caption(text: string) {
   return {
     id: 'c1',
@@ -150,6 +157,19 @@ test.beforeAll(async () => {
     updatedAt: '2025-12-31T23:55:00.000Z',
     captions: [caption('NAVIGATION HISTORY SNAPSHOT')],
   };
+  const groupingProjects: CaptionProject[] = [groupingFixture].map(({ id, title }) => ({
+    ...structuredClone(current), id, title,
+    media: { ...current.media, filename: `${id}.mp4`, originalName: `${id}.mp4`, url: `/media/${id}.mp4` },
+    captions: [caption('TIMED WORDING')],
+    transcript: {
+      language: 'en', fullText: 'TIMED WORDING', segments: [caption('TIMED WORDING')],
+      tokens: [{ id: 't1', text: 'TIMED WORDING', startMs: 200, endMs: 1200,
+        spaceBefore: false, timingSource: 'stt', confidence: 1, quality: 'anchored' }],
+      timing: { engine: 'kfa-local', provider: 'local', model: 'synthetic', sttTranscript: 'TIMED WORDING',
+        audioDurationMs: 4000, totalTokens: 1, anchoredTokens: 1, interpolatedTokens: 0,
+        lowConfidenceTokens: 0, alignmentCoverage: 1, meanAlignmentScore: 1 },
+    },
+  }));
   projectFile = path.join(projects, `${current.id}.json`);
   serializedProjectFile = path.join(projects, `${serializedCurrent.id}.json`);
   queuedSnapshotProjectFile = path.join(projects, `${queuedSnapshotCurrent.id}.json`);
@@ -160,6 +180,7 @@ test.beforeAll(async () => {
     fs.copyFile(media, path.join(uploads, queuedSnapshotCurrent.media.filename)),
     fs.copyFile(media, path.join(uploads, mixedSaveCurrent.media.filename)),
     fs.copyFile(media, path.join(uploads, navigationCurrent.media.filename)),
+    ...groupingProjects.map((project) => fs.copyFile(media, path.join(uploads, project.media.filename))),
   ]);
   await Promise.all([
     fs.writeFile(projectFile, `${JSON.stringify(current)}\n`, 'utf8'),
@@ -167,12 +188,14 @@ test.beforeAll(async () => {
     fs.writeFile(queuedSnapshotProjectFile, `${JSON.stringify(queuedSnapshotCurrent)}\n`, 'utf8'),
     fs.writeFile(mixedSaveProjectFile, `${JSON.stringify(mixedSaveCurrent)}\n`, 'utf8'),
     fs.writeFile(navigationProjectFile, `${JSON.stringify(navigationCurrent)}\n`, 'utf8'),
+    ...groupingProjects.map((project) => fs.writeFile(path.join(projects, `${project.id}.json`), `${JSON.stringify(project)}\n`, 'utf8')),
     fs.writeFile(path.join(projects, 'order.json'), JSON.stringify([
       current.id,
       serializedCurrent.id,
       queuedSnapshotCurrent.id,
       mixedSaveCurrent.id,
       navigationCurrent.id,
+      ...groupingProjects.map((project) => project.id),
     ]), 'utf8'),
     fs.writeFile(path.join(projects, '.per-project-v1'), 'fixture\n', 'utf8'),
   ]);
@@ -850,3 +873,129 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
     releaseRestore();
   }
 });
+
+for (const groupingCase of groupingCases) {
+  const scenario = { ...groupingFixture, ...groupingCase };
+  test(`regrouping intent: ${scenario.name}`, async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
+      (window as any).EventSource = undefined;
+    });
+    await page.route('https://**/*', (route) => route.abort());
+    await page.route('**/api/system/llm-settings', (route) => route.fulfill({ json: {
+      provider: 'gemini', configured: true, keySource: 'none', maskedKey: null, model: 'synthetic', fallbackModel: '',
+      secureStorageAvailable: false, secureStorageLabel: 'Test', environmentFallbackAvailable: false, canForgetSecureKey: false, updatedAt: null,
+    } }));
+
+    const file = path.join(root, 'data', 'projects', `${scenario.id}.json`);
+    const readDisk = async () => JSON.parse(await fs.readFile(file, 'utf8')) as CaptionProject;
+    const original = await readDisk();
+    const corrected = `CORRECTED WORDING ${scenario.name}`;
+    const saveBodies: any[] = [];
+    const regroupBodies: any[] = [];
+    const events: Array<{ event: string; at: number }> = [];
+    const mark = (event: string) => events.push({ event, at: performance.now() });
+    let releaseSave!: () => void;
+    let releaseRegroup!: () => void;
+    const saveGate = new Promise<void>((resolve) => { releaseSave = resolve; });
+    const regroupGate = new Promise<void>((resolve) => { releaseRegroup = resolve; });
+    let savePersisted = false;
+    let regroupPersisted = false;
+    await page.route(`**/api/projects/${scenario.id}/captions`, async (route) => {
+      saveBodies.push(route.request().postDataJSON());
+      mark('caption-save-dispatched');
+      const response = await fetchOwnedRoute(route);
+      expect(response.status()).toBe(200);
+      const body = await response.body();
+      savePersisted = true;
+      mark('caption-save-persisted');
+      await saveGate;
+      mark('caption-save-response-released');
+      await route.fulfill({ response, body });
+    });
+    await page.route(`**/api/projects/${scenario.id}/resegment`, async (route) => {
+      regroupBodies.push(route.request().postDataJSON());
+      mark('regroup-dispatched');
+      const response = await fetchOwnedRoute(route);
+      expect(response.status()).toBe(200);
+      const body = await response.body();
+      regroupPersisted = true;
+      mark('regroup-persisted');
+      await regroupGate;
+      await route.fulfill({ response, body });
+    });
+    try {
+      await page.goto('/');
+      const homeCard = page.getByRole('button', { name: new RegExp(scenario.title) });
+      await homeCard.click();
+      await expect(page.locator('video')).toHaveAttribute('src', original.media.url);
+      const field = page.getByLabel('Caption 1 text', { exact: true });
+      await page.getByRole('button', { name: 'Caption grouping', exact: true }).click();
+      await page.locator('.controls-card').getByRole('slider').fill('30');
+      await field.fill(corrected);
+      await page.getByRole('button', { name: 'Apply grouping', exact: true }).click();
+      await page.getByRole('button', { name: 'Save and regroup', exact: true }).click();
+      await expect.poll(() => savePersisted).toBe(true);
+      expect(saveBodies).toHaveLength(1);
+      expect(saveBodies[0].captions[0].text).toBe(corrected);
+      expect(saveBodies[0].expectedMedia).toEqual({ filename: original.media.filename, size: original.media.size });
+      expect((await readDisk()).captions[0].text).toBe(corrected);
+      expect(regroupBodies).toHaveLength(0);
+
+      if (scenario.leave === 'save') {
+        await page.getByLabel('Back to projects', { exact: true }).click();
+        mark('home-requested-before-save-response');
+        await expect(field).toHaveValue(corrected);
+        await expect(page.locator('.project-title strong')).toHaveText(scenario.title);
+        await testInfo.attach('held-save-home.png', { body: await page.screenshot(), contentType: 'image/png' });
+        releaseRegroup();
+      }
+      const savedResponse = page.waitForResponse((response) => response.url().endsWith(`/api/projects/${scenario.id}/captions`) && response.request().method() === 'PUT');
+      releaseSave();
+      expect((await savedResponse).status()).toBe(200);
+
+      if (scenario.leave === 'save') {
+        // Home completion is the settlement barrier, not a sleep or a momentary
+        // zero count before the grouping continuation has had a chance to run.
+        await expect.soft(homeCard).toBeVisible();
+        expect(regroupBodies).toHaveLength(0);
+      } else {
+        await expect.poll(() => regroupPersisted).toBe(true);
+        expect(regroupBodies).toEqual([{ mode: 'phrase', maxChars: 30,
+          expectedMedia: { filename: original.media.filename, size: original.media.size } }]);
+        if (scenario.leave === 'regroup') {
+          // An already admitted write cannot be unsent. Home must drain its ACK.
+          await page.getByLabel('Back to projects', { exact: true }).click();
+          mark('home-requested-after-regroup-dispatch');
+          await expect(page.locator('.project-title strong')).toHaveText(scenario.title);
+        }
+        releaseRegroup();
+        if (scenario.leave === 'finished') {
+          await expect(field).toHaveValue('TIMED WORDING');
+          await expect(page.getByRole('button', { name: 'Apply grouping', exact: true })).toBeEnabled();
+          await page.getByLabel('Back to projects', { exact: true }).click();
+        }
+        await expect(homeCard).toBeVisible();
+      }
+      const expectedText = scenario.leave === 'save' ? corrected : 'TIMED WORDING';
+      expect((await readDisk()).captions[0].text).toBe(expectedText);
+      await homeCard.click();
+      await expect(page.locator('video')).toHaveAttribute('src', original.media.url);
+      await expect(field).toHaveValue(expectedText);
+      await expect(page.locator('.save-action')).toBeDisabled();
+      // Blur saves the edited field; Save and regroup has already queued its
+      // explicit prerequisite before either acknowledgement is released.
+      expect(saveBodies).toHaveLength(2);
+      expect(saveBodies.map((body) => body.source)).toEqual(['text-edit', 'manual-save']);
+      expect(saveBodies[1]).toEqual({ ...saveBodies[0], source: 'manual-save' });
+      expect(saveBodies[1].captions.map((caption: { text: string }) => caption.text)).toEqual([corrected]);
+      expect(regroupBodies).toHaveLength(scenario.leave === 'save' ? 0 : 1);
+      expect((await readDisk()).captions[0].text).toBe(expectedText);
+      await testInfo.attach('regrouping-reopened.png', { body: await page.screenshot(), contentType: 'image/png' });
+    } finally {
+      releaseSave();
+      releaseRegroup();
+      await testInfo.attach('regrouping-order.json', { body: JSON.stringify({ events, saveBodies, regroupBodies, disk: await readDisk() }, null, 2), contentType: 'application/json' });
+    }
+  });
+}
