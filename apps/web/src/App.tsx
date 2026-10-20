@@ -75,6 +75,8 @@ import { deferWorkspace } from './components/DeferredWorkspace';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
 import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqueContextLines, type AccuracyFields, type AccuracyObservation } from './accuracy-context-draft';
+import { createUnfinishedEditRecoveryStore, assessRecovery, restoredCaptions, type RecoveryEntry } from './unfinished-edit-recovery';
+import { UnfinishedEditRecoveryNotice } from './components/UnfinishedEditRecoveryNotice';
 import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-edit';
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
@@ -285,7 +287,11 @@ export default function App() {
   const accuracyDraft = useRef(createAccuracyContextDraft());
   const [accuracyFields, setAccuracyFields] = useState(accuracyDraft.current.fields);
   const { description: contextDescription, vocabulary: vocabularyText } = accuracyFields;
-  const editAccuracyFields = (change: Partial<AccuracyFields>) => setAccuracyFields(accuracyDraft.current.edit(change));
+  const editAccuracyFields = (change: Partial<AccuracyFields>) => {
+    setAccuracyFields(accuracyDraft.current.edit(change));
+    if (!accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && !hasPendingContextWrite()) setContextSaveState('saved');
+    captureUnfinishedRecovery();
+  };
   const [reviewMode, setReviewMode] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<string | null>(null);
@@ -301,6 +307,8 @@ export default function App() {
   const [proposalEntry, setProposalEntry] = useState<{ ticket: ProjectTicket; value: RegenerationProposal } | null>(null);
   const projectScope = useRef(createProjectScope());
   const proposalRead = useRef(0);
+  const historyRead = useRef(0);
+  const operationRevision = useRef(0);
   const playbackTimers = useRef(new Set<number>());
   const timingPreviewCancel = useRef<(() => void) | null>(null);
   const viewTicket = projectScope.current.capture();
@@ -323,7 +331,30 @@ export default function App() {
   });
   const [dirty, setDirty] = useState(false);
   const [textEditing, setTextEditing] = useState(false);
-  const [autosaveState, setAutosaveState] = useState<'saved' | 'pending' | 'saving'>('saved');
+  const [textComposing, setTextComposing] = useState(false);
+  const compositionInProgress = useRef(false);
+  const [autosaveState, setAutosaveState] = useState<'saved' | 'pending' | 'saving' | 'failed'>('saved');
+  const [contextSaveState, setContextSaveState] = useState<'saved' | 'saving' | 'failed'>('saved');
+  const [captionSaveError, setCaptionSaveError] = useState('');
+  const [contextSaveError, setContextSaveError] = useState('');
+  const pendingContextWrites = useRef(new Map<string, number>());
+  const [, refreshContextWrites] = useState(0);
+  const accuracyDirty = accuracyDraft.current.hasChanges(profile?.defaultVocabulary);
+  const unfinishedChanges = dirty || accuracyDirty || (pendingContextWrites.current.get(mediaKey) || 0) > 0;
+  const saveFailed = autosaveState === 'failed' || contextSaveState === 'failed';
+  const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : ''].filter(Boolean).join(' ');
+  const [recoveryOwner] = useState(() => crypto.randomUUID());
+  const [recoveryStore] = useState(() => createUnfinishedEditRecoveryStore(() => {
+    try { return window.localStorage; } catch { return null; }
+  }, recoveryOwner));
+  const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntry[]>([]);
+  const [recoveryConflict, setRecoveryConflict] = useState<{ key: string; raw: string; status: 'changed' | 'media-changed' } | null>(null);
+  const [recoveryWorking, setRecoveryWorking] = useState(false);
+  const [recoveryStorageError, setRecoveryStorageError] = useState('');
+  // `project.captions` sometimes contains newer unsaved edits. Recovery compares
+  // against actual server acknowledgements, owned separately from that view.
+  const savedProject = useRef<CaptionProject | null>(null);
+  const restoredRecovery = useRef<{ key: string; expectedUpdatedAt: string; basis: CaptionProject; origin: RecoveryEntry } | null>(null);
   const [queuedSeekMs, setQueuedSeekMs] = useState<number | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
@@ -430,7 +461,70 @@ export default function App() {
     setProposalEntry(value && value.projectId === project?.id
       && ticket.key === projectMediaKey(project) ? { ticket, value } : null);
   }
+  function refreshUnfinishedRecoveries() {
+    const saved = savedProject.current;
+    if (!saved) { setRecoveryEntries([]); return; }
+    setRecoveryEntries(recoveryStore.list(saved.id).filter((entry) =>
+      (entry.draft.ownerId !== recoveryOwner || entry.draft.mediaKey !== projectMediaKey(saved))
+      && entry.key !== restoredRecovery.current?.origin.key));
+  }
+  function hasPendingContextWrite() {
+    return (pendingContextWrites.current.get(projectScope.current.capture().key) || 0) > 0;
+  }
+  function trackContextWrite(key: string, change: 1 | -1) {
+    const count = (pendingContextWrites.current.get(key) || 0) + change;
+    if (count > 0) pendingContextWrites.current.set(key, count); else pendingContextWrites.current.delete(key);
+    refreshContextWrites((revision) => revision + 1);
+  }
+  function captureUnfinishedRecovery() {
+    const saved = savedProject.current;
+    if (!saved || projectMediaKey(saved) !== projectScope.current.capture().key) return;
+    // A pending save can replace the old baseline even when newer typing has
+    // returned to that baseline. Keep those exact fields until its ACK settles.
+    const contextChanged = accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || hasPendingContextWrite();
+    const recovery = restoredRecovery.current?.key === projectMediaKey(saved) ? restoredRecovery.current : null;
+    const result = recoveryStore.write({
+      // An unrelated mutation can return foreign saved captions/context while
+      // the whole local draft is preserved. Never silently rebase that draft:
+      // its persisted comparison basis advances only with a guarded save ACK.
+      project: recovery?.basis ?? { ...saved, transcriptionContext: accuracyDraft.current.saved },
+      ...(dirtyRef.current ? { captions: draftRef.current } : {}),
+      ...(contextChanged ? { accuracy: accuracyDraft.current.fields } : {}),
+    });
+    setRecoveryStorageError(result.status === 'unavailable' || result.status === 'too-large'
+      ? 'A recovery copy could not be kept in this browser. Keep this tab open until your changes save.' : '');
+    if (!dirtyRef.current && !contextChanged && restoredRecovery.current?.key === projectMediaKey(saved)) {
+      recoveryStore.remove(restoredRecovery.current.origin);
+      restoredRecovery.current = null;
+    }
+  }
+  function rememberSavedCaptions(next: CaptionProject) {
+    if (projectMediaKey(next) !== projectScope.current.capture().key) return;
+    savedProject.current = { ...withCaptionWordTimings(next), transcriptionContext: accuracyDraft.current.saved };
+  }
+  function captureOperationIntent() {
+    return { ticket: projectScope.current.capture(), key: projectMediaKey(project), revision: operationRevision.current };
+  }
+  function isCurrentOperation(intent: ReturnType<typeof captureOperationIntent>) {
+    return projectScope.current.isCurrent(intent.ticket) && intent.ticket.key === intent.key
+      && intent.revision === operationRevision.current;
+  }
+  function requestNavigation() {
+    // Cancel actions waiting to submit now. Their prerequisite save responses
+    // still own the current project until navigation has safely drained them.
+    operationRevision.current += 1;
+    return captureOperationIntent();
+  }
+  function closeHistory() {
+    historyRead.current += 1;
+    setShowHistory(false);
+    setHistoryEntries([]);
+  }
   function beginNavigation() {
+    operationRevision.current += 1;
+    captureUnfinishedRecovery();
+    closeHistory();
+    setNotice('');
     setPendingMediaReplacement(null);
     setShowMediaBackups(false);
     mediaBackupsRequest.current?.abort();
@@ -462,13 +556,13 @@ export default function App() {
       setNotice('Finish saving prepared word timings before leaving this project.');
       return;
     }
-    const ticket = beginNavigation();
-    const hadEdits = dirtyRef.current;
-    const saved = await saveDraft(true, 'manual-save', true);
-    if (!projectScope.current.isCurrent(ticket) || (hadEdits && !saved)) return;
-    if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before leaving.'); return; }
+    const intent = requestNavigation();
+    if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
+    beginNavigation();
     projectScope.current.select(null);
     setProject(null);
+    savedProject.current = null;
+    setRecoveryEntries([]);
     setAccuracyFields(accuracyDraft.current.reset(''));
     setDraft([]);
     draftRef.current = [];
@@ -561,14 +655,23 @@ export default function App() {
     setLiveAppearance(null);
     setMediaBackups([]);
     setMediaMutationError('');
+    setRecoveryConflict(null);
+    refreshUnfinishedRecoveries();
   }, [mediaKey]);
 
   useEffect(() => {
-    if (!mediaMutationStatus) return;
-    const protectPending = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    if (!mediaMutationStatus && !unfinishedChanges) return;
+    const protectPending = (event: BeforeUnloadEvent) => { captureUnfinishedRecovery(); event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', protectPending);
     return () => window.removeEventListener('beforeunload', protectPending);
-  }, [mediaMutationStatus]);
+  }, [mediaMutationStatus, unfinishedChanges, profile?.defaultVocabulary]);
+  useEffect(() => {
+    const preserve = () => captureUnfinishedRecovery();
+    const onStorage = () => refreshUnfinishedRecoveries();
+    window.addEventListener('pagehide', preserve);
+    window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener('pagehide', preserve); window.removeEventListener('storage', onStorage); };
+  }, [mediaKey, profile?.defaultVocabulary]);
   useEffect(() => () => { mediaBackupsRequest.current?.abort(); }, []);
 
   useEffect(() => {
@@ -629,9 +732,13 @@ export default function App() {
     setOpeningProjectId(null);
     const changedMedia = projectScope.current.capture().key !== projectMediaKey(next);
     if (changedMedia) {
+      closeHistory();
       const retained = retainedMediaView.current?.key === projectMediaKey(next) ? retainedMediaView.current : null;
       setAccuracyFields(accuracyDraft.current.reset(projectMediaKey(next), next.transcriptionContext, profile?.defaultVocabulary,
         retained ? { description: retained.description, vocabulary: retained.vocabulary } : undefined));
+      setContextSaveState('saved');
+      setCaptionSaveError('');
+      setContextSaveError('');
       projectScope.current.select(next);
       setProposal(null);
       setQueuedSeekMs(null);
@@ -640,6 +747,7 @@ export default function App() {
       setTime(0);
     }
     next = retainAccuracyContext(next);
+    rememberSavedCaptions(next);
     setProject(next);
     setProjects((items) => [summarizeProject(next), ...items.filter((item) => item.id !== next.id)]);
     if (replaceDraft) {
@@ -650,14 +758,15 @@ export default function App() {
       setDirty(false);
       dirtyRef.current = false;
       setAutosaveState('saved');
-      // A caption-save acknowledgement does not own selection. Keep the current
-      // endpoints (including newer queued input); the validity effect below
-      // repairs removed IDs. Navigation and explicit project actions still reset.
+      // Caption-save acknowledgements and unfinished-draft recovery keep the
+      // current selection. The validity effect below repairs removed IDs;
+      // navigation and History continue to use the default selection behavior.
       if (!options.preserveSelection || changedMedia) {
         const validSelection = next.captions.find((caption) => caption.id === selectionAnchor) || next.captions[0];
         if (validSelection) { setSelectionAnchor(validSelection.id); setSelectionEnd(validSelection.id); }
       }
     }
+    captureUnfinishedRecovery();
   };
 
   const publishSameMediaMutation = (
@@ -668,6 +777,7 @@ export default function App() {
     preservedNotice: string,
   ): 'applied' | 'preserved' | 'stale' => {
     if (!projectScope.current.isCurrent(ticket) || projectMediaKey(next) !== ticket.key) return 'stale';
+    rememberSavedCaptions(next);
     next = retainAccuracyContext(next);
     if (!draftWasDirty && draftEditRevision.current === editRevision) {
       applyProject(next);
@@ -687,6 +797,7 @@ export default function App() {
       setAutosaveState('pending');
     }
     setNotice(preservedNotice);
+    captureUnfinishedRecovery();
     return 'preserved';
   };
 
@@ -753,6 +864,9 @@ export default function App() {
     if (ticket.key !== projectMediaKey(next)
       || !accuracyDraft.current.publish(next.transcriptionContext, observation, ticket, profile?.defaultVocabulary, acknowledgement, mutation)) return false;
     setAccuracyFields(accuracyDraft.current.fields);
+    if (savedProject.current && projectMediaKey(savedProject.current) === ticket.key) {
+      savedProject.current = { ...savedProject.current, transcriptionContext: next.transcriptionContext, updatedAt: next.updatedAt };
+    }
     setProject((current) => {
       if (!current || current.id !== next.id || projectMediaKey(current) !== ticket.key) return current;
       return { ...current, transcriptionContext: next.transcriptionContext, updatedAt: next.updatedAt };
@@ -761,6 +875,7 @@ export default function App() {
       summarizeProject({ ...next, captions: draftRef.current }),
       ...items.filter((item) => item.id !== next.id),
     ]);
+    captureUnfinishedRecovery();
     return true;
   };
 
@@ -780,7 +895,8 @@ export default function App() {
     draftEditRevision.current += 1;
     setDirty(true);
     dirtyRef.current = true;
-    setAutosaveState('pending');
+    setAutosaveState((state) => state === 'failed' ? state : 'pending');
+    captureUnfinishedRecovery();
     lastChangeReason.current = reason;
     if (preferredSelectionId && next.some((caption) => caption.id === preferredSelectionId)) {
       setSelectionAnchor(preferredSelectionId);
@@ -966,33 +1082,42 @@ export default function App() {
     // A whole-project word batch is being committed under its own revision guard.
     // Do not capture an older draft for a queued caption save that could later
     // overwrite that commit. Local edits remain in the editor for later autosave.
-    if (!project || !dirtyRef.current || wordBatchMutation.current || (mediaMutationInFlight.current && !forMediaReplacement)) return Promise.resolve(null);
+    if (!project || !dirtyRef.current || compositionInProgress.current || wordBatchMutation.current || (mediaMutationInFlight.current && !forMediaReplacement)) return Promise.resolve(null);
     const targetProject = project;
     const ticket = projectScope.current.capture();
     const snapshot = draftRef.current;
     const version = draftVersion.current;
+    const recovery = restoredRecovery.current?.key === ticket.key ? restoredRecovery.current : null;
 
     const execute = async () => {
       if (projectScope.current.isCurrent(ticket)) {
         if (!silent) { setBusy('Saving captions…'); setError(''); }
-        if (source === 'autosave') setAutosaveState('saving');
+        setAutosaveState('saving');
       }
       try {
         const result = await api.saveCaptions(
           targetProject.id,
           snapshot,
           { filename: targetProject.media.filename, size: targetProject.media.size },
-          { source, recordCorrections },
+          { source, recordCorrections: recovery ? false : recordCorrections,
+            ...(recovery ? { recoveryExpectedUpdatedAt: recovery.expectedUpdatedAt } : {}) },
         );
         // Saving the old project's snapshot is valid; navigating back to it is not.
         if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result.project) !== ticket.key) return result.project;
+        rememberSavedCaptions(result.project);
+        if (recovery) {
+          recovery.expectedUpdatedAt = result.project.updatedAt;
+          recovery.basis = withCaptionWordTimings(result.project);
+        }
         const unchanged = version === draftVersion.current;
         if (unchanged) applyProject(result.project, true, { preserveSelection: true });
         else {
           const acknowledged = retainAccuracyContext(result.project);
           setProject((current) => current?.id === result.project.id ? { ...acknowledged, captions: draftRef.current } : current);
           setProjects((items) => [summarizeProject(result.project), ...items.filter((item) => item.id !== result.project.id)]);
+          setAutosaveState('pending');
         }
+        captureUnfinishedRecovery();
         if (result.correctionsCreated > 0) {
           await refreshProfile();
           if (projectScope.current.isCurrent(ticket)) setNotice(`${result.correctionsCreated} correction${result.correctionsCreated === 1 ? '' : 's'} captured in the Inbox.`);
@@ -1000,8 +1125,9 @@ export default function App() {
         return result.project;
       } catch (reason) {
         if (projectScope.current.isCurrent(ticket)) {
-          setError(reason instanceof Error ? reason.message : 'Save failed');
-          setAutosaveState('pending');
+          setCaptionSaveError(reason instanceof Error ? reason.message : 'Caption save failed.');
+          setAutosaveState('failed');
+          captureUnfinishedRecovery();
         }
         return null;
       } finally { if (!silent && projectScope.current.isCurrent(ticket)) setBusy(''); }
@@ -1013,11 +1139,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!project || !dirty || textEditing || groupingApplying || wordBatchMutation.current || mediaMutationInFlight.current) return;
+    if (!project || !dirty || textEditing || textComposing || autosaveState === 'failed' || autosaveState === 'saving' || groupingApplying || wordBatchMutation.current || mediaMutationInFlight.current) return;
     const delay = profile?.preferences.autosaveDelayMs ?? 2200;
     const timer = window.setTimeout(() => { void saveDraft(true, 'autosave', false); }, delay);
     return () => window.clearTimeout(timer);
-  }, [draft, dirty, textEditing, groupingApplying, busy, project?.id, profile?.preferences.autosaveDelayMs]);
+  }, [draft, dirty, textEditing, textComposing, autosaveState, groupingApplying, busy, project?.id, profile?.preferences.autosaveDelayMs]);
 
   const syncCaptionWords = async (caption: CaptionSegment, signal?: AbortSignal) => {
     if (!project || busy || currentProjectActiveJob || caption.timingLocked) return null;
@@ -1266,18 +1392,18 @@ export default function App() {
       setNotice('Finish saving prepared word timings before opening another result.');
       return;
     }
-    let ticket = beginNavigation();
+    const intent = requestNavigation();
+    let ticket = intent.ticket;
     setError('');
     try {
-      const hadEdits = dirtyRef.current;
-      const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadEdits && !saved)) return;
-      if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before opening a result.'); return; }
+      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
+      ticket = beginNavigation();
       const readRevision = draftEditRevision.current;
+      const contextRevision = accuracyDraft.current.editRevision;
       const contextObservation = accuracyDraft.current.capture(ticket);
       const target = await api.get(job.resultProjectId || job.projectId);
       if (!projectScope.current.isCurrent(ticket)) return;
-      if (dirtyRef.current || readRevision !== draftEditRevision.current) {
+      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)) {
         setNotice('Newer edits arrived while the result was loading. They are kept here; open the result again when you are ready.');
         return;
       }
@@ -1346,21 +1472,23 @@ export default function App() {
     }
   }, [jobs, project?.id, pendingMediaReplacement, showMediaBackups, mediaMutationStatus]);
 
-  const startJob = async (operation: () => Promise<ProcessingJob>, message: string, openQueue = true) => {
-    const ticket = projectScope.current.capture();
+  const startJob = async (intent: ReturnType<typeof captureOperationIntent>, operation: () => Promise<ProcessingJob>, message: string, openQueue = true) => {
+    // Callers retain this intent across confirmation and prerequisite saves;
+    // capturing a new project ticket here would revive a canceled action.
+    if (!isCurrentOperation(intent) || mediaMutationInFlight.current) return null;
     setError('');
     try {
       const job = await operation();
       trackedJobIds.current.add(job.id);
       handledJobIds.current.delete(job.id);
       setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
-      if (projectScope.current.isCurrent(ticket)) {
+      if (isCurrentOperation(intent)) {
         if (openQueue) setShowJobs(true);
         setNotice(message);
       }
       return job;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not start processing job');
+      if (isCurrentOperation(intent)) setError(reason instanceof Error ? reason.message : 'Could not start processing job');
       return null;
     }
   };
@@ -1447,7 +1575,7 @@ export default function App() {
       if (target?.closest('[aria-modal="true"]')) return;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault(); void saveDraft(false, 'manual-save', true); return;
+        event.preventDefault(); void saveUnfinishedChanges(false); return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && project) {
         event.preventDefault(); setShowFindReplace(true); return;
@@ -1456,7 +1584,7 @@ export default function App() {
         if (proposal) { setProposal(null); return; }
         if (showGuide) { setShowGuide(false); return; }
         if (showCorrections || showProfile || showFindReplace || showHistory || showJobs || showUpdates) {
-          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); setShowHistory(false); setShowJobs(false); setShowUpdates(false); return;
+          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
         }
         if (workspaceTool) { setWorkspaceTool(null); setReviewMode(false); return; }
         return;
@@ -1524,15 +1652,23 @@ export default function App() {
 
   const openRecentProject = async (id: string) => {
     if (!profile || busy || mediaMutationInFlight.current) return;
+    const intent = requestNavigation();
+    if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
     const ticket = beginNavigation();
     const request = new AbortController();
     projectOpen.current = request;
     setOpeningProjectId(id);
     setError('');
     try {
+      const readRevision = draftEditRevision.current;
+      const contextRevision = accuracyDraft.current.editRevision;
       const contextObservation = accuracyDraft.current.capture(ticket);
       const value = await api.get(id, request.signal);
       if (projectScope.current.isCurrent(ticket) && projectOpen.current === request && !request.signal.aborted) {
+        if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)) {
+          setNotice('Newer edits arrived while the project was loading. Save them before opening another project.');
+          return;
+        }
         publishContextProject(value, contextObservation);
         applyProject(value);
       }
@@ -1721,6 +1857,7 @@ export default function App() {
       setMediaMutationError('The audio check or project changed. Check the replacement again and review the warning before accepting existing times.');
       return;
     }
+    operationRevision.current += 1;
     mediaMutationInFlight.current = true;
     setPendingMediaReplacement({ ...pending, audioConfirmation: undefined });
     setMediaMutationStatus(mode === 'reset' ? 'Review the confirmation…' : 'Saving current work…');
@@ -1795,6 +1932,7 @@ export default function App() {
     let editRevision = draftEditRevision.current;
     let contextRevision = accuracyDraft.current.editRevision;
     let submitted = false;
+    operationRevision.current += 1;
     mediaMutationInFlight.current = true;
     setMediaMutationStatus('Review the confirmation…');
     setMediaMutationError('');
@@ -1872,45 +2010,173 @@ export default function App() {
       return;
     }
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
     const requestContext = contextPayload();
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return;
-    if (!projectScope.current.isCurrent(ticket)
+    if (!isCurrentOperation(intent)
       || draftEditRevision.current !== editRevision
       || accuracyDraft.current.editRevision !== contextRevision) return;
     const fullDuration = targetProject.transcript?.timing?.audioDurationMs;
     if (targetProject.transcript?.tokens?.length && fullDuration) {
-      await startJob(() => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
+      await startJob(intent, () => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
     } else {
-      await startJob(() => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript)), 'Caption generation queued. You can keep the browser open or return later.');
+      await startJob(intent, () => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript)), 'Caption generation queued. You can keep the browser open or return later.');
     }
   };
-  const saveContext = async () => {
-    if (!project || mediaMutationInFlight.current) return;
+  const saveContext = async (silent = false): Promise<boolean> => {
+    if (!project || mediaMutationInFlight.current || compositionInProgress.current) return false;
     const targetProject = project;
     const ticket = projectScope.current.capture();
     const payload = contextPayload();
     const revision = accuracyDraft.current.editRevision;
+    trackContextWrite(ticket.key, 1);
+    captureUnfinishedRecovery();
     setBusy('Saving accuracy context…');
+    setContextSaveState('saving');
     setError('');
     try {
       const saved = await queueSameMediaMutation(ticket, async () => {
         const observation = accuracyDraft.current.capture(ticket);
-        const result = await api.saveContext(targetProject.id, payload, { filename: targetProject.media.filename, size: targetProject.media.size });
-        return publishContextProject(result, observation, true);
+        const recovery = restoredRecovery.current?.key === ticket.key ? restoredRecovery.current : null;
+        const result = await api.saveContext(targetProject.id, payload, { filename: targetProject.media.filename, size: targetProject.media.size }, recovery?.expectedUpdatedAt);
+        const published = publishContextProject(result, observation, true);
+        // Only a guarded write owns this token. An unrelated context response
+        // may contain newer foreign captions that this editor has not adopted.
+        if (published && recovery && restoredRecovery.current === recovery) {
+          recovery.expectedUpdatedAt = result.updatedAt;
+          recovery.basis = withCaptionWordTimings(result);
+        }
+        return published;
       });
-      if (!saved || !projectScope.current.isCurrent(ticket)) return;
-      if (accuracyDraft.current.editRevision === revision) setNotice('Accuracy context saved.');
-      else setNotice('Accuracy context saved. Newer context edits remain in the editor.');
+      if (!saved || !projectScope.current.isCurrent(ticket)) return false;
+      if (accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && accuracyDraft.current.editRevision === revision) {
+        setContextSaveState('failed');
+        setContextSaveError('Some Accuracy text could not be saved. Shorten the description or term list, then retry.');
+        return false;
+      }
+      setContextSaveState('saved');
+      if (!silent) setNotice(accuracyDraft.current.editRevision === revision ? 'Accuracy context saved.' : 'Accuracy context saved. Newer context edits remain in the editor.');
+      return true;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Context save failed');
+      if (projectScope.current.isCurrent(ticket)) {
+        setContextSaveError(reason instanceof Error ? reason.message : 'Accuracy context save failed.');
+        setContextSaveState('failed');
+      }
+      return false;
     } finally {
-      if (projectScope.current.isCurrent(ticket)) setBusy('');
+      trackContextWrite(ticket.key, -1);
+      if (projectScope.current.isCurrent(ticket)) {
+        if (hasPendingContextWrite()) setContextSaveState('saving');
+        captureUnfinishedRecovery();
+        setBusy('');
+      }
     }
+  };
+
+  async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true): Promise<boolean> {
+    if (!isCurrentIntent()) return false;
+    if (!project) return true;
+    if (compositionInProgress.current) {
+      setNotice('Finish the current text input before saving or leaving.');
+      return false;
+    }
+    const ticket = projectScope.current.capture();
+    const pending = saveQueue.current;
+    await pending;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
+    if (pending !== saveQueue.current || compositionInProgress.current) {
+      setNotice('Changes are still being saved or entered. Wait for them to finish before leaving.');
+      return false;
+    }
+    const captionRevision = draftEditRevision.current;
+    const contextRevision = accuracyDraft.current.editRevision;
+    if (dirtyRef.current && !await saveDraft(silent, 'manual-save', true)) return false;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
+    if (accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && !await saveContext(silent)) return false;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
+    if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
+      || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) {
+      setNotice('Newer changes are still unsaved. Save them before leaving.');
+      return false;
+    }
+    return true;
+  }
+
+  const restoreUnfinishedDraft = async (entry: RecoveryEntry) => {
+    if (!project || busy || recoveryWorking || mediaMutationInFlight.current || wordBatchMutation.current || currentProjectAnyActiveJob) return;
+    if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current) {
+      setNotice('Save your current edits before restoring another draft.');
+      return;
+    }
+    const ticket = projectScope.current.capture();
+    const captionRevision = draftEditRevision.current;
+    const contextRevision = accuracyDraft.current.editRevision;
+    const observation = accuracyDraft.current.capture(ticket);
+    setRecoveryWorking(true);
+    try {
+      const latest = withCaptionWordTimings(await api.get(project.id));
+      if (!projectScope.current.isCurrent(ticket)) return;
+      if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
+        || dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current) {
+        setNotice('Newer edits are still here. Save them before restoring this draft.');
+        return;
+      }
+      const compatibility = assessRecovery(entry, latest);
+      if (compatibility !== 'matching') {
+        setNotice('The saved project or media has changed. Download this draft to compare your edits.');
+        // A refused restore does not make the old visible editor a draft based
+        // on this newer server state. Only the offer's eligibility changes.
+        setRecoveryConflict({ key: entry.key, raw: entry.raw, status: compatibility });
+        refreshUnfinishedRecoveries();
+        return;
+      }
+      const captions = restoredCaptions(entry, latest);
+      publishContextProject(latest, observation);
+      applyProject(latest, true, { preserveSelection: true });
+      restoredRecovery.current = { key: ticket.key, expectedUpdatedAt: latest.updatedAt, basis: latest, origin: entry };
+      if (captions) updateDraft(captions, undefined, 'text');
+      if (entry.draft.accuracy) editAccuracyFields(entry.draft.accuracy);
+      captureUnfinishedRecovery();
+      refreshUnfinishedRecoveries();
+      if (!captions && entry.draft.accuracy) { setWorkspaceTool('accuracy'); setReviewMode(false); }
+      setNotice('Draft restored for review. Changed captions need approval again.');
+    } catch {
+      if (projectScope.current.isCurrent(ticket)) setError('Could not check the saved project. Your recovery draft is still available; try restoring again.');
+    } finally { setRecoveryWorking(false); }
+  };
+
+  const downloadDraftText = (raw: string) => {
+    try {
+      const url = URL.createObjectURL(new Blob([raw], { type: 'application/json;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'sthang-unfinished-draft.json';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { setError('Could not download the draft. It is still available here.'); }
+  };
+  const downloadUnfinishedDraft = (entry: RecoveryEntry) => downloadDraftText(entry.raw);
+  const downloadCurrentDraft = () => {
+    if (!project) return;
+    downloadDraftText(JSON.stringify({
+      version: 1, projectId: project.id,
+      media: { filename: project.media.filename, size: project.media.size },
+      capturedAt: new Date().toISOString(),
+      captions: draftRef.current.map(({ id, text, startMs, endMs, textLocked, timingLocked }) =>
+        ({ id, text, startMs, endMs, textLocked: Boolean(textLocked), timingLocked: Boolean(timingLocked) })),
+      accuracy: { ...accuracyDraft.current.fields },
+    }, null, 2));
+  };
+  const discardUnfinishedDraft = async (entry: RecoveryEntry) => {
+    if (!await confirmInStudio({ title: 'Discard this recovery draft?', message: 'This removes only this unfinished draft from this browser. Your saved project and current edits stay as they are.', confirmLabel: 'Discard draft', cancelLabel: 'Keep draft' })) return;
+    if (!recoveryStore.remove(entry)) setNotice('The draft changed or could not be removed. Its newer copy was kept.');
+    refreshUnfinishedRecoveries();
   };
 
   const saveDefaultGlossary = async () => {
@@ -1933,7 +2199,8 @@ export default function App() {
     if (!project || busy || groupingInFlight.current || currentProjectActiveJob) return;
     groupingInFlight.current = true;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
+    const ticket = intent.ticket;
     setGroupingApplying(true);
     try {
       if (groupingChangesWording(project, draftRef.current)) {
@@ -1942,18 +2209,20 @@ export default function App() {
           message: 'Unlocked wording may return to the timed transcript. Your current captions will be saved in History first. Lock corrections you want to keep unchanged.',
           confirmLabel: 'Save and regroup',
         });
-        if (!confirmed || !projectScope.current.isCurrent(ticket)) return;
+        if (!confirmed || !isCurrentOperation(intent)) return;
       }
       setBusy('Applying caption grouping…');
       setError('');
       const hadEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadEdits && !saved)) return;
+      // Navigation cancels this intent before its saves drain and the project changes.
+      // Do not extend that save queue for a cancelled regrouping action.
+      if (!isCurrentOperation(intent) || (hadEdits && !saved)) return;
       if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before applying grouping.'); return; }
       const version = draftVersion.current;
       // Share the save queue: a later edit-save cannot be overtaken by regrouping.
       const task = saveQueue.current.then(async () => {
-        if (!projectScope.current.isCurrent(ticket)) return;
+        if (!isCurrentOperation(intent)) return;
         const result = await api.resegment(
           targetProject.id,
           mode,
@@ -1961,7 +2230,9 @@ export default function App() {
           { filename: targetProject.media.filename, size: targetProject.media.size },
         );
         if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result) !== ticket.key) return;
+        rememberSavedCaptions(result);
         if (version !== draftVersion.current) {
+          captureUnfinishedRecovery();
           setNotice('Grouping was saved, but newer edits remain in the editor. Save or review those edits before applying again.');
           return;
         }
@@ -1995,7 +2266,7 @@ export default function App() {
       return;
     }
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
     const selected = { ...selectionIntent.current, ids: [...selectionIntent.current.ids] };
@@ -2008,7 +2279,7 @@ export default function App() {
         confirmLabel: 'Build preview',
       });
       if (!confirmed
-        || !projectScope.current.isCurrent(ticket)
+        || !isCurrentOperation(intent)
         || draftEditRevision.current !== editRevision
         || accuracyDraft.current.editRevision !== contextRevision
         || selectionIntentKey(selectionIntent.current) !== selectedKey) return;
@@ -2016,11 +2287,12 @@ export default function App() {
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return;
-    if (!projectScope.current.isCurrent(ticket)
+    if (!isCurrentOperation(intent)
       || draftEditRevision.current !== editRevision
       || accuracyDraft.current.editRevision !== contextRevision
       || selectionIntentKey(selectionIntent.current) !== selectedKey) return;
     await startJob(
+      intent,
       () => api.startRegenerationJob(targetProject.id, selected.startMs, selected.endMs, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }),
       `Regeneration preview queued for ${rangeLabel(selected.startMs, selected.endMs)}.`,
     );
@@ -2044,7 +2316,7 @@ export default function App() {
         : input.useProposalAsBaseline
           ? 'Refinement queued using this take as the accepted baseline.'
           : 'Alternative take queued. Keep reviewing while it runs.';
-    await startJob(() => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }), label, false);
+    await startJob(captureOperationIntent(), () => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }), label, false);
   };
 
   const applyProposal = async (mode: RegenerationApplyMode, editedText?: string) => {
@@ -2309,7 +2581,7 @@ export default function App() {
   const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null> => {
     if (!project) return null;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
     const severe = issues.filter((issue) => issue.severity !== 'info').length;
     if (severe > 0) {
@@ -2318,13 +2590,14 @@ export default function App() {
         message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Studio can render anyway, but the finished video will use the current caption text and timing.`,
         confirmLabel: 'Render anyway',
       });
-      if (!confirmed || !projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return null;
+      if (!confirmed || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     }
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return null;
-    if (!projectScope.current.isCurrent(ticket) || draftEditRevision.current !== editRevision) return null;
+    if (!isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     return startJob(
+      intent,
       () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }),
       'Captioned video export queued. Studio saved a caption/settings snapshot, so you can keep editing while it renders.',
       false,
@@ -2334,6 +2607,8 @@ export default function App() {
   const handleCorrectionAction = async (event: CorrectionEvent, action: 'remember-global' | 'add-project' | 'ignore') => {
     if (mediaMutationInFlight.current) return;
     const ticket = projectScope.current.capture();
+    if (action === 'add-project' && restoredRecovery.current?.key === ticket.key
+      && (!await saveUnfinishedChanges() || !projectScope.current.isCurrent(ticket))) return;
     setBusy('Updating correction memory…'); setError('');
     try {
       const result = await queueSameMediaMutation(ticket, async () => {
@@ -2365,18 +2640,18 @@ export default function App() {
       setNotice('Finish saving prepared word timings before opening another project.');
       return;
     }
-    let ticket = beginNavigation();
-    setShowCorrections(false); setBusy('Opening correction audio…');
+    const intent = requestNavigation();
+    let ticket = intent.ticket;
     try {
-      const hadEdits = dirtyRef.current;
-      const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadEdits && !saved)) return;
-      if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before opening a correction.'); return; }
+      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
+      ticket = beginNavigation();
+      setShowCorrections(false); setBusy('Opening correction audio…');
       const readRevision = draftEditRevision.current;
+      const contextRevision = accuracyDraft.current.editRevision;
       const contextObservation = accuracyDraft.current.capture(ticket);
       const target = await api.get(event.projectId);
       if (!projectScope.current.isCurrent(ticket)) return;
-      if (dirtyRef.current || readRevision !== draftEditRevision.current) {
+      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)) {
         setNotice('Newer edits arrived while the correction was loading. They are kept here; open the correction again when you are ready.');
         return;
       }
@@ -2461,7 +2736,6 @@ export default function App() {
 
   const rememberReplacement = async (line: string, scope: 'project' | 'global') => {
     if (!project || !profile || mediaMutationInFlight.current) return;
-    const target = project;
     const ticket = projectScope.current.capture();
     if (scope === 'global') {
       const defaultVocabulary = uniqueLines(profile.defaultVocabulary, [line]);
@@ -2473,21 +2747,29 @@ export default function App() {
       // Add to the current draft, not the last render's persisted vocabulary.
       // This explicit addition stays visible and retryable even if its save fails.
       editAccuracyFields({ vocabulary: uniqueLines(accuracyDraft.current.fields.vocabulary.split(/\r?\n/), [line]).join('\n') });
-      const payload = contextPayload();
-      const saved = await queueSameMediaMutation(ticket, async () => {
-        const observation = accuracyDraft.current.capture(ticket);
-        const next = await api.saveContext(target.id, payload, { filename: target.media.filename, size: target.media.size });
-        return publishContextProject(next, observation, true);
-      });
+      const saved = await saveContext(true);
       if (saved && projectScope.current.isCurrent(ticket)) setNotice('Replacement added to this project glossary.');
     }
   };
 
+  const loadHistory = async () => {
+    if (!project) return;
+    const ticket = projectScope.current.capture();
+    if (ticket.key !== projectMediaKey(project)) return;
+    const request = ++historyRead.current;
+    try {
+      const entries = await api.history(project.id);
+      if (projectScope.current.isCurrent(ticket) && request === historyRead.current) setHistoryEntries(entries);
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket) && request === historyRead.current) {
+        setError(reason instanceof Error ? reason.message : 'Could not load history');
+      }
+    }
+  };
   const openHistory = async () => {
     if (!project) return;
     setShowHistory(true);
-    try { setHistoryEntries(await api.history(project.id)); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load history'); }
+    await loadHistory();
   };
   const restoreHistory = async (historyId: string) => {
     if (!project) return;
@@ -2521,7 +2803,7 @@ export default function App() {
         'History was restored on disk. Your newer caption edits remain unsaved in the editor.',
       );
       if (published === 'stale') return;
-      setShowHistory(false);
+      closeHistory();
       if (published === 'applied') setNotice('Earlier project version restored.');
     }
     catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Restore failed'); }
@@ -2613,9 +2895,9 @@ export default function App() {
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
     {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey}/>}
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
-    <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={() => setShowHistory(false)} onRefresh={() => { if (project) void api.history(project.id).then(setHistoryEntries); }} onRestore={(id) => void restoreHistory(id)}/>
+    <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
     <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
-    <UpdatePanel open={showUpdates} safety={{ dirty, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
+    <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}
       project={project}
@@ -2642,6 +2924,16 @@ export default function App() {
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
     {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
+    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>Couldn't save changes.</strong> {saveFailure} Your edits are still here.</span><button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button><button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
+    {recoveryStorageError && unfinishedChanges && <div className="toast error" role="status"><span>{recoveryStorageError}</span></div>}
+    {project && recoveryEntries[0] && <UnfinishedEditRecoveryNotice
+      count={recoveryEntries.length} savedAt={recoveryEntries[0].draft.savedAt}
+      captions={recoveryEntries[0].draft.captions} accuracy={recoveryEntries[0].draft.accuracy}
+      status={recoveryConflict?.key === recoveryEntries[0].key && recoveryConflict.raw === recoveryEntries[0].raw ? recoveryConflict.status : assessRecovery(recoveryEntries[0], savedProject.current || project)}
+      working={recoveryWorking} disabled={unfinishedChanges || textComposing || !!busy || !!currentProjectAnyActiveJob || !!mediaMutationStatus}
+      onRestore={() => void restoreUnfinishedDraft(recoveryEntries[0])}
+      onDownload={() => downloadUnfinishedDraft(recoveryEntries[0])}
+      onDiscard={() => void discardUnfinishedDraft(recoveryEntries[0])}/>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
     {reviewUndo && <div className="toast notice review-undo-toast"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
@@ -2666,10 +2958,10 @@ export default function App() {
     {overlays}
   </main>;
 
-  return <main className="workspace">
+  return <main className="workspace" onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label="Back to projects" title="Back to projects" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
-      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><div className="project-title"><strong>{project.title}</strong><span>{project.media.originalName} · {dirty ? autosaveState === 'saving' ? 'autosaving…' : 'autosave pending' : 'saved'}{project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}</span></div></div>
+      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><div className="project-title"><strong>{project.title}</strong><span>{project.media.originalName} · {unfinishedChanges ? saveFailed ? "Couldn't save changes" : autosaveState === 'saving' || contextSaveState === 'saving' ? 'saving…' : dirty ? 'autosave pending' : 'Accuracy changes unsaved' : 'saved'}{project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}</span></div></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
         <button className={reviewMode ? 'selected-tool' : ''} title="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b className="tool-badge">{issues.length}</b>}</button>
@@ -2688,7 +2980,7 @@ export default function App() {
           onSettings={() => openSettings('ai')}
           onUpdates={() => setShowUpdates(true)}
         />
-        <button className="save-action" disabled={!dirty || !!busy} title={dirty ? 'Save changes' : 'All changes saved'} onClick={() => void saveDraft(false, 'manual-save', true)}><Save size={16}/><span>{dirty ? 'Save' : 'Saved'}</span></button>
+        <button className="save-action" disabled={!unfinishedChanges || !!busy || textComposing} title={unfinishedChanges ? 'Save caption and Accuracy changes' : 'All changes saved'} onClick={() => void saveUnfinishedChanges(false)}><Save size={16}/><span>{unfinishedChanges ? 'Save' : 'Saved'}</span></button>
         <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
@@ -2848,7 +3140,7 @@ export default function App() {
               <span><label htmlFor="accuracy-context-vocabulary">Exact terms to preserve</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
               <textarea id="accuracy-context-vocabulary" aria-describedby="accuracy-vocabulary-count accuracy-vocabulary-help" rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy} onClick={saveContext}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy || textComposing} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
           </div>}
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>

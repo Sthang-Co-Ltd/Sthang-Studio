@@ -24,6 +24,11 @@ async function activity(page: Page) {
   await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
   return page.getByRole('dialog', { name: 'Activity', exact: true });
 }
+async function history(page: Page) {
+  await page.getByLabel('Open project tools', { exact: true }).click();
+  await page.getByRole('menuitem', { name: /History/ }).click();
+  return page.getByRole('dialog', { name: 'Project history', exact: true });
+}
 async function selectedCaptionIds(page: Page) {
   return page.locator('.caption-row.selected-range').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-caption-id')));
 }
@@ -116,6 +121,94 @@ test('failed edit-save prevents regrouping and keeps the draft', async ({ page }
   await expect(page.getByRole('alert')).toContainText('Synthetic save failure');
   await expect(text).toHaveValue('Correction that must not disappear');
   expect(regroupCalls).toBe(0);
+});
+
+for (const decision of ['cancel', 'navigate'] as const) {
+  test(`regrouping intent: ${decision} while confirmation is pending`, async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    const corrected = `Confirmed wording kept on ${decision}`;
+    const saveBodies: any[] = [];
+    const regroupBodies: any[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      const body = route.request().postDataJSON();
+      saveBodies.push(body);
+      await gate;
+      state.projects[0].captions = structuredClone(body.captions);
+      await route.fulfill({ json: { project: state.projects[0], correctionsCreated: 0 } });
+    });
+    await page.route('**/api/projects/landscape/resegment', async (route) => {
+      regroupBodies.push(route.request().postDataJSON());
+      await route.fulfill({ json: state.projects[0] });
+    });
+    try {
+      await openProject(page);
+      const controls = await grouping(page);
+      const field = page.getByLabel('Caption 1 text', { exact: true });
+      await field.fill(corrected);
+      await controls.getByRole('button', { name: 'Apply grouping', exact: true }).click();
+      const confirmation = page.getByRole('alertdialog', { name: 'Regroup from timed wording?', exact: true });
+      await expect(confirmation).toBeVisible();
+      // Blurring edited caption text starts its normal save independently of
+      // the decision. Keep that acknowledgement pending across cancellation.
+      await expect.poll(() => saveBodies.length).toBe(1);
+      if (decision === 'navigate') {
+        // The modal traps physical focus. Exercise the real Home handler as an
+        // external navigation request while its confirmation remains unresolved.
+        await page.getByLabel('Back to projects', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await confirmation.getByRole('button', { name: 'Save and regroup', exact: true }).click();
+      } else {
+        await confirmation.getByRole('button', { name: 'Cancel', exact: true }).last().click();
+      }
+      release();
+      if (decision === 'cancel') {
+        await expect(controls.getByRole('button', { name: 'Apply grouping', exact: true })).toBeEnabled();
+        await expect(field).toHaveValue(corrected);
+        await expect(page.locator('.save-action')).toBeDisabled();
+        await page.getByLabel('Back to projects', { exact: true }).click();
+      }
+      const home = page.getByRole('button', { name: /Audit landscape/ });
+      await expect.soft(home).toBeVisible();
+      expect(regroupBodies).toEqual([]);
+      expect(saveBodies).toHaveLength(1);
+      expect(saveBodies[0].captions[0].text).toBe(corrected);
+      expect(state.projects[0].captions[0].text).toBe(corrected);
+      await home.click();
+      await expect(field).toHaveValue(corrected);
+      expect(regroupBodies).toEqual([]);
+    } finally { release(); }
+  });
+}
+
+test('regrouping intent: navigation after queuing cancels before API dispatch', async ({ page }) => {
+  const original = structuredClone(state.projects[0].captions);
+  const regroupBodies: any[] = [];
+  await page.route('**/api/projects/landscape/resegment', async (route) => {
+    regroupBodies.push(route.request().postDataJSON());
+    await route.fulfill({ json: state.projects[0] });
+  });
+  await openProject(page);
+  const controls = await grouping(page);
+  await controls.getByRole('button', { name: 'Apply grouping', exact: true }).evaluate((button: HTMLButtonElement) => {
+    // The clean prerequisite resolves immediately. Its first continuation
+    // enqueues regrouping; this microtask invokes Home before the queued callback
+    // can dispatch. Both clicks execute the actual component handlers.
+    button.click();
+    queueMicrotask(() => {
+      const home = document.querySelector<HTMLButtonElement>('button[aria-label="Back to projects"]');
+      if (!home) throw new Error('Home action is missing at queued cancellation.');
+      home.click();
+    });
+  });
+  const home = page.getByRole('button', { name: /Audit landscape/ });
+  await expect(home).toBeVisible();
+  expect(regroupBodies).toEqual([]);
+  expect(state.requests.filter((request) => request.method === 'PUT' && request.path.endsWith('/captions'))).toEqual([]);
+  expect(state.projects[0].captions).toEqual(original);
+  await home.click();
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(original[0].text);
+  expect(regroupBodies).toEqual([]);
 });
 
 test('old proposal image and loop do not follow a switch to another video', async ({ page }) => {
@@ -1056,6 +1149,91 @@ test('History restore publishes normally and preserves a newer local draft while
   } finally { release(); }
 });
 
+test('a delayed History list from another project cannot replace the current project checkpoints', async ({ page }) => {
+  const entry = {
+    id: 'history-landscape', label: 'Landscape checkpoint', source: 'manual-save', createdAt: '2026-01-01T00:00:00.000Z',
+    captionCount: 3, approvedCount: 0, textLockedCount: 0, timingLockedCount: 0,
+  };
+  const secondEntry = { ...entry, id: 'history-second', label: 'Second project checkpoint' };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let landscapeReads = 0;
+  let secondReads = 0;
+  await page.route('**/api/projects/landscape/history', async (route) => {
+    landscapeReads += 1;
+    await gate;
+    await route.fulfill({ json: [entry] });
+  });
+  await page.route('**/api/projects/second/history', async (route) => {
+    secondReads += 1;
+    await route.fulfill({ json: [secondEntry] });
+  });
+  try {
+    await openProject(page);
+    const firstHistory = await history(page);
+    await expect.poll(() => landscapeReads).toBe(1);
+    await firstHistory.getByRole('button', { name: 'Close history', exact: true }).click();
+    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByRole('button', { name: /Audit second/ }).click();
+    await expect(page.locator('.project-title strong')).toHaveText('Audit second');
+    const secondHistory = await history(page);
+    await expect(secondHistory.locator('.history-list article strong')).toHaveText(['Second project checkpoint']);
+    expect(secondReads).toBe(1);
+
+    const staleResponse = page.waitForResponse((response) => response.url().endsWith('/landscape/history'));
+    release();
+    await (await staleResponse).finished();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+    await expect(secondHistory.locator('.history-list article strong')).toHaveText(['Second project checkpoint']);
+    await expect(secondHistory.getByRole('button', { name: /^Restore Second project checkpoint saved / })).toBeVisible();
+    await expect(secondHistory.getByRole('button', { name: /^Restore Landscape checkpoint saved / })).toHaveCount(0);
+    await expect(page.locator('.project-title strong')).toHaveText('Audit second');
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
+    expect(state.requests.filter((request) => request.method === 'POST' && request.path.includes('/history/'))).toEqual([]);
+  } finally { release(); }
+});
+
+test('a delayed History refresh cannot replace a newer refresh in the same project', async ({ page }) => {
+  const entry = {
+    id: 'history-initial', label: 'Initial checkpoint', source: 'manual-save', createdAt: '2026-01-01T00:00:00.000Z',
+    captionCount: 3, approvedCount: 0, textLockedCount: 0, timingLockedCount: 0,
+  };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let reads = 0;
+  await page.route('**/api/projects/landscape/history', async (route) => {
+    const request = ++reads;
+    const response = request === 1 ? entry : request === 2
+      ? { ...entry, id: 'history-obsolete', label: 'Obsolete refresh checkpoint' }
+      : { ...entry, id: 'history-latest', label: 'Latest refresh checkpoint' };
+    if (request === 2) await gate;
+    await route.fulfill({ json: [response] });
+  });
+  try {
+    await openProject(page);
+    const dialog = await history(page);
+    await expect(dialog.locator('.history-list article strong')).toHaveText(['Initial checkpoint']);
+    await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect.poll(() => reads).toBe(2);
+    await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(dialog.locator('.history-list article strong')).toHaveText(['Latest refresh checkpoint']);
+    expect(reads).toBe(3);
+
+    const staleResponse = page.waitForResponse((response) => response.url().endsWith('/landscape/history'));
+    release();
+    await (await staleResponse).finished();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+    await expect(dialog.locator('.history-list article strong')).toHaveText(['Latest refresh checkpoint']);
+    await expect(dialog.getByRole('button', { name: /^Restore Latest refresh checkpoint saved / })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /^Restore Obsolete refresh checkpoint saved / })).toHaveCount(0);
+    await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+    await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(state.projects[0].captions[0].text);
+    expect(state.requests.filter((request) => request.method === 'POST' && request.path.includes('/history/'))).toEqual([]);
+  } finally { release(); }
+});
+
 test('typing during the pre-apply save keeps the newer draft and does not regroup', async ({ page }) => {
   state.profile.preferences.autosaveDelayMs = 60_000;
   let release!: () => void;
@@ -1139,12 +1317,24 @@ test('failed dirty-caption save blocks correction navigation', async ({ page }) 
   await page.getByRole('button', { name: 'Review audio', exact: true }).click();
   await expect.poll(() => saveCalls).toBe(2);
   expect(saveSources).toEqual(['text-edit', 'manual-save']);
-  await expect(page.getByRole('alert')).toContainText('Synthetic correction pre-save failure');
+  const failure = page.getByRole('alert').filter({ hasText: "Couldn't save changes" });
+  await expect(failure).toContainText('Synthetic correction pre-save failure');
+  await expect(failure.getByRole('button', { name: 'Retry save', exact: true })).toBeEnabled();
+  await expect(failure.getByRole('button', { name: 'Download edits', exact: true })).toBeEnabled();
   expect(targetReads).toBe(0);
   await expect(field).toHaveValue('Dirty correction that must be saved before leaving');
   await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
-  await expect(page.locator('.project-title')).toContainText('autosave pending');
+  await expect(page.locator('.project-title')).toContainText("Couldn't save changes");
   await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+  await page.keyboard.press('Escape');
+  // Save failures must outlive the ordinary 4.2-second notice lifetime.
+  await page.waitForTimeout(4600);
+  await expect(failure).toBeVisible();
+  await expect(failure.getByRole('button', { name: 'Retry save', exact: true })).toBeEnabled();
+  await expect(failure.getByRole('button', { name: 'Download edits', exact: true })).toBeEnabled();
+  await expect(field).toHaveValue('Dirty correction that must be saved before leaving');
+  expect(saveCalls).toBe(2);
+  expect(targetReads).toBe(0);
 });
 
 test('correction project read keeps edits typed after its successful pre-save', async ({ page }) => {
@@ -1358,4 +1548,186 @@ test('unchanged full-regeneration session still submits exactly once after savin
   await expect.poll(() => jobCalls).toBe(1);
   expect(saveCalls).toBe(1);
   expect(jobCalls).toBe(1);
+});
+
+for (const scope of ['full', 'selection'] as const) {
+  test(`unchanged ${scope} regeneration waits for held caption saves and submits the intended request exactly once`, async ({ page }) => {
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    state.projects[0].transcriptionContext = { description: 'Synthetic saved Accuracy context', vocabulary: ['TS11 | terminal'] };
+    const current = state.projects[0];
+    const text = `Legitimate ${scope} caption correction waiting to save`;
+    const expectedRequest = {
+      projectId: current.id,
+      startMs: scope === 'full' ? 0 : current.captions[0].startMs,
+      endMs: scope === 'full' ? current.transcript!.timing!.audioDurationMs : current.captions[0].endMs,
+      transcriptionContext: structuredClone(current.transcriptionContext),
+      expectedMedia: { filename: current.media.filename, size: current.media.size },
+    };
+    const requests: unknown[] = [];
+    const savedTextAtSubmission: string[] = [];
+    const captionWrites: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/projects/landscape/captions', async (route) => {
+      const body = route.request().postDataJSON();
+      captionWrites.push(body.captions[0].text);
+      await gate;
+      current.captions = structuredClone(body.captions);
+      await route.fulfill({ json: { project: current, correctionsCreated: 0 } });
+    });
+    await page.route('**/api/jobs/regenerate-range', async (route) => {
+      requests.push(route.request().postDataJSON());
+      savedTextAtSubmission.push(current.captions[0].text);
+      const job = queuedRegenerationJob(`positive-held-${scope}-regeneration`);
+      state.jobs.push(job);
+      await route.fulfill({ status: 202, json: job });
+    });
+    try {
+      await openProject(page);
+      const field = page.getByLabel('Caption 1 text', { exact: true });
+      await field.fill(text);
+      if (scope === 'full') {
+        await page.getByRole('button', { name: /^Accuracy/ }).click();
+        await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+      } else {
+        await page.getByRole('button', { name: /^Review/ }).first().click();
+        await page.getByRole('button', { name: 'Improve…', exact: true }).click();
+      }
+      await expect.poll(() => captionWrites.length).toBeGreaterThan(0);
+      expect(requests).toEqual([]);
+      expect(current.captions[0].text).not.toBe(text);
+      await expect(field).toHaveValue(text);
+      await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+
+      release();
+      await expect.poll(() => requests.length).toBe(1);
+      await expect(page.getByRole('dialog', { name: 'Activity', exact: true })).toBeVisible();
+      expect(requests).toEqual([expectedRequest]);
+      expect(savedTextAtSubmission).toEqual([text]);
+      expect(captionWrites.every((value) => value === text)).toBe(true);
+      expect(current.captions[0].text).toBe(text);
+      await expect(field).toHaveValue(text);
+      await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+    } finally { release(); }
+  });
+}
+
+test('Home cancels regeneration while a held caption save succeeds but Accuracy prevents navigation', async ({ page }, testInfo) => {
+  state.profile.preferences.autosaveDelayMs = 60_000;
+  const captionText = 'Caption saved before an abandoned full regeneration';
+  const contextText = 'Accuracy text that must survive a failed Home save';
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let captionWrites = 0;
+  let contextWrites = 0;
+  let failContext = true;
+  let jobCalls = 0;
+  await page.route('**/api/projects/landscape/captions', async (route) => {
+    const body = route.request().postDataJSON();
+    captionWrites += 1;
+    await gate;
+    state.projects[0].captions = structuredClone(body.captions);
+    await route.fulfill({ json: { project: state.projects[0], correctionsCreated: 0 } });
+  });
+  await page.route('**/api/projects/landscape/context', async (route) => {
+    contextWrites += 1;
+    if (failContext) return route.fulfill({ status: 503, json: { error: 'Synthetic Accuracy navigation save failure' } });
+    state.projects[0].transcriptionContext = structuredClone(route.request().postDataJSON().transcriptionContext);
+    await route.fulfill({ json: state.projects[0] });
+  });
+  await page.route('**/api/jobs/regenerate-range', async (route) => {
+    jobCalls += 1;
+    const job = queuedRegenerationJob('obsolete-regeneration-after-failed-navigation');
+    state.jobs.push(job);
+    await route.fulfill({ status: 202, json: job });
+  });
+  try {
+    await openProject(page);
+    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    const context = page.getByLabel('What is this clip about?', { exact: true });
+    const caption = page.getByLabel('Caption 1 text', { exact: true });
+    await context.fill(contextText);
+    await caption.fill(captionText);
+    await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+    await expect.poll(() => captionWrites).toBeGreaterThan(0);
+    expect(jobCalls).toBe(0);
+    await page.getByLabel('Back to projects', { exact: true }).click();
+    release();
+
+    const failure = page.getByRole('alert').filter({ hasText: "Couldn't save changes" });
+    await expect(failure).toContainText('Synthetic Accuracy navigation save failure');
+    await expect(failure.getByRole('button', { name: 'Retry save', exact: true })).toBeEnabled();
+    await expect(failure.getByRole('button', { name: 'Download edits', exact: true })).toBeEnabled();
+    expect(contextWrites).toBe(1);
+    expect(jobCalls).toBe(0);
+    expect(state.projects[0].captions[0].text).toBe(captionText);
+    await expect(caption).toHaveValue(captionText);
+    await expect(context).toHaveValue(contextText);
+    await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+    await expect(page.getByRole('button', { name: /Audit second/ })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('navigation-save-failed-accuracy.png'), fullPage: true });
+
+    failContext = false;
+    await failure.getByRole('button', { name: 'Retry save', exact: true }).click();
+    await expect(failure).toHaveCount(0);
+    await expect(page.locator('.save-action')).toBeDisabled();
+    expect(contextWrites).toBe(2);
+    expect(state.projects[0].transcriptionContext?.description).toBe(contextText);
+    await expect(context).toHaveValue(contextText);
+    await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+    expect(jobCalls).toBe(0);
+  } finally { release(); }
+});
+
+test('the latest Home request saves reverted Accuracy input once after an older held save', async ({ page }, testInfo) => {
+  state.profile.preferences.autosaveDelayMs = 60_000;
+  const baseline = { description: 'Canonical Accuracy baseline A', vocabulary: ['TS11 | terminal'] };
+  const submitted = { ...baseline, description: 'Pending Accuracy value B' };
+  state.projects[0].transcriptionContext = structuredClone(baseline);
+  const contextWrites: unknown[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/api/projects/landscape/context', async (route) => {
+    const context = route.request().postDataJSON().transcriptionContext;
+    contextWrites.push(structuredClone(context));
+    if (contextWrites.length === 1) await gate;
+    state.projects[0].transcriptionContext = structuredClone(context);
+    await route.fulfill({ json: state.projects[0] });
+  });
+  try {
+    await openProject(page);
+    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    const description = page.getByLabel('What is this clip about?', { exact: true });
+    await description.fill(submitted.description);
+    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await expect.poll(() => contextWrites.length).toBe(1);
+    await description.fill(baseline.description);
+
+    // Both requests wait on B. The obsolete first request must not enqueue A
+    // and make the latest request reject its otherwise-complete queue drain.
+    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to projects', { exact: true }).click();
+    await expect(description).toHaveValue(baseline.description);
+    await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+    expect(contextWrites).toEqual([submitted]);
+    await page.screenshot({ path: testInfo.outputPath('accuracy-navigation-waiting.png'), fullPage: true });
+
+    release();
+    await expect(page.getByRole('button', { name: /Audit landscape/ })).toBeVisible();
+    expect(contextWrites).toEqual([submitted, baseline]);
+    expect(state.projects[0].transcriptionContext).toEqual(baseline);
+    await expect(page.getByRole('alert').filter({ hasText: "Couldn't save changes" })).toHaveCount(0);
+    expect(await page.locator('.toast.notice').count(), 'Accepted navigation clears the previous editor notice immediately').toBe(0);
+    await page.screenshot({ path: testInfo.outputPath('navigation-home-saved.png'), fullPage: true });
+
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
+    if (!await description.isVisible()) await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await expect(description).toHaveValue(baseline.description);
+    await expect(page.getByLabel('Exact terms to preserve', { exact: true })).toHaveValue(baseline.vocabulary.join('\n'));
+    await expect(page.locator('.save-action')).toBeDisabled();
+    expect(contextWrites).toEqual([submitted, baseline]);
+    await page.screenshot({ path: testInfo.outputPath('accuracy-navigation-reopened.png'), fullPage: true });
+  } finally { release(); }
 });

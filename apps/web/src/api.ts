@@ -279,7 +279,7 @@ export const api = {
     id: string,
     captions: CaptionSegment[],
     expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
-    options?: { source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean },
+    options?: { source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean; recoveryExpectedUpdatedAt?: string },
   ) => request<SaveCaptionsResponse>(`/api/projects/${id}/captions`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captions, expectedMedia, ...options }),
   }),

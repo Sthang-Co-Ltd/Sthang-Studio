@@ -215,6 +215,30 @@ test('glossary payload preserves description, aliases and distinct current terms
     context('Topic', ['Global', 'ExactBrand | spoken alias', 'NewBrand']));
 });
 
+test('unfinished Accuracy detection treats inherited vocabulary and normalized saved input as clean', () => {
+  const { source, scope, draft } = setup();
+  const defaults = ['Global'];
+  draft.reset(projectMediaKey(source), source.transcriptionContext, defaults);
+  assert.equal(draft.hasChanges(defaults), false);
+  draft.edit({ description: '  A new topic  ', vocabulary: 'Global\nNewBrand\n' });
+  assert.equal(draft.hasChanges(defaults), true);
+  const fields = { ...draft.fields };
+  const payload = accuracyPayload(fields, defaults);
+  assert.equal(draft.publish(payload, draft.capture(scope.capture()), scope.capture(), defaults, true), true);
+  assert.equal(draft.hasChanges(defaults), false);
+  assert.deepEqual(draft.fields, fields, 'acknowledgement keeps the raw editor spelling');
+});
+
+test('a successful truncated context response cannot acknowledge unsaved raw text', () => {
+  const { scope, draft } = setup();
+  draft.edit({ description: 'x'.repeat(6001) });
+  const raw = { ...draft.fields };
+  const payload = accuracyPayload(raw);
+  draft.publish({ ...payload, description: payload.description.slice(0, 6000) }, draft.capture(scope.capture()), scope.capture(), undefined, true);
+  assert.equal(draft.hasChanges(), true);
+  assert.deepEqual(draft.fields, raw);
+});
+
 test('failed context save leaves both the draft and acknowledged baseline untouched', async () => {
   const { draft } = setup();
   draft.edit(dirty);

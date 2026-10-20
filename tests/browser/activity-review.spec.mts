@@ -161,15 +161,161 @@ test('review keeps context on entry, tight replay, separate focus artwork and na
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeCloseTo(0.15, 2);
 });
 
-test('rapid short-caption transitions share pending render work instead of starving every caption', async ({ page }) => {
+test('rapid short-caption seeks coalesce obsolete preview work and finish on the latest caption', async ({ page }, testInfo) => {
+  type Preview = { id: number; times: number[]; captions: Array<{ text: string; startMs: number; endMs: number }>;
+    wall: number; ms: number; abortWall?: number; responseWall?: number; status?: number; error?: string };
+  type MediaEvent = { type: string; wall: number; ms: number; trusted: boolean; phase: 'capture' | 'target'; turnWall?: number };
+  type Transition = { target: number; actionWall: number; eventStart: number; pendingBefore: number[];
+    observedWall?: number; seekingWall?: number; eventTurnWall?: number; activeId?: string | null; ms?: number; alt?: string | null };
+  type Probe = { requests: Preview[]; events: MediaEvent[]; transitions: Transition[] };
+  await page.addInitScript(() => {
+    const probe: Probe = { requests: [], events: [], transitions: [] };
+    (window as unknown as { __rapidCaptionSeeks: Probe }).__rapidCaptionSeeks = probe;
+    const notify = () => window.dispatchEvent(new Event('sthang:rapid-preview-observed'));
+    for (const type of ['seeking', 'seeked', 'timeupdate']) document.addEventListener(type, (event) => {
+      if (!(event.target instanceof HTMLVideoElement)) return;
+      probe.events.push({ type, wall: performance.now(), ms: event.target.currentTime * 1000, trusted: event.isTrusted, phase: 'capture' });
+      notify();
+    }, true);
+    const originalFetch = window.fetch;
+    window.fetch = async function (input, init) {
+      if (!String(input).endsWith('/api/video-export/landscape/preview') || typeof init?.body !== 'string') {
+        return originalFetch.call(this, input, init);
+      }
+      const body = JSON.parse(init.body) as { timesMs: number[]; captions: Preview['captions'] };
+      const request: Preview = { id: probe.requests.length + 1, times: body.timesMs, captions: body.captions,
+        wall: performance.now(), ms: (document.querySelector('video')?.currentTime ?? 0) * 1000 };
+      probe.requests.push(request);
+      const aborted = () => { request.abortWall = performance.now(); notify(); };
+      init.signal?.addEventListener('abort', aborted, { once: true });
+      notify();
+      try {
+        const response = await originalFetch.call(this, input, init);
+        request.responseWall = performance.now(); request.status = response.status; notify();
+        return response;
+      } catch (error) {
+        request.error = error instanceof Error ? error.name : String(error); notify();
+        throw error;
+      } finally { init.signal?.removeEventListener('abort', aborted); }
+    };
+  });
   state.projects[0].mode = 'word';
   state.projects[0].captions = Array.from({ length: 12 }, (_, index) => ({ id: `word-${index}`, text: `Caption ${index}`, startMs: index * 100, endMs: index * 100 + 100 }));
   state.previewDelay = () => 600;
-  await openProject(page);
-  await expect.poll(() => state.requests.filter((item) => item.path.endsWith('/preview')).length).toBeGreaterThan(0);
-  for (const ms of [550, 650, 750, 850]) await seek(page, ms);
-  await expect(page.locator('.native-caption-image')).toHaveAttribute('alt', 'Caption 8');
-  expect(state.requests.filter((item) => item.path.endsWith('/preview')).length).toBeLessThanOrEqual(3);
+  let primaryFailed = false;
+  try {
+    await openProject(page);
+    await expect.poll(() => state.requests.filter((item) => item.path.endsWith('/preview')).length).toBeGreaterThan(0);
+    await page.evaluate(async () => {
+      const video = document.querySelector('video');
+      const list = document.querySelector('.caption-list');
+      if (!video || !list) throw new Error('The rapid seek exercise requires the actual video and caption list.');
+      const probe = (window as unknown as { __rapidCaptionSeeks: Probe }).__rapidCaptionSeeks;
+      const eventTurns = new MessageChannel();
+      eventTurns.port1.onmessage = (message: MessageEvent<number>) => {
+        probe.events[message.data].turnWall = performance.now();
+        window.dispatchEvent(new Event('sthang:rapid-preview-observed'));
+      };
+      // Register after the component's target listeners, then post a browser
+      // task so the next seek cannot run inside this event's dispatch.
+      const onSeeking = (event: Event) => {
+        const index = probe.events.push({ type: event.type, wall: performance.now(), ms: video.currentTime * 1000,
+          trusted: event.isTrusted, phase: 'target' }) - 1;
+        eventTurns.port2.postMessage(index);
+      };
+      video.addEventListener('seeking', onSeeking);
+      const waitForCommit = (read: () => boolean) => new Promise<void>((resolve, reject) => {
+        let timer = 0;
+        const cleanup = () => {
+          clearTimeout(timer); observer.disconnect();
+          window.removeEventListener('sthang:rapid-preview-observed', check);
+        };
+        const check = () => { if (read()) { cleanup(); resolve(); } };
+        const observer = new MutationObserver(check);
+        observer.observe(list, { subtree: true, attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('sthang:rapid-preview-observed', check);
+        // Use the existing browser assertion budget, not a playback-speed limit.
+        timer = window.setTimeout(() => { cleanup(); reject(new Error('A real seek event and caption-row commit did not arrive.')); }, 8000);
+        check();
+      });
+      try {
+        video.pause();
+        for (const target of [550, 650, 750, 850]) {
+          const transition: Transition = { target, actionWall: performance.now(), eventStart: probe.events.length,
+            pendingBefore: probe.requests.filter((request) => request.abortWall === undefined && request.responseWall === undefined).map((request) => request.id) };
+          probe.transitions.push(transition);
+          // Preserve seek()'s editor update while requiring the browser's real
+          // seeking event. Do not wait for seeked/decoding before the next scrub.
+          video.currentTime = target / 1000;
+          video.dispatchEvent(new Event('timeupdate'));
+          await waitForCommit(() => probe.events.slice(transition.eventStart).some((event) => event.type === 'seeking'
+            && event.trusted && event.phase === 'target' && event.turnWall !== undefined && Math.abs(event.ms - target) < 1)
+            && list.querySelector('.caption-row.active')?.getAttribute('data-caption-id') === `word-${Math.floor(target / 100)}`);
+          transition.observedWall = performance.now();
+          const seeking = probe.events.slice(transition.eventStart).find((event) => event.type === 'seeking'
+            && event.trusted && event.phase === 'target' && event.turnWall !== undefined && Math.abs(event.ms - target) < 1)!;
+          transition.seekingWall = seeking.wall;
+          transition.eventTurnWall = seeking.turnWall;
+          transition.activeId = list.querySelector('.caption-row.active')?.getAttribute('data-caption-id');
+          transition.ms = video.currentTime * 1000;
+          transition.alt = document.querySelector('.native-caption-image')?.getAttribute('alt') ?? null;
+        }
+      } finally {
+        video.removeEventListener('seeking', onSeeking);
+        eventTurns.port1.close(); eventTurns.port2.close();
+      }
+    });
+    await expect(page.locator('.native-caption-image')).toHaveAttribute('alt', 'Caption 8');
+    expect(state.requests.filter((item) => item.path.endsWith('/preview')).length).toBeLessThanOrEqual(3);
+    await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');
+    const probe = await page.evaluate(() => (window as unknown as { __rapidCaptionSeeks: Probe }).__rapidCaptionSeeks);
+    expect(probe.transitions.map((transition) => transition.target)).toEqual([550, 650, 750, 850]);
+    for (const transition of probe.transitions) {
+      expect(transition.seekingWall).toBeGreaterThanOrEqual(transition.actionWall);
+      expect(transition.eventTurnWall).toBeGreaterThanOrEqual(transition.seekingWall!);
+      expect(transition.observedWall).toBeGreaterThanOrEqual(transition.eventTurnWall!);
+      expect(transition.activeId).toBe(`word-${Math.floor(transition.target / 100)}`);
+      expect(transition.ms).toBeCloseTo(transition.target, 4);
+      if (transition.alt !== null) expect(transition.alt).toBe(`Caption ${Math.floor(transition.target / 100)}`);
+    }
+    const final = probe.requests.findLast((request) => request.status === 200 && request.times.includes(800));
+    expect(final, 'The final caption must come from a completed request for its actual paint').toBeDefined();
+    expect(final!.captions.find((caption) => caption.startMs === 800)).toEqual({ text: 'Caption 8', startMs: 800, endMs: 900 });
+    expect(final!.abortWall).toBeUndefined();
+    // A same-caption seek must not cancel its already-started current render.
+    const first = probe.transitions[0];
+    for (const id of first.pendingBefore) {
+      const request = probe.requests.find((item) => item.id === id)!;
+      if (request.times.length === 1 && request.times[0] === 500 && request.abortWall !== undefined) {
+        expect(request.abortWall).toBeGreaterThanOrEqual(probe.transitions[1].actionWall);
+      }
+    }
+    // Work still pending when its replacement is dispatched must already be
+    // cancelled. Work that completed first remains valid cached evidence.
+    for (const request of probe.requests.filter((item) => item.wall < final!.wall
+      && (item.responseWall === undefined || item.responseWall > final!.wall))) {
+      expect(request.abortWall, `Obsolete request ${request.id} must not remain live behind the final target`).toBeDefined();
+      expect(request.abortWall).toBeLessThanOrEqual(final!.wall);
+      expect(request.responseWall).toBeUndefined();
+    }
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    try {
+      const probe = await page.evaluate(() => (window as unknown as { __rapidCaptionSeeks: Probe }).__rapidCaptionSeeks);
+      await testInfo.attach('rapid-caption-seek-diagnostics', {
+        body: JSON.stringify({ ...probe, routed: state.requests.filter((item) => item.path.endsWith('/preview')) }, null, 2), contentType: 'application/json',
+      });
+    } catch (error) {
+      if (!primaryFailed) throw error;
+      // Keep the original assertion/bootstrap error as the test failure, and
+      // retain a diagnostic failure separately in both the report and stderr.
+      const description = error instanceof Error ? error.stack ?? error.message : String(error);
+      testInfo.annotations.push({ type: 'rapid-seek-diagnostic-failure', description });
+      console.error('Rapid seek diagnostic collection failed after the primary test failure:', description);
+    }
+  }
 });
 
 test('Find & Correct modal opens from tools menu, searches matches, and closes cleanly', async ({ page }) => {

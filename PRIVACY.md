@@ -64,6 +64,35 @@ This describes current source behavior, not proof of a released package.
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.
 
+### Unfinished edits in browser storage (source-only)
+
+Current development source keeps a recovery copy of unfinished caption wording,
+caption edges and locks, and raw Accuracy description/vocabulary in this browser
+profile's local storage. Each copy includes project/media identity, a capture time,
+and saved-caption/context comparison evidence, which can contain saved text and
+word-timing metadata. It contains no source audio/video or API key. Recovery does
+not add a hosted service or upload; guarded recovery saves do not create correction
+memory, Contributor candidates, or approval-analytics events.
+
+Copies belong to the Studio browser origin (scheme, host and port), so another
+browser/profile/address may not see them. Storage is not encrypted by Studio.
+Limits are 1 MiB per copy, 3 MiB in total, ten copies overall and five per project,
+counting UTF-16 storage bytes including keys. Concurrent tabs can briefly race the
+aggregate admission limits. Valid copies expire after seven days and are removed
+when recovery is next inspected or written. A successful save clears that page's
+acknowledged copy; explicit discard removes the selected copy. Newer copies from
+other tabs are retained. Invalid or unsupported records are ignored, not imported.
+
+Browser storage restrictions, quota, private browsing, eviction or clearing site
+data can prevent or remove recovery. Studio keeps the active editor usable and
+warns when it cannot keep a copy. Clear Studio's site data to remove all browser
+copies, including drafts for projects no longer available. **Download draft** or
+**Download edits** explicitly creates a local JSON file containing private caption
+and context text for manual comparison; normal browser download retention applies.
+These files are not automatically shared or imported as trusted caption data.
+See [recovery behavior and limits](docs/UNFINISHED-EDIT-RECOVERY.md). This describes
+development source, not verified availability in a released package.
+
 ### Local media-replacement recovery (source-only)
 
 The reviewed-caption preserving replacement workflow compares the old and new

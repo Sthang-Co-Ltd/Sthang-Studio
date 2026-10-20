@@ -419,7 +419,7 @@ router.put('/:id/context', async (req, res) => {
     });
     if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
     if (result.status === 'stale') return res.status(409).json({ error: 'These context changes belong to an older media version. Reload the project before saving.' });
-    if (result.status === 'revision') return res.status(409).json({ error: 'The saved project changed while preparing Accuracy context. Review your edits before replacing media.', code: 'CONTEXT_REVISION_CHANGED' });
+    if (result.status === 'revision') return res.status(409).json({ error: 'The saved project changed while preparing Accuracy context. Review your edits before saving again.', code: 'CONTEXT_REVISION_CHANGED' });
     res.json(result.project);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Context save failed' });
@@ -434,13 +434,23 @@ router.put('/:id/captions', async (req, res) => {
   if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
     return res.status(428).json({ error: 'Caption save requires the media version it was edited against.' });
   }
+  const recoveryExpectedUpdatedAt = req.body?.recoveryExpectedUpdatedAt;
+  if (recoveryExpectedUpdatedAt !== undefined && (typeof recoveryExpectedUpdatedAt !== 'string' || !recoveryExpectedUpdatedAt.trim())) {
+    return res.status(400).json({ error: 'Recovery revision must be a nonempty saved project timestamp.' });
+  }
+  const recoveringDraft = recoveryExpectedUpdatedAt !== undefined;
   const source = String(req.body?.source || 'manual-save') as 'manual-save' | 'autosave' | 'text-edit';
-  const recordCorrections = req.body?.recordCorrections !== false;
+  const recordCorrections = !recoveringDraft && req.body?.recordCorrections !== false;
   try {
     const result = await store.withProjectWrite(req.params.id, async (project, persist) => {
       if (!project) return { status: 'missing' as const };
       if (project.media.filename !== expectedMedia.filename || project.media.size !== expectedMedia.size) {
         return { status: 'stale' as const };
+      }
+      // A recovered draft was checked against this saved project. Compare again
+      // under its write lock so another save cannot slip between review and commit.
+      if (recoveringDraft && project.updatedAt !== recoveryExpectedUpdatedAt) {
+        return { status: 'recovery-stale' as const };
       }
 
       const before = project.captions;
@@ -460,18 +470,24 @@ router.put('/:id/captions', async (req, res) => {
         engineVersion: '0.7.10',
       });
       const corrections = recordCorrections ? await profileStore.recordCaptionChanges(saved, before, captions) : { created: [] };
-      await contributionStore.captureApprovedCorrections(saved, before, captions).catch((error) => {
-        console.warn('[contribution] Local candidate capture failed without affecting caption save:', error instanceof Error ? error.message : error);
-      });
-      const beforeById = new Map(before.map((caption) => [caption.id, caption]));
-      const approvedNow = captions.filter((caption) => caption.approved === true && beforeById.get(caption.id)?.approved !== true).length;
-      if (approvedNow > 0) void captureAnalytics('caption_approved', { approval_count_bucket: analyticsBuckets.approvals(approvedNow) });
+      // Recovery restores unfinished work; it is not a new correction or approval.
+      if (!recoveringDraft) {
+        await contributionStore.captureApprovedCorrections(saved, before, captions).catch((error) => {
+          console.warn('[contribution] Local candidate capture failed without affecting caption save:', error instanceof Error ? error.message : error);
+        });
+        const beforeById = new Map(before.map((caption) => [caption.id, caption]));
+        const approvedNow = captions.filter((caption) => caption.approved === true && beforeById.get(caption.id)?.approved !== true).length;
+        if (approvedNow > 0) void captureAnalytics('caption_approved', { approval_count_bucket: analyticsBuckets.approvals(approvedNow) });
+      }
       return { status: 'saved' as const, project: saved, correctionsCreated: corrections.created.length };
     });
 
     if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
     if (result.status === 'stale') {
       return res.status(409).json({ error: 'These captions belong to an older media version. Reload the project before saving.' });
+    }
+    if (result.status === 'recovery-stale') {
+      return res.status(409).json({ error: 'The saved project changed after this draft was restored. Your draft was kept. Download your edits, then reload to review the current project.', code: 'DRAFT_RECOVERY_CHANGED' });
     }
     res.json({ project: result.project, correctionsCreated: result.correctionsCreated });
   } catch (error) {

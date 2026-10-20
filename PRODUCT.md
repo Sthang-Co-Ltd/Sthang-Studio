@@ -272,6 +272,22 @@ For captioned-video export:
   Khmer-English regression sample must confirm correct shaping in the actual MP4,
   and one-line/multi-line samples must confirm preview/export layout parity.
 
+## Unfinished-edit protection (source-only)
+
+Caption and Accuracy work must remain recoverable while a field still has focus
+and while a save is pending or failed. Leaving a project waits for pending writes,
+then saves both caption and context edits. Closing/reloading warns only while
+unfinished work or a protected media operation remains. Preserve exact Khmer
+composition input without forcing it into a save.
+
+Failed saves remain visible with Retry and an explicit download of current edits.
+A bounded browser copy supports deliberate recovery after interruption. Reopening
+shows the saved project first; restoring rechecks its captions, context and exact
+media, and changed saved evidence requires manual comparison. Changed recovered
+captions are unapproved. Browser recovery cannot supply approval, correction
+memory, Contributor evidence, or trusted word timing. Scope, retention and
+limitations belong in [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md).
+
 ## Product principles
 
 1. **Evidence stays visible.** Audio/video remains playable during any decision about text, timing, or caption appearance.

@@ -418,6 +418,15 @@ it must not invent a second consent contract.
   never auto-opens a desktop folder or overwrites media.
 - Toasts use one non-overlapping stack and provide dismissal for errors/notices.
 - Error copy states: what happened, what remains safe, and how to recover.
+- Unfinished caption and Accuracy changes share the header Save action and
+  conditional close/reload protection. Pending writes keep that protection even
+  if newer typing temporarily matches the previous saved value.
+- A failed save remains in the shared toast stack with **Retry save** and
+  **Download edits** until the affected edits save or return to the saved value.
+  Recovery offers show a timestamp and collapsed preview with labeled
+  **Restore draft**, **Download draft**, and **Discard draft** actions. Use an
+  explicit discard confirmation; keep the media and caption list accessible.
+  Changed saved captions/context/media disable restoration and explain comparison.
 - Optional analytics/contribution outages should not create alarming editor
   errors. Keep local work safe and surface sync state only in the relevant privacy
   surface when action is needed.

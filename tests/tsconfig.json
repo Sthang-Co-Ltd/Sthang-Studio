@@ -70,6 +70,8 @@
     "preserve-media-server.test.mts",
     "caption-appearance-save.test.ts",
     "replace-media-dialog.test.mts",
-    "accuracy-context-draft.test.ts"
+    "accuracy-context-draft.test.ts",
+    "unfinished-edit-recovery.test.ts",
+    "unfinished-edit-recovery-api.test.mts"
   ]
 }

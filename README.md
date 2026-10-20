@@ -50,6 +50,22 @@ upgrade/rollback verification. Updater-capable Windows installations can use
 0.85.6 manual bootstrap and Finder launcher; older manual-only Mac installations
 can instead install the published 0.86.0 Mac ZIP directly.
 
+## Unfinished-edit recovery (source-only)
+
+The development source protects unfinished caption and Accuracy edits when
+closing or reloading Studio. Leaving a project waits for pending saves and saves
+both kinds of edits; a failed save keeps the editor open with **Retry save** and
+**Download edits**. Text still being composed is kept without forcing a save.
+
+A bounded recovery copy stays in this browser profile. Reopen the project to
+preview it and choose **Restore draft**, **Download draft**, or **Discard draft**.
+Restore checks the current saved captions, context, and exact media again.
+Changed saved data requires downloading and comparing the draft; recovery never
+approves changed captions or imports trusted word timing from browser storage.
+See [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md) for retention,
+storage limits, and the fields included. This is not a claim about the published
+v0.86.0 downloads.
+
 ## Playback and update hardening
 
 Version 0.86 can prepare a local H.264/AAC playback copy when

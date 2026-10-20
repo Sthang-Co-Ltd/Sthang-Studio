@@ -62,7 +62,7 @@ test('an empty acknowledged draft clears both endpoints', () => {
   }
 });
 
-test('App limits selection preservation to the guarded caption-save acknowledgement', () => {
+test('App limits selection preservation to guarded caption saves and unfinished-draft recovery', () => {
   const app = readFileSync(new URL('../apps/web/src/App.tsx', import.meta.url), 'utf8');
   const apply = app.slice(app.indexOf('const applyProject ='), app.indexOf('const publishSameMediaMutation ='));
   assert.match(apply, /options: \{ preserveSelection\?: boolean \} = \{\}/);
@@ -72,7 +72,21 @@ test('App limits selection preservation to the guarded caption-save acknowledgem
   const guard = save.indexOf('if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result.project) !== ticket.key) return result.project;');
   const acknowledgement = save.indexOf('if (unchanged) applyProject(result.project, true, { preserveSelection: true });');
   assert.ok(guard >= 0 && acknowledgement > guard, 'session and source guards precede selection-preserving publication');
-  assert.equal(app.match(/\{ preserveSelection: true \}/g)?.length, 1, 'navigation, History and other explicit project actions keep their default selection behavior');
+  const preservationCount = (source: string) => source.match(/\{ preserveSelection: true \}/g)?.length ?? 0;
+  assert.equal(preservationCount(save), 1, 'only the guarded caption-save acknowledgement preserves selection in saveDraft');
+  const recovery = app.slice(app.indexOf('const restoreUnfinishedDraft ='), app.indexOf('const downloadDraftText ='));
+  const recoveryRead = recovery.indexOf('const latest = withCaptionWordTimings(await api.get(project.id));');
+  const recoverySessionGuard = recovery.indexOf('if (!projectScope.current.isCurrent(ticket)) return;');
+  const recoveryEditGuard = recovery.indexOf('if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision');
+  const recoveryBasisGuard = recovery.indexOf("if (compatibility !== 'matching') {");
+  const recoveryPublication = recovery.indexOf('applyProject(latest, true, { preserveSelection: true });');
+  assert.ok(recoveryRead >= 0 && recoverySessionGuard > recoveryRead && recoveryEditGuard > recoverySessionGuard
+    && recoveryBasisGuard > recoveryEditGuard && recoveryPublication > recoveryBasisGuard,
+  'fresh canonical read, session, edit and compatibility guards precede recovery publication');
+  assert.match(recovery.slice(recoveryEditGuard, recoveryBasisGuard), /return;/);
+  assert.match(recovery.slice(recoveryBasisGuard, recoveryPublication), /return;/);
+  assert.equal(preservationCount(recovery), 1, 'only the guarded unfinished-draft publication preserves recovery selection');
+  assert.equal(preservationCount(app), 2, 'navigation, History and other project actions keep their default selection behavior');
   assert.match(app, /const current = \{ anchor: selectionAnchor, end: selectionEnd \};\s*const valid = reconcileCaptionSelection\(draft, current, time \* 1000\)/);
   assert.match(app, /const publishSameMediaMutation[\s\S]*?applyProject\(next\);/);
 });

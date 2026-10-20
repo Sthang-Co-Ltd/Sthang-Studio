@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { normalizeCaptionAppearance, planCaptionRenderStates, type CaptionAppearance, type CaptionPreviewFrame, type CaptionPreviewResult, type CaptionProject, type CaptionSegment, type VideoResolutionPreset } from '@kcs/shared';
 import { captionPreviewPaintKey, captionPreviewReplayStates, captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
 import { captionPreviewSelection, captionPreviewTransform } from '../caption-preview-interaction';
@@ -200,6 +201,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     let disposed = false;
     let callbackId = 0;
     let animationId = 0;
+    let settingUp = true;
     // Begin with the index actually rendered, then reconcile immediately in
     // case the media clock advanced between render and effect setup.
     let latestIndex = index;
@@ -209,7 +211,11 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       const nextIndex = captionPreviewStateIndex(states, atMs);
       if (nextIndex === latestIndex) return;
       latestIndex = nextIndex;
-      redraw();
+      // A recognized interval must commit before this media/frame callback
+      // returns; deferring React work can leave another paint on the old image.
+      // Effect setup itself must retain React's ordinary scheduling path.
+      if (settingUp) redraw();
+      else flushSync(redraw);
     };
     const cancelAnimation = () => {
       if (animationId) window.cancelAnimationFrame(animationId);
@@ -243,6 +249,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     video.addEventListener('ratechange', onRateChange);
     if (typeof video.requestVideoFrameCallback === 'function') callbackId = video.requestVideoFrameCallback(onVideoFrame);
     resumeAnimation();
+    settingUp = false;
     return () => {
       disposed = true;
       cancelAnimation();
