@@ -136,6 +136,23 @@ test('approval-only changes are not represented as recovered editable caption co
   assert.deepEqual(store.list(source.id), []);
 });
 
+test('a conflicted comparison copy survives returning to its old baseline without importing approval or timing', () => {
+  const { source, store } = setup();
+  const before = saved(store.write({ project: source, captions: edited(source) }));
+  const comparison = saved(store.write({ project: source, captions: source.captions, keepUnchangedCaptions: true }));
+  assert.notEqual(comparison.key, before.key);
+  assert.deepEqual(comparison.draft.basis, before.draft.basis);
+  assert.deepEqual(comparison.draft.captions, [{ id: 'cue-A', text: 'Hello world', startMs: 0, endMs: 1000,
+    textLocked: false, timingLocked: false }]);
+  assert.deepEqual(store.list(source.id), [comparison]);
+  const changedSaved = { ...source, captions: edited(source, 'Saved elsewhere') };
+  assert.equal(assessRecovery(comparison, changedSaved), 'changed');
+  assert.equal(restoredCaptions(comparison, changedSaved), undefined);
+  assert.equal(store.write({ project: source, captions: source.captions }).status, 'cleared',
+    'normal non-conflicting clean drafts still clear their own copy');
+  assert.deepEqual(store.list(source.id), []);
+});
+
 test('tampered parsed entry objects do not replace the validated raw snapshot used for restoration', () => {
   const { source, store } = setup();
   const entry = saved(store.write({ project: source, captions: edited(source) }));

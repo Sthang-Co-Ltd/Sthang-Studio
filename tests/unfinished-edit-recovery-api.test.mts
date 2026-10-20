@@ -94,7 +94,7 @@ test('ordinary caption saves without a recovery guard keep History and correctio
   const project = await seed('ordinary-save');
   const effects = observeEvidence(t);
   const captions = [correctedCaption(project)];
-  const response = await request(project.id, { captions, expectedMedia: project.media, source: 'text-edit' });
+  const response = await request(project.id, { captions, expectedMedia: project.media, expectedUpdatedAt: project.updatedAt, source: 'text-edit' });
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.equal(result.correctionsCreated, 1);

@@ -939,6 +939,7 @@ for (const groupingCase of groupingCases) {
       expect(saveBodies).toHaveLength(1);
       expect(saveBodies[0].captions[0].text).toBe(corrected);
       expect(saveBodies[0].expectedMedia).toEqual({ filename: original.media.filename, size: original.media.size });
+      expect(saveBodies[0].expectedUpdatedAt).toBe(original.updatedAt);
       expect((await readDisk()).captions[0].text).toBe(corrected);
       expect(regroupBodies).toHaveLength(0);
 
@@ -952,7 +953,9 @@ for (const groupingCase of groupingCases) {
       }
       const savedResponse = page.waitForResponse((response) => response.url().endsWith(`/api/projects/${scenario.id}/captions`) && response.request().method() === 'PUT');
       releaseSave();
-      expect((await savedResponse).status()).toBe(200);
+      const firstResponse = await savedResponse;
+      expect(firstResponse.status()).toBe(200);
+      const firstAcknowledgement = (await firstResponse.json()).project as CaptionProject;
 
       if (scenario.leave === 'save') {
         // Home completion is the settlement barrier, not a sleep or a momentary
@@ -987,7 +990,7 @@ for (const groupingCase of groupingCases) {
       // explicit prerequisite before either acknowledgement is released.
       expect(saveBodies).toHaveLength(2);
       expect(saveBodies.map((body) => body.source)).toEqual(['text-edit', 'manual-save']);
-      expect(saveBodies[1]).toEqual({ ...saveBodies[0], source: 'manual-save' });
+      expect(saveBodies[1]).toEqual({ ...saveBodies[0], source: 'manual-save', expectedUpdatedAt: firstAcknowledgement.updatedAt });
       expect(saveBodies[1].captions.map((caption: { text: string }) => caption.text)).toEqual([corrected]);
       expect(regroupBodies).toHaveLength(scenario.leave === 'save' ? 0 : 1);
       expect((await readDisk()).captions[0].text).toBe(expectedText);

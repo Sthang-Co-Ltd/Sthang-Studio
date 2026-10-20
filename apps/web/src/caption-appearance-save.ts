@@ -8,6 +8,18 @@ const latestSnapshots = new Map<string, CaptionAppearance>();
 const latestMedia = new Map<string, string>();
 const mediaKey = (projectId: string, media: MediaIdentity) => JSON.stringify([projectId, media.filename, media.size]);
 
+/** Reserve the appearance lane while a caption/context save checks and writes
+ * its revision. A local appearance save must not invalidate that check between
+ * GET and PUT. Failures here do not change appearance's own save/recovery state. */
+export function withCaptionAppearanceBarrier<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  const previous = queues.get(projectId) || Promise.resolve(true);
+  const task = previous.then(operation);
+  const barrier = task.then(() => true, () => true);
+  queues.set(projectId, barrier);
+  void barrier.then(() => { if (queues.get(projectId) === barrier) queues.delete(projectId); });
+  return task;
+}
+
 export function queueCaptionAppearanceSave(projectId: string, appearance: CaptionAppearance, expectedMedia: MediaIdentity): Promise<boolean> {
   const previous = queues.get(projectId) || Promise.resolve();
   const snapshot = { ...appearance };

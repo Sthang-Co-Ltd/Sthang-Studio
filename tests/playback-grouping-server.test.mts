@@ -154,12 +154,14 @@ async function replaceMedia(id: string, contents = 'replacement', signal?: Abort
 }
 
 async function saveCaptions(id: string, captions: CaptionSegment[], expectedMedia: CaptionProject['media']) {
+  const basis = await store.get(id);
   return fetch(`${baseUrl}/api/projects/${id}/captions`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       captions,
       expectedMedia: { filename: expectedMedia.filename, size: expectedMedia.size },
+      expectedUpdatedAt: basis?.updatedAt || 'missing',
       source: 'manual-save',
       recordCorrections: false,
     }),

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Source-only - reject stale saves:** ordinary caption and Accuracy saves now
+  require a saved revision checked inside the project write lock. A conflicting
+  editor keeps its local draft, stops queued saves and retries, and offers
+  Download edits and Reload saved project for comparison. Rejected saves do not
+  change the project, History, correction memory, or approval evidence. Valid
+  queued saves and saves after unrelated Appearance changes remain supported.
+
 - **Source-only - protect unfinished edits:** warn before closing/reloading with
   unfinished caption or Accuracy work; wait for pending writes and save both before
   leaving a project. Keep failed saves visible with Retry and Download edits.

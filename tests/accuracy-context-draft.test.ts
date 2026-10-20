@@ -258,7 +258,9 @@ test('App routes both caption-save branches and same-media publications through 
   assert.match(app, /if \(unchanged\) applyProject\(result\.project, true, \{ preserveSelection: true \}\);[\s\S]*?const acknowledged = retainAccuracyContext\(result\.project\)/);
   assert.match(app, /const saveContext = async[\s\S]*?await queueSameMediaMutation\(ticket/);
   const basis = app.slice(app.indexOf('const mediaMutationBasis'), app.indexOf('const captureReplacementEdits'));
-  assert.ok(basis.indexOf('await saveQueue.current') < basis.indexOf('const acknowledgedContext = accuracyDraft.current.saved'));
+  const drained = basis.indexOf('await saveQueue.current');
+  const acknowledged = basis.indexOf('const acknowledgedContext = ordinarySaveBasis.current?.transcriptionContext');
+  assert.ok(drained >= 0 && acknowledged > drained);
   assert.doesNotMatch(basis, /target\.transcriptionContext/);
   assert.match(basis, /JSON\.stringify\(accuracyDraft\.current\.fields\) !== contextSnapshot/);
   assert.ok(basis.indexOf('const contextPublished = publishContextProject') < basis.indexOf("throw new Error('The project changed while saving Accuracy context"));

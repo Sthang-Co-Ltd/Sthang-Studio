@@ -116,6 +116,7 @@ async function replace(project: CaptionProject, bytes: Buffer = replacementBytes
 async function save(project: CaptionProject, text: string) {
   return jsonRequest(project.id, '/captions', 'PUT', {
     expectedMedia: { filename: project.media.filename, size: project.media.size },
+    expectedUpdatedAt: project.updatedAt,
     captions: project.captions.map((caption, index) => index ? { ...caption, text } : caption),
     recordCorrections: false, source: 'manual-save',
   });

@@ -281,6 +281,16 @@ unfinished work or a protected media operation remains. Preserve exact Khmer
 composition input without forcing it into a save.
 
 Failed saves remain visible with Retry and an explicit download of current edits.
+Caption and Accuracy saves must compare their acknowledged fields with the saved
+project and check the resulting revision again inside the server write lock.
+A conflict keeps the local draft and stops queued saves and automatic retries.
+Show Download edits and Reload saved project; do not authorize an overwrite from
+an unrelated response or silently merge concurrent edits. Valid saves following
+the editor's own accepted History, grouping, or regeneration changes must retain
+their ordering and preserve typing entered while those operations were pending.
+Accepting a whole-caption mutation with a previously unfinished conflicting
+draft requires manual comparison before that draft may save over the accepted
+result. Do not silently roll back accepted regeneration captions.
 A bounded browser copy supports deliberate recovery after interruption. Reopening
 shows the saved project first; restoring rechecks its captions, context and exact
 media, and changed saved evidence requires manual comparison. Changed recovered
