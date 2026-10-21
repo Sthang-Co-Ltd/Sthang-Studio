@@ -34,6 +34,7 @@ export interface FixtureState {
   jobs: ProcessingJob[];
   requests: Array<{ path: string; method: string; body: any }>;
   previewDelay: (body: any) => number;
+  previewHold?: (body: any) => Promise<void>;
   appearanceFailure: boolean;
   native: boolean;
   previewError: string;
@@ -388,6 +389,9 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       try {
         if (cancelled()) return await finishCancelledRoute();
         const delay = state.previewDelay(body); if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        // Deterministic, test-owned response gates preserve the real pending
+        // request state without depending on a wall-clock delay or a retry.
+        await state.previewHold?.(body);
         if (cancelled()) return await finishCancelledRoute();
         if (state.previewGatewayFailures > 0) {
           state.previewGatewayFailures -= 1;

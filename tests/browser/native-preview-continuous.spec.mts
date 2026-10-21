@@ -177,7 +177,7 @@ async function nativeReferences(project: CaptionProject, paints: CaptionRenderSt
         appearance: { ...project.captionAppearance, highlightColor: color }, resolution: 'source',
       }), capabilities);
       for (const frame of result.frames) {
-        expect(frame.bounds, 'Reference must contain native caption pixels').toBeTruthy();
+        expect(frame.bounds, `Native reference at ${frame.atMs}ms must contain caption pixels`).toBeTruthy();
         references.set(`${color}:${frame.atMs}`, frame);
       }
     }

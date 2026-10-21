@@ -122,27 +122,41 @@ test('drag feedback moves native pixels before a slow render and release converg
   await openProject(page); await appearancePanel(page);
   const surface = page.locator('.native-caption-surface');
   await expect(surface).toHaveAttribute('data-preview-mode', 'exact');
-  state.previewDelay = () => 700;
+  // A fixed delay can expire while Playwright reads the transform/geometry,
+  // allowing the scheduler to legitimately start another current frame. Hold
+  // the first render through all drag inputs to test the actual in-flight
+  // coalescing contract instead of the host's test execution speed.
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  state.previewHold = async (body) => {
+    if (body.appearance.positionBottomPct === 28) await firstHeld;
+  };
   const position = page.getByLabel(/^Position /);
-  await position.dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'mouse' });
-  await position.fill('28');
-  await expect(surface).toHaveAttribute('data-preview-mode', 'interpolated');
-  const firstMatrix = await page.locator('.native-caption-canvas').evaluate((element) => new DOMMatrix(getComputedStyle(element).transform).f);
-  const displayedHeight = (await surface.boundingBox())!.height;
-  const expected = (Math.max(8, Math.round(360 * appearance.positionBottomPct / 100)) - Math.round(360 * 28 / 100)) * displayedHeight / 360;
-  expect(Math.abs(firstMatrix - expected)).toBeLessThan(0.1);
-  await expect.poll(() => state.requests.filter((r) => r.path.endsWith('/preview')).at(-1)?.body.appearance.positionBottomPct).toBe(28);
-  const count = state.requests.filter((r) => r.path.endsWith('/preview')).length;
-  for (const value of ['29', '30', '31', '32']) await position.fill(value);
-  await expect(surface).toHaveAttribute('data-preview-mode', 'interpolated');
-  expect(state.requests.filter((r) => r.path.endsWith('/preview')).length).toBe(count);
-  await position.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'mouse' });
-  await expect(surface).toHaveAttribute('data-preview-mode', 'exact');
-  expect(await page.locator('.native-caption-canvas').evaluate((e) => getComputedStyle(e).transform)).toBe('none');
-  const sent = state.requests.filter((r) => r.path.endsWith('/preview')).slice(count);
-  expect(sent.at(-1)?.body.appearance.positionBottomPct).toBe(32);
-  expect(sent.every((r) => r.body.timesMs.length === 1 && r.body.captions.length === 1)).toBe(true);
-  expect(sent.some((r) => [29, 30, 31].includes(r.body.appearance.positionBottomPct))).toBe(false);
+  try {
+    await position.dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'mouse' });
+    await position.fill('28');
+    await expect(surface).toHaveAttribute('data-preview-mode', 'interpolated');
+    const firstMatrix = await page.locator('.native-caption-canvas').evaluate((element) => new DOMMatrix(getComputedStyle(element).transform).f);
+    const displayedHeight = (await surface.boundingBox())!.height;
+    const expected = (Math.max(8, Math.round(360 * appearance.positionBottomPct / 100)) - Math.round(360 * 28 / 100)) * displayedHeight / 360;
+    expect(Math.abs(firstMatrix - expected)).toBeLessThan(0.1);
+    await expect.poll(() => state.requests.filter((r) => r.path.endsWith('/preview')).at(-1)?.body.appearance.positionBottomPct).toBe(28);
+    const count = state.requests.filter((r) => r.path.endsWith('/preview')).length;
+    for (const value of ['29', '30', '31', '32']) await position.fill(value);
+    await expect(surface).toHaveAttribute('data-preview-mode', 'interpolated');
+    expect(state.requests.filter((r) => r.path.endsWith('/preview')).length).toBe(count);
+    await position.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'mouse' });
+    releaseFirst();
+    await expect(surface).toHaveAttribute('data-preview-mode', 'exact');
+    expect(await page.locator('.native-caption-canvas').evaluate((e) => getComputedStyle(e).transform)).toBe('none');
+    const sent = state.requests.filter((r) => r.path.endsWith('/preview')).slice(count);
+    expect(sent.at(-1)?.body.appearance.positionBottomPct).toBe(32);
+    expect(sent.every((r) => r.body.timesMs.length === 1 && r.body.captions.length === 1)).toBe(true);
+    expect(sent.some((r) => [29, 30, 31].includes(r.body.appearance.positionBottomPct))).toBe(false);
+  } finally {
+    releaseFirst(); // Drain the held route even if an assertion fails.
+    state.previewHold = undefined;
+  }
 });
 
 test('keyboard and cancelled drags settle exactly; transforms never carry into a caption gap', async ({ page }) => {
