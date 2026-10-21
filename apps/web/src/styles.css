@@ -356,6 +356,10 @@ body{color:var(--text);caret-color:var(--accent)}
 .recent button:hover{border-color:#46515d;background:#15191e}
 .recent button span{font-size:13px;color:#e5e8eb;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .recent button small{font-size:11px;color:#7e8892}
+.recent .view-all-projects{min-height:36px;padding:7px 10px;flex-direction:row;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.recent .view-all-projects:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.home-tools{flex-wrap:wrap}
+@media(max-width:620px){.recent .view-all-projects{min-height:44px}.recent>div:first-child{flex-wrap:wrap}}
 
 /* Settings and utility dialogs behave like predictable side sheets rather than interruptive center cards. */
 .modal-backdrop{display:flex;align-items:stretch;justify-content:flex-end;padding:10px;background:#030406b8;backdrop-filter:blur(4px)}

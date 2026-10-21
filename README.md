@@ -50,6 +50,21 @@ upgrade/rollback verification. Updater-capable Windows installations can use
 0.85.6 manual bootstrap and Finder launcher; older manual-only Mac installations
 can instead install the published 0.86.0 Mac ZIP directly.
 
+## Find and reopen projects (source-only)
+
+The development source keeps six recent projects on Home and adds **All projects**
+for the complete saved collection. Search by project name, including Khmer, and
+sort by **Last edited**, **Newest created**, or **Name A–Z**. Results are shown in
+pages of 24; search covers the whole collection, including older projects.
+
+Choose **Continue editing** to reopen saved captions or **Open project** for a
+project that has not been generated. **Back to projects** returns to the same
+search, sort order, and page during this Studio session. Reopening uses the current
+saved project and the existing unfinished-draft recovery flow; it does not restart
+generation or resume playback automatically. Listing and searching use local
+project summaries. This source feature is not a claim about published v0.86.0
+downloads.
+
 ## Unfinished-edit recovery (source-only)
 
 The development source protects unfinished caption and Accuracy edits when

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Source-only - find and reopen every project:** keep six recent projects on
+  Home and add All projects with name search, last-edited/created/name ordering,
+  and 24-row pages. Reopen current saved work through the existing save/recovery
+  protections, retaining the collection view when returning from the editor.
+  Listing and search use local summaries without loading every caption body.
+
 - **Source-only - reject stale saves:** ordinary caption and Accuracy saves now
   require a saved revision checked inside the project write lock. A conflicting
   editor keeps its local draft, stops queued saves and retries, and offers
