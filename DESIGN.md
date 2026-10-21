@@ -426,6 +426,14 @@ it must not invent a second consent contract.
 
 ## Accessibility floor
 
+Product dialogs share focus entry, forward/reverse Tab containment, topmost-only
+Escape dismissal and return focus to a connected opener. Find & Correct starts in
+Find; destructive confirmations start on the safe decision. Updates and the privacy
+introduction start on their dialog root so async disabled controls and consent
+choices do not steal initial focus. Busy guards remain authoritative. Composition
+Escape and keyboard events already handled by a field remain with that field.
+Editor shortcuts remain isolated for the entire lifetime of a product dialog.
+
 - Body text target: 13–15px; helper text target: 10–12px. Avoid 7–9px operational copy.
 - Frequent controls: at least 36px tall on desktop; target 44px on touch layouts.
 - Every interactive control needs a visible `:focus-visible` state.

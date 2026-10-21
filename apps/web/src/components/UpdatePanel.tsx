@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Download, LoaderCircle, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { api, type UpdateStatus, type UpdateSafetySnapshot } from '../api';
+import { useModalFocus } from '../use-modal-focus';
 import './updates.css';
 
 const SESSION_CHECK_KEY = 'sthang:updates-checked:v1';
@@ -20,6 +21,9 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
   const [checkError, setCheckError] = useState('');
   const operation = useRef(false);
   const wasOpen = useRef(false);
+  const dialog = useRef<HTMLElement | null>(null);
+  // The close button becomes disabled during checks; root focus stays stable.
+  useModalFocus(open, dialog, () => { if (!operation.current && !working) onClose(); }, dialog);
 
   const check = useCallback(async (options: { announce: boolean; surfaceError: boolean }) => {
     if (operation.current) return;
@@ -119,7 +123,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
   };
 
   return <div className="update-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
-    <section className="update-panel" role="dialog" aria-modal="true" aria-labelledby="update-title">
+    <section ref={dialog} tabIndex={-1} className="update-panel" role="dialog" aria-modal="true" aria-labelledby="update-title">
       <header>
         <div><ShieldCheck size={19}/><div><strong id="update-title">Studio updates</strong><span>Signed releases. You choose when to install.</span></div></div>
         <button aria-label="Close updates" onClick={onClose} disabled={!!working}><X size={17}/></button>

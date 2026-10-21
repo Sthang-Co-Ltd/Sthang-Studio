@@ -1710,7 +1710,7 @@ export default function App() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest('[aria-modal="true"]')) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault(); void saveUnfinishedChanges(false); return;
