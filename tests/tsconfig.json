@@ -39,6 +39,8 @@
     "caption-interchange.test.ts",
     "caption-handoff.test.mts",
     "caption-handoff-native.test.mts",
+    "export-checks.test.ts",
+    "export-preflight.test.mts",
     "caption-looks.test.ts",
     "caption-effects-preview.test.ts",
     "caption-effects-native.test.mts",

@@ -1,4 +1,4 @@
-import { DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance } from './caption-settings.js';
+import { captionRenderTime, DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance } from './caption-settings.js';
 import type { CaptionSegment, TimingQuality, TimingSource } from './index.js';
 import { resolveCaptionWordTiming, type CaptionWordSource } from './word-timing.js';
 
@@ -580,6 +580,87 @@ export function parseCaptionData(text: string): CaptionDataDocument {
     ...(appearance ? { appearance } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
   };
+}
+
+export interface CaptionFileBlocker {
+  captionIndex: number | null;
+  field: 'text' | 'timing' | 'word-timing' | 'data';
+  message: string;
+}
+
+/** Explain serializer rejections per source caption using the same validation
+ * routines, without allocating a serialized file or changing the stored data.
+ */
+export function captionFileBlockers(input: CaptionInterchangeInput, format: CaptionFileFormat): CaptionFileBlocker[] {
+  const issues: CaptionFileBlocker[] = [];
+  let totalGraphemes = 0;
+  let totalWords = 0;
+  // Match caption-handoff's wordReadiness: a bundle includes both word files only
+  // when every caption is ready. A partial/missing track omits both files instead.
+  const bundleHasWordFiles = format === 'bundle' && input.captions.length > 0
+    && input.captions.every((caption) => resolveCaptionWordTiming(caption).state === 'ready');
+  const add = (captionIndex: number | null, field: CaptionFileBlocker['field'], error: unknown) =>
+    issues.push({ captionIndex, field, message: error instanceof Error ? error.message : 'Caption data is invalid for export.' });
+  input.captions.forEach((caption, index) => {
+    try { totalGraphemes += validateText(caption.text, index); }
+    catch (error) { add(index, 'text', error); return; }
+    try { validateCaption(caption, index, input.durationMs); }
+    catch (error) {
+      const timing = !validMs(caption.startMs) || !validMs(caption.endMs) || caption.endMs <= caption.startMs
+        || input.durationMs !== undefined && caption.endMs > input.durationMs;
+      add(index, timing ? 'timing' : 'data', error); return;
+    }
+    // Studio's handoff revision first captures a portable snapshot for every
+    // format. Missing/partial tracks are permitted; corrupt saved tracks are not.
+    try { totalWords += projectWordTiming(caption, index)?.words.length || 0; }
+    catch (error) { add(index, 'word-timing', error); return; }
+    if (format === 'ass') {
+      if (captionRenderTime(caption.endMs) <= captionRenderTime(caption.startMs)) {
+        add(index, 'timing', new Error('This caption collapses on the 10 ms ASS timing grid. Adjust its timing before styled export.'));
+      }
+      return;
+    }
+    if (format === 'data') return;
+    const wordFormat = format === 'word-srt' || format === 'word-vtt';
+    // Readiness has its own actionable finding. Ready tracks can still collapse
+    // when individual word timestamps are rounded for a subtitle file.
+    if (wordFormat && resolveCaptionWordTiming(caption).state !== 'ready') return;
+    let cues: SerializedCue[];
+    try { cues = wordFormat ? readyWordPieces([{ caption, index }]) : [caption]; }
+    catch (error) { add(index, 'word-timing', error); return; }
+    try { roundSubtitleCues(cues, []); }
+    catch (error) { add(index, wordFormat ? 'word-timing' : 'timing', error); }
+    if (format !== 'ttml') {
+      try { ensureNoBlankCueLines(cues.map((cue) => cue.text), format === 'vtt' || format === 'word-vtt' ? 'WebVTT' : 'SRT'); }
+      catch (error) { add(index, 'text', error); }
+    }
+    if (bundleHasWordFiles) {
+      // A whole caption can serialize cleanly while a *word* cue starts or ends
+      // on a newline. Reuse the actual word-file checks for both conditional kit
+      // entries, keeping their failures attached to the source caption.
+      let wordCues: ReturnType<typeof readyWordPieces>;
+      try { wordCues = readyWordPieces([{ caption, index }]); }
+      catch (error) { add(index, 'word-timing', error); return; }
+      try { roundSubtitleCues(wordCues, []); }
+      catch (error) { add(index, 'word-timing', error); }
+      const lineFailures: string[] = [];
+      for (const wordFormat of ['SRT', 'WebVTT'] as const) {
+        try { ensureNoBlankCueLines(wordCues.map((cue) => cue.text), wordFormat); }
+        catch (error) { lineFailures.push(error instanceof Error ? error.message : 'Word cue text is invalid.'); }
+      }
+      if (lineFailures.length) add(index, 'text', new Error(`Word-by-word files in this bundle: ${lineFailures.join(' ')}`));
+    }
+  });
+  if (input.captions.length > CAPTION_DATA_LIMITS.maxCaptions) add(null, 'data', new Error(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`));
+  if (totalGraphemes > CAPTION_DATA_LIMITS.maxTotalGraphemes) add(null, 'data', new Error('Caption text exceeds the total interchange grapheme limit.'));
+  if (totalWords > CAPTION_DATA_LIMITS.maxTotalWords) add(null, 'word-timing', new Error('Word timing data exceeds the total interchange word limit.'));
+  // The selected data/kit path shares the exact JSON byte limit. This work runs
+  // only for that format, after per-caption errors have already been ruled out.
+  if (!issues.length && (format === 'data' || format === 'bundle')) {
+    try { serializeCaptionData(input); }
+    catch (error) { add(null, 'data', error); }
+  }
+  return issues;
 }
 
 export function analyzeCaptionInterchange(captions: CaptionSegment[]): CaptionInterchangeAnalysis {

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
   type CaptionAppearance,
   type CaptionProject,
+  type CaptionLayoutCheckResult,
   type ProcessingJob,
   type VideoCodec,
   type VideoEncoderPreference,
@@ -18,6 +19,10 @@ import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionHandoffPanel } from './CaptionHandoffPanel';
 import { CaptionRestoreReview, type CaptionRestoreReviewState } from './CaptionRestoreReview';
 import type { CaptionFileFormat } from '../caption-handoff-client';
+import type { ReviewIssue } from '../review';
+import type { ExportWorkspaceSession } from '../export-session';
+import { buildExportCaptionIssues, exportLayoutKey, type ExportCheckIssue, type ExportRepairTarget } from '../export-checks';
+import { ExportChecksPanel, type ExportLayoutState } from './ExportChecksPanel';
 import './video-export.css';
 
 interface Props {
@@ -32,18 +37,15 @@ interface Props {
   onEditAppearance(): void;
   onEditWordTiming?(id?: string): void;
   onPreviewResolution(resolution: VideoResolutionPreset): void;
-  onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null>;
+  onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance, isCurrent: () => boolean): Promise<ProcessingJob | null>;
+  session: ExportWorkspaceSession;
+  onSessionChange: Dispatch<SetStateAction<ExportWorkspaceSession>>;
+  onRepair(target: ExportRepairTarget): void;
+  reviewIssues: ReviewIssue[];
+  unsaved: boolean;
+  saveBlocked: boolean;
+  fontRevision: number;
 }
-
-type OutputMode = 'video' | 'captions';
-
-const DEFAULT_SETTINGS: VideoExportSettings = {
-  resolution: 'source',
-  frameRate: 'source',
-  quality: 'recommended',
-  codec: 'h264',
-  encoder: 'auto',
-};
 
 const qualityCopy: Record<VideoQualityPreset, string> = {
   smaller: 'Smaller file',
@@ -80,21 +82,34 @@ function elapsedLabel(job: ProcessingJob) {
 }
 
 export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
-  onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution }: Props) {
+  onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution,
+  session, onSessionChange, onRepair, reviewIssues, unsaved, saveBlocked, fontRevision }: Props) {
   const videoProject = isVideoProject(project);
-  const [outputMode, setOutputMode] = useState<OutputMode>(videoProject ? 'video' : 'captions');
+  const { outputMode, settings, advancedOpen } = session;
+  const setOutputMode = (mode: ExportWorkspaceSession['outputMode']) => onSessionChange((current) => ({ ...current, outputMode: mode }));
+  const setSettings: Dispatch<SetStateAction<VideoExportSettings>> = (value) => onSessionChange((current) => ({ ...current,
+    settings: typeof value === 'function' ? value(current.settings) : value }));
+  const setAdvancedOpen = (open: boolean) => onSessionChange((current) => ({ ...current, advancedOpen: open }));
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
   const [loadingCapabilities, setLoadingCapabilities] = useState(videoProject);
   const [capabilityError, setCapabilityError] = useState('');
   const [actionError, setActionError] = useState('');
-  const [settings, setSettings] = useState<VideoExportSettings>(DEFAULT_SETTINGS);
   const [appearance, setAppearance] = useState<CaptionAppearance>(normalizeCaptionAppearance(project.captionAppearance));
-  const [appearanceSaveBlocked, setAppearanceSaveBlocked] = useState(false);
+  const [appearanceError, setAppearanceError] = useState<'save' | 'load' | 'source' | null>(null);
+  const [appearanceLoadAttempt, setAppearanceLoadAttempt] = useState(0);
+  const appearanceSaveBlocked = appearanceError !== null;
   const [startingExport, setStartingExport] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [loadingAppearance, setLoadingAppearance] = useState(videoProject);
+  const [capabilityRevision, setCapabilityRevision] = useState(0);
+  const [layoutCheck, setLayoutCheck] = useState<{ key: string; result?: CaptionLayoutCheckResult; error?: string } | null>(null);
+  const [checkingLayoutKey, setCheckingLayoutKey] = useState<string | null>(null);
+  const layoutRequest = useRef<AbortController | null>(null);
+  const startRequest = useRef(0);
+  useEffect(() => () => { startRequest.current += 1; }, []);
+  useEffect(() => { document.getElementById('export-checks-heading')?.focus({ preventScroll: true }); }, []);
 
   const capabilityRequest = useRef(0);
-  useEffect(() => { onPreviewResolution(settings.resolution); }, [settings.resolution, onPreviewResolution]);
+  useEffect(() => { onPreviewResolution(outputMode === 'video' ? settings.resolution : 'source'); }, [outputMode, settings.resolution, onPreviewResolution]);
   useEffect(() => () => { capabilityRequest.current += 1; onPreviewResolution('source'); }, [onPreviewResolution]);
 
   const loadCapabilities = async (refresh = false) => {
@@ -107,39 +122,45 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     const request = ++capabilityRequest.current;
     setLoadingCapabilities(true);
     setCapabilityError('');
+    if (refresh) setCapabilityRevision((current) => current + 1);
     try { const result = await api.videoExportCapabilities(project.id, refresh); if (request === capabilityRequest.current) setCapabilities(result); }
-    catch (error) { if (request === capabilityRequest.current) setCapabilityError(error instanceof Error ? error.message : 'Could not inspect video export support'); }
+    catch (error) { if (request === capabilityRequest.current) { setCapabilities(null); setCapabilityError(error instanceof Error ? error.message : 'Could not inspect video export support'); } }
     finally { if (request === capabilityRequest.current) setLoadingCapabilities(false); }
   };
 
   useEffect(() => {
     let active = true;
-    setOutputMode(videoProject ? 'video' : 'captions');
-    setSettings(DEFAULT_SETTINGS);
     setAppearance(normalizeCaptionAppearance(project.captionAppearance));
-    setAppearanceSaveBlocked(false);
+    setLoadingAppearance(videoProject);
+    setAppearanceError(null);
     setCapabilities(null);
     setCapabilityError('');
     setActionError('');
-    setAdvancedOpen(false);
-    void loadCapabilities(false);
+    void loadCapabilities(fontRevision > 0);
     void (async () => {
       const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
       if (!active) return;
       if (!saved) {
-        setAppearanceSaveBlocked(true);
-        setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');
+        setAppearanceError('save');
+        setLoadingAppearance(false);
         return;
       }
       try {
         const fresh = await api.get(project.id);
-        if (active) setAppearance(normalizeCaptionAppearance(fresh.captionAppearance));
+        if (!active) return;
+        if (fresh.id !== project.id || fresh.media.filename !== project.media.filename || fresh.media.size !== project.media.size) {
+          setAppearanceError('source');
+          return;
+        }
+        setAppearance(normalizeCaptionAppearance(fresh.captionAppearance));
       } catch {
-        if (active) setActionError('Could not load the latest saved caption appearance. Reopen Export to try again.');
+        if (active) setAppearanceError('load');
+      } finally {
+        if (active) setLoadingAppearance(false);
       }
     })();
     return () => { active = false; };
-  }, [project.id, project.media.filename]);
+  }, [project.id, project.media.filename, project.media.size, fontRevision, appearanceLoadAttempt]);
 
   useEffect(() => {
     if (!capabilities) return;
@@ -152,34 +173,122 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   const availableEncoders = useMemo(() => capabilities?.encoders.filter((item) => item.codec === settings.codec && item.available) || [], [capabilities, settings.codec]);
   const hevcAvailable = Boolean(capabilities?.encoders.some((encoder) => encoder.codec === 'hevc' && encoder.available));
   const source = capabilities?.source;
-  const appearanceFontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily && (!appearance.bold || font.boldAvailable)));
+  const appearanceFontUnavailable = Boolean(capabilities && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily && (!appearance.bold || font.boldAvailable)));
   const plainWordCaptions = useMemo(() => appearance.highlightMode === 'word'
     ? project.captions.filter((caption) => caption.text.trim() && resolveCaptionWordTiming(caption).state !== 'ready') : [], [project.captions, appearance.highlightMode]);
-  const exportBlocked = Boolean(!videoProject || !capabilities?.supported || appearanceSaveBlocked || appearanceFontUnavailable || activeExportJob || busy || startingExport || !project.captions.length);
+  const selectedFormat = outputMode === 'video' ? 'video' : session.handoff.advancedFormat || 'srt';
+  const checksAppearance = outputMode === 'video' || selectedFormat === 'ass';
+  const layoutResolution = outputMode === 'video' ? settings.resolution : 'source';
+  const layoutKey = useMemo(() => exportLayoutKey({ projectId: project.id, media: project.media, captions: project.captions,
+    appearance, resolution: layoutResolution, fontRevision, capabilityRevision }),
+  [project.id, project.media.filename, project.media.size, project.captions, appearance, layoutResolution, fontRevision, capabilityRevision]);
+  const currentLayoutKey = useRef(layoutKey);
+  currentLayoutKey.current = layoutKey;
+  const startContext = useMemo(() => JSON.stringify([layoutKey, outputMode, settings]), [layoutKey, outputMode, settings]);
+  const currentStartContext = useRef(startContext);
+  currentStartContext.current = startContext;
+  useEffect(() => {
+    layoutRequest.current?.abort();
+    layoutRequest.current = null;
+    setCheckingLayoutKey(null);
+    return () => { layoutRequest.current?.abort(); layoutRequest.current = null; };
+  }, [layoutKey, checksAppearance]);
+  const currentLayout = layoutCheck?.key === layoutKey ? layoutCheck : null;
+  const layoutState: ExportLayoutState = checkingLayoutKey === layoutKey ? 'checking'
+    : currentLayout?.error || currentLayout?.result?.status === 'unavailable' ? 'error'
+      : currentLayout?.result?.status === 'blocked' ? 'blocked'
+        : currentLayout?.result?.status === 'passed' ? 'passed'
+          : layoutCheck ? 'stale' : 'unchecked';
+  const layoutMessage = currentLayout?.error || (currentLayout?.result?.status === 'unavailable'
+    ? currentLayout.result.issues.map((issue) => issue.message).join(' ') : undefined);
+
+  // Match the handoff serializer's persisted duration authority. The editor's
+  // actual playback-duration QA remains separate advisory evidence.
+  const fileDurationMs = project.transcript?.timing?.audioDurationMs;
+  const captionIssues = useMemo(() => buildExportCaptionIssues({ captions: project.captions, reviewIssues, format: selectedFormat,
+    appearance, durationMs: fileDurationMs }), [project.captions, reviewIssues, selectedFormat, appearance, fileDurationMs]);
+  const invalidCaptionFiles = useMemo(() => buildExportCaptionIssues({ captions: project.captions, reviewIssues: [], format: 'srt',
+    appearance, durationMs: fileDurationMs }).some((issue) => issue.severity === 'blocker'), [project.captions, appearance, fileDurationMs]);
+  const checkIssues = useMemo(() => {
+    const native: ExportCheckIssue[] = checksAppearance && currentLayout?.result?.status === 'blocked'
+      ? currentLayout.result.issues.map((issue, index) => ({ id: `layout:${index}:${issue.captionIds.join(':')}`, severity: 'blocker',
+        title: issue.captionIds.length > 1 ? 'Overlapping captions extend outside the frame' : 'Caption layout needs attention',
+        reasons: [issue.message], remedy: 'Inspect this caption in Appearance. Reduce Size, increase Max width, or adjust its position, then return and check again.',
+        captionIds: issue.captionIds, repair: 'appearance' })) : [];
+    if (checksAppearance && appearanceFontUnavailable) native.unshift({ id: 'font', severity: 'blocker', title: 'Saved font selection is unavailable',
+      reasons: [`${appearance.fontFamily}${appearance.bold ? ' Bold' : ''} is not available for this output.`],
+      remedy: 'Choose an available Khmer font or weight in Appearance. Studio will keep your selection until you change it.', captionIds: [], repair: 'appearance' });
+    return [...native, ...captionIssues];
+  }, [checksAppearance, currentLayout, appearanceFontUnavailable, appearance, captionIssues]);
+  const nativeLayoutBlocked = checksAppearance && currentLayout?.result?.status === 'blocked';
+  const exportBlocked = Boolean(!videoProject || !capabilities?.supported || loadingCapabilities || loadingAppearance
+    || appearanceSaveBlocked || appearanceFontUnavailable || nativeLayoutBlocked || saveBlocked
+    || activeExportJob || busy || startingExport || checkingLayoutKey || !project.captions.some((caption) => caption.text.trim()));
+
+  const checkLayout = async () => {
+    if (layoutRequest.current || !videoProject || loadingAppearance || startingExport || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable) return;
+    const key = layoutKey;
+    const controller = new AbortController();
+    layoutRequest.current = controller;
+    setCheckingLayoutKey(key);
+    try {
+      const result = await api.checkCaptionLayout(project.id, { captions: project.captions, appearance, resolution: layoutResolution,
+        expectedMedia: { filename: project.media.filename, size: project.media.size } }, controller.signal);
+      if (!controller.signal.aborted && layoutRequest.current === controller && currentLayoutKey.current === key) setLayoutCheck({ key, result });
+    } catch (error) {
+      if (!controller.signal.aborted && layoutRequest.current === controller && currentLayoutKey.current === key) {
+        setLayoutCheck({ key, error: error instanceof Error ? error.message : 'Could not check the caption layout. Try again.' });
+      }
+    } finally {
+      if (layoutRequest.current === controller) { layoutRequest.current = null; setCheckingLayoutKey(null); }
+    }
+  };
+  const cancelLayoutCheck = () => {
+    layoutRequest.current?.abort();
+    layoutRequest.current = null;
+    setCheckingLayoutKey(null);
+    setLayoutCheck({ key: layoutKey, error: 'Layout check cancelled. Run it again when you are ready.' });
+  };
+  const retryAppearanceLoad = () => {
+    layoutRequest.current?.abort();
+    layoutRequest.current = null;
+    setCheckingLayoutKey(null);
+    setLayoutCheck(null);
+    setAppearanceLoadAttempt((attempt) => attempt + 1);
+  };
 
   const startExport = async () => {
+    if (exportBlocked) return;
+    const request = ++startRequest.current;
+    const context = startContext;
+    const active = () => startRequest.current === request && currentStartContext.current === context;
     setStartingExport(true);
     setActionError('');
     try {
       const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
+      if (!active()) return;
       if (!saved) {
-        setAppearanceSaveBlocked(true);
-        setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');
+        setAppearanceError('save');
         return;
       }
       const fresh = await api.get(project.id);
+      if (!active()) return;
+      if (fresh.media.filename !== project.media.filename || fresh.media.size !== project.media.size) {
+        setActionError('The source changed while preparing export. Reopen the project before rendering.');
+        return;
+      }
       const latestAppearance = normalizeCaptionAppearance(fresh.captionAppearance);
       setAppearance(latestAppearance);
-      setAppearanceSaveBlocked(false);
-      const fontUnavailable = Boolean(capabilities?.fonts.some((font) => font.available) && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily && (!latestAppearance.bold || font.boldAvailable)));
+      setAppearanceError(null);
+      const fontUnavailable = Boolean(capabilities && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily && (!latestAppearance.bold || font.boldAvailable)));
       if (fontUnavailable) {
         setActionError(`Studio can't export with the saved font selection (${latestAppearance.fontFamily}${latestAppearance.bold ? ' Bold' : ''}). Choose an available Khmer font or weight in Appearance.`);
         return;
       }
-      await onStartVideoExport(settings, latestAppearance);
+      await onStartVideoExport(settings, latestAppearance, active);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not start video export');
-    } finally { setStartingExport(false); }
+      if (active()) setActionError(error instanceof Error ? error.message : 'Could not start video export');
+    } finally { if (startRequest.current === request) setStartingExport(false); }
   };
 
   const setCodec = (codec: VideoCodec) => setSettings((current) => ({ ...current, codec, encoder: 'auto' }));
@@ -198,9 +307,28 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
     {!videoProject && <p className="export-mode-help">Audio projects can export editable caption files. Captioned video requires a video source.</p>}
 
+    {!captionImportPreview && <ExportChecksPanel captions={project.captions} issues={checkIssues} onRepair={onRepair}
+      unsaved={unsaved} saveBlocked={saveBlocked}
+      appearancePending={checksAppearance && loadingAppearance}
+      appearancePrerequisite={checksAppearance && appearanceError ? {
+        message: appearanceError === 'save'
+          ? 'Your latest caption appearance could not be saved. Return to Appearance and retry before exporting with styling.'
+          : appearanceError === 'source'
+            ? 'The source changed while loading caption appearance. Reopen the project if a retry still cannot verify the current source.'
+            : 'Could not load the latest saved caption appearance. Retry before exporting with styling.',
+        actionLabel: appearanceError === 'save' ? 'Retry in Appearance' : 'Retry appearance load',
+        onRecover: appearanceError === 'save' ? onEditAppearance : retryAppearanceLoad,
+      } : undefined}
+      {...(videoProject && checksAppearance ? { layoutState, layoutMessage, onCheckLayout: () => void checkLayout(), onCancelLayout: cancelLayoutCheck,
+        layoutDisabled: loadingCapabilities || loadingAppearance || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable || busy || startingExport } : {})}/>}
+
     {outputMode === 'captions' && (captionImportPreview
       ? <CaptionRestoreReview review={captionImportPreview} busy={busy} onApply={onApplyCaptionImport} onCancel={onCancelCaptionImport}/>
       : <CaptionHandoffPanel project={project} busy={busy} onExport={onExportCaptions} onImport={onImportCaptionData}
+          session={session.handoff} onSessionChange={(handoff) => onSessionChange((current) => ({ ...current, handoff }))}
+          saveBlocked={saveBlocked} invalidCaptions={invalidCaptionFiles}
+          selectedFormatBlocked={captionIssues.some((issue) => issue.severity === 'blocker')}
+          styledLayoutBlocked={Boolean(loadingAppearance || appearanceFontUnavailable || nativeLayoutBlocked || appearanceSaveBlocked)}
           onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => setOutputMode('video') : undefined}/>)}
 
     {outputMode === 'video' && <>

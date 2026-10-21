@@ -109,8 +109,12 @@ test('word exports stay blocked when a caption has no usable word timings', asyn
   expect(hydrateCaptionWordTimings(current()).captions.every((caption) => resolveCaptionWordTiming(caption).state === 'missing')).toBe(true);
   await openHandoff(page);
   await openAdvanced(page);
-  await expect(page.getByRole('button', { name: /^One word per caption \(SRT\)/ })).toBeDisabled();
-  await expect(page.getByRole('button', { name: /^One word per caption \(VTT\)/ })).toBeDisabled();
+  await page.getByRole('button', { name: /^One word per caption \(SRT\)/ }).click();
+  await expect(page.getByRole('button', { name: 'Download WORD SRT', exact: true })).toBeDisabled();
+  await expect(page.getByRole('region', { name: 'Check before export' })).toContainText('Word timing needs review');
+  await page.getByRole('button', { name: /^One word per caption \(VTT\)/ }).click();
+  await expect(page.getByRole('button', { name: 'Download WORD VTT', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Review word timing', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(handoffCalls).toHaveLength(0);

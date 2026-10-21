@@ -165,3 +165,51 @@ test('upstream finite source reaches EOF before an oversized output request', as
     '-frames:v', '4', '-f', 'null', '-'], { windowsHide: true, timeout: 10000 }).toString();
   assert.deepEqual(parseCaptionOverflowBounds(output, 3), Array(3).fill([0, 15, 0, 15]));
 });
+
+test('layout diagnostics attribute duplicate native paint to each actual caption', async () => {
+  const captions = [
+    { ...cue('hello'), id: 'fits' },
+    { ...cue('SUBSCRIPTION'), id: 'late-one', startMs: 2000, endMs: 3000 },
+    { ...cue('SUBSCRIPTION'), id: 'late-two', startMs: 4000, endMs: 5000 },
+  ];
+  const a = { ...appearance, fontSize1080: 120 };
+  const states = new Map<string, number[]>();
+  const diagnosticDocument = buildAssDocument(captions, a, base.width, base.height, undefined, undefined, states);
+  assert.equal(diagnosticDocument, buildAssDocument(captions, a, base.width, base.height), 'attribution must not change rendered bytes');
+  const probe = buildCaptionOverflowProbe(diagnosticDocument, base.width, base.height, 512, 512, states);
+  assert.ok(probe.captionGroups.some((groups) => JSON.stringify(groups) === '[[1],[2]]'), 'native deduplication must retain both occurrences');
+  await assert.rejects(validateCaptionOverflow({ ...base, captions, appearance: a, collectIssues: true }), (error: unknown) => {
+    assert.ok(error instanceof CaptionOverflowError);
+    assert.equal(error.kind, 'overflow');
+    assert.deepEqual(error.captionGroups, [['late-one'], ['late-two']]);
+    return true;
+  });
+});
+
+test('layout diagnostics report the actual overlap group without blaming a single caption', async () => {
+  const text = Array(8).fill('hello').join('\n');
+  const first = { ...cue(text), id: 'overlap-a' };
+  const second = { ...cue(text), id: 'overlap-b', startMs: 2000, endMs: 3000 };
+  await validateCaptionOverflow({ ...base, captions: [first, second], collectIssues: true });
+  await assert.rejects(validateCaptionOverflow({ ...base, captions: [first, { ...second, startMs: 500 }], collectIssues: true }), (error: unknown) => {
+    assert.ok(error instanceof CaptionOverflowError);
+    assert.deepEqual(error.captionGroups, [['overlap-a', 'overlap-b']]);
+    return true;
+  });
+});
+
+test('diagnostic opacity dominance retains different source groups and rejects unknown bounds', async () => {
+  const states = new Map<string, number[]>();
+  const document = buildAssDocument([
+    { ...cue('hello'), id: 'first' }, { ...cue('hello'), id: 'short', startMs: 2000, endMs: 2080 },
+  ], { ...appearance, motionPreset: 'fade' }, base.width, base.height, undefined, undefined, states);
+  const probe = buildCaptionOverflowProbe(document, base.width, base.height, 512, 512, states);
+  assert.ok(probe.captionGroups.some((groups) => groups.some((indices) => indices.join() === '0')));
+  assert.ok(probe.captionGroups.some((groups) => groups.some((indices) => indices.join() === '1')));
+  await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue('hello')], width: 8192, height: 8192, collectIssues: true }), (error: unknown) => {
+    assert.ok(error instanceof CaptionOverflowError);
+    assert.equal(error.kind, 'unverifiable');
+    assert.deepEqual(error.captionGroups, []);
+    return true;
+  });
+});

@@ -1,0 +1,38 @@
+.export-checks{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.export-checks-head h3{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text,#e5e8ec)}
+.export-checks-head p{margin:5px 0 12px;color:var(--muted)}
+.export-check-save{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-left:3px solid #c5a75b;background:#1b1710;color:#e6c97b}
+.export-layout-check{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px;background:#13171c;border:1px solid var(--line);border-radius:9px}
+.export-layout-check>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.export-layout-check strong{display:flex;align-items:center;gap:6px;font-size:13px}
+.export-layout-check span{color:var(--muted);font-size:12px}
+.export-layout-check.passed strong{color:#d7ff4f}
+.export-layout-check.stale strong,.export-layout-check.blocked strong,.export-layout-check.error strong{color:#e6c97b}
+.export-appearance-prerequisite{margin-bottom:10px}
+.export-checks button,.export-repair-return button{min-height:36px;border:1px solid #3b4350;background:#1a2028;border-radius:8px;padding:7px 11px;color:#e5e8ec;font:inherit;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0}
+.export-checks button:focus-visible,.export-checks h3:focus-visible,.export-repair-return button:focus-visible,.export-repair-return strong:focus-visible{outline:2px solid var(--accent,#d7ff4f);outline-offset:3px}
+.export-checks button:disabled{opacity:.45;cursor:not-allowed}
+.export-check-list{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column}
+.export-check-details{margin-top:10px}.export-check-details>summary{cursor:pointer;min-height:36px;padding:7px 0;color:#dbe9b7;font-size:13px}
+.export-check-item{padding:14px 0;border-top:1px solid var(--line)}
+.export-check-item:first-child{border-top:0}
+.export-check-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.export-check-title>strong{font-size:13px}
+.export-check-title>span{color:#b5bec8;font-size:11px}
+.export-check-item[data-severity=blocker] .export-check-title>span{color:#efc37c}
+.export-check-caption{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:9px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#10151b}
+.export-check-caption>div{min-width:0}
+.export-check-caption strong{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;font-size:12px}
+.export-check-caption small{font-size:11px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--muted)}
+.export-check-caption p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:'Noto Sans Khmer','Plus Jakarta Sans',sans-serif;line-height:1.7;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.export-check-reasons{margin:9px 0 0;padding-left:20px;color:#cad0d8}
+.export-check-reasons>li+li{margin-top:3px}
+.export-check-remedy,.export-check-group{margin:7px 0 0;color:var(--muted);font-size:12px}
+.export-check-global-action{margin-top:8px}
+.export-check-pages{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.export-check-pages>span{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.export-repair-return{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #465328;background:#151b10;border-radius:9px;padding:10px 12px;margin-top:12px;font-size:13px;color:#dbe9b7}
+.export-repair-return>div{min-width:0}
+.export-repair-return p{margin:3px 0 0;color:#a7b58e;font-size:12px}
+.export-repair-return>div:last-child{display:flex;gap:7px;flex-wrap:wrap}
+@media(max-width:620px){.export-layout-check,.export-check-caption,.export-repair-return{align-items:stretch;flex-direction:column}.export-checks button,.export-repair-return button,.export-check-details>summary{min-height:44px}.export-check-pages{flex-wrap:wrap}.export-check-pages>span{text-align:center}.export-check-caption button{align-self:flex-start}.export-repair-return>div:last-child{display:flex;flex-direction:column}.export-check-title{align-items:flex-start;flex-direction:column;gap:2px}}

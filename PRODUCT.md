@@ -272,6 +272,27 @@ For captioned-video export:
   Khmer-English regression sample must confirm correct shaping in the actual MP4,
   and one-line/multi-line samples must confirm preview/export layout parity.
 
+## Export checks and repair (source-only)
+
+Export shows caption-specific issues with reasons, remedies and a direct editing
+path. Separate actual output blockers from editorial review suggestions. Preserve
+the established word-readiness contract: incomplete word timing blocks word files,
+while an affected caption in a video retains its normal color. A video-specific
+font or layout problem must not disable a valid plain caption-file handoff.
+
+Go to caption selects and reveals the exact caption while keeping the source
+playable. A visible Back to export action retains the chosen output and temporary
+settings during repair. Reset that session on project/media changes; never let an
+older repair target or pending request navigate a different project.
+
+Full native layout checks are explicit and local. They check the current draft,
+appearance and output resolution with the existing native bounds authority,
+including overlap groups. Do not run whole-project native checks on each edit.
+Invalidate results on caption/word/timing, appearance, resolution, media and font
+changes; cancellation, incomplete measurement and stale responses cannot establish
+fit. Rendering retains its mandatory snapshot validation and save/conflict guards.
+No release availability, new persistence category or cloud transfer is implied.
+
 ## Unfinished-edit protection (source-only)
 
 Caption and Accuracy work must remain recoverable while a field still has focus

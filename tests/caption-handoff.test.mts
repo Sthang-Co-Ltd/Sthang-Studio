@@ -8,6 +8,7 @@ import express from 'express';
 import type { AddressInfo } from 'node:net';
 import {
   buildCaptionWordTiming,
+  captionFileBlockers,
   createCaptionData,
   hydrateCaptionWordTimings,
   normalizeCaptionAppearance,
@@ -121,6 +122,21 @@ function makeHarness(initial: CaptionProject, options: { width?: number; height?
     checkpointSnapshots: () => structuredClone(checkpoints),
   };
 }
+
+test('export findings match the shared handoff guard for malformed saved word evidence', async () => {
+  const project = projectFixture('word-evidence');
+  project.captions[0].wordTiming!.text = 'older wording';
+  const harness = makeHarness(project);
+  await assert.rejects(harness.service.summary(project.id), /stale|malformed/i);
+  for (const format of ['srt', 'vtt', 'ttml', 'word-srt', 'word-vtt', 'data', 'ass', 'bundle'] as const) {
+    assert.ok(captionFileBlockers({ captions: project.captions }, format).some((issue) => issue.captionIndex === 0 && issue.field === 'word-timing'));
+  }
+  delete project.captions[0].wordTiming;
+  harness.setCurrent(project);
+  await harness.service.summary(project.id);
+  assert.deepEqual(captionFileBlockers({ captions: project.captions }, 'srt'), []);
+  assert.deepEqual(harness.counts(), { checkpoints: 0, persists: 0, geometry: 0, mediaDuration: 0 });
+});
 
 let activeService: CaptionHandoffService = makeHarness(projectFixture()).service;
 const proxyService: CaptionHandoffService = {
@@ -327,6 +343,60 @@ test('bundle includes word-level files only when every caption has ready word ti
   assert.equal(entries.has('captions-word-by-word.srt'), true);
   assert.equal(entries.has('captions-word-by-word.vtt'), true);
   assert.match(entries.get('README.txt')!.toString('utf8'), /does not guarantee native highlight animation/i);
+});
+
+test('bundle word-file preflight agrees with real service rejection and conditional omission', async () => {
+  const multiline = cue('line-break', 'Hello\nworld', 0, 1200);
+  multiline.wordTiming = { version: 1, text: multiline.text, words: [
+    { id: 'line-a', startOffset: 0, endOffset: 5, startMs: 100, endMs: 500, source: 'manual' },
+    { id: 'line-b', startOffset: 6, endOffset: 11, startMs: 600, endMs: 1000, source: 'manual' },
+  ] };
+  const source = projectFixture('bundle-word-edge', [multiline]);
+  const savedBefore = structuredClone(source);
+  const harness = makeHarness(source);
+  activeService = harness.service;
+  const basis = await (await summary(source.id)).json();
+  assert.deepEqual(basis.formats.wordTimed, ['word-srt', 'word-vtt'],
+    'the real server considers both exact-text word spans ready');
+
+  const preflight = captionFileBlockers({ captions: source.captions, appearance: source.captionAppearance }, 'bundle');
+  assert.ok(preflight.some((issue) => issue.captionIndex === 0 && issue.field === 'text' && /blank line/i.test(issue.message)),
+    'bundle preflight must identify the word-only serializer problem by caption');
+  assert.deepEqual(captionFileBlockers({ captions: source.captions }, 'srt'), [],
+    'the original whole-caption SRT remains valid');
+  for (const format of ['word-srt', 'word-vtt'] as const) {
+    assert.ok(captionFileBlockers({ captions: source.captions }, format).some((issue) => issue.captionIndex === 0 && /blank line/i.test(issue.message)));
+    const response = await post(source.id, 'export', { format, ...precondition(source, basis.revision) });
+    assert.equal(response.status, 400, `${format} must reject the unsafe word cue`);
+    assert.match((await response.json()).error, /blank line/i);
+  }
+  const srt = await post(source.id, 'export', { format: 'srt', ...precondition(source, basis.revision) });
+  assert.equal(srt.status, 200);
+  assert.match(await srt.text(), /Hello\r\nworld/);
+  const failedBundle = await post(source.id, 'export', { format: 'bundle', ...precondition(source, basis.revision) });
+  assert.equal(failedBundle.status, 400, 'all-ready kit includes the word files and must reject their invalid cue text');
+  assert.match((await failedBundle.json()).error, /blank line/i);
+  assert.deepEqual(harness.getCurrent(), savedBefore);
+  assert.deepEqual(source, savedBefore);
+  assert.equal(harness.counts().persists, 0);
+
+  const optional = projectFixture('bundle-word-omitted', [multiline, cue('unready', 'Other', 1300, 1900)]);
+  const optionalBefore = structuredClone(optional);
+  const optionalHarness = makeHarness(optional);
+  activeService = optionalHarness.service;
+  const optionalBasis = await (await summary(optional.id)).json();
+  assert.deepEqual(optionalBasis.formats.wordTimed, [], 'one unready cue omits the kit word files');
+  assert.deepEqual(captionFileBlockers({ captions: optional.captions, appearance: optional.captionAppearance }, 'bundle'), [],
+    'the omitted word-only failure must not block this otherwise valid kit');
+  const response = await post(optional.id, 'export', { format: 'bundle', ...precondition(optional, optionalBasis.revision) });
+  assert.equal(response.status, 200);
+  const entries = readStoreZip(Buffer.from(await response.arrayBuffer()));
+  assert.equal(entries.has('captions-word-by-word.srt'), false);
+  assert.equal(entries.has('captions-word-by-word.vtt'), false);
+  assert.match(entries.get('README.txt')!.toString('utf8'), /omitted because at least one caption/i);
+  assert.deepEqual(optionalHarness.getCurrent(), optionalBefore);
+  assert.deepEqual(optional, optionalBefore);
+  assert.equal(optionalHarness.counts().persists, 0);
 });
 
 test('standalone ASS fails closed before geometry for invalid or centisecond-collapsed captions', async () => {

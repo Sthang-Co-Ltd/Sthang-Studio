@@ -149,6 +149,7 @@ export function buildAssDocument(
   height: number,
   visibilityMask?: ReadonlySet<number>,
   sampleAtMs?: number,
+  stateCaptionIndices?: Map<string, number[]>,
 ) {
   const a = normalizeCaptionAppearance(appearanceInput);
   const highlightWords = a.highlightMode === 'word';
@@ -189,6 +190,9 @@ export function buildAssDocument(
     ? plannedStates
     : sampledState ? [{ ...sampledState, atMs: 0, endMs: 1000 }] : [];
   const events = renderStates.filter((c) => c.key).flatMap((c) => {
+    // Optional diagnostic attribution follows the actual compiled paint state.
+    // It never becomes an ASS field or changes preview/export document bytes.
+    stateCaptionIndices?.set(`${assTimestamp(c.atMs)},${assTimestamp(c.endMs)}`, c.key.split(',').map(Number));
     const motionScale = c.motionScale ?? 1;
     const baseAvailableWidth = width - side * 2;
     const scaledAvailableWidth = baseAvailableWidth > 0 ? Math.round(baseAvailableWidth * motionScale) : baseAvailableWidth;

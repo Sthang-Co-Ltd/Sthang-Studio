@@ -9,7 +9,8 @@ import { buildAssCaptionFilter, buildAssDocument } from './caption-renderer.js';
 /** A layout rejection must not be mistaken for a failed preview transport. */
 export class CaptionOverflowError extends Error {
   readonly code = 'CAPTION_OVERFLOW';
-  constructor(message = 'Caption extends outside the video. Reduce Size, increase Max width, or adjust its position.') {
+  constructor(message = 'Caption extends outside the video. Reduce Size, increase Max width, or adjust its position.',
+    readonly captionGroups: string[][] = [], readonly kind: 'overflow' | 'unverifiable' = 'overflow') {
     super(message);
     this.name = 'CaptionOverflowError';
   }
@@ -25,7 +26,7 @@ export function invalidateCaptionOverflowCache(cacheScope?: string) {
 const MAX_CACHE = 128;
 const MAX_STATES = 8192;
 const MAX_FRAME_PIXELS = 32_000_000;
-const unverifiable = () => new CaptionOverflowError('Caption bounds could not be safely checked. Reduce Size or the number of overlapping captions, then try again.');
+const unverifiable = () => new CaptionOverflowError('Caption bounds could not be safely checked. Reduce Size or the number of overlapping captions, then try again.', [], 'unverifiable');
 
 function timestamp(seconds: number) {
   return `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}.00`;
@@ -34,7 +35,8 @@ function timestamp(seconds: number) {
 /** Translate the whole ASS coordinate system without changing its wrapping budget.
  * Enlarging both PlayRes and the physical canvas keeps all font/outline scales 1:1.
  */
-export function buildCaptionOverflowProbe(document: string, width: number, height: number, padX: number, padY = padX) {
+export function buildCaptionOverflowProbe(document: string, width: number, height: number, padX: number, padY = padX,
+  stateCaptionIndices?: ReadonlyMap<string, number[]>) {
   const header: string[] = [];
   const groups = new Map<string, string[]>();
   for (const line of document.split('\n')) {
@@ -57,28 +59,41 @@ export function buildCaptionOverflowProbe(document: string, width: number, heigh
       groups.set(key, events);
     } else header.push(line);
   }
-  const paintedStates = [...new Set([...groups.values()].filter((events) => !events.every((event) => {
-    // The renderer writes one explicit temporal alpha triple before each cue.
-    // A fully transparent fade endpoint has no paint and needs no measurement.
-    const tags = [...event.matchAll(/\\1a&H([0-9A-F]{2})&\\3a&H([0-9A-F]{2})&\\4a&H([0-9A-F]{2})&/g)];
-    return tags.length > 0 && tags.every((tag) => tag[1] === 'FF' && tag[2] === 'FF' && tag[3] === 'FF');
-  })).map((events) => events.join('\n')))];
+  const paintedStates = new Map<string, Map<string, number[]>>();
+  for (const [interval, events] of groups) {
+    if (events.every((event) => {
+      // The renderer writes one explicit temporal alpha triple before each cue.
+      // A fully transparent fade endpoint has no paint and needs no measurement.
+      const tags = [...event.matchAll(/\\1a&H([0-9A-F]{2})&\\3a&H([0-9A-F]{2})&\\4a&H([0-9A-F]{2})&/g)];
+      return tags.length > 0 && tags.every((tag) => tag[1] === 'FF' && tag[2] === 'FF' && tag[3] === 'FF');
+    })) continue;
+    const state = events.join('\n');
+    const sources = paintedStates.get(state) || new Map<string, number[]>();
+    const indices = stateCaptionIndices?.get(interval);
+    if (indices?.length) sources.set(indices.join(','), indices);
+    paintedStates.set(state, sources);
+  }
   // An actual state can cover another state's ink only when geometry, layers,
   // text and colors are byte-identical and EVERY corresponding opacity is at
   // least as high. Keep the observed Pareto frontier, never invent a combination
   // of independent cue/layer opacity maxima that did not actually occur.
-  const geometry = new Map<string, Array<{ state: string; alphas: number[] }>>();
-  for (const state of paintedStates) {
+  const geometry = new Map<string, Array<{ state: string; alphas: number[]; groups: number[][] }>>();
+  for (const [state, sources] of paintedStates) {
     const alphas: number[] = [];
-    const key = state.replace(/\\([134]a)&H([0-9A-F]{2})&/g, (_, tag: string, alpha: string) => {
+    const paintKey = state.replace(/\\([134]a)&H([0-9A-F]{2})&/g, (_, tag: string, alpha: string) => {
       alphas.push(parseInt(alpha, 16));
       return `\\${tag}&H??&`;
     });
+    // In diagnostic mode, dominance only covers the same source groups. A more
+    // opaque DIFFERENT caption can prove fit, but cannot prove that a dimmer one
+    // also overflows. Exact duplicate paint retains every actual occurrence.
+    const key = paintKey + (stateCaptionIndices ? `\0${[...sources.keys()].sort().join(';')}` : '');
     const candidates = geometry.get(key) || [];
-    candidates.push({ state, alphas });
+    candidates.push({ state, alphas, groups: [...sources.values()] });
     geometry.set(key, candidates);
   }
   const states: string[] = [];
+  const captionGroups: number[][][] = [];
   for (const candidates of geometry.values()) {
     candidates.sort((a, b) => a.alphas.reduce((sum, value) => sum + value, 0) - b.alphas.reduce((sum, value) => sum + value, 0));
     const frontier: typeof candidates = [];
@@ -86,6 +101,7 @@ export function buildCaptionOverflowProbe(document: string, width: number, heigh
       if (!frontier.some((other) => other.alphas.every((value, index) => value <= candidate.alphas[index]))) {
         frontier.push(candidate);
         states.push(candidate.state);
+        captionGroups.push(candidate.groups);
       }
     }
   }
@@ -95,7 +111,7 @@ export function buildCaptionOverflowProbe(document: string, width: number, heigh
     parts[1] = timestamp(index); parts[2] = timestamp(index + 1);
     return 'Dialogue: ' + parts.join(',');
   }));
-  return { document: header.join('\n') + '\n' + events.join('\n') + '\n', count: states.length };
+  return { document: header.join('\n') + '\n' + events.join('\n') + '\n', count: states.length, captionGroups };
 }
 
 /** Resolve a BMP codepoint from the bounded Unicode cmap formats used by the
@@ -327,6 +343,7 @@ export async function validateCaptionOverflow(input: {
   signal?: AbortSignal;
   shouldCancel?: () => boolean;
   cacheScope?: string;
+  collectIssues?: boolean;
 }): Promise<void> {
   const { captions, width, height, fontDirectory, workDir, signal, shouldCancel, cacheScope } = input;
   const checkCancelled = () => { signal?.throwIfAborted(); if (shouldCancel?.()) throw new Error('Caption bounds check cancelled.'); };
@@ -346,7 +363,8 @@ export async function validateCaptionOverflow(input: {
     if (overlappingCharacters > 4096) throw unverifiable();
   }
   const appearance = normalizeCaptionAppearance(input.appearance);
-  const document = buildAssDocument(captions, appearance, width, height);
+  const stateCaptionIndices = input.collectIssues ? new Map<string, number[]>() : undefined;
+  const document = buildAssDocument(captions, appearance, width, height, undefined, undefined, stateCaptionIndices);
   const generation = cacheGeneration;
   let fonts: Awaited<ReturnType<typeof fontSignature>>;
   try {
@@ -383,7 +401,7 @@ export async function validateCaptionOverflow(input: {
   const padY = Math.ceil(Math.max(512, em * (blankAdvanceY + fonts.glyphHeight), em * fonts.line) + decoration * 2);
   const canvasWidth = width + padX * 2;
   const canvasHeight = height + padY * 2;
-  const probe = buildCaptionOverflowProbe(document, width, height, padX, padY);
+  const probe = buildCaptionOverflowProbe(document, width, height, padX, padY, stateCaptionIndices);
   if (!probe.count || canvasWidth * canvasHeight > MAX_FRAME_PIXELS) throw unverifiable();
   let directory: string;
   try {
@@ -394,14 +412,25 @@ export async function validateCaptionOverflow(input: {
     const file = path.join(directory, 'bounds.ass');
     await fs.writeFile(file, probe.document);
     const output = await measure(file, fontDirectory, canvasWidth, canvasHeight, probe.count, signal, shouldCancel);
-    for (const bounds of parseCaptionOverflowBounds(output, probe.count)) {
+    const overflowGroups = new Map<string, string[]>();
+    const measuredBounds = parseCaptionOverflowBounds(output, probe.count);
+    for (const [index, bounds] of measuredBounds.entries()) {
       // A blank or incomplete measurement never establishes fit.
       const [left, right, top, bottom] = bounds;
       if (left === 0 || top === 0 || right === canvasWidth - 1 || bottom === canvasHeight - 1) throw unverifiable();
-      if (left < padX || right >= padX + width || top < padY || bottom >= padY + height) throw new CaptionOverflowError();
+      if (left < padX || right >= padX + width || top < padY || bottom >= padY + height) {
+        if (!input.collectIssues) throw new CaptionOverflowError();
+        const groups = probe.captionGroups[index];
+        if (!groups?.length) overflowGroups.set('', []);
+        for (const group of groups || []) {
+          const ids = group.map((captionIndex) => captions[captionIndex]?.id).filter((id): id is string => typeof id === 'string');
+          overflowGroups.set(JSON.stringify(ids), ids);
+        }
+      }
     }
     signal?.throwIfAborted();
     checkCancelled();
+    if (overflowGroups.size) throw new CaptionOverflowError(undefined, [...overflowGroups.values()]);
     if (cacheScope && cacheGeneration === generation) verified.set(signature, cacheScope);
     if (verified.size > MAX_CACHE) verified.delete(verified.keys().next().value!);
   } catch (error) {
