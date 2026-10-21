@@ -32,6 +32,7 @@ import {
   ChevronUp,
   Clock3,
   FileOutput,
+  FolderOpen,
   Group,
   HelpCircle,
   Info,
@@ -61,6 +62,8 @@ import { FindReplacePanel } from './components/FindReplacePanel';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
 import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
+import { ProjectLibrary } from './components/ProjectLibrary';
+import { DEFAULT_PROJECT_LIBRARY_VIEW, type ProjectLibraryView } from './project-library';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
 import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming, resolveCaptionWordTiming, createCaptionData } from '@kcs/shared';
@@ -245,6 +248,12 @@ function distributePreviewText(text: string, slots: CaptionSegment[]) {
 
 export default function App() {
   const [projects, setProjects] = useState<CaptionProjectSummary[]>([]);
+  const [showAllProjects, setShowAllProjects] = useState(false);
+  // Keep the collection position while its editor is open, without persisting
+  // project names or searches outside this tab's existing local project flow.
+  const [projectLibraryView, setProjectLibraryView] = useState<ProjectLibraryView>(DEFAULT_PROJECT_LIBRARY_VIEW);
+  const homeProjectsButton = useRef<HTMLButtonElement>(null);
+  const restoreHomeProjectsFocus = useRef(false);
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [startupErrors, setStartupErrors] = useState<string[]>([]);
   const startupLoaded = useRef(new Set<string>());
@@ -400,6 +409,13 @@ export default function App() {
   useEffect(() => () => { handoffRequest.current?.abort(); }, []);
 
   useEffect(() => {
+    if (!project && !showAllProjects && restoreHomeProjectsFocus.current) {
+      restoreHomeProjectsFocus.current = false;
+      homeProjectsButton.current?.focus();
+    }
+  }, [project, showAllProjects]);
+
+  useEffect(() => {
     let disposed = false;
     setStartupErrors([]);
     const load = <T,>(label: string, operation: () => Promise<T>, publish: (value: T) => void) => {
@@ -413,7 +429,7 @@ export default function App() {
     };
     // Independent requests publish independently. Preferences remain required before
     // opening/uploading a project, so late profile hydration cannot reset an edit.
-    load('Recent projects', api.listSummaries, (items) => setProjects((current) => {
+    load('Projects', api.listSummaries, (items) => setProjects((current) => {
       const localIds = new Set(current.map((item) => item.id));
       return [...current, ...items.filter((item) => !localIds.has(item.id))];
     }));
@@ -613,6 +629,15 @@ export default function App() {
     setTime(0);
     setSelectionAnchor(null);
     setSelectionEnd(null);
+  }
+  function changeProjectListView(allProjects: boolean) {
+    if (project || busy) return;
+    // Switching Home/library is a navigation intent too: a pending project read
+    // must not open its editor after the creator has returned to the launcher.
+    beginNavigation();
+    setError('');
+    restoreHomeProjectsFocus.current = !allProjects;
+    setShowAllProjects(allProjects);
   }
   async function loadProposal(projectId: string, proposalId: string, ticket: ProjectTicket, automatic = false) {
     const request = ++proposalRead.current;
@@ -3089,20 +3114,30 @@ export default function App() {
     {notice && <div className="toast notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
   </div>;
 
-  if (!project) return <main>
+  const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
+  if (!project) return <main className={showAllProjects ? 'project-library-page' : undefined}>
     <div className="home-tools">
+      {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
       <button onClick={() => setShowGuide(true)} title="Open guide"><HelpCircle size={16}/>Guide</button>
       {activeJobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity<b>{activeJobs.length}</b></button>}
       {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
       <button onClick={() => setShowUpdates(true)} title="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
       <button className={llmSettings?.configured ? '' : 'setup-needed'} title="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
     </div>
-    {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
-    <Upload onUpload={upload} busy={!!busy || !profile} beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+    {!showAllProjects && <>
+      {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
+      <Upload onUpload={upload} busy={!!busy || !profile} beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+    </>}
     {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
-    {startupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {startupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
+    {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
     {!profile && startupErrors.length === 0 && <div className="setup-warning" role="status">Loading preferences…</div>}
-    {projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
+    {showAllProjects ? <ProjectLibrary
+      projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
+      loading={!startupLoaded.current.has('Projects') && !startupErrors.includes('Projects')}
+      loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
+      openingProjectId={openingProjectId} onOpen={(id) => void openRecentProject(id)}
+      onBack={() => changeProjectListView(false)} onRetry={() => setStartupAttempt((value) => value + 1)}
+    /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {statusToasts}
     {overlays}
   </main>;

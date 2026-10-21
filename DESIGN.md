@@ -468,6 +468,21 @@ Theme scrollbars, selection, focus rings, caret, disabled states, loading states
 
 The home screen is an operational launcher, not a marketing landing page. Keep one concise value line, one concise action-oriented supporting sentence, and the upload surface. Once setup is healthy, collapse onboarding status to a compact readiness indicator; do not keep a completed checklist or repeated workflow explanation in prime space.
 
+### All projects
+
+Keep Home's upload flow and six recent projects compact. **All projects** opens a
+dedicated page with **Back to Home**, labeled **Search projects** and **Sort
+projects** controls, a result count, and 24-row pagination. Search covers the
+complete metadata collection. Distinguish loading, failed loading, an empty
+collection, and no search matches; offer the relevant retry or clear action.
+
+Each project shows its name, caption state, dates, and a visible **Continue
+editing** or **Open project** action. Names must remain readable with long Khmer
+and mixed-language content. Keyboard focus, explicit labels and mobile touch
+targets follow the existing interface rules. Returning from the editor retains
+the collection view in this tab; a pending open must not win after a newer
+navigation choice. Keep the saved-project/conflict/recovery workflow intact.
+
 ### Video-centric review focus
 
 - In Review mode, the selected caption is the user's current decision target. When playback actually enters that caption's timestamp, identify it directly over the video with restrained Studio-lime corner brackets.

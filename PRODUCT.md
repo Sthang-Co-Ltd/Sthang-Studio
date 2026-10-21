@@ -298,6 +298,22 @@ captions are unapproved. Browser recovery cannot supply approval, correction
 memory, Contributor evidence, or trusted word timing. Scope, retention and
 limitations belong in [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md).
 
+## Project discovery and reopening (source-only)
+
+Home keeps a compact six-project recent list beside the upload workflow. A labeled
+**All projects** view makes the complete saved collection reachable with project
+name search, last-edited/created/name ordering, and bounded 24-project pages.
+Search includes projects beyond the current page and preserves Khmer text.
+
+Reopening fetches the current saved project through the existing navigation,
+save-conflict, and unfinished-draft recovery protections. A later project choice
+or a return to Home cancels ownership of an earlier pending read. The collection's
+search, ordering and page remain in the current tab while its editor is open.
+Listing/searching uses existing local metadata and does not load every caption
+body, start processing, or transfer searches to a provider. Reopening does not
+promise a restored playhead or automatic playback. These source changes do not
+establish public-download availability.
+
 ## Product principles
 
 1. **Evidence stays visible.** Audio/video remains playable during any decision about text, timing, or caption appearance.

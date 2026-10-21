@@ -51,6 +51,9 @@ jobs:
       - name: High-resolution media clock tests
         run: npm run test:media-clock
 
+      - name: Project library tests
+        run: npm run test:project-library
+
       - name: Captioned video export tests
         run: npm run test:video-export
 
