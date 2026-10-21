@@ -105,6 +105,47 @@ test('word dragging commits on release and Escape cancels the local preview', as
   expect(first().wordTiming!.words[3].endMs).toBe(1750);
 });
 
+for (const action of ['drag', 'start', 'end'] as const) {
+  test(`a stranded word can be repaired by ${action} without moving its neighbor or caption`, async ({ page }) => {
+    const stranded = makeCue('c1', 'កម្ពុជា ខ្មែរ', 600, 850, [200, 750], [600, 850]);
+    stranded.caption.wordTiming!.words[0].needsReview = true;
+    project().captions[0] = stranded.caption;
+    const before = structuredClone(first());
+    await openTiming(page);
+    await selectWord(page, 1, 'កម្ពុជា');
+    await expect(page.getByRole('button', { name: 'Adjust timing first', exact: true })).toBeDisabled();
+    if (action === 'drag') {
+      await page.getByRole('button', { name: 'Full clip', exact: true }).click();
+      const canvas = page.locator('.waveform-data-canvas');
+      await canvas.scrollIntoViewIfNeeded();
+      const box = (await canvas.boundingBox())!;
+      const x = (ms: number) => box.x + ms / 4000 * box.width;
+      await page.mouse.move(x(400), box.y + 116);
+      await page.mouse.down();
+      await page.mouse.move(x(700), box.y + 116, { steps: 4 });
+      expect(first()).toEqual(before);
+      await page.mouse.up();
+    } else {
+      const input = page.getByLabel(`Word ${action} time`, { exact: true });
+      await input.fill(action === 'start' ? '0.630' : '0.700');
+      await input.press('Enter');
+      await expect(input).not.toHaveAttribute('aria-invalid', 'true');
+    }
+    await expect.poll(() => first().wordTiming!.words[0].source).toBe('manual');
+    const word = first().wordTiming!.words[0];
+    expect(word.startMs).toBeGreaterThanOrEqual(600);
+    expect(word.endMs).toBeLessThanOrEqual(750);
+    expect(word.endMs! - word.startMs!).toBeGreaterThanOrEqual(10);
+    expect(first().wordTiming!.words[1]).toEqual(before.wordTiming!.words[1]);
+    expect([first().startMs, first().endMs, first().text]).toEqual([before.startMs, before.endMs, before.text]);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect.poll(() => first()).toEqual(before);
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await expect.poll(() => first().wordTiming!.words[0]).toEqual(word);
+    if (action === 'drag') await page.screenshot({ path: 'test-results/word-timing-stranded-repaired.png', fullPage: true });
+  });
+}
+
 test('corrected spelling keeps tentative timing until the user confirms that word', async ({ page }) => {
   project().captionAppearance = { ...project().captionAppearance!, highlightMode: 'word' };
   await openTiming(page);

@@ -40,6 +40,42 @@ test('unassigned, locked and nonfinite word movement is a no-op', () => {
   assert.equal(changeWordTiming(locked, 'w3', 'move', NaN), locked);
 });
 
+for (const [label, startMs, endMs] of [
+  ['before', 1300, 2300],
+  ['after', 3050, 4100],
+  ['across', 1800, 3500],
+] as const) {
+  for (const kind of ['move', 'start', 'end'] as const) {
+    test(`${kind} repairs a word stranded ${label} its available interval`, () => {
+      const before = cue();
+      before.wordTiming!.words[3] = { ...before.wordTiming!.words[3], startMs, endMs, needsReview: true };
+      const after = changeWordTiming(before, 'w3', kind, kind === 'move' ? 100 : 2600);
+      assert.notEqual(after, before);
+      const edited = after.wordTiming!.words[3];
+      assert.ok(edited.startMs! >= 2300);
+      assert.ok(edited.endMs! <= 3000);
+      assert.ok(edited.endMs! - edited.startMs! >= 10);
+      assert.equal(edited.source, 'manual');
+      assert.notEqual(edited.needsReview, true);
+      assert.deepEqual(after.wordTiming!.words.filter((word) => word.id !== 'w3'), before.wordTiming!.words.filter((word) => word.id !== 'w3'));
+      assert.deepEqual([after.startMs, after.endMs, after.text], [before.startMs, before.endMs, before.text]);
+    });
+  }
+}
+
+test('moving a stranded word preserves its duration when it fits and never invents room', () => {
+  const before = cue();
+  before.wordTiming!.words[3] = { ...before.wordTiming!.words[3], startMs: 1900, endMs: 2100, needsReview: true };
+  const moved = changeWordTiming(before, 'w3', 'move', 50);
+  assert.equal(moved.wordTiming!.words[3].startMs, 2300);
+  assert.equal(moved.wordTiming!.words[3].endMs, 2500);
+  before.wordTiming!.words[2].endMs = 3000;
+  for (const kind of ['move', 'start', 'end'] as const) assert.equal(changeWordTiming(before, 'w3', kind, 2600), before);
+  before.timingLocked = true;
+  before.wordTiming!.words[2].endMs = 2300;
+  for (const kind of ['move', 'start', 'end'] as const) assert.equal(changeWordTiming(before, 'w3', kind, 2600), before);
+});
+
 test('whole cue movement translates owned word times once and an edge trim never stretches them', () => {
   const before = cue();
   const moved = editCaptionTiming(before, 'move', 100, 10000);

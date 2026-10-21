@@ -65,6 +65,8 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
   const assignedStartOutside = Boolean(assigned && selected && selected.startMs! < rawAvailableMin);
   const assignedEndOutside = Boolean(assigned && selected && selected.endMs! > rawAvailableMax);
   const assignedOutsideAvailableRange = assignedStartOutside || assignedEndOutside;
+  const maxStart = assigned ? limits.maxStart : draftEnd - MIN_WORD_MS;
+  const minEnd = assigned ? limits.minEnd : draftStart + MIN_WORD_MS;
   const automaticAttempt = useRef<string | null>(null);
   const automaticRevision = timingRevisionKey(caption);
 
@@ -223,7 +225,7 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
         <div className="word-timing-selected-head"><strong>Word {index + 1}: {wordLabel}</strong><button disabled={!assigned} onClick={hearWord}><Play size={14}/>Hear word</button></div>
         {!hasRoom && <p className="timing-lock-status" role="status">No space between word boundaries. Adjust a neighboring word or caption edge, or try Sync words.</p>}
         {!assigned && hasRoom && <p className="timing-hint">No timing assigned. Set Start and End, then Apply word timing. The available range is not measured timing.</p>}
-        {assigned && (selected.needsReview || selected.source === 'estimated') && <p className="timing-hint">
+        {assigned && (assignedOutsideAvailableRange || selected.needsReview || selected.source === 'estimated') && <p className="timing-hint">
           {assignedEndOutside && !assignedStartOutside
             ? `This word extends past the available caption timing. Set End to ${formatTimestamp(limits.max)} or earlier; that manual edit will confirm it.`
             : assignedStartOutside && !assignedEndOutside
@@ -232,18 +234,19 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
                 ? `This word must stay between ${formatTimestamp(limits.min)} and ${formatTimestamp(limits.max)}. Adjusting it manually will confirm the word.`
                 : 'This timing needs review. Listen, then adjust or confirm this word.'}
         </p>}
+        {assignedOutsideAvailableRange && hasRoom && <p className="timing-hint">Move or trim this word to fit it inside the available range. Its duration may shorten; other words stay in place.</p>}
         <div className="timing-edge-grid">
           {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
             <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
               <TimestampInput key={`${selected.id}:${candidate ? 'proposed' : 'current'}`} label={`Word ${edge} time`} roundingMs={10} valueMs={assigned ? edge === 'start' ? selected.startMs! : selected.endMs! : edge === 'start' ? draftStart : draftEnd}
-                minMs={edge === 'start' ? limits.min : (assigned ? selected.startMs! : draftStart) + MIN_WORD_MS}
-                maxMs={edge === 'start' ? (assigned ? selected.endMs! : draftEnd) - MIN_WORD_MS : limits.max}
+                minMs={edge === 'start' ? limits.min : minEnd}
+                maxMs={edge === 'start' ? maxStart : limits.max}
                 disabled={wordEditingDisabled} onFocus={onStopPreview} onCommit={(value) => change(edge, value)}/>
             </div>
             <div className="timing-edge-actions">
               <button disabled={wordEditingDisabled || !assigned} onClick={() => nudge(edge, -stepMs)} aria-label={`Move word ${edge} earlier`}>−{stepMs} ms</button>
               <button disabled={wordEditingDisabled || !assigned} onClick={() => nudge(edge, stepMs)} aria-label={`Move word ${edge} later`}>+{stepMs} ms</button>
-              <button disabled={wordEditingDisabled || playheadMs < (edge === 'start' ? limits.min : (assigned ? selected.startMs! : draftStart) + MIN_WORD_MS) || playheadMs > (edge === 'end' ? limits.max : (assigned ? selected.endMs! : draftEnd) - MIN_WORD_MS)} onClick={() => change(edge, playheadMs)} aria-label={`Set word ${edge} to playhead`}>Set to playhead</button>
+              <button disabled={wordEditingDisabled || playheadMs < (edge === 'start' ? limits.min : minEnd) || playheadMs > (edge === 'end' ? limits.max : maxStart)} onClick={() => change(edge, playheadMs)} aria-label={`Set word ${edge} to playhead`}>Set to playhead</button>
             </div>
           </div>)}
         </div>
