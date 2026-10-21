@@ -763,6 +763,7 @@ for (const destination of ['another project', 'a new source in the same project'
       expect(writes[0]).toEqual({
         transcriptionContext: { description: 'Old-source submitted description', vocabulary: ['OldBrand | old alias'] },
         expectedMedia: { filename: f.original.media.filename, size: f.original.media.size },
+        expectedUpdatedAt: f.original.updatedAt,
       });
       await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
       // Home drains the existing write before leaving. The old source, raw

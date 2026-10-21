@@ -44,6 +44,13 @@ export class StaleProjectMediaError extends Error {
   }
 }
 
+export class StaleProjectRevisionError extends Error {
+  constructor() {
+    super('The saved captions changed. Download your edits, then reload the saved project to compare.');
+    this.name = 'StaleProjectRevisionError';
+  }
+}
+
 function matchesMedia(project: CaptionProject, expectedMedia: ExpectedMedia) {
   return project.media.filename === expectedMedia.filename && project.media.size === expectedMedia.size;
 }
@@ -789,10 +796,11 @@ function nearestTokenBoundary(tokens: NonNullable<CaptionProject['transcript']>[
   return distance <= tolerance ? nearest : value;
 }
 
-export async function postprocessProjectTiming(projectId: string, settings: QaProfileSettings, expectedMedia: ExpectedMedia) {
+export async function postprocessProjectTiming(projectId: string, settings: QaProfileSettings, expectedMedia: ExpectedMedia, expectedUpdatedAt: string) {
   return store.withProjectWrite(projectId, async (project, persist) => {
     if (!project) throw new Error('Project not found');
     if (!matchesMedia(project, expectedMedia)) throw new StaleProjectMediaError();
+    if (project.updatedAt !== expectedUpdatedAt) throw new StaleProjectRevisionError();
     assertRetainedTimingCanBeDerived(project);
     if (!project.captions.length) throw new Error('There are no captions to process.');
     await historyStore.checkpoint(project, `Before timing cleanup: ${settings.name}`, 'timing-fix');

@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCaptionWordTiming, resolveCaptionWordTiming, type CaptionSegment, type CaptionWordTiming, type TimedToken } from '@kcs/shared';
+import { buildCaptionWordTiming, hydrateCaptionWordTimings, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionWordTiming, type TimedToken } from '@kcs/shared';
+import { checkedSaveRevision } from '../apps/web/src/save-revision.js';
 import type { CaptionWordTimingCandidate } from '../apps/web/src/api.js';
 import {
   applyWordHighlightBatch,
   mergePublishedWordHighlightBatch,
   prepareWordHighlightBatch,
   undoWordHighlightBatch,
+  wordHighlightBatchSaveBasis,
   type WordHighlightBatchProgress,
 } from '../apps/web/src/word-highlight-batch.js';
 
@@ -256,4 +258,157 @@ test('published undo merge removes restored word timing and approval when the se
   assert.equal(Object.prototype.hasOwnProperty.call(merged[0], 'approved'), false);
   assert.ok(applied.next[0].wordTiming);
   assert.equal(applied.next[0].approved, false);
+});
+
+function wordBatchAuthorityProject(captions: CaptionSegment[]): CaptionProject {
+  return {
+    id: 'batch-authority', title: 'Synthetic batch authority',
+    createdAt: '2026-10-20T00:00:00.000Z', updatedAt: '2026-10-20T00:00:00.000Z',
+    media: { filename: 'batch.mp4', originalName: 'batch.mp4', mimeType: 'video/mp4', size: 123, url: '/media/batch.mp4' },
+    transcript: null, transcriptionContext: { description: 'Saved Accuracy', vocabulary: ['OriginalTerm'] },
+    captions, mode: 'single-line', engineVersion: 'test',
+  };
+}
+
+function wordBatchAuthorityCases() {
+  const target = caption('target');
+  const other = caption('other', 'outside caption', 3_000);
+  const basis = wordBatchAuthorityProject([
+    target,
+    { ...other, wordTiming: timingFor(other), retainedExtension: { value: 'unchanged' } } as CaptionSegment,
+  ]);
+  const applied = applyWordHighlightBatch(basis.captions, [candidateFor(target)]);
+  const appliedProject = { ...basis, captions: applied.next, updatedAt: '2026-10-20T00:00:01.000Z' };
+  return [
+    { action: 'apply', basis, changes: applied.applied, returned: appliedProject },
+    {
+      action: 'undo', basis: appliedProject,
+      changes: applied.applied.map(({ before, after }) => ({ before: after, after: before })),
+      returned: { ...basis, updatedAt: '2026-10-20T00:00:02.000Z' },
+    },
+  ];
+}
+
+test('partial word-batch acknowledgements authorize ordinary saves after valid apply and undo', () => {
+  for (const item of wordBatchAuthorityCases()) {
+    const original = structuredClone(item.basis);
+    const expected = wordHighlightBatchSaveBasis(item.basis, item.changes);
+    assert.ok(expected, item.action);
+    assert.equal(checkedSaveRevision(expected, item.returned, 'captions'), item.returned.updatedAt, item.action);
+    assert.deepEqual(expected.captions[1], original.captions[1], 'unrelated persisted fields survive');
+    assert.deepEqual(item.basis, original, 'planning does not mutate the acknowledged basis');
+  }
+});
+
+test('partial word-batch authority rejects foreign caption changes anywhere in an apply or undo response', () => {
+  const rowChanges: Array<[string, (cue: CaptionSegment) => void]> = [
+    ['text', (cue) => { cue.text = 'foreign wording'; }],
+    ['cue timing', (cue) => { cue.endMs += 10; }],
+    ['word timing', (cue) => { cue.wordTiming ??= timingFor(cue); cue.wordTiming.words[0].startMs! += 10; }],
+    ['approval', (cue) => { cue.approved = !cue.approved; }],
+    ['text lock', (cue) => { cue.textLocked = true; }],
+    ['timing lock', (cue) => { cue.timingLocked = true; }],
+    ['metadata', (cue) => { cue.confidence = 0.42; }],
+    ['unknown field', (cue) => { Object.assign(cue, { foreignExtension: 'newer saved data' }); }],
+  ];
+  const sequenceChanges: Array<[string, (project: CaptionProject) => void]> = [
+    ['order', (project) => { project.captions.reverse(); }],
+    ['removed row', (project) => { project.captions.pop(); }],
+    ['added row', (project) => { project.captions.push(caption('added', 'new row', 5_000)); }],
+  ];
+  for (const item of wordBatchAuthorityCases()) {
+    const expected = wordHighlightBatchSaveBasis(item.basis, item.changes);
+    assert.ok(expected);
+    for (const row of [0, 1]) {
+      for (const [label, mutate] of rowChanges) {
+        const returned = structuredClone(item.returned);
+        mutate(returned.captions[row]);
+        assert.throws(() => checkedSaveRevision(expected, returned, 'captions'), /saved captions changed/i,
+          `${item.action}: ${row === 0 ? 'target' : 'unrelated row'} ${label}`);
+      }
+    }
+    for (const [label, mutate] of sequenceChanges) {
+      const returned = structuredClone(item.returned);
+      mutate(returned);
+      assert.throws(() => checkedSaveRevision(expected, returned, 'captions'), /saved captions changed/i, `${item.action}: ${label}`);
+    }
+  }
+});
+
+test('a word-batch save basis requires unique targets matching the acknowledged before revisions', () => {
+  const { basis, changes } = wordBatchAuthorityCases()[0];
+  const change = changes[0];
+  assert.equal(wordHighlightBatchSaveBasis(null, changes), null);
+  assert.equal(wordHighlightBatchSaveBasis(basis, [change, change]), null);
+  const missing = { ...basis, captions: basis.captions.filter((cue) => cue.id !== change.before.id) };
+  assert.equal(wordHighlightBatchSaveBasis(missing, changes), null);
+  const wrongTarget = [{ before: change.before, after: { ...change.after, id: 'another-target' } }];
+  assert.equal(wordHighlightBatchSaveBasis(basis, wrongTarget), null);
+  for (const changedBefore of [
+    { ...change.before, text: 'older text' },
+    { ...change.before, endMs: change.before.endMs + 10 },
+    { ...change.before, approved: !change.before.approved },
+    { ...change.before, timingLocked: true },
+  ]) {
+    assert.equal(wordHighlightBatchSaveBasis(basis, [{ before: changedBefore, after: change.after }]), null);
+  }
+});
+
+test('word-batch undo authority preserves deletion of omitted or undefined timing and approval', () => {
+  const original: CaptionSegment = { id: 'target', text: 'one two', startMs: 1_000, endMs: 2_000 };
+  const basis = wordBatchAuthorityProject([original]);
+  const applied = applyWordHighlightBatch(basis.captions, [candidateFor(original)]);
+  const current = { ...basis, captions: applied.next };
+  const returned = { ...basis, updatedAt: '2026-10-20T00:00:02.000Z' };
+  for (const after of [original, { ...original, wordTiming: undefined, approved: undefined }]) {
+    const expected = wordHighlightBatchSaveBasis(current, [{ before: applied.next[0], after }]);
+    assert.ok(expected);
+    assert.equal(checkedSaveRevision(expected, returned, 'captions'), returned.updatedAt);
+    assert.equal(Object.prototype.hasOwnProperty.call(expected.captions[0], 'wordTiming'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(expected.captions[0], 'approved'), false);
+    assert.ok(current.captions[0].wordTiming, 'undo planning does not erase the saved apply result');
+  }
+});
+
+test('word-batch authority accepts a safely hydrated legacy target without changing the raw basis', () => {
+  const legacy = caption('legacy');
+  const basis = wordBatchAuthorityProject([legacy]);
+  const tokens: TimedToken[] = [
+    { id: 'legacy-1', text: 'one', startMs: 1_100, endMs: 1_280, spaceBefore: false, timingSource: 'stt' },
+    { id: 'legacy-2', text: 'two', startMs: 1_400, endMs: 1_580, spaceBefore: true, timingSource: 'stt' },
+  ];
+  basis.transcript = {
+    language: 'en', fullText: legacy.text, segments: [structuredClone(legacy)], tokens,
+    timing: {
+      engine: 'kfa-local', provider: 'local', model: 'fixture', sttTranscript: legacy.text, audioDurationMs: 3_000,
+      totalTokens: 2, anchoredTokens: 2, interpolatedTokens: 0, lowConfidenceTokens: 0, alignmentCoverage: 1, meanAlignmentScore: 1,
+    },
+  };
+  const before = hydrateCaptionWordTimings(basis).captions[0];
+  assert.equal(resolveCaptionWordTiming(before).state, 'ready');
+  const after = structuredClone(before);
+  after.wordTiming!.words[0].startMs! += 10;
+  after.approved = false;
+  const expected = wordHighlightBatchSaveBasis(basis, [{ before, after }]);
+  assert.ok(expected);
+  const returned = { ...basis, captions: [after], updatedAt: '2026-10-20T00:00:03.000Z' };
+  assert.equal(checkedSaveRevision(expected, returned, 'captions'), returned.updatedAt);
+  assert.equal(Object.prototype.hasOwnProperty.call(basis.captions[0], 'wordTiming'), false);
+});
+
+test('word-batch caption authority stays separate from Accuracy and exact project/media identity', () => {
+  const { basis, changes, returned } = wordBatchAuthorityCases()[0];
+  const expected = wordHighlightBatchSaveBasis(basis, changes);
+  assert.ok(expected);
+  const foreignContext = { ...returned, transcriptionContext: { description: 'Another editor changed Accuracy', vocabulary: ['ForeignTerm'] } };
+  assert.equal(checkedSaveRevision(expected, foreignContext, 'captions'), foreignContext.updatedAt);
+  assert.deepEqual(expected.transcriptionContext, basis.transcriptionContext);
+  assert.throws(() => checkedSaveRevision(expected, foreignContext, 'context'), /saved Accuracy context changed/i);
+  for (const foreign of [
+    { ...returned, id: 'another-project' },
+    { ...returned, media: { ...returned.media, filename: 'replacement.mp4' } },
+    { ...returned, media: { ...returned.media, size: returned.media.size + 1 } },
+  ]) {
+    assert.throws(() => checkedSaveRevision(expected, foreign, 'captions'), /saved captions changed/i);
+  }
 });

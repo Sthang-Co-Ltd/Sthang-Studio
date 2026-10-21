@@ -35,7 +35,13 @@ export interface RecoveryDraft {
 }
 
 export interface RecoveryEntry { key: string; raw: string; draft: RecoveryDraft }
-export interface RecoveryWriteInput { project: CaptionProject; captions?: CaptionSegment[]; accuracy?: AccuracyFields }
+export interface RecoveryWriteInput {
+  project: CaptionProject;
+  captions?: CaptionSegment[];
+  accuracy?: AccuracyFields;
+  /** A conflicted baseline is no longer proof that these captions are saved. */
+  keepUnchangedCaptions?: boolean;
+}
 export interface RecoveryWriteResult {
   status: 'saved' | 'cleared' | 'unavailable' | 'too-large';
   entry?: RecoveryEntry;
@@ -203,7 +209,8 @@ export function createUnfinishedEditRecoveryStore(storageGetter: () => RecoveryS
         const mediaKey = projectMediaKey(input.project);
         const ownerKey = ownKey(input.project.id, mediaKey);
         const captions = input.captions?.map(editableCaption);
-        const changedCaptions = captions !== undefined && JSON.stringify(captions) !== JSON.stringify(input.project.captions.map(editableCaption)) ? captions : undefined;
+        const changedCaptions = captions !== undefined && (input.keepUnchangedCaptions
+          || JSON.stringify(captions) !== JSON.stringify(input.project.captions.map(editableCaption))) ? captions : undefined;
         if (changedCaptions === undefined && input.accuracy === undefined) {
           return { status: clearOwn(input.project.id, mediaKey) ? 'cleared' : 'unavailable' };
         }

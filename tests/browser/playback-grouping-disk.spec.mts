@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CaptionProject } from '@kcs/shared';
 import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
-import { startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
-import { continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
+import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
+import { closeOwnedBrowserContext, continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
 const harness = requireHarnessConfig();
 let root = '';
@@ -363,17 +363,18 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page, context }) => {
   try {
-    // Stop the real app while its network guard is still installed, then drain
-    // native previews and held forwards before Playwright disposes the context.
-    if (!page.isClosed()) {
-      page.once('dialog', async (dialog) => {
-        expect(dialog.type()).toBe('beforeunload');
-        await dialog.accept();
-      });
-      await page.goto('about:blank');
-    }
-    await page.unrouteAll({ behavior: 'wait' });
-    await context.unrouteAll({ behavior: 'wait' });
+    await cleanupOwnedApiClients(server, [
+      async () => {
+        if (!page.isClosed()) {
+          page.once('dialog', async (dialog) => {
+            expect(dialog.type()).toBe('beforeunload');
+            await dialog.accept();
+          });
+          await page.goto('about:blank');
+        }
+      },
+      () => closeOwnedBrowserContext(context),
+    ]);
   } finally {
     detachChildExit?.();
     detachChildExit = null;
@@ -939,6 +940,7 @@ for (const groupingCase of groupingCases) {
       expect(saveBodies).toHaveLength(1);
       expect(saveBodies[0].captions[0].text).toBe(corrected);
       expect(saveBodies[0].expectedMedia).toEqual({ filename: original.media.filename, size: original.media.size });
+      expect(saveBodies[0].expectedUpdatedAt).toBe(original.updatedAt);
       expect((await readDisk()).captions[0].text).toBe(corrected);
       expect(regroupBodies).toHaveLength(0);
 
@@ -952,7 +954,9 @@ for (const groupingCase of groupingCases) {
       }
       const savedResponse = page.waitForResponse((response) => response.url().endsWith(`/api/projects/${scenario.id}/captions`) && response.request().method() === 'PUT');
       releaseSave();
-      expect((await savedResponse).status()).toBe(200);
+      const firstResponse = await savedResponse;
+      expect(firstResponse.status()).toBe(200);
+      const firstAcknowledgement = (await firstResponse.json()).project as CaptionProject;
 
       if (scenario.leave === 'save') {
         // Home completion is the settlement barrier, not a sleep or a momentary
@@ -987,7 +991,7 @@ for (const groupingCase of groupingCases) {
       // explicit prerequisite before either acknowledgement is released.
       expect(saveBodies).toHaveLength(2);
       expect(saveBodies.map((body) => body.source)).toEqual(['text-edit', 'manual-save']);
-      expect(saveBodies[1]).toEqual({ ...saveBodies[0], source: 'manual-save' });
+      expect(saveBodies[1]).toEqual({ ...saveBodies[0], source: 'manual-save', expectedUpdatedAt: firstAcknowledgement.updatedAt });
       expect(saveBodies[1].captions.map((caption: { text: string }) => caption.text)).toEqual([corrected]);
       expect(regroupBodies).toHaveLength(scenario.leave === 'save' ? 0 : 1);
       expect((await readDisk()).captions[0].text).toBe(expectedText);

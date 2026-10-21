@@ -66,7 +66,8 @@ test('timing cleanup rejects before checkpoint/persist and keeps every retained 
   await store.upsert(project);
   cancelScheduledProjectPrewarm(project.id);
   const before = await store.get(project.id);
-  await assert.rejects(postprocessProjectTiming(project.id, settings, project.media), MediaAlignmentUnverifiedError);
+  assert.ok(before);
+  await assert.rejects(postprocessProjectTiming(project.id, settings, project.media, before.updatedAt), MediaAlignmentUnverifiedError);
   assert.deepEqual(await store.get(project.id), before);
   assert.deepEqual(await historyStore.list(project.id, project.media), []);
 });
@@ -78,7 +79,9 @@ test('ordinary timing cleanup remains available for unchanged-audio projects', a
   project.captions[0].textLocked = false;
   await store.upsert(project);
   cancelScheduledProjectPrewarm(project.id);
-  const cleaned = await postprocessProjectTiming(project.id, settings, project.media);
+  const basis = await store.get(project.id);
+  assert.ok(basis);
+  const cleaned = await postprocessProjectTiming(project.id, settings, project.media, basis.updatedAt);
   assert.notEqual(cleaned.captions[0].startMs, project.captions[0].startMs);
   assert.equal((await historyStore.list(project.id, project.media)).length, 1);
 });

@@ -5,6 +5,7 @@ import {
   queueCaptionAppearanceSave,
   recoverUnsavedCaptionAppearance,
   waitForCaptionAppearanceSaves,
+  withCaptionAppearanceBarrier,
 } from '../apps/web/src/caption-appearance-save.js';
 
 const sourceMedia = { filename: 'synthetic-source.mp4', size: 100 };
@@ -19,6 +20,46 @@ function deferred<T>() {
 test('an untouched project has no pending or recoverable appearance', async (t) => {
   assert.equal(await waitForCaptionAppearanceSaves(t.name), true);
   assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia), null);
+});
+
+test('a revision check and save reserves the appearance lane until the write settles', async (t) => {
+  const firstResponse = deferred<Response>();
+  const firstStarted = deferred<void>();
+  const saveGate = deferred<void>();
+  const saveStarted = deferred<void>();
+  const events: string[] = [];
+  t.mock.method(globalThis, 'fetch', async () => {
+    events.push('appearance');
+    if (events.length === 1) { firstStarted.resolve(); return firstResponse.promise; }
+    return new Response(null, { status: 204 });
+  });
+  const appearance = queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE, sourceMedia);
+  await firstStarted.promise;
+  const save = withCaptionAppearanceBarrier(t.name, async () => {
+    events.push('revision-read'); saveStarted.resolve();
+    await saveGate.promise;
+    events.push('caption-put');
+    return 'saved';
+  });
+  const laterAppearance = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, bold: false }, sourceMedia);
+  assert.deepEqual(events, ['appearance']);
+  firstResponse.resolve(new Response(null, { status: 204 }));
+  await saveStarted.promise;
+  assert.deepEqual(events, ['appearance', 'revision-read']);
+  saveGate.resolve();
+  assert.deepEqual(await Promise.all([appearance, save, laterAppearance]), [true, 'saved', true]);
+  assert.deepEqual(events, ['appearance', 'revision-read', 'caption-put', 'appearance']);
+});
+
+test('a rejected caption save does not poison appearance or claim to repair an appearance failure', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 500 }));
+  assert.equal(await queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE, sourceMedia), false);
+  await assert.rejects(withCaptionAppearanceBarrier(t.name, async () => { throw new Error('save conflict'); }), /save conflict/);
+  assert.equal(await waitForCaptionAppearanceSaves(t.name, sourceMedia), false);
+  assert.ok(recoverUnsavedCaptionAppearance(t.name, sourceMedia));
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+  assert.equal(await queueCaptionAppearanceSave(t.name, DEFAULT_CAPTION_APPEARANCE, sourceMedia), true);
+  assert.equal(fetchMock.mock.callCount(), 1);
 });
 
 test('same-project saves serialize immutable snapshots and barriers wait for the last write', async (t) => {

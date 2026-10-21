@@ -1,0 +1,113 @@
+# Stale save protection: public-impact intake
+
+- **Change ID:** `studio-reject-stale-saves-20261020`
+- **State:** source-only implementation and intake proposal
+- **Public impact:** required for save/conflict workflow documentation
+- **Downstream assessment:** uncertain until an authorized HQ checkout, its
+  Phase 3 intake evidence, and the exact approval plan are available
+
+## Product change
+
+Ordinary caption and Accuracy saves now require a saved revision. The server
+compares it inside the project write lock before persistence or caption History,
+correction memory, Contributor candidates, and approval analytics. A stale
+request is rejected even when its payload is a no-op; an older client omitting
+the revision is refused.
+
+The editor compares the fields it will replace against its acknowledged copy.
+Unrelated saved fields can advance safely. Its own Appearance writes share the
+revision-check/save boundary, and accepted queued saves and explicit History,
+grouping, and regeneration operations retain their ordering.
+An accepted whole-caption mutation cannot silently authorize an already dirty
+draft to overwrite the newly saved captions; conflicting drafts require manual
+comparison while edits made after a clean History action retain their ordering.
+
+Prepared word-timing apply and undo own only the targeted timing and approval
+changes. If a response includes unrelated saved captions that a retained draft
+never received, it cannot advance that draft's full-list save authority. The
+accepted batch and newer input remain available; stale autosave, explicit Save
+and queued full-list writes stop for comparison. A same-client batch followed by
+new typing still saves normally when the response matches the prior acknowledged
+captions plus the declared batch changes. Accuracy authority stays independent.
+If the editor changes a batch target while its acknowledgement is pending, its
+accepted timing and History remain saved while the local draft is kept for
+comparison. A later ordinary Save cannot silently reverse that batch.
+
+Khmer-spacing and safe-timing cleanup compare captions with their acknowledged
+basis before submitting. Their API revision checks run inside the project write
+lock before History or mutation, including when another write wins after the
+preflight. Older clients that omit the revision receive 428 and must refresh.
+
+A conflict keeps the local draft, stops queued saves and automatic retries, and
+offers Download edits and Reload saved project. Reload captures the bounded
+recovery copy; if browser storage cannot retain it, an explicit warning and
+confirmation are required before leaving. Conflicting recovery is available for
+download and comparison, not automatic restoration over changed saved evidence.
+Studio does not automatically merge simultaneous edits to the same caption list
+or Accuracy context, including edits to different caption rows.
+
+## Product-owned evidence
+
+| Evidence | Assessment |
+| --- | --- |
+| `README.md`; `PRODUCT.md`; `DESIGN.md`; `CHANGELOG.md`; `docs/UNFINISHED-EDIT-RECOVERY.md` | Updated source-only save/conflict instructions and limitations |
+| `apps/web/src/App.tsx`; `apps/web/src/save-revision.ts`; `apps/web/src/word-highlight-batch.ts`; `apps/web/src/caption-appearance-save.ts`; `apps/web/src/api.ts`; `apps/web/src/unfinished-edit-recovery.ts` | Scoped batch and field ownership, revision checks, local queue behavior, conflict/reload actions, and retained comparison copies |
+| `apps/server/src/routes/projects.ts`; `apps/server/src/services/project-processing.ts` | Required guarded caption/context and cleanup writes before side effects |
+| `tests/stale-save-api.test.mts`; `tests/save-revision.test.ts`; `tests/browser/stale-save-conflicts.spec.mts` | Rejection, valid saves, two-client conflicts, local draft preservation, and side-effect boundaries |
+| Existing recovery, grouping, media-replacement, and Appearance tests | Compatibility with accepted saves, newer typing, History ordering, and recovery exclusions |
+| `tests/word-highlight-batch.test.ts`; `tests/browser/word-batch-save-conflicts.spec.mts` | Apply/undo authority, held persisted responses, exact disk and retained edits, same-client queued controls, and cleanup preflight rejection |
+| `PRIVACY.md` | Existing browser-copy contents, bounds, origin/profile scope, and retention still apply; no new storage category, provider, external transfer, telemetry, or dependency |
+
+Actual validation outcomes belong to the task receipt and
+`docs/STALE-SAVE-QUALIFICATION.md`. Test pointers and source implementation do
+not establish released availability.
+
+The reviewed `.sthang/product-manifest.json` represents the separately governed
+`studio-v0-86-0-release-20261013` change. Its `proposal.release`,
+`proposal.distribution`, and signed update evidence remain tied to that release.
+This proposal does not rewrite those accepted claims or imply that published
+v0.86.0 downloads contain stale-save protection. Branding, installation,
+compatibility, and download/update authorities are unaffected by this change.
+
+## Proposed HQ and Distribution follow-up
+
+| Authority or surface | Proposed follow-up |
+| --- | --- |
+| HQ Studio workflow/features | Describe guarded caption/Accuracy Save, scoped prepared-timing acknowledgements, guarded cleanup, and the Download edits / Reload saved project path, with source-only availability until release evidence changes |
+| HQ Studio limitations | State that conflicts stop stale retries and require manual comparison; avoid universal multi-tab protection or automatic merge claims |
+| HQ Studio data-processing evidence | Confirm the existing local recovery disclosure; this follow-up adds no new transfer or retention category |
+| `landing/studio/index.html` and `docs/studio/index.md` | Review the `/studio/` save/recovery workflow after HQ acceptance and carry the approved conflict limitations |
+| `governance/hq/portfolio.json` and `governance/hq/sync-lock.json` | Transport the exact accepted HQ input through Distribution's Phase 2 plan/apply workflow |
+
+Distribution's README was read for this assessment. It requires clean HQ and
+Distribution worktrees, an immutable plan, and explicit approval of the exact
+plan digest and listed classes. The existing v0.86.0 exception grants no authority
+for this new change. Data-processing changes, if the HQ assessment requires any,
+remain subject to the blocked public-visibility approval class.
+
+The authorized HQ checkout and Phase 3 intake input are unavailable in the
+connected roots, so this proposal does not invent schema fields, plan digests,
+approval classes, or an accepted downstream diff. Next: prepare the new HQ
+Phase 3 intake, obtain its exact approval, then prepare and approve the matching
+Distribution Phase 2 plan. Website/docs writes, builds, publication, release
+promotion, and deployment retain their separate approval requirements.
+
+## Browser teardown qualification follow-up
+
+Public impact: none for the test-harness correction based on PR head
+`4014876ff370324303af23b20d329d4f40aa303a` and main base
+`f4091082fc8c00e0d1645e3927a3acc5bd3c48fd`. The final diff changes browser route
+teardown, test-owned API lifetime, suite cleanup hooks, lifecycle regression
+coverage and qualification evidence. It preserves the accepted product code and
+all existing stale-save test-body assertions. It changes no advertised feature,
+user workflow, installation, compatibility promise, branding, privacy/security
+disclosure or release/download authority.
+
+`docs/STALE-SAVE-QUALIFICATION.md` now retains the failed CI evidence and explains
+the deterministic lifecycle reproductions and the subsequent complete-browser
+qualification. This repairs the validation record; it does not establish new
+public availability. The product manifest and its declared release evidence
+were compared with this scope and require no rewrite. The source-only product
+intake above remains required, with the same missing HQ input and exact
+approval decisions. This harness follow-up adds no new intake proposal or
+cross-repository write.

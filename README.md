@@ -57,6 +57,12 @@ closing or reloading Studio. Leaving a project waits for pending saves and saves
 both kinds of edits; a failed save keeps the editor open with **Retry save** and
 **Download edits**. Text still being composed is kept without forcing a save.
 
+Ordinary caption and Accuracy saves also check their saved revision. If another
+editor changes the saved fields before your save completes, Studio keeps your
+draft and stops further saves from that editor. Use **Download edits**, then
+**Reload saved project** to compare with the current saved work. Conflicts are
+resolved by comparison; Studio does not automatically merge simultaneous edits.
+
 A bounded recovery copy stays in this browser profile. Reopen the project to
 preview it and choose **Restore draft**, **Download draft**, or **Discard draft**.
 Restore checks the current saved captions, context, and exact media again.

@@ -1,6 +1,7 @@
 # Unfinished edit recovery
 
-**Source-only change:** `studio-unfinished-edit-recovery-20261019`. This document
+**Source-only changes:** `studio-unfinished-edit-recovery-20261019` and
+`studio-reject-stale-saves-20261020`. This document
 describes development source behavior. It does not establish availability in a
 published download or update.
 
@@ -14,7 +15,7 @@ force a save during active text composition.
 **Save** handles both captions and Accuracy changes. Leaving for projects, a job
 result, or correction audio saves unfinished changes before switching. If a save
 fails or newer input arrives while it is saving, Studio keeps the editor open.
-**Retry save** retries the save; a failed save is not displayed as saved. Browser
+**Retry save** retries a non-conflicting failed save; a failed save is not displayed as saved. Browser
 reload/close protection applies while changes or relevant saves remain pending.
 Browsers can suppress an unload prompt or terminate without delivering it, so the
 local copy is written during editing rather than relying on that prompt alone.
@@ -43,6 +44,37 @@ check also protects the initial recovered save against a project change after
 the restore check. A conflict keeps the draft; retrying does not authorize an
 overwrite. Download the active unfinished draft before reloading if a failed
 save cannot be resolved, especially when browser storage is unavailable.
+
+Ordinary caption and Accuracy saves also protect against stale editing. Before
+saving, Studio checks whether the saved fields it is about to replace still
+match the editor's acknowledged copy, then sends the current saved revision.
+The server compares that revision again inside the project's write lock before
+changing the project, History, correction memory, Contributor candidates, or
+approval analytics. Missing revisions are refused, including from older clients.
+
+If those fields changed, or the revision changes between checking and saving,
+the editor keeps the local draft and shows **Saved project changed**. Further
+queued saves and automatic retries stop; **Save** is disabled. Use **Download
+edits**, then **Reload saved project** to compare with the saved work. Reload
+captures the existing recovery copy but does not merge or overwrite changed
+saved fields. If browser storage cannot keep the copy, reloading requires an
+explicit warning and confirmation; cancel keeps the editor open. Download first
+to retain the current draft. A conflicted comparison copy remains even if you
+type back to the earlier saved text, because that text is no longer the current
+saved project. Browser reload protection and storage limits still apply.
+
+An unrelated saved field can advance without invalidating the draft: a caption
+save preserves saved Accuracy and Appearance, and an Accuracy save preserves
+saved captions and Appearance. The editor serializes its own Appearance writes
+with each revision check/save. A successful save or an explicitly accepted
+History, grouping, or regeneration change supplies the basis for subsequent
+queued edits; unrelated responses cannot grant that authority to a retained
+draft. Simultaneous edits to the same saved field require manual comparison,
+even when the two editors changed different caption rows.
+If a whole-caption regeneration is accepted while an already unfinished draft
+would replace its newly saved captions, Studio instead keeps the draft and
+requires Download edits / Reload saved project before another save. Typing
+entered after a clean History action still follows that action in save order.
 
 Restored changed rows need approval again. Recovery does not accept stored
 approval, confidence, or manual word-timing tracks. Existing approval on unchanged
@@ -94,8 +126,9 @@ silently recreated from this record.
 Only fields accepted into the caption/Accuracy drafts are covered. Uncommitted
 timestamp input, draft-only per-word timing, approval-only changes, appearance,
 generation proposals, and source media are outside the editable recovery payload.
-General conflict enforcement and merging for ordinary simultaneous editing in
-multiple tabs remain separate work.
+Ordinary caption and Accuracy writes have revision protection. Other operations
+retain their existing guards; this is not a general collaboration or automatic
+merge system.
 
 ## Implementation and verification
 
@@ -103,12 +136,15 @@ multiple tabs remain separate work.
 | --- | --- |
 | `apps/web/src/unfinished-edit-recovery.ts` | Validated records, bounds, ownership, expiry, compatibility, and safe restoration |
 | `apps/web/src/accuracy-context-draft.ts` | Raw Accuracy fields and their independent saved acknowledgement |
-| `apps/web/src/App.tsx` | Input capture, saved caption basis, pending-save/navigation handling, and recovery actions |
-| `apps/web/src/api.ts`; `apps/server/src/routes/projects.ts` | Recovery revision guard and recovery-save side-effect exclusions |
+| `apps/web/src/App.tsx` | Input capture, owned save basis, conflict state, pending-save/navigation handling, and recovery actions |
+| `apps/web/src/save-revision.ts`; `apps/web/src/caption-appearance-save.ts` | Field comparison and serialization with Appearance writes |
+| `apps/web/src/api.ts`; `apps/server/src/routes/projects.ts` | Required ordinary revision guards and recovery-save side-effect exclusions |
 
-`npm run test:edit-recovery` exercises Accuracy ownership, recovery utilities, and
-the synthetic HTTP boundary. `tests/browser/unfinished-edit-recovery.spec.mts`
-covers the editor workflow. Relevant verification includes focused/IME input,
+`npm run test:edit-recovery` exercises Accuracy ownership, recovery utilities,
+save-revision comparison, and the synthetic HTTP boundary.
+`tests/browser/unfinished-edit-recovery.spec.mts` and
+`tests/browser/stale-save-conflicts.spec.mts` cover the editor workflow.
+Relevant verification includes focused/IME input,
 delayed acknowledgements, save failure/retry, mixed caption and Accuracy saves,
 navigation, storage failure, conflicts, and fresh timing provenance. The task's
 verification receipt owns the actual results; these pointers do not assert a

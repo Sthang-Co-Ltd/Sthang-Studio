@@ -77,15 +77,17 @@ import { SourceMedia } from './components/SourceMedia';
 import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqueContextLines, type AccuracyFields, type AccuracyObservation } from './accuracy-context-draft';
 import { createUnfinishedEditRecoveryStore, assessRecovery, restoredCaptions, type RecoveryEntry } from './unfinished-edit-recovery';
 import { UnfinishedEditRecoveryNotice } from './components/UnfinishedEditRecoveryNotice';
+import { checkedSaveRevision, editorAdoptedAccuracy, matchesCaptionSaveBasis, matchesVocabularyAddition } from './save-revision';
 import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-edit';
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
-import { waitForCaptionAppearanceSaves } from './caption-appearance-save';
+import { waitForCaptionAppearanceSaves, withCaptionAppearanceBarrier } from './caption-appearance-save';
 import {
   applyWordHighlightBatch,
   mergePublishedWordHighlightBatch,
   prepareWordHighlightBatch,
   undoWordHighlightBatch,
+  wordHighlightBatchSaveBasis,
   type WordHighlightBatchResult,
 } from './word-highlight-batch';
 import type { WordHighlightPreparationView } from './components/WordHighlightPreparation';
@@ -337,11 +339,12 @@ export default function App() {
   const [contextSaveState, setContextSaveState] = useState<'saved' | 'saving' | 'failed'>('saved');
   const [captionSaveError, setCaptionSaveError] = useState('');
   const [contextSaveError, setContextSaveError] = useState('');
+  const [saveConflict, setSaveConflict] = useState(false);
   const pendingContextWrites = useRef(new Map<string, number>());
   const [, refreshContextWrites] = useState(0);
   const accuracyDirty = accuracyDraft.current.hasChanges(profile?.defaultVocabulary);
-  const unfinishedChanges = dirty || accuracyDirty || (pendingContextWrites.current.get(mediaKey) || 0) > 0;
-  const saveFailed = autosaveState === 'failed' || contextSaveState === 'failed';
+  const unfinishedChanges = dirty || accuracyDirty || saveConflict || (pendingContextWrites.current.get(mediaKey) || 0) > 0;
+  const saveFailed = saveConflict || autosaveState === 'failed' || contextSaveState === 'failed';
   const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : ''].filter(Boolean).join(' ');
   const [recoveryOwner] = useState(() => crypto.randomUUID());
   const [recoveryStore] = useState(() => createUnfinishedEditRecoveryStore(() => {
@@ -354,6 +357,10 @@ export default function App() {
   // `project.captions` sometimes contains newer unsaved edits. Recovery compares
   // against actual server acknowledgements, owned separately from that view.
   const savedProject = useRef<CaptionProject | null>(null);
+  // Each field keeps the saved evidence actually adopted by this editor. A full
+  // response for an unrelated action cannot authorize overwriting unseen edits.
+  const ordinarySaveBasis = useRef<CaptionProject | null>(null);
+  const conflictedSave = useRef<{ key: string; basis: CaptionProject } | null>(null);
   const restoredRecovery = useRef<{ key: string; expectedUpdatedAt: string; basis: CaptionProject; origin: RecoveryEntry } | null>(null);
   const [queuedSeekMs, setQueuedSeekMs] = useState<number | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
@@ -476,31 +483,64 @@ export default function App() {
     if (count > 0) pendingContextWrites.current.set(key, count); else pendingContextWrites.current.delete(key);
     refreshContextWrites((revision) => revision + 1);
   }
-  function captureUnfinishedRecovery() {
+  function captureUnfinishedRecovery(): boolean {
     const saved = savedProject.current;
-    if (!saved || projectMediaKey(saved) !== projectScope.current.capture().key) return;
+    if (!saved || projectMediaKey(saved) !== projectScope.current.capture().key) return false;
     // A pending save can replace the old baseline even when newer typing has
     // returned to that baseline. Keep those exact fields until its ACK settles.
     const contextChanged = accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || hasPendingContextWrite();
     const recovery = restoredRecovery.current?.key === projectMediaKey(saved) ? restoredRecovery.current : null;
+    const conflict = conflictedSave.current?.key === projectMediaKey(saved) ? conflictedSave.current : null;
     const result = recoveryStore.write({
       // An unrelated mutation can return foreign saved captions/context while
       // the whole local draft is preserved. Never silently rebase that draft:
       // its persisted comparison basis advances only with a guarded save ACK.
-      project: recovery?.basis ?? { ...saved, transcriptionContext: accuracyDraft.current.saved },
-      ...(dirtyRef.current ? { captions: draftRef.current } : {}),
-      ...(contextChanged ? { accuracy: accuracyDraft.current.fields } : {}),
+      project: conflict?.basis ?? recovery?.basis ?? ordinarySaveBasis.current ?? { ...saved, transcriptionContext: accuracyDraft.current.saved },
+      ...(dirtyRef.current || conflict ? { captions: draftRef.current } : {}),
+      ...(contextChanged || conflict ? { accuracy: accuracyDraft.current.fields } : {}),
+      ...(conflict ? { keepUnchangedCaptions: true } : {}),
     });
     setRecoveryStorageError(result.status === 'unavailable' || result.status === 'too-large'
       ? 'A recovery copy could not be kept in this browser. Keep this tab open until your changes save.' : '');
-    if (!dirtyRef.current && !contextChanged && restoredRecovery.current?.key === projectMediaKey(saved)) {
+    if (!conflict && !dirtyRef.current && !contextChanged && restoredRecovery.current?.key === projectMediaKey(saved)) {
       recoveryStore.remove(restoredRecovery.current.origin);
       restoredRecovery.current = null;
     }
+    return result.status === 'saved' || result.status === 'cleared';
   }
-  function rememberSavedCaptions(next: CaptionProject) {
+  async function reloadSavedProject() {
+    const ticket = projectScope.current.capture();
+    const captionRevision = draftEditRevision.current;
+    const contextRevision = accuracyDraft.current.editRevision;
+    if (!captureUnfinishedRecovery()) {
+      const confirmed = await confirmInStudio({
+        title: 'Reload without a recovery copy?',
+        message: 'A recovery copy could not be kept in this browser. Download your edits first. Reloading will lose any changes you have not downloaded.',
+        confirmLabel: 'Reload anyway',
+      });
+      if (!confirmed || !projectScope.current.isCurrent(ticket)
+        || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) return;
+    }
+    window.location.reload();
+  }
+  function rememberSavedCaptions(next: CaptionProject, ownsCaptions = true) {
     if (projectMediaKey(next) !== projectScope.current.capture().key) return;
-    savedProject.current = { ...withCaptionWordTimings(next), transcriptionContext: accuracyDraft.current.saved };
+    const normalized = withCaptionWordTimings(next);
+    savedProject.current = { ...normalized, transcriptionContext: accuracyDraft.current.saved };
+    if (ownsCaptions && conflictedSave.current?.key !== projectMediaKey(next)) {
+      const previous = ordinarySaveBasis.current;
+      ordinarySaveBasis.current = previous && projectMediaKey(previous) === projectMediaKey(next)
+        ? { ...normalized, transcriptionContext: previous.transcriptionContext }
+        : normalized;
+    }
+  }
+  function protectSaveConflict(reason: unknown, ticket: ProjectTicket) {
+    if (!(reason instanceof ApiRequestError) || reason.status !== 409 || !projectScope.current.isCurrent(ticket)) return;
+    const basis = restoredRecovery.current?.key === ticket.key ? restoredRecovery.current.basis : ordinarySaveBasis.current;
+    if (basis && projectMediaKey(basis) === ticket.key && !conflictedSave.current) {
+      conflictedSave.current = { key: ticket.key, basis: structuredClone(basis) };
+    }
+    setSaveConflict(true);
   }
   function captureOperationIntent() {
     return { ticket: projectScope.current.capture(), key: projectMediaKey(project), revision: operationRevision.current };
@@ -562,6 +602,9 @@ export default function App() {
     projectScope.current.select(null);
     setProject(null);
     savedProject.current = null;
+    ordinarySaveBasis.current = null;
+    conflictedSave.current = null;
+    setSaveConflict(false);
     setRecoveryEntries([]);
     setAccuracyFields(accuracyDraft.current.reset(''));
     setDraft([]);
@@ -733,6 +776,9 @@ export default function App() {
     const changedMedia = projectScope.current.capture().key !== projectMediaKey(next);
     if (changedMedia) {
       closeHistory();
+      ordinarySaveBasis.current = next;
+      conflictedSave.current = null;
+      setSaveConflict(false);
       const retained = retainedMediaView.current?.key === projectMediaKey(next) ? retainedMediaView.current : null;
       setAccuracyFields(accuracyDraft.current.reset(projectMediaKey(next), next.transcriptionContext, profile?.defaultVocabulary,
         retained ? { description: retained.description, vocabulary: retained.vocabulary } : undefined));
@@ -775,9 +821,32 @@ export default function App() {
     editRevision: number,
     draftWasDirty: boolean,
     preservedNotice: string,
+    ownsCaptions = true,
+    expectedRetainedCaptionBasis?: CaptionProject | null,
   ): 'applied' | 'preserved' | 'stale' => {
     if (!projectScope.current.isCurrent(ticket) || projectMediaKey(next) !== ticket.key) return 'stale';
-    rememberSavedCaptions(next);
+    // A draft already dirty when the user accepts a whole-caption mutation may
+    // contain an older version of its changed rows. Keep it for comparison;
+    // don't grant its next autosave authority to undo the accepted result.
+    // Fresh typing following a clean History action retains its save ordering.
+    const priorBasis = ordinarySaveBasis.current;
+    const retainsDraft = draftWasDirty || draftEditRevision.current !== editRevision;
+    // A partial mutation owns only its declared changes. Its full response may
+    // also contain foreign rows which never reached this retained local draft.
+    // undefined keeps the deliberate whole-caption mutation contract below;
+    // null means a partial mutation could not establish a valid expected basis.
+    const needsComparison = ownsCaptions && (expectedRetainedCaptionBasis !== undefined
+      ? retainsDraft && !matchesCaptionSaveBasis(expectedRetainedCaptionBasis, next)
+      : draftWasDirty && priorBasis && projectMediaKey(priorBasis) === ticket.key
+        && !matchesCaptionSaveBasis(priorBasis, next)
+        && JSON.stringify(next.captions) !== JSON.stringify(draftRef.current));
+    if (needsComparison) {
+      if (priorBasis && projectMediaKey(priorBasis) === ticket.key && conflictedSave.current?.key !== ticket.key) {
+        conflictedSave.current = { key: ticket.key, basis: structuredClone(priorBasis) };
+      }
+      setSaveConflict(true);
+    }
+    rememberSavedCaptions(next, ownsCaptions && !needsComparison);
     next = retainAccuracyContext(next);
     if (!draftWasDirty && draftEditRevision.current === editRevision) {
       applyProject(next);
@@ -794,7 +863,10 @@ export default function App() {
     if (JSON.stringify(next.captions) !== JSON.stringify(draftRef.current)) {
       setDirty(true);
       dirtyRef.current = true;
-      setAutosaveState('pending');
+      if (needsComparison || conflictedSave.current?.key === ticket.key) {
+        setAutosaveState('failed');
+        setCaptionSaveError('The saved captions changed while your newer edits were unfinished. Download your edits, then reload the saved project to compare.');
+      } else setAutosaveState('pending');
     }
     setNotice(preservedNotice);
     captureUnfinishedRecovery();
@@ -806,10 +878,18 @@ export default function App() {
     ticket: ProjectTicket,
     editRevision: number,
     changes: Array<{ before: CaptionSegment; after: CaptionSegment }>,
+    expectedCaptionBasis: CaptionProject | null,
     preservedNotice: string,
   ) => {
     if (!projectScope.current.isCurrent(ticket) || projectMediaKey(next) !== ticket.key) return 'stale' as const;
-    if (editRevision !== draftEditRevision.current || dirtyRef.current) {
+    const retainsDraft = editRevision !== draftEditRevision.current || dirtyRef.current;
+    // A locally changed batch target cannot safely adopt only the server's
+    // timing/approval fields. If its revision changed while the request was in
+    // flight, preserve that draft but require comparison before another whole-
+    // list save can undo the batch's already accepted on-disk result.
+    const locallyChangedTarget = retainsDraft && changes.some(({ before }) =>
+      !sameTimingRevision(draftRef.current.find((caption) => caption.id === before.id), before));
+    if (retainsDraft) {
       // A person may correct an unrelated caption while a batch request is in
       // flight. Keep those edits and carry the committed word timings into every
       // target they did not modify, so its later autosave cannot undo the batch.
@@ -824,7 +904,8 @@ export default function App() {
         setAutosaveState('pending');
       }
     }
-    return publishSameMediaMutation(next, ticket, editRevision, false, preservedNotice);
+    return publishSameMediaMutation(next, ticket, editRevision, false, preservedNotice, true,
+      locallyChangedTarget ? null : expectedCaptionBasis);
   };
 
   const copyReplacementEdits = async (recovery: ReplacementEditRecovery) => {
@@ -859,11 +940,16 @@ export default function App() {
   // Full caption responses do not own Accuracy. Explicit context reads/writes
   // reconcile that separate baseline before publishing any full project snapshot.
   const retainAccuracyContext = (next: CaptionProject): CaptionProject => accuracyDraft.current.retainProject(next);
-  const publishContextProject = (next: CaptionProject, observation: AccuracyObservation, acknowledgement = false, mutation = acknowledgement) => {
+  const publishContextProject = (next: CaptionProject, observation: AccuracyObservation, acknowledgement = false, mutation = acknowledgement, ownsContext = mutation) => {
     const ticket = projectScope.current.capture();
     if (ticket.key !== projectMediaKey(next)
       || !accuracyDraft.current.publish(next.transcriptionContext, observation, ticket, profile?.defaultVocabulary, acknowledgement, mutation)) return false;
     setAccuracyFields(accuracyDraft.current.fields);
+    const basis = ordinarySaveBasis.current;
+    if (basis && projectMediaKey(basis) === ticket.key && conflictedSave.current?.key !== ticket.key
+      && (ownsContext || editorAdoptedAccuracy(accuracyDraft.current.fields, next.transcriptionContext, profile?.defaultVocabulary))) {
+      ordinarySaveBasis.current = { ...basis, transcriptionContext: next.transcriptionContext, updatedAt: next.updatedAt };
+    }
     if (savedProject.current && projectMediaKey(savedProject.current) === ticket.key) {
       savedProject.current = { ...savedProject.current, transcriptionContext: next.transcriptionContext, updatedAt: next.updatedAt };
     }
@@ -1067,7 +1153,7 @@ export default function App() {
   // order. A later save may become clean only after the mutation it follows has
   // been reconciled, and a queued mutation is dropped if its editor session left.
   const queueSameMediaMutation = <T,>(ticket: ProjectTicket, operation: () => Promise<T>): Promise<T | null> => {
-    const execute = async () => projectScope.current.isCurrent(ticket) ? operation() : null;
+    const execute = async () => projectScope.current.isCurrent(ticket) && conflictedSave.current?.key !== ticket.key ? operation() : null;
     const task = saveQueue.current.then(execute, execute);
     saveQueue.current = task.then(() => undefined, () => undefined);
     return task;
@@ -1088,26 +1174,34 @@ export default function App() {
     const snapshot = draftRef.current;
     const version = draftVersion.current;
     const recovery = restoredRecovery.current?.key === ticket.key ? restoredRecovery.current : null;
+    const capturedBasis = ordinarySaveBasis.current;
 
     const execute = async () => {
+      if (conflictedSave.current?.key === ticket.key) return null;
       if (projectScope.current.isCurrent(ticket)) {
         if (!silent) { setBusy('Saving captions…'); setError(''); }
         setAutosaveState('saving');
       }
       try {
-        const result = await api.saveCaptions(
-          targetProject.id,
-          snapshot,
-          { filename: targetProject.media.filename, size: targetProject.media.size },
-          { source, recordCorrections: recovery ? false : recordCorrections,
-            ...(recovery ? { recoveryExpectedUpdatedAt: recovery.expectedUpdatedAt } : {}) },
-        );
+        const result = await withCaptionAppearanceBarrier(targetProject.id, async () => {
+          const basis = projectScope.current.isCurrent(ticket) ? ordinarySaveBasis.current : capturedBasis;
+          // Restored drafts still carry recovery-only learning semantics, but a
+          // safe Appearance/context write may have advanced the saved revision.
+          const expectedUpdatedAt = checkedSaveRevision(recovery?.basis ?? basis, await api.get(targetProject.id), 'captions');
+          return api.saveCaptions(
+            targetProject.id, snapshot,
+            { filename: targetProject.media.filename, size: targetProject.media.size },
+            { expectedUpdatedAt, source, recordCorrections: recovery ? false : recordCorrections,
+              ...(recovery ? { recoveryExpectedUpdatedAt: expectedUpdatedAt } : {}) },
+          );
+        });
         // Saving the old project's snapshot is valid; navigating back to it is not.
         if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result.project) !== ticket.key) return result.project;
         rememberSavedCaptions(result.project);
         if (recovery) {
           recovery.expectedUpdatedAt = result.project.updatedAt;
-          recovery.basis = withCaptionWordTimings(result.project);
+          // A caption ACK does not adopt foreign Accuracy returned beside it.
+          recovery.basis = { ...withCaptionWordTimings(result.project), transcriptionContext: recovery.basis.transcriptionContext };
         }
         const unchanged = version === draftVersion.current;
         if (unchanged) applyProject(result.project, true, { preserveSelection: true });
@@ -1125,6 +1219,7 @@ export default function App() {
         return result.project;
       } catch (reason) {
         if (projectScope.current.isCurrent(ticket)) {
+          protectSaveConflict(reason, ticket);
           setCaptionSaveError(reason instanceof Error ? reason.message : 'Caption save failed.');
           setAutosaveState('failed');
           captureUnfinishedRecovery();
@@ -1289,10 +1384,14 @@ export default function App() {
     setBusy('Applying word highlights…');
     try {
       const editRevision = draftEditRevision.current;
-      const response = await queueSameMediaMutation(ticket, () => api.applyWordHighlightBatch(target.id,
-        { filename: target.media.filename, size: target.media.size }, result.applied));
+      const response = await queueSameMediaMutation(ticket, async () => {
+        // Capture after earlier queued acknowledgements, before this request.
+        const captionBasis = wordHighlightBatchSaveBasis(ordinarySaveBasis.current, result.applied);
+        return { ...(await api.applyWordHighlightBatch(target.id,
+          { filename: target.media.filename, size: target.media.size }, result.applied)), captionBasis };
+      });
       if (!response || !projectScope.current.isCurrent(ticket)) return;
-      const published = publishWordBatchMutation(response.project, ticket, editRevision, result.applied,
+      const published = publishWordBatchMutation(response.project, ticket, editRevision, result.applied, response.captionBasis,
         'Prepared timings were saved, but newer editor changes remain here. Save those edits before preparing again.');
       if (published === 'applied') {
         setWordBatchUndo({ ticket, applied: result.applied });
@@ -1335,10 +1434,13 @@ export default function App() {
     try {
       const editRevision = draftEditRevision.current;
       const reverse = wordBatchUndo.applied.map(({ before, after }) => ({ before: after, after: before }));
-      const response = await queueSameMediaMutation(ticket, () => api.applyWordHighlightBatch(target.id,
-        { filename: target.media.filename, size: target.media.size }, reverse, 'undo'));
+      const response = await queueSameMediaMutation(ticket, async () => {
+        const captionBasis = wordHighlightBatchSaveBasis(ordinarySaveBasis.current, reverse);
+        return { ...(await api.applyWordHighlightBatch(target.id,
+          { filename: target.media.filename, size: target.media.size }, reverse, 'undo')), captionBasis };
+      });
       if (!response || !projectScope.current.isCurrent(ticket)) return;
-      const published = publishWordBatchMutation(response.project, ticket, editRevision, reverse,
+      const published = publishWordBatchMutation(response.project, ticket, editRevision, reverse, response.captionBasis,
         'Prepared timings were undone on disk. Your newer local caption edits remain in the editor.');
       if (published === 'applied') {
         setWordBatchUndo(null);
@@ -1745,6 +1847,7 @@ export default function App() {
     // in-flight ref prevents queued autosaves from crossing the media boundary.
     await saveQueue.current;
     if (!projectScope.current.isCurrent(ticket)) throw new Error('The project changed. Open Replace media again for the current project.');
+    if (conflictedSave.current?.key === ticket.key) throw new Error('Download your edits and reload the saved project before changing media.');
     const hadEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true, true);
     if (hadEdits && !saved) throw new Error('The current captions could not be saved. Resolve the save error before changing media.');
@@ -1760,7 +1863,7 @@ export default function App() {
     // Appearance has its own save lane. Re-read after both lanes complete so the
     // concurrency token belongs to the actual saved project, not a render closure.
     const contextObservation = accuracyDraft.current.capture(ticket);
-    const acknowledgedContext = accuracyDraft.current.saved;
+    const acknowledgedContext = ordinarySaveBasis.current?.transcriptionContext;
     let fresh = await api.get(target.id);
     if (!projectScope.current.isCurrent(ticket) || editRevision !== draftEditRevision.current || accuracyDraft.current.editRevision !== contextRevision || JSON.stringify(accuracyDraft.current.fields) !== contextSnapshot || dirtyRef.current) {
       throw new Error('The project changed while saving. Review your edits before changing media.');
@@ -2028,7 +2131,7 @@ export default function App() {
     }
   };
   const saveContext = async (silent = false): Promise<boolean> => {
-    if (!project || mediaMutationInFlight.current || compositionInProgress.current) return false;
+    if (!project || mediaMutationInFlight.current || compositionInProgress.current || conflictedSave.current?.key === projectMediaKey(project)) return false;
     const targetProject = project;
     const ticket = projectScope.current.capture();
     const payload = contextPayload();
@@ -2042,13 +2145,17 @@ export default function App() {
       const saved = await queueSameMediaMutation(ticket, async () => {
         const observation = accuracyDraft.current.capture(ticket);
         const recovery = restoredRecovery.current?.key === ticket.key ? restoredRecovery.current : null;
-        const result = await api.saveContext(targetProject.id, payload, { filename: targetProject.media.filename, size: targetProject.media.size }, recovery?.expectedUpdatedAt);
+        const result = await withCaptionAppearanceBarrier(targetProject.id, async () => {
+          const expectedUpdatedAt = checkedSaveRevision(recovery?.basis ?? ordinarySaveBasis.current, await api.get(targetProject.id), 'context');
+          return api.saveContext(targetProject.id, payload, { filename: targetProject.media.filename, size: targetProject.media.size }, expectedUpdatedAt);
+        });
         const published = publishContextProject(result, observation, true);
         // Only a guarded write owns this token. An unrelated context response
         // may contain newer foreign captions that this editor has not adopted.
         if (published && recovery && restoredRecovery.current === recovery) {
           recovery.expectedUpdatedAt = result.updatedAt;
-          recovery.basis = withCaptionWordTimings(result);
+          // An Accuracy ACK does not adopt foreign captions returned beside it.
+          recovery.basis = { ...recovery.basis, transcriptionContext: result.transcriptionContext, updatedAt: result.updatedAt };
         }
         return published;
       });
@@ -2063,6 +2170,7 @@ export default function App() {
       return true;
     } catch (reason) {
       if (projectScope.current.isCurrent(ticket)) {
+        protectSaveConflict(reason, ticket);
         setContextSaveError(reason instanceof Error ? reason.message : 'Accuracy context save failed.');
         setContextSaveState('failed');
       }
@@ -2088,6 +2196,7 @@ export default function App() {
     const pending = saveQueue.current;
     await pending;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
+    if (conflictedSave.current?.key === ticket.key) return false;
     if (pending !== saveQueue.current || compositionInProgress.current) {
       setNotice('Changes are still being saved or entered. Wait for them to finish before leaving.');
       return false;
@@ -2222,7 +2331,7 @@ export default function App() {
       const version = draftVersion.current;
       // Share the save queue: a later edit-save cannot be overtaken by regrouping.
       const task = saveQueue.current.then(async () => {
-        if (!isCurrentOperation(intent)) return;
+        if (!isCurrentOperation(intent) || conflictedSave.current?.key === ticket.key) return;
         const result = await api.resegment(
           targetProject.id,
           mode,
@@ -2332,7 +2441,7 @@ export default function App() {
         async () => {
           const observation = accuracyDraft.current.capture(ticket);
           const next = await api.applyRegenerationProposal(project.id, proposal.id, mode, editedText);
-          publishContextProject(next, observation, false, true);
+          publishContextProject(next, observation, false, mode !== 'reject');
           return next;
         },
       );
@@ -2345,6 +2454,7 @@ export default function App() {
         mode === 'reject'
           ? 'The proposal was discarded. Your newer caption edits remain unsaved in the editor.'
           : 'The regeneration was applied on disk. Your newer caption edits remain unsaved in the editor.',
+        mode !== 'reject',
       );
       if (published === 'stale') return;
       setProposal(null);
@@ -2356,17 +2466,24 @@ export default function App() {
   const cleanKhmerSpacing = async () => {
     if (!project) return;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
+    const ticket = intent.ticket;
     setBusy('Cleaning Khmer spacing…'); setError('');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadUnsavedEdits && !saved)) return;
+      if (!isCurrentOperation(intent) || (hadUnsavedEdits && !saved)) return;
       if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before cleaning Khmer spacing.'); return; }
       const editRevision = draftEditRevision.current;
-      const result = await queueSameMediaMutation(ticket, () => api.normalizeKhmerSpacing(targetProject.id, {
-        filename: targetProject.media.filename,
-        size: targetProject.media.size,
+      const result = await queueSameMediaMutation(ticket, () => withCaptionAppearanceBarrier(targetProject.id, async () => {
+        if (!isCurrentOperation(intent)) return null;
+        const basis = ordinarySaveBasis.current;
+        const latest = await api.get(targetProject.id);
+        if (!isCurrentOperation(intent)) return null;
+        const expectedUpdatedAt = checkedSaveRevision(basis, latest, 'captions');
+        return api.normalizeKhmerSpacing(targetProject.id, {
+          filename: targetProject.media.filename, size: targetProject.media.size,
+        }, expectedUpdatedAt);
       }));
       if (!result) return;
       const published = publishSameMediaMutation(
@@ -2377,30 +2494,47 @@ export default function App() {
         'Khmer spacing cleanup was saved. Your newer caption edits remain unsaved in the editor.',
       );
       if (published === 'applied') setNotice('Khmer word spacing cleaned. Text-locked captions were preserved.');
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Khmer spacing cleanup failed'); }
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket)) {
+        if (reason instanceof ApiRequestError && reason.code === 'CAPTION_REVISION_CHANGED') {
+          protectSaveConflict(reason, ticket);
+          setCaptionSaveError(reason.message);
+          setAutosaveState('failed');
+          captureUnfinishedRecovery();
+        }
+        setError(reason instanceof Error ? reason.message : 'Khmer spacing cleanup failed');
+      }
+    }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
   const runTimingPostprocessor = async () => {
     if (!project) return;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
+    const ticket = intent.ticket;
     const confirmed = await confirmInStudio({
       title: 'Apply safe timing cleanup?',
       message: `Studio will use “${qaSettings.name}”, skip timing-locked captions, and create a History checkpoint before changing timing.`,
       confirmLabel: 'Apply cleanup',
     });
-    if (!confirmed || !projectScope.current.isCurrent(ticket)) return;
+    if (!confirmed || !isCurrentOperation(intent)) return;
     setBusy('Snapping and smoothing caption timing…');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadUnsavedEdits && !saved)) return;
+      if (!isCurrentOperation(intent) || (hadUnsavedEdits && !saved)) return;
       if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before applying timing cleanup.'); return; }
       const editRevision = draftEditRevision.current;
-      const result = await queueSameMediaMutation(ticket, () => api.postprocessTiming(targetProject.id, qaSettings, {
-        filename: targetProject.media.filename,
-        size: targetProject.media.size,
+      const result = await queueSameMediaMutation(ticket, () => withCaptionAppearanceBarrier(targetProject.id, async () => {
+        if (!isCurrentOperation(intent)) return null;
+        const basis = ordinarySaveBasis.current;
+        const latest = await api.get(targetProject.id);
+        if (!isCurrentOperation(intent)) return null;
+        const expectedUpdatedAt = checkedSaveRevision(basis, latest, 'captions');
+        return api.postprocessTiming(targetProject.id, qaSettings, {
+          filename: targetProject.media.filename, size: targetProject.media.size,
+        }, expectedUpdatedAt);
       }));
       if (!result) return;
       const published = publishSameMediaMutation(
@@ -2411,7 +2545,18 @@ export default function App() {
         'Timing cleanup was saved. Your newer caption edits remain unsaved in the editor.',
       );
       if (published === 'applied') setNotice('Safe timing cleanup applied. Restore it from History if needed.');
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Timing cleanup failed'); }
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket)) {
+        // Alignment/admission conflicts do not invalidate caption save authority.
+        if (reason instanceof ApiRequestError && reason.code === 'CAPTION_REVISION_CHANGED') {
+          protectSaveConflict(reason, ticket);
+          setCaptionSaveError(reason.message);
+          setAutosaveState('failed');
+          captureUnfinishedRecovery();
+        }
+        setError(reason instanceof Error ? reason.message : 'Timing cleanup failed');
+      }
+    }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
@@ -2613,8 +2758,10 @@ export default function App() {
     try {
       const result = await queueSameMediaMutation(ticket, async () => {
         const observation = accuracyDraft.current.capture(ticket);
+        const basis = ordinarySaveBasis.current;
         const result = await api.correctionAction(event.id, action);
-        if (result.project) publishContextProject(result.project, observation, false, true);
+        if (result.project) publishContextProject(result.project, observation, false, true,
+          action === 'add-project' && matchesVocabularyAddition(basis, result.project, event.suggestedVocabularyLine));
         return result;
       });
       if (!result) return;
@@ -2924,7 +3071,9 @@ export default function App() {
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
     {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
-    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>Couldn't save changes.</strong> {saveFailure} Your edits are still here.</span><button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button><button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
+    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>{saveConflict ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveConflict
+      ? <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void reloadSavedProject()}>Reload saved project</button>
+      : <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button>}<button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
     {recoveryStorageError && unfinishedChanges && <div className="toast error" role="status"><span>{recoveryStorageError}</span></div>}
     {project && recoveryEntries[0] && <UnfinishedEditRecoveryNotice
       count={recoveryEntries.length} savedAt={recoveryEntries[0].draft.savedAt}
@@ -2980,7 +3129,7 @@ export default function App() {
           onSettings={() => openSettings('ai')}
           onUpdates={() => setShowUpdates(true)}
         />
-        <button className="save-action" disabled={!unfinishedChanges || !!busy || textComposing} title={unfinishedChanges ? 'Save caption and Accuracy changes' : 'All changes saved'} onClick={() => void saveUnfinishedChanges(false)}><Save size={16}/><span>{unfinishedChanges ? 'Save' : 'Saved'}</span></button>
+        <button className="save-action" disabled={!unfinishedChanges || !!busy || textComposing || saveConflict} title={saveConflict ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption and Accuracy changes' : 'All changes saved'} onClick={() => void saveUnfinishedChanges(false)}><Save size={16}/><span>{unfinishedChanges ? 'Save' : 'Saved'}</span></button>
         <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
@@ -3140,7 +3289,7 @@ export default function App() {
               <span><label htmlFor="accuracy-context-vocabulary">Exact terms to preserve</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
               <textarea id="accuracy-context-vocabulary" aria-describedby="accuracy-vocabulary-count accuracy-vocabulary-help" rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy || textComposing} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
           </div>}
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>

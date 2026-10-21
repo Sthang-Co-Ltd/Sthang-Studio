@@ -423,6 +423,11 @@ it must not invent a second consent contract.
   if newer typing temporarily matches the previous saved value.
 - A failed save remains in the shared toast stack with **Retry save** and
   **Download edits** until the affected edits save or return to the saved value.
+  A saved-project conflict instead keeps a persistent **Saved project changed**
+  notice with **Download edits** and **Reload saved project**. Preserve the local
+  draft, stop queued saves/retries, and disable Save until the saved project is
+  reloaded. Capture the recovery copy before reloading; changed saved evidence
+  requires comparison when the project is reopened.
   Recovery offers show a timestamp and collapsed preview with labeled
   **Restore draft**, **Download draft**, and **Discard draft** actions. Use an
   explicit discard confirmation; keep the media and caption list accessible.

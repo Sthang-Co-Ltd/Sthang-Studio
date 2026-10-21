@@ -96,3 +96,18 @@ export async function startOwnedApi(root: string, options: { config?: HarnessCon
   }
 }
 export async function stopOwnedApi(handle: OwnedApi): Promise<void> { await handle.close(); }
+
+export async function cleanupOwnedApiClients(handle: OwnedApi | null, cleanups: Array<() => Promise<void>>): Promise<void> {
+  const failures: unknown[] = [];
+  for (const cleanup of cleanups) {
+    try { await cleanup(); } catch (error) { failures.push(error); }
+  }
+  if (!failures.length) return;
+  // A failed browser cleanup must not leave the listener for a later suite.
+  // Confirm this exact child's exit before reporting the original failure.
+  if (handle) {
+    try { await stopOwnedApi(handle); } catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  throw new AggregateError(failures, 'Owned browser cleanup and shutdown failed.');
+}

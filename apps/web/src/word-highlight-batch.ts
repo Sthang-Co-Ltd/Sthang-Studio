@@ -1,4 +1,4 @@
-import { resolveCaptionWordTiming, type CaptionSegment } from '@kcs/shared';
+import { hydrateCaptionWordTimings, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment } from '@kcs/shared';
 import type { CaptionWordTimingCandidate } from './api';
 import { sameTimingRevision } from './timing-edit';
 
@@ -178,12 +178,36 @@ export function mergePublishedWordHighlightBatch(
     if (!change || !serverCaption || !sameTimingRevision(caption, change.before)) return caption;
 
     const merged = { ...caption } as CaptionSegment;
-    if (Object.prototype.hasOwnProperty.call(serverCaption, 'wordTiming')) merged.wordTiming = serverCaption.wordTiming;
+    if (Object.prototype.hasOwnProperty.call(serverCaption, 'wordTiming') && serverCaption.wordTiming !== undefined) merged.wordTiming = serverCaption.wordTiming;
     else delete merged.wordTiming;
-    if (Object.prototype.hasOwnProperty.call(serverCaption, 'approved')) merged.approved = serverCaption.approved;
+    if (Object.prototype.hasOwnProperty.call(serverCaption, 'approved') && serverCaption.approved !== undefined) merged.approved = serverCaption.approved;
     else delete merged.approved;
     changed = true;
     return merged;
   });
   return changed ? next : captions;
+}
+
+/** A partial acknowledgement can advance a retained draft's save basis only
+ * when the complete response equals the prior basis plus these owned fields.
+ * Never derive untouched fields from the response we are trying to validate. */
+export function wordHighlightBatchSaveBasis(
+  basis: CaptionProject | null,
+  applied: Array<{ before: CaptionSegment; after: CaptionSegment }>,
+): CaptionProject | null {
+  if (!basis || !applied.length) return null;
+  const normalized = hydrateCaptionWordTimings(basis);
+  const byId = new Map(normalized.captions.map((caption) => [caption.id, caption]));
+  if (byId.size !== normalized.captions.length) return null;
+  const targets = new Set<string>();
+  for (const { before, after } of applied) {
+    const current = byId.get(before.id);
+    if (targets.has(before.id) || before.id !== after.id || current?.timingLocked
+      || !sameTimingRevision(current, before)) return null;
+    targets.add(before.id);
+  }
+  return {
+    ...normalized,
+    captions: mergePublishedWordHighlightBatch(normalized.captions, applied.map(({ after }) => after), applied),
+  };
 }

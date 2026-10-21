@@ -5,6 +5,10 @@ import path from 'node:path';
 import { guardNamespacedRequest, isolatedEnvironment, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
 
 if (!process.send || process.platform === 'darwin') throw new Error('Owned browser API requires IPC and an isolatable credential store.');
+// Playwright can retire a worker before its afterAll finishes. This child owns
+// no lifetime beyond that worker; register before any awaited app imports.
+process.once('disconnect', () => process.exit(0));
+if (!process.connected) process.exit(0);
 const cfg = requireHarnessConfig();
 const root = verifyOwnedStateRoot(process.env.STHANG_STUDIO_STATE_ROOT || '', cfg);
 const expectedEnv = isolatedEnvironment(cfg, root);

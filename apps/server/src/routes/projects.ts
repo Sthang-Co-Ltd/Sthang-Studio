@@ -22,6 +22,7 @@ import {
   refineRegenerationProposal,
   postprocessProjectTiming,
   StaleProjectMediaError,
+  StaleProjectRevisionError,
   transcribeProject,
 } from '../services/project-processing.js';
 import { historyStore } from '../services/history-store.js';
@@ -404,13 +405,14 @@ router.put('/:id/context', async (req, res) => {
     return res.status(400).json({ error: 'Context revision must be a nonempty saved project timestamp.' });
   }
   if (!expected) return res.status(428).json({ error: 'Context save requires the media version it was edited against.' });
+  if (expectedUpdatedAt === undefined) return res.status(428).json({ error: 'Context save requires the saved project revision it was edited against.' });
   try {
     const result = await store.withProjectWrite(req.params.id, async (current, persist) => {
       if (!current) return { status: 'missing' as const };
       if (current.media.filename !== expected.filename || current.media.size !== expected.size) return { status: 'stale' as const };
-      // Media preparation must not overwrite another tab's edit between its GET
-      // and context PUT. Compare under the same lock as persistence.
-      if (expectedUpdatedAt !== undefined && current.updatedAt !== expectedUpdatedAt) return { status: 'revision' as const };
+      // Compare every save under the persistence lock, including writes that
+      // waited behind another client after their request was admitted.
+      if (current.updatedAt !== expectedUpdatedAt) return { status: 'revision' as const };
       return { status: 'saved' as const, project: await persist({
         ...current,
         transcriptionContext: normalizeTranscriptionContext(req.body?.transcriptionContext),
@@ -419,7 +421,7 @@ router.put('/:id/context', async (req, res) => {
     });
     if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
     if (result.status === 'stale') return res.status(409).json({ error: 'These context changes belong to an older media version. Reload the project before saving.' });
-    if (result.status === 'revision') return res.status(409).json({ error: 'The saved project changed while preparing Accuracy context. Review your edits before saving again.', code: 'CONTEXT_REVISION_CHANGED' });
+    if (result.status === 'revision') return res.status(409).json({ error: 'The saved project changed. Your Accuracy edits were kept. Download your edits, then reload to review the current project.', code: 'CONTEXT_REVISION_CHANGED' });
     res.json(result.project);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Context save failed' });
@@ -434,10 +436,19 @@ router.put('/:id/captions', async (req, res) => {
   if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
     return res.status(428).json({ error: 'Caption save requires the media version it was edited against.' });
   }
+  const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+  if (expectedUpdatedAt !== undefined && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt.trim())) {
+    return res.status(400).json({ error: 'Caption revision must be a nonempty saved project timestamp.' });
+  }
   const recoveryExpectedUpdatedAt = req.body?.recoveryExpectedUpdatedAt;
   if (recoveryExpectedUpdatedAt !== undefined && (typeof recoveryExpectedUpdatedAt !== 'string' || !recoveryExpectedUpdatedAt.trim())) {
     return res.status(400).json({ error: 'Recovery revision must be a nonempty saved project timestamp.' });
   }
+  if (expectedUpdatedAt !== undefined && recoveryExpectedUpdatedAt !== undefined && expectedUpdatedAt !== recoveryExpectedUpdatedAt) {
+    return res.status(400).json({ error: 'Caption and recovery revision guards must match.' });
+  }
+  const expectedRevision = expectedUpdatedAt ?? recoveryExpectedUpdatedAt;
+  if (expectedRevision === undefined) return res.status(428).json({ error: 'Caption save requires the saved project revision it was edited against.' });
   const recoveringDraft = recoveryExpectedUpdatedAt !== undefined;
   const source = String(req.body?.source || 'manual-save') as 'manual-save' | 'autosave' | 'text-edit';
   const recordCorrections = !recoveringDraft && req.body?.recordCorrections !== false;
@@ -447,10 +458,11 @@ router.put('/:id/captions', async (req, res) => {
       if (project.media.filename !== expectedMedia.filename || project.media.size !== expectedMedia.size) {
         return { status: 'stale' as const };
       }
-      // A recovered draft was checked against this saved project. Compare again
-      // under its write lock so another save cannot slip between review and commit.
-      if (recoveringDraft && project.updatedAt !== recoveryExpectedUpdatedAt) {
-        return { status: 'recovery-stale' as const };
+      // Check before History, persistence, or evidence, even for a no-op save.
+      // The lock prevents another writer from slipping between check and commit.
+      if (project.updatedAt !== expectedRevision) {
+        if (recoveringDraft) return { status: 'recovery-stale' as const };
+        return { status: 'revision' as const };
       }
 
       const before = project.captions;
@@ -486,6 +498,9 @@ router.put('/:id/captions', async (req, res) => {
     if (result.status === 'stale') {
       return res.status(409).json({ error: 'These captions belong to an older media version. Reload the project before saving.' });
     }
+    if (result.status === 'revision') {
+      return res.status(409).json({ error: 'The saved project changed. Your edits were kept. Download your edits, then reload to review the current project.', code: 'CAPTION_REVISION_CHANGED' });
+    }
     if (result.status === 'recovery-stale') {
       return res.status(409).json({ error: 'The saved project changed after this draft was restored. Your draft was kept. Download your edits, then reload to review the current project.', code: 'DRAFT_RECOVERY_CHANGED' });
     }
@@ -500,12 +515,18 @@ router.post('/:id/normalize-khmer-spacing', async (req, res) => {
   if (!preparedFor) {
     return res.status(428).json({ error: 'Khmer spacing cleanup requires the media version it was prepared against.' });
   }
+  const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+  if (expectedUpdatedAt === undefined) return res.status(428).json({ error: 'Khmer spacing cleanup requires the saved project revision.' });
+  if (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt.trim()) {
+    return res.status(400).json({ error: 'The saved project revision must be a non-empty string.' });
+  }
   try {
     const result = await store.withProjectWrite(req.params.id, async (project, persist) => {
       if (!project) return { status: 'missing' as const };
       if (project.media.filename !== preparedFor.filename || project.media.size !== preparedFor.size) {
         return { status: 'stale' as const };
       }
+      if (project.updatedAt !== expectedUpdatedAt) return { status: 'revision' as const };
       await historyStore.checkpoint(project, 'Before Khmer spacing cleanup', 'cleanup');
       project.captions = project.captions.map((caption) => caption.textLocked ? caption : reconcileCaptionWordTiming(caption, {
         ...caption,
@@ -541,6 +562,9 @@ router.post('/:id/normalize-khmer-spacing', async (req, res) => {
     if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
     if (result.status === 'stale') {
       return res.status(409).json({ error: 'This Khmer spacing cleanup belongs to an older media version. Reload the project and try again.' });
+    }
+    if (result.status === 'revision') {
+      return res.status(409).json({ error: 'The saved captions changed. Download your edits, then reload the saved project to compare.', code: 'CAPTION_REVISION_CHANGED' });
     }
     res.json(result.project);
   } catch (error) {
@@ -596,11 +620,17 @@ router.post('/:id/postprocess-timing', admitProcessing(async (req, res) => {
   if (!preparedFor) {
     return res.status(428).json({ error: 'Timing cleanup requires the media version it was prepared against.' });
   }
+  const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+  if (expectedUpdatedAt === undefined) return res.status(428).json({ error: 'Timing cleanup requires the saved project revision.' });
+  if (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt.trim()) {
+    return res.status(400).json({ error: 'The saved project revision must be a non-empty string.' });
+  }
   try {
     const settings = req.body?.settings as QaProfileSettings;
     if (!settings || typeof settings !== 'object') return res.status(400).json({ error: 'QA timing settings are required.' });
-    res.json(await postprocessProjectTiming(req.params.id, settings, preparedFor));
+    res.json(await postprocessProjectTiming(req.params.id, settings, preparedFor, expectedUpdatedAt));
   } catch (error) {
+    if (error instanceof StaleProjectRevisionError) return res.status(409).json({ error: error.message, code: 'CAPTION_REVISION_CHANGED' });
     if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
     if (error instanceof MediaAlignmentUnverifiedError) return res.status(409).json({ error: error.message, code: 'MEDIA_ALIGNMENT_UNVERIFIED' });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Timing post-processing failed' });

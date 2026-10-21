@@ -157,7 +157,7 @@ export interface CorrectionActionResponse {
 }
 
 export class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code?: string) {
     super(message);
     this.name = 'ApiRequestError';
   }
@@ -181,7 +181,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       && typeof confirmation?.expiresAt === 'string' && Number.isFinite(Date.parse(confirmation.expiresAt))) {
       throw new MediaAudioMismatchError(message, { token: confirmation.token, expiresAt: confirmation.expiresAt });
     }
-    throw new ApiRequestError(message, res.status);
+    throw new ApiRequestError(message, res.status, typeof body?.code === 'string' ? body.code : undefined);
   }
   return res.status === 204 ? undefined as T : res.json();
 }
@@ -272,14 +272,14 @@ export const api = {
   applyRegenerationProposal: (projectId: string, proposalId: string, mode: RegenerationApplyMode, editedText?: string) => request<CaptionProject>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}/apply`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, editedText }),
   }),
-  saveContext: (id: string, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], expectedUpdatedAt?: string) => request<CaptionProject>(`/api/projects/${id}/context`, {
+  saveContext: (id: string, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], expectedUpdatedAt: string) => request<CaptionProject>(`/api/projects/${id}/context`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcriptionContext, expectedMedia, expectedUpdatedAt }),
   }),
   saveCaptions: (
     id: string,
     captions: CaptionSegment[],
     expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
-    options?: { source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean; recoveryExpectedUpdatedAt?: string },
+    options: { expectedUpdatedAt: string; source?: 'manual-save' | 'autosave' | 'text-edit'; recordCorrections?: boolean; recoveryExpectedUpdatedAt?: string },
   ) => request<SaveCaptionsResponse>(`/api/projects/${id}/captions`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captions, expectedMedia, ...options }),
   }),
@@ -312,11 +312,11 @@ export const api = {
   ) => request<CaptionProject>(`/api/projects/${id}/resegment`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, maxChars, expectedMedia }),
   }),
-  normalizeKhmerSpacing: (id: string, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia }),
+  normalizeKhmerSpacing: (id: string, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>, expectedUpdatedAt: string) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia, expectedUpdatedAt }),
   }),
-  postprocessTiming: (id: string, settings: QaProfileSettings, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>) => request<CaptionProject>(`/api/projects/${id}/postprocess-timing`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, expectedMedia }),
+  postprocessTiming: (id: string, settings: QaProfileSettings, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>, expectedUpdatedAt: string) => request<CaptionProject>(`/api/projects/${id}/postprocess-timing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, expectedMedia, expectedUpdatedAt }),
   }),
   history: (id: string) => request<ProjectHistoryEntry[]>(`/api/projects/${id}/history`),
   restoreHistory: (id: string, historyId: string, expectedMedia: MediaReplacementBasis['expectedMedia']) => request<CaptionProject>(`/api/projects/${id}/history/${historyId}/restore`, {
