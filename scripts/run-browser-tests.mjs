@@ -26,7 +26,7 @@ async function run(args) {
     child.once('exit', (code) => { process.off('SIGINT', forwardInterrupt); process.off('SIGTERM', forwardInterrupt); resolve(code ?? 1); });
   });
 }
-const guards = await run(['--import', 'tsx', '--test', 'tests/browser-api-isolation.test.mts']);
+const guards = await run(['--import', 'tsx', '--test', '--test-concurrency=1', 'tests/browser-api-isolation.test.mts', 'tests/browser-lifecycle.test.mts']);
 let result = guards;
 if (guards === 0) result = await run(['--import', 'tsx', 'node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(2)]);
 await fs.writeFile(path.join(cfg.runRoot, 'run-result.json'), JSON.stringify({ exitCode: result, apiPort: cfg.apiPort, webPort: cfg.webPort }));

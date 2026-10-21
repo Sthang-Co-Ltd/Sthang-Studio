@@ -11,8 +11,8 @@ import {
   type TimedToken,
 } from '@kcs/shared';
 import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
-import { startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
-import { fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
+import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
+import { closeOwnedBrowserContext, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
 const harness = requireHarnessConfig();
 const scenarios = [
@@ -153,25 +153,22 @@ test.beforeEach(async ({ context }) => {
 
 test.afterEach(async ({ context }) => {
   try {
-    // Quiesce both independent editors before removing either network guard.
-    for (const owner of [context, ...additionalContexts]) {
-      for (const page of owner.pages()) {
-        if (!page.isClosed()) {
-          page.once('dialog', async (dialog) => {
-            expect(dialog.type()).toBe('beforeunload');
-            await dialog.accept();
-          });
-          await page.goto('about:blank');
+    await cleanupOwnedApiClients(server, [context, ...additionalContexts].flatMap((owner) => [
+      async () => {
+        for (const page of owner.pages()) {
+          if (!page.isClosed()) {
+            page.once('dialog', async (dialog) => {
+              expect(dialog.type()).toBe('beforeunload');
+              await dialog.accept();
+            });
+            await page.goto('about:blank');
+          }
         }
-        await page.unrouteAll({ behavior: 'wait' });
-      }
-      await owner.unrouteAll({ behavior: 'wait' });
-      if (owner !== context) {
-        await owner.close();
-        additionalContexts.delete(owner);
-      }
-    }
+      },
+      () => closeOwnedBrowserContext(owner),
+    ]));
   } finally {
+    additionalContexts.clear();
     detachChildExit?.();
     detachChildExit = null;
   }

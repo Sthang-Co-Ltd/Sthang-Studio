@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CaptionProject, CaptionProjectSummary, RegenerationProposal } from '@kcs/shared';
 import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
-import { startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
-import { continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
+import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
+import { closeOwnedBrowserContext, continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
 const harness = requireHarnessConfig();
 const cases = ['captions', 'context', 'queued', 'sequential', 'disjoint', 'appearance', 'restored-appearance', 'restored-context-foreign', 'restored-captions-foreign', 'proposal', 'proposal-accept', 'storage'] as const;
@@ -80,18 +80,20 @@ test.beforeEach(async ({ context }) => {
 
 test.afterEach(async ({ context }) => {
   try {
-    // Both real clients stop before their route guards or API capability vanish.
-    for (const page of context.pages()) {
-      if (!page.isClosed()) {
-        page.once('dialog', async (dialog) => {
-          expect(dialog.type()).toBe('beforeunload');
-          await dialog.accept();
-        });
-        await page.goto('about:blank');
-      }
-      await page.unrouteAll({ behavior: 'wait' });
-    }
-    await context.unrouteAll({ behavior: 'wait' });
+    await cleanupOwnedApiClients(server, [
+      async () => {
+        for (const page of context.pages()) {
+          if (!page.isClosed()) {
+            page.once('dialog', async (dialog) => {
+              expect(dialog.type()).toBe('beforeunload');
+              await dialog.accept();
+            });
+            await page.goto('about:blank');
+          }
+        }
+      },
+      () => closeOwnedBrowserContext(context),
+    ]);
   } finally {
     detachChildExit?.();
     detachChildExit = null;

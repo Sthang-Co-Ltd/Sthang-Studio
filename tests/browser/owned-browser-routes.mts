@@ -56,3 +56,33 @@ export async function installBrowserNetworkGuard(context: BrowserContext, cfg: H
   installed.set(context, installation);
   return installation;
 }
+
+export async function closeOwnedBrowserContext(context: BrowserContext): Promise<void> {
+  const pages = context.pages();
+  const failures: unknown[] = [];
+  const attempt = async (cleanup: () => Promise<unknown>) => {
+    try { await cleanup(); } catch (error) { failures.push(error); }
+  };
+  // A page interceptor can delegate to the context guard. Removing that page
+  // interceptor during route.fetch can native-continue the request and make
+  // the later fulfill fail as already handled. Close every page with both
+  // guards installed; keep context.request alive until all handlers drain.
+  for (const page of pages) await attempt(() => page.close());
+  if (pages.every((page) => page.isClosed())) {
+    await attempt(() => context.unrouteAll({ behavior: 'wait' }));
+    for (const page of pages) await attempt(async () => {
+      try { await page.unrouteAll({ behavior: 'wait' }); }
+      catch (error) {
+        // unrouteAll(wait) drains handlers before updating interception. Only
+        // that metadata update on this confirmed closed page may be cancelled.
+        // Forwarding and context-drain errors still fail the test.
+        if (!page.isClosed() || !(error instanceof Error) || !error.message.includes('Target page, context or browser has been closed')) throw error;
+      }
+    });
+  }
+  // Attempt this even when a preceding close or drain failed. If a page could
+  // not close, its guard stays installed until this final context closure.
+  await attempt(() => context.close());
+  if (failures.length === 1) throw failures[0];
+  if (failures.length) throw new AggregateError(failures, 'Owned browser context cleanup failed.');
+}

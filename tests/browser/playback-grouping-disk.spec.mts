@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CaptionProject } from '@kcs/shared';
 import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
-import { startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
-import { continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
+import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
+import { closeOwnedBrowserContext, continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
 const harness = requireHarnessConfig();
 let root = '';
@@ -363,17 +363,18 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page, context }) => {
   try {
-    // Stop the real app while its network guard is still installed, then drain
-    // native previews and held forwards before Playwright disposes the context.
-    if (!page.isClosed()) {
-      page.once('dialog', async (dialog) => {
-        expect(dialog.type()).toBe('beforeunload');
-        await dialog.accept();
-      });
-      await page.goto('about:blank');
-    }
-    await page.unrouteAll({ behavior: 'wait' });
-    await context.unrouteAll({ behavior: 'wait' });
+    await cleanupOwnedApiClients(server, [
+      async () => {
+        if (!page.isClosed()) {
+          page.once('dialog', async (dialog) => {
+            expect(dialog.type()).toBe('beforeunload');
+            await dialog.accept();
+          });
+          await page.goto('about:blank');
+        }
+      },
+      () => closeOwnedBrowserContext(context),
+    ]);
   } finally {
     detachChildExit?.();
     detachChildExit = null;

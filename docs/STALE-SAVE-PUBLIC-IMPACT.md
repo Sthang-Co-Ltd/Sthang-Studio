@@ -91,3 +91,23 @@ approval classes, or an accepted downstream diff. Next: prepare the new HQ
 Phase 3 intake, obtain its exact approval, then prepare and approve the matching
 Distribution Phase 2 plan. Website/docs writes, builds, publication, release
 promotion, and deployment retain their separate approval requirements.
+
+## Browser teardown qualification follow-up
+
+Public impact: none for the test-harness correction based on PR head
+`4014876ff370324303af23b20d329d4f40aa303a` and main base
+`f4091082fc8c00e0d1645e3927a3acc5bd3c48fd`. The final diff changes browser route
+teardown, test-owned API lifetime, suite cleanup hooks, lifecycle regression
+coverage and qualification evidence. It preserves the accepted product code and
+all existing stale-save test-body assertions. It changes no advertised feature,
+user workflow, installation, compatibility promise, branding, privacy/security
+disclosure or release/download authority.
+
+`docs/STALE-SAVE-QUALIFICATION.md` now retains the failed CI evidence and explains
+the deterministic lifecycle reproductions and the subsequent complete-browser
+qualification. This repairs the validation record; it does not establish new
+public availability. The product manifest and its declared release evidence
+were compared with this scope and require no rewrite. The source-only product
+intake above remains required, with the same missing HQ input and exact
+approval decisions. This harness follow-up adds no new intake proposal or
+cross-repository write.
