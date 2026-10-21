@@ -237,13 +237,19 @@ in the local creator profile. Entering Export for another project or after an ap
 restart recalls those choices. A canceled or blocked render must never replace
 the remembered settings. Profile storage failure must not cancel an accepted
 render; Export must warn that its output choices could not be remembered.
+An overlapping request that reuses an existing job is not another accepted
+render and must not change last-used output settings or the original job snapshot.
 Changes made during the current editor visit remain
 available while repairing export issues. Creators can save, apply, update by
 name, or delete up to 20 reusable **video export presets** independently of their
 caption-appearance presets. A preset contains output settings only, not media,
 captions, appearance, or render authorization. Local device capabilities are
 checked again when applying an older preset; unavailable encoders or codecs must
-be explained before safe defaults are used. Persisted choices live in the
+be explained before safe defaults are used. Even when those choices fall back,
+the original saved preset remains selectable for management and confirmed deletion;
+the current effective output must no longer appear to exactly match that preset.
+Deleting a preset does not modify current or last-used output settings.
+Persisted choices live in the
 installation's local creator profile, alongside other user presets, and do not
 change the immutable settings snapshot of a render already in progress.
 

@@ -145,16 +145,18 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       if (!acceptedExportInVisit.current) setLastUsedSettings(lastUsed);
       setPresetError('');
       onSessionChange((current) => {
+        const managedPresetId = loadedPresets.some((preset) => preset.id === current.managedPresetId)
+          ? current.managedPresetId : '';
         if (current.settingsHydrated) {
           const selected = current.selectedPresetId;
           if (selected && selected !== LAST_USED_PRESET_ID && !loadedPresets.some((preset) => preset.id === selected)) {
-            return { ...current, selectedPresetId: '' };
+            return { ...current, selectedPresetId: '', managedPresetId };
           }
-          if (selected === LAST_USED_PRESET_ID && !lastUsed && !acceptedExportInVisit.current) return { ...current, selectedPresetId: '' };
-          return current;
+          if (selected === LAST_USED_PRESET_ID && !lastUsed && !acceptedExportInVisit.current) return { ...current, selectedPresetId: '', managedPresetId };
+          return current.managedPresetId === managedPresetId ? current : { ...current, managedPresetId };
         }
         return { ...current, settings: lastUsed || current.settings, settingsHydrated: true,
-          selectedPresetId: lastUsed ? LAST_USED_PRESET_ID : '' };
+          selectedPresetId: lastUsed ? LAST_USED_PRESET_ID : '', managedPresetId };
       });
     }).catch((error) => {
       if (active) setPresetError(error instanceof Error ? error.message : 'Could not load saved video presets.');
@@ -374,7 +376,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     if (!value) return;
     const next = normalizeVideoExportSettings(value);
     setPresetNotice('');
-    onSessionChange((current) => ({ ...current, settings: next, selectedPresetId: id, settingsHydrated: true }));
+    onSessionChange((current) => ({ ...current, settings: next, selectedPresetId: id,
+      managedPresetId: id === LAST_USED_PRESET_ID ? current.managedPresetId : id, settingsHydrated: true }));
   };
 
   const savePreset = async () => {
@@ -391,9 +394,11 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       const entries = updated.videoExportPresets || [];
       const saved = entries.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
       setPresets(entries);
-      if (saved && JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey) {
-        onSessionChange((current) => ({ ...current, selectedPresetId: saved.id, settingsHydrated: true }));
-      }
+      if (saved) onSessionChange((current) => ({ ...current,
+        managedPresetId: saved.id, settingsHydrated: true,
+        selectedPresetId: JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey
+          ? saved.id : current.selectedPresetId,
+      }));
       setPresetName((current) => current.trim() === name ? '' : current);
       setPresetNotice(`${previous ? 'Updated' : 'Saved'} video preset “${saved?.name || name}”.`);
     } catch (error) {
@@ -405,23 +410,27 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
   const deletePreset = async () => {
     if (savingPreset) return;
-    const selectedId = session.selectedPresetId;
+    const selectedId = session.managedPresetId;
     const target = presets.find((preset) => preset.id === selectedId);
     if (!target) return;
+    const ownership = startRequest.current;
     const confirmed = await onConfirm({
       title: `Delete “${target.name}”?`,
       message: 'This removes the saved video preset from your profile. Your current video settings stay as they are.',
       confirmLabel: 'Delete preset',
       tone: 'warning',
     });
-    if (!confirmed) return;
+    if (!confirmed || startRequest.current !== ownership) return;
     setSavingPreset(true);
     setPresetError('');
     setPresetNotice('');
     try {
       const updated = await api.deleteVideoExportPreset(target.id);
       setPresets(updated.videoExportPresets || []);
-      onSessionChange((current) => current.selectedPresetId === target.id ? { ...current, selectedPresetId: '', settingsHydrated: true } : current);
+      onSessionChange((current) => ({ ...current, settingsHydrated: true,
+        selectedPresetId: current.selectedPresetId === target.id ? '' : current.selectedPresetId,
+        managedPresetId: current.managedPresetId === target.id ? '' : current.managedPresetId,
+      }));
       setPresetNotice(`Deleted video preset “${target.name}”. Current settings are unchanged.`);
     } catch (error) {
       setPresetError(error instanceof Error ? error.message : 'Could not delete video preset.');
@@ -431,6 +440,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   };
 
   const currentPreset = presets.find((preset) => preset.id === session.selectedPresetId);
+  const managedPreset = presets.find((preset) => preset.id === session.managedPresetId);
   const selectedPresetId = session.selectedPresetId === LAST_USED_PRESET_ID
     ? (lastUsedSettings ? LAST_USED_PRESET_ID : '')
     : currentPreset?.id || '';
@@ -496,12 +506,21 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
             <details className="export-preset-tools">
               <summary>Manage presets</summary>
               <div className="export-preset-tools-body">
+                {presets.length > 0 && <label className="export-preset-manage" htmlFor="video-export-manage-preset-select">
+                  <span>Saved preset to manage</span>
+                  <select id="video-export-manage-preset-select" aria-label="Manage video export preset"
+                    value={managedPreset?.id || ''} disabled={loadingProfile || savingPreset}
+                    onChange={(event) => onSessionChange((current) => ({ ...current, managedPresetId: event.target.value, settingsHydrated: true }))}>
+                    <option value="">Choose a saved preset</option>
+                    {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                  </select>
+                </label>}
                 <label htmlFor="video-export-preset-name"><span>Save current video settings as</span>
                   <input id="video-export-preset-name" aria-label="Save video export preset as" value={presetName} maxLength={80} placeholder="Example: Vertical high quality" onChange={(event) => setPresetName(event.target.value)}/>
                 </label>
                 <button type="button" disabled={!presetName.trim() || loadingProfile || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
-                {currentPreset && <div className="export-preset-delete"><span>Selected: <b>{currentPreset.name}</b></span><button type="button" className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
-                <p className="export-preset-hint">Saved presets include video quality and advanced output settings. Caption appearance stays with each project. Saving an existing name updates that preset.</p>
+                {managedPreset && <div className="export-preset-delete"><span>Delete saved preset: <b>{managedPreset.name}</b></span><button type="button" className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
+                <p className="export-preset-hint">Saved presets include video quality and advanced output settings. Caption appearance stays with each project. Saving an existing name updates that preset. Managing a preset does not change the current video settings.</p>
               </div>
             </details>
           </div>

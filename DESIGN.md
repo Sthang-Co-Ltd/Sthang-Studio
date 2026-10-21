@@ -223,6 +223,10 @@ editable elsewhere        not separately editable inside the MP4
 - Place a clearly labeled **Video export preset** selector near Video settings,
   with Save/Delete inside a secondary **Manage presets** disclosure. This stores
   output choices only; the separate Appearance preset stays in Appearance.
+  A saved preset remains explicitly selectable for management/deletion even when
+  an unavailable codec or hardware encoder forces current output settings to
+  fall back. Label effective output as customized after fallback, while retaining
+  the original preset values and showing the name to be deleted before confirmation.
 - Recall last-used output settings from the most recently accepted render when
   entering a new Export visit. Preserve local in-progress choices while repairing
   export issues and ignore late profile responses after the user edits. Recheck

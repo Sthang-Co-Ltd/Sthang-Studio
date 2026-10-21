@@ -3,10 +3,11 @@
 .export-preset-bar>label,.export-preset-tools-body label{display:flex;flex-direction:column;gap:6px;min-width:0}
 .export-preset-bar>label>span,.export-preset-tools-body label>span{font-size:12px;color:#a8afb9}
 .export-preset-bar>label>span{padding-right:140px}
-.export-preset-bar select,.export-preset-tools-body input{width:100%;min-height:38px;border:1px solid #303641;background:#11151a;color:#e5e8ec;border-radius:8px;padding:0 10px;outline:none;font-size:13px}
+.export-preset-bar select,.export-preset-tools-body input,.export-preset-tools-body select{width:100%;min-height:38px;border:1px solid #303641;background:#11151a;color:#e5e8ec;border-radius:8px;padding:0 10px;outline:none;font-size:13px}
 .export-preset-tools{position:static}
 .export-preset-tools summary{position:absolute;right:0;top:0;cursor:pointer;color:#b1b8c1;font-size:12px;font-weight:600}
 .export-preset-tools-body{margin-top:10px;padding:12px;border:1px solid #2a3038;background:#11151a;border-radius:10px;display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:9px;align-items:end}
+.export-preset-manage{grid-column:1/-1}
 .export-preset-tools-body button{min-height:38px;border:1px solid #303641;background:#161a20;color:#d9dde3;border-radius:8px;padding:0 11px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:12px}
 .export-preset-tools .danger-quiet{border-color:#553335;color:#d6a3a3;background:#1b1214}
 .export-preset-delete{grid-column:1/-1;display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #272d35}
@@ -19,6 +20,6 @@
   .export-preset-bar>label>span{padding-right:0}
   .export-preset-tools summary{position:static;margin-top:10px;min-height:44px;display:flex;align-items:center;padding:0 8px}
   .export-preset-tools-body{grid-template-columns:1fr}
-  .export-preset-bar select,.export-preset-tools-body input,.export-preset-tools-body button{min-height:44px}
+  .export-preset-bar select,.export-preset-tools-body input,.export-preset-tools-body select,.export-preset-tools-body button{min-height:44px}
   .export-preset-tools-body button{width:100%}
 }

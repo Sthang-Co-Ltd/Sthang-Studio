@@ -318,6 +318,9 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       if (!name) return json({ error: 'Name required' }, 400);
       const currentPresets = state.profile.videoExportPresets || [];
       const existing = currentPresets.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
+      if (!existing && currentPresets.length >= 20) {
+        return json({ error: 'You can save up to 20 video export presets. Delete one before saving a new preset.' }, 409);
+      }
       const preset = {
         id: existing?.id || `export-preset-${state.requests.length}`,
         name,
@@ -325,7 +328,7 @@ export async function installFixture(page: Page): Promise<FixtureState> {
         createdAt: existing?.createdAt || now,
         updatedAt: now,
       };
-      state.profile = { ...state.profile, videoExportPresets: [preset, ...currentPresets.filter((item) => item.id !== preset.id)].slice(0, 20) };
+      state.profile = { ...state.profile, videoExportPresets: [preset, ...currentPresets.filter((item) => item.id !== preset.id)] };
       return json(state.profile);
     }
     if (url.pathname.startsWith('/api/profile/video-export-presets/') && method === 'DELETE') {

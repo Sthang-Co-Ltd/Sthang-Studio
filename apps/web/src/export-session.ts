@@ -16,6 +16,8 @@ export interface ExportWorkspaceSession {
   settingsHydrated: boolean;
   /** Empty means customized; a saved preset selection is only a label for the loaded values. */
   selectedPresetId: string;
+  /** Stored preset selected for management. Independent of compatible output settings. */
+  managedPresetId: string;
   advancedOpen: boolean;
   handoff: CaptionHandoffSession;
 }
@@ -26,6 +28,7 @@ export function createExportWorkspaceSession(videoProject: boolean): ExportWorks
     settings: { resolution: 'source', frameRate: 'source', quality: 'recommended', codec: 'h264', encoder: 'auto' },
     settingsHydrated: false,
     selectedPresetId: '',
+    managedPresetId: '',
     advancedOpen: false,
     handoff: { destination: 'capcut-desktop', advancedFormat: null, advancedOpen: false },
   };

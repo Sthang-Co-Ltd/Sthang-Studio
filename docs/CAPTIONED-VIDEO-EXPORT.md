@@ -115,6 +115,9 @@ review-warning confirmation or a blocked export does not replace those choices.
 The server saves the choices after creating the accepted render job and before
 acknowledging it. Profile-storage failure must leave the render queued and show
 a visible warning that the last-used choice was not saved.
+An overlapping submission that resolves to an existing render job is rejected
+as a duplicate: it does not replace that job's immutable output settings, and
+does not write a new last-used preference or report a successful preference save.
 Opening Export on a different project or after restarting Studio restores the
 last accepted settings, while the current editor visit continues to retain its
 temporary choices during export repair.
@@ -126,7 +129,10 @@ quality, codec, encoder preference and optional bitrate. They do not store
 source-media dimensions, captions, styling, selected files or any render job.
 The local renderer still checks actual source dimensions, compatible hardware,
 disk space, fonts and output layout each time. An unavailable saved codec or
-encoder is explained and adjusted for the current machine before use.
+encoder is explained and adjusted for the current machine before use. The
+original preset remains accessible in Manage presets for explicit, confirmed
+deletion; fallback settings are shown as customized. Removing a preset changes
+neither the current output choices nor the last-used settings.
 
 Both last-used choices and named presets are stored in `data/profile.json` as
 ordinary profile state and included in the existing explicit profile export/

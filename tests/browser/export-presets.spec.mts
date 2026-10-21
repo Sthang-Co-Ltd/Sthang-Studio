@@ -272,3 +272,99 @@ test('held profile read allows render admission and cannot replace a newer saved
     await hold.dispose();
   }
 });
+
+test('incompatible imported hardware preset remains available for confirmed deletion', async ({ page }) => {
+  const stored: VideoExportSettings = { resolution: '720p', frameRate: 30, quality: 'high', codec: 'h264', encoder: 'nvidia' };
+  state.profile.videoExportPresets = [{
+    id: 'imported-hardware', name: 'Imported GPU preset', settings: structuredClone(stored),
+    createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z',
+  }];
+  state.profile.lastVideoExportSettings = structuredClone(chosen);
+  await openExport(page);
+  const picker = page.getByLabel('Video export preset', { exact: true });
+  await expect(picker.locator('option[value="imported-hardware"]')).toHaveCount(1);
+  await picker.selectOption('imported-hardware');
+  await expect(page.getByLabel('Encoder', { exact: true })).toHaveValue('auto');
+  await expect(page.getByText(/NVIDIA encoding is unavailable/)).toBeVisible();
+  await expect(picker).toHaveValue('');
+  await page.getByText('Manage presets', { exact: true }).click();
+  const managed = page.getByLabel('Manage video export preset', { exact: true });
+  await expect(managed).toHaveValue('imported-hardware');
+  await expect(page.getByRole('button', { name: 'Delete preset', exact: true })).toBeVisible();
+  expect(state.profile.videoExportPresets?.[0].settings).toEqual(stored);
+  expect(state.profile.lastVideoExportSettings).toEqual(chosen);
+  await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Imported GPU preset');
+  await page.getByRole('alertdialog').locator('.studio-confirm-cancel').click();
+  await expect(managed).toHaveValue('imported-hardware');
+  expect(state.profile.videoExportPresets?.[0].settings).toEqual(stored);
+  await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await expect.poll(() => state.profile.videoExportPresets?.length).toBe(0);
+  await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('720p');
+  await expect(page.getByLabel('Encoder', { exact: true })).toHaveValue('auto');
+  await expect(picker).toHaveValue('');
+  expect(state.profile.lastVideoExportSettings).toEqual(chosen);
+});
+
+test('unavailable HEVC preset can be deleted at capacity and replaced without changing output or last-used choices', async ({ page }) => {
+  const hevcSettings: VideoExportSettings = { resolution: '2160p', frameRate: 60, quality: 'high', codec: 'hevc', encoder: 'auto' };
+  const ordinary: VideoExportSettings = { resolution: 'source', frameRate: 'source', quality: 'recommended', codec: 'h264', encoder: 'auto' };
+  const stamp = '2026-10-21T00:00:00.000Z';
+  state.profile.videoExportPresets = [
+    { id: 'legacy-hevc', name: 'Legacy HEVC', settings: structuredClone(hevcSettings), createdAt: stamp, updatedAt: stamp },
+    ...Array.from({ length: 19 }, (_, index) => ({ id: `saved-${index}`, name: `Other preset ${index}`,
+      settings: structuredClone(ordinary), createdAt: stamp, updatedAt: stamp })),
+  ];
+  state.profile.lastVideoExportSettings = structuredClone(chosen);
+  await openExport(page);
+  const picker = page.getByLabel('Video export preset', { exact: true });
+  await picker.selectOption('legacy-hevc');
+  await expect(page.getByLabel('Codec', { exact: true })).toHaveValue('h264');
+  await expect(page.getByLabel('Encoder', { exact: true })).toHaveValue('auto');
+  await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('2160p');
+  await expect(page.getByText(/HEVC is unavailable on this PC/)).toBeVisible();
+  await expect(picker).toHaveValue('');
+  expect(state.profile.videoExportPresets?.[0].settings).toEqual(hevcSettings);
+  await page.getByText('Manage presets', { exact: true }).click();
+  const managed = page.getByLabel('Manage video export preset', { exact: true });
+  await expect(managed).toHaveValue('legacy-hevc');
+  await managed.selectOption('saved-1');
+  await expect(page.getByText('Delete saved preset:')).toContainText('Other preset 1');
+  await managed.selectOption('legacy-hevc');
+  await expect(page.getByText('Delete saved preset:')).toContainText('Legacy HEVC');
+
+  const replacementName = page.getByLabel('Save video export preset as', { exact: true });
+  await replacementName.fill('Replacement after deleting HEVC');
+  await page.getByRole('button', { name: 'Save preset', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('You can save up to 20 video export presets');
+  expect(state.profile.videoExportPresets?.length).toBe(20);
+  expect(state.profile.videoExportPresets?.[0].settings).toEqual(hevcSettings);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await managed.focus();
+  await expect(managed).toBeFocused();
+  expect((await managed.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await page.getByRole('button', { name: 'Delete preset', exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+  await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Legacy HEVC');
+  await page.getByRole('alertdialog').locator('.studio-confirm-cancel').click();
+  expect(state.profile.videoExportPresets?.length).toBe(20);
+  await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await expect.poll(() => state.profile.videoExportPresets?.length).toBe(19);
+  expect(state.profile.videoExportPresets?.some((preset) => preset.id === 'legacy-hevc')).toBe(false);
+  await expect(picker).toHaveValue('');
+  await expect(page.getByLabel('Codec', { exact: true })).toHaveValue('h264');
+  await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('2160p');
+  expect(state.profile.lastVideoExportSettings).toEqual(chosen);
+
+  await replacementName.fill('Replacement after deleting HEVC');
+  await page.getByRole('button', { name: 'Save preset', exact: true }).click();
+  await expect.poll(() => state.profile.videoExportPresets?.length).toBe(20);
+  const replacement = state.profile.videoExportPresets?.find((preset) => preset.name === 'Replacement after deleting HEVC');
+  expect(replacement).toBeDefined();
+  expect(replacement?.settings).toEqual({ ...hevcSettings, codec: 'h264', encoder: 'auto' });
+  expect(state.profile.videoExportPresets?.some((preset) => preset.id === 'legacy-hevc')).toBe(false);
+  expect(state.profile.lastVideoExportSettings).toEqual(chosen);
+});

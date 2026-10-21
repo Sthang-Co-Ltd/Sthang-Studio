@@ -374,6 +374,40 @@ function pump() {
   void pumpLane('export');
 }
 
+/** Reports whether this call reserved a new job in the same in-memory duplicate decision. */
+async function createWithDisposition(type: ProcessingJobType, projectId: string, payload: JobPayload): Promise<{ job: ProcessingJob; created: boolean }> {
+  return jobAdmission.runForProject(projectId, async () => {
+    const project = await store.get(projectId);
+    if (!project) throw new Error('Project not found');
+    const duplicate = jobs.find((job) => job.projectId === projectId && job.type === type && ['queued', 'running'].includes(job.status));
+    if (duplicate) return { job: publicJob(duplicate), created: false };
+    const now = new Date().toISOString();
+    const job: StoredJob = {
+      id: nanoid(14),
+      type,
+      projectId,
+      projectTitle: project.title,
+      status: 'queued',
+      stage: 'queued',
+      progress: 0,
+      message: type === 'export-video' ? 'Captioned video export is queued.' : 'Waiting for the local processing worker…',
+      createdAt: now,
+      updatedAt: now,
+      canResume: false,
+      payload: { ...payload, sourceMediaFilename: project.media.filename, sourceMediaSize: project.media.size },
+    };
+    // No await between the duplicate check and this reservation: concurrent
+    // callers cannot both report created:true for this project and job type.
+    jobs.unshift(job);
+    jobs = jobs.slice(0, 80);
+    await persist();
+    notifySubscribers();
+    if (type !== 'export-video') void captureAnalytics('generation_started', { job_type: type });
+    pump();
+    return { job: publicJob(job), created: true };
+  });
+}
+
 await cleanupStaleVideoExportWork();
 await load();
 queueMicrotask(pump);
@@ -418,35 +452,11 @@ export const jobStore = {
   },
 
   async create(type: ProcessingJobType, projectId: string, payload: JobPayload) {
-    return jobAdmission.runForProject(projectId, async () => {
-      const project = await store.get(projectId);
-      if (!project) throw new Error('Project not found');
-      const duplicate = jobs.find((job) => job.projectId === projectId && job.type === type && ['queued', 'running'].includes(job.status));
-      if (duplicate) return publicJob(duplicate);
-      const now = new Date().toISOString();
-      const job: StoredJob = {
-        id: nanoid(14),
-        type,
-        projectId,
-        projectTitle: project.title,
-        status: 'queued',
-        stage: 'queued',
-        progress: 0,
-        message: type === 'export-video' ? 'Captioned video export is queued.' : 'Waiting for the local processing worker…',
-        createdAt: now,
-        updatedAt: now,
-        canResume: false,
-        payload: { ...payload, sourceMediaFilename: project.media.filename, sourceMediaSize: project.media.size },
-      };
-      jobs.unshift(job);
-      jobs = jobs.slice(0, 80);
-      await persist();
-      notifySubscribers();
-      if (type !== 'export-video') void captureAnalytics('generation_started', { job_type: type });
-      pump();
-      return publicJob(job);
-    });
+    return (await createWithDisposition(type, projectId, payload)).job;
   },
+
+  /** Use when the caller must know whether this request actually created the job. */
+  createWithDisposition,
 
   async resume(id: string) {
     return jobAdmission.run(async () => {
