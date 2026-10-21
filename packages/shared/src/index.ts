@@ -4,6 +4,7 @@ export * from './caption-settings.js';
 export * from './caption-looks.js';
 export * from './word-timing.js';
 export * from './caption-interchange.js';
+export * from './export-checks.js';
 export { summarizeProject, type CaptionProjectSummary } from './project-summary.js';
 export { captionWordBreakOffsets, planCaptionRenderStates, captionMotionContextIndices, type CaptionRenderState } from './caption-layout.js';
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Source-only - repair export issues by caption:** show actionable caption-level
+  blockers and review suggestions, with direct editing links and a return to the
+  current export choices. Add an explicit local native layout check with overlap
+  attribution and stale-response invalidation; retain mandatory final-render
+  validation and the existing caption save/conflict protections.
+
 - **Source-only - find and reopen every project:** keep six recent projects on
   Home and add All projects with name search, last-edited/created/name ordering,
   and 24-row pages. Reopen current saved work through the existing save/recovery

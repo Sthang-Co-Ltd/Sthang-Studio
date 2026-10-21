@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { isVideoProject, resolveCaptionWordTiming, type CaptionProject } from '@kcs/shared';
 import { Download, ExternalLink, FileJson, FileText, PackageOpen, RotateCcw, TriangleAlert } from 'lucide-react';
+import type { CaptionDestinationId, CaptionHandoffSession } from '../export-session';
 import './caption-handoff.css';
 
 export type CaptionFileFormat = 'srt' | 'word-srt' | 'vtt' | 'word-vtt' | 'ttml' | 'ass' | 'data' | 'bundle';
@@ -12,9 +13,15 @@ export interface CaptionHandoffPanelProps {
   onImport(file: File): Promise<void>;
   onEditWordTiming?(id?: string): void;
   onRenderedVideo?(): void;
+  session: CaptionHandoffSession;
+  onSessionChange(session: CaptionHandoffSession): void;
+  saveBlocked?: boolean;
+  invalidCaptions?: boolean;
+  selectedFormatBlocked?: boolean;
+  styledLayoutBlocked?: boolean;
 }
 
-type DestinationId = 'capcut-desktop' | 'capcut-mobile' | 'premiere' | 'resolve' | 'final-cut' | 'web-other' | 'subtitle-tools';
+type DestinationId = CaptionDestinationId;
 type AdvancedFormat = Exclude<CaptionFileFormat, 'srt'>;
 
 interface DestinationGuide {
@@ -169,9 +176,10 @@ function transferSummary(format: CaptionFileFormat) {
   return { keeps: 'Caption text and source-media cue timing.', reset: 'Font, color, size, placement, animation, and word-highlight styling.' };
 }
 
-export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditWordTiming, onRenderedVideo }: CaptionHandoffPanelProps) {
-  const [destination, setDestination] = useState<DestinationId>('capcut-desktop');
-  const [advancedFormat, setAdvancedFormat] = useState<AdvancedFormat | null>(null);
+export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditWordTiming, onRenderedVideo,
+  session, onSessionChange, saveBlocked = false, invalidCaptions = false, selectedFormatBlocked = false, styledLayoutBlocked = false }: CaptionHandoffPanelProps) {
+  const { destination, advancedFormat } = session;
+  const setAdvancedFormat = (format: AdvancedFormat | null) => onSessionChange({ ...session, advancedFormat: format });
   const [exporting, setExporting] = useState<CaptionFileFormat | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [status, setStatus] = useState('');
@@ -202,15 +210,15 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
   const selectedAdvanced = advancedFormat ? ADVANCED_FORMATS.find((item) => item.id === advancedFormat) : undefined;
   const selectedAdvancedBlocked = Boolean(
     (selectedAdvanced?.requiresCompleteWords && !wordsComplete)
-    || (advancedFormat === 'ass' && !videoProject),
+    || (advancedFormat === 'ass' && (!videoProject || styledLayoutBlocked)),
   );
   const summary = transferSummary('srt');
 
   const exportFormat = async (format: CaptionFileFormat) => {
-    if (busy || exporting || restoring || !hasCaptions) return;
+    if (busy || exporting || restoring || !hasCaptions || saveBlocked || (format === 'srt' ? invalidCaptions : selectedFormatBlocked)) return;
     const definition = ADVANCED_FORMATS.find((item) => item.id === format);
     if (definition?.requiresCompleteWords && !wordsComplete) return;
-    if (format === 'ass' && !videoProject) return;
+    if (format === 'ass' && (!videoProject || styledLayoutBlocked)) return;
     setExporting(format);
     setActionError('');
     setStatus('');
@@ -254,8 +262,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
           value={destination}
           disabled={busy || Boolean(exporting) || restoring}
           onChange={(event) => {
-            setDestination(event.target.value as DestinationId);
-            setAdvancedFormat(null);
+            onSessionChange({ ...session, destination: event.target.value as DestinationId, advancedFormat: null });
           }}
         >
           {DESTINATIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -275,7 +282,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
         <span className="handoff-format-icon"><FileText size={17}/></span>
         <div><strong id="caption-handoff-srt-title">Captions file (SRT)</strong><span>Text and timing only. Set visual styling in the destination editor.</span></div>
       </div>
-      <button className="handoff-download-primary" type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring} onClick={() => void exportFormat('srt')}>
+      <button className="handoff-download-primary" type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || saveBlocked || invalidCaptions} onClick={() => void exportFormat('srt')}>
         <Download size={15}/>{exporting === 'srt' ? 'Preparing…' : 'Download SRT'}
       </button>
     </section>
@@ -290,7 +297,10 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
       <TriangleAlert size={15}/><div><strong>{overlapPairs} overlapping cue pair{overlapPairs === 1 ? '' : 's'}</strong><span>Studio exports timing as-is. Check overlaps in your editor; Studio will not retime them.{destination === 'final-cut' ? ' Final Cut Pro cannot keep overlapping captions; resolve them before relying on the import.' : ''}</span></div>
     </div>}
 
-    <details className="handoff-advanced" onToggle={(event) => { if (!event.currentTarget.open) setAdvancedFormat(null); }}>
+    <details className="handoff-advanced" open={session.advancedOpen} onToggle={(event) => {
+      const open = event.currentTarget.open;
+      if (open !== session.advancedOpen) onSessionChange({ ...session, advancedOpen: open, advancedFormat: open ? session.advancedFormat : null });
+    }}>
       <summary>Advanced caption formats <span>For compatible editors and backups</span></summary>
       <div className="handoff-advanced-body">
         <div className="handoff-word-readiness" role="status">
@@ -302,14 +312,13 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
           {ADVANCED_FORMATS.map((format) => {
             const wordBlocked = Boolean(format.requiresCompleteWords && !wordsComplete);
             const assBlocked = format.id === 'ass' && !videoProject;
-            const blocked = wordBlocked || assBlocked;
             const selected = advancedFormat === format.id;
             return <button
               key={format.id}
               type="button"
               className={selected ? 'selected' : ''}
               aria-pressed={selected}
-              disabled={blocked}
+              disabled={assBlocked}
               onClick={() => setAdvancedFormat(format.id)}
             >
               <span className="handoff-format-top"><strong>{format.label}</strong><small>{format.badge}</small></span>
@@ -323,7 +332,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, onImport, onEditW
 
         {advancedFormat && <div className="handoff-advanced-action">
           <div><strong>{formatLabel(advancedFormat)}</strong><span>{transferSummary(advancedFormat).keeps}</span><span>{transferSummary(advancedFormat).reset}</span></div>
-          <button type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || selectedAdvancedBlocked} onClick={() => void exportFormat(advancedFormat)}>
+          <button type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || selectedAdvancedBlocked || saveBlocked || selectedFormatBlocked} onClick={() => void exportFormat(advancedFormat)}>
             {advancedFormat === 'bundle' ? <PackageOpen size={15}/> : advancedFormat === 'data' ? <FileJson size={15}/> : <Download size={15}/>}
             {exporting === advancedFormat ? 'Preparing…' : advancedFormat === 'bundle' ? 'Download handoff kit' : advancedFormat === 'data' ? 'Download Studio data' : `Download ${ADVANCED_FORMATS.find((item) => item.id === advancedFormat)?.badge}`}
           </button>

@@ -94,6 +94,8 @@ import {
   type WordHighlightBatchResult,
 } from './word-highlight-batch';
 import type { WordHighlightPreparationView } from './components/WordHighlightPreparation';
+import { createExportWorkspaceSession, type ExportWorkspaceSession } from './export-session';
+import type { ExportRepairTarget } from './export-checks';
 
 function compatibilityTranscriptionNotice(value: CaptionProject) {
   const transcript = value.transcript;
@@ -331,6 +333,12 @@ export default function App() {
   const [proposalAccuracyHint, setProposalAccuracyHint] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
+  const [exportVisit, setExportVisit] = useState<{ ticket: ProjectTicket; session: ExportWorkspaceSession } | null>(null);
+  const [exportRepair, setExportRepair] = useState<{ ticket: ProjectTicket; target: ExportRepairTarget } | null>(null);
+  const exportRepairFocus = useRef(false);
+  const exportSession = exportVisit?.ticket === viewTicket && viewTicket.key === mediaKey
+    ? exportVisit.session : createExportWorkspaceSession(Boolean(project && isVideoProject(project)));
+  useEffect(() => { setExportVisit(null); setExportRepair(null); exportRepairFocus.current = false; }, [mediaKey]);
   const [requestedTimingMode, setRequestedTimingMode] = useState<'caption' | 'words'>('caption');
   const [captionHandoffWorking, setCaptionHandoffWorking] = useState(false);
   const [pendingCaptionImport, setPendingCaptionImport] = useState<PendingCaptionImport | null>(null);
@@ -587,6 +595,9 @@ export default function App() {
     projectOpen.current?.abort();
     projectOpen.current = null;
     projectScope.current.invalidate();
+    setExportVisit(null);
+    setExportRepair(null);
+    exportRepairFocus.current = false;
     // Navigation can be canceled by an unsuccessful save, leaving the same media
     // mounted. Invalidate transient timing proposals immediately so neither a
     // canceled request nor an old undo offer remains attached to that editor.
@@ -2748,8 +2759,9 @@ export default function App() {
   };
 
 
-  const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance): Promise<ProcessingJob | null> => {
-    if (!project) return null;
+  const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance, exportStillCurrent: () => boolean): Promise<ProcessingJob | null> => {
+    const currentExport = () => handoffWorkspace.current === 'export' && exportStillCurrent();
+    if (!project || !currentExport()) return null;
     const targetProject = project;
     const intent = captureOperationIntent();
     const editRevision = draftEditRevision.current;
@@ -2760,12 +2772,12 @@ export default function App() {
         message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Studio can render anyway, but the finished video will use the current caption text and timing.`,
         confirmLabel: 'Render anyway',
       });
-      if (!confirmed || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
+      if (!confirmed || !currentExport() || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     }
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return null;
-    if (!isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
+    if (!currentExport() || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     return startJob(
       intent,
       () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }),
@@ -3022,6 +3034,58 @@ export default function App() {
     setWorkspaceTool('timeline');
   };
 
+  const changeExportSession = (update: ExportWorkspaceSession | ((current: ExportWorkspaceSession) => ExportWorkspaceSession)) => {
+    const ticket = viewTicket;
+    if (!project || !projectScope.current.isCurrent(ticket) || ticket.key !== mediaKey) return;
+    setExportVisit((current) => {
+      if (!projectScope.current.isCurrent(ticket)) return current;
+      const previous = current?.ticket === ticket ? current.session : createExportWorkspaceSession(isVideoProject(project));
+      return { ticket, session: typeof update === 'function' ? update(previous) : update };
+    });
+  };
+  const repairExportIssue = (target: ExportRepairTarget) => {
+    if (!project || !projectScope.current.isCurrent(viewTicket)) return;
+    const caption = target.captionId ? draftRef.current.find((item) => item.id === target.captionId) : undefined;
+    if (target.captionId && !caption) { setNotice('That caption changed. Check the updated export issue list.'); return; }
+    cancelPlayback();
+    media.current?.pause();
+    setReviewMode(false);
+    setExportVisit({ ticket: viewTicket, session: exportSession });
+    setExportRepair({ ticket: viewTicket, target });
+    exportRepairFocus.current = true;
+    if (caption) {
+      setSelectionAnchor(caption.id); setSelectionEnd(caption.id);
+      const atMs = Math.max(0, Math.min(caption.startMs, mediaDurationMs ? mediaDurationMs - 1 : caption.startMs));
+      if (media.current && media.current.readyState > 0) seek(atMs);
+      else retainedMediaSeek.current = { key: mediaKey, timeMs: atMs };
+      setTime(atMs / 1000);
+    }
+    if (target.kind === 'word-timing' || target.kind === 'timing') {
+      setRequestedTimingMode(target.kind === 'word-timing' ? 'words' : 'caption');
+      setWorkspaceTool('timeline');
+    } else setWorkspaceTool(target.kind === 'appearance' ? 'appearance' : null);
+  };
+  const backToExport = () => {
+    if (!exportRepair || !projectScope.current.isCurrent(exportRepair.ticket)) return;
+    cancelPlayback();
+    setReviewMode(false);
+    setWorkspaceTool('export');
+  };
+  useEffect(() => {
+    if (!exportRepairFocus.current || !exportRepair || !projectScope.current.isCurrent(exportRepair.ticket)) return;
+    exportRepairFocus.current = false;
+    const frame = requestAnimationFrame(() => {
+      if (!projectScope.current.isCurrent(exportRepair.ticket)) return;
+      const id = exportRepair.target.captionId;
+      if (id) editor.current?.revealCaption(id);
+      if (id && exportRepair.target.kind === 'caption') {
+        const row = document.querySelector<HTMLElement>(`[data-caption-id="${CSS.escape(id)}"]`);
+        row?.querySelector<HTMLElement>('textarea:not([disabled]), button:not([disabled])')?.focus({ preventScroll: true });
+      } else document.getElementById('export-repair-title')?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [exportRepair, workspaceTool, viewTicket]);
+
   const wordBatchMatchesProject = Boolean(wordBatchResult && projectScope.current.isCurrent(wordBatchResult.ticket));
   const currentBatchCheck = wordBatchMatchesProject && wordBatchResult
     ? applyWordHighlightBatch(draft, wordBatchResult.value.ready)
@@ -3201,6 +3265,13 @@ export default function App() {
         />}
 
         {!proposal && <>
+          {exportRepair && projectScope.current.isCurrent(exportRepair.ticket) && workspaceTool !== 'export' && <section className="export-repair-return" aria-label="Export review">
+            <div><strong id="export-repair-title" tabIndex={-1}>Fixing an export issue{exportRepair.target.captionId && draft.some((caption) => caption.id === exportRepair.target.captionId)
+              ? ` · Caption ${draft.findIndex((caption) => caption.id === exportRepair.target.captionId) + 1}` : ''}</strong>
+              <p>Check this caption against the video, then return to export. Your output choices are kept for this visit.</p></div>
+            <div><button type="button" onClick={backToExport}>Back to export</button>
+              <button type="button" onClick={() => setExportRepair(null)}>Finish export review</button></div>
+          </section>}
           {workspaceTool !== 'export' && <div className="workspace-tool-strip">
             <div className="workspace-tool-intro"><strong>{hasHybrid ? 'Choose one workspace tool' : 'Generate first, or add optional context'}</strong><span>{hasHybrid ? 'Advanced controls stay out of the way until you need them.' : 'The normal workflow works with the default settings.'}</span></div>
             <nav aria-label="Caption workspace tools">
@@ -3213,9 +3284,16 @@ export default function App() {
             </nav>
           </div>}
 
-          {workspaceTool === 'export' && <ExportWorkspace key={`${project.id}:${project.media.filename}`}
+          {workspaceTool === 'export' && <ExportWorkspace key={mediaKey}
             onPreviewResolution={setPreviewResolution}
             project={{ ...project, captions: draft }}
+            session={exportSession}
+            onSessionChange={changeExportSession}
+            onRepair={repairExportIssue}
+            reviewIssues={issues}
+            unsaved={dirty}
+            saveBlocked={saveConflict}
+            fontRevision={captionFontRevision}
             busy={Boolean(busy) || captionHandoffWorking}
             activeExportJob={activeExportJob}
             onExportCaptions={exportCaptionFile}
@@ -3227,8 +3305,8 @@ export default function App() {
             } : undefined}
             onApplyCaptionImport={() => void applyCaptionImport()}
             onCancelCaptionImport={() => setPendingCaptionImport(null)}
-            onEditAppearance={() => chooseWorkspaceTool('appearance')}
-            onEditWordTiming={openWordTiming}
+            onEditAppearance={() => repairExportIssue({ kind: 'appearance' })}
+            onEditWordTiming={(id) => repairExportIssue({ kind: 'word-timing', captionId: id })}
             onStartVideoExport={startVideoExport}
           />}
 

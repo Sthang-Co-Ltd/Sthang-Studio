@@ -243,6 +243,26 @@ editable elsewhere        not separately editable inside the MP4
   video** action, and show Studio's fixed local exports-folder path instead of a
   fragile desktop-shell action.
 
+### Export issue repair
+
+Keep **Check before export** inline in the Export workspace. Each issue states
+whether it blocks this output or is a review suggestion, shows caption text and
+timestamps, and offers a labeled **Go to caption** action. Overlap findings list
+the involved captions. Page long issue collections so every target remains
+reachable without an unbounded wall of controls. Keep Khmer text readable and
+use the existing focus and mobile touch sizing.
+
+Native **Check layout** is explicit. Show unchecked, checking, cancelled/failed,
+stale, blocked and checked states honestly. A checked result applies only to its
+caption/appearance/resolution/font snapshot. Preserve the media and normal editor
+while checking; Cancel check must remain available.
+
+Repair navigation opens the appropriate focused workspace and exposes **Back to
+export**. Restore the temporary output/settings selection and focus the checks
+heading on return. Users can finish the export review without changing captions.
+Selecting a word-file option with unresolved timing reveals its blockers while
+the actual download remains disabled. Plain SRT remains independently available.
+
 ### Review decisions
 
 Review is a sequential queue, not a freeform editing surface. Keep navigation and decisions visually distinct:

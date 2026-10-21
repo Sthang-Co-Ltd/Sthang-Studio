@@ -8,6 +8,7 @@ import express from 'express';
 import type { AddressInfo } from 'node:net';
 import {
   buildCaptionWordTiming,
+  captionFileBlockers,
   createCaptionData,
   hydrateCaptionWordTimings,
   normalizeCaptionAppearance,
@@ -121,6 +122,21 @@ function makeHarness(initial: CaptionProject, options: { width?: number; height?
     checkpointSnapshots: () => structuredClone(checkpoints),
   };
 }
+
+test('export findings match the shared handoff guard for malformed saved word evidence', async () => {
+  const project = projectFixture('word-evidence');
+  project.captions[0].wordTiming!.text = 'older wording';
+  const harness = makeHarness(project);
+  await assert.rejects(harness.service.summary(project.id), /stale|malformed/i);
+  for (const format of ['srt', 'vtt', 'ttml', 'word-srt', 'word-vtt', 'data', 'ass', 'bundle'] as const) {
+    assert.ok(captionFileBlockers({ captions: project.captions }, format).some((issue) => issue.captionIndex === 0 && issue.field === 'word-timing'));
+  }
+  delete project.captions[0].wordTiming;
+  harness.setCurrent(project);
+  await harness.service.summary(project.id);
+  assert.deepEqual(captionFileBlockers({ captions: project.captions }, 'srt'), []);
+  assert.deepEqual(harness.counts(), { checkpoints: 0, persists: 0, geometry: 0, mediaDuration: 0 });
+});
 
 let activeService: CaptionHandoffService = makeHarness(projectFixture()).service;
 const proxyService: CaptionHandoffService = {

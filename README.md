@@ -65,6 +65,24 @@ generation or resume playback automatically. Listing and searching use local
 project summaries. This source feature is not a claim about published v0.86.0
 downloads.
 
+## Repair export issues by caption (source-only)
+
+The development source adds **Check before export** with each affected caption's
+text, time, reason and suggested correction. **Go to caption** opens the relevant
+editing workspace; **Back to export** returns to the current output, resolution
+and caption-file choices. Those choices stay in this editor visit and reset when
+the project or source changes.
+
+Review suggestions remain optional. Missing word timing blocks a word-per-caption
+download, while a captioned video can keep that caption in its normal color.
+Plain SRT stays available when a video-only font or layout issue needs attention.
+**Check layout** explicitly checks the current draft with the local native
+renderer, including overlapping captions. Changes to captions, appearance,
+resolution or fonts invalidate the result; the final render still checks its own
+saved snapshot. A cancelled or incomplete check never reports that the layout fits.
+See [export checks and repair](docs/EXPORT-CAPTION-REPAIR.md). This source feature
+does not establish availability in the published v0.86.0 downloads.
+
 ## Unfinished-edit recovery (source-only)
 
 The development source protects unfinished caption and Accuracy edits when

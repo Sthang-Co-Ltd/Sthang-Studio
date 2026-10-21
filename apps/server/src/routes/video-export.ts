@@ -17,6 +17,7 @@ import { store } from '../services/store.js';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
+import { createCaptionLayoutCheckHandler } from './export-preflight.js';
 
 const router = Router();
 const fontUpload = multer({
@@ -123,6 +124,8 @@ router.post('/:projectId/preview', async (req, res) => {
     res.off('close', close);
   }
 });
+
+router.post('/:projectId/check-layout', createCaptionLayoutCheckHandler());
 
 function expectedMedia(body: { expectedMedia?: { filename?: unknown; size?: unknown } } | undefined) {
   const value = body?.expectedMedia;
