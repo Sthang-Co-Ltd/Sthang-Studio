@@ -26,6 +26,10 @@ async function advancedFormats(page: Page) {
   const details = page.locator('.handoff-advanced');
   if (!(await details.evaluate((element: HTMLDetailsElement) => element.open))) await details.locator('summary').click();
 }
+async function assMode(page: Page) {
+  await captionsMode(page); await advancedFormats(page);
+  await page.getByRole('button', { name: /^ASS ASS/ }).click();
+}
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => { resolve = done; });
@@ -244,4 +248,185 @@ test('caption-file duration blockers use the same recorded duration as the hando
   const blocker = checks(page).locator('.export-check-item[data-severity="blocker"]');
   await expect(blocker).toContainText('ends after the supplied media duration');
   await expect(blocker.getByRole('button', { name: 'Go to caption 3', exact: true })).toBeVisible();
+});
+
+test('ASS explains failed appearance loads and retries without blocking SRT', async ({ page }) => {
+  await openProject(page);
+  let retry = false;
+  const entered = deferred(); const finish = deferred();
+  const completed: Promise<void>[] = [];
+  const handler = async (route: Route) => {
+    if (!retry) return route.fulfill({ status: 500, json: { error: 'Synthetic appearance read failure' } });
+    const settled = deferred(); completed.push(settled.promise);
+    entered.resolve(); await finish.promise;
+    try { await route.fulfill({ json: state.projects[0] }); }
+    catch (error) { if (!page.isClosed() && route.request().failure()?.errorText !== 'net::ERR_ABORTED') throw error; }
+    finally { settled.resolve(); }
+  };
+  await page.route('**/api/projects/landscape', handler);
+  try {
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await assMode(page);
+    const failure = checks(page).getByRole('alert');
+    await expect(failure).toContainText('Could not load the latest saved caption appearance');
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
+    await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
+    retry = true;
+    const recover = failure.getByRole('button', { name: 'Retry appearance load', exact: true });
+    await recover.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/export-ass-appearance-recovery-desktop.png' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await recover.scrollIntoViewIfNeeded();
+    expect((await recover.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/export-ass-appearance-recovery-mobile.png' });
+    await recover.focus(); await expect(recover).toBeFocused(); await page.keyboard.press('Enter');
+    await entered.promise;
+    await expect(checks(page)).toContainText('Loading saved caption appearance');
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
+    await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
+    finish.resolve(); await Promise.all(completed);
+    await expect(failure).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled();
+    await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeEnabled();
+  } finally {
+    finish.resolve();
+    await page.unroute('**/api/projects/landscape', handler);
+    await Promise.all(completed);
+  }
+});
+
+test('ASS explains failed appearance saves and recovers the exact edited look', async ({ page }) => {
+  await openProject(page);
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
+  state.appearanceFailure = true;
+  await page.getByLabel(/^Size /).fill('90');
+  await expect(page.getByText('Appearance could not be saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await assMode(page);
+  const failure = checks(page).getByRole('alert');
+  await expect(failure).toContainText('Your latest caption appearance could not be saved');
+  await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
+  await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
+  const recover = failure.getByRole('button', { name: 'Retry in Appearance', exact: true });
+  await recover.focus(); await expect(recover).toBeFocused(); await page.keyboard.press('Enter');
+  await expect(page.getByLabel(/^Size /)).toHaveValue('90');
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+  state.appearanceFailure = false;
+  const entered = deferred(); const finish = deferred(); const settled = deferred();
+  let requested = false;
+  const handler = async (route: Route) => {
+    if (requested) return route.fallback();
+    requested = true; entered.resolve(); await finish.promise;
+    state.projects[0].captionAppearance = route.request().postDataJSON().appearance;
+    try { await route.fulfill({ json: state.projects[0] }); }
+    finally { settled.resolve(); }
+  };
+  await page.route('**/api/video-export/landscape/appearance', handler);
+  try {
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await entered.promise;
+    await page.getByRole('button', { name: 'Back to export', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
+    await expect(checks(page)).toContainText('Loading saved caption appearance');
+    await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
+    finish.resolve(); await settled.promise;
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled();
+    await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeEnabled();
+    await expect(failure).toHaveCount(0);
+    expect(state.projects[0].captionAppearance?.fontSize1080).toBe(90);
+    let checkedSize: number | undefined;
+    await page.route('**/api/video-export/*/check-layout', async (route) => {
+      checkedSize = route.request().postDataJSON().appearance.fontSize1080;
+      await route.fulfill({ json: passed });
+    });
+    await checks(page).getByRole('button', { name: 'Check layout', exact: true }).click();
+    await expect(checks(page)).toContainText('Layout fits the checked frame');
+    expect(checkedSize).toBe(90);
+  } finally {
+    finish.resolve(); if (requested) await settled.promise;
+    await page.unroute('**/api/video-export/landscape/appearance', handler);
+  }
+});
+
+for (const reply of ['failure', 'old appearance'] as const) {
+  test(`a late appearance ${reply} cannot change another project's ASS recovery state`, async ({ page }) => {
+    await openProject(page);
+    const old = structuredClone(state.projects[0]);
+    old.captionAppearance!.fontSize1080 = 103;
+    const entered = deferred(); const finish = deferred();
+    const completed: Promise<void>[] = [];
+    const handler = async (route: Route) => {
+      const settled = deferred(); completed.push(settled.promise);
+      entered.resolve(); await finish.promise;
+      try { await route.fulfill(reply === 'failure'
+        ? { status: 500, json: { error: 'Obsolete appearance read failure' } }
+        : { json: old }); }
+      catch (error) { if (!page.isClosed() && route.request().failure()?.errorText !== 'net::ERR_ABORTED') throw error; }
+      finally { settled.resolve(); }
+    };
+    await page.route('**/api/projects/landscape', handler);
+    try {
+      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await entered.promise;
+      await assMode(page);
+      await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
+      await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+      await page.getByRole('button', { name: /Audit second/ }).click();
+      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await assMode(page);
+      await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled();
+      finish.resolve(); await Promise.all(completed);
+      await expect(checks(page).getByRole('alert')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled();
+      let checkedSize: number | undefined;
+      await page.route('**/api/video-export/second/check-layout', async (route) => {
+        checkedSize = route.request().postDataJSON().appearance.fontSize1080;
+        await route.fulfill({ json: passed });
+      });
+      await checks(page).getByRole('button', { name: 'Check layout', exact: true }).click();
+      await expect(checks(page)).toContainText('Layout fits the checked frame');
+      expect(checkedSize).toBe(88);
+    } finally {
+      finish.resolve();
+      await page.unroute('**/api/projects/landscape', handler);
+      await Promise.all(completed);
+    }
+  });
+}
+
+test('ASS rejects an appearance read for changed media until the current source is verified', async ({ page }) => {
+  await openProject(page);
+  const changed = structuredClone(state.projects[0]);
+  changed.media.filename = 'replaced.mp4';
+  changed.captionAppearance!.fontSize1080 = 103;
+  let current = false;
+  const handler = (route: Route) => route.fulfill({ json: current ? state.projects[0] : changed });
+  await page.route('**/api/projects/landscape', handler);
+  try {
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await assMode(page);
+    await expect(checks(page).getByRole('alert')).toContainText('source changed');
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
+    await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();
+    current = true;
+    await checks(page).getByRole('button', { name: 'Retry appearance load', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled();
+    await expect(checks(page).getByRole('alert')).toHaveCount(0);
+    let checkedSize: number | undefined;
+    await page.route('**/api/video-export/*/check-layout', async (route) => {
+      checkedSize = route.request().postDataJSON().appearance.fontSize1080;
+      await route.fulfill({ json: passed });
+    });
+    await checks(page).getByRole('button', { name: 'Check layout', exact: true }).click();
+    await expect(checks(page)).toContainText('Layout fits the checked frame');
+    expect(checkedSize).toBe(state.projects[0].captionAppearance!.fontSize1080);
+    expect(checkedSize).not.toBe(103);
+  } finally { await page.unroute('**/api/projects/landscape', handler); }
 });

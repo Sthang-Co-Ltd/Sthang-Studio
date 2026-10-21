@@ -13,6 +13,8 @@ interface Props {
   onRepair(target: ExportRepairTarget): void;
   unsaved: boolean;
   saveBlocked: boolean;
+  appearancePending?: boolean;
+  appearancePrerequisite?: { message: string; actionLabel: string; onRecover(): void };
   layoutState?: ExportLayoutState;
   layoutMessage?: string;
   layoutDisabled?: boolean;
@@ -23,6 +25,7 @@ interface Props {
 const PAGE_SIZE = 8;
 
 export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlocked,
+  appearancePending, appearancePrerequisite,
   layoutState, layoutMessage, layoutDisabled, onCheckLayout, onCancelLayout }: Props) {
   const [page, setPage] = useState(0);
   const [issuesExpanded, setIssuesExpanded] = useState(false);
@@ -50,6 +53,12 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
 
     {saveBlocked ? <p className="export-check-save" role="status"><TriangleAlert size={16}/>Resolve the saved-project conflict before exporting. Your current edits are kept in the editor.</p>
       : unsaved && <p className="export-check-save" role="status">These checks include your current caption edits. Export will save them first; a failed save keeps your edits and stops the export.</p>}
+
+    {appearancePending && <p className="export-check-save" role="status"><LoaderCircle className="spin" size={16}/>Loading saved caption appearance… Styled export stays blocked until it is verified. Plain SRT does not use appearance.</p>}
+    {appearancePrerequisite && <div className="export-layout-check error export-appearance-prerequisite" role="alert">
+      <div><strong><TriangleAlert size={16}/>Caption appearance needs attention</strong><span>{appearancePrerequisite.message} Plain SRT does not use appearance.</span></div>
+      <button type="button" onClick={appearancePrerequisite.onRecover}>{appearancePrerequisite.actionLabel}</button>
+    </div>}
 
     {onCheckLayout && <div className={`export-layout-check ${layoutState || 'unchecked'}`}>
       <div role="status">

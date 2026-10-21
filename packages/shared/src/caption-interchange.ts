@@ -595,6 +595,10 @@ export function captionFileBlockers(input: CaptionInterchangeInput, format: Capt
   const issues: CaptionFileBlocker[] = [];
   let totalGraphemes = 0;
   let totalWords = 0;
+  // Match caption-handoff's wordReadiness: a bundle includes both word files only
+  // when every caption is ready. A partial/missing track omits both files instead.
+  const bundleHasWordFiles = format === 'bundle' && input.captions.length > 0
+    && input.captions.every((caption) => resolveCaptionWordTiming(caption).state === 'ready');
   const add = (captionIndex: number | null, field: CaptionFileBlocker['field'], error: unknown) =>
     issues.push({ captionIndex, field, message: error instanceof Error ? error.message : 'Caption data is invalid for export.' });
   input.captions.forEach((caption, index) => {
@@ -629,6 +633,22 @@ export function captionFileBlockers(input: CaptionInterchangeInput, format: Capt
     if (format !== 'ttml') {
       try { ensureNoBlankCueLines(cues.map((cue) => cue.text), format === 'vtt' || format === 'word-vtt' ? 'WebVTT' : 'SRT'); }
       catch (error) { add(index, 'text', error); }
+    }
+    if (bundleHasWordFiles) {
+      // A whole caption can serialize cleanly while a *word* cue starts or ends
+      // on a newline. Reuse the actual word-file checks for both conditional kit
+      // entries, keeping their failures attached to the source caption.
+      let wordCues: ReturnType<typeof readyWordPieces>;
+      try { wordCues = readyWordPieces([{ caption, index }]); }
+      catch (error) { add(index, 'word-timing', error); return; }
+      try { roundSubtitleCues(wordCues, []); }
+      catch (error) { add(index, 'word-timing', error); }
+      const lineFailures: string[] = [];
+      for (const wordFormat of ['SRT', 'WebVTT'] as const) {
+        try { ensureNoBlankCueLines(wordCues.map((cue) => cue.text), wordFormat); }
+        catch (error) { lineFailures.push(error instanceof Error ? error.message : 'Word cue text is invalid.'); }
+      }
+      if (lineFailures.length) add(index, 'text', new Error(`Word-by-word files in this bundle: ${lineFailures.join(' ')}`));
     }
   });
   if (input.captions.length > CAPTION_DATA_LIMITS.maxCaptions) add(null, 'data', new Error(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`));

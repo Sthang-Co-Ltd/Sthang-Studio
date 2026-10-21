@@ -8,6 +8,7 @@
 .export-layout-check span{color:var(--muted);font-size:12px}
 .export-layout-check.passed strong{color:#d7ff4f}
 .export-layout-check.stale strong,.export-layout-check.blocked strong,.export-layout-check.error strong{color:#e6c97b}
+.export-appearance-prerequisite{margin-bottom:10px}
 .export-checks button,.export-repair-return button{min-height:36px;border:1px solid #3b4350;background:#1a2028;border-radius:8px;padding:7px 11px;color:#e5e8ec;font:inherit;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0}
 .export-checks button:focus-visible,.export-checks h3:focus-visible,.export-repair-return button:focus-visible,.export-repair-return strong:focus-visible{outline:2px solid var(--accent,#d7ff4f);outline-offset:3px}
 .export-checks button:disabled{opacity:.45;cursor:not-allowed}

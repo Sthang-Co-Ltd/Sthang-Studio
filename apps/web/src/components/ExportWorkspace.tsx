@@ -95,7 +95,9 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   const [capabilityError, setCapabilityError] = useState('');
   const [actionError, setActionError] = useState('');
   const [appearance, setAppearance] = useState<CaptionAppearance>(normalizeCaptionAppearance(project.captionAppearance));
-  const [appearanceSaveBlocked, setAppearanceSaveBlocked] = useState(false);
+  const [appearanceError, setAppearanceError] = useState<'save' | 'load' | 'source' | null>(null);
+  const [appearanceLoadAttempt, setAppearanceLoadAttempt] = useState(0);
+  const appearanceSaveBlocked = appearanceError !== null;
   const [startingExport, setStartingExport] = useState(false);
   const [loadingAppearance, setLoadingAppearance] = useState(videoProject);
   const [capabilityRevision, setCapabilityRevision] = useState(0);
@@ -130,7 +132,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     let active = true;
     setAppearance(normalizeCaptionAppearance(project.captionAppearance));
     setLoadingAppearance(videoProject);
-    setAppearanceSaveBlocked(false);
+    setAppearanceError(null);
     setCapabilities(null);
     setCapabilityError('');
     setActionError('');
@@ -139,25 +141,26 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
       if (!active) return;
       if (!saved) {
-        setAppearanceSaveBlocked(true);
-        setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');
+        setAppearanceError('save');
         setLoadingAppearance(false);
         return;
       }
       try {
         const fresh = await api.get(project.id);
-        if (active) setAppearance(normalizeCaptionAppearance(fresh.captionAppearance));
-      } catch {
-        if (active) {
-          setAppearanceSaveBlocked(true);
-          setActionError('Could not load the latest saved caption appearance. Reopen Export to try again.');
+        if (!active) return;
+        if (fresh.id !== project.id || fresh.media.filename !== project.media.filename || fresh.media.size !== project.media.size) {
+          setAppearanceError('source');
+          return;
         }
+        setAppearance(normalizeCaptionAppearance(fresh.captionAppearance));
+      } catch {
+        if (active) setAppearanceError('load');
       } finally {
         if (active) setLoadingAppearance(false);
       }
     })();
     return () => { active = false; };
-  }, [project.id, project.media.filename, project.media.size, fontRevision]);
+  }, [project.id, project.media.filename, project.media.size, fontRevision, appearanceLoadAttempt]);
 
   useEffect(() => {
     if (!capabilities) return;
@@ -246,6 +249,13 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     setCheckingLayoutKey(null);
     setLayoutCheck({ key: layoutKey, error: 'Layout check cancelled. Run it again when you are ready.' });
   };
+  const retryAppearanceLoad = () => {
+    layoutRequest.current?.abort();
+    layoutRequest.current = null;
+    setCheckingLayoutKey(null);
+    setLayoutCheck(null);
+    setAppearanceLoadAttempt((attempt) => attempt + 1);
+  };
 
   const startExport = async () => {
     if (exportBlocked) return;
@@ -258,8 +268,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
       if (!active()) return;
       if (!saved) {
-        setAppearanceSaveBlocked(true);
-        setActionError('Your latest caption appearance could not be saved. Return to Appearance and retry before rendering.');
+        setAppearanceError('save');
         return;
       }
       const fresh = await api.get(project.id);
@@ -270,7 +279,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       }
       const latestAppearance = normalizeCaptionAppearance(fresh.captionAppearance);
       setAppearance(latestAppearance);
-      setAppearanceSaveBlocked(false);
+      setAppearanceError(null);
       const fontUnavailable = Boolean(capabilities && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily && (!latestAppearance.bold || font.boldAvailable)));
       if (fontUnavailable) {
         setActionError(`Studio can't export with the saved font selection (${latestAppearance.fontFamily}${latestAppearance.bold ? ' Bold' : ''}). Choose an available Khmer font or weight in Appearance.`);
@@ -300,6 +309,16 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
     {!captionImportPreview && <ExportChecksPanel captions={project.captions} issues={checkIssues} onRepair={onRepair}
       unsaved={unsaved} saveBlocked={saveBlocked}
+      appearancePending={checksAppearance && loadingAppearance}
+      appearancePrerequisite={checksAppearance && appearanceError ? {
+        message: appearanceError === 'save'
+          ? 'Your latest caption appearance could not be saved. Return to Appearance and retry before exporting with styling.'
+          : appearanceError === 'source'
+            ? 'The source changed while loading caption appearance. Reopen the project if a retry still cannot verify the current source.'
+            : 'Could not load the latest saved caption appearance. Retry before exporting with styling.',
+        actionLabel: appearanceError === 'save' ? 'Retry in Appearance' : 'Retry appearance load',
+        onRecover: appearanceError === 'save' ? onEditAppearance : retryAppearanceLoad,
+      } : undefined}
       {...(videoProject && checksAppearance ? { layoutState, layoutMessage, onCheckLayout: () => void checkLayout(), onCancelLayout: cancelLayoutCheck,
         layoutDisabled: loadingCapabilities || loadingAppearance || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable || busy || startingExport } : {})}/>}
 
@@ -309,7 +328,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
           session={session.handoff} onSessionChange={(handoff) => onSessionChange((current) => ({ ...current, handoff }))}
           saveBlocked={saveBlocked} invalidCaptions={invalidCaptionFiles}
           selectedFormatBlocked={captionIssues.some((issue) => issue.severity === 'blocker')}
-          styledLayoutBlocked={Boolean(appearanceFontUnavailable || nativeLayoutBlocked || appearanceSaveBlocked)}
+          styledLayoutBlocked={Boolean(loadingAppearance || appearanceFontUnavailable || nativeLayoutBlocked || appearanceSaveBlocked)}
           onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => setOutputMode('video') : undefined}/>)}
 
     {outputMode === 'video' && <>

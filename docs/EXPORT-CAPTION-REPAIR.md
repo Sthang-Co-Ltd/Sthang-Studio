@@ -31,8 +31,10 @@ to this editor visit and source. Switching project or media resets them.
 | Missing, partial or stale word timing | Word-per-caption SRT/VTT requires complete usable timing. Open Word timing, sync or adjust it, and explicitly apply the reviewed result. |
 | Unresolved words with video word highlighting | Advisory: the affected caption retains its normal color. It does not lose its base appearance. |
 | Unresolved words in the handoff kit | Advisory: the kit omits word-timed files until all captions are ready. |
+| Unrepresentable word cue in an all-ready handoff kit | The kit includes both word-SRT and word-VTT, so their serializer restrictions also block the kit and identify the affected caption. Ordinary SRT remains independent. If any caption lacks ready timing, the kit omits both word files and does not validate files it will not create. |
 | Readability, speech timing or overlap review | Advisory: review against the source; an intentional choice may remain. Existing render-warning confirmation still applies. |
 | Unavailable saved font or weight | Choose an available font/weight in Appearance for styled output. Studio does not substitute one silently; plain SRT is independent. |
+| Appearance could not be loaded or saved | Video and ASS show the prerequisite failure in Check before export. Use **Retry appearance load**, or **Retry in Appearance** and its existing **Retry** save action. ASS and Check layout stay blocked until the saved appearance is verified for the current project/source; plain SRT does not depend on appearance. |
 | Measured native layout extends outside the frame | Inspect the listed caption or overlap group in Appearance, adjust size/width/position and recheck. |
 | Layout cannot be safely measured | No fit result is established. Read the recovery message and retry; final rendering retains its own mandatory check. |
 | Saved-project conflict or failed save | Existing draft protection applies. Keep/download and compare the draft or retry the save through the editor before export. |

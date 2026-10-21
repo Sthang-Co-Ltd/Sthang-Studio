@@ -14,6 +14,12 @@ Explicit native layout checking identifies frame overflow and overlapping groups
 with request cancellation and invalidation after relevant edits. Word-file
 readiness, native render authority and save/conflict protections remain in force.
 
+PR #88 review corrections keep the same source-only scope: handoff-kit checks
+include the word files actually selected by the service, and ASS explains failed
+appearance prerequisites with explicit recovery. The source workflow document
+records these restrictions and retry actions; they introduce no new output format
+or public-release claim.
+
 The work uses existing local project data and native rendering. It adds no cloud
 provider, analytics event, telemetry, dependency, source-media copy or new durable
 user-data category. `PRIVACY.md`, `SECURITY.md` and `THIRD_PARTY_NOTICES.md` retain
@@ -27,6 +33,7 @@ protected artwork, update trust and download authorities are unaffected.
 | `apps/web/src/App.tsx`; `apps/web/src/export-session.ts` | Repair navigation and temporary project/media-scoped choices |
 | `apps/web/src/export-checks.ts`; `apps/web/src/components/ExportChecksPanel.tsx`; `apps/web/src/components/export-checks.css` | Caption attribution, severity, explanations, bounded list and accessible actions |
 | `apps/web/src/components/ExportWorkspace.tsx`; `apps/web/src/components/CaptionHandoffPanel.tsx`; `apps/web/src/api.ts` | Output decisions and invalidation of native checks |
+| `packages/shared/src/caption-interchange.ts`; `apps/server/src/services/caption-handoff.ts` | Format-specific serialization blockers and conditional inclusion of word files in the handoff kit |
 | `apps/server/src/routes/video-export.ts`; `apps/server/src/services/export-preflight.ts`; `apps/server/src/services/caption-overflow.ts` | Local native measurement, cancellation and structured findings |
 | `README.md`; `PRODUCT.md`; `DESIGN.md`; `CHANGELOG.md`; `docs/EXPORT-CAPTION-REPAIR.md` | Source-only workflow and limits |
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CAPTION_APPEARANCE, buildCaptionWordTiming, captionFileBlockers, type CaptionSegment } from '../packages/shared/src/index.js';
+import { DEFAULT_CAPTION_APPEARANCE, buildCaptionWordTiming, captionFileBlockers, resolveCaptionWordTiming, serializeCaptionFile, type CaptionSegment } from '../packages/shared/src/index.js';
 import { buildExportCaptionIssues, exportLayoutKey } from '../apps/web/src/export-checks.js';
 import { analyzeCaptions } from '../apps/web/src/review.js';
 import { createExportWorkspaceSession } from '../apps/web/src/export-session.js';
@@ -46,6 +46,39 @@ test('word timing blocks only selected word files and stays advisory for styled 
     assert.equal(issues(captions, format, { ...appearance, highlightMode: 'word' }).find((item) => item.id === 'words:missing')?.severity, 'advisory');
   }
   assert.ok(!issues(captions, 'video').some((issue) => issue.id.startsWith('words:')));
+});
+
+test('all-ready bundles reject word-file-only cue defects on the affected caption without blocking plain SRT', () => {
+  const multiline = caption('multiline', 'Hello\nworld', 0, 1200);
+  multiline.wordTiming = { version: 1, text: multiline.text, words: [
+    { id: 'hello', startOffset: 0, endOffset: 5, startMs: 100, endMs: 500, source: 'manual' },
+    { id: 'world', startOffset: 6, endOffset: 11, startMs: 600, endMs: 1000, source: 'manual' },
+  ] };
+  const original = structuredClone(multiline);
+  assert.equal(resolveCaptionWordTiming(multiline).state, 'ready', 'readiness must accept the exact saved word track');
+  assert.doesNotThrow(() => serializeCaptionFile({ captions: [multiline] }, 'srt'));
+  assert.deepEqual(issues([multiline], 'srt').filter((issue) => issue.severity === 'blocker'), []);
+
+  for (const format of ['word-srt', 'word-vtt', 'bundle'] as const) {
+    const blockers = issues([multiline], format).filter((issue) => issue.severity === 'blocker');
+    assert.ok(blockers.some((issue) => issue.captionIds.length === 1 && issue.captionIds[0] === 'multiline'
+      && issue.repair === 'caption' && /blank line/i.test(issue.reasons.join(' '))),
+    `${format} must identify the word-file-only blank line and offer the exact caption repair`);
+  }
+
+  const clean = caption('clean', 'Hello world', 0, 1200);
+  clean.wordTiming = { version: 1, text: clean.text, words: [
+    { id: 'hello-ok', startOffset: 0, endOffset: 5, startMs: 100, endMs: 500, source: 'manual' },
+    { id: 'world-ok', startOffset: 6, endOffset: 11, startMs: 600, endMs: 1000, source: 'manual' },
+  ] };
+  assert.deepEqual(issues([clean], 'bundle').filter((issue) => issue.severity === 'blocker'), [],
+    'a normal all-ready bundle must remain available');
+
+  const unready = caption('unready', 'Missing word track', 1300, 2000);
+  assert.deepEqual(issues([multiline, unready], 'bundle').filter((issue) => issue.severity === 'blocker'), [],
+    'one unready caption omits both word files, so the otherwise problematic word cue must not block the kit');
+  assert.equal(issues([multiline, unready], 'bundle').find((issue) => issue.id === 'words:unready')?.severity, 'advisory');
+  assert.deepEqual(multiline, original, 'preflight must not normalize or mutate source text, timestamps, or word evidence');
 });
 
 test('ready and stale Khmer word tracks use the same readiness authority without mutating text', () => {
