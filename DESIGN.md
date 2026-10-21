@@ -523,3 +523,14 @@ navigation choice. Keep the saved-project/conflict/recovery workflow intact.
 - Default review focus is **Brackets + label**; users may choose **Brackets only** or **Off**.
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
 - Review-focus graphics are editor chrome and must never affect SRT export, captioned-video appearance, or source media.
+
+### Export history
+
+Keep collapsed Export history after the primary output controls, preserving the
+desktop Download SRT viewport. Show the number needing an update in its summary.
+Expanded entries name format, preparation time and matches/changed/unknown state
+in words. Explain comparison with the open project and that file preparation does
+not confirm download. Unknown history offers Retry without blocking output.
+Activity labels individual completed videos similarly; old jobs with no receipt
+remain downloadable and explicitly unknown. Offer Open project to compare when a
+different project is open, using the existing protected navigation path.

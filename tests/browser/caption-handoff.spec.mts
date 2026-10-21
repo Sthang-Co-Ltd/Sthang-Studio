@@ -16,6 +16,7 @@ test.beforeEach(async ({ page }) => {
   handoffCalls = [];
   await page.route('**/api/caption-handoff/**', async (route) => {
     const action = new URL(route.request().url()).pathname.split('/').at(-1)!;
+    if (action === 'export-history') return route.fulfill({ status: 200, json: [] });
     const body = route.request().method() === 'POST' ? route.request().postDataJSON() : null;
     handoffCalls.push({ action, body });
     const json = (value: unknown, status = 200) => route.fulfill({ status, json: value });

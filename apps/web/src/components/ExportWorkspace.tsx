@@ -16,6 +16,7 @@ import {
 } from '@kcs/shared';
 import { Download, FileText, Film, HardDrive, LoaderCircle, Palette, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
+import { ExportHistory } from './ExportHistory';
 import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionHandoffPanel } from './CaptionHandoffPanel';
 import { CaptionRestoreReview, type CaptionRestoreReviewState } from './CaptionRestoreReview';
@@ -596,5 +597,6 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
         </div>
       </>}
     </>}
+    <ExportHistory project={project} activeJobId={activeExportJob?.id}/>
   </div>;
 }

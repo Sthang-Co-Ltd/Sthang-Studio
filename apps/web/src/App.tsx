@@ -1551,7 +1551,7 @@ export default function App() {
       if (job.proposalId) {
         if (!await loadProposal(target.id, job.proposalId, ticket) || !projectScope.current.isCurrent(ticket)) return;
         setNotice('Regeneration preview opened. Current captions remain untouched until you approve it.');
-      } else setNotice(compatibilityTranscriptionNotice(target) || 'Completed caption job opened.');
+      } else setNotice(compatibilityTranscriptionNotice(target) || (job.resultExport ? 'Export project opened. Compare the video with current content in Activity.' : 'Completed caption job opened.'));
       setShowJobs(false);
       handledJobIds.current.add(job.id);
     } catch (reason) {
@@ -2687,6 +2687,7 @@ export default function App() {
         throw new Error('The captions changed while the file was being prepared. Export again to include the latest edits.');
       }
       saveHandoffDownload(result.blob, result.filename);
+      window.dispatchEvent(new Event('sthang:export-history-updated'));
       setNotice(result.warnings || 'Caption file prepared for download. Your Studio project stays editable; follow the destination’s import instructions.');
       return true;
     } catch (reason) {
@@ -3132,7 +3133,7 @@ export default function App() {
     {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey}/>}
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
-    <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
+    <JobManager open={showJobs} jobs={jobs} project={project ? { ...project, captions: draft } : undefined} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}

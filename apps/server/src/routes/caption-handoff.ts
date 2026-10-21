@@ -1,4 +1,5 @@
 import { Router, type Response } from 'express';
+import { readExportEvidence } from '../services/export-evidence.js';
 import type { CaptionFileFormat, CaptionProject } from '@kcs/shared';
 import {
   CaptionHandoffError,
@@ -65,6 +66,17 @@ export function createCaptionHandoffRouter(service: CaptionHandoffService = crea
       res.json(await service.summary(id));
     } catch (error) {
       respondError(res, error);
+    }
+  });
+
+  router.get('/:id/export-history', async (req, res) => {
+    const id = projectId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Project id is required.' });
+    try {
+      await service.summary(id);
+      res.json(await readExportEvidence(id));
+    } catch {
+      res.status(503).json({ error: 'Export history is unavailable. Your exports and project were not changed.' });
     }
   });
 

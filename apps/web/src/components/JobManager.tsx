@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ProcessingJob } from '@kcs/shared';
+import type { CaptionProject, ProcessingJob } from '@kcs/shared';
+import { ExportJobFreshness } from './ExportHistory';
 import { Ban, CheckCircle2, CircleAlert, Clock3, Download, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
 import { JOBS_UPDATED_EVENT } from '../api';
 import { useModalFocus } from '../use-modal-focus';
@@ -8,6 +9,7 @@ import './job-manager.css';
 interface Props {
   open: boolean;
   jobs: ProcessingJob[];
+  project?: CaptionProject;
   onClose(): void;
   onRefresh(): void;
   onResume(id: string): void;
@@ -77,7 +79,7 @@ function formatDuration(ms: number) {
   return `${seconds}s`;
 }
 
-export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+export function JobManager({ open, jobs, project, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
   const dialog = useRef<HTMLElement | null>(null);
   useModalFocus(open, dialog, onClose);
   const [now, setNow] = useState(Date.now());
@@ -160,9 +162,11 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
                 {job.resultExport && <small>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</small>}
               </div>
               {job.error && <em>{job.error}</em>}
+              {job.status === 'completed' && job.resultExport && <ExportJobFreshness job={job} project={project}/>}
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
+                {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button onClick={() => onOpen(job)}>Open project to compare</button>}
                 {job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}
                 {['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}
               </div>
