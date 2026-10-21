@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { Replace, Search, ShieldPlus, X } from 'lucide-react';
+import { applyReplacementPlan, planReplacement, type MatchMode } from '../find-replace';
 
 interface FindReplacePanelProps {
   open: boolean;
@@ -12,14 +13,7 @@ interface FindReplacePanelProps {
   onRemember(line: string, scope: 'project' | 'global'): Promise<void>;
 }
 
-type MatchMode = 'literal' | 'case-insensitive' | 'regex';
 type Scope = 'project' | 'selection';
-
-function buildRegex(query: string, mode: MatchMode) {
-  if (mode === 'regex') return new RegExp(query, 'gu');
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(escaped, mode === 'case-insensitive' ? 'giu' : 'gu');
-}
 
 export function FindReplacePanel({ open, captions, selectedIds, initialSearch, onClose, onApply, onRemember }: FindReplacePanelProps) {
   const [query, setQuery] = useState('');
@@ -28,6 +22,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
   const [scope, setScope] = useState<Scope>('project');
   const [remember, setRemember] = useState<'none' | 'project' | 'global'>('none');
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -44,50 +39,22 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
     return new Set(selectedIds);
   }, [open, scope, selectedIds]);
   const preview = useMemo(() => {
-    if (!open || !query) return { captions: [] as CaptionSegment[], count: 0, locked: 0, regex: null as RegExp | null };
-    try {
-      const regex = buildRegex(query, mode);
-      let count = 0;
-      let locked = 0;
-      if (import.meta.env.DEV) {
-        (window as unknown as { __STHANG_TEST_HOOKS__?: { onFindReplaceScan?: (captionCount: number) => void } }).__STHANG_TEST_HOOKS__?.onFindReplaceScan?.(captions.length);
-      }
-      const matched = captions.filter((caption) => {
-        if (targetIds && !targetIds.has(caption.id)) return false;
-        regex.lastIndex = 0;
-        const hits = [...caption.text.matchAll(regex)].length;
-        if (!hits) return false;
-        count += hits;
-        if (caption.textLocked) locked += hits;
-        return true;
-      });
-      return { captions: matched, count, locked, regex };
-    } catch {
-      return { captions: [] as CaptionSegment[], count: 0, locked: 0, regex: null as RegExp | null };
+    if (open && query && import.meta.env.DEV) {
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onFindReplaceScan?: (captionCount: number) => void } }).__STHANG_TEST_HOOKS__?.onFindReplaceScan?.(captions.length);
     }
-  }, [open, captions, mode, query, targetIds]);
+    return planReplacement(open ? captions : [], query, replacement, mode, targetIds);
+  }, [open, captions, mode, query, replacement, targetIds]);
+  useEffect(() => setPage(0), [query, replacement, mode, scope, open, targetIds]);
+  const pageCount = Math.max(1, Math.ceil(preview.entries.length / 30));
+  const currentPage = Math.min(page, pageCount - 1);
 
   if (!open) return null;
 
   const apply = async () => {
     setError('');
     if (!query) { setError('Enter text to find.'); return; }
-    let regex: RegExp;
-    try { regex = buildRegex(query, mode); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Invalid regular expression'); return; }
-    let changed = 0;
-    const next = captions.map((caption) => {
-      if (targetIds && !targetIds.has(caption.id)) return caption;
-      regex.lastIndex = 0;
-      if (caption.textLocked || !regex.test(caption.text)) return caption;
-      regex.lastIndex = 0;
-      const text = caption.text.replace(regex, replacement);
-      if (text === caption.text) return caption;
-      changed += 1;
-      return { ...caption, text, approved: false };
-    });
-    if (!changed) { setError(preview.locked ? 'All matches are text-locked. Unlock the captions first.' : 'No editable matches found.'); return; }
-    onApply(next, `Updated ${changed} caption${changed === 1 ? '' : 's'}${preview.locked ? `; ${preview.locked} locked match${preview.locked === 1 ? '' : 'es'} preserved` : ''}.`);
+    if (preview.error || !preview.changed) return;
+    onApply(applyReplacementPlan(captions, preview), `Updated ${preview.changed} caption${preview.changed === 1 ? '' : 's'}${preview.locked ? `; ${preview.locked} locked match${preview.locked === 1 ? '' : 'es'} preserved` : ''}.`);
     if (remember !== 'none' && replacement.trim()) {
       const line = query.trim() && query.trim() !== replacement.trim() ? `${replacement.trim()} | ${query.trim()}` : replacement.trim();
       try { await onRemember(line, remember); }
@@ -109,14 +76,14 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
         <ShieldPlus size={16}/><div><strong>Remember this correction?</strong><span>Save reusable aliases in a project or global glossary. Use protected terms for distinct names.</span></div>
         <select value={remember} disabled={mode === 'regex'} title={mode === 'regex' ? 'Regex patterns cannot be saved as glossary rules.' : undefined} onChange={(event) => setRemember(event.target.value as typeof remember)}><option value="none">Do not remember</option><option value="project">Add to project glossary</option><option value="global">Add to global glossary</option></select>
       </div>
-      <div className="find-summary"><b>{preview.count}</b><span>match{preview.count === 1 ? '' : 'es'} in {preview.captions.length} caption{preview.captions.length === 1 ? '' : 's'}</span>{preview.locked > 0 && <em>{preview.locked} protected by text locks</em>}</div>
+      <div className="find-summary" aria-live="polite"><b>{preview.count}</b><span>match{preview.count === 1 ? '' : 'es'} in {preview.entries.length} caption{preview.entries.length === 1 ? '' : 's'} · {preview.changed} will change</span>{preview.locked > 0 && <em>{preview.locked} protected by text locks</em>}</div>
       <div className="find-preview">
-        {preview.captions.slice(0, 30).map((caption) => <div key={caption.id}><time>{(caption.startMs / 1000).toFixed(1)}s</time><p>{caption.text}</p>{caption.textLocked && <span>Locked</span>}</div>)}
-        {preview.captions.length > 30 && <small>+ {preview.captions.length - 30} more captions</small>}
-        {!preview.captions.length && <div className="review-empty">{query ? 'No matches found.' : 'Enter text to find matches.'}</div>}
+        {preview.entries.slice(currentPage * 30, (currentPage + 1) * 30).map(({ caption, after, changed }) => <div key={caption.id} className="find-preview-row"><time>{(caption.startMs / 1000).toFixed(1)}s</time><div className="find-preview-copy"><div><b>Before</b><p className="find-before">{caption.text}</p></div><div><b>{caption.textLocked ? 'After · locked, unchanged' : changed ? 'After' : 'After · unchanged'}</b><p className="find-after">{after || <em>Empty caption text</em>}</p></div></div></div>)}
+        {!preview.entries.length && <div className="review-empty">{preview.error || (query ? 'No matches found.' : 'Enter text to find matches.')}</div>}
       </div>
+      {pageCount > 1 && <nav className="find-preview-pages" aria-label="Replacement preview pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous matches</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next matches</button></nav>}
       {error && <div className="inline-form-error">{error}</div>}
-      <div className="modal-actions"><button onClick={onClose}>Cancel</button><button className="primary" onClick={() => void apply()} disabled={!preview.count}><Replace size={15}/>Replace editable matches</button></div>
+      <div className="modal-actions"><button onClick={onClose}>Cancel</button><button className="primary" onClick={() => void apply()} disabled={!preview.changed || Boolean(preview.error)}><Replace size={15}/>Replace editable matches</button></div>
     </section>
   </div>;
 }

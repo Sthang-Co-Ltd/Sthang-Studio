@@ -350,6 +350,11 @@ work must yield back to the exact current paint.
 
 ### Caption rows
 
+Correct everywhere pairs labeled **Before / After** text in two columns on desktop
+and vertically on mobile. Preserve Khmer line height and whitespace; label locked,
+unchanged and empty-text results. Show changed-caption and protected-match counts,
+disable Apply when nothing changes, and provide labeled pagination for all matches.
+
 - Text and timing remain immediately editable.
 - Approval stays visible.
 - Destructive and specialist actions live in an explicit per-row menu.

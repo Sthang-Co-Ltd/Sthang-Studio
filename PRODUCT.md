@@ -359,6 +359,15 @@ establish public-download availability.
 
 ## Product principles
 
+### Bulk-correction preview (source-only)
+
+Correct everywhere shows each matching caption's original text and exact proposed
+replacement before Apply. Locked matches stay unchanged and are labeled; no-op
+and empty-text results are explicit. The preview and Apply use the same plan for
+literal, case-insensitive and regex modes and the chosen project/selection scope.
+Every match is reachable through bounded pages. Cancel changes no captions.
+Existing timing, locks, undo and save protections remain authoritative.
+
 1. **Evidence stays visible.** Audio/video remains playable during any decision about text, timing, or caption appearance.
 2. **Safe by default.** Regeneration proposes; it never silently destroys reviewed work.
 3. **Local where practical.** KFA/Whisper timing and finished video rendering stay local; paid cloud timing remains a last resort.
