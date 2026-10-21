@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { CaptionProject } from '@kcs/shared';
-import { profileStore } from '../services/profile-store.js';
+import { profileStore, VideoExportPresetConflictError, VideoExportPresetNotFoundError } from '../services/profile-store.js';
 import { contributionStore } from '../services/contribution-store.js';
 import { resetAnalyticsIdentity } from '../services/analytics.js';
 import { store } from '../services/store.js';
@@ -26,6 +26,33 @@ router.patch('/', async (req, res) => {
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Profile update failed' });
+  }
+});
+
+router.put('/video-export-settings', async (req, res) => {
+  try {
+    res.json(await profileStore.setLastVideoExportSettings(req.body?.settings));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not save video export settings.' });
+  }
+});
+
+router.post('/video-export-presets', async (req, res) => {
+  try {
+    res.json(await profileStore.upsertVideoExportPreset(req.body));
+  } catch (error) {
+    const status = error instanceof VideoExportPresetNotFoundError ? 404 : error instanceof VideoExportPresetConflictError ? 409 : 400;
+    res.status(status).json({ error: error instanceof Error ? error.message : 'Could not save video export preset.' });
+  }
+});
+
+router.delete('/video-export-presets/:id', async (req, res) => {
+  try {
+    res.json(await profileStore.deleteVideoExportPreset(req.params.id));
+  } catch (error) {
+    res.status(error instanceof VideoExportPresetNotFoundError ? 404 : 400).json({
+      error: error instanceof Error ? error.message : 'Could not delete video export preset.',
+    });
   }
 });
 

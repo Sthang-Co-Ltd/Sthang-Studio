@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { isVideoProject, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
+import type { ProcessingJob, VideoExportSettings } from '@kcs/shared';
 import { requireCaptionFont } from '../services/caption-renderer.js';
 import { CaptionOverflowError } from '../services/caption-overflow.js';
 import { parseCaptionPreviewInput, renderCaptionPreview } from '../services/caption-preview.js';
@@ -16,6 +17,7 @@ import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
+import { profileStore } from '../services/profile-store.js';
 import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 import { createCaptionLayoutCheckHandler } from './export-preflight.js';
 
@@ -133,6 +135,16 @@ function expectedMedia(body: { expectedMedia?: { filename?: unknown; size?: unkn
     ? { filename: value.filename, size: Number(value.size) } : null;
 }
 
+/** The job is already accepted; a failed convenience-profile save cannot invalidate it. */
+export async function acceptedVideoExportResponse(job: ProcessingJob, settings: VideoExportSettings): Promise<ProcessingJob> {
+  try {
+    await profileStore.setLastVideoExportSettings(settings);
+    return { ...job, lastUsedSettingsSaved: true };
+  } catch {
+    return { ...job, lastUsedSettingsSaved: false };
+  }
+}
+
 router.put('/:projectId/appearance', async (req, res) => {
   const expected = expectedMedia(req.body);
   if (!expected) return res.status(428).json({ error: 'Appearance save requires the media version it was edited against.' });
@@ -173,14 +185,17 @@ router.post('/:projectId/jobs', async (req, res) => {
     const saved = await store.setCaptionAppearance(project.id, appearance);
     if (!saved) return res.status(404).json({ error: 'Project not found' });
     if (saved.media.filename !== project.media.filename || saved.media.size !== project.media.size) return res.status(409).json({ error: 'The source changed while preparing export. Open Export again.' });
-    const job = await jobStore.create('export-video', project.id, {
+    const creation = await jobStore.createWithDisposition('export-video', project.id, {
       exportSettings: settings,
       exportAppearance: appearance,
       exportCaptions: createVideoExportCaptionSnapshot(saved),
       exportMediaFilename: project.media.filename,
       exportMediaSize: project.media.size,
     });
-    res.status(202).json(job);
+    // The earlier list check avoids expensive probes in the ordinary duplicate
+    // case; this outcome is authoritative when two requests passed it together.
+    if (!creation.created) return res.status(409).json({ error: 'A captioned-video export is already active for this project. Cancel it or let it finish before starting another.' });
+    res.status(202).json(await acceptedVideoExportResponse(creation.job, settings));
     });
   } catch (error) {
     if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });

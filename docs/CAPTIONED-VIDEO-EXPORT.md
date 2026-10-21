@@ -107,6 +107,38 @@ after a real one-frame encode probe; detecting a GPU name is not sufficient.
 Software encoding uses constant-quality presets unless an advanced bitrate is
 supplied. Hardware encoders use quality-aware target bitrate bounds.
 
+### Reusable output settings (source-only)
+
+After a captioned-video render has been accepted into the job queue, Studio
+remembers that render's output choices in its local creator profile. A canceled
+review-warning confirmation or a blocked export does not replace those choices.
+The server saves the choices after creating the accepted render job and before
+acknowledging it. Profile-storage failure must leave the render queued and show
+a visible warning that the last-used choice was not saved.
+An overlapping submission that resolves to an existing render job is rejected
+as a duplicate: it does not replace that job's immutable output settings, and
+does not write a new last-used preference or report a successful preference save.
+Opening Export on a different project or after restarting Studio restores the
+last accepted settings, while the current editor visit continues to retain its
+temporary choices during export repair.
+
+Creators may also save the current video output choices as one of up to 20 named
+video export presets, select one to apply it, overwrite a matching name or delete
+it after confirmation. These presets contain only resolution, frame rate,
+quality, codec, encoder preference and optional bitrate. They do not store
+source-media dimensions, captions, styling, selected files or any render job.
+The local renderer still checks actual source dimensions, compatible hardware,
+disk space, fonts and output layout each time. An unavailable saved codec or
+encoder is explained and adjusted for the current machine before use. The
+original preset remains accessible in Manage presets for explicit, confirmed
+deletion; fallback settings are shown as customized. Removing a preset changes
+neither the current output choices nor the last-used settings.
+
+Both last-used choices and named presets are stored in `data/profile.json` as
+ordinary profile state and included in the existing explicit profile export/
+import path. There is no new external request or separate database. These source
+changes alone do not establish public-download availability.
+
 Audio tracks are mapped from the source. AAC is stream-copied when all mapped
 audio is already MP4-compatible AAC; otherwise Studio transcodes the mapped audio
 to AAC rather than silently dropping it. Output verification fails if a source

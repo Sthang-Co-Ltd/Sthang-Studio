@@ -332,6 +332,12 @@ export const api = {
   patchProfile: (patch: Partial<AppProfile>) => request<AppProfile>('/api/profile', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
   }),
+  saveVideoExportPreset: (name: string, settings: VideoExportSettings) => request<AppProfile>('/api/profile/video-export-presets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, settings }),
+  }),
+  deleteVideoExportPreset: (id: string) => request<AppProfile>(`/api/profile/video-export-presets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
   importProfile: (profile: AppProfile) => request<AppProfile>('/api/profile/import', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile),
   }),

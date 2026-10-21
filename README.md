@@ -364,6 +364,7 @@ Sthang Studio provides two distinct export workflows:
 
 - **SRT export** — standard portable subtitle text and timing designed for editors like CapCut. SRT carries caption wording and timecodes; visual styling is controlled inside the destination editing application.
 - **Captioned video export** — local MP4 render baking the saved project caption appearance directly into the picture. The source media is never overwritten.
+- **Reusable output settings (source-only)** — the last accepted video render's resolution, frame rate, quality and advanced encoding settings are remembered locally, and up to 20 named video export presets can be reused across projects. Existing released builds are governed by the verified manifest and release evidence.
 
 ### Native preview and export contract
 

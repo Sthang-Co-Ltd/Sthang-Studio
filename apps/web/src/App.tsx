@@ -3286,6 +3286,7 @@ export default function App() {
 
           {workspaceTool === 'export' && <ExportWorkspace key={mediaKey}
             onPreviewResolution={setPreviewResolution}
+            onConfirm={confirmInStudio}
             project={{ ...project, captions: draft }}
             session={exportSession}
             onSessionChange={changeExportSession}
