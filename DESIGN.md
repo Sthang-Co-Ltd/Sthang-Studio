@@ -220,6 +220,14 @@ editable elsewhere        not separately editable inside the MP4
   source detail.
 - Mark any larger-than-source result **Upscaled**.
 - Keep advanced codec/bitrate/encoder controls progressively disclosed.
+- Place a clearly labeled **Video export preset** selector near Video settings,
+  with Save/Delete inside a secondary **Manage presets** disclosure. This stores
+  output choices only; the separate Appearance preset stays in Appearance.
+- Recall last-used output settings from the most recently accepted render when
+  entering a new Export visit. Preserve local in-progress choices while repairing
+  export issues and ignore late profile responses after the user edits. Recheck
+  device/source capabilities for a recalled preset, and explain any unavailable
+  codec or hardware encoder before selecting a compatible fallback.
 - Show source dimensions/frame rate/color state, estimated output size, and free
   disk space before a long render where available.
 - Before starting a render, re-read the saved project appearance and snapshot it

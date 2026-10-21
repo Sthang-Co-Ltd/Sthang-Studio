@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { isVideoProject, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
+import type { ProcessingJob, VideoExportSettings } from '@kcs/shared';
 import { requireCaptionFont } from '../services/caption-renderer.js';
 import { CaptionOverflowError } from '../services/caption-overflow.js';
 import { parseCaptionPreviewInput, renderCaptionPreview } from '../services/caption-preview.js';
@@ -16,6 +17,7 @@ import { config } from '../config.js';
 import { store } from '../services/store.js';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
+import { profileStore } from '../services/profile-store.js';
 import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 import { createCaptionLayoutCheckHandler } from './export-preflight.js';
 
@@ -133,6 +135,16 @@ function expectedMedia(body: { expectedMedia?: { filename?: unknown; size?: unkn
     ? { filename: value.filename, size: Number(value.size) } : null;
 }
 
+/** The job is already accepted; a failed convenience-profile save cannot invalidate it. */
+export async function acceptedVideoExportResponse(job: ProcessingJob, settings: VideoExportSettings): Promise<ProcessingJob> {
+  try {
+    await profileStore.setLastVideoExportSettings(settings);
+    return { ...job, lastUsedSettingsSaved: true };
+  } catch {
+    return { ...job, lastUsedSettingsSaved: false };
+  }
+}
+
 router.put('/:projectId/appearance', async (req, res) => {
   const expected = expectedMedia(req.body);
   if (!expected) return res.status(428).json({ error: 'Appearance save requires the media version it was edited against.' });
@@ -180,7 +192,7 @@ router.post('/:projectId/jobs', async (req, res) => {
       exportMediaFilename: project.media.filename,
       exportMediaSize: project.media.size,
     });
-    res.status(202).json(job);
+    res.status(202).json(await acceptedVideoExportResponse(job, settings));
     });
   } catch (error) {
     if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });

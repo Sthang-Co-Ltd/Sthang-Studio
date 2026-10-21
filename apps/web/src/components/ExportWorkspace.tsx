@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
-  normalizeCaptionAppearance, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
+  normalizeCaptionAppearance, normalizeVideoExportSettings, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
+  type AppProfile,
   type CaptionAppearance,
   type CaptionProject,
   type CaptionLayoutCheckResult,
@@ -13,7 +14,7 @@ import {
   type VideoQualityPreset,
   type VideoResolutionPreset,
 } from '@kcs/shared';
-import { Download, FileText, Film, HardDrive, LoaderCircle, Palette, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Download, FileText, Film, HardDrive, LoaderCircle, Palette, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionHandoffPanel } from './CaptionHandoffPanel';
@@ -23,7 +24,12 @@ import type { ReviewIssue } from '../review';
 import type { ExportWorkspaceSession } from '../export-session';
 import { buildExportCaptionIssues, exportLayoutKey, type ExportCheckIssue, type ExportRepairTarget } from '../export-checks';
 import { ExportChecksPanel, type ExportLayoutState } from './ExportChecksPanel';
+import type { StudioConfirmOptions } from './ConfirmationDialog';
 import './video-export.css';
+
+// A colon is forbidden in persisted preset IDs, so imported IDs cannot shadow this choice.
+const LAST_USED_PRESET_ID = ':last-used';
+type VideoExportPreset = NonNullable<AppProfile['videoExportPresets']>[number];
 
 interface Props {
   project: CaptionProject;
@@ -38,6 +44,7 @@ interface Props {
   onEditWordTiming?(id?: string): void;
   onPreviewResolution(resolution: VideoResolutionPreset): void;
   onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance, isCurrent: () => boolean): Promise<ProcessingJob | null>;
+  onConfirm(options: StudioConfirmOptions): Promise<boolean>;
   session: ExportWorkspaceSession;
   onSessionChange: Dispatch<SetStateAction<ExportWorkspaceSession>>;
   onRepair(target: ExportRepairTarget): void;
@@ -83,13 +90,27 @@ function elapsedLabel(job: ProcessingJob) {
 
 export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
   onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution,
-  session, onSessionChange, onRepair, reviewIssues, unsaved, saveBlocked, fontRevision }: Props) {
+  onConfirm, session, onSessionChange, onRepair, reviewIssues, unsaved, saveBlocked, fontRevision }: Props) {
   const videoProject = isVideoProject(project);
   const { outputMode, settings, advancedOpen } = session;
   const setOutputMode = (mode: ExportWorkspaceSession['outputMode']) => onSessionChange((current) => ({ ...current, outputMode: mode }));
-  const setSettings: Dispatch<SetStateAction<VideoExportSettings>> = (value) => onSessionChange((current) => ({ ...current,
-    settings: typeof value === 'function' ? value(current.settings) : value }));
+  const setSettings: Dispatch<SetStateAction<VideoExportSettings>> = (value) => {
+    setPresetNotice('');
+    onSessionChange((current) => ({ ...current, settingsHydrated: true, selectedPresetId: '',
+      settings: typeof value === 'function' ? value(current.settings) : value }));
+  };
   const setAdvancedOpen = (open: boolean) => onSessionChange((current) => ({ ...current, advancedOpen: open }));
+  const [presets, setPresets] = useState<VideoExportPreset[]>([]);
+  const [lastUsedSettings, setLastUsedSettings] = useState<VideoExportSettings | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(videoProject);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [presetError, setPresetError] = useState('');
+  const [presetNotice, setPresetNotice] = useState('');
+  const [lastUsedError, setLastUsedError] = useState('');
+  const acceptedExportInVisit = useRef(false);
+  const currentSettings = useRef(settings);
+  currentSettings.current = settings;
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
   const [loadingCapabilities, setLoadingCapabilities] = useState(videoProject);
   const [capabilityError, setCapabilityError] = useState('');
@@ -111,6 +132,35 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   const capabilityRequest = useRef(0);
   useEffect(() => { onPreviewResolution(outputMode === 'video' ? settings.resolution : 'source'); }, [outputMode, settings.resolution, onPreviewResolution]);
   useEffect(() => () => { capabilityRequest.current += 1; onPreviewResolution('source'); }, [onPreviewResolution]);
+
+  useEffect(() => {
+    if (!videoProject) { setLoadingProfile(false); return; }
+    let active = true;
+    void api.profile().then((profile) => {
+      if (!active) return;
+      const loadedPresets = profile.videoExportPresets || [];
+      const lastUsed = profile.lastVideoExportSettings ? normalizeVideoExportSettings(profile.lastVideoExportSettings) : null;
+      setPresets(loadedPresets);
+      // A stale profile read must not replace a newer accepted render's choices.
+      if (!acceptedExportInVisit.current) setLastUsedSettings(lastUsed);
+      setPresetError('');
+      onSessionChange((current) => {
+        if (current.settingsHydrated) {
+          const selected = current.selectedPresetId;
+          if (selected && selected !== LAST_USED_PRESET_ID && !loadedPresets.some((preset) => preset.id === selected)) {
+            return { ...current, selectedPresetId: '' };
+          }
+          if (selected === LAST_USED_PRESET_ID && !lastUsed && !acceptedExportInVisit.current) return { ...current, selectedPresetId: '' };
+          return current;
+        }
+        return { ...current, settings: lastUsed || current.settings, settingsHydrated: true,
+          selectedPresetId: lastUsed ? LAST_USED_PRESET_ID : '' };
+      });
+    }).catch((error) => {
+      if (active) setPresetError(error instanceof Error ? error.message : 'Could not load saved video presets.');
+    }).finally(() => { if (active) setLoadingProfile(false); });
+    return () => { active = false; };
+  }, [project.id, project.media.filename, project.media.size]);
 
   const loadCapabilities = async (refresh = false) => {
     if (!videoProject) {
@@ -163,10 +213,19 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   }, [project.id, project.media.filename, project.media.size, fontRevision, appearanceLoadAttempt]);
 
   useEffect(() => {
-    if (!capabilities) return;
+    if (!capabilities?.supported || !session.settingsHydrated) return;
     const codecAvailable = capabilities.encoders.some((encoder) => encoder.codec === settings.codec && encoder.available);
-    if (!codecAvailable && settings.codec === 'hevc') setSettings((current) => ({ ...current, codec: 'h264', encoder: 'auto' }));
-  }, [capabilities]);
+    if (!codecAvailable && settings.codec === 'hevc') {
+      setSettings((current) => ({ ...current, codec: 'h264', encoder: 'auto' }));
+      setPresetNotice('HEVC is unavailable on this PC. The current video settings now use H.264 and Auto encoder; your saved preset is unchanged.');
+      return;
+    }
+    if (settings.encoder !== 'auto' && !capabilities.encoders.some((encoder) => encoder.codec === settings.codec && encoder.id === settings.encoder && encoder.available)) {
+      const unavailable = settings.encoder.toUpperCase();
+      setSettings((current) => ({ ...current, encoder: 'auto' }));
+      setPresetNotice(`${unavailable} encoding is unavailable for this codec on this PC. The current video settings now use Auto encoder; your saved preset is unchanged.`);
+    }
+  }, [capabilities, settings.codec, settings.encoder, session.settingsHydrated]);
 
   const resolution = useMemo(() => capabilities?.resolutions.find((item) => item.id === settings.resolution), [capabilities, settings.resolution]);
   const estimatedBytes = useMemo(() => capabilities ? estimateVideoExportBytes(capabilities.source, settings) : 0, [capabilities, settings]);
@@ -262,6 +321,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     const request = ++startRequest.current;
     const context = startContext;
     const active = () => startRequest.current === request && currentStartContext.current === context;
+    const requestedSettings = normalizeVideoExportSettings(settings);
+    onSessionChange((current) => current.settingsHydrated ? current : { ...current, settingsHydrated: true });
     setStartingExport(true);
     setActionError('');
     try {
@@ -285,7 +346,17 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
         setActionError(`Studio can't export with the saved font selection (${latestAppearance.fontFamily}${latestAppearance.bold ? ' Bold' : ''}). Choose an available Khmer font or weight in Appearance.`);
         return;
       }
-      await onStartVideoExport(settings, latestAppearance, active);
+      const job = await onStartVideoExport(requestedSettings, latestAppearance, active);
+      if (job) {
+        setLastUsedError('');
+        // The job admission response confirms whether the server durably saved last-used settings.
+        if (job.lastUsedSettingsSaved === true) {
+          acceptedExportInVisit.current = true;
+          setLastUsedSettings(requestedSettings);
+        } else {
+          setLastUsedError('The render was accepted, but Studio could not save its settings in your local profile. Your current choices remain selected for this editor visit.');
+        }
+      }
     } catch (error) {
       if (active()) setActionError(error instanceof Error ? error.message : 'Could not start video export');
     } finally { if (startRequest.current === request) setStartingExport(false); }
@@ -293,6 +364,76 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
 
   const setCodec = (codec: VideoCodec) => setSettings((current) => ({ ...current, codec, encoder: 'auto' }));
   const setEncoder = (encoder: VideoEncoderPreference) => setSettings((current) => ({ ...current, encoder }));
+
+  const applyPreset = (id: string) => {
+    if (!id) {
+      onSessionChange((current) => ({ ...current, selectedPresetId: '', settingsHydrated: true }));
+      return;
+    }
+    const value = id === LAST_USED_PRESET_ID ? lastUsedSettings : presets.find((preset) => preset.id === id)?.settings;
+    if (!value) return;
+    const next = normalizeVideoExportSettings(value);
+    setPresetNotice('');
+    onSessionChange((current) => ({ ...current, settings: next, selectedPresetId: id, settingsHydrated: true }));
+  };
+
+  const savePreset = async () => {
+    const name = presetName.trim();
+    if (!name || savingPreset || loadingProfile) return;
+    const snapshot = normalizeVideoExportSettings(currentSettings.current);
+    const snapshotKey = JSON.stringify(snapshot);
+    const previous = presets.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
+    setSavingPreset(true);
+    setPresetError('');
+    setPresetNotice('');
+    try {
+      const updated = await api.saveVideoExportPreset(name, snapshot);
+      const entries = updated.videoExportPresets || [];
+      const saved = entries.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
+      setPresets(entries);
+      if (saved && JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey) {
+        onSessionChange((current) => ({ ...current, selectedPresetId: saved.id, settingsHydrated: true }));
+      }
+      setPresetName((current) => current.trim() === name ? '' : current);
+      setPresetNotice(`${previous ? 'Updated' : 'Saved'} video preset “${saved?.name || name}”.`);
+    } catch (error) {
+      setPresetError(error instanceof Error ? error.message : 'Could not save video preset.');
+    } finally {
+      setSavingPreset(false);
+    }
+  };
+
+  const deletePreset = async () => {
+    if (savingPreset) return;
+    const selectedId = session.selectedPresetId;
+    const target = presets.find((preset) => preset.id === selectedId);
+    if (!target) return;
+    const confirmed = await onConfirm({
+      title: `Delete “${target.name}”?`,
+      message: 'This removes the saved video preset from your profile. Your current video settings stay as they are.',
+      confirmLabel: 'Delete preset',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
+    setSavingPreset(true);
+    setPresetError('');
+    setPresetNotice('');
+    try {
+      const updated = await api.deleteVideoExportPreset(target.id);
+      setPresets(updated.videoExportPresets || []);
+      onSessionChange((current) => current.selectedPresetId === target.id ? { ...current, selectedPresetId: '', settingsHydrated: true } : current);
+      setPresetNotice(`Deleted video preset “${target.name}”. Current settings are unchanged.`);
+    } catch (error) {
+      setPresetError(error instanceof Error ? error.message : 'Could not delete video preset.');
+    } finally {
+      setSavingPreset(false);
+    }
+  };
+
+  const currentPreset = presets.find((preset) => preset.id === session.selectedPresetId);
+  const selectedPresetId = session.selectedPresetId === LAST_USED_PRESET_ID
+    ? (lastUsedSettings ? LAST_USED_PRESET_ID : '')
+    : currentPreset?.id || '';
 
   return <div className="export-workspace">
     <div className="export-workspace-head">
@@ -336,11 +477,37 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
       {loadingCapabilities && <div className="export-status" role="status"><LoaderCircle className="spin" size={16}/>Checking video export support…</div>}
       {capabilityError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Video export check failed</strong><span>{capabilityError}</span></div></div>}
       {actionError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Export needs attention</strong><span>{actionError}</span></div></div>}
+      {lastUsedError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Video queued; settings were not remembered</strong><span>{lastUsedError}</span></div></div>}
       {capabilities && !capabilities.supported && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Captioned video is blocked for this source</strong><span>{capabilities.blockingReason}</span></div></div>}
 
       {capabilities?.supported && <>
         <section className="export-section" aria-labelledby="video-quality-title">
           <div className="export-section-title"><div><strong id="video-quality-title">Video</strong><span>For most videos, use Match source + Recommended.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
+
+          <div className="export-preset-bar">
+            <label htmlFor="video-export-preset-select">
+              <span>Video preset</span>
+              <select id="video-export-preset-select" aria-label="Video export preset" value={selectedPresetId} disabled={loadingProfile || savingPreset} onChange={(event) => applyPreset(event.target.value)}>
+                <option value="">Custom / current settings</option>
+                {lastUsedSettings && <option value={LAST_USED_PRESET_ID}>Last used</option>}
+                {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+              </select>
+            </label>
+            <details className="export-preset-tools">
+              <summary>Manage presets</summary>
+              <div className="export-preset-tools-body">
+                <label htmlFor="video-export-preset-name"><span>Save current video settings as</span>
+                  <input id="video-export-preset-name" aria-label="Save video export preset as" value={presetName} maxLength={80} placeholder="Example: Vertical high quality" onChange={(event) => setPresetName(event.target.value)}/>
+                </label>
+                <button type="button" disabled={!presetName.trim() || loadingProfile || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
+                {currentPreset && <div className="export-preset-delete"><span>Selected: <b>{currentPreset.name}</b></span><button type="button" className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
+                <p className="export-preset-hint">Saved presets include video quality and advanced output settings. Caption appearance stays with each project. Saving an existing name updates that preset.</p>
+              </div>
+            </details>
+          </div>
+          {loadingProfile && <div className="export-preset-status" role="status"><LoaderCircle className="spin" size={14}/>Loading saved video settings…</div>}
+          {presetError && <div className="export-preset-warning" role="alert"><TriangleAlert size={15}/>{presetError}</div>}
+          {presetNotice && <div className="export-preset-status" role="status">{presetNotice}</div>}
 
           <div className="export-setting-grid">
             <label htmlFor="export-resolution-select">
@@ -359,7 +526,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
           </div>
 
           <div className="export-summary-line" aria-live="polite">
-            <span><Film size={14}/><b>{resolution ? `${resolution.width}×${resolution.height}` : 'Source'}</b>{resolution?.upscaled ? ' · Upscaled' : ''} · {frameRateLabel(settings.frameRate, source?.frameRate || 0)} · {settings.codec.toUpperCase()}</span>
+            <span><Film size={14}/><b>{resolution ? `${resolution.width}×${resolution.height}` : 'Source'}</b>{resolution?.upscaled ? ' · Upscaled' : ''} · {frameRateLabel(settings.frameRate, source?.frameRate || 0)} · {settings.codec.toUpperCase()}{settings.encoder !== 'auto' ? ` · ${settings.encoder.toUpperCase()} encoder` : ''}{settings.customBitrateMbps ? ` · ${settings.customBitrateMbps} Mbps custom` : ''}</span>
             <span><HardDrive size={14}/>≈ <b>{bytes(estimatedBytes)}</b> · {bytes(capabilities.availableDiskBytes)} free</span>
           </div>
 

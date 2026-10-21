@@ -12,6 +12,10 @@ export interface CaptionHandoffSession {
 export interface ExportWorkspaceSession {
   outputMode: 'video' | 'captions';
   settings: VideoExportSettings;
+  /** Stops an older profile response replacing settings edited during this visit or export repair. */
+  settingsHydrated: boolean;
+  /** Empty means customized; a saved preset selection is only a label for the loaded values. */
+  selectedPresetId: string;
   advancedOpen: boolean;
   handoff: CaptionHandoffSession;
 }
@@ -20,6 +24,8 @@ export function createExportWorkspaceSession(videoProject: boolean): ExportWorks
   return {
     outputMode: videoProject ? 'video' : 'captions',
     settings: { resolution: 'source', frameRate: 'source', quality: 'recommended', codec: 'h264', encoder: 'auto' },
+    settingsHydrated: false,
+    selectedPresetId: '',
     advancedOpen: false,
     handoff: { destination: 'capcut-desktop', advancedFormat: null, advancedOpen: false },
   };

@@ -309,6 +309,30 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       });
     }
     if (url.pathname === '/api/projects') return json(url.searchParams.get('summary') === '1' ? state.projects.map(summarizeProject) : state.projects);
+    if (url.pathname === '/api/profile/video-export-settings' && method === 'PUT') {
+      state.profile = { ...state.profile, lastVideoExportSettings: structuredClone(body.settings) };
+      return json(state.profile);
+    }
+    if (url.pathname === '/api/profile/video-export-presets' && method === 'POST') {
+      const name = String(body?.name || '').trim();
+      if (!name) return json({ error: 'Name required' }, 400);
+      const currentPresets = state.profile.videoExportPresets || [];
+      const existing = currentPresets.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
+      const preset = {
+        id: existing?.id || `export-preset-${state.requests.length}`,
+        name,
+        settings: structuredClone(body.settings),
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      state.profile = { ...state.profile, videoExportPresets: [preset, ...currentPresets.filter((item) => item.id !== preset.id)].slice(0, 20) };
+      return json(state.profile);
+    }
+    if (url.pathname.startsWith('/api/profile/video-export-presets/') && method === 'DELETE') {
+      const presetId = decodeURIComponent(url.pathname.slice('/api/profile/video-export-presets/'.length));
+      state.profile = { ...state.profile, videoExportPresets: (state.profile.videoExportPresets || []).filter((item) => item.id !== presetId) };
+      return json(state.profile);
+    }
     if (url.pathname === '/api/profile') {
       if (method === 'PATCH') state.profile = { ...state.profile, ...body, preferences: { ...state.profile.preferences, ...body.preferences } };
       return json(state.profile);
@@ -394,7 +418,11 @@ export async function installFixture(page: Page): Promise<FixtureState> {
     if (current && url.pathname.endsWith('/captions')) { current.captions = body.captions; return json({ project: current, correctionsCreated: 0 }); }
     if (current && url.pathname.endsWith('/jobs') && method === 'POST') {
       const job: ProcessingJob = { id: 'export-job', type: 'export-video', projectId: current.id, projectTitle: current.title, status: 'queued', stage: 'queued', progress: 0, message: 'Queued', createdAt: now, updatedAt: now, canResume: false };
-      state.jobs.push(job); return json(job, 202);
+      state.jobs.push(job);
+      // Match the production admission contract: the accepted job commits
+      // remembered settings before the response, even if the browser leaves.
+      state.profile = { ...state.profile, lastVideoExportSettings: structuredClone(body.settings) };
+      return json({ ...job, lastUsedSettingsSaved: true }, 202);
     }
     if (current && url.pathname === `/api/projects/${id}`) return json(current);
     if (url.pathname.endsWith('/history')) return json([]);

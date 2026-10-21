@@ -151,6 +151,15 @@ an explicit appearance reference when you download the file. Default-effect file
 schema. Styled ASS and rendered MP4 can contain the effects; normal text subtitle
 formats do not. This does not change existing consent rules or remote payloads.
 
+### Video export presets and last-used settings
+
+Studio stores the last accepted captioned-video render settings and any named
+video output presets in the installation-local creator profile (`data/profile.json`).
+These records contain encoding choices, not footage, captions or cloud credentials.
+They are included when the creator deliberately exports a profile and can be
+restored through profile import. Saving or applying them does not send new data
+to Gemini, Contributor, analytics or another external service.
+
 ## Editable caption handoff
 
 The editable-file workflow creates local SRT, WebVTT, TTML, styled ASS, projected

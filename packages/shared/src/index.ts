@@ -77,6 +77,14 @@ export interface VideoExportSettings {
   customBitrateMbps?: number;
 }
 
+export interface VideoExportPreset {
+  id: string;
+  name: string;
+  settings: VideoExportSettings;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface VideoExportSourceInfo {
   width: number;
   height: number;
@@ -385,6 +393,10 @@ export interface AppProfile {
   styles: CaptionStylePreset[];
   /** Reusable local burned-in appearance presets. Omitted legacy profiles remain valid. */
   captionAppearances?: CaptionAppearancePreset[];
+  /** Last-used captioned-video output settings, shared across projects. */
+  lastVideoExportSettings?: VideoExportSettings;
+  /** Reusable named output settings, separate from project caption appearance. */
+  videoExportPresets?: VideoExportPreset[];
   topicPacks: TopicPack[];
   correctionRules: CorrectionRule[];
   correctionEvents: CorrectionEvent[];
@@ -515,5 +527,7 @@ export interface ProcessingJob {
   resultProjectId?: string;
   proposalId?: string;
   resultExport?: VideoExportResult;
+  /** Transient acceptance receipt for video exports; omitted from persisted job snapshots. */
+  lastUsedSettingsSaved?: boolean;
   canResume: boolean;
 }

@@ -231,6 +231,22 @@ Sthang Studio has two deliberately different output paths:
   appearance baked into the picture. The source media is never overwritten, and
   captions are no longer separately editable inside the exported MP4.
 
+The most recent **accepted** captioned-video render remembers its normalized
+resolution, frame rate, quality, codec, encoder preference, and optional bitrate
+in the local creator profile. Entering Export for another project or after an app
+restart recalls those choices. A canceled or blocked render must never replace
+the remembered settings. Profile storage failure must not cancel an accepted
+render; Export must warn that its output choices could not be remembered.
+Changes made during the current editor visit remain
+available while repairing export issues. Creators can save, apply, update by
+name, or delete up to 20 reusable **video export presets** independently of their
+caption-appearance presets. A preset contains output settings only, not media,
+captions, appearance, or render authorization. Local device capabilities are
+checked again when applying an older preset; unavailable encoders or codecs must
+be explained before safe defaults are used. Persisted choices live in the
+installation's local creator profile, alongside other user presets, and do not
+change the immutable settings snapshot of a render already in progress.
+
 For captioned-video export:
 
 - Export focuses on output decisions. It shows a compact summary of the saved

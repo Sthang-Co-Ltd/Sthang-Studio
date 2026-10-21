@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
-import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION, normalizeCaptionAppearance } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -13,6 +13,8 @@ import type {
   CorrectionSuggestionKind,
   TimingQuality,
   TimingSource,
+  VideoExportPreset,
+  VideoExportSettings,
 } from '@kcs/shared';
 import { config } from '../config.js';
 import { APP_VERSION } from '../version.js';
@@ -23,6 +25,7 @@ const DEFAULT_PROFILE: AppProfile = {
   defaultVocabulary: [],
   styles: [{ id: 'my-tiktok-style', name: 'My TikTok Style', mode: 'dynamic', maxChars: 18 }],
   captionAppearances: [],
+  videoExportPresets: [],
   topicPacks: [],
   correctionRules: [],
   correctionEvents: [],
@@ -78,6 +81,76 @@ function timingQuality(value: unknown): TimingQuality | undefined {
   return ['high', 'medium', 'low'].includes(String(value)) ? value as TimingQuality : undefined;
 }
 
+const MAX_VIDEO_EXPORT_PRESETS = 20;
+
+function presetName(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80).trim();
+}
+
+function presetNameKey(name: string): string {
+  return name.normalize('NFC').toLocaleLowerCase('en');
+}
+
+function presetTimestamp(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const millis = Date.parse(value);
+  return Number.isFinite(millis) ? new Date(millis).toISOString() : fallback;
+}
+
+function safeVideoExportSettings(value: unknown): VideoExportSettings {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const stringValue = (item: unknown) => typeof item === 'string' ? item : undefined;
+  const numericValue = (item: unknown) => typeof item === 'string' || typeof item === 'number' ? item : undefined;
+  // Imported JSON can contain arbitrary nested objects; never pass them to Number() in the shared normalizer.
+  return normalizeVideoExportSettings({
+    resolution: stringValue(raw.resolution),
+    frameRate: numericValue(raw.frameRate),
+    quality: stringValue(raw.quality),
+    codec: stringValue(raw.codec),
+    encoder: stringValue(raw.encoder),
+    customBitrateMbps: numericValue(raw.customBitrateMbps),
+  } as Partial<VideoExportSettings>);
+}
+
+function normalizeVideoExportPresets(value: unknown): VideoExportPreset[] {
+  if (!Array.isArray(value)) return [];
+  const presets: VideoExportPreset[] = [];
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const now = new Date().toISOString();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const raw = entry as Partial<VideoExportPreset>;
+    const name = presetName(raw.name);
+    if (!name) continue;
+    const id = typeof raw.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(raw.id) ? raw.id : nanoid(12);
+    const nameKey = presetNameKey(name);
+    if (ids.has(id) || names.has(nameKey)) continue;
+    const createdAt = presetTimestamp(raw.createdAt, now);
+    presets.push({
+      id, name,
+      settings: safeVideoExportSettings(raw.settings),
+      createdAt,
+      updatedAt: presetTimestamp(raw.updatedAt, createdAt),
+    });
+    ids.add(id);
+    names.add(nameKey);
+    if (presets.length >= MAX_VIDEO_EXPORT_PRESETS) break;
+  }
+  return presets;
+}
+
+function requiredVideoExportSettings(value: unknown): VideoExportSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Choose valid video export settings.');
+  }
+  return safeVideoExportSettings(value);
+}
+
+export class VideoExportPresetNotFoundError extends Error {}
+export class VideoExportPresetConflictError extends Error {}
+
 function normalizeProfile(value: unknown): AppProfile {
   const raw = value && typeof value === 'object' ? value as Partial<AppProfile> : {};
   const styles = Array.isArray(raw.styles)
@@ -107,6 +180,8 @@ function normalizeProfile(value: unknown): AppProfile {
       })
       .slice(0, 20)
     : [];
+
+  const videoExportPresets = normalizeVideoExportPresets(raw.videoExportPresets);
 
   const topicPacks = Array.isArray(raw.topicPacks)
     ? raw.topicPacks
@@ -180,6 +255,10 @@ function normalizeProfile(value: unknown): AppProfile {
     defaultVocabulary: uniqueLines(raw.defaultVocabulary),
     styles: styles.length ? styles : DEFAULT_PROFILE.styles,
     captionAppearances,
+    ...(raw.lastVideoExportSettings && typeof raw.lastVideoExportSettings === 'object' && !Array.isArray(raw.lastVideoExportSettings)
+      ? { lastVideoExportSettings: safeVideoExportSettings(raw.lastVideoExportSettings) }
+      : {}),
+    videoExportPresets,
     topicPacks,
     correctionRules,
     correctionEvents,
@@ -353,6 +432,58 @@ function ruleFromEvent(event: CorrectionEvent): CorrectionRule {
 
 export const profileStore = {
   get: load,
+
+  async setLastVideoExportSettings(value: unknown): Promise<AppProfile> {
+    const input = structuredClone(value);
+    return queueProfileMutation((current) => ({
+      next: { ...current, lastVideoExportSettings: requiredVideoExportSettings(input) },
+    }));
+  },
+
+  async upsertVideoExportPreset(value: unknown): Promise<AppProfile> {
+    const input = structuredClone(value);
+    return queueProfileMutation((current) => {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Choose a name and video export settings.');
+      const raw = input as Partial<VideoExportPreset>;
+      const name = presetName(raw.name);
+      if (!name) throw new Error('Give the video export preset a name.');
+      const settings = requiredVideoExportSettings(raw.settings);
+      const requestedId = raw.id == null ? '' : raw.id;
+      if (typeof requestedId !== 'string' || (requestedId && !/^[A-Za-z0-9_-]{1,80}$/.test(requestedId))) {
+        throw new Error('Invalid video export preset ID.');
+      }
+      const currentPresets = current.videoExportPresets || [];
+      const nameKey = presetNameKey(name);
+      const matchingName = currentPresets.find((preset) => presetNameKey(preset.name) === nameKey);
+      const existing = requestedId
+        ? currentPresets.find((preset) => preset.id === requestedId)
+        : matchingName;
+      if (requestedId && !existing) throw new VideoExportPresetNotFoundError('Video export preset no longer exists.');
+      if (matchingName && existing && matchingName.id !== existing.id) {
+        throw new VideoExportPresetConflictError('Another video export preset already uses that name.');
+      }
+      if (!existing && currentPresets.length >= MAX_VIDEO_EXPORT_PRESETS) {
+        throw new VideoExportPresetConflictError('You can save up to 20 video export presets. Delete one before saving a new preset.');
+      }
+      const now = new Date().toISOString();
+      const nextPreset: VideoExportPreset = {
+        id: existing?.id || nanoid(12), name, settings,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      return { next: { ...current, videoExportPresets: [nextPreset, ...currentPresets.filter((preset) => preset.id !== nextPreset.id)] } };
+    });
+  },
+
+  async deleteVideoExportPreset(id: string): Promise<AppProfile> {
+    return queueProfileMutation((current) => {
+      const presets = current.videoExportPresets || [];
+      if (!presets.some((preset) => preset.id === id)) {
+        throw new VideoExportPresetNotFoundError('Video export preset no longer exists.');
+      }
+      return { next: { ...current, videoExportPresets: presets.filter((preset) => preset.id !== id) } };
+    });
+  },
 
   async patch(value: unknown): Promise<AppProfile> {
     const raw = structuredClone(value) as Partial<AppProfile> | null;
