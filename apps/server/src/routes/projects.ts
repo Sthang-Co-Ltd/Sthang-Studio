@@ -22,6 +22,7 @@ import {
   refineRegenerationProposal,
   postprocessProjectTiming,
   StaleProjectMediaError,
+  StaleProjectRevisionError,
   transcribeProject,
 } from '../services/project-processing.js';
 import { historyStore } from '../services/history-store.js';
@@ -514,12 +515,18 @@ router.post('/:id/normalize-khmer-spacing', async (req, res) => {
   if (!preparedFor) {
     return res.status(428).json({ error: 'Khmer spacing cleanup requires the media version it was prepared against.' });
   }
+  const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+  if (expectedUpdatedAt === undefined) return res.status(428).json({ error: 'Khmer spacing cleanup requires the saved project revision.' });
+  if (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt.trim()) {
+    return res.status(400).json({ error: 'The saved project revision must be a non-empty string.' });
+  }
   try {
     const result = await store.withProjectWrite(req.params.id, async (project, persist) => {
       if (!project) return { status: 'missing' as const };
       if (project.media.filename !== preparedFor.filename || project.media.size !== preparedFor.size) {
         return { status: 'stale' as const };
       }
+      if (project.updatedAt !== expectedUpdatedAt) return { status: 'revision' as const };
       await historyStore.checkpoint(project, 'Before Khmer spacing cleanup', 'cleanup');
       project.captions = project.captions.map((caption) => caption.textLocked ? caption : reconcileCaptionWordTiming(caption, {
         ...caption,
@@ -555,6 +562,9 @@ router.post('/:id/normalize-khmer-spacing', async (req, res) => {
     if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
     if (result.status === 'stale') {
       return res.status(409).json({ error: 'This Khmer spacing cleanup belongs to an older media version. Reload the project and try again.' });
+    }
+    if (result.status === 'revision') {
+      return res.status(409).json({ error: 'The saved captions changed. Download your edits, then reload the saved project to compare.', code: 'CAPTION_REVISION_CHANGED' });
     }
     res.json(result.project);
   } catch (error) {
@@ -610,11 +620,17 @@ router.post('/:id/postprocess-timing', admitProcessing(async (req, res) => {
   if (!preparedFor) {
     return res.status(428).json({ error: 'Timing cleanup requires the media version it was prepared against.' });
   }
+  const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+  if (expectedUpdatedAt === undefined) return res.status(428).json({ error: 'Timing cleanup requires the saved project revision.' });
+  if (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt.trim()) {
+    return res.status(400).json({ error: 'The saved project revision must be a non-empty string.' });
+  }
   try {
     const settings = req.body?.settings as QaProfileSettings;
     if (!settings || typeof settings !== 'object') return res.status(400).json({ error: 'QA timing settings are required.' });
-    res.json(await postprocessProjectTiming(req.params.id, settings, preparedFor));
+    res.json(await postprocessProjectTiming(req.params.id, settings, preparedFor, expectedUpdatedAt));
   } catch (error) {
+    if (error instanceof StaleProjectRevisionError) return res.status(409).json({ error: error.message, code: 'CAPTION_REVISION_CHANGED' });
     if (error instanceof StaleProjectMediaError) return res.status(409).json({ error: error.message });
     if (error instanceof MediaAlignmentUnverifiedError) return res.status(409).json({ error: error.message, code: 'MEDIA_ALIGNMENT_UNVERIFIED' });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Timing post-processing failed' });

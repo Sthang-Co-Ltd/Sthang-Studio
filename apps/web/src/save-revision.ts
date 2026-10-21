@@ -5,14 +5,18 @@ import { projectMediaKey } from './project-scope';
 
 export type ProjectSaveField = 'captions' | 'context';
 
+export function matchesCaptionSaveBasis(basis: CaptionProject | null, next: CaptionProject): boolean {
+  return Boolean(basis && projectMediaKey(basis) === projectMediaKey(next)
+    && JSON.stringify(hydrateCaptionWordTimings(basis).captions) === JSON.stringify(hydrateCaptionWordTimings(next).captions));
+}
+
 /** A fresh timestamp is usable only when the fields this write will replace
  * still match this editor's acknowledged basis. Other fields remain server-owned.
  * The PUT checks this timestamp again under the project's write lock. */
 export function checkedSaveRevision(basis: CaptionProject | null, latest: CaptionProject, field: ProjectSaveField): string {
-  const matches = basis && projectMediaKey(basis) === projectMediaKey(latest)
-    && (field === 'captions'
-      ? JSON.stringify(hydrateCaptionWordTimings(basis).captions) === JSON.stringify(hydrateCaptionWordTimings(latest).captions)
-      : sameAccuracyContext(basis.transcriptionContext, latest.transcriptionContext));
+  const matches = field === 'captions' ? matchesCaptionSaveBasis(basis, latest)
+    : basis && projectMediaKey(basis) === projectMediaKey(latest)
+      && sameAccuracyContext(basis.transcriptionContext, latest.transcriptionContext);
   if (!matches) {
     throw new ApiRequestError(
       `The saved ${field === 'captions' ? 'captions' : 'Accuracy context'} changed. Download your edits, then reload the saved project to compare.`,

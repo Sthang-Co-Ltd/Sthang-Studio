@@ -179,11 +179,11 @@ async function resegment(id: string, expectedMedia: CaptionProject['media'], mod
   });
 }
 
-async function normalizeSpacing(id: string, expectedMedia: CaptionProject['media']) {
+async function normalizeSpacing(id: string, expectedMedia: CaptionProject['media'], expectedUpdatedAt: string) {
   return fetch(`${baseUrl}/api/projects/${id}/normalize-khmer-spacing`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ expectedMedia: { filename: expectedMedia.filename, size: expectedMedia.size } }),
+    body: JSON.stringify({ expectedMedia: { filename: expectedMedia.filename, size: expectedMedia.size }, expectedUpdatedAt }),
   });
 }
 
@@ -202,12 +202,13 @@ const timingSettings = {
   snapToleranceMs: 80,
 };
 
-async function postprocessTiming(id: string, expectedMedia: CaptionProject['media']) {
+async function postprocessTiming(id: string, expectedMedia: CaptionProject['media'], expectedUpdatedAt: string) {
   return fetch(`${baseUrl}/api/projects/${id}/postprocess-timing`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       settings: timingSettings,
+      expectedUpdatedAt,
       expectedMedia: { filename: expectedMedia.filename, size: expectedMedia.size },
     }),
   });
@@ -617,7 +618,7 @@ test('a spacing cleanup queued behind replacement cannot republish the retired m
   try {
     await renameEntered.promise;
     watchStaleMutation = true;
-    const staleSpacingPromise = normalizeSpacing(project.id, project.media);
+    const staleSpacingPromise = normalizeSpacing(project.id, project.media, project.updatedAt);
     await mutationQueued.promise;
     renameGate.release();
     const replacementResponse = await replacementPromise;
@@ -644,7 +645,9 @@ test('spacing cleanup may finish first and replacement then retires that generat
   const project = await seedProject('spacing-before-replacement', true);
   project.captions = [{ ...project.captions[0], text: 'ខ្មែរ   កម្ពុជា' }];
   await store.upsert(project);
-  const spacing = await normalizeSpacing(project.id, project.media);
+  const spacingBasis = await store.get(project.id);
+  assert.ok(spacingBasis);
+  const spacing = await normalizeSpacing(project.id, project.media, spacingBasis.updatedAt);
   assert.equal(spacing.status, 200);
   const cleaned = await spacing.json() as CaptionProject;
   assert.equal(cleaned.media.filename, project.media.filename);
@@ -666,11 +669,12 @@ test('timing cleanup rejects an old media version and succeeds for the current g
   assert.equal(replacementResponse.status, 200);
   const replacement = await replacementResponse.json() as CaptionProject;
 
-  const stale = await postprocessTiming(project.id, project.media);
+  const stale = await postprocessTiming(project.id, project.media, replacement.updatedAt);
   assert.equal(stale.status, 409);
   const saved = await saveCaptions(project.id, [caption('CURRENT TIMING')], replacement.media);
   assert.equal(saved.status, 200);
-  const current = await postprocessTiming(project.id, replacement.media);
+  const timingBasis = (await saved.json()).project as CaptionProject;
+  const current = await postprocessTiming(project.id, replacement.media, timingBasis.updatedAt);
   assert.equal(current.status, 200);
   const processed = await current.json() as CaptionProject;
   assert.equal(processed.media.filename, replacement.media.filename);

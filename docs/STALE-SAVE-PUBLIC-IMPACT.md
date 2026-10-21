@@ -22,6 +22,22 @@ An accepted whole-caption mutation cannot silently authorize an already dirty
 draft to overwrite the newly saved captions; conflicting drafts require manual
 comparison while edits made after a clean History action retain their ordering.
 
+Prepared word-timing apply and undo own only the targeted timing and approval
+changes. If a response includes unrelated saved captions that a retained draft
+never received, it cannot advance that draft's full-list save authority. The
+accepted batch and newer input remain available; stale autosave, explicit Save
+and queued full-list writes stop for comparison. A same-client batch followed by
+new typing still saves normally when the response matches the prior acknowledged
+captions plus the declared batch changes. Accuracy authority stays independent.
+If the editor changes a batch target while its acknowledgement is pending, its
+accepted timing and History remain saved while the local draft is kept for
+comparison. A later ordinary Save cannot silently reverse that batch.
+
+Khmer-spacing and safe-timing cleanup compare captions with their acknowledged
+basis before submitting. Their API revision checks run inside the project write
+lock before History or mutation, including when another write wins after the
+preflight. Older clients that omit the revision receive 428 and must refresh.
+
 A conflict keeps the local draft, stops queued saves and automatic retries, and
 offers Download edits and Reload saved project. Reload captures the bounded
 recovery copy; if browser storage cannot retain it, an explicit warning and
@@ -35,14 +51,16 @@ or Accuracy context, including edits to different caption rows.
 | Evidence | Assessment |
 | --- | --- |
 | `README.md`; `PRODUCT.md`; `DESIGN.md`; `CHANGELOG.md`; `docs/UNFINISHED-EDIT-RECOVERY.md` | Updated source-only save/conflict instructions and limitations |
-| `apps/web/src/App.tsx`; `apps/web/src/save-revision.ts`; `apps/web/src/caption-appearance-save.ts`; `apps/web/src/api.ts`; `apps/web/src/unfinished-edit-recovery.ts` | Field ownership, revision checks, local queue behavior, conflict/reload actions, and retained comparison copies |
-| `apps/server/src/routes/projects.ts` | Required guarded caption/context writes before side effects |
+| `apps/web/src/App.tsx`; `apps/web/src/save-revision.ts`; `apps/web/src/word-highlight-batch.ts`; `apps/web/src/caption-appearance-save.ts`; `apps/web/src/api.ts`; `apps/web/src/unfinished-edit-recovery.ts` | Scoped batch and field ownership, revision checks, local queue behavior, conflict/reload actions, and retained comparison copies |
+| `apps/server/src/routes/projects.ts`; `apps/server/src/services/project-processing.ts` | Required guarded caption/context and cleanup writes before side effects |
 | `tests/stale-save-api.test.mts`; `tests/save-revision.test.ts`; `tests/browser/stale-save-conflicts.spec.mts` | Rejection, valid saves, two-client conflicts, local draft preservation, and side-effect boundaries |
 | Existing recovery, grouping, media-replacement, and Appearance tests | Compatibility with accepted saves, newer typing, History ordering, and recovery exclusions |
+| `tests/word-highlight-batch.test.ts`; `tests/browser/word-batch-save-conflicts.spec.mts` | Apply/undo authority, held persisted responses, exact disk and retained edits, same-client queued controls, and cleanup preflight rejection |
 | `PRIVACY.md` | Existing browser-copy contents, bounds, origin/profile scope, and retention still apply; no new storage category, provider, external transfer, telemetry, or dependency |
 
-Actual validation outcomes belong to the task receipt. Test pointers and source
-implementation do not establish released availability.
+Actual validation outcomes belong to the task receipt and
+`docs/STALE-SAVE-QUALIFICATION.md`. Test pointers and source implementation do
+not establish released availability.
 
 The reviewed `.sthang/product-manifest.json` represents the separately governed
 `studio-v0-86-0-release-20261013` change. Its `proposal.release`,
@@ -55,7 +73,7 @@ compatibility, and download/update authorities are unaffected by this change.
 
 | Authority or surface | Proposed follow-up |
 | --- | --- |
-| HQ Studio workflow/features | Describe guarded caption/Accuracy Save and the Download edits / Reload saved project path, with source-only availability until release evidence changes |
+| HQ Studio workflow/features | Describe guarded caption/Accuracy Save, scoped prepared-timing acknowledgements, guarded cleanup, and the Download edits / Reload saved project path, with source-only availability until release evidence changes |
 | HQ Studio limitations | State that conflicts stop stale retries and require manual comparison; avoid universal multi-tab protection or automatic merge claims |
 | HQ Studio data-processing evidence | Confirm the existing local recovery disclosure; this follow-up adds no new transfer or retention category |
 | `landing/studio/index.html` and `docs/studio/index.md` | Review the `/studio/` save/recovery workflow after HQ acceptance and carry the approved conflict limitations |

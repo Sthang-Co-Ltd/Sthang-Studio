@@ -295,3 +295,98 @@ test('caption recovery alias remains valid without learning and rejects contradi
   assert.equal((await stale.json()).code, 'DRAFT_RECOVERY_CHANGED');
   assert.equal((await readProject(project.id)).captions[0].text, 'hello recovered again');
 });
+
+const cleanupSettings = {
+  id: 'synthetic', name: 'Synthetic cleanup', description: 'Revision guard fixture',
+  maxCps: 30, maxCharsPerLine: 42, maxLines: 2, minDurationMs: 300, maxDurationMs: 5000,
+  minGapMs: 40, leadInMs: 20, leadOutMs: 20, snapToleranceMs: 80,
+};
+
+function cleanupRequest(project: CaptionProject, endpoint: string, expectedUpdatedAt: unknown) {
+  return fetch(`${baseUrl}/api/projects/${project.id}/${endpoint}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedMedia: project.media, expectedUpdatedAt, settings: cleanupSettings }),
+  });
+}
+
+for (const endpoint of ['normalize-khmer-spacing', 'postprocess-timing']) {
+  test(`${endpoint} requires a valid saved revision before any History or evidence`, { concurrency: false }, async (t) => {
+    const project = await seed(`${endpoint}-required`);
+    const effects = observeEvidence(t);
+    const beforeDisk = await diskSnapshot();
+    for (const value of [undefined, null, '', '   ', 123, {}]) {
+      const response = await cleanupRequest(project, endpoint, value);
+      assert.equal(response.status, value === undefined ? 428 : 400);
+      assert.deepEqual(await diskSnapshot(), beforeDisk);
+      assert.deepEqual(evidenceCounts(effects), noEvidence);
+    }
+  });
+
+  test(`${endpoint} rejects a stale caption basis without changing disk or History`, { concurrency: false }, async (t) => {
+    const project = await seed(`${endpoint}-stale`);
+    const winner = await store.withProjectWrite(project.id, async (current, persist) => {
+      assert.ok(current);
+      return persist({ ...current, captions: current.captions.map((cue) => ({ ...cue, text: 'Foreign saved wording' })) });
+    });
+    const effects = observeEvidence(t);
+    const beforeDisk = await diskSnapshot();
+    const response = await cleanupRequest(project, endpoint, project.updatedAt);
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'CAPTION_REVISION_CHANGED');
+    assert.deepEqual(await readProject(project.id), JSON.parse(JSON.stringify(winner)));
+    assert.deepEqual(await historyStore.list(project.id, project.media), []);
+    assert.deepEqual(await diskSnapshot(), beforeDisk);
+    assert.deepEqual(evidenceCounts(effects), noEvidence);
+  });
+
+  test(`${endpoint} accepts its acknowledged revision with one checkpoint and no learning`, { concurrency: false }, async (t) => {
+    const project = await seed(`${endpoint}-current`);
+    const effects = observeEvidence(t);
+    const response = await cleanupRequest(project, endpoint, project.updatedAt);
+    assert.equal(response.status, 200);
+    const saved = await response.json() as CaptionProject;
+    assert.notEqual(saved.updatedAt, project.updatedAt);
+    assert.deepEqual(saved.media, project.media);
+    assert.deepEqual(saved.transcriptionContext, project.transcriptionContext);
+    assert.equal(saved.captions[0].text, project.captions[0].text);
+    assert.deepEqual(await readProject(project.id), saved);
+    const entries = await historyStore.list(project.id, project.media);
+    assert.equal(entries.length, 1);
+    assert.deepEqual((await historyStore.get(project.id, entries[0].id, project.media))?.snapshot.captions, project.captions);
+    assert.deepEqual(evidenceCounts(effects), noEvidence);
+  });
+
+  test(`${endpoint} checks the revision after a queued competing caption write`, { concurrency: false, timeout: 15_000 }, async (t) => {
+    const project = await seed(`${endpoint}-queued`);
+    const effects = observeEvidence(t);
+    let acquired!: () => void;
+    let release!: () => void;
+    let queued!: () => void;
+    const locked = new Promise<void>((resolve) => { acquired = resolve; });
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const requestQueued = new Promise<void>((resolve) => { queued = resolve; });
+    t.after(() => release());
+    const originalWrite = store.withProjectWrite;
+    const winningWrite = originalWrite(project.id, async (current, persist) => {
+      assert.ok(current);
+      acquired();
+      await barrier;
+      return persist({ ...current, captions: current.captions.map((cue) => ({ ...cue, text: 'Winning queued caption' })) });
+    });
+    await locked;
+    const observeQueue: typeof store.withProjectWrite = (id, operation) => {
+      if (id === project.id) queued();
+      return originalWrite(id, operation);
+    };
+    t.mock.method(store, 'withProjectWrite', observeQueue);
+    const pending = cleanupRequest(project, endpoint, project.updatedAt);
+    try { await requestQueued; } finally { release(); }
+    const winner = await winningWrite;
+    const response = await pending;
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'CAPTION_REVISION_CHANGED');
+    assert.deepEqual(await readProject(project.id), JSON.parse(JSON.stringify(winner)));
+    assert.deepEqual(await historyStore.list(project.id, project.media), []);
+    assert.deepEqual(evidenceCounts(effects), noEvidence);
+  });
+}

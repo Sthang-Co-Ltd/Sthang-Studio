@@ -8,6 +8,14 @@
   Download edits and Reload saved project for comparison. Rejected saves do not
   change the project, History, correction memory, or approval evidence. Valid
   queued saves and saves after unrelated Appearance changes remain supported.
+  Prepared word-timing apply/undo acknowledgements authorize only their targeted
+  timing and approval changes: a retained draft cannot borrow unseen saved rows
+  to overwrite another editor. Accepted timings and newer local typing remain
+  available for comparison, while same-client batches can still save normally.
+  Editing a batch's own target while its acknowledgement is pending also keeps
+  the draft for comparison without undoing accepted timing through Save.
+  Khmer-spacing and safe-timing cleanup also require a checked caption revision
+  before changing the project or History.
 
 - **Source-only - protect unfinished edits:** warn before closing/reloading with
   unfinished caption or Accuracy work; wait for pending writes and save both before

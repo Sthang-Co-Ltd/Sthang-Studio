@@ -312,11 +312,11 @@ export const api = {
   ) => request<CaptionProject>(`/api/projects/${id}/resegment`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, maxChars, expectedMedia }),
   }),
-  normalizeKhmerSpacing: (id: string, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia }),
+  normalizeKhmerSpacing: (id: string, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>, expectedUpdatedAt: string) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia, expectedUpdatedAt }),
   }),
-  postprocessTiming: (id: string, settings: QaProfileSettings, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>) => request<CaptionProject>(`/api/projects/${id}/postprocess-timing`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, expectedMedia }),
+  postprocessTiming: (id: string, settings: QaProfileSettings, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>, expectedUpdatedAt: string) => request<CaptionProject>(`/api/projects/${id}/postprocess-timing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, expectedMedia, expectedUpdatedAt }),
   }),
   history: (id: string) => request<ProjectHistoryEntry[]>(`/api/projects/${id}/history`),
   restoreHistory: (id: string, historyId: string, expectedMedia: MediaReplacementBasis['expectedMedia']) => request<CaptionProject>(`/api/projects/${id}/history/${historyId}/restore`, {

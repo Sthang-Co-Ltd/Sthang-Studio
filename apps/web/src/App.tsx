@@ -77,7 +77,7 @@ import { SourceMedia } from './components/SourceMedia';
 import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqueContextLines, type AccuracyFields, type AccuracyObservation } from './accuracy-context-draft';
 import { createUnfinishedEditRecoveryStore, assessRecovery, restoredCaptions, type RecoveryEntry } from './unfinished-edit-recovery';
 import { UnfinishedEditRecoveryNotice } from './components/UnfinishedEditRecoveryNotice';
-import { checkedSaveRevision, editorAdoptedAccuracy, matchesVocabularyAddition } from './save-revision';
+import { checkedSaveRevision, editorAdoptedAccuracy, matchesCaptionSaveBasis, matchesVocabularyAddition } from './save-revision';
 import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-edit';
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
@@ -87,6 +87,7 @@ import {
   mergePublishedWordHighlightBatch,
   prepareWordHighlightBatch,
   undoWordHighlightBatch,
+  wordHighlightBatchSaveBasis,
   type WordHighlightBatchResult,
 } from './word-highlight-batch';
 import type { WordHighlightPreparationView } from './components/WordHighlightPreparation';
@@ -821,7 +822,7 @@ export default function App() {
     draftWasDirty: boolean,
     preservedNotice: string,
     ownsCaptions = true,
-    conflictOnRetainedDraft = true,
+    expectedRetainedCaptionBasis?: CaptionProject | null,
   ): 'applied' | 'preserved' | 'stale' => {
     if (!projectScope.current.isCurrent(ticket) || projectMediaKey(next) !== ticket.key) return 'stale';
     // A draft already dirty when the user accepts a whole-caption mutation may
@@ -829,16 +830,23 @@ export default function App() {
     // don't grant its next autosave authority to undo the accepted result.
     // Fresh typing following a clean History action retains its save ordering.
     const priorBasis = ordinarySaveBasis.current;
-    const needsComparison = ownsCaptions && conflictOnRetainedDraft && draftWasDirty && priorBasis
-      && projectMediaKey(priorBasis) === ticket.key
-      && JSON.stringify(withCaptionWordTimings(priorBasis).captions) !== JSON.stringify(withCaptionWordTimings(next).captions)
-      && JSON.stringify(next.captions) !== JSON.stringify(draftRef.current);
-    if (needsComparison && priorBasis && projectMediaKey(priorBasis) === ticket.key
-      && conflictedSave.current?.key !== ticket.key) {
-      conflictedSave.current = { key: ticket.key, basis: structuredClone(priorBasis) };
+    const retainsDraft = draftWasDirty || draftEditRevision.current !== editRevision;
+    // A partial mutation owns only its declared changes. Its full response may
+    // also contain foreign rows which never reached this retained local draft.
+    // undefined keeps the deliberate whole-caption mutation contract below;
+    // null means a partial mutation could not establish a valid expected basis.
+    const needsComparison = ownsCaptions && (expectedRetainedCaptionBasis !== undefined
+      ? retainsDraft && !matchesCaptionSaveBasis(expectedRetainedCaptionBasis, next)
+      : draftWasDirty && priorBasis && projectMediaKey(priorBasis) === ticket.key
+        && !matchesCaptionSaveBasis(priorBasis, next)
+        && JSON.stringify(next.captions) !== JSON.stringify(draftRef.current));
+    if (needsComparison) {
+      if (priorBasis && projectMediaKey(priorBasis) === ticket.key && conflictedSave.current?.key !== ticket.key) {
+        conflictedSave.current = { key: ticket.key, basis: structuredClone(priorBasis) };
+      }
       setSaveConflict(true);
     }
-    rememberSavedCaptions(next, ownsCaptions);
+    rememberSavedCaptions(next, ownsCaptions && !needsComparison);
     next = retainAccuracyContext(next);
     if (!draftWasDirty && draftEditRevision.current === editRevision) {
       applyProject(next);
@@ -855,7 +863,7 @@ export default function App() {
     if (JSON.stringify(next.captions) !== JSON.stringify(draftRef.current)) {
       setDirty(true);
       dirtyRef.current = true;
-      if (conflictedSave.current?.key === ticket.key) {
+      if (needsComparison || conflictedSave.current?.key === ticket.key) {
         setAutosaveState('failed');
         setCaptionSaveError('The saved captions changed while your newer edits were unfinished. Download your edits, then reload the saved project to compare.');
       } else setAutosaveState('pending');
@@ -870,10 +878,18 @@ export default function App() {
     ticket: ProjectTicket,
     editRevision: number,
     changes: Array<{ before: CaptionSegment; after: CaptionSegment }>,
+    expectedCaptionBasis: CaptionProject | null,
     preservedNotice: string,
   ) => {
     if (!projectScope.current.isCurrent(ticket) || projectMediaKey(next) !== ticket.key) return 'stale' as const;
-    if (editRevision !== draftEditRevision.current || dirtyRef.current) {
+    const retainsDraft = editRevision !== draftEditRevision.current || dirtyRef.current;
+    // A locally changed batch target cannot safely adopt only the server's
+    // timing/approval fields. If its revision changed while the request was in
+    // flight, preserve that draft but require comparison before another whole-
+    // list save can undo the batch's already accepted on-disk result.
+    const locallyChangedTarget = retainsDraft && changes.some(({ before }) =>
+      !sameTimingRevision(draftRef.current.find((caption) => caption.id === before.id), before));
+    if (retainsDraft) {
       // A person may correct an unrelated caption while a batch request is in
       // flight. Keep those edits and carry the committed word timings into every
       // target they did not modify, so its later autosave cannot undo the batch.
@@ -888,9 +904,8 @@ export default function App() {
         setAutosaveState('pending');
       }
     }
-    // A word-timing batch already merges its accepted per-caption changes into
-    // the retained draft above, without reverting another caption's edits.
-    return publishSameMediaMutation(next, ticket, editRevision, false, preservedNotice, true, false);
+    return publishSameMediaMutation(next, ticket, editRevision, false, preservedNotice, true,
+      locallyChangedTarget ? null : expectedCaptionBasis);
   };
 
   const copyReplacementEdits = async (recovery: ReplacementEditRecovery) => {
@@ -1369,10 +1384,14 @@ export default function App() {
     setBusy('Applying word highlights…');
     try {
       const editRevision = draftEditRevision.current;
-      const response = await queueSameMediaMutation(ticket, () => api.applyWordHighlightBatch(target.id,
-        { filename: target.media.filename, size: target.media.size }, result.applied));
+      const response = await queueSameMediaMutation(ticket, async () => {
+        // Capture after earlier queued acknowledgements, before this request.
+        const captionBasis = wordHighlightBatchSaveBasis(ordinarySaveBasis.current, result.applied);
+        return { ...(await api.applyWordHighlightBatch(target.id,
+          { filename: target.media.filename, size: target.media.size }, result.applied)), captionBasis };
+      });
       if (!response || !projectScope.current.isCurrent(ticket)) return;
-      const published = publishWordBatchMutation(response.project, ticket, editRevision, result.applied,
+      const published = publishWordBatchMutation(response.project, ticket, editRevision, result.applied, response.captionBasis,
         'Prepared timings were saved, but newer editor changes remain here. Save those edits before preparing again.');
       if (published === 'applied') {
         setWordBatchUndo({ ticket, applied: result.applied });
@@ -1415,10 +1434,13 @@ export default function App() {
     try {
       const editRevision = draftEditRevision.current;
       const reverse = wordBatchUndo.applied.map(({ before, after }) => ({ before: after, after: before }));
-      const response = await queueSameMediaMutation(ticket, () => api.applyWordHighlightBatch(target.id,
-        { filename: target.media.filename, size: target.media.size }, reverse, 'undo'));
+      const response = await queueSameMediaMutation(ticket, async () => {
+        const captionBasis = wordHighlightBatchSaveBasis(ordinarySaveBasis.current, reverse);
+        return { ...(await api.applyWordHighlightBatch(target.id,
+          { filename: target.media.filename, size: target.media.size }, reverse, 'undo')), captionBasis };
+      });
       if (!response || !projectScope.current.isCurrent(ticket)) return;
-      const published = publishWordBatchMutation(response.project, ticket, editRevision, reverse,
+      const published = publishWordBatchMutation(response.project, ticket, editRevision, reverse, response.captionBasis,
         'Prepared timings were undone on disk. Your newer local caption edits remain in the editor.');
       if (published === 'applied') {
         setWordBatchUndo(null);
@@ -2444,17 +2466,24 @@ export default function App() {
   const cleanKhmerSpacing = async () => {
     if (!project) return;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
+    const ticket = intent.ticket;
     setBusy('Cleaning Khmer spacing…'); setError('');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadUnsavedEdits && !saved)) return;
+      if (!isCurrentOperation(intent) || (hadUnsavedEdits && !saved)) return;
       if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before cleaning Khmer spacing.'); return; }
       const editRevision = draftEditRevision.current;
-      const result = await queueSameMediaMutation(ticket, () => api.normalizeKhmerSpacing(targetProject.id, {
-        filename: targetProject.media.filename,
-        size: targetProject.media.size,
+      const result = await queueSameMediaMutation(ticket, () => withCaptionAppearanceBarrier(targetProject.id, async () => {
+        if (!isCurrentOperation(intent)) return null;
+        const basis = ordinarySaveBasis.current;
+        const latest = await api.get(targetProject.id);
+        if (!isCurrentOperation(intent)) return null;
+        const expectedUpdatedAt = checkedSaveRevision(basis, latest, 'captions');
+        return api.normalizeKhmerSpacing(targetProject.id, {
+          filename: targetProject.media.filename, size: targetProject.media.size,
+        }, expectedUpdatedAt);
       }));
       if (!result) return;
       const published = publishSameMediaMutation(
@@ -2465,30 +2494,47 @@ export default function App() {
         'Khmer spacing cleanup was saved. Your newer caption edits remain unsaved in the editor.',
       );
       if (published === 'applied') setNotice('Khmer word spacing cleaned. Text-locked captions were preserved.');
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Khmer spacing cleanup failed'); }
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket)) {
+        if (reason instanceof ApiRequestError && reason.code === 'CAPTION_REVISION_CHANGED') {
+          protectSaveConflict(reason, ticket);
+          setCaptionSaveError(reason.message);
+          setAutosaveState('failed');
+          captureUnfinishedRecovery();
+        }
+        setError(reason instanceof Error ? reason.message : 'Khmer spacing cleanup failed');
+      }
+    }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
   const runTimingPostprocessor = async () => {
     if (!project) return;
     const targetProject = project;
-    const ticket = projectScope.current.capture();
+    const intent = captureOperationIntent();
+    const ticket = intent.ticket;
     const confirmed = await confirmInStudio({
       title: 'Apply safe timing cleanup?',
       message: `Studio will use “${qaSettings.name}”, skip timing-locked captions, and create a History checkpoint before changing timing.`,
       confirmLabel: 'Apply cleanup',
     });
-    if (!confirmed || !projectScope.current.isCurrent(ticket)) return;
+    if (!confirmed || !isCurrentOperation(intent)) return;
     setBusy('Snapping and smoothing caption timing…');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket) || (hadUnsavedEdits && !saved)) return;
+      if (!isCurrentOperation(intent) || (hadUnsavedEdits && !saved)) return;
       if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before applying timing cleanup.'); return; }
       const editRevision = draftEditRevision.current;
-      const result = await queueSameMediaMutation(ticket, () => api.postprocessTiming(targetProject.id, qaSettings, {
-        filename: targetProject.media.filename,
-        size: targetProject.media.size,
+      const result = await queueSameMediaMutation(ticket, () => withCaptionAppearanceBarrier(targetProject.id, async () => {
+        if (!isCurrentOperation(intent)) return null;
+        const basis = ordinarySaveBasis.current;
+        const latest = await api.get(targetProject.id);
+        if (!isCurrentOperation(intent)) return null;
+        const expectedUpdatedAt = checkedSaveRevision(basis, latest, 'captions');
+        return api.postprocessTiming(targetProject.id, qaSettings, {
+          filename: targetProject.media.filename, size: targetProject.media.size,
+        }, expectedUpdatedAt);
       }));
       if (!result) return;
       const published = publishSameMediaMutation(
@@ -2499,7 +2545,18 @@ export default function App() {
         'Timing cleanup was saved. Your newer caption edits remain unsaved in the editor.',
       );
       if (published === 'applied') setNotice('Safe timing cleanup applied. Restore it from History if needed.');
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Timing cleanup failed'); }
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket)) {
+        // Alignment/admission conflicts do not invalidate caption save authority.
+        if (reason instanceof ApiRequestError && reason.code === 'CAPTION_REVISION_CHANGED') {
+          protectSaveConflict(reason, ticket);
+          setCaptionSaveError(reason.message);
+          setAutosaveState('failed');
+          captureUnfinishedRecovery();
+        }
+        setError(reason instanceof Error ? reason.message : 'Timing cleanup failed');
+      }
+    }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
