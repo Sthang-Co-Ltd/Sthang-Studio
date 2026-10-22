@@ -54,6 +54,9 @@ jobs:
       - name: Project library tests
         run: npm run test:project-library
 
+      - name: Project-loading benchmark source binding
+        run: npm run test:project-loading-source-binding
+
       # The real Express export-admission regression probes an actual synthetic
       # MP4 and available Khmer caption fonts; it must not silently skip CI.
       # Keep these native prerequisites identical to caption-rendering.yml.

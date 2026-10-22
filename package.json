@@ -56,6 +56,8 @@
     "test:performance": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-selection.test.ts tests/waveform-peaks.test.ts tests/job-persistence.test.mts tests/preview-font-cache.test.mts tests/performance-batch4.test.mts && npm run test:timing-cache",
     "benchmark:performance": "node --import tsx scripts/benchmark-performance.mts",
     "benchmark:caption-list": "npm run build && node scripts/benchmark-caption-list.mjs",
+    "benchmark:project-loading": "npm run build --workspace @kcs/shared && node --import tsx scripts/benchmark-project-loading.mts",
+    "test:project-loading-source-binding": "npm run build --workspace @kcs/shared && node --import tsx --test tests/project-loading-source-binding.test.mts",
     "test:timing-cache": "node scripts/test-timing-cache.mjs",
     "test:batch4": "npm run build --workspace @kcs/shared && node --import tsx --test tests/performance-batch4.test.mts && npm run test:timing-cache",
     "test:playback-grouping": "node --import tsx --test tests/playback-grouping.test.mts tests/playback-grouping-server.test.mts tests/caption-selection-acknowledgement.test.ts",

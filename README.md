@@ -643,6 +643,11 @@ Measure the production caption list with
 See [caption-list benchmark](docs/CAPTION-LIST-BENCHMARK.md) for prerequisites,
 raw samples, measured limits, and the distinction from playback/customer metrics.
 
+Measure process-cold server project loading with
+`npm run benchmark:project-loading -- data/working/project-loading-new-run`.
+See [project-loading decision](docs/PROJECT-LOADING-BENCHMARK.md) for synthetic
+workloads, retained results, isolation, limits and the decision to defer lazy loading.
+
 Read [`AGENTS.md`](AGENTS.md) before changing the application. Product and UX
 behavior are also documented in [`PRODUCT.md`](PRODUCT.md),
 [`DESIGN.md`](DESIGN.md), and [`UX-AUDIT.md`](UX-AUDIT.md).
