@@ -407,6 +407,22 @@ export interface AppProfile {
 
 export type DoctorCheckStatus = 'ok' | 'warning' | 'error';
 
+export interface ProjectStorageStatus {
+  schemaVersion: 1;
+  checkedAt: string;
+  loadedProjectCount: number;
+  readableProjectCount: number;
+  unreadableProjectCount: number;
+  missingProjectCount: number;
+  duplicateProjectCount: number;
+  directoryUnreadable: boolean;
+  orderUnreadable: boolean;
+  legacyUnreadable: boolean;
+  migrationPending: boolean;
+  /** A recheck never replaces the running store's published state. */
+  restartRequired: boolean;
+}
+
 export interface DoctorCheck {
   id: string;
   label: string;

@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { nanoid } from 'nanoid';
 import { reconcileCaptionWordTiming, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionMode, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
 import { config } from '../config.js';
-import { store } from '../services/store.js';
+import { ProjectDeletionBlockedError, store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
@@ -670,6 +670,7 @@ router.delete('/:id', async (req, res) => {
       res.status(204).end();
     });
   } catch (error) {
+    if (error instanceof ProjectDeletionBlockedError) return res.status(409).json({ error: error.message, code: error.code });
     if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
     throw error;
   }

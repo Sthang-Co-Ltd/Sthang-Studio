@@ -109,6 +109,19 @@ See [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md) for retention,
 storage limits, and the fields included. This is not a claim about the published
 v0.86.0 downloads.
 
+## Saved project storage notices (source-only)
+
+The development source warns when saved project files, the project order, or older
+project data cannot be read completely. Healthy projects remain available. Open
+**Settings → System check → Saved projects** for counts and **Recheck saved
+projects**. Rechecking reads storage without repairing files or reloading restored
+projects into the running session.
+
+Back up the Studio state folder and download available unfinished edits. Stop
+Studio before restoring known-good copies, then restart; keep the original files.
+See [saved project recovery](docs/PROJECT-STORAGE-RECOVERY.md) for limits. This
+source feature does not establish availability in published v0.86.0 downloads.
+
 ## Playback and update hardening
 
 Version 0.86 can prepare a local H.264/AAC playback copy when

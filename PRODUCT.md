@@ -357,6 +357,19 @@ body, start processing, or transfer searches to a provider. Reopening does not
 promise a restored playhead or automatic playback. These source changes do not
 establish public-download availability.
 
+## Saved project readability (source-only)
+
+Unreadable project files, duplicate identities, an unreadable project order, and
+incomplete legacy migration must produce a shared notice while healthy projects
+remain usable. An unresolved empty library must offer storage review rather than
+claim that no projects exist. Settings → System check shows bounded count-only
+diagnostics and an explicit read-only recheck. A recheck never adopts external
+file changes into active projects. Retain unreadable sources and index references;
+do not finalize migration while its source is incomplete. Recovery guidance asks
+for a backup, preservation of originals, a stopped app before restoration, and a
+restart. Readability does not establish backup integrity or available disk space.
+See [saved project recovery](docs/PROJECT-STORAGE-RECOVERY.md).
+
 ## Product principles
 
 ### Bulk-correction preview (source-only)
