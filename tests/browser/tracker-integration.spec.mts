@@ -76,7 +76,7 @@ test('replacement pagination and changing disabled controls retain keyboard cont
   await dialog.getByLabel('Replace with', { exact: true }).fill('Token');
   await expect(pages).toContainText('Page 1 of 3');
   await expect(dialog.getByRole('button', { name: 'Replace editable matches', exact: true })).toBeDisabled();
-  await dialog.getByLabel('Match', { exact: true }).selectOption('regex');
+  await dialog.locator('label:has-text("Match") select').selectOption('regex');
   await expect(dialog.locator('.replace-memory select')).toBeDisabled();
   await expectContained(page, dialog);
   // Synthetic ASCII composition Escape exercises isolation, not a native Khmer IME.
