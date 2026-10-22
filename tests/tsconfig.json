@@ -58,6 +58,7 @@
     "performance-batch4.test.mts",
     "project-store.test.mts",
     "project-storage.test.mts",
+    "project-storage-recheck.test.mts",
     "project-storage-api.test.mts",
     "playback-grouping.test.mts",
     "caption-selection-acknowledgement.test.ts",

@@ -23,6 +23,18 @@ let startupNeedsRestart = false;
 let indexedProjectIds = new Set<string>();
 const publishedProjectIds = new Set<string>();
 let migrationDeletionBlocked = false;
+let storageMutationGeneration = 0;
+let activeStorageMutations = 0;
+
+async function withStorageMutation<T>(operation: () => Promise<T>): Promise<T> {
+  storageMutationGeneration++;
+  activeStorageMutations++;
+  try { return await operation(); }
+  finally {
+    activeStorageMutations--;
+    storageMutationGeneration++;
+  }
+}
 
 export class ProjectDeletionBlockedError extends Error {
   readonly code = 'PROJECT_STORAGE_RECOVERY_REQUIRED';
@@ -219,6 +231,10 @@ function queueProjectWrite<T>(id: string, operation: () => Promise<T>) {
 }
 
 async function persistProject(stored: CaptionProject) {
+  return withStorageMutation(() => publishProject(stored));
+}
+
+async function publishProject(stored: CaptionProject) {
   const previous = projects.get(stored.id);
   // A timestamp is the public optimistic revision. Two writes in one clock tick
   // (or a backwards wall clock) must not let a stale replacement overwrite edits.
@@ -238,30 +254,45 @@ async function persistProject(stored: CaptionProject) {
   return structuredClone(stored);
 }
 
+async function recheckProjectStorage() {
+  // Per-project writes remain independent. A scan may be published only when
+  // none of its awaited reads overlapped a file/reference/index mutation.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (activeStorageMutations) break;
+    const generation = storageMutationGeneration;
+    const scan = await scanProjectStorage(projectDir);
+    const next = storageStatusFromScan(scan, projects.size);
+    const index = await readStorageJson(orderFile);
+    next.orderUnreadable = index.state === 'unreadable' || (index.state === 'ok' && (!Array.isArray(index.value) || !index.value.every((id) => typeof id === 'string')));
+    const marker = await readMigrationMarker(migrationMarker);
+    if (marker === 'unreadable') next.migrationPending = true;
+    if (marker === 'missing') {
+      const legacy = await readStorageJson(config.dataFile);
+      next.legacyUnreadable = legacy.state === 'unreadable' || (legacy.state === 'ok' && (!Array.isArray(legacy.value) || !legacy.value.every(isLoadableProject)));
+      next.migrationPending = true;
+    }
+    next.missingProjectCount = missingProjectCount(scan, index.state === 'ok' && !next.orderUnreadable ? index.value as string[] : []);
+    // Discard the entire candidate before touching any sticky recovery state.
+    // There is no await between validation and synchronous publication below.
+    if (activeStorageMutations || generation !== storageMutationGeneration) continue;
+    // A read-only recheck cannot establish a safe migration transition for the
+    // running objects. Once blocked, only a known-safe restart can unlock it.
+    if (next.migrationPending) migrationDeletionBlocked = true;
+    if (next.unreadableProjectCount || next.missingProjectCount || next.duplicateProjectCount || next.directoryUnreadable
+      || next.orderUnreadable || next.legacyUnreadable || next.migrationPending) startupNeedsRestart = true;
+    next.restartRequired = startupNeedsRestart || orderReadFault || scan.entries.some((entry) => entry.project && !projects.has(entry.project.id));
+    storageStatus = next;
+    return;
+  }
+  // The API maps this to its existing sanitized unavailable response. Keep the
+  // previous snapshot and recovery flags until a subsequent stable recheck.
+  throw new Error('Saved project storage changed during the check. Try again.');
+}
+
 export const store = {
   async storageStatus(recheck = false): Promise<ProjectStorageStatus> {
     await ensureInitialized();
-    if (recheck) {
-      const scan = await scanProjectStorage(projectDir);
-      const next = storageStatusFromScan(scan, projects.size);
-      const index = await readStorageJson(orderFile);
-      next.orderUnreadable = index.state === 'unreadable' || (index.state === 'ok' && (!Array.isArray(index.value) || !index.value.every((id) => typeof id === 'string')));
-      const marker = await readMigrationMarker(migrationMarker);
-      if (marker === 'unreadable') next.migrationPending = true;
-      if (marker === 'missing') {
-        const legacy = await readStorageJson(config.dataFile);
-        next.legacyUnreadable = legacy.state === 'unreadable' || (legacy.state === 'ok' && (!Array.isArray(legacy.value) || !legacy.value.every(isLoadableProject)));
-        next.migrationPending = true;
-      }
-      next.missingProjectCount = missingProjectCount(scan, index.state === 'ok' && !next.orderUnreadable ? index.value as string[] : []);
-      // A read-only recheck cannot establish a safe migration transition for the
-      // running objects. Once blocked, only a known-safe restart can unlock it.
-      if (next.migrationPending) migrationDeletionBlocked = true;
-      if (next.unreadableProjectCount || next.missingProjectCount || next.duplicateProjectCount || next.directoryUnreadable
-        || next.orderUnreadable || next.legacyUnreadable || next.migrationPending) startupNeedsRestart = true;
-      next.restartRequired = startupNeedsRestart || orderReadFault || scan.entries.some((entry) => entry.project && !projects.has(entry.project.id));
-      storageStatus = next;
-    }
+    if (recheck) await recheckProjectStorage();
     return { ...storageStatus, loadedProjectCount: projects.size };
   },
   /** False after a committed write whose directory flush is unavailable. */
@@ -355,12 +386,14 @@ export const store = {
       // Legacy data remains authoritative on restart until migration finishes.
       // Removing even a disk-backed record could resurrect it without its media.
       if (migrationDeletionBlocked) throw new ProjectDeletionBlockedError();
-      cancelScheduledProjectPrewarm(id);
-      await fs.rm(projectFile(id), { force: true });
-      projects.delete(id);
-      durableProjectWrites.delete(id);
-      await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
-      publishedProjectIds.delete(id);
+      return withStorageMutation(async () => {
+        cancelScheduledProjectPrewarm(id);
+        await fs.rm(projectFile(id), { force: true });
+        projects.delete(id);
+        durableProjectWrites.delete(id);
+        await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
+        publishedProjectIds.delete(id);
+      });
     });
   },
 };
