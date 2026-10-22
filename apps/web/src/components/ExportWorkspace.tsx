@@ -17,7 +17,7 @@ import {
 import { Download, FileText, Film, HardDrive, LoaderCircle, Palette, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
 import { ExportHistory } from './ExportHistory';
-import { waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import type { AppearanceReconciliation } from '../caption-appearance-reconciliation';
 import { CaptionHandoffPanel } from './CaptionHandoffPanel';
 import { CaptionRestoreReview, type CaptionRestoreReviewState } from './CaptionRestoreReview';
 import type { CaptionFileFormat } from '../caption-handoff-client';
@@ -34,6 +34,7 @@ type VideoExportPreset = NonNullable<AppProfile['videoExportPresets']>[number];
 
 interface Props {
   project: CaptionProject;
+  appearanceReconciliation: AppearanceReconciliation;
   busy: boolean;
   activeExportJob?: ProcessingJob;
   onExportCaptions(format: CaptionFileFormat): Promise<boolean>;
@@ -89,7 +90,7 @@ function elapsedLabel(job: ProcessingJob) {
   return `${seconds}s elapsed`;
 }
 
-export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
+export function ExportWorkspace({ project, appearanceReconciliation, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
   onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution,
   onConfirm, session, onSessionChange, onRepair, reviewIssues, unsaved, saveBlocked, fontRevision }: Props) {
   const videoProject = isVideoProject(project);
@@ -116,12 +117,15 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   const [loadingCapabilities, setLoadingCapabilities] = useState(videoProject);
   const [capabilityError, setCapabilityError] = useState('');
   const [actionError, setActionError] = useState('');
-  const [appearance, setAppearance] = useState<CaptionAppearance>(normalizeCaptionAppearance(project.captionAppearance));
-  const [appearanceError, setAppearanceError] = useState<'save' | 'load' | 'source' | null>(null);
-  const [appearanceLoadAttempt, setAppearanceLoadAttempt] = useState(0);
+  const appearanceState = appearanceReconciliation.value;
+  const lastAppearance = useRef(normalizeCaptionAppearance(project.captionAppearance));
+  if (appearanceState.status === 'ready') lastAppearance.current = appearanceState.appearance;
+  // Retain display/check geometry during refresh; freshness remains unknown.
+  const appearance = lastAppearance.current;
+  const appearanceError = appearanceState.status === 'error' ? appearanceState.error : null;
   const appearanceSaveBlocked = appearanceError !== null;
   const [startingExport, setStartingExport] = useState(false);
-  const [loadingAppearance, setLoadingAppearance] = useState(videoProject);
+  const loadingAppearance = appearanceState.status === 'pending';
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [layoutCheck, setLayoutCheck] = useState<{ key: string; result?: CaptionLayoutCheckResult; error?: string } | null>(null);
   const [checkingLayoutKey, setCheckingLayoutKey] = useState<string | null>(null);
@@ -182,38 +186,11 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
   };
 
   useEffect(() => {
-    let active = true;
-    setAppearance(normalizeCaptionAppearance(project.captionAppearance));
-    setLoadingAppearance(videoProject);
-    setAppearanceError(null);
     setCapabilities(null);
     setCapabilityError('');
     setActionError('');
     void loadCapabilities(fontRevision > 0);
-    void (async () => {
-      const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
-      if (!active) return;
-      if (!saved) {
-        setAppearanceError('save');
-        setLoadingAppearance(false);
-        return;
-      }
-      try {
-        const fresh = await api.get(project.id);
-        if (!active) return;
-        if (fresh.id !== project.id || fresh.media.filename !== project.media.filename || fresh.media.size !== project.media.size) {
-          setAppearanceError('source');
-          return;
-        }
-        setAppearance(normalizeCaptionAppearance(fresh.captionAppearance));
-      } catch {
-        if (active) setAppearanceError('load');
-      } finally {
-        if (active) setLoadingAppearance(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [project.id, project.media.filename, project.media.size, fontRevision, appearanceLoadAttempt]);
+  }, [project.id, project.media.filename, project.media.size, fontRevision]);
 
   useEffect(() => {
     if (!capabilities?.supported || !session.settingsHydrated) return;
@@ -316,7 +293,7 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     layoutRequest.current = null;
     setCheckingLayoutKey(null);
     setLayoutCheck(null);
-    setAppearanceLoadAttempt((attempt) => attempt + 1);
+    void appearanceReconciliation.refresh();
   };
 
   const startExport = async () => {
@@ -329,21 +306,8 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
     setStartingExport(true);
     setActionError('');
     try {
-      const saved = await waitForCaptionAppearanceSaves(project.id, project.media);
-      if (!active()) return;
-      if (!saved) {
-        setAppearanceError('save');
-        return;
-      }
-      const fresh = await api.get(project.id);
-      if (!active()) return;
-      if (fresh.media.filename !== project.media.filename || fresh.media.size !== project.media.size) {
-        setActionError('The source changed while preparing export. Reopen the project before rendering.');
-        return;
-      }
-      const latestAppearance = normalizeCaptionAppearance(fresh.captionAppearance);
-      setAppearance(latestAppearance);
-      setAppearanceError(null);
+      const latestAppearance = await appearanceReconciliation.refresh();
+      if (!active() || !latestAppearance) return;
       const fontUnavailable = Boolean(capabilities && !capabilities.fonts.some((font) => font.available && font.name === latestAppearance.fontFamily && (!latestAppearance.bold || font.boldAvailable)));
       if (fontUnavailable) {
         setActionError(`Studio can't export with the saved font selection (${latestAppearance.fontFamily}${latestAppearance.bold ? ' Bold' : ''}). Choose an available Khmer font or weight in Appearance.`);
@@ -597,6 +561,15 @@ export function ExportWorkspace({ project, busy, activeExportJob, onExportCaptio
         </div>
       </>}
     </>}
-    <ExportHistory project={project} activeJobId={activeExportJob?.id}/>
+    <ExportHistory project={project} appearance={appearanceState} activeJobId={activeExportJob?.id}
+      appearanceRecovery={appearanceError ? {
+        message: appearanceError === 'save'
+          ? 'Save your latest caption appearance before comparing styled exports.'
+          : appearanceError === 'source'
+            ? 'The source changed while comparing caption appearance. Retry, or reopen the project if the source still cannot be verified.'
+            : 'The saved caption appearance could not be compared.',
+        actionLabel: appearanceError === 'save' ? 'Retry save in Appearance' : 'Retry appearance comparison',
+        onRecover: appearanceError === 'save' ? onEditAppearance : retryAppearanceLoad,
+      } : undefined}/>
   </div>;
 }

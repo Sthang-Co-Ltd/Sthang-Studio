@@ -53,3 +53,60 @@ explicitly saves before reload, and a deferred cross-project response case was
 added. The final complete focused run passed all 25 cases. Physical devices,
 screen readers, real customer media, full native release qualification and public
 availability were not tested.
+
+## Appearance reconciliation correction — 2026-10-22
+
+Correction ID: `studio-export-freshness-appearance-20261022`.
+
+Export and Activity now share one project/media-scoped saved-appearance comparison.
+Opening either surface flushes any unfinished appearance save and waits for the
+complete save lane before reading the saved look. Pending or failed reconciliation
+leaves video, ASS, Studio data and bundle freshness unknown; plain caption formats
+remain comparable. Expanded Export history provides appearance retry/repair for
+every selected output, including plain SRT/VTT; ordinary downloads remain
+available. Activity and styled-output checks retain their recovery paths. A response for a
+different project or media cannot supply the comparison. Only appearance is
+adopted into this separate comparison state; current caption drafts and the
+parent project are never replaced. Returning to an earlier appearance compares
+against that actual content again. Pre-render appearance revalidation and
+immutable server render snapshots retain their existing authority.
+
+The initial correction baseline used unchanged product head `94e2975`: 38/38
+browser isolation/lifecycle guards passed. Four new cases reproduced dishonest
+known freshness during a pending save, a failed saved-appearance read, a pending
+read, and a response for replaced media. Two other failures were test setup
+defects (hidden navigation while Export is open and caption blur committing the
+draft), and do not establish product failures. The delayed-read case also had an
+incomplete trace archive; the failure output and screenshot were retained.
+Historical qualification above belongs to the original PR head and does not
+qualify this correction. Focused deterministic reconciliation/save checks pass
+12/12 and the web TypeScript check passes.
+
+A separately frozen unchanged-head A→B→A baseline reproduced the original Activity
+comparison failure after an actual Appearance control edit. Independent review
+then identified a recovery gap in plain-caption mode. The pre-recovery baseline
+reproduced a missing saved-appearance repair action. Two read-recovery cases
+initially used a one-shot simulated failure that a legitimate second read could
+supersede; these were fixture setup failures, retained and excluded from product
+findings. After the fixture held failure until unknown was established, both SRT
+and VTT downloaded successfully and then reproduced the missing history retry.
+
+Final correction qualification on Windows/Node 24.21.0 passed both freshness
+browser specs, 14/14 cases, with one worker, zero retries and 38/38 isolation/
+lifecycle guards. This covers actual Appearance A→B→A edits, direct Activity,
+pending/failed saves and reads, unsaved caption retention, project/media ownership,
+plain SRT/VTT downloads, keyboard retry and appearance-save repair. Completed-video
+jobs use immutable synthetic admission snapshots in these browser fixtures;
+this run does not establish native rendering, receipt persistence, physical-device,
+IME, live-service, release or public-download qualification. All failed attempts
+remain retained separately from the final passing run.
+
+Public impact: required for the source-development workflow/evidence correction.
+README's existing source-only export-freshness description remains the public
+entrypoint. The manifest's advertised export workflow and local-processing claim
+remain accurate; version, release/download evidence, installation, brand and data
+flow are unchanged. PRIVACY.md already describes the unchanged local receipts.
+The existing proposed HQ export/review workflow evidence and Distribution
+`/studio/` workflow documentation follow-up should include this correction when
+their separate intake/synchronization plans are approved. No public availability
+or cross-repository synchronization is established here.

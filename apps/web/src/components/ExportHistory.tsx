@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { exportContentBasis, type CaptionProject, type ExportEvidence, type ProcessingJob } from '@kcs/shared';
+import { type CaptionProject, type ExportEvidence, type ProcessingJob } from '@kcs/shared';
+import { appearanceComparisonBasis, type ReconciledAppearance } from '../caption-appearance-reconciliation';
 import './export-history.css';
 
 export const EXPORT_HISTORY_UPDATED = 'sthang:export-history-updated';
@@ -8,7 +9,12 @@ async function fingerprint(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export function ExportHistory({ project, activeJobId }: { project: CaptionProject; activeJobId?: string }) {
+export function ExportHistory({ project, appearance, appearanceRecovery, activeJobId }: {
+  project: CaptionProject;
+  appearance: ReconciledAppearance;
+  appearanceRecovery?: { message: string; actionLabel: string; onRecover(): void };
+  activeJobId?: string;
+}) {
   const [entries, setEntries] = useState<ExportEvidence[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -36,9 +42,9 @@ export function ExportHistory({ project, activeJobId }: { project: CaptionProjec
     return () => controller.abort();
   }, [project.id, activeJobId, refresh]);
   const basis = useMemo(() => JSON.stringify(entries.map((entry) => {
-    try { return [entry.format, exportContentBasis(project, entry.format)]; }
+    try { return [entry.format, appearanceComparisonBasis(project, entry.format, appearance)]; }
     catch { return [entry.format, null]; }
-  })), [entries, project.captions, project.captionAppearance, project.media.filename, project.media.size, project.media.mimeType, project.transcript, project.transcriptNeedsSync]);
+  })), [entries, appearance, project.captions, project.captionAppearance, project.media.filename, project.media.size, project.media.mimeType, project.transcript, project.transcriptNeedsSync]);
   useEffect(() => {
     let cancelled = false;
     void Promise.all((JSON.parse(basis) as Array<[string, string | null]>).map(async ([format, value]) => [format, value === null ? '' : await fingerprint(value)]))
@@ -51,6 +57,7 @@ export function ExportHistory({ project, activeJobId }: { project: CaptionProjec
   return <details className="export-history">
     <summary>Export history{changed > 0 ? ` · ${changed} need updating` : ''}</summary>
     <p>Compared with the open project, including unsaved edits. Preparing a file does not confirm it was saved to disk. Video comparisons retain that render’s output settings.</p>
+    {appearanceRecovery && <div role="status"><p>{appearanceRecovery.message} Plain caption files are still available.</p><button type="button" onClick={appearanceRecovery.onRecover}>{appearanceRecovery.actionLabel}</button></div>}
     {loading ? <p role="status">Loading export history…</p> : error ? <div role="status"><p>{error}</p><button onClick={() => setRefresh((value) => value + 1)}>Retry export history</button></div> : entries.length ? <ul>{entries.map((entry) => <li key={entry.format}>
       <strong>{entry.format === 'video' ? 'Captioned video' : entry.format.toUpperCase()}</strong><time dateTime={entry.preparedAt}>Prepared {new Date(entry.preparedAt).toLocaleString()}</time>
       <span>{!comparisons[entry.format] ? 'Freshness unknown — current content could not be compared.' : comparisons[entry.format] === entry.fingerprint ? 'Matches open project content.' : 'Changed since export — export again to include current edits.'}</span>
@@ -58,10 +65,10 @@ export function ExportHistory({ project, activeJobId }: { project: CaptionProjec
   </details>;
 }
 
-export function ExportJobFreshness({ job, project }: { job: ProcessingJob; project?: CaptionProject }) {
+export function ExportJobFreshness({ job, project, appearance }: { job: ProcessingJob; project?: CaptionProject; appearance: ReconciledAppearance }) {
   const basis = useMemo(() => {
-    try { return project?.id === job.projectId ? exportContentBasis(project, 'video') : ''; } catch { return ''; }
-  }, [job.projectId, project?.id, project?.captions, project?.captionAppearance, project?.media, project?.transcript, project?.transcriptNeedsSync]);
+    try { return project?.id === job.projectId ? appearanceComparisonBasis(project, 'video', appearance) || '' : ''; } catch { return ''; }
+  }, [appearance, job.projectId, project?.id, project?.captions, project?.captionAppearance, project?.media, project?.transcript, project?.transcriptNeedsSync]);
   const [checked, setChecked] = useState({ basis: '', fingerprint: '' });
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +78,8 @@ export function ExportJobFreshness({ job, project }: { job: ProcessingJob; proje
   }, [basis, job.exportContentFingerprint]);
   const value = checked.basis === basis ? checked.fingerprint : '';
   return <small className="export-job-freshness">{!job.exportContentFingerprint ? 'Freshness unknown — this earlier export has no receipt.'
-    : !basis ? 'Open this project to compare export content.' : !value ? 'Checking export content…'
+    : project?.id !== job.projectId ? 'Open this project to compare export content.'
+    : !basis ? appearance.status === 'pending' ? 'Checking export content…' : 'Freshness unknown — current content could not be compared.'
+    : !value ? 'Checking export content…'
     : value === job.exportContentFingerprint ? 'Matches open project content.' : 'Changed since export — this video contains earlier content.'}</small>;
 }
