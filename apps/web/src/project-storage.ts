@@ -18,25 +18,31 @@ function validStatus(value: ProjectStorageStatus) {
 export function useProjectStorage(retryKey: number) {
   const [status, setStatus] = useState<ProjectStorageStatus | null>(null);
   const [checking, setChecking] = useState(true);
+  // Failed verification survives toast dismissal and retry until a check succeeds.
   const [error, setError] = useState('');
+  const [errorNoticeVisible, setErrorNoticeVisible] = useState(false);
   const sequence = useRef(0);
   const request = useRef<AbortController | null>(null);
   const check = useCallback(async (recheck: boolean) => {
     const ticket = ++sequence.current;
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
-    setChecking(true); setError('');
+    setChecking(true); setErrorNoticeVisible(false);
     try {
       const value = await api.projectStorage(recheck, controller.signal);
       if (!validStatus(value)) throw new Error();
-      if (ticket === sequence.current) setStatus(value);
+      if (ticket === sequence.current) { setStatus(value); setError(''); }
     } catch {
-      if (ticket === sequence.current && !controller.signal.aborted) setError('Saved project storage could not be checked. Your files were not changed.');
+      if (ticket === sequence.current && !controller.signal.aborted) {
+        setError('Saved project storage could not be checked. Your files were not changed.');
+        setErrorNoticeVisible(true);
+      }
     } finally { if (ticket === sequence.current) setChecking(false); }
   }, []);
   useEffect(() => {
     void check(false);
     return () => { sequence.current++; request.current?.abort(); };
   }, [retryKey, check]);
-  return { status, checking, error, recheck: () => check(true), dismissError: () => setError('') };
+  return { status, checking, error, errorNotice: errorNoticeVisible ? error : '',
+    recheck: () => check(true), dismissError: () => setErrorNoticeVisible(false) };
 }

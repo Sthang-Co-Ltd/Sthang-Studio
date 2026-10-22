@@ -137,3 +137,112 @@ test('an unlistable directory is reported as unavailable, not a healthy empty li
   const scan = await scanProjectStorage(file); assert.equal(scan.directoryUnreadable, true);
   assert.equal(await fs.readFile(file, 'utf8'), 'retained');
 });
+
+test('all indexed files missing at startup remain visible in diagnostics across restart', async () => {
+  const contents = '["absent","absent","second"]';
+  const { state, directory } = await seed('all-indexed-missing', { 'order.json': contents });
+  for (let restart = 0; restart < 2; restart++) {
+    const result = probe(state, 'const result = { startup: await store.storageStatus(), status: await store.storageStatus(true), ids: (await store.listSummaries()).map(p => p.id) };');
+    assert.deepEqual(result.ids, []);
+    assert.equal(result.startup.missingProjectCount, 2);
+    assert.equal(result.status.missingProjectCount, 2);
+    assert.equal(result.status.unreadableProjectCount, 0);
+    assert.equal(result.status.restartRequired, true);
+    assert.equal(await fs.readFile(path.join(directory, 'order.json'), 'utf8'), contents);
+  }
+});
+
+test('indexed absent and unreadable files are counted separately beside healthy projects', async () => {
+  const { state, directory } = await seed('mixed-indexed-missing', {
+    'good.json': JSON.stringify(project()), 'bad.json': '{retained',
+    'order.json': '["good","absent","bad","absent"]',
+  });
+  const result = probe(state, 'const result = { startup: await store.storageStatus(), status: await store.storageStatus(true), ids: (await store.listSummaries()).map(p => p.id) };');
+  assert.deepEqual(result.ids, ['good']);
+  for (const status of [result.startup, result.status]) {
+    assert.equal(status.missingProjectCount, 1);
+    assert.equal(status.unreadableProjectCount, 1);
+    assert.equal(status.readableProjectCount, 1);
+  }
+  assert.equal(await fs.readFile(path.join(directory, 'bad.json'), 'utf8'), '{retained');
+});
+
+test('after-load disappearance and retained index references are counted once through restart and saves', async () => {
+  const { state, directory } = await seed('missing-restart', { 'good.json': JSON.stringify(project()), 'order.json': '["good","absent"]' });
+  const result = probe(state, `await store.list(); const fs = await import('node:fs/promises'); await fs.unlink(${JSON.stringify(path.join(directory, 'good.json'))}); const result = { status: await store.storageStatus(true) };`);
+  assert.equal(result.status.missingProjectCount, 2);
+  assert.equal(probe(state).status.missingProjectCount, 2);
+  const next = project('new');
+  const saved = probe(state, `await store.upsert(${JSON.stringify(next)}); const { cancelScheduledProjectPrewarm } = await import('./apps/server/src/services/prewarm.ts'); cancelScheduledProjectPrewarm('new'); const result = { status: await store.storageStatus(true) };`);
+  assert.equal(saved.status.missingProjectCount, 2);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'order.json'), 'utf8')), ['new', 'good', 'absent']);
+});
+
+test('legitimate deletion removes only its index reference and never becomes a missing-file warning', async () => {
+  const { state, directory } = await seed('legitimate-delete', { 'good.json': JSON.stringify(project()), 'order.json': '["good","absent"]' });
+  const result = probe(state, 'await store.remove("good"); const result = { status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
+  assert.deepEqual(result.ids, []);
+  assert.equal(result.status.missingProjectCount, 1);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'order.json'), 'utf8')), ['absent']);
+  assert.equal(probe(state).status.missingProjectCount, 1);
+});
+
+test('partial legacy migration refuses deletion and preserves the usable record through restart', async () => {
+  const { state, directory } = await seed('partial-delete', {}, false);
+  const contents = JSON.stringify([project(), { id: 'broken' }]);
+  const legacy = path.join(state, 'data', 'projects.json'); await fs.writeFile(legacy, contents);
+  const result = probe(state, 'let code = null; try { await store.remove("good"); } catch (error) { code = error.code; } const result = { code, status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
+  assert.equal(result.code, 'PROJECT_STORAGE_RECOVERY_REQUIRED');
+  assert.deepEqual(result.ids, ['good']);
+  assert.equal(result.status.missingProjectCount, 0, 'memory-only legacy records have no published file to lose');
+  assert.deepEqual(probe(state).ids, ['good']);
+  assert.equal(await fs.readFile(legacy, 'utf8'), contents);
+  await assert.rejects(fs.stat(path.join(directory, 'good.json')), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(path.join(directory, '.per-project-v1')), { code: 'ENOENT' });
+});
+
+test('successful legacy reconciliation fills indexed files before startup missing counts are finalized', async () => {
+  const { state, directory } = await seed('legacy-fills-index', { 'order.json': '["good"]' }, false);
+  await fs.writeFile(path.join(state, 'data', 'projects.json'), JSON.stringify([project()]));
+  const result = probe(state);
+  assert.deepEqual(result.ids, ['good']);
+  assert.equal(result.status.missingProjectCount, 0);
+  assert.equal(result.status.restartRequired, false);
+  assert.ok((await fs.stat(path.join(directory, 'good.json'))).isFile());
+});
+
+test('explicit recheck sees disk-only indexed references without replacing session order', async () => {
+  const { state, directory } = await seed('external-index', { 'good.json': JSON.stringify(project()), 'order.json': '["good"]' });
+  const result = probe(state, `await store.list(); const fs = await import('node:fs/promises'); await fs.writeFile(${JSON.stringify(path.join(directory, 'order.json'))}, '["good","external","external"]'); const result = { status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };`);
+  assert.deepEqual(result.ids, ['good']);
+  assert.equal(result.status.missingProjectCount, 1);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'order.json'), 'utf8')), ['good', 'external', 'external']);
+});
+
+test('invalid index identities are retained without being sanitized into missing project paths', async () => {
+  const contents = '["../outside","","valid","valid"]';
+  const { state, directory } = await seed('invalid-index-ids', { 'order.json': contents });
+  assert.equal(probe(state).status.missingProjectCount, 1);
+  assert.equal(await fs.readFile(path.join(directory, 'order.json'), 'utf8'), contents);
+});
+
+test('saving a new project during partial migration never indexes memory-only legacy records', async () => {
+  const { state, directory } = await seed('partial-migration-new-project', { 'order.json': '["retained-missing"]' }, false);
+  const contents = JSON.stringify([project(), { id: 'broken' }]);
+  const legacy = path.join(state, 'data', 'projects.json'); await fs.writeFile(legacy, contents);
+  const next = project('new');
+  const result = probe(state, `await store.list(); await store.upsert(${JSON.stringify(next)}); const { cancelScheduledProjectPrewarm } = await import('./apps/server/src/services/prewarm.ts'); cancelScheduledProjectPrewarm('new'); const result = { status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };`);
+  assert.deepEqual(result.ids, ['new', 'good'], 'the usable legacy record stays in session presentation order');
+  assert.equal(result.status.missingProjectCount, 1, 'only the pre-existing missing reference counts');
+  assert.equal(result.status.migrationPending, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'order.json'), 'utf8')), ['new', 'retained-missing']);
+  assert.equal(await fs.readFile(legacy, 'utf8'), contents);
+  assert.ok((await fs.stat(path.join(directory, 'new.json'))).isFile());
+  await assert.rejects(fs.stat(path.join(directory, 'good.json')), { code: 'ENOENT' });
+  const restarted = probe(state, 'const result = { status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
+  assert.deepEqual(restarted.ids, ['new', 'good']);
+  assert.equal(restarted.status.missingProjectCount, 1);
+  assert.equal(restarted.status.migrationPending, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'order.json'), 'utf8')), ['new', 'retained-missing']);
+  assert.equal(await fs.readFile(legacy, 'utf8'), contents);
+});

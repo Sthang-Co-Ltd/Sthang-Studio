@@ -14,7 +14,7 @@ export function ProjectStoragePanel({ status, checking, error, onRecheck }: {
       <p>{status.loadedProjectCount} loaded in this session · {status.readableProjectCount} readable project files at last check</p>
       <ul>
         {status.unreadableProjectCount > 0 && <li>{status.unreadableProjectCount} project file{status.unreadableProjectCount === 1 ? '' : 's'} could not be read. Those files were kept.</li>}
-        {status.missingProjectCount > 0 && <li>{status.missingProjectCount} loaded project{status.missingProjectCount === 1 ? '' : 's'} no longer have a project file on disk. Keep this session open while backing up available work.</li>}
+        {status.missingProjectCount > 0 && <li>{status.missingProjectCount} indexed or previously loaded project file{status.missingProjectCount === 1 ? ' is' : 's are'} missing. Back up any work still available in this session before stopping Studio.</li>}
         {status.duplicateProjectCount > 0 && <li>{status.duplicateProjectCount} additional file{status.duplicateProjectCount === 1 ? '' : 's'} share a project identity. Keep the originals for comparison.</li>}
         {status.directoryUnreadable && <li>The project folder could not be listed.</li>}
         {status.orderUnreadable && <li>The project order could not be read. Its original file was kept.</li>}

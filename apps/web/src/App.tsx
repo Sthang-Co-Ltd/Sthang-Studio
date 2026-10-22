@@ -3164,7 +3164,7 @@ export default function App() {
   </>;
 
   const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <div className="toast-stack" aria-live="polite" aria-atomic="false">
-    {savedStorage.error && <div className="toast notice" role="status"><span>{savedStorage.error}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
+    {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
     {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
@@ -3210,7 +3210,7 @@ export default function App() {
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
       openingProjectId={openingProjectId} onOpen={(id) => void openRecentProject(id)}
       onBack={() => changeProjectListView(false)} onRetry={() => setStartupAttempt((value) => value + 1)}
-      storageUnavailable={savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
+      storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
     /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {statusToasts}
