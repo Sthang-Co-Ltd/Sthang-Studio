@@ -85,6 +85,7 @@ import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-ed
 import { captionNeighborLimits } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
 import { waitForCaptionAppearanceSaves, withCaptionAppearanceBarrier } from './caption-appearance-save';
+import { useReconciledAppearance } from './caption-appearance-reconciliation';
 import {
   applyWordHighlightBatch,
   mergePublishedWordHighlightBatch,
@@ -1068,7 +1069,8 @@ export default function App() {
     const outside = draft.filter((caption) => caption.endMs <= proposal.startMs || caption.startMs >= proposal.endMs);
     return [...outside, ...proposedPreviewRange].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
   }, [draft, proposal, proposalPreviewMode, proposedPreviewRange, wordTimingPreview, mediaKey, workspaceTool]);
-  const [liveAppearance, setLiveAppearance] = useState<{ projectId: string; appearance: CaptionAppearance } | null>(null);
+  const [liveAppearance, setLiveAppearance] = useState<{ mediaKey: string; appearance: CaptionAppearance } | null>(null);
+  const reconciledAppearance = useReconciledAppearance(project, viewTicket, workspaceTool === 'export' || showJobs, liveAppearance, flushAppearanceSave);
   const [previewResolution, setPreviewResolution] = useState<VideoResolutionPreset>('source');
   const [appearanceInteracting, setAppearanceInteracting] = useState(false);
   useEffect(() => { setAppearanceInteracting(false); }, [project?.id, project?.media.filename, workspaceTool]);
@@ -1076,13 +1078,13 @@ export default function App() {
     const fingerprint = JSON.stringify(normalizeCaptionAppearance(appearance));
     if (appearanceFingerprint.current !== fingerprint) stopEffectReplay();
     appearanceFingerprint.current = fingerprint;
-    if (project) setLiveAppearance({ projectId: project.id, appearance });
-  }, [project?.id]);
+    if (project) setLiveAppearance({ mediaKey, appearance });
+  }, [mediaKey]);
   const changeCaptionFontLibrary = useCallback(() => {
     stopEffectReplay();
     setCaptionFontRevision((value) => value + 1);
   }, []);
-  const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.projectId === project?.id ? liveAppearance?.appearance : project?.captionAppearance), [project?.id, project?.captionAppearance, liveAppearance]);
+  const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.mediaKey === mediaKey ? liveAppearance.appearance : project?.captionAppearance), [mediaKey, project?.captionAppearance, liveAppearance]);
   useEffect(() => { stopEffectReplay(); }, [mediaKey, selectionAnchor, selectionEnd, workspaceTool]);
   const replayAppearanceEffect = async () => {
     const element = media.current;
@@ -1551,7 +1553,7 @@ export default function App() {
       if (job.proposalId) {
         if (!await loadProposal(target.id, job.proposalId, ticket) || !projectScope.current.isCurrent(ticket)) return;
         setNotice('Regeneration preview opened. Current captions remain untouched until you approve it.');
-      } else setNotice(compatibilityTranscriptionNotice(target) || 'Completed caption job opened.');
+      } else setNotice(compatibilityTranscriptionNotice(target) || (job.resultExport ? 'Export project opened. Compare the video with current content in Activity.' : 'Completed caption job opened.'));
       setShowJobs(false);
       handledJobIds.current.add(job.id);
     } catch (reason) {
@@ -2687,6 +2689,7 @@ export default function App() {
         throw new Error('The captions changed while the file was being prepared. Export again to include the latest edits.');
       }
       saveHandoffDownload(result.blob, result.filename);
+      window.dispatchEvent(new Event('sthang:export-history-updated'));
       setNotice(result.warnings || 'Caption file prepared for download. Your Studio project stays editable; follow the destination’s import instructions.');
       return true;
     } catch (reason) {
@@ -3132,7 +3135,7 @@ export default function App() {
     {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey}/>}
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
-    <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
+    <JobManager open={showJobs} jobs={jobs} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}
@@ -3285,6 +3288,7 @@ export default function App() {
           </div>}
 
           {workspaceTool === 'export' && <ExportWorkspace key={mediaKey}
+            appearanceReconciliation={reconciledAppearance}
             onPreviewResolution={setPreviewResolution}
             onConfirm={confirmInStudio}
             project={{ ...project, captions: draft }}
@@ -3311,7 +3315,7 @@ export default function App() {
             onStartVideoExport={startVideoExport}
           />}
 
-          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={`${project.id}:${project.media.filename}`} project={project} captions={draft}
+          {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={mediaKey} project={project} captions={draft}
             flushSave={flushAppearanceSave}
             onEditWordTiming={openWordTiming}
             wordPreparation={wordPreparation}

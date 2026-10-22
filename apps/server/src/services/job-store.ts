@@ -19,6 +19,7 @@ import { removeRunCheckpoints } from './run-checkpoints.js';
 import { renderCaptionedVideo } from './video-export.js';
 import { cleanupStaleVideoExportWork } from './export-maintenance.js';
 import { atomicJobWrite, createJobPersistence } from './job-persistence.js';
+import { exportFingerprint, recordExportEvidence } from './export-evidence.js';
 
 interface JobPayload {
   sourceMediaFilename?: string;
@@ -263,9 +264,15 @@ async function executeJobOperation(job: StoredJob) {
         shouldCancel: () => Boolean(jobs.find((item) => item.id === job.id)?.cancelRequested),
       },
     );
+    const exportedSnapshot = { ...project, captions: job.payload.exportCaptions,
+      captionAppearance: job.payload.exportAppearance, transcript: null, transcriptNeedsSync: true };
+    const evidenceSaved = await recordExportEvidence(exportedSnapshot, 'video');
+    let exportContentFingerprint: string | undefined;
+    try { exportContentFingerprint = exportFingerprint(exportedSnapshot, 'video'); } catch { /* Optional provenance cannot fail a verified render. */ }
     await completeJob(job, {
-      message: 'Captioned video export is ready.',
+      message: evidenceSaved ? 'Captioned video export is ready.' : 'Captioned video export is ready. Export history could not be saved; freshness is unknown.',
       resultExport: result,
+      exportContentFingerprint,
     });
     void captureAnalytics('export_completed', {
       result: 'captioned-video',
