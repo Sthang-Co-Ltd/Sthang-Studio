@@ -6,6 +6,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { fork, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { CaptionProject, CaptionSegment, TimedToken } from '@kcs/shared';
+import { captureProjectLoadingSourceBinding, verifyProjectLoadingSourceBinding } from './project-loading-source-binding.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = process.argv[2];
@@ -28,12 +29,10 @@ const plan = { schemaVersion: 1, createdAt: new Date().toISOString(), repetition
     'Measures the actual store first summary call, not whole server startup or HTTP/UI latency. Forced GC estimates retained heap; RSS is diagnostic.',
     'Fresh isolated child per sample; no network/server/listener, real user state, credentials or cloud services. No claimed speedup.'] };
 await fs.writeFile(path.join(evidence, 'plan.json'), JSON.stringify(plan, null, 2) + '\n', { flag: 'wx' });
+const sourceBinding = await captureProjectLoadingSourceBinding(repo);
 const temporary = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'studio-project-loading-')));
 const ownerId = randomUUID();
 await fs.writeFile(path.join(temporary, '.benchmark-owner.json'), JSON.stringify({ id: ownerId }));
-const sources = ['scripts/benchmark-project-loading.mts', 'benchmarks/project-loading/cold-library-child.mts', 'apps/server/src/services/store.ts',
-  'apps/server/src/config.ts', 'apps/server/src/services/prewarm.ts', 'packages/shared/src/index.ts', 'packages/shared/src/project-summary.ts', 'package-lock.json'];
-const sourceSha256 = Object.fromEntries(await Promise.all(sources.map(async (file) => [file, createHash('sha256').update(await fs.readFile(path.join(repo, file))).digest('hex')])));
 
 function corpus(count: number, rich: boolean): Pick<CaptionProject, 'captions' | 'transcript'> {
   const captions: CaptionSegment[] = [], tokens: TimedToken[] = [];
@@ -114,9 +113,10 @@ try {
     await fs.writeFile(path.join(evidence, `${scenario.name}.json`), JSON.stringify(result, null, 2) + '\n', { flag: 'wx' });
     console.log(JSON.stringify({ scenario: scenario.name, firstListP95Ms: firstListMs.p95, retainedHeapP95MiB: retainedHeapBytes.p95 / 1024 ** 2, exceedsPrimaryBudget: result.exceedsPrimaryBudget }));
   }
-  for (const [file, hash] of Object.entries(sourceSha256)) assert.equal(createHash('sha256').update(await fs.readFile(path.join(repo, file))).digest('hex'), hash, 'Benchmark source changed during measurement.');
+  await verifyProjectLoadingSourceBinding(repo, sourceBinding);
   const report = { plan, completedAt: new Date().toISOString(), sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
-    sourceDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }).trim()), sourceSha256,
+    sourceDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }).trim()),
+    sourceSha256: sourceBinding.sourceSha256, sourceBinding,
     runtime: { node: process.version, platform: process.platform, release: os.release(), arch: process.arch, cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem() },
     results, primaryBudgetExceeded: results.some((item) => item.exceedsPrimaryBudget) };
   await fs.writeFile(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });

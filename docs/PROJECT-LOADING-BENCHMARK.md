@@ -34,6 +34,18 @@ ordering, detail contents, mutation detachment, unchanged project bytes, and no
 added project-directory entries. Source hashes must remain unchanged during the
 run. Import timing and RSS are retained separately as diagnostics.
 
+The source-binding manifest follows literal local runtime imports from both the
+parent harness and isolated child before measurement, then verifies the complete
+graph and hashes again afterward. This includes an integrated store's storage
+scanner and any local dependencies it imports. The standalone branch works
+without that scanner; an imported but missing dependency fails qualification.
+Type-only imports are excluded. Nonliteral dynamic imports and unmapped workspace
+imports fail closed. The shared workspace's source and the compiled JavaScript
+actually loaded by the child are recorded separately; external package versions
+are bound by the lockfile. `npm run test:project-loading-source-binding` exercises
+standalone/integrated graphs, missing dependencies and mutation rejection, and is
+also a lightweight CI check. CI does not run the benchmark itself.
+
 This is **process-cold, filesystem-cache-uncontrolled** measurement. It does not
 measure whole server startup, HTTP latency, browser loading, disk-cache-cold I/O,
 real media processing, or customer hardware. Do not clear OS caches or change
@@ -85,6 +97,12 @@ repeat this benchmark after integrating it before extending the conclusion to
 that combined source. No combined-source or public-release performance claim is
 made. All 35 process samples and their correctness/preservation assertions passed.
 No independent review was performed.
+
+The retained report above predates the transitive source-binding correction. Its
+fixed source list did not cover tracker #9's new scanner, so it remains historical
+standalone evidence only. New cumulative-source measurements must use a fresh
+directory and the corrected manifest; neither the original timings nor their
+source identity are relabeled by this tooling change.
 
 ## Public impact: none
 
