@@ -57,6 +57,7 @@ import { Upload } from './components/Upload';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
 import { ProfileDoctor, type SettingsTab } from './components/ProfileDoctor';
+import { storageNeedsAttention, useProjectStorage } from './project-storage';
 import { StudioBrand } from './components/Brand';
 import { FindReplacePanel } from './components/FindReplacePanel';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
@@ -257,6 +258,12 @@ export default function App() {
   const homeProjectsButton = useRef<HTMLButtonElement>(null);
   const restoreHomeProjectsFocus = useRef(false);
   const [startupAttempt, setStartupAttempt] = useState(0);
+  const savedStorage = useProjectStorage(startupAttempt);
+  const [storageNoticeDismissed, setStorageNoticeDismissed] = useState(false);
+  const storageNoticeKey = savedStorage.status ? JSON.stringify([savedStorage.status.unreadableProjectCount, savedStorage.status.missingProjectCount,
+    savedStorage.status.duplicateProjectCount, savedStorage.status.directoryUnreadable, savedStorage.status.orderUnreadable,
+    savedStorage.status.legacyUnreadable, savedStorage.status.migrationPending, savedStorage.status.restartRequired]) : '';
+  useEffect(() => setStorageNoticeDismissed(false), [storageNoticeKey]);
   const [startupErrors, setStartupErrors] = useState<string[]>([]);
   const startupLoaded = useRef(new Set<string>());
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
@@ -3129,7 +3136,7 @@ export default function App() {
       onCancel={() => { if (!mediaMutationInFlight.current) { mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
-    {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey}/>}
+    {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>}
     <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
     <JobManager open={showJobs} jobs={jobs} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
@@ -3157,6 +3164,8 @@ export default function App() {
   </>;
 
   const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <div className="toast-stack" aria-live="polite" aria-atomic="false">
+    {savedStorage.error && <div className="toast notice" role="status"><span>{savedStorage.error}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
+    {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
     {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
@@ -3201,6 +3210,8 @@ export default function App() {
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
       openingProjectId={openingProjectId} onOpen={(id) => void openRecentProject(id)}
       onBack={() => changeProjectListView(false)} onRetry={() => setStartupAttempt((value) => value + 1)}
+      storageUnavailable={savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
+      onReviewStorage={() => openSettings('doctor')}
     /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {statusToasts}
     {overlays}

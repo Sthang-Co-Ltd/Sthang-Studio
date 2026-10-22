@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AppProfile, SystemDoctorReport, TopicPack, TranscriptionContext } from '@kcs/shared';
+import type { AppProfile, ProjectStorageStatus, SystemDoctorReport, TopicPack, TranscriptionContext } from '@kcs/shared';
 import type { LlmConnectionTest, LlmSettingsStatus, SaveLlmSettingsInput } from '../api';
 import { Clipboard, Download, FileUp, HeartPulse, KeyRound, PackagePlus, Play, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import { ContributorSettings } from './ContributorSettings';
+import { ProjectStoragePanel } from './ProjectStoragePanel';
 import './contribution.css';
 
 export type SettingsTab = 'ai' | 'profile' | 'privacy' | 'doctor';
@@ -24,6 +25,10 @@ interface ProfileDoctorProps {
   onSaveLlm(input: SaveLlmSettingsInput): Promise<LlmSettingsStatus>;
   onTestLlm(input: { apiKey?: string; model?: string }): Promise<LlmConnectionTest>;
   onForgetLlm(): Promise<LlmSettingsStatus>;
+  storageStatus?: ProjectStorageStatus | null;
+  storageChecking?: boolean;
+  storageError?: string;
+  onRecheckStorage?(): void;
 }
 
 export function ProfileDoctor({
@@ -42,6 +47,7 @@ export function ProfileDoctor({
   onSaveLlm,
   onTestLlm,
   onForgetLlm,
+  storageStatus = null, storageChecking = false, storageError = '', onRecheckStorage,
 }: ProfileDoctorProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [glossary, setGlossary] = useState(profile.defaultVocabulary.join('\n'));
@@ -102,6 +108,7 @@ export function ProfileDoctor({
           <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={() => removePack(pack.id)}><Trash2 size={14}/></button></div>)}</div>
         </div>
       </div> : tab === 'privacy' ? <ContributorSettings profile={profile} busy={busy} onSave={onSave}/> : <div className="doctor-body">
+        <ProjectStoragePanel status={storageStatus} checking={storageChecking} error={storageError} onRecheck={onRecheckStorage}/>
         <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. The report excludes your API key.</span></div><button className="primary" disabled={busy} onClick={onRunDoctor}>Run checks</button></div>
         {!doctor && <div className="modal-empty"><HeartPulse size={28}/><strong>No report yet</strong><span>Run checks after setup or if caption generation fails.</span></div>}
         {doctor && <>

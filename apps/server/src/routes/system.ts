@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import { runSystemDoctor } from '../services/doctor.js';
+import { store } from '../services/store.js';
 import {
   forgetSecureGeminiKey,
   publicLlmSettings,
@@ -20,6 +21,12 @@ router.get('/doctor', async (_req, res) => {
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'System doctor failed' });
   }
+});
+
+router.get('/project-storage', async (req, res) => {
+  preventSecretCaching(res);
+  try { res.json(await store.storageStatus(req.query.recheck === '1')); }
+  catch { res.status(503).json({ error: 'Saved project storage could not be checked. Your files were not changed. Try again or restart Studio.' }); }
 });
 
 router.get('/llm-settings', async (_req, res) => {

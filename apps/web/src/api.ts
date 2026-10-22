@@ -17,6 +17,7 @@ import type {
   RegenerationProposal,
   RegenerationRefinementInput,
   SystemDoctorReport,
+  ProjectStorageStatus,
   TranscriptionContext,
   VideoExportCapabilities,
   VideoExportFontCapability,
@@ -207,6 +208,7 @@ async function jobMutation<T>(operation: () => Promise<T>) {
 
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
+  projectStorage: (recheck = false, signal?: AbortSignal) => request<ProjectStorageStatus>(`/api/system/project-storage${recheck ? '?recheck=1' : ''}`, { signal, cache: 'no-store' }),
   updateStatus: () => request<UpdateStatus>('/api/updates'),
   downloadUpdate: (manifestDigest: string, safety: UpdateSafetySnapshot) => request<{ version: string; downloaded: true }>('/api/updates/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manifestDigest, safety }) }),
   installUpdate: (manifestDigest: string, safety: UpdateSafetySnapshot) => request<{ closing: true; version: string }>('/api/updates/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manifestDigest, safety }) }),

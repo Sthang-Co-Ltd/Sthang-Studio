@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { summarizeProject, type CaptionAppearance, type CaptionProject } from '@kcs/shared';
+import { summarizeProject, type CaptionAppearance, type CaptionProject, type ProjectStorageStatus } from '@kcs/shared';
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
+import { isLoadableProject, readMigrationMarker, readStorageJson, scanProjectStorage, storageStatusFromScan } from './project-storage.js';
 
 const projectDir = path.join(path.dirname(config.dataFile), 'projects');
 const orderFile = path.join(projectDir, 'order.json');
@@ -14,6 +15,9 @@ let initializePromise: Promise<void> | null = null;
 let orderWriteQueue: Promise<void> = Promise.resolve();
 const writeQueues = new Map<string, Promise<void>>();
 const durableProjectWrites = new Map<string, boolean>();
+let storageStatus: ProjectStorageStatus;
+let orderReadFault = false;
+let startupNeedsRestart = false;
 
 function safeId(id: string) {
   const value = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
@@ -49,14 +53,6 @@ async function atomicWrite(filePath: string, value: string) {
   }
 }
 
-async function readJson<T>(filePath: string): Promise<T | null> {
-  try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
-  } catch {
-    return null;
-  }
-}
-
 function uniqueIds(values: string[]) {
   const seen = new Set<string>();
   return values.filter((id) => {
@@ -68,8 +64,10 @@ function uniqueIds(values: string[]) {
 
 function queueOrderUpdate(transform: (current: string[]) => string[]) {
   const task = orderWriteQueue.then(async () => {
-    const next = uniqueIds(transform(order)).filter((id) => projects.has(id));
-    await atomicWrite(orderFile, `${JSON.stringify(next)}\n`);
+    // Keep references to missing/unreadable project files so recovery retains order.
+    const next = uniqueIds(transform(order));
+    // Preserve a corrupt index for recovery; project files remain authoritative.
+    if (!orderReadFault) await atomicWrite(orderFile, `${JSON.stringify(next)}\n`);
     order = next;
   });
   orderWriteQueue = task.then(() => undefined, () => undefined);
@@ -77,14 +75,14 @@ function queueOrderUpdate(transform: (current: string[]) => string[]) {
 }
 
 async function loadProjectFiles() {
-  const names = await fs.readdir(projectDir).catch(() => [] as string[]);
-  const projectNames = names.filter((name) => name.endsWith('.json') && name !== 'order.json');
-  // Bound outstanding I/O and publish in file order, preserving duplicate-ID precedence.
-  for (let start = 0; start < projectNames.length; start += 4) {
-    const batch = await Promise.all(projectNames.slice(start, start + 4)
-      .map((name) => readJson<CaptionProject>(path.join(projectDir, name))));
-    for (const project of batch) if (project?.id) projects.set(project.id, project);
+  const scan = await scanProjectStorage(projectDir);
+  for (const entry of scan.entries) if (entry.project) projects.set(entry.project.id, entry.project);
+  storageStatus = storageStatusFromScan(scan, projects.size);
+  if (storageStatus.directoryUnreadable || storageStatus.unreadableProjectCount || storageStatus.duplicateProjectCount) {
+    startupNeedsRestart = true;
+    storageStatus.restartRequired = true;
   }
+  return new Set(scan.entries.filter((entry) => !entry.project).map((entry) => entry.name));
 }
 
 function newestMissingIds() {
@@ -97,35 +95,55 @@ function newestMissingIds() {
 
 async function initialize() {
   await fs.mkdir(projectDir, { recursive: true });
-  const markerExists = await fs.stat(migrationMarker).then(() => true).catch(() => false);
-  await loadProjectFiles();
+  const marker = await readMigrationMarker(migrationMarker);
+  const markerExists = marker !== 'missing';
+  const unreadableFiles = await loadProjectFiles();
+  if (marker === 'unreadable') { storageStatus.migrationPending = true; startupNeedsRestart = true; storageStatus.restartRequired = true; }
 
-  const storedOrder = await readJson<string[]>(orderFile);
-  order = Array.isArray(storedOrder)
-    ? uniqueIds(storedOrder).filter((id) => projects.has(id))
+  const orderRead = await readStorageJson(orderFile);
+  const storedOrder = orderRead.state === 'ok' && Array.isArray(orderRead.value) && orderRead.value.every((id) => typeof id === 'string') ? orderRead.value as string[] : null;
+  orderReadFault = orderRead.state === 'unreadable' || (orderRead.state === 'ok' && storedOrder === null);
+  storageStatus.orderUnreadable = orderReadFault;
+  if (orderReadFault) { startupNeedsRestart = true; storageStatus.restartRequired = true; }
+  order = storedOrder
+    ? uniqueIds(storedOrder)
     : [];
 
   if (!markerExists) {
     // A previous launch may have stopped halfway through migration. Always
     // reconcile the legacy file against any already-written per-project files;
     // only write the marker after every project and the order index are durable.
-    const legacy = await readJson<CaptionProject[]>(config.dataFile);
+    const legacyRead = await readStorageJson(config.dataFile);
+    const legacy = legacyRead.state === 'ok' && Array.isArray(legacyRead.value) ? legacyRead.value : [];
+    storageStatus.legacyUnreadable = legacyRead.state === 'unreadable'
+      || (legacyRead.state === 'ok' && (!Array.isArray(legacyRead.value) || !legacy.every(isLoadableProject)));
+    let migrationSafe = !storageStatus.legacyUnreadable && !storageStatus.directoryUnreadable && !unreadableFiles.size && !orderReadFault;
     const legacyIds: string[] = [];
     if (Array.isArray(legacy) && legacy.length) {
-      await fs.copyFile(config.dataFile, legacyBackup, 1).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== 'EEXIST') console.warn('[project store] Could not create legacy backup:', error.message);
+      if (migrationSafe) await fs.copyFile(config.dataFile, legacyBackup, 1).catch(async (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST' || !await fs.stat(legacyBackup).then((stat) => stat.isFile()).catch(() => false)) migrationSafe = false;
       });
       for (const project of legacy) {
-        if (!project?.id) continue;
+        if (!isLoadableProject(project) || unreadableFiles.has(path.basename(projectFile(project.id)))) continue;
         legacyIds.push(project.id);
         if (projects.has(project.id)) continue;
         const stored = structuredClone(project);
-        await atomicWrite(projectFile(project.id), `${JSON.stringify(stored)}\n`);
+        if (migrationSafe) {
+          await atomicWrite(projectFile(project.id), `${JSON.stringify(stored)}\n`);
+          storageStatus.readableProjectCount++;
+        }
         projects.set(project.id, stored);
       }
     }
 
     const remaining = newestMissingIds().filter((id) => !legacyIds.includes(id));
+    if (!migrationSafe) {
+      order = uniqueIds([...order, ...legacyIds, ...remaining]);
+      storageStatus.migrationPending = true;
+      startupNeedsRestart = true;
+      storageStatus.restartRequired = true;
+      return;
+    }
     await queueOrderUpdate((current) => [...current, ...legacyIds, ...remaining]);
     await atomicWrite(migrationMarker, 'Sthang Studio per-project storage v1\n');
     if (legacyIds.length) {
@@ -174,6 +192,32 @@ async function persistProject(stored: CaptionProject) {
 }
 
 export const store = {
+  async storageStatus(recheck = false): Promise<ProjectStorageStatus> {
+    await ensureInitialized();
+    if (recheck) {
+      const loadedBefore = new Set(projects.keys());
+      const scan = await scanProjectStorage(projectDir);
+      const next = storageStatusFromScan(scan, projects.size);
+      const index = await readStorageJson(orderFile);
+      next.orderUnreadable = index.state === 'unreadable' || (index.state === 'ok' && (!Array.isArray(index.value) || !index.value.every((id) => typeof id === 'string')));
+      const marker = await readMigrationMarker(migrationMarker);
+      if (marker === 'unreadable') next.migrationPending = true;
+      if (marker === 'missing') {
+        const legacy = await readStorageJson(config.dataFile);
+        next.legacyUnreadable = legacy.state === 'unreadable' || (legacy.state === 'ok' && (!Array.isArray(legacy.value) || !legacy.value.every(isLoadableProject)));
+        next.migrationPending = true;
+      }
+      if (!scan.directoryUnreadable && !next.migrationPending) {
+        const names = new Set(scan.entries.map((entry) => entry.name));
+        next.missingProjectCount = [...projects.keys()].filter((id) => loadedBefore.has(id) && !names.has(path.basename(projectFile(id)))).length;
+      }
+      if (next.unreadableProjectCount || next.missingProjectCount || next.duplicateProjectCount || next.directoryUnreadable
+        || next.orderUnreadable || next.legacyUnreadable || next.migrationPending) startupNeedsRestart = true;
+      next.restartRequired = startupNeedsRestart || orderReadFault || scan.entries.some((entry) => entry.project && !projects.has(entry.project.id));
+      storageStatus = next;
+    }
+    return { ...storageStatus, loadedProjectCount: projects.size };
+  },
   /** False after a committed write whose directory flush is unavailable. */
   latestWriteIsDurable(id: string) { return durableProjectWrites.get(id) !== false; },
   async listSummaries() {
