@@ -4,6 +4,7 @@ import { summarizeProject, type CaptionAppearance, type CaptionProject, type Pro
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
 import { isLoadableProject, readMigrationMarker, readStorageJson, scanProjectStorage, storageStatusFromScan } from './project-storage.js';
+import { beginProjectLoadingPhase, endProjectLoadingPhase } from './project-loading-observer.js';
 
 const projectDir = path.join(path.dirname(config.dataFile), 'projects');
 const orderFile = path.join(projectDir, 'order.json');
@@ -107,6 +108,8 @@ function queueOrderUpdate(transform: (current: string[]) => string[]) {
 
 async function loadProjectFiles() {
   const scan = await scanProjectStorage(projectDir);
+  const publishing = beginProjectLoadingPhase('publication');
+  try {
   for (const entry of scan.entries) if (entry.project) {
     projects.set(entry.project.id, entry.project);
     publishedProjectIds.add(entry.project.id);
@@ -117,6 +120,7 @@ async function loadProjectFiles() {
     storageStatus.restartRequired = true;
   }
   return scan;
+  } finally { endProjectLoadingPhase(publishing, scan.entries.length); }
 }
 
 function missingProjectCount(scan: Awaited<ReturnType<typeof scanProjectStorage>>, diskIndex: string[] = []) {
@@ -140,7 +144,9 @@ function newestMissingIds() {
 }
 
 async function initialize() {
-  await fs.mkdir(projectDir, { recursive: true });
+  const creating = beginProjectLoadingPhase('directory-create');
+  try { await fs.mkdir(projectDir, { recursive: true }); }
+  finally { endProjectLoadingPhase(creating); }
   const marker = await readMigrationMarker(migrationMarker);
   const markerExists = marker !== 'missing';
   const scan = await loadProjectFiles();
@@ -299,10 +305,13 @@ export const store = {
   latestWriteIsDurable(id: string) { return durableProjectWrites.get(id) !== false; },
   async listSummaries() {
     await ensureInitialized();
+    const summarizing = beginProjectLoadingPhase('summary');
+    try {
     return order
       .map((id) => projects.get(id))
       .filter((project): project is CaptionProject => Boolean(project))
       .map(summarizeProject);
+    } finally { endProjectLoadingPhase(summarizing, order.length); }
   },
 
   async list() {

@@ -2,6 +2,12 @@ import { test, expect, type Page, type Route, type Request } from '@playwright/t
 import { buildCaptionWordTiming, planCaptionRenderStates, type CaptionProject, type CaptionSegment, type CaptionRenderState, type TimedToken } from '../../packages/shared/src/index.js';
 import { capabilities, cleanFixtures, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 import { nativePreviewCatchupTimeoutMs } from '../../apps/web/src/native-preview-scheduler.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import type { CaptionPreviewDiagnosticSnapshot, CaptionPreviewDiagnostics } from '../../apps/server/src/services/caption-preview-diagnostics.js';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -167,15 +173,108 @@ test.afterEach(async ({ page }, testInfo) => {
 // transport/render budget without pretending cloud FFmpeg timing is a user-PC
 // benchmark. All displayed bytes are independently rendered full-timeline native
 // references; no transparent/same-PNG-for-every-word fixture is used here.
+const referenceRoot = fileURLToPath(new URL('../../', import.meta.url));
+let referenceIdentity: Promise<unknown> | undefined;
+const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+async function referenceFileMap(directory: string, prefix = ''): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const entry of (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    const name = prefix + entry.name;
+    if (entry.isDirectory()) Object.assign(files, await referenceFileMap(path.join(directory, entry.name), `${name}/`));
+    else if (entry.isFile()) files[name] = sha256(await fs.readFile(path.join(directory, entry.name)));
+  }
+  return files;
+}
+
+async function resolvedReferenceExecutable(command: string) {
+  if (path.isAbsolute(command) || /[\\/]/.test(command)) return fs.realpath(path.resolve(command));
+  const extensions = process.platform === 'win32' && !path.extname(command) ? ['', '.exe', '.com'] : [''];
+  const directories = [...(process.platform === 'win32' ? [process.cwd()] : []), ...(process.env.PATH ?? '').split(path.delimiter)];
+  for (const directory of directories) for (const extension of extensions) {
+    const candidate = path.resolve(directory, command + extension);
+    if ((await fs.stat(candidate).catch(() => null))?.isFile()) return fs.realpath(candidate);
+  }
+  throw new Error('Native reference executable identity is unavailable.');
+}
+
+// Once per worker, before reference rendering and the playback experiment. Only
+// public source/build files and an explicit configuration allowlist are read.
+async function referenceRuntimeIdentity() {
+  const { config } = await import('../../apps/server/src/config.js');
+  const executable = await resolvedReferenceExecutable(config.ffmpegPath);
+  const maps: Record<string, Record<string, string> | { unavailable: true }> = {};
+  for (const directory of ['apps/server/src', 'packages/shared/src', 'packages/shared/dist', 'apps/web/src', 'apps/web/dist', 'tests/browser']) {
+    maps[directory] = await referenceFileMap(path.join(referenceRoot, directory)).catch(() => ({ unavailable: true as const }));
+  }
+  const metadata: Record<string, string> = {};
+  for (const name of ['package.json', 'package-lock.json', 'apps/server/package.json', 'apps/server/tsconfig.json', 'packages/shared/package.json', 'playwright.config.ts']) {
+    metadata[name] = sha256(await fs.readFile(path.join(referenceRoot, name)));
+  }
+  return {
+    schemaVersion: 1, capturedAt: new Date().toISOString(), checkout: await fs.realpath(referenceRoot),
+    head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: referenceRoot, encoding: 'utf8', windowsHide: true }).trim(),
+    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: referenceRoot, encoding: 'utf8', windowsHide: true }).trim(),
+    sourceDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: referenceRoot, encoding: 'utf8', windowsHide: true }).trim()),
+    node: process.version, platform: process.platform, arch: process.arch, pid: process.pid,
+    config: { ffmpegPath: config.ffmpegPath },
+    ffmpeg: { executable, sha256: sha256(await fs.readFile(executable)),
+      version: execFileSync(executable, ['-version'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 1_000_000, windowsHide: true }) },
+    maps, metadata,
+  };
+}
+
+function referenceDiagnostics(directory: string, request: unknown): CaptionPreviewDiagnostics {
+  const info = test.info();
+  const failed = () => info.annotations.push({ type: 'native-reference-capture-incomplete', description: path.basename(directory) });
+  return {
+    captureFailed: failed,
+    async capture(snapshot: CaptionPreviewDiagnosticSnapshot) {
+      await fs.mkdir(directory, { recursive: true });
+      // Write status first: an interrupted or partial copy cannot masquerade as
+      // complete evidence. The renderer still owns and cleans its working files.
+      const statusPath = path.join(directory, 'capture-status.json');
+      await fs.writeFile(statusPath, JSON.stringify({ complete: false }));
+      await fs.writeFile(path.join(directory, 'request.json'), JSON.stringify(request, null, 2));
+      await fs.writeFile(path.join(directory, 'render.json'), JSON.stringify(snapshot, null, 2));
+      if (snapshot.process) await fs.writeFile(path.join(directory, 'ffmpeg-stderr.txt'), snapshot.process.stderr);
+      const artifacts: Record<string, { size: number; sha256: string }> = {};
+      if (snapshot.workDirectory) {
+        for (const name of (await fs.readdir(snapshot.workDirectory)).sort()) {
+          if (!/^(?:captions|focus)\.ass$|^\d+\.png$/.test(name)) continue;
+          const bytes = await fs.readFile(path.join(snapshot.workDirectory, name));
+          await fs.writeFile(path.join(directory, name), bytes);
+          artifacts[name] = { size: bytes.length, sha256: sha256(bytes) };
+        }
+      }
+      const fonts = snapshot.fontDirectory ? await referenceFileMap(snapshot.fontDirectory) : null;
+      await fs.writeFile(path.join(directory, 'artifacts.json'), JSON.stringify({ artifacts, stagedFontSha256: fonts }, null, 2));
+      await fs.writeFile(statusPath, JSON.stringify({ complete: true, renderCompleted: snapshot.completed }, null, 2));
+      await info.attach(`native-reference-${path.basename(directory)}`, { path: path.join(directory, 'render.json'), contentType: 'application/json' });
+    },
+  };
+}
+
 async function nativeReferences(project: CaptionProject, paints: CaptionRenderState[], colors = [RED]) {
   const renderer = await import('../../apps/server/src/services/caption-preview.js');
+  const directory = test.info().outputPath('native-references');
+  try {
+    referenceIdentity ??= referenceRuntimeIdentity();
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(path.join(directory, 'identity.json'), JSON.stringify(await referenceIdentity, null, 2));
+  } catch {
+    test.info().annotations.push({ type: 'native-reference-capture-incomplete', description: 'runtime-identity' });
+  }
   const references = new Map<string, { png: string; bounds: unknown; atMs: number }>();
   for (const color of colors) {
     for (let offset = 0; offset < paints.length; offset += 8) {
-      const result = await renderer.renderCaptionPreview(renderer.parseCaptionPreviewInput({
+      const input = renderer.parseCaptionPreviewInput({
         captions: project.captions, timesMs: paints.slice(offset, offset + 8).map((paint) => paint.atMs),
         appearance: { ...project.captionAppearance, highlightColor: color }, resolution: 'source',
-      }), capabilities);
+      });
+      const batch = `${String(colors.indexOf(color)).padStart(2, '0')}-${color.slice(1)}-${String(offset).padStart(3, '0')}`;
+      const result = await renderer.renderCaptionPreview(input, capabilities, undefined, undefined,
+        referenceDiagnostics(path.join(directory, batch), { input, capabilities, color, colorIndex: colors.indexOf(color), offset,
+          paints: paints.slice(offset, offset + 8), allPaints: paints, colors }));
       for (const frame of result.frames) {
         expect(frame.bounds, `Native reference at ${frame.atMs}ms must contain caption pixels`).toBeTruthy();
         references.set(`${color}:${frame.atMs}`, frame);
