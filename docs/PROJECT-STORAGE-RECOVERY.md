@@ -51,8 +51,14 @@ restart is required to load them safely.
   Explicit deletion removes its saved reference and does not create a warning.
 - Readability is a load-shape check, not a complete semantic audit, proof of
   backup integrity, free-space measurement, or verification of media/history.
-- Rechecks are snapshots. Concurrent writes and later external changes can change
-  disk state afterward. Newly restored files are not hot-reloaded. Files already
+- Rechecks are snapshots coordinated with Studio's project saves and deletions.
+  A scan overlapping a mutation is discarded before any warning or restart state
+  is published. Verification makes at most three attempts; ongoing changes can
+  leave the check unavailable, with retry still available, rather than reporting
+  a file as missing from an inconsistent snapshot. A later successful check can
+  resolve that unavailable state. Genuine storage faults retain their restart
+  and migration protections. Later external changes can still change disk state
+  after verification. Newly restored files are not hot-reloaded. Files already
   loaded can still be explicitly saved through the normal editor workflow.
 - Existing project/history/media storage and privacy rules remain in force. This
   adds count-only diagnostics in memory and no new persistent category or cloud
@@ -105,6 +111,20 @@ isolation/lifecycle guards, one worker and zero retries, on Windows/Node 24.21.0
 These browser fixtures model server responses; the filesystem/API tests above
 provide separate persistence evidence.
 
+The subsequent recheck-concurrency correction uses filesystem barriers, not
+timing delays, to hold a real directory snapshot while store saves or deletions
+publish their files and index. The unchanged `8020f9a` store failed all 13
+initial focused cases; the expanded corrected matrix passes 18 cases. It covers
+completed and still-active mutations, overlapping index publication, failed
+save/delete operations, bounded three-scan exhaustion followed by a healthy
+retry, a real sanitized endpoint 503, genuine missing indexed files, and a
+discarded migration observation that must not latch deletion or restart state.
+Independent project writes remain concurrent; work inside a project-write
+callback does not block verification before actual persistence starts. A stable
+recheck still leaves in-memory project contents unchanged. These deterministic
+fixtures do not establish crash/power-loss durability or prevent external edits
+after the snapshot.
+
 ## Public impact: required
 
 Compared with `.sthang/product-manifest.json` and its README/privacy/installation
@@ -123,3 +143,8 @@ Use HQ README Phase 3 intake, then Distribution README Phase 2 synchronization;
 each needs its own fresh exact plan digest and approval classes. Surface edits,
 release claims and publication require their separate approvals. No HQ or
 Distribution writes, release, merge, or deployment are part of this change.
+
+The recheck correction adds a bounded unavailable/retry outcome during concurrent
+project changes to that proposed troubleshooting scope. The new proposed intake
+identifier is `studio-storage-recheck-20261022`; this document is source evidence,
+not an applied HQ intake, approved public availability or website synchronization.
