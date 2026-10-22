@@ -54,6 +54,8 @@
     "job-persistence.test.mts",
     "preview-font-cache.test.mts",
     "../scripts/benchmark-performance.mts",
+    "../benchmarks/caption-list/*.mts",
+    "../benchmarks/caption-list/*.ts",
     "deferred-workspace.types.tsx",
     "performance-batch4.test.mts",
     "project-store.test.mts",
