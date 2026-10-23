@@ -752,3 +752,12 @@ configured integrations and do not imply sponsorship or endorsement.
 ---
 
 **Sthang Studio** is developed by Sthang. Product information: https://sthang.app/
+
+## Export freshness in source development
+
+Export history compares the latest prepared file of each format with the open
+project, including unsaved edits. Activity compares individual new captioned-video
+renders with their saved content fingerprints. Earlier exports without receipts
+remain unknown. Comparisons that include styling stay unknown until the current
+project's saved appearance is reconciled. See [export freshness](docs/EXPORT-FRESHNESS.md). This is source
+development and does not establish availability in a published download.

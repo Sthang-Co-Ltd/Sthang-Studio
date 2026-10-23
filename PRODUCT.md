@@ -486,3 +486,15 @@ Restoration is an explicit destructive-to-current-state choice with revision gua
 and fresh media identity, so stale work cannot overwrite the restored project.
 Recovery access survives reopening the project. Clearly describe retention and
 local disk use. No released-download availability is implied by this source contract.
+
+## Export freshness (source-only)
+
+Keep a bounded local receipt for the latest prepared output of each caption-file
+format and completed video. Compare format-relevant content against the open
+project, including unsaved edits. Plain subtitle checks ignore appearance and
+review metadata; styled/video outputs include configured appearance and usable
+word paint, while Studio data includes its archived review metadata. Media changes
+invalidate comparisons. Undoing content to its original state may match again.
+Activity retains a separate content fingerprint for each new completed video job.
+Missing/legacy, invalid or unreadable evidence is unknown. File preparation is not
+proof of disk download, and matching content is not renderer or release validation.
