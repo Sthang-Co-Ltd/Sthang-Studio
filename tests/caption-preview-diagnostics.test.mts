@@ -27,3 +27,4 @@ test('a failed diagnostic failure observer cannot escape into rendering', async 
     captureFailed() { throw new Error('Synthetic failure observer failure.'); },
   }, snapshot));
 });
+

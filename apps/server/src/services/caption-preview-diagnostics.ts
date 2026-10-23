@@ -40,3 +40,4 @@ export async function captureCaptionPreviewDiagnostics(options: CaptionPreviewDi
     try { options.captureFailed?.(); } catch { /* Preserve the original outcome. */ }
   }
 }
+
