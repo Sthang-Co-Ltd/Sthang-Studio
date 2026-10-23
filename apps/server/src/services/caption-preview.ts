@@ -7,6 +7,7 @@ import {
   type VideoExportCapabilities, type VideoResolutionPreset,
 } from '@kcs/shared';
 import { config } from '../config.js';
+import { parsePreviewBboxes } from './caption-preview-bbox.js';
 import { validateCaptionOverflow } from './caption-overflow.js';
 import { buildAssDocument, buildAssCaptionFilter, preparePreviewFonts, requireCaptionFont } from './caption-renderer.js';
 import { renderPersistentCaptionPreview, retireIdleCaptionPreviews, type PreviewScope } from './persistent-caption-preview.js';
@@ -180,7 +181,7 @@ export async function renderCaptionPreview(
       '-map', '[minmax]', '-frames:v', count, '-f', 'null', '-',
       ...(focusFilter ? ['-map', '[focusBounds]', '-frames:v', count, '-f', 'null', '-'] : []),
     ], signal, diagnostic);
-    const bounds = [...stderr.matchAll(/\[bbox@(caption|focus) [^\]]*\][^\r\n]*?\bn:(\d+)[^\r\n]*?\bx1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+) w:(\d+) h:(\d+)/g)];
+    const bounds = parsePreviewBboxes(stderr, width, height);
     if (diagnostic) diagnostic.parsedBboxes = bounds.map((match) => Array.from(match));
     const boxFor = (kind: string, index: number) => {
       const box = bounds.find((match) => match[1] === kind && Number(match[2]) === index);
