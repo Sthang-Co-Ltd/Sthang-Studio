@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parsePreviewBboxes as parse } from '../apps/server/src/services/caption-preview-bbox.js';
+const p = '[bbox@caption @ 0xabc] ';
+const c = 'x1:1 x2:2 y1:3 y2:4 w:2 h:2';
+const h = (n: number) => `${p}n:${n} pts:${n} pts_time:${n}`;
+const rows = (s: string) => parse(s,640,360);
+test('same-context malformed output makes later continuation unusable',()=>assert.deepEqual(rows(`${h(3)}\n${p}n:bad\n${p}${c}`),[]));
+test('missing header never borrows coordinates from previous valid frame',()=>assert.deepEqual(rows(`${h(2)} ${c}\n${h(3)}`).map(r=>r[2]),['2']));
+test('other FFmpeg prefix cannot contribute same-line coordinates',()=>assert.deepEqual(rows(`${h(3)} [other @ 0xabc] ${c}`),[]));
+test('unsafe integer n cannot acquire continuation',()=>assert.deepEqual(rows(`${p}n:9007199254740992 pts:0 pts_time:0\n${p}${c}`),[]));
+test('unsafe integer coordinates rejected',()=>assert.deepEqual(rows(`${h(3)} x1:9007199254740992 x2:9007199254740993 y1:3 y2:4 w:2 h:2`),[]));
+test('unknown output cannot revive already invalidated record',()=>assert.deepEqual(rows(`${h(3)} ${c}\n${p}garbage\n${p}${c}`),[]));
+test('orphan exact pointer does not affect unrelated pointer frame',()=>assert.deepEqual(rows(`${h(3)}\n[bbox@caption @ 0xabd] ${c}\n${p}${c}`).map(r=>r[2]),['3']));
+test('anonymous newer header breaks incomplete context association',()=>assert.deepEqual(rows(`${h(3)}\nn:4 pts:4 pts_time:4\n${p}${c}`),[]));
+test('anonymous header does not erase earlier completed frame',()=>assert.deepEqual(rows(`${h(3)} ${c}\nn:4 pts:4 pts_time:4\n${p}${c}`).map(r=>r[2]),['3']));
+test('conflicting inline anonymous coordinate tuple fails closed',()=>assert.deepEqual(rows(`${h(3)} ${c} x1:10 x2:11 y1:12 y2:13 w:2 h:2`),[]));
