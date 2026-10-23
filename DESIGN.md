@@ -350,6 +350,11 @@ work must yield back to the exact current paint.
 
 ### Caption rows
 
+Correct everywhere pairs labeled **Before / After** text in two columns on desktop
+and vertically on mobile. Preserve Khmer line height and whitespace; label locked,
+unchanged and empty-text results. Show changed-caption and protected-match counts,
+disable Apply when nothing changes, and provide labeled pagination for all matches.
+
 - Text and timing remain immediately editable.
 - Approval stays visible.
 - Destructive and specialist actions live in an explicit per-row menu.
@@ -426,6 +431,14 @@ it must not invent a second consent contract.
 
 ## Accessibility floor
 
+Product dialogs share focus entry, forward/reverse Tab containment, topmost-only
+Escape dismissal and return focus to a connected opener. Find & Correct starts in
+Find; destructive confirmations start on the safe decision. Updates and the privacy
+introduction start on their dialog root so async disabled controls and consent
+choices do not steal initial focus. Busy guards remain authoritative. Composition
+Escape and keyboard events already handled by a field remain with that field.
+Editor shortcuts remain isolated for the entire lifetime of a product dialog.
+
 - Body text target: 13–15px; helper text target: 10–12px. Avoid 7–9px operational copy.
 - Frequent controls: at least 36px tall on desktop; target 44px on touch layouts.
 - Every interactive control needs a visible `:focus-visible` state.
@@ -464,6 +477,11 @@ it must not invent a second consent contract.
   **Restore draft**, **Download draft**, and **Discard draft** actions. Use an
   explicit discard confirmation; keep the media and caption list accessible.
   Changed saved captions/context/media disable restoration and explain comparison.
+- Saved-project read warnings use the shared toast stack with **Review storage**.
+  Settings → System check separates projects loaded in this session from readable
+  files at the last check. Keep recovery guidance and the labeled read-only
+  recheck visible; do not offer destructive repair or automatic reload. Unknown
+  storage status must not make an empty library look like a confirmed new install.
 - Optional analytics/contribution outages should not create alarming editor
   errors. Keep local work safe and surface sync state only in the relevant privacy
   surface when action is needed.
@@ -523,3 +541,14 @@ navigation choice. Keep the saved-project/conflict/recovery workflow intact.
 - Default review focus is **Brackets + label**; users may choose **Brackets only** or **Off**.
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
 - Review-focus graphics are editor chrome and must never affect SRT export, captioned-video appearance, or source media.
+
+### Export history
+
+Keep collapsed Export history after the primary output controls, preserving the
+desktop Download SRT viewport. Show the number needing an update in its summary.
+Expanded entries name format, preparation time and matches/changed/unknown state
+in words. Explain comparison with the open project and that file preparation does
+not confirm download. Unknown history offers Retry without blocking output.
+Activity labels individual completed videos similarly; old jobs with no receipt
+remain downloadable and explicitly unknown. Offer Open project to compare when a
+different project is open, using the existing protected navigation path.

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AppProfile, SystemDoctorReport, TopicPack, TranscriptionContext } from '@kcs/shared';
+import type { AppProfile, ProjectStorageStatus, SystemDoctorReport, TopicPack, TranscriptionContext } from '@kcs/shared';
 import type { LlmConnectionTest, LlmSettingsStatus, SaveLlmSettingsInput } from '../api';
 import { Clipboard, Download, FileUp, HeartPulse, KeyRound, PackagePlus, Play, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import { ContributorSettings } from './ContributorSettings';
+import { useModalFocus } from '../use-modal-focus';
+import { ProjectStoragePanel } from './ProjectStoragePanel';
 import './contribution.css';
 
 export type SettingsTab = 'ai' | 'profile' | 'privacy' | 'doctor';
@@ -24,6 +26,10 @@ interface ProfileDoctorProps {
   onSaveLlm(input: SaveLlmSettingsInput): Promise<LlmSettingsStatus>;
   onTestLlm(input: { apiKey?: string; model?: string }): Promise<LlmConnectionTest>;
   onForgetLlm(): Promise<LlmSettingsStatus>;
+  storageStatus?: ProjectStorageStatus | null;
+  storageChecking?: boolean;
+  storageError?: string;
+  onRecheckStorage?(): void;
 }
 
 export function ProfileDoctor({
@@ -42,11 +48,14 @@ export function ProfileDoctor({
   onSaveLlm,
   onTestLlm,
   onForgetLlm,
+  storageStatus = null, storageChecking = false, storageError = '', onRecheckStorage,
 }: ProfileDoctorProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [glossary, setGlossary] = useState(profile.defaultVocabulary.join('\n'));
   const [packName, setPackName] = useState('');
   const importRef = useRef<HTMLInputElement | null>(null);
+  const dialog = useRef<HTMLElement | null>(null);
+  useModalFocus(open, dialog, onClose);
 
   useEffect(() => setGlossary(profile.defaultVocabulary.join('\n')), [profile.defaultVocabulary]);
   useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
@@ -84,9 +93,9 @@ export function ProfileDoctor({
   };
 
   return <div className="modal-backdrop profile-settings-backdrop" onMouseDown={onClose}>
-    <section className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong>Settings</strong><span>Manage AI, your profile, privacy, and system checks.</span></div>
+        <div><strong id="settings-title">Settings</strong><span>Manage AI, your profile, privacy, and system checks.</span></div>
         <button className="icon-btn" aria-label="Close settings" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>
@@ -102,6 +111,7 @@ export function ProfileDoctor({
           <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={() => removePack(pack.id)}><Trash2 size={14}/></button></div>)}</div>
         </div>
       </div> : tab === 'privacy' ? <ContributorSettings profile={profile} busy={busy} onSave={onSave}/> : <div className="doctor-body">
+        <ProjectStoragePanel status={storageStatus} checking={storageChecking} error={storageError} onRecheck={onRecheckStorage}/>
         <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. The report excludes your API key.</span></div><button className="primary" disabled={busy} onClick={onRunDoctor}>Run checks</button></div>
         {!doctor && <div className="modal-empty"><HeartPulse size={28}/><strong>No report yet</strong><span>Run checks after setup or if caption generation fails.</span></div>}
         {doctor && <>

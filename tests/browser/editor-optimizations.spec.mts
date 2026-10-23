@@ -62,7 +62,7 @@ test('Find & Replace suppresses background scans while closed and recalculates u
   await expect(reopenedModal.locator('.find-summary')).toContainText(/3\s*matches in 2 captions/);
 
   // Preview must show captions 2 and 3, not caption 1
-  const previewParagraphs = reopenedModal.locator('.find-preview p');
+  const previewParagraphs = reopenedModal.locator('.find-preview .find-before');
   await expect(previewParagraphs).toHaveCount(2);
   await expect(previewParagraphs.nth(0)).toContainText('កម្ពុជា is beautiful');
   await expect(previewParagraphs.nth(1)).toContainText('Welcome to កម្ពុជា');

@@ -15,11 +15,14 @@ export function useModalFocus(
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = () => Array.from(root.querySelectorAll<HTMLElement>(
       'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
-    )).filter((item) => item.getClientRects().length > 0);
+    )).filter((item) => item.tabIndex >= 0 && item.getClientRects().length > 0 && !item.closest('[inert], [aria-hidden="true"]'));
     const isTopmost = () => Array.from(document.querySelectorAll('[aria-modal="true"]')).at(-1) === root;
-    const focusFirst = () => (initialFocus?.current || focusable()[0] || root).focus();
+    const focusFirst = () => {
+      const preferred = initialFocus?.current;
+      (preferred && !preferred.matches(':disabled') && preferred.getClientRects().length ? preferred : focusable()[0] || root).focus();
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isTopmost()) return;
+      if (!isTopmost() || event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -28,19 +31,20 @@ export function useModalFocus(
         const items = focusable();
         const first = items[0] || root;
         const last = items.at(-1) || root;
-        if (event.shiftKey && (document.activeElement === first || !root.contains(document.activeElement))) {
+        if (!items.length) { event.preventDefault(); root.focus(); return; }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === root || !root.contains(document.activeElement))) {
           event.preventDefault(); last.focus();
-        } else if (!event.shiftKey && (document.activeElement === last || !root.contains(document.activeElement))) {
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === root || !root.contains(document.activeElement))) {
           event.preventDefault(); first.focus();
         }
       }
     };
     const onFocusIn = () => { if (isTopmost() && !root.contains(document.activeElement)) focusFirst(); };
     focusFirst();
-    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown);
     document.addEventListener('focusin', onFocusIn);
     return () => {
-      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('focusin', onFocusIn);
       if (previous?.isConnected) {
         const target = previous.getClientRects().length ? previous : previous.closest('details')?.querySelector('summary');

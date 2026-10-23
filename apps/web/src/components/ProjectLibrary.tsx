@@ -15,6 +15,8 @@ interface ProjectLibraryProps {
   onOpen: (id: string) => void;
   onBack: () => void;
   onRetry: () => void;
+  storageUnavailable?: boolean;
+  onReviewStorage?: () => void;
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -24,7 +26,7 @@ function ProjectDate({ label, value }: { label: string; value: string }) {
   return <span>{label} <time dateTime={date.toISOString()} title={date.toLocaleString()}>{dateFormatter.format(date)}</time></span>;
 }
 
-export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, disabled, openingProjectId, onOpen, onBack, onRetry }: ProjectLibraryProps) {
+export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, disabled, openingProjectId, onOpen, onBack, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
   const ids = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
@@ -97,7 +99,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
           : `${result.matches} of ${result.total} projects`}</h2>
         {result.matches > 0 && <span>Showing {result.start}–{result.end}</span>}
       </div>
-      {result.total === 0 ? <div className="project-library-empty"><FolderOpen size={28} aria-hidden="true"/><h2>No projects yet</h2><p>Choose a video or audio file on Home to start your first project.</p><button type="button" onClick={onBack}>Create a project</button></div>
+      {result.total === 0 ? <div className="project-library-empty"><FolderOpen size={28} aria-hidden="true"/><h2>{storageUnavailable ? 'Project storage needs a check' : 'No projects yet'}</h2><p>{storageUnavailable ? 'Studio cannot confirm this is an empty saved library. Review storage; existing files are kept.' : 'Choose a video or audio file on Home to start your first project.'}</p><button type="button" onClick={storageUnavailable && onReviewStorage ? onReviewStorage : onBack}>{storageUnavailable && onReviewStorage ? 'Review storage' : 'Create a project'}</button></div>
         : result.matches === 0 ? <div className="project-library-empty"><Search size={26} aria-hidden="true"/><h2>No projects match your search</h2><p>Try another project name, or clear your search to see all projects.</p><button type="button" onClick={clearSearch}>Show all projects</button></div>
         : <ul className="project-library-results" aria-label="Project results">{result.items.map((project, index) => {
           const opening = openingProjectId === project.id;
