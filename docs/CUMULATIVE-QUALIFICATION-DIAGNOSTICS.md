@@ -90,7 +90,11 @@ product-behavior correction or lazy-loading architecture is justified by these
 observations. Subsequent full qualification and clean benchmark receipts must
 remain separate from these instrumented samples.
 
-Public impact: none for the synthetic-only diagnostic tooling. There is no new
+## Subsequent captured parser defect
+
+A later instrumented same-index-seek case retained a nonempty PNG at 2900ms while its bbox header and coordinates were separated by another FFmpeg log writer. The context-keyed parser correction and its regression fixture are documented in [Native preview bounds recovery](NATIVE-PREVIEW-BOUNDS-RECOVERY.md). This establishes that captured occurrence, not the cause of earlier unretained failures. The earlier bounded investigation above remains historical evidence.
+
+Public impact: none for the synthetic-only diagnostic tooling; required for the subsequent production bounds-parser correction. There is no new
 data transfer, dependency, advertised feature or release-availability claim.
 The underlying historical discrepancy has unresolved user-visible impact; any
 future product correction requires a fresh assessment. Publication ownership is
