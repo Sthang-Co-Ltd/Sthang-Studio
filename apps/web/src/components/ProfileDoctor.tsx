@@ -4,6 +4,7 @@ import type { LlmConnectionTest, LlmSettingsStatus, SaveLlmSettingsInput } from 
 import { Clipboard, Download, FileUp, HeartPulse, KeyRound, PackagePlus, Play, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import { ContributorSettings } from './ContributorSettings';
+import { useModalFocus } from '../use-modal-focus';
 import { ProjectStoragePanel } from './ProjectStoragePanel';
 import './contribution.css';
 
@@ -53,6 +54,8 @@ export function ProfileDoctor({
   const [glossary, setGlossary] = useState(profile.defaultVocabulary.join('\n'));
   const [packName, setPackName] = useState('');
   const importRef = useRef<HTMLInputElement | null>(null);
+  const dialog = useRef<HTMLElement | null>(null);
+  useModalFocus(open, dialog, onClose);
 
   useEffect(() => setGlossary(profile.defaultVocabulary.join('\n')), [profile.defaultVocabulary]);
   useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
@@ -90,9 +93,9 @@ export function ProfileDoctor({
   };
 
   return <div className="modal-backdrop profile-settings-backdrop" onMouseDown={onClose}>
-    <section className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong>Settings</strong><span>Manage AI, your profile, privacy, and system checks.</span></div>
+        <div><strong id="settings-title">Settings</strong><span>Manage AI, your profile, privacy, and system checks.</span></div>
         <button className="icon-btn" aria-label="Close settings" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>

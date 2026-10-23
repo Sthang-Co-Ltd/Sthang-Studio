@@ -38,6 +38,8 @@
     "persistent-caption-preview-phase3.test.mts",
     "caption-interchange.test.ts",
     "caption-handoff.test.mts",
+    "export-evidence.test.mts",
+    "export-evidence-native.test.mts",
     "caption-handoff-native.test.mts",
     "export-checks.test.ts",
     "export-preflight.test.mts",

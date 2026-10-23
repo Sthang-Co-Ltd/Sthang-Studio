@@ -5,6 +5,7 @@ import { BarChart3, LockKeyhole, ShieldCheck, HandHeart, X } from 'lucide-react'
 import { api } from '../api';
 import { CONTRIBUTION_PROMPT_SESSION_KEY, shouldShowPrivacyUpgradeNotice } from '../privacy-onboarding';
 import { ContributorSettings } from './ContributorSettings';
+import { useModalFocus } from '../use-modal-focus';
 import './contribution.css';
 
 export function PrivacyUpgradeHost() {
@@ -43,13 +44,6 @@ export function PrivacyUpgradeHost() {
     void inspect();
     return () => { disposed = true; };
   }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    // Move accessibility focus into the dialog without visually preselecting any
-    // consent action or making the close control look like the primary decision.
-    window.setTimeout(() => dialogRef.current?.focus({ preventScroll: true }), 0);
-  }, [open, view]);
 
   const saveResolution = async (consent?: Exclude<ConsentState, 'unset'>) => {
     const current = await api.profile();
@@ -109,35 +103,12 @@ export function PrivacyUpgradeHost() {
     setProfile(updated);
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Tab') {
-        const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
-        );
-        if (!controls?.length) return;
-        const first = controls[0];
-        const last = controls[controls.length - 1];
-        const active = document.activeElement;
-        if (event.shiftKey && (active === first || active === dialogRef.current || !dialogRef.current?.contains(active))) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && active === last) {
-          event.preventDefault();
-          first.focus();
-        }
-        return;
-      }
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (view === 'review') setOpen(false);
-      else void dismiss();
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [open, view, working]);
+  // Root focus avoids visually preselecting either consent decision.
+  useModalFocus(open && Boolean(profile), dialogRef, () => {
+    if (view === 'review') setOpen(false);
+    else void dismiss();
+  }, dialogRef);
+  useEffect(() => { if (open) dialogRef.current?.focus({ preventScroll: true }); }, [view]);
 
   if (!open || !profile) return null;
 

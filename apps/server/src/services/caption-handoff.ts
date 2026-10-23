@@ -28,6 +28,7 @@ import { jobStore } from './job-store.js';
 import { runCommand } from './media.js';
 import { store } from './store.js';
 import { probeVideoExportCapabilities } from './video-export.js';
+import { recordExportEvidence } from './export-evidence.js';
 
 export type CaptionHandoffFormat = CaptionFileFormat;
 
@@ -492,6 +493,10 @@ function restorePreview(project: CaptionProject, parsed: CaptionDataDocument, op
 }
 
 export function createCaptionHandoffService(dependencies: CaptionHandoffDependencies) {
+  const withEvidence = async (project: CaptionProject, format: CaptionFileFormat, result: CaptionHandoffExportResult) => {
+    const recorded = await dependencies.withProjectWrite(project.id, async (current) => current ? recordExportEvidence(project, format) : false).catch(() => false);
+    return recorded ? result : { ...result, warnings: [...result.warnings, 'The file is ready, but its export history could not be saved. Freshness will be unknown.'] };
+  };
   const loadCurrent = async (projectId: string, media: ExpectedMedia, revision: string) => {
     const project = await dependencies.getProject(projectId);
     if (!project) throw new CaptionHandoffError('Project not found.', 404);
@@ -574,12 +579,12 @@ export function createCaptionHandoffService(dependencies: CaptionHandoffDependen
       if (request.format === 'bundle') {
         const result = await bundle(project, signal);
         await loadCurrent(projectId, request.expectedMedia, request.expectedRevision);
-        return { ...result, contentType: contentTypes.bundle, filename: fixedFilenames.bundle, revision };
+        return withEvidence(project, request.format, { ...result, contentType: contentTypes.bundle, filename: fixedFilenames.bundle, revision });
       }
       if (request.format === 'ass') {
         const contents = assertTextPayload(await assDocument(project, dependencies, signal), 'Styled ASS');
         await loadCurrent(projectId, request.expectedMedia, request.expectedRevision);
-        return { body: Buffer.from(contents, 'utf8'), contentType: contentTypes.ass, filename: fixedFilenames.ass, warnings: [], revision };
+        return withEvidence(project, request.format, { body: Buffer.from(contents, 'utf8'), contentType: contentTypes.ass, filename: fixedFilenames.ass, warnings: [], revision });
       }
       if (request.format === 'word-srt' || request.format === 'word-vtt') {
         const readiness = wordReadiness(project.captions);
@@ -587,7 +592,7 @@ export function createCaptionHandoffService(dependencies: CaptionHandoffDependen
       }
       const contents = serialize(project, request.format);
       await loadCurrent(projectId, request.expectedMedia, request.expectedRevision);
-      return { body: Buffer.from(contents.text, 'utf8'), contentType: contents.mimeType, filename: fixedFilenames[request.format], warnings: contents.warnings, revision };
+      return withEvidence(project, request.format, { body: Buffer.from(contents.text, 'utf8'), contentType: contents.mimeType, filename: fixedFilenames[request.format], warnings: contents.warnings, revision });
     },
 
     async restorePreview(projectId: string, request: CaptionRestorePreviewRequest): Promise<CaptionRestorePreview> {

@@ -4,8 +4,10 @@ import { resolveCaptionWordTiming } from '@kcs/shared';
 import {
   AudioLines,
   LocateFixed,
-  Minus,
-  Plus,
+  Focus,
+  Expand,
+  ZoomOut,
+  ZoomIn,
   RefreshCw,
   ScanLine,
   ChevronLeft,
@@ -754,12 +756,14 @@ export function WaveformEditor({
   });
 
   return <section className="waveform-card fine-timing" ref={host} aria-label="Fine timing editor">
-    <div className="timing-selection">
-      <div className="timing-caption-nav">
+    <div className="timing-caption-nav">
+      <strong>{selectedCaption ? `Caption ${captionIndex + 1} / ${captions.length}` : 'Select a caption'}</strong>
+      <div className="timing-caption-actions" role="group" aria-label="Caption navigation">
         <button aria-label="Previous caption" disabled={captionIndex <= 0} onClick={() => navigateCaption(-1)}><ChevronLeft size={16}/><span>Previous</span></button>
-        <strong>{selectedCaption ? `Caption ${captionIndex + 1} / ${captions.length}` : 'Select a caption'}</strong>
         <button aria-label="Next caption" disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>Next</span><ChevronRight size={16}/></button>
       </div>
+    </div>
+    <div className="timing-selection">
       <p className="timing-caption-text">{currentCaption?.text || 'Choose a caption from the list to adjust its timing.'}</p>
       {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next for the others.</p>}
     </div>
@@ -772,17 +776,21 @@ export function WaveformEditor({
         <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} title="Redo timing edit (Ctrl+Shift+Z)"><Redo2 size={15}/>Redo</button>
       </div>
     </div>
-    <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
-      <button aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('caption'); }}>Caption edges</button>
-      <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('words'); }}>Word timing</button>
-      {editMode === 'words' && <span className="timing-hint">{wordResolution?.state === 'ready' ? 'Timing ready' : 'Word timing needs review'}</span>}
-    </div>
-    <div className="timing-view-controls">
-      <button onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><LocateFixed size={15}/>Focus caption</button>
-      <button onClick={() => setZoomValue(1)} disabled={!durationMs}>Full clip</button>
-      <button onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs} title="Zoom out"><Minus size={15}/><span>Zoom out</span></button>
-      <button onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs} title="Zoom in"><Plus size={15}/><span>Zoom in</span></button>
-      <span className="timing-view-span">{(viewDurationMs / 1000).toFixed(1)} s visible</span>
+    <div className="timing-waveform-toolbar">
+      <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
+        <button aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('caption'); }}>Caption edges</button>
+        <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('words'); }}>Word timing</button>
+        {editMode === 'words' && <span className="timing-hint">{wordResolution?.state === 'ready' ? 'Timing ready' : 'Word timing needs review'}</span>}
+      </div>
+      <div className="timing-view-controls">
+        <span className="timing-view-span">{(viewDurationMs / 1000).toFixed(1)} s visible</span>
+        <div className="timing-view-actions" role="group" aria-label="Waveform view">
+          <button aria-label="Focus caption" title="Focus caption" onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><Focus size={17}/></button>
+          <button aria-label="Full clip" title="Full clip" onClick={() => setZoomValue(1)} disabled={!durationMs}><Expand size={17}/></button>
+          <button aria-label="Zoom out" title="Zoom out" onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs}><ZoomOut size={17}/></button>
+          <button aria-label="Zoom in" title="Zoom in" onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs}><ZoomIn size={17}/></button>
+        </div>
+      </div>
     </div>
     <div ref={canvasHost} className={`waveform-canvas-wrap ${drag ? 'dragging' : ''}`}>
       {loading && <div className="waveform-loading">Preparing waveform…</div>}

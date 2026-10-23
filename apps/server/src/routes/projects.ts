@@ -12,6 +12,7 @@ import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
+import { recordExportEvidence } from '../services/export-evidence.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 import { normalizeKhmerDisplayText, normalizeKhmerTokenSpacing } from '../services/tokenizer.js';
 import { transcriptText } from '../services/transcript.js';
@@ -641,6 +642,7 @@ router.get('/:id/export.srt', async (req, res) => {
   const project = await store.get(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const srt = toSrt(project.captions);
+  await store.withProjectWrite(project.id, async (current) => current ? recordExportEvidence(project, 'srt') : false).catch(() => false);
   const durationMs = project.transcript?.timing?.audioDurationMs || 0;
   void captureAnalytics('export_completed', {
     caption_count_bucket: analyticsBuckets.captions(project.captions.length),

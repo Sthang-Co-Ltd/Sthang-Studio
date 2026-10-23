@@ -193,13 +193,12 @@ export function WordTimingPanel({ caption, selectedWordId, playheadMs, stepMs, d
   return <div className="word-timing-panel" aria-label="Word timing controls">
     <div className="word-timing-head">
       <div><strong>{candidate ? 'Proposed word timing' : 'Words in this caption'}</strong>
-        <p className="timing-hint">{resolution.state === 'ready' ? 'Every word has usable timing. Adjust only what sounds off.' : 'Word highlighting stays off until every word has usable timing.'}</p></div>
-      <button disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
+        {resolution.state !== 'ready' && <p className="timing-hint">Word highlighting stays off until every word has usable timing.</p>}</div>
+      <button title="Align the current caption text to audio without changing the wording" disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
         {syncing ? <LoaderCircle size={15} className="spin"/> : <RefreshCw size={15}/>} {syncing ? 'Syncing…' : 'Sync words'}
       </button>
       {syncing && <button onClick={cancelSync}>Cancel sync</button>}
     </div>
-    <p className="timing-hint">Sync words aligns the current text to local audio. Edit the text first; syncing will not rewrite it.</p>
     <div className="word-timing-links"><button onClick={onEditText}>Edit caption text</button><button onClick={onOpenAppearance}>{highlightEnabled ? 'Highlight settings' : 'Enable word highlighting…'}</button></div>
     {candidate && <div className="word-timing-candidate" role="status">
       <strong>Previewing word timing. Saved captions are unchanged.</strong>

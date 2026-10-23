@@ -158,7 +158,7 @@ test('corrected spelling keeps tentative timing until the user confirms that wor
   await page.getByRole('button', { name: 'Confirm this word', exact: true }).click();
   await expect.poll(() => first().wordTiming!.words[3].source).toBe('manual');
   expect(first().wordTiming!.words[3].needsReview).not.toBe(true);
-  await expect(page.locator('.word-timing-panel')).toContainText('Every word has usable timing.');
+  await expect(page.locator('.timing-mode-switch')).toContainText('Timing ready');
 });
 
 test('an inserted word starts untimed and can be assigned without stretching other words', async ({ page }) => {
@@ -323,7 +323,7 @@ test('an older multi-caption project hydrates only its exact owned word windows'
   delete project().captions[1].wordTiming;
   await openTiming(page);
   await expect(page.getByRole('button', { name: 'Word 4: very', exact: true })).toBeVisible();
-  await expect(page.locator('.word-timing-panel')).toContainText('Every word has usable timing.');
+  await expect(page.locator('.timing-mode-switch')).toContainText('Timing ready');
   await page.getByRole('button', { name: 'Next caption', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word 1: Next', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Word 4: very', exact: true })).toHaveCount(0);
@@ -343,7 +343,7 @@ test('temporary Khmer composition does not destroy the original word timings', a
   await text.dispatchEvent('compositionend');
   await page.getByRole('button', { name: 'Word timing', exact: true }).click();
   await expect.poll(() => first().wordTiming).toEqual(original);
-  await expect(page.locator('.word-timing-panel')).toContainText('Every word has usable timing.');
+  await expect(page.locator('.timing-mode-switch')).toContainText('Timing ready');
 });
 
 test('spoken-word highlight setting saves and links directly to the word editor', async ({ page }) => {

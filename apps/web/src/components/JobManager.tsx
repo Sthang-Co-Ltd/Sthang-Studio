@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ProcessingJob } from '@kcs/shared';
+import type { CaptionProject, ProcessingJob } from '@kcs/shared';
+import { ExportJobFreshness } from './ExportHistory';
+import type { AppearanceReconciliation } from '../caption-appearance-reconciliation';
 import { Ban, CheckCircle2, CircleAlert, Clock3, Download, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
 import { JOBS_UPDATED_EVENT } from '../api';
 import { useModalFocus } from '../use-modal-focus';
@@ -8,6 +10,8 @@ import './job-manager.css';
 interface Props {
   open: boolean;
   jobs: ProcessingJob[];
+  project?: CaptionProject;
+  appearanceReconciliation: AppearanceReconciliation;
   onClose(): void;
   onRefresh(): void;
   onResume(id: string): void;
@@ -77,7 +81,7 @@ function formatDuration(ms: number) {
   return `${seconds}s`;
 }
 
-export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+export function JobManager({ open, jobs, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
   const dialog = useRef<HTMLElement | null>(null);
   useModalFocus(open, dialog, onClose);
   const [now, setNow] = useState(Date.now());
@@ -135,6 +139,7 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
         <button className="job-modal-close" aria-label="Close Activity" title="Close Activity" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="history-toolbar job-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
+      {appearanceReconciliation.value.status === 'error' && jobs.some((job) => job.projectId === project?.id && job.resultExport && job.exportContentFingerprint) && <div className="history-toolbar" role="status"><span>Current appearance could not be compared.</span><button onClick={() => void appearanceReconciliation.refresh()}>Retry appearance comparison</button></div>}
       {hasCompletedExport && <div className="activity-export-location" aria-label="Video export location" aria-live="polite">
         <span>Export folder</span>
         <code title={exportDirectory || undefined}>{exportDirectory || exportDirectoryError || 'Loading location…'}</code>
@@ -160,9 +165,11 @@ export function JobManager({ open, jobs, onClose, onRefresh, onResume, onCancel,
                 {job.resultExport && <small>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</small>}
               </div>
               {job.error && <em>{job.error}</em>}
+              {job.status === 'completed' && job.resultExport && <ExportJobFreshness job={job} project={project} appearance={appearanceReconciliation.value}/>}
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
+                {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button onClick={() => onOpen(job)}>Open project to compare</button>}
                 {job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}
                 {['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}
               </div>
