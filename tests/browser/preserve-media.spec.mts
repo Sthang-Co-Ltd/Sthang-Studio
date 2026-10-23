@@ -440,6 +440,16 @@ test('Start over requires a separate destructive confirmation; cancellation and 
   await confirmation.getByRole('button', { name: 'Keep current project', exact: true }).click();
   expect(f.requests).toHaveLength(0);
   expect(f.state.projects[0]).toEqual(f.original);
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(confirmation.getByRole('button', { name: 'Keep current project', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  // The parent leaves its busy state here and deliberately restores its safe Cancel default.
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  expect(f.requests).toHaveLength(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
 });
 
 test('explicit reset clears captions only after confirmation and exposes durable Undo on reload', async ({ page }) => {

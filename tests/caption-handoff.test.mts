@@ -235,6 +235,27 @@ test('summary and plain SRT export use only the saved snapshot with no media pro
   assert.equal(stale.status, 409);
 });
 
+test('export receipts survive a reload while corrupt receipt storage cannot block a successful download', async () => {
+  const project = projectFixture('receipt-route');
+  const harness = makeHarness(project); activeService = harness.service;
+  const value = await harness.service.summary(project.id);
+  const response = await post(project.id, 'export', { format: 'srt', ...precondition(project, value.revision) });
+  assert.equal(response.status, 200);
+  const receiptResponse = await fetch(`${baseUrl}/${project.id}/export-history`);
+  assert.equal(receiptResponse.status, 200);
+  const receipts = await receiptResponse.json(); assert.equal(receipts.length, 1); assert.equal(receipts[0].format, 'srt');
+  const { config } = await import('../apps/server/src/config.js');
+  const file = path.join(config.historyDir, project.id, 'export-receipts.json');
+  await fs.writeFile(file, '{corrupt');
+  const exported = await post(project.id, 'export', { format: 'srt', ...precondition(project, value.revision) });
+  assert.equal(exported.status, 200); assert.match(await exported.text(), /Hello captions/);
+  assert.match(exported.headers.get('x-sthang-handoff-warnings') || '', /export history could not be saved/);
+  assert.equal(await fs.readFile(file, 'utf8'), '{corrupt');
+  const unavailable = await fetch(`${baseUrl}/${project.id}/export-history`);
+  assert.equal(unavailable.status, 503); assert.equal(JSON.stringify(await unavailable.json()).includes(root), false);
+  assert.equal(harness.counts().persists, 0);
+});
+
 test('persisted transcript audio duration participates in handoff revision and fences an old export', async () => {
   const project = projectFixture('duration-revision');
   project.transcript = {

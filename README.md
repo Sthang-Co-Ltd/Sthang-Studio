@@ -1,5 +1,9 @@
 # Sthang Studio
 
+Source development: **Correct everywhere** now previews Before/After text before
+applying a bulk correction, preserves text-locked captions, and pages all matching
+captions. This does not establish availability in a published download.
+
 **Accurate Khmer captions, styled and finished or ready for CapCut.**
 
 Sthang Studio is a desktop caption workspace for Cambodian Khmer creators on
@@ -104,6 +108,19 @@ approves changed captions or imports trusted word timing from browser storage.
 See [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md) for retention,
 storage limits, and the fields included. This is not a claim about the published
 v0.86.0 downloads.
+
+## Saved project storage notices (source-only)
+
+The development source warns when saved project files, the project order, or older
+project data cannot be read completely. Healthy projects remain available. Open
+**Settings → System check → Saved projects** for counts and **Recheck saved
+projects**. Rechecking reads storage without repairing files or reloading restored
+projects into the running session.
+
+Back up the Studio state folder and download available unfinished edits. Stop
+Studio before restoring known-good copies, then restart; keep the original files.
+See [saved project recovery](docs/PROJECT-STORAGE-RECOVERY.md) for limits. This
+source feature does not establish availability in published v0.86.0 downloads.
 
 ## Playback and update hardening
 
@@ -753,3 +770,12 @@ configured integrations and do not imply sponsorship or endorsement.
 ---
 
 **Sthang Studio** is developed by Sthang. Product information: https://sthang.app/
+
+## Export freshness in source development
+
+Export history compares the latest prepared file of each format with the open
+project, including unsaved edits. Activity compares individual new captioned-video
+renders with their saved content fingerprints. Earlier exports without receipts
+remain unknown. Comparisons that include styling stay unknown until the current
+project's saved appearance is reconciled. See [export freshness](docs/EXPORT-FRESHNESS.md). This is source
+development and does not establish availability in a published download.
