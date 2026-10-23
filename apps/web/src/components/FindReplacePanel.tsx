@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { Replace, Search, ShieldPlus, X } from 'lucide-react';
 import { applyReplacementPlan, planReplacement, type MatchMode } from '../find-replace';
+import { useModalFocus } from '../use-modal-focus';
 
 interface FindReplacePanelProps {
   open: boolean;
@@ -23,6 +24,9 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
   const [remember, setRemember] = useState<'none' | 'project' | 'global'>('none');
   const [error, setError] = useState('');
   const [page, setPage] = useState(0);
+  const dialog = useRef<HTMLElement | null>(null);
+  const find = useRef<HTMLInputElement | null>(null);
+  useModalFocus(open, dialog, onClose, find);
 
   useEffect(() => {
     if (!open) return;
@@ -64,10 +68,10 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
   };
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
-    <section className="modal find-replace-modal" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-head"><div><Search size={18}/><div><strong>Find & Correct Everywhere</strong><span>Preview every occurrence. Locked text stays unchanged.</span></div></div><button aria-label="Close find and correct" onClick={onClose}><X size={17}/></button></div>
+    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="find-replace-title" tabIndex={-1} className="modal find-replace-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-head"><div><Search size={18}/><div><strong id="find-replace-title">Find & Correct Everywhere</strong><span>Preview every occurrence. Locked text stays unchanged.</span></div></div><button aria-label="Close find and correct" onClick={onClose}><X size={17}/></button></div>
       <div className="find-grid">
-        <label><span>Find</span><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
+        <label><span>Find</span><input ref={find} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
         <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Terra or GPT 5.6 Luna"/></label>
         <label><span>Match</span><select value={mode} onChange={(event) => setMode(event.target.value as MatchMode)}><option value="literal">Case-sensitive text</option><option value="case-insensitive">Ignore Latin case</option><option value="regex">Regular expression</option></select></label>
         <label><span>Scope</span><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option value="project">Entire project</option><option value="selection" disabled={!selectedIds.length}>Selected captions ({selectedIds.length})</option></select></label>
