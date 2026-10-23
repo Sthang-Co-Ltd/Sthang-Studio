@@ -477,6 +477,11 @@ Editor shortcuts remain isolated for the entire lifetime of a product dialog.
   **Restore draft**, **Download draft**, and **Discard draft** actions. Use an
   explicit discard confirmation; keep the media and caption list accessible.
   Changed saved captions/context/media disable restoration and explain comparison.
+- Saved-project read warnings use the shared toast stack with **Review storage**.
+  Settings → System check separates projects loaded in this session from readable
+  files at the last check. Keep recovery guidance and the labeled read-only
+  recheck visible; do not offer destructive repair or automatic reload. Unknown
+  storage status must not make an empty library look like a confirmed new install.
 - Optional analytics/contribution outages should not create alarming editor
   errors. Keep local work safe and surface sync state only in the relevant privacy
   surface when action is needed.
