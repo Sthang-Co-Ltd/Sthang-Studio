@@ -1,5 +1,9 @@
 # Sthang Studio
 
+Source development: **Correct everywhere** now previews Before/After text before
+applying a bulk correction, preserves text-locked captions, and pages all matching
+captions. This does not establish availability in a published download.
+
 **Accurate Khmer captions, styled and finished or ready for CapCut.**
 
 Sthang Studio is a desktop caption workspace for Cambodian Khmer creators on
