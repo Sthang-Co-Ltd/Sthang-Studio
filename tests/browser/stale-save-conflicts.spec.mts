@@ -456,6 +456,8 @@ test('a pending own appearance save completes before the caption revision check 
 });
 
 test('a restored caption draft accepts an unrelated Appearance revision without becoming new correction evidence', async ({ page }) => {
+  // Install before navigation so existing application timers are never replaced.
+  await page.clock.install();
   const name = 'restored-appearance';
   await preparePage(page, name);
   await open(page, name);
@@ -469,7 +471,6 @@ test('a restored caption draft accepts an unrelated Appearance revision without 
   await page.getByRole('button', { name: new RegExp(titleFor(name)) }).click();
   const notice = page.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
   await expect(notice.getByRole('button', { name: 'Restore draft', exact: true })).toBeEnabled();
-  await page.clock.install();
   await notice.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(captionField(page)).toHaveValue(local);
 
