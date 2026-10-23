@@ -638,6 +638,11 @@ in the current public download.
 
 ## Development
 
+Measure the production caption list with
+`npm run benchmark:caption-list -- data/working/caption-list-new-run`.
+See [caption-list benchmark](docs/CAPTION-LIST-BENCHMARK.md) for prerequisites,
+raw samples, measured limits, and the distinction from playback/customer metrics.
+
 Read [`AGENTS.md`](AGENTS.md) before changing the application. Product and UX
 behavior are also documented in [`PRODUCT.md`](PRODUCT.md),
 [`DESIGN.md`](DESIGN.md), and [`UX-AUDIT.md`](UX-AUDIT.md).
