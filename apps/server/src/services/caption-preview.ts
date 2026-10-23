@@ -10,6 +10,7 @@ import { config } from '../config.js';
 import { validateCaptionOverflow } from './caption-overflow.js';
 import { buildAssDocument, buildAssCaptionFilter, preparePreviewFonts, requireCaptionFont } from './caption-renderer.js';
 import { renderPersistentCaptionPreview, retireIdleCaptionPreviews, type PreviewScope } from './persistent-caption-preview.js';
+import { captureCaptionPreviewDiagnostics, type CaptionPreviewDiagnostics, type CaptionPreviewDiagnosticSnapshot, type CaptionPreviewProcessDiagnostic } from './caption-preview-diagnostics.js';
 
 let activeRenders = 0;
 const maxConcurrentRenders = 2;
@@ -116,6 +117,7 @@ export async function renderCaptionPreview(
   capabilities: VideoExportCapabilities,
   signal?: AbortSignal,
   scope?: PreviewScope,
+  diagnostics?: CaptionPreviewDiagnostics,
 ): Promise<CaptionPreviewResult> {
   signal?.throwIfAborted();
   if (!capabilities.subtitlesFilter) throw new Error('This local video runtime cannot render the caption preview. Run System check before exporting video.');
@@ -124,8 +126,11 @@ export async function renderCaptionPreview(
   activeRenders += 1;
   let workDir: string | undefined;
   let fontLease: Awaited<ReturnType<typeof preparePreviewFonts>> | undefined;
+  const diagnostic: CaptionPreviewDiagnosticSnapshot | undefined = diagnostics
+    ? { input, startedAt: new Date().toISOString(), finishedAt: '', completed: false } : undefined;
   try {
     const { width, height } = resolveVideoDimensions(capabilities.source.displayWidth, capabilities.source.displayHeight, input.resolution);
+    if (diagnostic) diagnostic.dimensions = { width, height };
     // Guard decoded-frame allocation, not output choices. Unusually large sources can select a
     // supported output resolution; no hidden downscaling is used to claim an exact preview.
     if (width * height > 33_554_432) throw new Error('This preview exceeds the local 32-megapixel safety limit. Choose a smaller video output resolution in Export.');
@@ -174,8 +179,9 @@ export async function renderCaptionPreview(
       '-map', '[png]', '-frames:v', count, '-fps_mode', 'passthrough', '-c:v', 'png', '-threads', '1', path.join(workDir, '%02d.png'),
       '-map', '[minmax]', '-frames:v', count, '-f', 'null', '-',
       ...(focusFilter ? ['-map', '[focusBounds]', '-frames:v', count, '-f', 'null', '-'] : []),
-    ], signal);
+    ], signal, diagnostic);
     const bounds = [...stderr.matchAll(/\[bbox@(caption|focus) [^\]]*\][^\r\n]*?\bn:(\d+)[^\r\n]*?\bx1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+) w:(\d+) h:(\d+)/g)];
+    if (diagnostic) diagnostic.parsedBboxes = bounds.map((match) => Array.from(match));
     const boxFor = (kind: string, index: number) => {
       const box = bounds.find((match) => match[1] === kind && Number(match[2]) === index);
       return box && Number(box[7]) > 0 && Number(box[8]) > 0
@@ -186,8 +192,18 @@ export async function renderCaptionPreview(
       return { atMs, png: image.toString('base64'), bounds: boxFor('caption', index), ...(focusFilter ? { focusBounds: boxFor('focus', index) } : {}) };
     }));
     signal?.throwIfAborted();
+    if (diagnostic) {
+      diagnostic.frames = frames.map(({ png: _png, ...frame }) => frame);
+      diagnostic.completed = true;
+    }
     return { width, height, frames };
   } finally {
+    if (diagnostics && diagnostic) {
+      diagnostic.finishedAt = new Date().toISOString();
+      diagnostic.workDirectory = workDir;
+      diagnostic.fontDirectory = fontLease?.directory;
+      await captureCaptionPreviewDiagnostics(diagnostics, diagnostic);
+    }
     // Wait for process close before touching its files, particularly on Windows.
     if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
     fontLease?.release();
@@ -195,10 +211,15 @@ export async function renderCaptionPreview(
   }
 }
 
-function runPreview(args: string[], signal?: AbortSignal): Promise<string> {
+function runPreview(args: string[], signal?: AbortSignal, diagnostic?: CaptionPreviewDiagnosticSnapshot): Promise<string> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
+    const processDiagnostic: CaptionPreviewProcessDiagnostic | undefined = diagnostic
+      ? { executable: config.ffmpegPath, args: [...args], startedAt: new Date().toISOString(), stderr: '' } : undefined;
+    if (diagnostic) diagnostic.process = processDiagnostic;
+    const fullStderr: Buffer[] | undefined = diagnostic ? [] : undefined;
     const child = spawn(config.ffmpegPath, args, { shell: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    if (processDiagnostic) processDiagnostic.pid = child.pid;
     let stderr = '';
     let stopped: Error | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -213,9 +234,16 @@ function runPreview(args: string[], signal?: AbortSignal): Promise<string> {
     const timeout = setTimeout(() => stop(new Error('Caption preview timed out. Your captions and source media are unchanged.')), 30_000);
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    child.stderr.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-256_000); });
-    child.on('error', () => { stopped ||= new Error('The local caption renderer could not start. Run System check.'); });
-    child.on('close', (code) => {
+    child.stderr.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-256_000); fullStderr?.push(Buffer.from(chunk)); });
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      if (processDiagnostic) processDiagnostic.startErrorCode = error.code;
+      stopped ||= new Error('The local caption renderer could not start. Run System check.');
+    });
+    child.on('close', (code, closedSignal) => {
+      if (processDiagnostic) Object.assign(processDiagnostic, {
+        closedAt: new Date().toISOString(), exitCode: code, signal: closedSignal,
+        stderr: Buffer.concat(fullStderr!).toString('utf8'), parserStderr: stderr,
+      });
       clearTimeout(timeout);
       if (killTimer) clearTimeout(killTimer);
       signal?.removeEventListener('abort', abort);
@@ -225,3 +253,4 @@ function runPreview(args: string[], signal?: AbortSignal): Promise<string> {
     });
   });
 }
+
