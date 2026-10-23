@@ -35,6 +35,7 @@
     "caption-word-batch.test.ts",
     "caption-word-batch-api.test.mts",
     "native-preview-scheduler.test.ts",
+    "caption-preview-diagnostics.test.mts",
     "persistent-caption-preview-phase3.test.mts",
     "caption-interchange.test.ts",
     "caption-handoff.test.mts",
@@ -77,3 +78,4 @@
     "unfinished-edit-recovery-api.test.mts"
   ]
 }
+
