@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_tag:
-        description: "Exact Studio draft/release tag (v0.86.0)"
+        description: "Exact Studio draft/release tag (v0.88.0)"
         required: true
         type: string
       candidate_commit:

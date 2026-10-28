@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **0.88.0 release preparation:** synchronize workspace, lockfile and diagnostic
+  versions; regenerate source-owned macOS build evidence; retain verified 0.86.0
+  public download and OTA evidence until the new platform release gates pass.
+- **Editing and project recovery:** bring together unfinished-edit recovery,
+  revision-checked saves, searchable projects, saved-storage notices, and explicit
+  media replacement that retains reviewed captions and timing.
+- **Export and interaction improvements:** preview bulk corrections, check export
+  issues by caption, distinguish export history from current saved work, preserve
+  export choices during repairs, and improve native preview recovery, word-timing
+  controls, waveform navigation and keyboard focus.
+
 - **Source-only - repair export issues by caption:** show actionable caption-level
   blockers and review suggestions, with direct editing links and a return to the
   current export choices. Add an explicit local native layout check with overlap

@@ -146,14 +146,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-v0-86-0-release-20261013', 'manifest.change.id');
+  equal(change.id, 'studio-v0-88-0-release-20261028', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare Sthang Studio 0.86.0 with Khmer word-highlight preparation, responsive native caption preview, playback recovery, reviewed dependency runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. Publish Windows and Apple Silicon recovery downloads and platform OTA offers only after their exact release, provenance, native acceptance, signature, and pointer checks pass.',
+    'Prepare Sthang Studio 0.88.0 with unfinished-edit recovery, revision-checked saves, project search and storage notices, caption-preserving media replacement, bulk correction preview, export checks and history, and native preview recovery. Publish Windows and Apple Silicon recovery downloads and platform OTA offers only after their exact release, provenance, native acceptance, signature, and pointer checks pass.',
     'manifest.change.documentationImpact.summary',
   );
 

@@ -40,6 +40,19 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Version 0.88 preparation
+
+This source prepares package version `0.88.0` with unfinished-edit recovery,
+revision-checked saves, project search and storage notices, caption-preserving
+media replacement, bulk correction preview, export checks and history, and native
+preview recovery. The [0.88 release record](docs/V0.88-RELEASE.md) tracks the
+publication gates and required website/documentation follow-through.
+
+The verified public downloads and signed in-app offers remain `0.86.0` until the
+new recovery packages, native acceptance, signatures, and platform pointers have
+been verified. The intended [0.88.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
+becomes the recovery-download location only after publication succeeds.
+
 ## Version 0.86
 
 **v0.86** (package version `0.86.0`) brings Khmer word-highlight
@@ -206,11 +219,12 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-Sthang Studio `0.86.0` is this source's Public Beta release identity for
-**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
-[0.86.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
-is the governed recovery-download location after its assets are published and
-byte-verified.
+Sthang Studio `0.88.0` is this source's prepared Public Beta release identity for
+**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The verified public
+baseline remains the [0.86.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0).
+The [0.88.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
+becomes the governed recovery-download location after its assets are published
+and byte-verified; preparation alone does not change the live OTA offers.
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
