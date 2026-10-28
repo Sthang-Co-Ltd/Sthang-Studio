@@ -1,6 +1,6 @@
 # Replacing media while keeping reviewed captions
 
-Status: source-only. This does not establish availability in a published package.
+Status: included in [Sthang Studio 0.88.0 Public Beta](V0.88-RELEASE.md).
 
 ## Creator workflow
 
@@ -139,16 +139,23 @@ must identify the executed platform, runtime and suites; source-only browser tes
 or type-checking alone do not establish runtime acceptance. Route-mocked UI checks
 also do not establish durable filesystem recovery or native media export.
 
-## Pending Accuracy edits and copied recovery (source-only correction)
+The focused native media-replacement checks for `0.88.0` were completed after
+publication during release closeout. Windows passed 49 of 50 tests with one
+explicit POSIX-only skip; Apple Silicon passed all 50 with no skips. They exercised
+the exact published source, re-encoded fixtures and real replacement route.
+See [the release record](V0.88-RELEASE.md) for the chronology, runtimes and run evidence.
+
+## Pending Accuracy edits and copied recovery
 
 Accuracy text drafts are separate from acknowledged project context. Caption-only
 responses cannot reset them. Context saves are ordered with other same-media
 mutations, and late responses are scoped to their original editor session/source.
 Media preparation checks that accepted raw fields remain stable while saves drain;
 its context PUT compares the saved project revision atomically before writing.
-A conflict stops replacement and keeps local drafts for review. Ordinary explicit
-context saves keep their existing last-writer behavior; this is not a claim of
-general collaborative editing or cross-tab conflict resolution.
+A conflict stops replacement and keeps local drafts for review. Ordinary caption
+and Accuracy saves also check the saved revision; conflicting editors retain their
+drafts for comparison. See [unfinished-edit recovery](UNFINISHED-EDIT-RECOVERY.md)
+for the save-conflict workflow and limits.
 
 If accepted caption or Accuracy edits arrive after a media request is submitted,
 they belong to the previous source. The existing Copy recovery notice retains

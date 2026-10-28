@@ -1,9 +1,8 @@
 # Unfinished edit recovery
 
-**Source-only changes:** `studio-unfinished-edit-recovery-20261019` and
-`studio-reject-stale-saves-20261020`. This document
-describes development source behavior. It does not establish availability in a
-published download or update.
+Included in [Sthang Studio 0.88.0 Public Beta](V0.88-RELEASE.md).
+Original source changes: `studio-unfinished-edit-recovery-20261019` and
+`studio-reject-stale-saves-20261020`.
 
 ## Saving and recovering work
 
