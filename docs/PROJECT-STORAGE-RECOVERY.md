@@ -1,7 +1,8 @@
 # Saved project readability and recovery
 
 Change proposal: `studio-project-storage-recovery-20261021` (tracker #9).
-This documents development source, not a published release or verified backup.
+Included in [Sthang Studio 0.88.0 Public Beta](V0.88-RELEASE.md).
+Storage notices and rechecks do not establish that a backup is valid.
 
 Studio checks per-project JSON files during the existing startup load. Files with
 an unusable load shape are skipped with a notice; readable projects stay usable.
@@ -127,24 +128,25 @@ after the snapshot.
 
 ## Public impact: required
 
-Compared with `.sthang/product-manifest.json` and its README/privacy/installation
-evidence: the recovery workflow and limitations change. The governed v0.86.0
-release/download/version claims and identity remain unchanged. Product-owned
-README, PRODUCT and DESIGN documentation are updated with source-only scope.
+The recovery workflow and limitations are included in the verified `0.88.0`
+release. `.sthang/product-manifest.json`, README and
+[the release record](V0.88-RELEASE.md) carry its public version and download evidence.
 
-Proposed maintainer follow-up after source acceptance: HQ's Studio workflow and
+Pending maintainer follow-up: HQ's Studio workflow and
 limitations evidence should describe read warnings, explicit recheck, backup/stop/
 restore/restart guidance, missing indexed files even when no projects loaded,
 the deletion restriction during unresolved migration, and the lack of automatic
 repair. Distribution's
 `/studio/` website/docs should receive the corresponding troubleshooting guidance
-when availability is established. No new hosted service or disclosure is proposed.
+after the separate intake and synchronization approvals. No new hosted service
+or disclosure is proposed.
 Use HQ README Phase 3 intake, then Distribution README Phase 2 synchronization;
 each needs its own fresh exact plan digest and approval classes. Surface edits,
-release claims and publication require their separate approvals. No HQ or
-Distribution writes, release, merge, or deployment are part of this change.
+release claims and publication require their separate approvals. The Studio
+release record does not establish completed HQ or Distribution synchronization.
 
 The recheck correction adds a bounded unavailable/retry outcome during concurrent
-project changes to that proposed troubleshooting scope. The new proposed intake
-identifier is `studio-storage-recheck-20261022`; this document is source evidence,
-not an applied HQ intake, approved public availability or website synchronization.
+project changes to that troubleshooting scope. Its original intake identifier is
+`studio-storage-recheck-20261022`; the current release handoff uses
+`studio-v0-88-0-release-20261028`. Neither record is an applied HQ intake or
+website synchronization.

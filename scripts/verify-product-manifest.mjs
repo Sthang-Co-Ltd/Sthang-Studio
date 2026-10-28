@@ -153,7 +153,7 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Prepare Sthang Studio 0.88.0 with unfinished-edit recovery, revision-checked saves, project search and storage notices, caption-preserving media replacement, bulk correction preview, export checks and history, and native preview recovery. Publish Windows and Apple Silicon recovery downloads and platform OTA offers only after their exact release, provenance, native acceptance, signature, and pointer checks pass.',
+    'Publish verified Sthang Studio 0.88.0 Windows and Apple Silicon recovery downloads and signed OTA offers, with unfinished-edit recovery, revision-checked saves, project search and storage notices, caption-preserving media replacement, bulk correction preview, export checks and history, and native preview recovery. Synchronize the release and workflow evidence through the separate HQ and Distribution approval process.',
     'manifest.change.documentationImpact.summary',
   );
 

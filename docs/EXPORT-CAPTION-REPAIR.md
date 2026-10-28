@@ -1,7 +1,7 @@
 # Export checks and caption repair
 
-Status: source-only implementation. The public release remains governed by the
-product manifest and its verified release evidence.
+Status: included in [Sthang Studio 0.88.0 Public Beta](V0.88-RELEASE.md).
+The product manifest and release record contain the verified publication evidence.
 
 ## Workflow
 
