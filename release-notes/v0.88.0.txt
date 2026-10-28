@@ -1,0 +1,33 @@
+Sthang Studio 0.88.0 - Public Beta
+
+Version 0.88 brings the accepted editing, project, playback and export improvements together.
+
+Keep unfinished caption and Accuracy edits through failed saves, navigation and browser recovery.
+Conflicting editors retain their drafts for comparison instead of overwriting newer saved work.
+Find older projects with All projects, Khmer-aware name search, sorting and pages.
+Saved-project notices identify unreadable or missing local files and provide a safe recheck.
+
+Replace compatible footage while retaining reviewed captions, exact times, approvals and styling.
+Explicitly accept edited audio after local timeline checks, with an alignment reminder and recoverable backup.
+Preview bulk wording corrections before applying them.
+
+Check export issues by caption, open the affected edit and return to the chosen export settings.
+Export history distinguishes earlier saved results from the current project and supports opening prior outputs.
+Captioned-video export validates its saved snapshot; plain SRT remains available when only video layout needs attention.
+
+Improve native caption preview recovery, Khmer layout bounds, word timing controls and waveform navigation.
+Preserve deliberate playback seeks and keep keyboard focus and dialog controls consistent.
+Projects, timing, preview and exports remain local. Fresh AI listens remain new requests.
+
+Requirements: Windows 10 or 11 x64, or Apple Silicon macOS 12.3+, internet for initial setup and AI wording, and a Gemini Developer API key.
+The macOS launcher is a local wrapper, not an Apple-signed or notarized native distribution.
+Studio requests store: false for Gemini interactions. Audio is uploaded separately through the Gemini Files API; Studio does not explicitly delete that remote file.
+Google documents Files API retention of up to 48 hours. Contributor and product analytics remain separate, off-by-default choices requiring explicit opt-in.
+
+Recovery assets, each with a matching SHA-256 file:
+- Sthang-Studio-Windows-v0.88.0.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.88.0.zip
+
+Existing stable brokers receive broker changes through the reviewed manual installer; an OTA payload preserves the installed stable broker.
+Studio never downloads or installs silently: use Download & verify, then Install & restart.
+An in-app offer exists only after the matching platform release is independently verified and its signed latest pointer is promoted.

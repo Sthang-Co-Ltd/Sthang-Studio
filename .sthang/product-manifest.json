@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-v0-86-0-release-20261013",
+    "id": "studio-v0-88-0-release-20261028",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Prepare Sthang Studio 0.86.0 with Khmer word-highlight preparation, responsive native caption preview, playback recovery, reviewed dependency runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. Publish Windows and Apple Silicon recovery downloads and platform OTA offers only after their exact release, provenance, native acceptance, signature, and pointer checks pass."
+      "summary": "Prepare Sthang Studio 0.88.0 with unfinished-edit recovery, revision-checked saves, project search and storage notices, caption-preserving media replacement, bulk correction preview, export checks and history, and native preview recovery. Publish Windows and Apple Silicon recovery downloads and platform OTA offers only after their exact release, provenance, native acceptance, signature, and pointer checks pass."
     },
     "releaseImpact": "version"
   },
@@ -48,7 +48,7 @@
       "automaticPublication": false
     },
     "release": {
-      "sourceVersion": "0.86.0",
+      "sourceVersion": "0.88.0",
       "publicVersion": "0.86.0",
       "publicVersionStatus": "verified",
       "channel": "preview"
