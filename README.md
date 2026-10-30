@@ -63,6 +63,7 @@ can use the in-app update workflow.
 
 ## Version 0.89 release preparation
 
+The release target is [Sthang Studio 0.89.0 Public Beta](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.89.0).
 Development source `0.89.0` includes the editor layout and project AI options below.
 Published downloads and signed offers remain `0.88.0` until the new packages,
 native acceptance and separate signed promotions are verified. No 0.89 availability
