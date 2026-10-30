@@ -7,7 +7,7 @@ let state: FixtureState;
 test.beforeEach(async ({ page }) => { state = await installFixture(page); });
 
 async function openTimeline(page: Page, clockPaused = false) {
-  const button = page.getByRole('button', { name: /Fine timing/i });
+  const button = page.getByRole('button', { name: 'Fine timing', exact: true });
   await button.click();
   if (clockPaused) {
     // A deferred tool can need Suspense scheduler time before mounting. Advance
@@ -102,7 +102,7 @@ test('Unmounting and remounting WaveformEditor reuses in-memory decoded audio an
   await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(1);
 
   // Close timeline by clicking Fine timing button again
-  await page.getByRole('button', { name: /Fine timing/i }).click();
+  await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.locator('.waveform-card')).toHaveCount(0);
 
   // Reopen timeline
@@ -178,7 +178,7 @@ test('Waveform pending work: unmount before running prevents stale spectrum comp
   expect(hooksScheduled.publishedSpectrumCount).toBe(0);
 
   // Unmount WaveformEditor before the timer expires
-  await page.getByRole('button', { name: /Fine timing/i }).click();
+  await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.locator('.waveform-card')).toHaveCount(0);
 
   // Advance virtual time beyond the original 3000ms deadline

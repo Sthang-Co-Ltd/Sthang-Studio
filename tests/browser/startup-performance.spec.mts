@@ -69,7 +69,7 @@ test('advanced workspace code is deferred and a failed chunk leaves the editor u
   await expect(page.locator('.caption-row')).toHaveCount(3);
   expect(requested.some((url) => url.includes('/components/WaveformEditor.tsx'))).toBe(false);
   await page.route('**/components/WaveformEditor.tsx*', (route) => route.abort());
-  await page.getByRole('button', { name: /Fine timing/ }).click();
+  await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('This tool could not load');
   const editor = page.locator('.caption-row textarea').first();
   await editor.fill('ខ្មែរ remains editable');
