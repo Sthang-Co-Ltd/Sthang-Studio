@@ -1,5 +1,9 @@
 .workspace.refined-workspace{height:100dvh;min-height:0;overflow:hidden}
 .workspace.refined-workspace>header,.workspace.refined-workspace>.media-alignment-notice{flex:none}
+/* Comparison decisions and persistent save recovery must remain usable together. */
+.workspace.refined-workspace:has(.regeneration-dock)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
+.workspace.refined-workspace:has(.regeneration-dock)>.toast-stack:empty{display:none}
+.workspace.refined-workspace:has(.regeneration-dock)>.toast-stack>*{flex-shrink:0}
 .editor-workbench{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .editor-toolbar{flex:none;min-height:54px;display:flex;align-items:center;gap:16px;padding:8px 12px;border-bottom:1px solid var(--line);background:#0c0f12}
 .editor-toolbar .workspace-tool-strip{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;min-width:0;flex:1}
@@ -119,6 +123,8 @@
   .inspector-content .timing-header{position:static}
   .inspector-content .timing-waveform-surface{margin-block:12px}
   .inspector-content :is(button,input,select,summary,canvas){scroll-margin-top:calc(clamp(240px,45dvh,440px) + 58px)}
+  .refined-workspace:has(.regeneration-dock):has(>.toast-stack:not(:empty)) .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
+  .refined-workspace:has(.regeneration-dock):has(>.toast-stack:not(:empty)) .inspector-content :is(button,input,select,summary,canvas){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
   .editor-toolbar{align-items:flex-start;min-height:60px;position:sticky;top:0;z-index:8}
   .editor-toolbar .workspace-tool-strip{overflow-x:auto}
   .editor-toolbar .workspace-tool-strip nav{flex-wrap:nowrap;width:max-content}

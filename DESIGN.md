@@ -535,7 +535,11 @@ Editor shortcuts remain isolated for the entire lifetime of a product dialog.
 - Keep **Check for updates** in secondary Home/Tools surfaces. Download and
   install remain distinct labeled actions, and unsafe active work must be
   explained before those actions can proceed.
-- Regeneration review stays docked beneath the video.
+- Regeneration review uses the focused comparison inspector with the media
+  evidence visible. During comparison, the shared toast stack occupies its own
+  bounded footer so recovery notices cannot cover proposal decisions. On small
+  screens, messages temporarily compact the preview to keep the video and
+  decisions usable together. An empty stack reserves no footer space.
 - Activity is the durable progress surface for generation, regeneration and video
   export. Every running job shows a horizontal progress bar and elapsed time;
   completed jobs retain **Took …** duration. Video-export completion shows an
