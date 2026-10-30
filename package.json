@@ -76,7 +76,7 @@
     "protobufjs": true
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.64.0",
     "typescript": "^7.0.2",
     "wrangler": "4.143.0"
   },
