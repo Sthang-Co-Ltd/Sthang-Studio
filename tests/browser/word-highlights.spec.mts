@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { buildCaptionWordTiming, type CaptionProject, type CaptionSegment, type TimedToken } from '../../packages/shared/src/index.js';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -349,6 +349,7 @@ test('temporary Khmer composition does not destroy the original word timings', a
 test('spoken-word highlight setting saves and links directly to the word editor', async ({ page }) => {
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
+  await expandAppearanceSection(page, 'words');
   const toggle = page.getByRole('button', { name: 'Highlight spoken word', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();

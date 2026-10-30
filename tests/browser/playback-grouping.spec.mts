@@ -1558,6 +1558,7 @@ for (const scope of ['full', 'selection'] as const) {
     const text = `Legitimate ${scope} caption correction waiting to save`;
     const expectedRequest = {
       projectId: current.id,
+      generationModel: 'automatic',
       startMs: scope === 'full' ? 0 : current.captions[0].startMs,
       endMs: scope === 'full' ? current.transcript!.timing!.audioDurationMs : current.captions[0].endMs,
       transcriptionContext: structuredClone(current.transcriptionContext),

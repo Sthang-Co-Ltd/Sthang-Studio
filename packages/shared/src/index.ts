@@ -227,6 +227,8 @@ export interface PipelineCacheInfo {
   lastRangeRegeneratedAt?: string;
 }
 
+export type CaptionGenerationModel = 'automatic' | 'gemini-3.8-flash' | 'gemini-3.6-flash';
+
 export interface CaptionProject {
   id: string;
   title: string;
@@ -234,6 +236,8 @@ export interface CaptionProject {
   updatedAt: string;
   media: MediaInfo;
   transcriptionContext?: TranscriptionContext;
+  /** Local project choice for new caption jobs. Missing means Automatic. */
+  generationModel?: CaptionGenerationModel;
   transcript: TranscriptResult | null;
   captions: CaptionSegment[];
   mode: CaptionMode;

@@ -29,6 +29,7 @@ import {
 import type { ReviewIssue } from '../review';
 import { MIN_CAPTION_MS } from '../timing-edit';
 import { TimestampInput } from './TimestampInput';
+import { PanelHeaderGrip } from './PanelHeaderGrip';
 import { captionNeighborLimitMap, planCaptionTimingEdit } from '../caption-timing-transaction';
 import { splitCaptionForEditing, mergeCaptionsForEditing } from '../caption-word-structure';
 
@@ -377,7 +378,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   return <div className="caption-panel">
     <div className="panel-head">
       <div className="panel-head-copy">
-        <strong>{reviewMode ? 'Review queue' : 'Captions'}</strong>
+        <PanelHeaderGrip pane="captions">{reviewMode ? 'Review queue' : 'Captions'}</PanelHeaderGrip>
         <span>{visible.length} shown · {captions.length} total · {followPlayback ? 'Following playback' : 'Follow paused'}</span>
       </div>
       <div className="panel-tools">

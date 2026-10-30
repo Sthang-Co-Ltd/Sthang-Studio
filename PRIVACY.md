@@ -55,6 +55,15 @@ are bounded and are kept under the project's existing cache/runtime locations so
 normal project/media invalidation can remove them. Browser waveform caches are
 memory-only and disappear when the browser page/process is closed.
 
+The source editor also remembers two numeric pane-size proportions and the order
+of three fixed panel identifiers (Preview, Captions, Tool) in this browser's local
+storage (`sthang:editor-layout:v2`, with previous `v1` numeric preferences read for
+compatibility). This optional layout
+preference contains no captions, media, project identifiers or credentials and
+is not uploaded. **Reset layout** restores the default proportions and order. Clearing
+Studio's site data removes the stored preference. Editing still works if browser
+storage is unavailable.
+
 Browser-compatible playback copies stay in the project-scoped local media-preview
 cache. Preparation is cancellable, creates no cloud transfer, and does not replace
 the source used for caption generation or video export. Media replacement/deletion

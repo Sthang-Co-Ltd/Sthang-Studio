@@ -8,7 +8,7 @@ import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi, type OwnedApi } fr
 import { closeOwnedBrowserContext, continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
 const harness = requireHarnessConfig();
-const cases = ['captions', 'context', 'queued', 'sequential', 'disjoint', 'appearance', 'restored-appearance', 'restored-context-foreign', 'restored-captions-foreign', 'proposal', 'proposal-accept', 'storage'] as const;
+const cases = ['captions', 'context', 'queued', 'sequential', 'disjoint', 'appearance', 'restored-appearance', 'restored-context-foreign', 'restored-captions-foreign', 'proposal', 'proposal-accept', 'proposal-accept-mobile', 'storage'] as const;
 type Case = typeof cases[number];
 const idFor = (name: Case) => `disk-stale-${name}`;
 const titleFor = (name: Case) => `Stale save ${name} authority`;
@@ -607,9 +607,10 @@ test('discarding a proposal cannot lend a foreign caption revision to an ordinar
   expect(await disk(name)).toEqual(canonical);
 });
 
-test('accepting a caption mutation keeps newer typing but prevents its stale full-list save', async ({ page }) => {
-  const name = 'proposal-accept';
+for (const [name, width] of [['proposal-accept', 1440], ['proposal-accept-mobile', 390]] as const) {
+test(`accepting a caption mutation keeps newer typing but prevents its stale full-list save at ${width}px`, async ({ page }, testInfo) => {
   const other = await clients(page, name);
+  await other.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
   const original = fixtures.get(name)!;
   const proposal: RegenerationProposal = {
     id: 'stale-save-accepted-proposal', projectId: original.id, projectTitle: original.title,
@@ -650,7 +651,22 @@ test('accepting a caption mutation keeps newer typing but prevents its stale ful
   await expect.poll(() => failedWrites).toBe(1);
   await saveCaption(page, name, 'ACCEPTED SECOND CAPTION FROM COMMITTED RESULT', 2);
   const canonical = await disk(name);
-  await dock.getByRole('button', { name: 'Accept proposed range', exact: true }).click();
+  const accept = dock.getByRole('button', { name: 'Accept proposed range', exact: true });
+  await expect(other.locator('.save-failure')).toBeVisible();
+  for (const decision of await dock.locator('.regen-apply-actions button:enabled').all()) {
+    await decision.scrollIntoViewIfNeeded();
+    const buttonBounds = (await decision.boundingBox())!;
+    const toastBounds = (await other.locator('.toast-stack').boundingBox())!;
+    expect(buttonBounds.y + buttonBounds.height).toBeLessThanOrEqual(toastBounds.y);
+    expect(await decision.evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      return [[bounds.left + 3, bounds.top + 3], [bounds.right - 3, bounds.top + 3],
+        [bounds.left + 3, bounds.bottom - 3], [bounds.right - 3, bounds.bottom - 3]]
+        .every(([x, y]) => button.contains(document.elementFromPoint(x, y)));
+    })).toBe(true);
+  }
+  await other.screenshot({ path: testInfo.outputPath('proposal-save-recovery.png'), fullPage: true });
+  await accept.click();
   await expect(dock).toHaveCount(0);
   expect(accepted).toBe(1);
   await expect(conflict(other)).toBeVisible();
@@ -665,6 +681,7 @@ test('accepting a caption mutation keeps newer typing but prevents its stale ful
   const copy = await downloadEdits(other);
   expect(copy.captions[0].text).toBe(local);
 });
+}
 
 test('unavailable browser recovery requires a deliberate reload decision and Cancel preserves the conflicting draft', async ({ page }) => {
   const name = 'storage';

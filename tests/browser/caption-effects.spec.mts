@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { normalizeCaptionAppearance } from '@kcs/shared';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -14,6 +14,7 @@ async function openEffects(page: Page) {
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(panel(page)).toBeVisible();
   await expect(panel(page).getByLabel('Khmer font', { exact: true })).toBeEnabled();
+  await expandAppearanceSection(page, 'motion');
 }
 
 test('original looks preserve creator typography, placement, timing and independent emphasis', async ({ page }) => {
@@ -123,7 +124,9 @@ test('local presets retain glow, fade and word emphasis together', async ({ page
   await openEffects(page);
   await look(page, 'Soft Glow').click();
   await page.getByRole('group', { name: 'Caption motion' }).getByRole('button', { name: 'Fade', exact: true }).click();
+  await expandAppearanceSection(page, 'words');
   await page.getByRole('button', { name: 'Highlight spoken word', exact: true }).click();
+  await expandAppearanceSection(page, 'presets');
   await panel(page).getByText('Manage presets', { exact: true }).click();
   await panel(page).getByPlaceholder('Example: Clean Khmer').fill('Studio glow and fade');
   await panel(page).getByRole('button', { name: 'Save preset', exact: true }).click();

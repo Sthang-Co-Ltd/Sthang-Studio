@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { normalizeCaptionAppearance } from '@kcs/shared';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -18,6 +18,7 @@ async function openAppearance(page: Page) {
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.locator('.caption-appearance-workspace')).toBeVisible();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
+  await expandAppearanceSection(page, 'motion');
 }
 
 test('an obsolete request cannot erase the pending states of its replacement', async ({ page }) => {
@@ -171,6 +172,7 @@ test('saving a preset captures the clicked appearance and keeps newer changes ma
     await route.fallback();
   });
   try {
+    await expandAppearanceSection(page, 'presets');
     await page.getByText('Manage presets', { exact: true }).click();
     await page.getByPlaceholder('Example: Clean Khmer').fill('Saved glow');
     await page.getByRole('button', { name: 'Save preset', exact: true }).click();

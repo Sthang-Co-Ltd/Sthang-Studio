@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, seek, appearance, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, seek, appearance, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -301,6 +301,7 @@ test('empty gateway preview responses recover automatically without exposing a J
 test('preset management and computed controls keep their real accessible states and touch targets', async ({ page }) => {
   await openProject(page); await appearancePanel(page);
   const size = page.getByLabel(/^Size /); await size.fill('74');
+  await expandAppearanceSection(page, 'presets');
   await page.getByText('Manage presets', { exact: true }).click();
   await page.getByLabel('Save current appearance as').fill('Khmer test look');
   await page.getByRole('button', { name: 'Save preset', exact: true }).click();
@@ -334,6 +335,7 @@ test('export settings grid and preset selector preserve unified field wrappers a
   await appearancePanel(page);
 
   // 1. Preset bar at desktop: single label child wrapping select, occupying full available width
+  await expandAppearanceSection(page, 'presets');
   const presetBar = page.locator('.appearance-preset-bar');
   const presetLabel = presetBar.locator('> label[for="appearance-preset-select"]');
   await expect(presetLabel).toBeVisible();

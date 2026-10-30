@@ -379,6 +379,79 @@ test('explicit HTTP 400 remains terminal despite transient-looking provider text
   assert.deepEqual(calls, ['gemini-3.8-flash']);
 });
 
+test('structured content blocks show safe guidance across SDK error envelopes without fallback', async () => {
+  const privateMessage = 'private transcript fixture; temporarily unavailable; selected model fixture';
+  const blocked = { code: 'content_blocked', message: privateMessage };
+  const shapes = [
+    { code: blocked.code },
+    { error: blocked },
+    { error: { error: blocked } },
+    { cause: { error: blocked } },
+    { body: JSON.stringify({ error: blocked }) },
+    { cause: { body: JSON.stringify(blocked) } },
+  ];
+  for (const status of [400, 422]) {
+    for (const shape of shapes) {
+      const calls: string[] = [];
+      const providerError = Object.assign(new Error(privateMessage), { status }, shape);
+      const ai = { interactions: { create: async (request: { model?: string }) => {
+        calls.push(String(request.model));
+        throw providerError;
+      } } } as unknown as GoogleGenAI;
+      await assert.rejects(
+        runGeminiModelChain(ai, { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+          'Synthetic fixture.', [], undefined, { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' }),
+        (error: unknown) => error instanceof Error
+          && error.message === "Google's safety filters blocked this transcription request. Your project is unchanged."
+          && error.cause === providerError,
+      );
+      assert.deepEqual(calls, ['gemini-3.8-flash']);
+    }
+  }
+});
+
+test('unrecognized client rejections stay neutral even when provider text mentions safety or models', async () => {
+  for (const status of [400, 422]) {
+    for (const body of [
+      'content_blocked: private prompt fixture',
+      JSON.stringify({ message: 'content_blocked; safety filters; selected model; private prompt fixture' }),
+      JSON.stringify({ error: { code: 'invalid_argument', message: 'content_blocked' } }),
+      JSON.stringify({ error: { code: 'content_blocked' }, padding: 'x'.repeat(16_384) }),
+    ]) {
+      let calls = 0;
+      const ai = { interactions: { create: async () => {
+        calls += 1;
+        throw Object.assign(new Error('content_blocked; safety filters; selected model; private prompt fixture'), { status, body });
+      } } } as unknown as GoogleGenAI;
+      await assert.rejects(
+        runGeminiModelChain(ai, { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+          'Synthetic fixture.', [], undefined, { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' }),
+        (error: unknown) => error instanceof Error
+          && error.message === 'Google rejected the Gemini transcription request. Studio could not identify the rejection reason. Your project is unchanged.',
+      );
+      assert.equal(calls, 1);
+    }
+  }
+});
+
+test('a content block on the configured fallback stops without experimental rescue', async () => {
+  await withExperimentalTranscribeRescue(async () => {
+    const calls: string[] = [];
+    const ai = { interactions: { create: async (request: { model?: string }) => {
+      calls.push(String(request.model));
+      if (calls.length === 1) throw Object.assign(new Error('Synthetic unavailable'), { status: 503, headers: { 'retry-after': '300' } });
+      throw Object.assign(new Error('private prompt fixture'), { status: 400, error: { error: { code: 'content_blocked' } } });
+    } } } as unknown as GoogleGenAI;
+    await assert.rejects(
+      runGeminiModelChain(ai, { uri: 'https://example.test/audio', mimeType: 'audio/wav' },
+        'Synthetic fixture.', [], undefined, { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' }),
+      (error: unknown) => error instanceof Error
+        && error.message === "Google's safety filters blocked this transcription request. Your project is unchanged.",
+    );
+    assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.6-flash']);
+  });
+});
+
 test('statusless terminal SDK errors never expose raw provider text', async () => {
   let calls = 0;
   const ai = {

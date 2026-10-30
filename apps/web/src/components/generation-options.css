@@ -1,0 +1,14 @@
+.generation-options{width:100%;min-width:0;border-top:1px solid var(--line);margin-top:14px;padding-top:6px}
+.generation-options>summary{min-height:36px;align-content:center;cursor:pointer;font-size:13px;color:#dce1e7;line-height:1.5}
+.generation-options>summary>span{margin-left:8px;color:#aab4bf;font-size:12px}
+.generation-options .generation-options-body{display:grid;gap:8px;padding:8px 0 2px}
+.generation-options label{font-size:13px;color:#e1e6ec}
+.generation-options select{width:100%;min-height:38px;border:1px solid #46515e;border-radius:8px;background:#11171d;color:#edf1f5;padding:8px 10px;font:inherit;font-size:13px}
+.generation-options select:hover:not(:disabled){border-color:#7a8898}
+.generation-options select:disabled{opacity:.6;cursor:wait}
+.generation-options :is(summary,select):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.generation-options p{margin:0;color:#aab4bf;font-size:13px;line-height:1.6}
+.generation-options [role=status]{color:#aab4bf;font-size:12px;min-height:18px}
+.transcribe-card>.generation-options{grid-column:1/-1}
+.transcribe-card>.generation-options+.primary{grid-column:1/-1;justify-content:center}
+@media(max-width:620px){.generation-options>summary,.generation-options select{min-height:44px}}

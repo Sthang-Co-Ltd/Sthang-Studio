@@ -30,7 +30,8 @@ import type { TimingResult } from './timing-types.js';
 import { captionsInRange, preserveCaptionLocks } from './caption-locks.js';
 import { proposalStore, type StoredRegenerationProposal } from './proposal-store.js';
 import { historyStore } from './history-store.js';
-import { resolveGeminiSettings } from './llm-settings.js';
+import type { ResolvedGeminiSettings } from './llm-settings.js';
+import { resolveGenerationSettings } from './generation-settings.js';
 import { settlePairWithPrimaryFollowup } from './pipeline-overlap.js';
 import { assertRetainedTimingCanBeDerived } from './media-alignment.js';
 
@@ -114,7 +115,7 @@ export async function transcribeProject(
   project.pipelineCache = currentCacheInfo(project, normalized);
 
   await progress('transcription', 22, 'Transcribing Khmer text with Gemini…');
-  const llm = await resolveGeminiSettings();
+  const llm = await resolveGenerationSettings(project.generationModel);
   if (!llm.configured) {
     throw new Error('Connect Gemini in Settings → AI connection before generating captions.');
   }
@@ -131,7 +132,7 @@ export async function transcribeProject(
     nativeVocabularyBias: config.geminiNativeVocabularyBias,
   });
   const cachedGemini = force ? null : await readStageCache<GeminiTranscript>(project.id, 'gemini', geminiSignature);
-  const gemini = cachedGemini?.value || await transcribeTextWithGemini(normalized.outputPath, context);
+  const gemini = cachedGemini?.value || await transcribeTextWithGemini(normalized.outputPath, context, undefined, llm);
   if (cachedGemini) {
     await progress('transcription', 43, 'Resumed from saved Gemini transcript checkpoint.');
     project.pipelineCache.textStageCachedAt = cachedGemini.createdAt;
@@ -198,7 +199,7 @@ export async function transcribeProject(
     if (current.captions.length || current.transcript) {
       await historyStore.checkpoint(current, 'Before full regeneration', 'regeneration');
     }
-    return persist({ ...project, media: current.media, createdAt: current.createdAt });
+    return persist({ ...project, generationModel: current.generationModel, media: current.media, createdAt: current.createdAt });
   });
   await progress('complete', 100, 'Captions are ready for review.');
   return saved;
@@ -343,10 +344,11 @@ async function transcribeGeminiCandidate(
   context: TranscriptionContext,
   guidance: GeminiTranscriptionGuidance,
   label: string,
+  llm: ResolvedGeminiSettings,
 ): Promise<GeminiCandidateDraft> {
   return {
     label,
-    gemini: await transcribeTextWithGemini(chunkPath, context, guidance),
+    gemini: await transcribeTextWithGemini(chunkPath, context, guidance, llm),
   };
 }
 
@@ -377,9 +379,10 @@ async function generateGeminiCandidate(
   context: TranscriptionContext,
   guidance: GeminiTranscriptionGuidance,
   label: string,
+  llm: ResolvedGeminiSettings,
   acceptedBaselineText?: string,
 ): Promise<ProposalCandidate> {
-  const draft = await transcribeGeminiCandidate(chunkPath, context, guidance, label);
+  const draft = await transcribeGeminiCandidate(chunkPath, context, guidance, label, llm);
   return alignGeminiCandidate(draft, chunkPath, candidateDir, chunkDuration, context, acceptedBaselineText);
 }
 
@@ -466,6 +469,7 @@ async function buildRangeRegenerationProposal(
       passNumber,
     };
 
+    const llm = options.strategy === 'manual-realign' ? undefined : await resolveGenerationSettings(project.generationModel);
     const candidates: ProposalCandidate[] = [];
     if (options.strategy === 'manual-realign') {
       await progress('alignment', 35, 'Force-aligning your exact wording locally—Gemini is not being called…');
@@ -484,7 +488,7 @@ async function buildRangeRegenerationProposal(
         { guidance: { ...guidanceBase, variant: 'contextual' }, label: 'Context-aware pass' },
       ];
       const draftPromises = specs.map((spec) =>
-        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label));
+        transcribeGeminiCandidate(chunkPath, context, spec.guidance, spec.label, llm!));
       const overlap = await settlePairWithPrimaryFollowup(
         draftPromises[0],
         draftPromises[1],
@@ -556,6 +560,7 @@ async function buildRangeRegenerationProposal(
         context,
         { ...guidanceBase, variant: options.strategy === 'alternative' ? 'alternative' : 'standard' },
         options.strategy === 'alternative' ? 'Alternative take' : 'Initial proposal',
+        llm!,
         acceptedBaselineText,
       ));
     }

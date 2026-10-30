@@ -28,6 +28,7 @@ export function project(id = 'landscape', style = appearance): CaptionProject {
 }
 
 export interface FixtureState {
+  capabilities?: VideoExportCapabilities;
   projects: CaptionProject[];
   profile: AppProfile;
   fonts: VideoExportFontCapability[];
@@ -369,7 +370,7 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       state.fonts = state.fonts.filter((font) => font.id !== fontId);
       return json({ fonts: state.fonts });
     }
-    if (current && url.pathname.endsWith('/capabilities')) return json(capabilities);
+    if (current && url.pathname.endsWith('/capabilities')) return json(state.capabilities || capabilities);
     if (current && url.pathname.endsWith('/preview')) {
       const controller = new AbortController();
       const close = () => controller.abort();
@@ -403,7 +404,7 @@ export async function installFixture(page: Page): Promise<FixtureState> {
         if (state.previewError) return await json({ error: state.previewError }, 400);
         let result;
         try {
-          result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), capabilities, controller.signal, { projectId: current.id, mediaIdentity: current.media.filename }) : {
+          result = state.native ? await nativeModules.renderCaptionPreview(nativeModules.parseCaptionPreviewInput(body), state.capabilities || capabilities, controller.signal, { projectId: current.id, mediaIdentity: current.media.filename }) : {
             width: 640, height: 360, frames: body.timesMs.map((atMs: number) => ({ atMs, png: transparentPng, bounds: { x: 160, y: 270, width: 320, height: 40 } })),
           };
         } catch (error) {
@@ -451,4 +452,10 @@ export async function openProject(page: Page, name = 'landscape') {
 }
 export async function seek(page: Page, ms: number) {
   await page.locator('video').evaluate((video: HTMLVideoElement, time: number) => { video.pause(); video.currentTime = time / 1000; video.dispatchEvent(new Event('timeupdate')); }, ms);
+}
+
+export async function expandAppearanceSection(page: Page, section: 'motion' | 'words' | 'presets') {
+  const selectors = { motion: '.appearance-motion-disclosure', words: '.appearance-word-details', presets: '.appearance-presets-disclosure' };
+  const details = page.locator(selectors[section]);
+  if (await details.getAttribute('open') === null) await details.locator(':scope > summary').click();
 }

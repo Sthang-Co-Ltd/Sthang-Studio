@@ -41,6 +41,63 @@ Upload → optional accuracy context → generate → review flagged captions �
 
 Everything else is secondary and should appear progressively, at the moment it becomes useful.
 
+## Project caption model choice (source-only)
+
+Generate captions exposes a collapsed **AI options** disclosure with Automatic,
+Gemini 3.8 Flash, and Gemini 3.6 Flash. The choice saves locally for this project;
+it does not change Settings or another project. Automatic uses the configured
+primary/fallback policy. An explicit model uses only that model for new generation,
+range regeneration, Alternative take, and Deep Verify. Exact-word local realignment
+still makes no AI request. Details retains the actual model that produced wording.
+
+Each new persisted caption job snapshots its effective model pair at admission.
+Resume retains that pair; changing the project choice affects a new job, not an
+existing job or review proposal. Older jobs without a pair snapshot Automatic on
+their first execution after upgrade. Model choice alone must not change the
+caption content revision, overwrite captions/context, or expire a review proposal.
+This source feature is not evidence of public-download availability.
+
+## Editor layout contract (source-only)
+
+On wide desktops, the editor keeps a large media preview, the full caption-list
+pane and one optional tool inspector side by side. Opening or switching a tool
+does not reduce the preview's allocated size or remount the media or caption list.
+The contained picture retains its aspect ratio. **Arrange panels** offers preview
+left/middle/right presets and all six orders through drag or keyboard controls.
+The grip and title in each panel header also reorder directly, without opening
+Arrange panels. Header arrow keys and Home/End offer the same ordering, with
+visible focus and spoken feedback; adjacent header action buttons stay independent.
+During a header drag, the real panel follows the pointer and its neighbours
+slide aside at their midpoints to preview insertion. A marked vacant slot shows
+the destination. This draft order is saved only on a valid drop; cancellation
+restores the committed arrangement.
+The chosen desktop order survives closing/reopening the tool; moving the two
+remaining panes retains the hidden tool's slot. Closing tools preserves preview
+width, and the caption list absorbs the freed space.
+
+Fine timing docks its waveform beneath captions and the inspector when those
+panes are adjacent. With the preview in the middle, it docks beneath captions
+only; the preview and tool retain their full height. Reordering never reparents
+the media or caption list. Layout changes cancel pending timing drags before new
+geometry can turn them into caption edits.
+
+Pane dividers resize their actual neighboring panes with pointer or keyboard.
+Their proportions and the three allowlisted pane IDs are optional local browser
+preferences, with **Reset layout** restoring both. Caption and
+tool scrolling are independent; the ordinary generated-caption view reserves no
+empty inspector. **Close tool** returns to video and captions. Review keeps its
+existing flagged queue, decisions and playback rules.
+
+Reordering requires browser support for matching visual and keyboard reading
+order; unsupported browsers retain the canonical order and working resizing.
+Smaller screens keep preview first, retain the desktop preference, use the same
+preview height across tools, and retain access to the
+caption list and tool controls through scrolling. Appearance starts with Looks,
+font, color, size and position; Motion, word highlighting, saved presets and
+additional styling use labeled disclosures. Existing saved settings, native
+preview/export behavior and all editing actions retain their existing meaning.
+This describes development source, not a verified public download.
+
 ## Caption appearance contract
 
 Caption appearance is **project editing state**, not an export-only setting.

@@ -61,6 +61,31 @@ remains available as the previous recovery release. Current downloads and signed
 offers use `0.88.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
 can use the in-app update workflow.
 
+## Large-preview editor (source-only)
+
+The development editor keeps the video large when switching tools. Wide desktop
+windows show the preview, full caption-list pane and one optional tool inspector
+side by side. **Arrange panels** offers preview left/middle/right presets and
+custom ordering by drag, arrow keys, or Left/Right buttons.
+You can also drag a panel's header grip/title directly, or focus it and use
+Left/Right or Home/End, without opening the arrangement menu. During a header
+drag the panel follows your pointer and the other panels slide aside to preview
+its place; release to keep it or press Escape to restore the previous order. Fine timing places
+its waveform below the adjacent caption/tool panels, or below captions only
+when the preview is centered. Drag the dividers or focus them and use arrow keys
+to resize neighboring panels; Studio remembers the sizes and full order in this
+browser. **Reset layout** restores both, and **Close
+tool** returns to video and captions. Smaller windows retain all controls through
+an adapted preview-first scrolling layout while retaining the desktop preference.
+Reordering requires browser support for matching visual and keyboard reading
+order; other browsers keep the default order and working resizing.
+
+Appearance shows Looks, font, color, size and position first. Expand **Motion**,
+**Word highlighting**, **More appearance** or **Saved presets** for additional
+controls. This layout does not change caption data, source media or export
+semantics, and is not a claim about published v0.88.0 downloads. See the
+[editor layout contract and release handoff](docs/EDITOR-LAYOUT.md).
+
 ## Find and reopen projects
 
 Version 0.88 keeps six recent projects on Home and adds **All projects**
@@ -528,6 +553,16 @@ migrate that legacy default pair and avoid retrying a model through its alias.
 Users retaining `0.85.6` can select 3.8 primary and 3.6 fallback manually in
 **Settings → AI connection**.
 See [Gemini availability and recovery](docs/GEMINI-AVAILABILITY.md).
+
+**Development source — project AI options:** expand **AI options** in Generate
+captions to choose **Automatic**, **Gemini 3.8 Flash**, or **Gemini 3.6 Flash**.
+The choice saves for that project and leaves global Settings unchanged. Automatic
+uses the configured primary/fallback rules; an explicit choice uses only that
+model for new caption generation and regeneration. For an already generated
+project, find the same options in **Accuracy** above **Preview full regeneration**.
+An accepted job retains its model pair through **Activity → Resume**; choose a
+model and start a new generation to use a different pair. This does not establish
+availability in a published download. See [project model choice](docs/GENERATION-MODEL-CHOICE.md).
 
 HTTP 503 indicates temporary service unavailability; an unused daily quota does
 not rule it out. HTTP 429 indicates rate limiting. For 429 responses, Studio skips
