@@ -36,6 +36,21 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Version 0.89
+
+**v0.89** (package version `0.89.0`) is available as a Public Beta with per-project
+model choice, draggable and resizable desktop panels, focused timing and
+Appearance controls, and clearer regeneration comparison decisions. The
+[0.89 release record](docs/V0.89-RELEASE.md) binds the tested source, native
+acceptance, recovery installers and independently verified signed offers.
+
+The [0.89.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.89.0)
+provides recovery installers for **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
+Both signed in-app update channels offer `0.89.0`. In an installation with the
+signed updater, choose **Check for updates**, **Download & verify**, then
+**Install & restart**. Older manual-only Mac installations can install the current
+Mac recovery ZIP once to obtain the Finder launcher and updater.
+
 ## Version 0.88
 
 **v0.88** (package version `0.88.0`) is available as a Public Beta with unfinished-edit recovery,
@@ -46,10 +61,7 @@ verified artifacts, native checks, signed offers and website/documentation hando
 
 The [0.88.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
 provides recovery installers for **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
-Both signed in-app update channels now offer `0.88.0`. In an installation with the
-signed updater, choose **Check for updates**, **Download & verify**, then
-**Install & restart**. Older manual-only Mac installations can install the current
-Mac recovery ZIP once to obtain the Finder launcher and updater.
+Its immutable recovery installers remain available; current signed offers use `0.89.0`.
 
 ## Version 0.86
 
@@ -58,20 +70,12 @@ preparation, responsive native caption preview, playback recovery, reviewed loca
 runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The reviewed
 [0.86.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
 remains available as the previous recovery release. Current downloads and signed
-offers use `0.88.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
+offers use `0.89.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
 can use the in-app update workflow.
 
-## Version 0.89 release preparation
+## Large-preview editor
 
-The release target is [Sthang Studio 0.89.0 Public Beta](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.89.0).
-Development source `0.89.0` includes the editor layout and project AI options below.
-Published downloads and signed offers remain `0.88.0` until the new packages,
-native acceptance and separate signed promotions are verified. No 0.89 availability
-is established by this source preparation.
-
-## Large-preview editor (source-only)
-
-The development editor keeps the video large when switching tools. Wide desktop
+The 0.89 editor keeps the video large when switching tools. Wide desktop
 windows show the preview, full caption-list pane and one optional tool inspector
 side by side. **Arrange panels** offers preview left/middle/right presets and
 custom ordering by drag, arrow keys, or Left/Right buttons.
@@ -91,7 +95,7 @@ order; other browsers keep the default order and working resizing.
 Appearance shows Looks, font, color, size and position first. Expand **Motion**,
 **Word highlighting**, **More appearance** or **Saved presets** for additional
 controls. This layout does not change caption data, source media or export
-semantics, and is not a claim about published v0.88.0 downloads. See the
+semantics. These controls are included in v0.89.0. See the
 [editor layout contract and release handoff](docs/EDITOR-LAYOUT.md).
 
 ## Find and reopen projects
@@ -242,12 +246,12 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-Sthang Studio `0.88.0` is available as a verified Public Beta for
+Sthang Studio `0.89.0` is available as a verified Public Beta for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
-The [0.88.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
+The [0.89.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.89.0)
 contains both recovery installers and their SHA-256 sidecars. Both signed OTA
 channels offer the same version after independent package, signature and public
-pointer verification; see [release evidence](docs/V0.88-RELEASE.md).
+pointer verification; see [release evidence](docs/V0.89-RELEASE.md).
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -516,7 +520,7 @@ Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
 Curated public packages target Windows x64 and Apple Silicon macOS. Installed
 Windows updaters and the Apple Silicon `0.85.6` bootstrap can check their separate
 public update channels. Users on the older manual-only Mac line install the
-reviewed `0.88.0` recovery package once to obtain the Finder launcher and updater.
+reviewed `0.89.0` recovery package once to obtain the Finder launcher and updater.
 Every offered platform version requires its own accepted signed release, native
 upgrade/rollback evidence, and deliberately promoted platform pointer. The manual
 installer also refreshes the stable broker; an OTA payload preserves that broker.
@@ -562,15 +566,15 @@ Users retaining `0.85.6` can select 3.8 primary and 3.6 fallback manually in
 **Settings → AI connection**.
 See [Gemini availability and recovery](docs/GEMINI-AVAILABILITY.md).
 
-**Development source — project AI options:** expand **AI options** in Generate
+**Version 0.89 — project AI options:** expand **AI options** in Generate
 captions to choose **Automatic**, **Gemini 3.8 Flash**, or **Gemini 3.6 Flash**.
 The choice saves for that project and leaves global Settings unchanged. Automatic
 uses the configured primary/fallback rules; an explicit choice uses only that
 model for new caption generation and regeneration. For an already generated
 project, find the same options in **Accuracy** above **Preview full regeneration**.
 An accepted job retains its model pair through **Activity → Resume**; choose a
-model and start a new generation to use a different pair. This does not establish
-availability in a published download. See [project model choice](docs/GENERATION-MODEL-CHOICE.md).
+model and start a new generation to use a different pair. See
+[project model choice](docs/GENERATION-MODEL-CHOICE.md).
 
 HTTP 503 indicates temporary service unavailability; an unused daily quota does
 not rule it out. HTTP 429 indicates rate limiting. For 429 responses, Studio skips
