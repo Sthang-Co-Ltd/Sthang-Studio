@@ -1,4 +1,4 @@
-"""Native Windows 0.85.6 -> 0.88.0 acceptance on a fresh GitHub Windows runner.
+"""Native Windows 0.85.6 -> 0.89.0 acceptance on a fresh GitHub Windows runner.
 
 This prepublication gate never signs, publishes or promotes a production update.
 Application files, state and package downloads stay inside RUNNER_TEMP. KFA uses
@@ -24,7 +24,7 @@ import zipfile
 
 REPO = "Sthang-Co-Ltd/Sthang-Studio"
 BASELINE = "0.85.6"
-CANDIDATE = "0.88.0"
+CANDIDATE = "0.89.0"
 BASELINE_SHA = "7df41f4fbc60d5d877ccef37a73e6dc871f012e83b3ba765df1af3744cb72a3c"
 HEX40 = re.compile(r"[a-f0-9]{40}\Z")
 HEX64 = re.compile(r"[a-f0-9]{64}\Z")
@@ -268,7 +268,7 @@ def candidate_manifest(file: Path, ota: Path, entries: dict[str, bytes]) -> dict
             and manifest.get("platform") == "windows-x64"
             and manifest.get("channel") == "preview"
             and manifest.get("version") == CANDIDATE,
-            "Unsigned manifest does not describe Windows 0.88.0.")
+            "Unsigned manifest does not describe Windows 0.89.0.")
     package = manifest.get("package", {})
     require(package.get("url") == f"https://updates.sthang.app/studio/windows/v{CANDIDATE}/Sthang-Studio-OTA-v{CANDIDATE}.zip"
             and package.get("sha256") == sha256(ota)
@@ -621,7 +621,7 @@ def acceptance() -> None:
         require(not os.path.lexists(desktop / name),
                 "Owned runner Desktop shortcuts were not cleaned after native shutdown.")
     print("PASS: runner Desktop shortcuts cleaned only after the native children stopped.", flush=True)
-    print("WINDOWS 0.85.6 -> 0.88.0 NATIVE FIXTURE ACCEPTANCE PASS; production signature/pointer not exercised.", flush=True)
+    print("WINDOWS 0.85.6 -> 0.89.0 NATIVE FIXTURE ACCEPTANCE PASS; production signature/pointer not exercised.", flush=True)
 
 
 def self_test(actual_recovery: Path | None = None) -> None:
@@ -645,7 +645,7 @@ def self_test(actual_recovery: Path | None = None) -> None:
             and simulated_install.is_relative_to(simulated_work)
             and simulated_ota_work.is_relative_to(simulated_work))
     source_files = {"apps/server/src/index.ts": b"source",
-                    "package.json": b'{"version":"0.88.0"}'}
+                    "package.json": b'{"version":"0.89.0"}'}
     verify_git_source_projection(dict(source_files), source_files)
     # Repacked archives may have different compression and therefore different
     # whole-ZIP hashes while still containing identical reviewed source bytes.
@@ -671,14 +671,14 @@ def self_test(actual_recovery: Path | None = None) -> None:
             raise AssertionError("Git source projection accepted tampered, missing or extra file.")
     sample = [
         {"tag_name": "v0.85.6", "draft": False, "assets": []},
-        {"tag_name": "v0.88.0", "draft": True, "assets": []},
+        {"tag_name": "v0.89.0", "draft": True, "assets": []},
     ]
-    assert release(sample, "v0.88.0") is sample[1]
+    assert release(sample, "v0.89.0") is sample[1]
     assert release(sample, "v0.85.6") is sample[0]
     for records, tag in (
-        (sample, "v0.88"),
-        (sample + [sample[1].copy()], "v0.88.0"),
-        ([{"tag_name": "v0.88.0", "draft": True}], "v0.88.0"),
+        (sample, "v0.89"),
+        (sample + [sample[1].copy()], "v0.89.0"),
+        ([{"tag_name": "v0.89.0", "draft": True}], "v0.89.0"),
     ):
         try:
             release(records, tag)
@@ -701,13 +701,13 @@ def self_test(actual_recovery: Path | None = None) -> None:
         return stream
 
     genuine_windows_style = fixture(
-        r"Sthang Studio 0.88.0\Install Sthang Studio.bat",
-        r"Sthang Studio 0.88.0\Sthang Studio Files\scripts\update-runtime.mjs",
+        r"Sthang Studio 0.89.0\Install Sthang Studio.bat",
+        r"Sthang Studio 0.89.0\Sthang Studio Files\scripts\update-runtime.mjs",
     )
     files = zip_files(genuine_windows_style, windows_recovery=True)
     assert sorted(files) == [
-        "Sthang Studio 0.88.0/Install Sthang Studio.bat",
-        "Sthang Studio 0.88.0/Sthang Studio Files/scripts/update-runtime.mjs",
+        "Sthang Studio 0.89.0/Install Sthang Studio.bat",
+        "Sthang Studio 0.89.0/Sthang Studio Files/scripts/update-runtime.mjs",
     ]
     assert zip_files(fixture("source/scripts/update-runtime.mjs")) == {
         "source/scripts/update-runtime.mjs": b"fixture contents",

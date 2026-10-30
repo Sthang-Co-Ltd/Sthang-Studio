@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageLockSha256": "5db0d73031002876eccf9febe6b348430e04c749aefd6156fa8d265b18e160a2",
+  "packageLockSha256": "3c6f1d3005a364563153db5e9c99f675b261e21ff4bab8a8b1e9e3a815444f2e",
   "files": [
     {
       "path": "apps/server/dist/config.js",
@@ -29,8 +29,8 @@
     },
     {
       "path": "apps/server/dist/routes/jobs.js",
-      "size": 5373,
-      "sha256": "57f3a3c78883dd48885038276f89da1df046efbc6929ddcfd6782a913f1c43c7"
+      "size": 5968,
+      "sha256": "ae17ae1ea79b07876518aad0cd26d6851d0b1450d20d90582f9d125673ace4a1"
     },
     {
       "path": "apps/server/dist/routes/media-preview.js",
@@ -44,8 +44,8 @@
     },
     {
       "path": "apps/server/dist/routes/projects.js",
-      "size": 38701,
-      "sha256": "92f5edd7fc8f59748b532ff6eb085a423bc1432ac5d69167f2410962f0138f01"
+      "size": 40802,
+      "sha256": "7e32e872a12fcbb35b18aeaf8aafe81f27386c94a3ba1d9d8be8dd30b142b1c0"
     },
     {
       "path": "apps/server/dist/routes/system.js",
@@ -135,7 +135,7 @@
     {
       "path": "apps/server/dist/services/doctor.js",
       "size": 8479,
-      "sha256": "455d799104af6fa251b1ffe6c40407dd5850104d753abe77d01bd42d52787d37"
+      "sha256": "767775c3cbea01a17607dfe3db00b5de83ebc6dd63ad6c043eb145daa28b78b6"
     },
     {
       "path": "apps/server/dist/services/export-evidence.js",
@@ -169,8 +169,13 @@
     },
     {
       "path": "apps/server/dist/services/gemini.js",
-      "size": 32237,
-      "sha256": "7559daddccde82673fc5748f91de13167e5fb0bdd2cb206e6cdf1eaba0f17eef"
+      "size": 33440,
+      "sha256": "e9ce620aa8991e21d7077eba2b3dfad6062920bdbff2f7f6662a1406ecfa7c21"
+    },
+    {
+      "path": "apps/server/dist/services/generation-settings.js",
+      "size": 840,
+      "sha256": "51256e7f8fa521b120066b2261ea7884837df70bfc69c1e9859dba997885ab16"
     },
     {
       "path": "apps/server/dist/services/history-store.js",
@@ -189,8 +194,8 @@
     },
     {
       "path": "apps/server/dist/services/job-store.js",
-      "size": 19383,
-      "sha256": "96fc18abbe53bf411c408dc41d7586c2f6f96d84608f3715d3bdc5eb8b124ac8"
+      "size": 20576,
+      "sha256": "27158b75c52264afa50d4e4bc2a606f734d1043693fe561d850aa9f56a0dcc22"
     },
     {
       "path": "apps/server/dist/services/llm-settings.js",
@@ -259,8 +264,8 @@
     },
     {
       "path": "apps/server/dist/services/project-processing.js",
-      "size": 36847,
-      "sha256": "157846e185105bd35e9cb12c457c903d7a71b055034ac04ba2d56c2a0db9304c"
+      "size": 37103,
+      "sha256": "72806e5d8d2cde49634448d03e3b81373aa0638a85b2c921aaeb8350845df986"
     },
     {
       "path": "apps/server/dist/services/project-storage.js",
@@ -294,8 +299,8 @@
     },
     {
       "path": "apps/server/dist/services/store.js",
-      "size": 19927,
-      "sha256": "b9f8704f92836d0cc57ce11ea0e33bc8bb04554b8c1d7d3df12dd8270e71a477"
+      "size": 20586,
+      "sha256": "86a2ee1eaaaf070214795c4ca89fc7f880d4a9305c5bf1649a8d58d6d397195b"
     },
     {
       "path": "apps/server/dist/services/timing-types.js",
@@ -338,14 +343,9 @@
       "sha256": "efb75ee6cc5a9ea3b5625eef5d0dac6f557828f599a2a1bb5e31601c0d08ff17"
     },
     {
-      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-K7VrMCVx.js",
-      "size": 36299,
-      "sha256": "92a58279041696b805ac1a0b4155ade51d8bdc00859466ac5efa83bf60d5e4fe"
-    },
-    {
-      "path": "apps/web/dist/assets/ExportWorkspace-ByChXcsy.js",
-      "size": 48245,
-      "sha256": "cb5c99aa3f211d4a3a260733a6698490f753a39c15ba2f774503af0a1cdda4ff"
+      "path": "apps/web/dist/assets/CaptionAppearanceWorkspace-D95ZpKBE.js",
+      "size": 37145,
+      "sha256": "7e0e87a4619e8dd6ba1d6912bee67b6fc1a7a29ff16513e06e27d959ce727da4"
     },
     {
       "path": "apps/web/dist/assets/ExportWorkspace-Bz0w3VEY.css",
@@ -353,39 +353,44 @@
       "sha256": "fb50b2f4e81f4d1ac4a2d7b94887126839151e0a88725a305ba94094a3ca8880"
     },
     {
-      "path": "apps/web/dist/assets/file-text-7GhjSNMi.js",
+      "path": "apps/web/dist/assets/ExportWorkspace-D7x-zRZ3.js",
+      "size": 48250,
+      "sha256": "4420602dec2b393acd8233d2c4209f18a20313ac89e8f05517b9afa5d6f836ee"
+    },
+    {
+      "path": "apps/web/dist/assets/file-text-BIJU68pT.js",
       "size": 414,
-      "sha256": "2b2a37c24997d596d2473ecbf8178ea546d70b0d59cb064237f7de0fb091d315"
+      "sha256": "ea785deccb002725b700fc968913a2e9639cf70a275c2d616260f7d9b4a2cd7a"
     },
     {
-      "path": "apps/web/dist/assets/index-D_XNgGfo.js",
-      "size": 551468,
-      "sha256": "4e987af6aef838237f5459c8574f183b3e074f03f6690fb015e4ec0e6e9fe768"
+      "path": "apps/web/dist/assets/index-6Vo7v7pn.js",
+      "size": 577555,
+      "sha256": "74b1bc18d7e652830cbdad543d0c64ce77a2f7c68e95cb857e72dfc24eef4929"
     },
     {
-      "path": "apps/web/dist/assets/index-LuiGd48h.css",
-      "size": 135028,
-      "sha256": "e4ba81e88d7da575fc5db06c9914979ca5609a1823a0a53699836f6b2b11d6b6"
+      "path": "apps/web/dist/assets/index-Bvq0FQVt.css",
+      "size": 157483,
+      "sha256": "72f33c7dc55241c84b53e4e3e9c247a326e94d570a635d57265e512c51c4ab74"
     },
     {
-      "path": "apps/web/dist/assets/RegenerationReviewDock-BrLvIr8R.js",
-      "size": 9974,
-      "sha256": "c5656ea4e42debf21a709079d7bda73a1bb75e7d9a9d299f601221b30fb70c02"
+      "path": "apps/web/dist/assets/RegenerationReviewDock-BiRCmYi2.js",
+      "size": 9975,
+      "sha256": "4aa7e552709df0dabf72fdab85f3481b7e2a1c31d4092665af538cc40e5e86c0"
     },
     {
-      "path": "apps/web/dist/assets/undo-2-B5AMWsdW.js",
+      "path": "apps/web/dist/assets/undo-2-DttoI8T5.js",
       "size": 416,
-      "sha256": "e534867a220f790838503c8f6ed29c0b94183333e95637b7e4838b791c41bcbd"
+      "sha256": "8b35b30634e22f9b0ade885242e1aeddc731b21b9030390e0db5f707f22eb235"
     },
     {
-      "path": "apps/web/dist/assets/WaveformEditor-B-LwGoDw.js",
-      "size": 41133,
-      "sha256": "e31e6d876a21c02408463deff122f0fd4f44f330b9e218ba1d74583e53c07532"
+      "path": "apps/web/dist/assets/WaveformEditor-Bstdl0g5.js",
+      "size": 41676,
+      "sha256": "3449a80869052e352d5d2e6efa6de80559326069a8b874185618bf88375e5696"
     },
     {
-      "path": "apps/web/dist/assets/WaveformEditor-C4IZjv9b.css",
-      "size": 6826,
-      "sha256": "f1b23d6f62c60658c324606db7e43f4471531bd96b20427055563706fa7666c1"
+      "path": "apps/web/dist/assets/WaveformEditor-zoqfxnME.css",
+      "size": 8293,
+      "sha256": "1e8f7b696d258dc16747023b54c7e3dd58e2cd878039529861f0743d5199dfe2"
     },
     {
       "path": "apps/web/dist/brand/brand-manifest.json",
@@ -445,12 +450,12 @@
     {
       "path": "apps/web/dist/index.html",
       "size": 622,
-      "sha256": "49a273103036bc709e61363e260e479dd31a228b4b89599883c316d20e809b56"
+      "sha256": "61091334cb564c0fadc26700379a6b78b4e931ff9c0459ac61da764491a955de"
     },
     {
       "path": "apps/web/dist/studio-web-identity.json",
       "size": 146,
-      "sha256": "92b76fcce0022fb77d86c3993232f7cf12a77acb75e6dd6b08ce8c399b2956dc"
+      "sha256": "3329ff392cea262711f1585ea845d68061c2c1b0090826dbc99aa8ea2192373f"
     },
     {
       "path": "packages/shared/dist/caption-interchange.d.ts",
@@ -514,8 +519,8 @@
     },
     {
       "path": "packages/shared/dist/index.d.ts",
-      "size": 17077,
-      "sha256": "24437201e15607637ef1499706a3b682808d121e4c4a997f96ebe6eed2595fa1"
+      "size": 17294,
+      "sha256": "a58672e54c23a5f6e1ce91a0f46e2942f99033e5aca2e03f3f9c7bcc11f79cc6"
     },
     {
       "path": "packages/shared/dist/index.js",

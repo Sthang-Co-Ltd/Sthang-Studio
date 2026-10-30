@@ -61,6 +61,13 @@ remains available as the previous recovery release. Current downloads and signed
 offers use `0.88.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
 can use the in-app update workflow.
 
+## Version 0.89 release preparation
+
+Development source `0.89.0` includes the editor layout and project AI options below.
+Published downloads and signed offers remain `0.88.0` until the new packages,
+native acceptance and separate signed promotions are verified. No 0.89 availability
+is established by this source preparation.
+
 ## Large-preview editor (source-only)
 
 The development editor keeps the video large when switching tools. Wide desktop

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.89.0 — release preparation (2026-10-30)
+
+- Project AI options: Automatic, Gemini 3.8 Flash or Gemini 3.6 Flash, with per-job model snapshots through Resume.
+- Large-preview editor: draggable panel headers, keyboard arrangement, resizable panes and browser-local layout preferences.
+- Compact timing and progressively disclosed Appearance controls; keep comparison decisions clear of persistent save-recovery notices.
+- Explain structured provider safety blocks without exposing provider response contents.
+- Publication remains pending exact native Windows/macOS acceptance and separate signing and promotion.
+
+
 ## 0.88.0 — Public Beta (2026-10-28)
 
 - **Public recovery downloads and signed updates:** publish verified Windows x64

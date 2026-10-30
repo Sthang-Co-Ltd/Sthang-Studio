@@ -1,0 +1,33 @@
+Sthang Studio 0.89.0 - Public Beta
+
+Choose an AI model for each project: Automatic, Gemini 3.8 Flash, or Gemini 3.6 Flash. Explicit choices use only that model;
+Resume keeps the accepted job model pair. Global AI settings remain unchanged.
+
+Keep a large preview while editing. Drag desktop panel headers to rearrange Preview, Captions and Tool, or use the keyboard and
+Arrange panels. Resize neighboring panes and reset the layout. Layout preferences stay in this browser; supported browsers retain
+matching keyboard reading order. Smaller screens keep a preview-first scrolling layout.
+
+Fine timing uses a separate waveform dock with compact controls. Appearance puts Looks, font, color, size and position first, with
+additional controls in labeled disclosures. Comparison notices and save-recovery actions remain separate from caption acceptance
+decisions.
+
+Provider safety blocks have a clear explanation while unrecognized rejections stay neutral. Saved projects, caption data, media,
+history, settings and keys remain preserved. Fresh AI listens remain new model requests.
+
+Requirements: Windows 10 or 11 x64, or Apple Silicon macOS 12.3+, internet for initial setup and AI wording, and a Gemini
+Developer API key.
+The macOS launcher is a local wrapper, not an Apple-signed or notarized native distribution.
+Studio requests store: false for Gemini interactions. Audio is uploaded separately through the Gemini Files API; Studio does not
+explicitly delete that remote file.
+Google documents Files API retention of up to 48 hours. Contributor and product analytics remain separate, off-by-default choices
+requiring explicit opt-in.
+
+Recovery assets, each with a matching SHA-256 file:
+- Sthang-Studio-Windows-v0.88.0.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.88.0.zip
+
+Existing stable brokers receive broker changes through the reviewed manual installer; an OTA payload preserves the installed
+stable broker.
+Studio never downloads or installs silently: use Download & verify, then Install & restart.
+An in-app offer exists only after the matching platform release is independently verified and its signed latest pointer is
+promoted.

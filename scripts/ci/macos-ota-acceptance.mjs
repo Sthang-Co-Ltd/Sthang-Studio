@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * Native CI-only acceptance of the installed v0.85.6 Apple Silicon broker
- * against an exact, preverified v0.88.0 OTA ZIP. All signed offers here use
+ * against an exact, preverified v0.89.0 OTA ZIP. All signed offers here use
  * a fresh in-memory TEST key. No production signer, R2 pointer, or remote
  * update endpoint is used.
  *
  * Call AFTER the separately reviewed native installer helper has installed
  * the real v0.85.6 baseline and checked the candidate ZIP/source digest,
- * BEFORE that helper installs the v0.88.0 recovery package manually.
+ * BEFORE that helper installs the v0.89.0 recovery package manually.
  *
  * node scripts/ci/macos-ota-acceptance.mjs --request '{"stateRoot":"/.../state",
  *   "candidatePackagePath":"/.../candidate.zip",
@@ -28,7 +28,7 @@ import { pathToFileURL } from 'node:url';
 
 const REPOSITORY = 'sthang-co-ltd/sthang-studio';
 const BASELINE = '0.85.6';
-const CANDIDATE = '0.88.0';
+const CANDIDATE = '0.89.0';
 const PLATFORM = 'macos-arm64';
 const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -565,7 +565,7 @@ async function exercise(request) {
   await assertMissing(active, 'a baseline active OTA pointer already exists.');
   await assertMissing(transaction, 'an existing update transaction must not be overwritten.');
   await assertMissing(pending, 'an existing pending release must not be overwritten.');
-  await assertMissing(target, 'the baseline already contains an immutable v0.88.0 version.');
+  await assertMissing(target, 'the baseline already contains an immutable v0.89.0 version.');
   await assertMissing(path.join(updates, 'staging', CANDIDATE),
     'the baseline already contains a staged candidate.');
   await assertMissing(path.join(updates, 'receipts', CANDIDATE + '.json'),
@@ -717,7 +717,7 @@ async function exercise(request) {
     }) + '\n', { flag: 'wx' });
     try {
       const failedPending = await prepare();
-      results.push('PASS: actual v0.85.6 download, stage receipt, and prepareInstall of the exact v0.88.0 ZIP.');
+      results.push('PASS: actual v0.85.6 download, stage receipt, and prepareInstall of the exact v0.89.0 ZIP.');
       console.log(results.at(-1));
       requireCondition(await portAvailable(), 'the test port was occupied before failed preparation.');
       const failed = await runOldApply('native-preparation-rejected', failedPending, stateRoot,
@@ -813,12 +813,12 @@ async function exercise(request) {
     requireCondition(smoke.code === 0 && !smoke.signal,
       'the installed candidate native Python/KFA dependency readiness check failed.\n' + smoke.tail);
     await confirmSentinels();
-    results.push('PASS: real v0.85.6 broker applied v0.88.0, prepared installed dependencies, activated the exact version, and served native API/UI/build identity health.');
+    results.push('PASS: real v0.85.6 broker applied v0.89.0, prepared installed dependencies, activated the exact version, and served native API/UI/build identity health.');
     console.log(results.at(-1));
 
     // Exercise the old broker's *real* post-launch activation rollback with
     // the already prepared native candidate. The only injected fault is the
-    // health callback returning false AFTER the actual 0.88.0 API and web
+    // health callback returning false AFTER the actual 0.89.0 API and web
     // identity have been observed. This is not a real unhealthy release.
     await stopOwnedGroups(stateRoot);
     await fs.rm(active);
@@ -855,7 +855,7 @@ async function exercise(request) {
     );
     requireCondition(observedCandidateHealth && stoppedFaultGroup,
       'the old broker did not exercise the injected post-launch health rollback.');
-    await assertMissing(active, 'failed native activation left a stale v0.88.0 pointer.');
+    await assertMissing(active, 'failed native activation left a stale v0.89.0 pointer.');
     await assertMissing(transaction, 'failed native activation retained its crash journal.');
     requireCondition((await runtime.resolveActiveSourceRoot(stateRoot, PLATFORM)).sourceRoot === app,
       'failed native activation did not restore the original installed broker.');
@@ -867,7 +867,7 @@ async function exercise(request) {
       path.join(logRoot, 'native-baseline-after-health-rollback.log'),
       stateRoot, logRoot);
     await stopOwnedGroups(stateRoot);
-    results.push('PASS: real native 0.88.0 process passed API/UI health, then an injected health rejection exercised old-broker pointer rollback, process cleanup, and genuine v0.85.6 relaunch.');
+    results.push('PASS: real native 0.89.0 process passed API/UI health, then an injected health rejection exercised old-broker pointer rollback, process cleanup, and genuine v0.85.6 relaunch.');
     console.log(results.at(-1));
   } finally {
     try { await stopOwnedGroups(stateRoot); } catch (error) { cleanupError = error; }
@@ -892,7 +892,7 @@ async function exercise(request) {
     if (cleanupError) throw cleanupError;
   }
   console.log('Mac OTA CI fixture acceptance PASSED; original baseline control/trust bytes restored.');
-  console.log('Prepared immutable v0.88.0 candidate retained; production signed Mac OTA remains untested.');
+  console.log('Prepared immutable v0.89.0 candidate retained; production signed Mac OTA remains untested.');
 }
 
 async function selfTest() {
