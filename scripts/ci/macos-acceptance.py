@@ -31,7 +31,7 @@ import zipfile
 REPOSITORY = "Sthang-Co-Ltd/Sthang-Studio"
 BASELINE_VERSION = "0.85.6"
 BASELINE_SHA256 = "0b06658ec93da45c652be07da0300e860df8f1bc26ea3807a4a4bf1bb3c0f0bd"
-CANDIDATE_VERSION = "0.88.0"
+CANDIDATE_VERSION = "0.89.0"
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 REF = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
@@ -427,7 +427,7 @@ def installed_python_version(app: pathlib.Path, version: str, env: dict[str, str
     require(process.returncode == 0, "Installed native timing Python did not execute.")
     result = process.stdout.decode("ascii", errors="replace").strip()
     match = re.fullmatch(r"3\.12\.(\d+) arm64", result)
-    # The genuine v0.85.6 release pins 3.12.14, while the v0.88.0
+    # The genuine v0.85.6 release pins 3.12.14, while the v0.89.0
     # candidate raises the supported floor to 3.12.15. The runner's
     # modern bootstrap can also supply 3.12.15 to the old installer.
     minimum_patch = 14 if version == BASELINE_VERSION else 15
@@ -547,7 +547,7 @@ def run_broker_probe(app: pathlib.Path, version: str, work: pathlib.Path,
                             # studio-web-identity.json contract. Only check its
                             # historical API version and rendered UI here.
                             return
-                        # v0.88.0 requires exact, independently built web identity,
+                        # v0.89.0 requires exact, independently built web identity,
                         # as well as the API version and visible SPA shell.
                         local_web = json.loads(
                             (app / "apps/web/dist/studio-web-identity.json").read_text("utf-8"))
@@ -607,14 +607,14 @@ def main() -> None:
         # listing; a nearby published tag cannot stand in for a missing draft.
         sample = [
             {"tag_name": "v0.85.6", "draft": False, "assets": []},
-            {"tag_name": "v0.88.0", "draft": True, "assets": []},
+            {"tag_name": "v0.89.0", "draft": True, "assets": []},
         ]
-        assert release_metadata(sample, "v0.88.0") is sample[1]
+        assert release_metadata(sample, "v0.89.0") is sample[1]
         assert release_metadata(sample, "v0.85.6") is sample[0]
         for records, tag in (
-            (sample, "v0.88"),
-            (sample + [sample[1].copy()], "v0.88.0"),
-            ([{"tag_name": "v0.88.0", "assets": []}], "v0.88.0"),
+            (sample, "v0.89"),
+            (sample + [sample[1].copy()], "v0.89.0"),
+            ([{"tag_name": "v0.89.0", "assets": []}], "v0.89.0"),
         ):
             try:
                 release_metadata(records, tag)
@@ -678,7 +678,7 @@ def main() -> None:
     ota_sha = os.environ.get("STUDIO_OTA_SHA256", "").lower()
     require(tag == "v" + CANDIDATE_VERSION and bool(HEX40.fullmatch(commit))
             and bool(HEX64.fullmatch(recovery_sha)) and bool(HEX64.fullmatch(ota_sha)),
-            "Provide exact v0.88.0 tag, full commit and two reviewed SHA-256 values.")
+            "Provide exact v0.89.0 tag, full commit and two reviewed SHA-256 values.")
     require(os.environ.get("HOME") and os.environ.get("RUNNER_TEMP"),
             "Runner HOME and RUNNER_TEMP must be available.")
     temp = pathlib.Path(os.environ["RUNNER_TEMP"]).resolve()
@@ -813,7 +813,7 @@ def main() -> None:
                 and file_digest(app / "run-macos.sh") == old_script_hash
                 and file_digest(app / "config/update-trust-root-macos.json") == old_trust_hash,
                 "Native OTA fixture did not restore the exact original baseline and production public trust.")
-        results.append("PASS: installed v0.85.6 broker checked/downloaded/prepared the actual v0.88.0 OTA ZIP, "
+        results.append("PASS: installed v0.85.6 broker checked/downloaded/prepared the actual v0.89.0 OTA ZIP, "
                        "rejected corruption, recovered preparation/interruption and injected health failures, "
                        "and served exact candidate API/web/KFA health while preserving state. "
                        "Signatures used an ephemeral CI fixture key; production signing/pointer verification is separate.")
@@ -847,7 +847,7 @@ def main() -> None:
         # only on a successful commit. This is a synthetic marker, never a signed
         # active update or a production trust alteration.
         update_pointer.write_bytes(previous_pointer)
-        print("Installing exact selected v0.88.0 Mac recovery candidate...", flush=True)
+        print("Installing exact selected v0.89.0 Mac recovery candidate...", flush=True)
         run_logged("candidate-installer",
                    ["/bin/bash", str(extracted_candidate / "scripts/install-release-package-macos.sh"),
                     str(extracted_candidate)], work, env=environment, timeout=1200)
@@ -859,7 +859,7 @@ def main() -> None:
         require(file_digest(app / "config/update-trust-root-macos.json") == old_trust_hash,
                 "Candidate manual recovery changed the stable production Mac trust root.")
         candidate_runtime = native_checks(app, CANDIDATE_VERSION, work, environment)
-        results.append("PASS: genuine v0.88.0 Mac manual recovery installation, state preservation, "
+        results.append("PASS: genuine v0.89.0 Mac manual recovery installation, state preservation, "
                        f"KFA tokenizer/model-load, native libass/libx264 and exact API/web runtime health "
                        f"({candidate_runtime}).")
     except AcceptanceFailure as error:

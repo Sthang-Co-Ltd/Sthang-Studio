@@ -48,7 +48,7 @@
       "automaticPublication": false
     },
     "release": {
-      "sourceVersion": "0.88.0",
+      "sourceVersion": "0.89.0",
       "publicVersion": "0.88.0",
       "publicVersionStatus": "verified",
       "channel": "preview"

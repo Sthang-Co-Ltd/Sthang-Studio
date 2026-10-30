@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Native CI-only acceptance using the *installed* Windows 0.85.6 updater and
- * the byte-exact v0.88.0 OTA ZIP. This test has no production signing access.
+ * the byte-exact v0.89.0 OTA ZIP. This test has no production signing access.
  * Ed25519 private material exists in memory only; only the disposable installed
  * baseline's public trust file is temporarily swapped and restored afterward.
  * The signed production trust root in both release ZIPs stays unchanged.
@@ -23,7 +23,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const BASELINE = '0.85.6';
-const TARGET = '0.88.0';
+const TARGET = '0.89.0';
 const PLATFORM = 'windows-x64';
 const UPDATE_BASE = 'https://updates.sthang.app/studio/windows/';
 const PACKAGE_NAME = `Sthang-Studio-OTA-v${TARGET}.zip`;
@@ -71,7 +71,7 @@ function verifyActivationPair(apiActivationId, webActivationId, legacyBroker = f
   if (legacyBroker) {
     // The genuine v0.85.6 broker only supplies UPDATE_ACTIVATION=1 on launch;
     // its startStudio never generates STHANG_STUDIO_ACTIVATION_ID. Both headers
-    // must therefore be absent when this exact older broker launches v0.88.0.
+    // must therefore be absent when this exact older broker launches v0.89.0.
     requireCondition(apiActivationId === null,
       'the v0.85.6 broker unexpectedly supplied a launch identity.');
   } else {
@@ -441,7 +441,7 @@ async function protectedState(installRoot) {
 async function failureActivationCore(runtime, installRoot, previousActive, confirmSentinels) {
   // Synthetic-only rollback contract: a test Node child and deliberately false
   // health callback. Never report this as a real native-health failure run.
-  const fake = { version: '0.88.1', relativePath: 'versions/0.88.1', manifestDigest: 'f'.repeat(64) };
+  const fake = { version: '0.89.1', relativePath: 'versions/0.89.1', manifestDigest: 'f'.repeat(64) };
   const child = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     cwd: installRoot, env: childEnv(installRoot), stdio: 'ignore', windowsHide: true,
   });
@@ -469,9 +469,9 @@ async function crashWindows(runtime, installRoot, previousActive, manifestDigest
   const updateRoot = path.join(installRoot, 'updates');
   const active = path.join(updateRoot, 'active.json');
   const transaction = path.join(updateRoot, 'transaction.json');
-  // Use a *different* synthetic selection from the already healthy 0.88.0
+  // Use a *different* synthetic selection from the already healthy 0.89.0
   // pointer so the after-swap recovery assertion catches a failed rollback.
-  const fake = { version: '0.88.1', relativePath: 'versions/0.88.1',
+  const fake = { version: '0.89.1', relativePath: 'versions/0.89.1',
     manifestDigest: hash(Buffer.from('synthetic interrupted upgrade after ' + manifestDigest)) };
   for (const afterPointerSwap of [false, true]) {
     await runtime.writeJsonAtomic(transaction, {
@@ -525,7 +525,7 @@ async function acceptance() {
     && manifest.package.url === UPDATE_BASE + 'v' + TARGET + '/' + PACKAGE_NAME
     && manifest.package.sha256 === hash(packageBytes)
     && manifest.package.sizeBytes === packageBytes.length,
-  'candidate bytes or unsigned manifest do not match exact Windows 0.88.0.');
+  'candidate bytes or unsigned manifest do not match exact Windows 0.89.0.');
 
   process.env.STHANG_STUDIO_INSTALL_ROOT = installedRoot;
   process.env.STHANG_STUDIO_STATE_ROOT = installedRoot;
@@ -652,7 +652,7 @@ async function acceptance() {
     const native = await runBroker('native-successful-upgrade', broker, pending,
       installedRoot, logRoot, APPLY_TIMEOUT_MS);
     requireCondition(native.code === 0,
-      'the genuine v0.85.6 broker did not complete actual native 0.88.0 dependency preparation and activation. Log tail: '
+      'the genuine v0.85.6 broker did not complete actual native 0.89.0 dependency preparation and activation. Log tail: '
       + await nativeLogTail(native.logFile));
     const pointer = await readJson(active);
     requireCondition(pointer.version === TARGET && pointer.relativePath === 'versions/' + TARGET
@@ -668,7 +668,7 @@ async function acceptance() {
     await confirmSentinels();
     requireCondition(hash(await fs.readFile(broker)) === stableBrokerDigest,
       'successful OTA replaced the stable v0.85.6 broker.');
-    console.log('PASS: genuine old broker applied exact v0.88.0 ZIP with native dependencies, API health and retained user state.');
+    console.log('PASS: genuine old broker applied exact v0.89.0 ZIP with native dependencies, API health and retained user state.');
 
     await failureActivationCore(runtime, installedRoot, pointer, confirmSentinels);
     await crashWindows(runtime, installedRoot, pointer, good.digest, confirmSentinels);
@@ -690,7 +690,7 @@ async function acceptance() {
   if (failure) throw failure;
   // All test release signatures remain ephemeral and the production trust
   // root was restored before any native fixture success is reported.
-  console.log('WINDOWS NATIVE FIXTURE OTA PASS: real v0.88.0 startup/health plus synthetic rollback probes; production signature and live pointer not exercised.');
+  console.log('WINDOWS NATIVE FIXTURE OTA PASS: real v0.89.0 startup/health plus synthetic rollback probes; production signature and live pointer not exercised.');
 }
 
 if (process.argv.length === 3 && process.argv[2] === '--stop-owned') {

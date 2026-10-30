@@ -1,4 +1,4 @@
-name: Windows v0.85.6 to v0.88.0 native acceptance (manual)
+name: Windows v0.85.6 to v0.89.0 native acceptance (manual)
 
 # Prepublication acceptance evidence. This workflow does not sign any production
 # manifest, publish a release, stage R2, or promote a live Studio OTA pointer.
@@ -10,15 +10,15 @@ on:
   workflow_dispatch:
     inputs:
       candidate_commit:
-        description: "Exact 40-character v0.88.0 candidate source commit"
+        description: "Exact 40-character v0.89.0 candidate source commit"
         required: true
         type: string
       recovery_sha256:
-        description: "Reviewed SHA-256 of Sthang-Studio-Windows-v0.88.0.zip"
+        description: "Reviewed SHA-256 of Sthang-Studio-Windows-v0.89.0.zip"
         required: true
         type: string
       ota_sha256:
-        description: "Reviewed SHA-256 of Sthang-Studio-OTA-v0.88.0.zip"
+        description: "Reviewed SHA-256 of Sthang-Studio-OTA-v0.89.0.zip"
         required: true
         type: string
 
