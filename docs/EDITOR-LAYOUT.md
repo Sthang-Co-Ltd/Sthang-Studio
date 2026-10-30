@@ -2,8 +2,9 @@
 
 Current availability: published in the verified 0.89.0 recovery packages and
 both signed update offers. See [release evidence](V0.89-RELEASE.md). The dated
-development checks and proposed handoffs below are historical records; they do
-not establish website deployment. The consolidated release intake is
+development checks and proposed handoffs below are historical records. The
+separately approved website and guide now describe the published controls;
+completed deployment verification is recorded in the release evidence. The consolidated release intake is
 `studio-v0-89-0-release-20261030`.
 
 Change ID: `studio-refined-editor-20261023`.
