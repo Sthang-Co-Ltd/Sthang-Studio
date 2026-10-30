@@ -3,8 +3,9 @@
 Change ID: `studio-generation-model-choice-20261025`
 
 Status: published in the verified 0.89.0 recovery packages and both signed update
-offers. See [release evidence](V0.89-RELEASE.md). Website synchronization remains
-subject to its separate HQ and Distribution approvals.
+offers. See [release evidence](V0.89-RELEASE.md). The separately approved HQ and
+Distribution synchronization is complete; the [public guide](https://docs.sthang.app/studio/)
+describes project model choice and Resume behavior.
 
 ## Behavior
 
@@ -51,9 +52,10 @@ Google availability or caption accuracy.
 
 The feature intake below is historical preparation. Release intake
 `studio-v0-89-0-release-20261030` now consolidates it with editor layout and the
-actual publication evidence. The exact HQ reconciliation and Distribution
-transport approvals are still required; neither website deployment nor HQ intake
-is established by this product release.
+actual publication evidence. Its exact HQ reconciliation, intake and Distribution
+transport approvals are complete, with live website verification recorded in the
+release evidence. The remaining paragraphs preserve the original source-feature
+handoff rather than describing the current publication state.
 
 Public impact: required for caption-generation configuration and troubleshooting
 guidance. Product-owned evidence is `PRODUCT.md`, `DESIGN.md`, `README.md`, this
