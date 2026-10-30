@@ -29,6 +29,7 @@ import { historyStore } from '../services/history-store.js';
 import { proposalStore } from '../services/proposal-store.js';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
+import { isCaptionGenerationModel } from '../services/generation-settings.js';
 import { MediaCompatibilityError } from '../services/media-compatibility.js';
 import { assertRetainedTimingCanBeDerived, MediaAlignmentUnverifiedError } from '../services/media-alignment.js';
 import {
@@ -383,6 +384,7 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
         mediaAlignment: current.mediaAlignment,
         captions: entry.snapshot.captions.map(sanitizeCaptionWordTiming),
         captionAppearance: current.captionAppearance,
+        generationModel: current.generationModel,
         createdAt: current.createdAt,
         updatedAt: new Date().toISOString(),
         engineVersion: '0.7.10',
@@ -395,6 +397,32 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
     res.json(result.project);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Restore failed' });
+  }
+});
+
+router.put('/:id/generation-model', async (req, res) => {
+  const expected = expectedMedia(req.body?.expectedMedia);
+  if (!expected) return res.status(428).json({ error: 'AI options require the source media version. Reload the project before saving.' });
+  const choice = req.body?.generationModel;
+  const previous = req.body?.expectedGenerationModel;
+  if (!isCaptionGenerationModel(choice) || !isCaptionGenerationModel(previous)) {
+    return res.status(400).json({ error: 'Choose Automatic, Gemini 3.8 Flash, or Gemini 3.6 Flash.' });
+  }
+  try {
+    const result = await store.withProjectWrite(req.params.id, async (current, persist) => {
+      if (!current) return { status: 'missing' as const };
+      if (current.media.filename !== expected.filename || current.media.size !== expected.size) return { status: 'stale' as const };
+      if ((current.generationModel ?? 'automatic') !== previous) return { status: 'changed' as const };
+      // Future-job preferences do not change the caption revision or expire an
+      // already generated review proposal. The choice has its own CAS above.
+      return { status: 'saved' as const, project: await persist({ ...current, generationModel: choice }, { updateGenerationModel: true }) };
+    });
+    if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
+    if (result.status === 'stale') return res.status(409).json({ error: 'The source media changed. Reload the project before changing AI options.' });
+    if (result.status === 'changed') return res.status(409).json({ error: 'AI options changed in another editor. Reopen the project to use its saved choice.' });
+    res.json(result.project);
+  } catch {
+    res.status(500).json({ error: 'Could not save AI options. Your previous choice was kept. Try again.' });
   }
 });
 

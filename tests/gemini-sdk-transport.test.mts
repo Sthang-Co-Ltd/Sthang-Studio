@@ -66,6 +66,25 @@ test('real GenAI SDK performs one transport attempt for a transient provider res
   assert.equal(calls, 1, 'Studio owns retries; the SDK must not add hidden attempts');
 });
 
+test('real GenAI SDK content_blocked errors show safety guidance without exposing provider context or trying fallback', async () => {
+  let calls = 0;
+  await offlineSdk(async (client) => {
+    await assert.rejects(
+      runGeminiModelChain(client, uploaded, 'Synthetic fixture.', [], undefined,
+        { model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash' }),
+      (error: unknown) => error instanceof Error
+        && error.message === "Google's safety filters blocked this transcription request. Your project is unchanged.",
+    );
+  }, async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ error: {
+      code: 'content_blocked',
+      message: 'Input blocked; private audio, prompt, URL and key fixture must not reach Activity.',
+    } }), { status: 400, headers: { 'content-type': 'application/json' } });
+  });
+  assert.equal(calls, 1);
+});
+
 test('real GenAI SDK preserves over-budget Retry-After and reaches a distinct fallback without retrying early', async () => {
   const calls: string[] = [];
   await offlineSdk(async (client) => {

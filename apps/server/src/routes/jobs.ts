@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
 import { jobStore } from '../services/job-store.js';
 import { store } from '../services/store.js';
+import { isCaptionGenerationModel } from '../services/generation-settings.js';
 
 const router = Router();
 
@@ -26,6 +27,12 @@ async function createForMedia(type: Parameters<typeof jobStore.create>[0], proje
 }
 function jobErrorStatus(error: unknown) {
   return error instanceof JobAdmissionError ? 409 : error instanceof JobMediaPreconditionError ? error.httpStatus : 400;
+}
+
+function requestedGenerationModel(value: unknown) {
+  if (value === undefined) return undefined;
+  if (!isCaptionGenerationModel(value)) throw new JobMediaPreconditionError('Choose Automatic, Gemini 3.8 Flash, or Gemini 3.6 Flash.', 400);
+  return value;
 }
 
 router.get('/', async (req, res) => {
@@ -70,6 +77,7 @@ router.post('/transcribe', async (req, res) => {
     const projectId = String(req.body?.projectId || '');
     const job = await createForMedia('transcribe', projectId, {
       transcriptionContext: req.body?.transcriptionContext,
+      generationModel: requestedGenerationModel(req.body?.generationModel),
       force: req.body?.force === true,
     }, req.body?.expectedMedia);
     res.status(202).json(job);
@@ -84,6 +92,7 @@ router.post('/regenerate-range', async (req, res) => {
     const job = await createForMedia('regenerate-range', projectId, {
       startMs: Number(req.body?.startMs),
       endMs: Number(req.body?.endMs),
+      generationModel: requestedGenerationModel(req.body?.generationModel),
       transcriptionContext: req.body?.transcriptionContext,
     }, req.body?.expectedMedia);
     res.status(202).json(job);
@@ -99,6 +108,7 @@ router.post('/refine-proposal', async (req, res) => {
     if (!proposalId) return res.status(400).json({ error: 'proposalId is required' });
     const job = await createForMedia('refine-proposal', projectId, {
       proposalId,
+      generationModel: requestedGenerationModel(req.body?.generationModel),
       strategy: req.body?.strategy,
       accuracyHint: typeof req.body?.accuracyHint === 'string' ? req.body.accuracyHint : undefined,
       editedText: typeof req.body?.editedText === 'string' ? req.body.editedText : undefined,

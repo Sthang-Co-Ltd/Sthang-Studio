@@ -1,8 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { GenerationModelPair } from './generation-settings.js';
 
 export interface ProcessingRunContext {
   projectId: string;
   runKey: string;
+  geminiModels?: GenerationModelPair;
 }
 
 const storage = new AsyncLocalStorage<ProcessingRunContext>();

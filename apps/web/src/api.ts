@@ -1,6 +1,7 @@
 import type {
   AppProfile,
   CaptionAppearance,
+  CaptionGenerationModel,
   CaptionLayoutCheckInput,
   CaptionLayoutCheckResult,
   CaptionFontImportResult,
@@ -244,14 +245,17 @@ export const api = {
   deleteMediaReplacement: (id: string, replacementId: string, basis: MediaReplacementBasis) => request<void>(`/api/projects/${encodeURIComponent(id)}/media-replacements/${encodeURIComponent(replacementId)}`, {
     method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(basis),
   }),
-  startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], force = false) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force, expectedMedia }),
+  startTranscribeJob: (projectId: string, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], force = false, generationModel?: CaptionGenerationModel) => jobMutation(() => request<ProcessingJob>('/api/jobs/transcribe', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, transcriptionContext, force, expectedMedia, generationModel }),
   })),
-  startRegenerationJob: (projectId: string, startMs: number, endMs: number, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia']) => jobMutation(() => request<ProcessingJob>('/api/jobs/regenerate-range', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, startMs, endMs, transcriptionContext, expectedMedia }),
+  saveGenerationModel: (projectId: string, generationModel: CaptionGenerationModel, expectedGenerationModel: CaptionGenerationModel, expectedMedia: MediaReplacementBasis['expectedMedia']) => request<CaptionProject>(`/api/projects/${encodeURIComponent(projectId)}/generation-model`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ generationModel, expectedGenerationModel, expectedMedia }),
+  }),
+  startRegenerationJob: (projectId: string, startMs: number, endMs: number, transcriptionContext: TranscriptionContext, expectedMedia: MediaReplacementBasis['expectedMedia'], generationModel?: CaptionGenerationModel) => jobMutation(() => request<ProcessingJob>('/api/jobs/regenerate-range', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, startMs, endMs, transcriptionContext, expectedMedia, generationModel }),
   })),
-  startRefinementJob: (projectId: string, proposalId: string, input: RegenerationRefinementInput, expectedMedia: MediaReplacementBasis['expectedMedia']) => jobMutation(() => request<ProcessingJob>('/api/jobs/refine-proposal', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, proposalId, ...input, expectedMedia }),
+  startRefinementJob: (projectId: string, proposalId: string, input: RegenerationRefinementInput, expectedMedia: MediaReplacementBasis['expectedMedia'], generationModel?: CaptionGenerationModel) => jobMutation(() => request<ProcessingJob>('/api/jobs/refine-proposal', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, proposalId, ...input, expectedMedia, generationModel }),
   })),
   jobs: jobsRequest,
   resumeJob: (id: string) => jobMutation(() => request<ProcessingJob>(`/api/jobs/${id}/resume`, { method: 'POST' })),

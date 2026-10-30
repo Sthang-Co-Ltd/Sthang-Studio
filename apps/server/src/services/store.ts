@@ -156,10 +156,11 @@ function queueProjectWrite<T>(id: string, operation: () => Promise<T>) {
 
 async function persistProject(stored: CaptionProject) {
   const previous = projects.get(stored.id);
-  // A timestamp is the public optimistic revision. Two writes in one clock tick
-  // (or a backwards wall clock) must not let a stale replacement overwrite edits.
+  // A timestamp is the public optimistic content revision. Future-job model
+  // preferences have their own compare-and-set and must not expire proposals.
+  // Every other change still advances the revision, even within one clock tick.
   if (previous && (!Number.isFinite(Date.parse(stored.updatedAt)) || Date.parse(stored.updatedAt) <= Date.parse(previous.updatedAt))
-    && JSON.stringify(stored) !== JSON.stringify(previous)) {
+    && JSON.stringify({ ...stored, generationModel: undefined }) !== JSON.stringify({ ...previous, generationModel: undefined })) {
     stored.updatedAt = new Date(Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1)).toISOString();
   }
   const mediaChanged = !previous
@@ -219,6 +220,8 @@ export const store = {
       // started before a concurrent appearance save; never restore that older look.
       const current = projects.get(snapshot.id);
       if (current) snapshot.captionAppearance = current.captionAppearance;
+      if (current?.generationModel !== undefined) snapshot.generationModel = current.generationModel;
+      else if (current) delete snapshot.generationModel;
       return persistProject(snapshot);
     });
   },
@@ -227,7 +230,7 @@ export const store = {
     id: string,
     operation: (
       current: CaptionProject | null,
-      persist: (next: CaptionProject, options?: { restoreAppearance?: boolean }) => Promise<CaptionProject>,
+      persist: (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean }) => Promise<CaptionProject>,
     ) => Promise<T>,
   ): Promise<T> {
     await ensureInitialized();
@@ -235,12 +238,16 @@ export const store = {
       const current = projects.get(id);
       const detached = current ? structuredClone(current) : null;
       let persisted = false;
-      const persist = async (next: CaptionProject, options?: { restoreAppearance?: boolean }) => {
+      const persist = async (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean }) => {
         if (next.id !== id) throw new Error('Project write cannot change project id');
         if (persisted) throw new Error('Project write already persisted');
         const snapshot = structuredClone(next);
         const published = projects.get(id);
         if (published && !options?.restoreAppearance) snapshot.captionAppearance = published.captionAppearance;
+        if (published && !options?.updateGenerationModel) {
+          if (published.generationModel !== undefined) snapshot.generationModel = published.generationModel;
+          else delete snapshot.generationModel;
+        }
         persisted = true;
         return persistProject(snapshot);
       };

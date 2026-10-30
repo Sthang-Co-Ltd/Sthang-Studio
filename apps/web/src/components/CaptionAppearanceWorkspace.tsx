@@ -561,35 +561,16 @@ export function CaptionAppearanceWorkspace({
 
   return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title" {...interactionHandlers}>
     <div className="caption-appearance-head">
-      <div><strong id="caption-appearance-workspace-title">Caption appearance</strong><span>Style captions against your video. Size and position may update before the exact export preview is ready. Compression and display scaling can soften edges.</span></div>
+      <strong id="caption-appearance-workspace-title" className="appearance-accessible-title">Caption appearance</strong>
       <div className={`appearance-save-state ${saveState}`} role="status" aria-live="polite">
         {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{saveStateCopy(saveState)}</span>{saveState === 'error' && <button onClick={() => void persistAppearance({ ...appearanceRef.current })}>Retry</button>}
       </div>
-    </div>
-
-    <div className="appearance-effect-toolbar" aria-label="Appearance history">
+      <div className="appearance-effect-toolbar" aria-label="Appearance history">
       <div className="appearance-history">
         <button type="button" disabled={!undoAppearance} onClick={undoAppearanceChange}><Undo2 size={14}/>Undo</button>
         <button type="button" disabled={!redoAppearance} onClick={redoAppearanceChange}><Redo2 size={14}/>Redo</button>
       </div>
     </div>
-
-    <div className="appearance-preset-bar">
-      <label htmlFor="appearance-preset-select">
-        <span>Preset</span>
-        <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
-          <option value="">Custom / current project</option>
-          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-        </select>
-      </label>
-      <details className="appearance-preset-tools">
-        <summary>Manage presets</summary>
-        <div className="appearance-preset-tools-body">
-          <label><span>Save current appearance as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
-          <button disabled={!presetName.trim() || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
-          {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
-        </div>
-      </details>
     </div>
 
     {presetError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{presetError}</span></div>}
@@ -614,6 +595,7 @@ export function CaptionAppearanceWorkspace({
 
     {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={addingFonts || Boolean(removingFontId)} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
 
+    <details className="appearance-motion-disclosure"><summary>Motion · {motionPreset === 'none' ? 'None' : motionPreset === 'soft-pop' ? 'Soft Pop' : motionPreset === 'rise' ? 'Rise' : 'Fade'}</summary>
     <section className="caption-effects-section appearance-motion-section" aria-labelledby="appearance-motion-title">
       <div className="caption-effects-section-head">
         <div>
@@ -642,6 +624,9 @@ export function CaptionAppearanceWorkspace({
             onChange={(event) => updateAppearance((current) => ({ ...current, motionDurationMs: Number(event.target.value) }), { history: 'range' })}/>
         </label>}
       </div>
+    </section>
+    </details>
+    <section className="appearance-replay-section">
       <div className="appearance-motion-actions">
         {onReplayEffect && <button
           type="button"
@@ -661,6 +646,7 @@ export function CaptionAppearanceWorkspace({
       <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay the selected caption once to check its look, motion and word emphasis. Opening frames are prepared first; later frames as needed.'}</span>
     </section>
 
+    <details className="appearance-word-details" open={appearance.highlightMode === 'word' || Boolean(wordPreparation && wordPreparation.status !== 'idle')}><summary>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
     <section className="appearance-word-highlight" aria-label="Spoken word highlight">
       <div className="appearance-word-emphasis-title"><strong>Word emphasis</strong><span>Highlight the current spoken word using word timing.</span></div>
       <div className="appearance-word-highlight-head">
@@ -684,6 +670,8 @@ export function CaptionAppearanceWorkspace({
         && <WordHighlightPreparation view={wordPreparation}/>}
     </section>
 
+    </details>
+
     <details className="appearance-more">
       <summary>More appearance</summary>
       <div className="appearance-grid">
@@ -701,6 +689,27 @@ export function CaptionAppearanceWorkspace({
         </div>
       </div>
     </details>
+
+    <details className="appearance-presets-disclosure"><summary>Saved presets</summary>
+<div className="appearance-preset-bar">
+      <label htmlFor="appearance-preset-select">
+        <span>Preset</span>
+        <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
+          <option value="">Custom / current project</option>
+          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+        </select>
+      </label>
+      <details className="appearance-preset-tools">
+        <summary>Manage presets</summary>
+        <div className="appearance-preset-tools-body">
+          <label><span>Save current appearance as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
+          <button disabled={!presetName.trim() || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
+          {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
+        </div>
+      </details>
+    </div>
+    </details>
+    <details className="appearance-preview-details"><summary>About the preview</summary><p>Style captions against your video. Size and position may update before the exact export preview is ready. Compression and display scaling can soften edges.</p></details>
 
     <div className="appearance-workspace-footer"><span>Appearance changes only styling. Caption text, timing, locks, correction memory, source media, and SRT stay unchanged.</span></div>
   </section>;

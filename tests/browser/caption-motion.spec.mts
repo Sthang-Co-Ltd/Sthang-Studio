@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { buildCaptionWordTiming, createCaptionData, normalizeCaptionAppearance } from '@kcs/shared';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -14,6 +14,7 @@ async function appearance(page: Page) {
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(panel(page)).toBeVisible();
   await expect(panel(page).getByLabel('Khmer font', { exact: true })).toBeEnabled();
+  await expandAppearanceSection(page, 'motion');
 }
 
 function installWords() {
@@ -74,6 +75,7 @@ for (const [preset, label] of [['rise', 'Rise'], ['soft-pop', 'Soft Pop']] as co
 test('new motions survive preset save, workspace reopen and export with versioned appearance', async ({ page }) => {
   await appearance(page);
   await motion(page, 'Soft Pop').click();
+  await expandAppearanceSection(page, 'presets');
   await panel(page).getByText('Manage presets', { exact: true }).click();
   await panel(page).getByPlaceholder('Example: Clean Khmer').fill('Soft Pop setting');
   await panel(page).getByRole('button', { name: 'Save preset', exact: true }).click();
@@ -85,6 +87,7 @@ test('new motions survive preset save, workspace reopen and export with versione
   await expect.poll(() => current().captionAppearance?.motionPreset).toBe('soft-pop');
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await expandAppearanceSection(page, 'motion');
   await expect(motion(page, 'Soft Pop')).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.locator('.export-appearance-copy')).toContainText('Soft Pop');

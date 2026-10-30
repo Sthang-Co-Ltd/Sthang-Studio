@@ -75,9 +75,78 @@ The video and caption list are the persistent core. Advanced workspaces appear o
 Review · Fine timing · Accuracy · Caption grouping · Appearance · Details
 ```
 
-Do not stack all advanced panels beneath the video. Do not use a blocking modal for any task that requires watching or replaying the video.
+Use the refined A desktop layout at widths of 1200px and above: default preview
+left, complete caption-list pane in the middle, and one optional inspector right.
+**Arrange panels** beside Reset layout offers preview-position presets and a
+compact drag/keyboard custom order. Within that popover, keep a clear lifted
+proxy, drop target and actual-panel outline; commit positions on drop. Left/Right buttons
+and arrow-key handles provide the same result, with spoken order feedback.
+The actual panel headers expose a grip and draggable title at supported desktop
+widths. Keep Close tool, Current, Following and Add caption as independent actions.
+Start dragging after a small movement threshold. The actual panel follows the
+pointer above its neighbours; they slide into a provisional insertion order when
+the pointer crosses a neighbour's midpoint. Use a vacant-slot outline, stable
+midpoint hysteresis, and a short settling motion. Preserve real pane ancestry,
+widths and video ownership; do not clone/reparent content or persist hover drafts.
+Regrabbing a settling panel retains the grabbed point, including an inspector
+changing height. A click that stays below the drag threshold must not reorder;
+tool transitions must also clear any held presentation offset.
+Use the original panel bounds to exclude waveform, divider and outside drops.
+Reduce Motion retains direct tracking and insertion feedback without animated
+neighbours or settling. Header
+Left/Right and Home/End retain focus and follow the visible order. Include the
+displayed panel title in its accessible name. Share one gesture owner across
+headers, arrangement controls and dividers; closing a tool preserves its saved slot.
+Escape, pointer cancellation, lost capture, outside release, a second conflicting
+gesture, tool changes, and viewport changes must never commit a speculative move.
+The selector is a compact row above the panes. Remove repeated workspace
+introductions and flatten caption rows into a readable list, preserving selection,
+approval, timing, locks, editing and row menus. Keep all tool labels discoverable.
+
+Opening or switching tools must preserve the media element, preview allocation
+and caption-list instance. Dividers support dragging, Left/Right, Shift for larger
+steps, Home/End and double-click reset. **Reset layout** restores default
+proportions and pane order. Measure the editor synchronously on mount and on
+window resize; delayed ResizeObserver delivery must not leave a desktop divider
+using a narrow-screen size or a false zero-width resize range. Store only bounded
+numeric proportions and an exact
+permutation of Preview/Captions/Tool in local browser storage;
+denied or corrupt storage cannot block editing. **Close tool** restores focus to
+the tool entry and removes the empty inspector column.
+
+Fixed pane ancestry preserves playback, caption selection and scroll. CSS grid
+positions and native reading-flow keep visual and sequential keyboard order in
+agreement; browsers without that capability keep the default order. Filter out
+the closed tool without discarding its remembered position. Each divider changes
+its two visible neighbors, including a Preview–Tool boundary. Layout controls
+must not trigger caption editing, timing shortcuts, or workspace-close Escape.
+
+Fine timing's 184px waveform occupies a dock under the two non-preview panes
+when adjacent; with Preview in the middle it uses the caption column only and
+the inspector retains full height. Timing controls stay in the inspector. Layout
+geometry changes cancel any pending timing drag before moving its canvas.
+A narrower window keeps the canonical preview-first order and uses a vertically
+scrollable arrangement with a consistent preview height across tools. Keep media
+visible while reaching lower controls. Do not use a blocking modal for a task
+that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
+
+### Generate caption AI options (source-only)
+
+Keep **AI options** in the Generate captions card, immediately before its primary
+action. Its collapsed summary shows the current choice. A labeled native
+**Caption model** selector offers **Automatic**, **Gemini 3.8 Flash**, and
+**Gemini 3.6 Flash**, with a short explanation that the choice applies only to
+this project and leaves global settings unchanged. Existing projects start with
+Automatic. Model names are appropriate in this explicit configuration disclosure.
+
+For projects with captions, expose the same options in Accuracy beside full
+regeneration. Expand options after a model-related generation failure. Keep the
+selector disabled while its save or generation admission is pending, show saving
+state, and retain the previous saved choice with a shared error toast on failure.
+Preserve labeled keyboard focus and 44px mobile controls. Details continues to
+show the model that actually generated the saved wording.
 
 ### Caption appearance workspace
 
@@ -107,6 +176,11 @@ before they reach Export.
 - Keep the common path small: **Preset, Khmer font, text color, size, position**.
   Put weight, outline, shadow, max width, alignment and background-box controls
   behind **More appearance**.
+- In the inspector, show Looks and the font/color/size/position controls first.
+  Keep Motion, word highlighting and saved-preset management in labeled
+  disclosures, with their current state visible in the summary. Existing active
+  word-highlight preparation must remain reachable when highlighting is turned
+  off. Keep Replay and its target available outside the Motion disclosure.
 - Keep **Add font…** adjacent to the Khmer-font control. It opens the normal local
   file picker for `.ttf`/`.otf`, validates Khmer compatibility, selects a
   successfully added family immediately, and explains partial/rejected files in
@@ -299,6 +373,12 @@ Keep **Caption edges** and **Word timing** visibly separate inside the single
 Fine Timing workspace. Caption-edge drag handles and editable word handles occupy
 distinct lanes. The larger caption bar is a text label plus cue duration; original
 transcript word estimates are optional, explicitly named reference marks.
+
+Share a compact header for caption navigation and audition. Start/End fields and
+their actions remain in the inspector while the waveform uses its separate dock.
+Preserve labeled 36px desktop controls and 44px touch controls. Use available
+panel width to adapt rows; allow scrolling for expanded settings, word-timing
+details and longer notices rather than clipping controls to force a fixed fit.
 
 Start with neighbor protection and no ripple. **Allow overlaps** is explicit.
 **Move adjoining edge too** changes the shared transition of two captions, honors

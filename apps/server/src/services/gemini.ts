@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import { GoogleGenAI } from '@google/genai';
 import type { TranscriptResult, TranscriptionContext } from '@kcs/shared';
 import { config } from '../config.js';
-import { resolveGeminiSettings, type ResolvedGeminiSettings } from './llm-settings.js';
+import type { ResolvedGeminiSettings } from './llm-settings.js';
+import { resolveGenerationSettings } from './generation-settings.js';
 import { prepareTimingLocally } from './local-timing.js';
 import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
@@ -97,19 +98,14 @@ function buildPrompt(
 
 type HeaderLike = { get?: (name: string) => string | null } | Record<string, unknown>;
 type ErrorShape = {
+  code?: unknown;
   status?: number;
   statusCode?: number;
   headers?: HeaderLike;
   body?: string;
   rawResponse?: { status?: number; headers?: HeaderLike };
-  error?: { httpMeta?: { response?: { status?: number; headers?: HeaderLike } }; error?: { message?: string } };
-  cause?: {
-    status?: number;
-    statusCode?: number;
-    headers?: HeaderLike;
-    body?: string;
-    rawResponse?: { status?: number; headers?: HeaderLike };
-  };
+  error?: { code?: unknown; httpMeta?: { response?: { status?: number; headers?: HeaderLike } }; error?: { code?: unknown; message?: string } };
+  cause?: ErrorShape;
   message?: string;
 };
 
@@ -516,6 +512,28 @@ function unavailableMessage(error: unknown, triedCompatibility: boolean) {
     : 'Gemini is temporarily unavailable. Your video and project are safe; use Resume in Activity when the service recovers.';
 }
 
+function contentBlockedGeminiError(error: unknown) {
+  const hasBlockedCode = (value: ErrorShape) => value.code === 'content_blocked'
+    || value.error?.code === 'content_blocked'
+    || value.error?.error?.code === 'content_blocked';
+  // SDK wrappers retain the structured provider error in .error, .body or
+  // .cause. Never infer a safety block from free-form text that can echo a prompt.
+  let current = errorShape(error);
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (hasBlockedCode(current)) return true;
+    if (typeof current.body === 'string' && current.body.length <= 16_384) {
+      try {
+        if (hasBlockedCode(errorShape(JSON.parse(current.body)))) return true;
+      } catch {
+        // An unrecognized provider body keeps the neutral rejection message.
+      }
+    }
+    if (!current.cause) break;
+    current = errorShape(current.cause);
+  }
+  return false;
+}
+
 function safeTerminalGeminiError(error: unknown, triedCompatibility = false): Error {
   if (error instanceof GeminiUnavailableError || error instanceof GeminiLanguageMismatchError || error instanceof GeminiGuidanceUnsupportedError) {
     return error;
@@ -525,7 +543,9 @@ function safeTerminalGeminiError(error: unknown, triedCompatibility = false): Er
   // Job failures display error.message in Activity; never return the SDK's
   // provider body, which may contain user-owned request context.
   if (status === 400 || status === 422) {
-    return new Error('Google rejected the Gemini transcription request. Check the selected model in Settings → AI connection and try again.', { cause: error });
+    return new Error(contentBlockedGeminiError(error)
+      ? "Google's safety filters blocked this transcription request. Your project is unchanged."
+      : 'Google rejected the Gemini transcription request. Studio could not identify the rejection reason. Your project is unchanged.', { cause: error });
   }
   if (status === 401 || status === 403) {
     return new Error('Google rejected access for this Gemini key or project. Check your API key and permissions in Settings → AI connection.', { cause: error });
@@ -712,7 +732,7 @@ async function preparedGeminiAudio(audioPath: string, llm: ResolvedGeminiSetting
   return promise;
 }
 
-async function geminiCheckpointSignature(
+export async function geminiCheckpointSignature(
   audioPath: string,
   context: TranscriptionContext | undefined,
   guidance: GeminiTranscriptionGuidance | undefined,
@@ -746,8 +766,9 @@ export async function transcribeTextWithGemini(
   audioPath: string,
   context?: TranscriptionContext,
   guidance?: GeminiTranscriptionGuidance,
+  settings?: ResolvedGeminiSettings,
 ): Promise<GeminiTranscript> {
-  const llm = await resolveGeminiSettings();
+  const llm = settings ?? await resolveGenerationSettings();
   if (!llm.apiKey) throw new Error('Gemini is not configured yet. Open Settings → AI connection and add your API key.');
 
   const run = currentProcessingRun();

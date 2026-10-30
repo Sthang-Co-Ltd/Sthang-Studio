@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useTimingDock } from './EditorLayout';
+import { EDITOR_LAYOUT_CHANGE } from '../editor-layout-state';
 import type { CaptionSegment, TimedToken } from '@kcs/shared';
 import { resolveCaptionWordTiming } from '@kcs/shared';
 import {
@@ -180,6 +183,7 @@ export function WaveformEditor({
   onPlaybackRate,
   onPreferenceChange,
 }: WaveformEditorProps) {
+  const timingDock = useTimingDock();
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
@@ -262,6 +266,16 @@ export function WaveformEditor({
   }, [memoryKey, selectedCaption?.id, durationMs]);
 
   useEffect(() => () => onStopPreview(), []);
+  useEffect(() => { dragRef.current = null; setDrag(null); setDragPreview(null); }, [timingDock]);
+  useEffect(() => {
+    const cancelForLayout = () => {
+      const gesture = dragRef.current;
+      dragRef.current = null; setDrag(null); setDragPreview(null);
+      if (gesture && canvas.current?.hasPointerCapture(gesture.pointerId)) canvas.current.releasePointerCapture(gesture.pointerId);
+    };
+    window.addEventListener(EDITOR_LAYOUT_CHANGE, cancelForLayout);
+    return () => window.removeEventListener(EDITOR_LAYOUT_CHANGE, cancelForLayout);
+  }, []);
 
   useEffect(() => {
     setSelectedWordId(null);
@@ -281,7 +295,7 @@ export function WaveformEditor({
     const observer = new ResizeObserver((entries) => setWidth(Math.max(1, Math.round(entries[0].contentRect.width))));
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [timingDock]);
 
   useEffect(() => {
     let cancelled = false;
@@ -601,7 +615,7 @@ export function WaveformEditor({
       }
     }
 
-  }, [width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, drawnCaptions, tokens, selected, currentCaption, editMode, showReferenceWords, selectedWord?.id]);
+  }, [timingDock, width, durationMs, loading, memoryKey, mode, spectrum, peaks, viewStartMs, viewDurationMs, viewEndMs, drawnCaptions, tokens, selected, currentCaption, editMode, showReferenceWords, selectedWord?.id]);
 
   // The moving cursor has its own transparent layer; it never invalidates the
   // expensive waveform/spectrum, word anchors, or caption background drawing.
@@ -627,7 +641,7 @@ export function WaveformEditor({
       ctx.fillStyle = '#d7ff4f';
       ctx.beginPath(); ctx.moveTo(playheadX - 5, 0); ctx.lineTo(playheadX + 5, 0); ctx.lineTo(playheadX, 7); ctx.closePath(); ctx.fill();
     }
-  }, [width, durationMs, loading, viewStartMs, viewDurationMs, playheadMs]);
+  }, [timingDock, width, durationMs, loading, viewStartMs, viewDurationMs, playheadMs]);
 
   const pointerTime = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -732,7 +746,7 @@ export function WaveformEditor({
       if (event.defaultPrevented) return;
       if (event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [aria-modal="true"]')) return;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [aria-modal="true"], [data-editor-layout-control]')) return;
       if (dragRef.current) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault(); if (event.shiftKey ? canRedo : canUndo) restore(event.shiftKey ? 'redo' : 'undo');
@@ -755,27 +769,7 @@ export function WaveformEditor({
     return () => window.removeEventListener('keydown', handleTimingKey, true);
   });
 
-  return <section className="waveform-card fine-timing" ref={host} aria-label="Fine timing editor">
-    <div className="timing-caption-nav">
-      <strong>{selectedCaption ? `Caption ${captionIndex + 1} / ${captions.length}` : 'Select a caption'}</strong>
-      <div className="timing-caption-actions" role="group" aria-label="Caption navigation">
-        <button aria-label="Previous caption" disabled={captionIndex <= 0} onClick={() => navigateCaption(-1)}><ChevronLeft size={16}/><span>Previous</span></button>
-        <button aria-label="Next caption" disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>Next</span><ChevronRight size={16}/></button>
-      </div>
-    </div>
-    <div className="timing-selection">
-      <p className="timing-caption-text">{currentCaption?.text || 'Choose a caption from the list to adjust its timing.'}</p>
-      {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next for the others.</p>}
-    </div>
-    <div className="timing-transport">
-      <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} title="Replay this caption (R)"><Play size={15}/>Replay caption</button>
-      <button onClick={onStopPreview} title="Stop timing preview"><Square size={14}/>Stop</button>
-      <label className="timing-loop"><input type="checkbox" checked={loop} onChange={(event) => { setLoop(event.target.checked); onStopPreview(); }}/>Loop</label>
-      <div className="timing-history">
-        <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} title="Undo timing edit (Ctrl+Z)"><Undo2 size={15}/>Undo</button>
-        <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} title="Redo timing edit (Ctrl+Shift+Z)"><Redo2 size={15}/>Redo</button>
-      </div>
-    </div>
+  const waveform = <div className="timing-waveform-surface">
     <div className="timing-waveform-toolbar">
       <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
         <button aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('caption'); }}>Caption edges</button>
@@ -807,8 +801,8 @@ export function WaveformEditor({
         className="waveform-data-canvas"
         tabIndex={0}
         aria-label={editMode === 'words'
-          ? 'Audio timing view. Click audio to seek. Drag word edges to trim or the middle to move. Use the time controls below for keyboard editing.'
-          : 'Audio timing view. Click audio to seek. Drag caption edges to trim or the middle to move. Use the time controls below for keyboard editing.'}
+          ? 'Audio timing view. Click audio to seek. Drag word edges to trim or the middle to move. Use the time controls for keyboard editing.'
+          : 'Audio timing view. Click audio to seek. Drag caption edges to trim or the middle to move. Use the time controls for keyboard editing.'}
         onPointerDown={(event: React.PointerEvent<HTMLCanvasElement>) => {
           if (!durationMs || loading || loadError || event.button !== 0) return;
           event.currentTarget.focus({ preventScroll: true });
@@ -881,6 +875,32 @@ export function WaveformEditor({
       <span>{formatMs(viewEndMs)}</span>
     </div>
     <p className="timing-hint">{editMode === 'words' ? 'Select a word above the caption bar. Drag an edge to trim or the middle to move it. Other words stay in place.' : 'Click audio to seek. Drag caption edges to trim or the middle to move. Hold Shift to disable snapping.'}</p>
+  </div>;
+
+  return <section className="waveform-card fine-timing" ref={host} aria-label="Fine timing editor">
+    <div className="timing-header">
+      <div className="timing-caption-nav">
+        <strong>{selectedCaption ? `Caption ${captionIndex + 1} / ${captions.length}` : 'Select a caption'}</strong>
+        <div className="timing-caption-actions" role="group" aria-label="Caption navigation">
+          <button aria-label="Previous caption" disabled={captionIndex <= 0} onClick={() => navigateCaption(-1)}><ChevronLeft size={16}/><span>Previous</span></button>
+          <button aria-label="Next caption" disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>Next</span><ChevronRight size={16}/></button>
+        </div>
+      </div>
+      <div className="timing-transport">
+        <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} title="Replay this caption (R)"><Play size={15}/>Replay caption</button>
+        <button onClick={onStopPreview} title="Stop timing preview"><Square size={14}/>Stop</button>
+        <label className="timing-loop"><input type="checkbox" checked={loop} onChange={(event) => { setLoop(event.target.checked); onStopPreview(); }}/>Loop</label>
+        <div className="timing-history">
+          <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} title="Undo timing edit (Ctrl+Z)"><Undo2 size={15}/>Undo</button>
+          <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} title="Redo timing edit (Ctrl+Shift+Z)"><Redo2 size={15}/>Redo</button>
+        </div>
+      </div>
+    </div>
+    <div className="timing-selection">
+      <p className="timing-caption-text">{currentCaption?.text || 'Choose a caption from the list to adjust its timing.'}</p>
+      {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next for the others.</p>}
+    </div>
+    {timingDock ? createPortal(waveform, timingDock) : waveform}
     {currentCaption && editMode === 'caption' && <>
       {currentCaption.timingLocked && <p className="timing-lock-status">Timing locked. Unlock it in the caption menu to edit. You can still listen.</p>}
       <div className="timing-edge-grid">

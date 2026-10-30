@@ -315,5 +315,5 @@ test('playhead movement within a fixed viewport does not repaint the waveform ba
   await page.clock.runFor(1000);
   const after = await page.locator('.waveform-data-canvas').evaluate((canvas) => (canvas as any).__paints);
   expect(after).toBe(before);
-  await expect(page.locator('.waveform-card canvas[aria-hidden="true"]')).toBeVisible();
+  await expect(page.locator('.waveform-canvas-wrap canvas[aria-hidden="true"]')).toBeVisible();
 });

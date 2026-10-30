@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { nanoid } from 'nanoid';
 import type {
   CaptionAppearance,
+  CaptionGenerationModel,
   CaptionSegment,
   ProcessingJob,
   ProcessingJobType,
@@ -19,8 +20,11 @@ import { removeRunCheckpoints } from './run-checkpoints.js';
 import { renderCaptionedVideo } from './video-export.js';
 import { cleanupStaleVideoExportWork } from './export-maintenance.js';
 import { atomicJobWrite, createJobPersistence } from './job-persistence.js';
+import { isCaptionGenerationModel, resolveGenerationSettings, type GenerationModelPair } from './generation-settings.js';
 
 interface JobPayload {
+  generationModel?: CaptionGenerationModel;
+  geminiModels?: GenerationModelPair;
   sourceMediaFilename?: string;
   sourceMediaSize?: number;
   transcriptionContext?: TranscriptionContext;
@@ -327,8 +331,15 @@ async function execute(job: StoredJob) {
     performance,
   });
   try {
+    // Older jobs predate per-project selection. Snapshot Automatic once on their
+    // first execution/resume, then retain it just like newly admitted jobs.
+    if (job.type !== 'export-video' && !job.payload.geminiModels) {
+      const { model, fallbackModel } = await resolveGenerationSettings('automatic');
+      job.payload = { ...job.payload, geminiModels: { model, fallbackModel } };
+      await patch(job.id, { payload: job.payload });
+    }
     if (job.type === 'export-video') await executeJobOperation(job);
-    else await withProcessingRun({ projectId: job.projectId, runKey: job.id }, () => executeJobOperation(job));
+    else await withProcessingRun({ projectId: job.projectId, runKey: job.id, geminiModels: job.payload.geminiModels }, () => executeJobOperation(job));
     if (job.type !== 'export-video') await removeRunCheckpoints(job.projectId, job.id).catch(() => {});
   } catch (error) {
     const cancelled = jobs.find((item) => item.id === job.id)?.cancelRequested;
@@ -379,6 +390,8 @@ async function createWithDisposition(type: ProcessingJobType, projectId: string,
   return jobAdmission.runForProject(projectId, async () => {
     const project = await store.get(projectId);
     if (!project) throw new Error('Project not found');
+    if (payload.generationModel !== undefined && !isCaptionGenerationModel(payload.generationModel)) throw new Error('Unsupported caption model choice.');
+    const settings = type === 'export-video' ? undefined : await resolveGenerationSettings(payload.generationModel ?? project.generationModel);
     const duplicate = jobs.find((job) => job.projectId === projectId && job.type === type && ['queued', 'running'].includes(job.status));
     if (duplicate) return { job: publicJob(duplicate), created: false };
     const now = new Date().toISOString();
@@ -394,7 +407,12 @@ async function createWithDisposition(type: ProcessingJobType, projectId: string,
       createdAt: now,
       updatedAt: now,
       canResume: false,
-      payload: { ...payload, sourceMediaFilename: project.media.filename, sourceMediaSize: project.media.size },
+      payload: {
+        ...payload,
+        // Never accept an arbitrary pair from callers or persist credentials.
+        ...(settings ? { geminiModels: { model: settings.model, fallbackModel: settings.fallbackModel } } : {}),
+        sourceMediaFilename: project.media.filename, sourceMediaSize: project.media.size,
+      },
     };
     // No await between the duplicate check and this reservation: concurrent
     // callers cannot both report created:true for this project and job type.

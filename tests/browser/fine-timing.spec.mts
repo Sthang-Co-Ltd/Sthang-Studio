@@ -258,6 +258,42 @@ test('desktop timing view has no horizontal overflow and no runtime errors', asy
   expect(errors).toEqual([]);
 });
 
+test('desktop caption edges fit without scrolling while retaining the full waveform and controls', async ({ page }) => {
+  state.projects[0].mediaAlignment = { state: 'unverified-audio-change', acceptedAt: '2026-10-23T00:00:00.000Z', sourceRevision: 'fixture' };
+  for (const viewport of [{ width: 2559, height: 1301 }, { width: 2048, height: 1041 }, { width: 1920, height: 1080 }]) {
+    await page.setViewportSize(viewport);
+    if (!await page.locator('.fine-timing').count()) await openTiming(page);
+    const panel = page.locator('.workspace-inspector');
+    await expect.poll(() => panel.locator('.inspector-content').evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+    await expect(panel.getByRole('button', { name: 'Hear end', exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(panel.getByRole('button', { name: 'Move later', exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(panel.locator('.timing-options > summary')).toBeInViewport({ ratio: 1 });
+    expect((await page.locator('.waveform-canvas-wrap').boundingBox())!.height).toBe(184);
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 2048, height: 1041 });
+  await page.screenshot({ path: 'test-results/fine-timing-compact-desktop.png', fullPage: true });
+});
+
+test('expanded timing options and long Khmer text remain reachable in a smaller desktop', async ({ page }) => {
+  state.projects[0].captions[0].text = 'កម្ពុជាខ្មែររបស់យើង '.repeat(30);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openTiming(page);
+  const panel = page.locator('.fine-timing');
+  await panel.locator('.timing-options > summary').click();
+  await panel.getByLabel('Timing playback speed', { exact: true }).selectOption('0.75');
+  await panel.getByLabel('Move adjoining edge too', { exact: true }).check();
+  await panel.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Spectrum overview', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel.getByRole('button', { name: /Follow(?:ing)? playhead/ })).toBeInViewport({ ratio: 1 });
+  expect(await page.locator('.inspector-content').evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(page.locator('.media-stage')).toBeInViewport({ ratio: 1 });
+  await panel.getByRole('button', { name: 'Replay caption', exact: true }).focus();
+  await expect(panel.getByRole('button', { name: 'Replay caption', exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(panel.getByRole('button', { name: 'Replay caption', exact: true })).toBeFocused();
+});
+
 test('a rejected numeric edit never becomes the displayed or Escape-restored timestamp', async ({ page }) => {
   state.projects[0].captions[0].endMs = 5000; // A legacy cue extending beyond the 4s source.
   await openTiming(page);
@@ -306,7 +342,7 @@ test('quiet-gap snapping does not invent a silence boundary in a flat tone', asy
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.350');
 });
 
-test('a smaller desktop keeps source playback visible while editing lower timing controls', async ({ page }) => {
+test('a smaller desktop keeps source playback large beside the timing controls', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await openTiming(page);
   await page.getByLabel('Fine timing end', { exact: true }).fill('1.050');
@@ -314,7 +350,7 @@ test('a smaller desktop keeps source playback visible while editing lower timing
   await expect(page.locator('.media-stage')).toBeInViewport();
   const player = (await page.locator('.media-stage').boundingBox())!;
   const input = (await page.getByLabel('Fine timing end', { exact: true }).boundingBox())!;
-  expect(player.height).toBeGreaterThanOrEqual(170);
-  expect(input.y).toBeGreaterThan(player.y + player.height);
+  expect(player.height).toBeGreaterThanOrEqual(450);
+  expect(input.x).toBeGreaterThan(player.x + player.width);
   expect(input.y + input.height).toBeLessThanOrEqual(720);
 });

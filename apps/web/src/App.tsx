@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppProfile,
   CaptionAppearance,
+  CaptionGenerationModel,
   CaptionMode,
   CaptionProject,
   CaptionProjectSummary,
@@ -54,6 +55,8 @@ import {
 } from 'lucide-react';
 import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
 import { Upload } from './components/Upload';
+import { EditorLayout } from './components/EditorLayout';
+import { GenerationOptions } from './components/GenerationOptions';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
 import { ProfileDoctor, type SettingsTab } from './components/ProfileDoctor';
@@ -268,6 +271,12 @@ export default function App() {
   const [wordBatchResult, setWordBatchResult] = useState<{ ticket: ProjectTicket; value: WordHighlightBatchResult } | null>(null);
   const [wordBatchUndo, setWordBatchUndo] = useState<{ ticket: ProjectTicket; applied: Array<{ before: CaptionSegment; after: CaptionSegment }> } | null>(null);
   const [busy, setBusy] = useState('');
+  const [generationModelSaving, setGenerationModelSaving] = useState(false);
+  const generationModelWrite = useRef(false);
+  const generationModelRevision = useRef(0);
+  const generationModelAck = useRef<{ key: string; value: CaptionGenerationModel } | null>(null);
+  const [generationPreparing, setGenerationPreparing] = useState(false);
+  const generationPreparation = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [replacementEditRecoveries, setReplacementEditRecoveries] = useState<ReplacementEditRecovery[]>([]);
@@ -549,7 +558,7 @@ export default function App() {
   }
   function rememberSavedCaptions(next: CaptionProject, ownsCaptions = true) {
     if (projectMediaKey(next) !== projectScope.current.capture().key) return;
-    const normalized = withCaptionWordTimings(next);
+    const normalized = retainGenerationModel(withCaptionWordTimings(next));
     savedProject.current = { ...normalized, transcriptionContext: accuracyDraft.current.saved };
     if (ownsCaptions && conflictedSave.current?.key !== projectMediaKey(next)) {
       const previous = ordinarySaveBasis.current;
@@ -567,7 +576,7 @@ export default function App() {
     setSaveConflict(true);
   }
   function captureOperationIntent() {
-    return { ticket: projectScope.current.capture(), key: projectMediaKey(project), revision: operationRevision.current };
+    return { ticket: projectScope.current.capture(), key: projectMediaKey(project), revision: operationRevision.current, modelRevision: generationModelRevision.current };
   }
   function isCurrentOperation(intent: ReturnType<typeof captureOperationIntent>) {
     return projectScope.current.isCurrent(intent.ticket) && intent.ticket.key === intent.key
@@ -811,6 +820,7 @@ export default function App() {
     setOpeningProjectId(null);
     const changedMedia = projectScope.current.capture().key !== projectMediaKey(next);
     if (changedMedia) {
+      generationModelAck.current = null;
       closeHistory();
       ordinarySaveBasis.current = next;
       conflictedSave.current = null;
@@ -975,7 +985,12 @@ export default function App() {
 
   // Full caption responses do not own Accuracy. Explicit context reads/writes
   // reconcile that separate baseline before publishing any full project snapshot.
-  const retainAccuracyContext = (next: CaptionProject): CaptionProject => accuracyDraft.current.retainProject(next);
+  function retainGenerationModel(next: CaptionProject): CaptionProject {
+    const ack = generationModelAck.current;
+    return ack && ack.key === projectMediaKey(next) && ack.key === projectScope.current.capture().key
+      ? { ...next, generationModel: ack.value } : next;
+  }
+  const retainAccuracyContext = (next: CaptionProject): CaptionProject => retainGenerationModel(accuracyDraft.current.retainProject(next));
   const publishContextProject = (next: CaptionProject, observation: AccuracyObservation, acknowledgement = false, mutation = acknowledgement, ownsContext = mutation) => {
     const ticket = projectScope.current.capture();
     if (ticket.key !== projectMediaKey(next)
@@ -1045,6 +1060,11 @@ export default function App() {
   const activeExportJob = project ? activeJobs.find((job) => job.projectId === project.id && job.type === 'export-video') : undefined;
   const currentProjectToastJob = currentProjectActiveJob || activeExportJob;
   const refinementJob = project ? activeJobs.find((job) => job.projectId === project.id && job.type === 'refine-proposal') : undefined;
+  const latestCaptionJob = project ? jobs.find((job) => job.projectId === project.id && job.type !== 'export-video') : undefined;
+  const generationOptions = project ? <GenerationOptions key={mediaKey} value={project.generationModel}
+    disabled={!!busy || !!currentProjectActiveJob || !!mediaMutationStatus || generationPreparing} saving={generationModelSaving}
+    expandAfterError={latestCaptionJob?.status === 'failed' && /google|gemini|model|safety/i.test(latestCaptionJob.error || '')}
+    onChange={saveGenerationModel}/> : null;
 
   const selection = useCaptionSelection(draft, selectionAnchor, selectionEnd, time * 1000);
   const selectionIntent = useRef({ ids: [] as string[], startMs: 0, endMs: 0 });
@@ -1610,10 +1630,16 @@ export default function App() {
     }
   }, [jobs, project?.id, pendingMediaReplacement, showMediaBackups, mediaMutationStatus]);
 
-  const startJob = async (intent: ReturnType<typeof captureOperationIntent>, operation: () => Promise<ProcessingJob>, message: string, openQueue = true) => {
+  const startJob = async (intent: ReturnType<typeof captureOperationIntent>, operation: () => Promise<ProcessingJob>, message: string, openQueue = true, captionJob = true) => {
     // Callers retain this intent across confirmation and prerequisite saves;
     // capturing a new project ticket here would revive a canceled action.
     if (!isCurrentOperation(intent) || mediaMutationInFlight.current) return null;
+    if (captionJob && (generationModelWrite.current || intent.modelRevision !== generationModelRevision.current)) {
+      setNotice('AI options changed while preparing this request. Start again with the saved choice.');
+      return null;
+    }
+    const ownsPreparation = captionJob && !generationPreparation.current;
+    if (ownsPreparation) { generationPreparation.current = true; setGenerationPreparing(true); }
     setError('');
     try {
       const job = await operation();
@@ -1628,6 +1654,8 @@ export default function App() {
     } catch (reason) {
       if (isCurrentOperation(intent)) setError(reason instanceof Error ? reason.message : 'Could not start processing job');
       return null;
+    } finally {
+      if (ownsPreparation) { generationPreparation.current = false; setGenerationPreparing(false); }
     }
   };
 
@@ -1710,7 +1738,7 @@ export default function App() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest('[aria-modal="true"]')) return;
+      if (target?.closest('[aria-modal="true"], [data-editor-layout-control]')) return;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault(); void saveUnfinishedChanges(false); return;
@@ -2141,29 +2169,59 @@ export default function App() {
       setMediaMutationStatus('');
     }
   };
+  async function saveGenerationModel(choice: CaptionGenerationModel): Promise<boolean> {
+    if (!project || generationModelWrite.current || generationPreparation.current || mediaMutationInFlight.current) return false;
+    const target = project;
+    const ticket = projectScope.current.capture();
+    generationModelWrite.current = true;
+    generationModelRevision.current += 1;
+    setGenerationModelSaving(true);
+    try {
+      const next = await queueSameMediaMutation(ticket, () => api.saveGenerationModel(target.id, choice, target.generationModel ?? 'automatic', { filename: target.media.filename, size: target.media.size }));
+      if (!next || !projectScope.current.isCurrent(ticket)) return false;
+      generationModelAck.current = { key: ticket.key, value: next.generationModel ?? 'automatic' };
+      // This response owns only AI options. Never adopt foreign captions or Accuracy.
+      setProject((current) => current && projectMediaKey(current) === ticket.key ? { ...current, generationModel: next.generationModel } : current);
+      if (savedProject.current && projectMediaKey(savedProject.current) === ticket.key) savedProject.current = { ...savedProject.current, generationModel: next.generationModel };
+      return true;
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not save AI options. Try again.');
+      return false;
+    } finally {
+      generationModelWrite.current = false;
+      setGenerationModelSaving(false);
+    }
+  }
   const generate = async () => {
-    if (!project) return;
+    if (!project || generationModelWrite.current || generationPreparation.current) return;
     if (!llmSettings?.configured) {
       setError('Connect AI in Settings → AI connection before generating captions.');
       openSettings('ai');
       return;
     }
-    const targetProject = project;
-    const intent = captureOperationIntent();
-    const editRevision = draftEditRevision.current;
-    const contextRevision = accuracyDraft.current.editRevision;
-    const requestContext = contextPayload();
-    const hadUnsavedEdits = dirtyRef.current;
-    const saved = await saveDraft(true, 'manual-save', true);
-    if (hadUnsavedEdits && !saved) return;
-    if (!isCurrentOperation(intent)
-      || draftEditRevision.current !== editRevision
-      || accuracyDraft.current.editRevision !== contextRevision) return;
-    const fullDuration = targetProject.transcript?.timing?.audioDurationMs;
-    if (targetProject.transcript?.tokens?.length && fullDuration) {
-      await startJob(intent, () => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
-    } else {
-      await startJob(intent, () => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript)), 'Caption generation queued. You can keep the browser open or return later.');
+    generationPreparation.current = true;
+    setGenerationPreparing(true);
+    try {
+      const targetProject = project;
+      const intent = captureOperationIntent();
+      const editRevision = draftEditRevision.current;
+      const contextRevision = accuracyDraft.current.editRevision;
+      const requestContext = contextPayload();
+      const hadUnsavedEdits = dirtyRef.current;
+      const saved = await saveDraft(true, 'manual-save', true);
+      if (hadUnsavedEdits && !saved) return;
+      if (!isCurrentOperation(intent)
+        || draftEditRevision.current !== editRevision
+        || accuracyDraft.current.editRevision !== contextRevision) return;
+      const fullDuration = targetProject.transcript?.timing?.audioDurationMs;
+      if (targetProject.transcript?.tokens?.length && fullDuration) {
+        await startJob(intent, () => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, targetProject.generationModel ?? 'automatic'), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
+      } else {
+        await startJob(intent, () => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript), targetProject.generationModel ?? 'automatic'), 'Caption generation queued. You can keep the browser open or return later.');
+      }
+    } finally {
+      generationPreparation.current = false;
+      setGenerationPreparing(false);
     }
   };
   const saveContext = async (silent = false): Promise<boolean> => {
@@ -2438,7 +2496,7 @@ export default function App() {
       || selectionIntentKey(selectionIntent.current) !== selectedKey) return;
     await startJob(
       intent,
-      () => api.startRegenerationJob(targetProject.id, selected.startMs, selected.endMs, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }),
+      () => api.startRegenerationJob(targetProject.id, selected.startMs, selected.endMs, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, targetProject.generationModel ?? 'automatic'),
       `Regeneration preview queued for ${rangeLabel(selected.startMs, selected.endMs)}.`,
     );
   };
@@ -2461,7 +2519,7 @@ export default function App() {
         : input.useProposalAsBaseline
           ? 'Refinement queued using this take as the accepted baseline.'
           : 'Alternative take queued. Keep reviewing while it runs.';
-    await startJob(captureOperationIntent(), () => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }), label, false);
+    await startJob(captureOperationIntent(), () => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }, project.generationModel ?? 'automatic'), label, false);
   };
 
   const applyProposal = async (mode: RegenerationApplyMode, editedText?: string) => {
@@ -2782,6 +2840,7 @@ export default function App() {
       intent,
       () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }),
       'Captioned video export queued. Studio saved a caption/settings snapshot, so you can keep editing while it renders.',
+      false,
       false,
     );
   };
@@ -3206,7 +3265,7 @@ export default function App() {
     {overlays}
   </main>;
 
-  return <main className="workspace" onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
+  return <main className="workspace refined-workspace" onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label="Back to projects" title="Back to projects" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><div className="project-title"><strong>{project.title}</strong><span>{project.media.originalName} · {unfinishedChanges ? saveFailed ? "Couldn't save changes" : autosaveState === 'saving' || contextSaveState === 'saving' ? 'saving…' : dirty ? 'autosave pending' : 'Accuracy changes unsaved' : 'saved'}{project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}</span></div></div>
@@ -3235,8 +3294,12 @@ export default function App() {
 
     {project.mediaAlignment?.state === 'unverified-audio-change' && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span><strong>Audio alignment not verified.</strong> Existing caption and word times were kept. Check them against the edited audio before exporting.</span></div>}
 
-    <section className="editor-grid">
-      <div className={`stage-column ${proposal ? 'proposal-review-active' : workspaceTool ? 'workspace-tool-open' : 'workspace-tool-collapsed'} ${workspaceTool === 'timeline' && !proposal ? 'fine-timing-active' : ''} ${workspaceTool === 'export' && !proposal ? 'export-workspace-active' : ''} ${workspaceTool === 'appearance' && !proposal ? 'appearance-workspace-active' : ''}`}>
+    <EditorLayout
+      tool={proposal ? 'proposal' : workspaceTool}
+      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
+      open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
+      onClose={proposal ? () => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
+      preview={
         <div className="media-stage">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} onElementChange={setMediaElement}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
@@ -3244,7 +3307,24 @@ export default function App() {
           {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
-
+      }
+      toolbar={!proposal && (
+        <div className="workspace-tool-strip">
+            <nav aria-label="Caption workspace tools">
+              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
+              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
+              <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>
+              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
+              {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
+              {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
+            </nav>
+          </div>
+      )}
+      captions={
+        <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} highlightEnabled={previewAppearance.highlightMode === 'word'} onWordTiming={openWordTiming} onNotice={setNotice}
+        active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
+      }
+    >
         {proposal && <RegenerationReviewDock
           proposal={proposal}
           busy={!!busy}
@@ -3272,17 +3352,7 @@ export default function App() {
             <div><button type="button" onClick={backToExport}>Back to export</button>
               <button type="button" onClick={() => setExportRepair(null)}>Finish export review</button></div>
           </section>}
-          {workspaceTool !== 'export' && <div className="workspace-tool-strip">
-            <div className="workspace-tool-intro"><strong>{hasHybrid ? 'Choose one workspace tool' : 'Generate first, or add optional context'}</strong><span>{hasHybrid ? 'Advanced controls stay out of the way until you need them.' : 'The normal workflow works with the default settings.'}</span></div>
-            <nav aria-label="Caption workspace tools">
-              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
-              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
-              <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>
-              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
-              {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
-              {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
-            </nav>
-          </div>}
+
 
           {workspaceTool === 'export' && <ExportWorkspace key={mediaKey}
             onPreviewResolution={setPreviewResolution}
@@ -3403,11 +3473,14 @@ export default function App() {
               <span><label htmlFor="accuracy-context-vocabulary">Exact terms to preserve</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
               <textarea id="accuracy-context-vocabulary" aria-describedby="accuracy-vocabulary-count accuracy-vocabulary-help" rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
+            {hasHybrid && generationOptions}
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
           </div>}
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
-            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild with current timing.' : 'Create Khmer text aligned to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div><button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
+            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild with current timing.' : 'Create Khmer text aligned to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div>
+            {generationOptions}
+            <button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
 
           {workspaceTool === 'details' && hasHybrid && <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
@@ -3439,11 +3512,7 @@ export default function App() {
             </div>
           </div>}
         </>}
-      </div>
-
-      <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} highlightEnabled={previewAppearance.highlightMode === 'word'} onWordTiming={openWordTiming} onNotice={setNotice}
-        active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
-    </section>
+    </EditorLayout>
 
     {statusToasts}
     {overlays}
