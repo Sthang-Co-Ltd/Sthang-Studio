@@ -41,7 +41,7 @@ Upload → optional accuracy context → generate → review flagged captions �
 
 Everything else is secondary and should appear progressively, at the moment it becomes useful.
 
-## Project caption model choice (source-only)
+## Project caption model choice (published in 0.89)
 
 Generate captions exposes a collapsed **AI options** disclosure with Automatic,
 Gemini 3.8 Flash, and Gemini 3.6 Flash. The choice saves locally for this project;
@@ -55,9 +55,9 @@ Resume retains that pair; changing the project choice affects a new job, not an
 existing job or review proposal. Older jobs without a pair snapshot Automatic on
 their first execution after upgrade. Model choice alone must not change the
 caption content revision, overwrite captions/context, or expire a review proposal.
-This source feature is not evidence of public-download availability.
+Public availability is recorded in [0.89 release evidence](docs/V0.89-RELEASE.md).
 
-## Editor layout contract (source-only)
+## Editor layout contract (published in 0.89)
 
 On wide desktops, the editor keeps a large media preview, the full caption-list
 pane and one optional tool inspector side by side. Opening or switching a tool
@@ -96,7 +96,7 @@ caption list and tool controls through scrolling. Appearance starts with Looks,
 font, color, size and position; Motion, word highlighting, saved presets and
 additional styling use labeled disclosures. Existing saved settings, native
 preview/export behavior and all editing actions retain their existing meaning.
-This describes development source, not a verified public download.
+These controls are included in the verified 0.89.0 packages and signed offers.
 
 ## Caption appearance contract
 

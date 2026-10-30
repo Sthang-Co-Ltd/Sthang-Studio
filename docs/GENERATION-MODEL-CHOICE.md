@@ -2,8 +2,9 @@
 
 Change ID: `studio-generation-model-choice-20261025`
 
-Status: development source. No release, update offer, website deployment, or
-published-download availability is established by this change.
+Status: published in the verified 0.89.0 recovery packages and both signed update
+offers. See [release evidence](V0.89-RELEASE.md). Website synchronization remains
+subject to its separate HQ and Distribution approvals.
 
 ## Behavior
 
@@ -47,6 +48,12 @@ Provider responses in these tests are synthetic; they do not establish live
 Google availability or caption accuracy.
 
 ## Public impact and proposed handoff
+
+The feature intake below is historical preparation. Release intake
+`studio-v0-89-0-release-20261030` now consolidates it with editor layout and the
+actual publication evidence. The exact HQ reconciliation and Distribution
+transport approvals are still required; neither website deployment nor HQ intake
+is established by this product release.
 
 Public impact: required for caption-generation configuration and troubleshooting
 guidance. Product-owned evidence is `PRODUCT.md`, `DESIGN.md`, `README.md`, this

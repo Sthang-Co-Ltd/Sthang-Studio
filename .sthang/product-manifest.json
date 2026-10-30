@@ -9,11 +9,11 @@
     "defaultBranchClaim": "main"
   },
   "change": {
-    "id": "studio-v0-88-0-release-20261028",
+    "id": "studio-v0-89-0-release-20261030",
     "userVisible": true,
     "documentationImpact": {
       "status": "required",
-      "summary": "Publish verified Sthang Studio 0.88.0 Windows and Apple Silicon recovery downloads and signed OTA offers, with unfinished-edit recovery, revision-checked saves, project search and storage notices, caption-preserving media replacement, bulk correction preview, export checks and history, and native preview recovery. Synchronize the release and workflow evidence through the separate HQ and Distribution approval process."
+      "summary": "Publish verified Sthang Studio 0.89.0 Windows and Apple Silicon recovery downloads and signed OTA offers, with per-project model choice, draggable and resizable desktop panels, focused timing and Appearance controls, and unobstructed regeneration comparison decisions. Synchronize the release and workflow evidence through the separate HQ and Distribution approval process."
     },
     "releaseImpact": "version"
   },
@@ -23,7 +23,7 @@
     "lifecycle": "preview",
     "publicVisibilityRequest": {
       "status": "approved",
-      "basis": "Approved public repository; v0.88.0 publication is governed by the repository release gates and externally verified release evidence"
+      "basis": "Approved public repository; v0.89.0 publication is governed by the repository release gates and externally verified release evidence"
     },
     "source": {
       "visibility": "public",
@@ -36,7 +36,7 @@
       "downloadAuthority": "github-releases",
       "primaryAction": {
         "label": "Download for Windows",
-        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.88.0/Sthang-Studio-Windows-v0.88.0.zip"
+        "href": "https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/download/v0.89.0/Sthang-Studio-Windows-v0.89.0.zip"
       },
       "sourceAction": {
         "label": "View source on GitHub",
@@ -49,7 +49,7 @@
     },
     "release": {
       "sourceVersion": "0.89.0",
-      "publicVersion": "0.88.0",
+      "publicVersion": "0.89.0",
       "publicVersionStatus": "verified",
       "channel": "preview"
     },
@@ -179,13 +179,13 @@
   "evidence": {
     "release": {
       "mode": "github-release",
-      "tag": "v0.88.0",
+      "tag": "v0.89.0",
       "expectedDraft": false,
       "expectedPrerelease": true,
-      "assetName": "Sthang-Studio-Windows-v0.88.0.zip",
-      "checksumAssetName": "Sthang-Studio-Windows-v0.88.0.zip.sha256",
+      "assetName": "Sthang-Studio-Windows-v0.89.0.zip",
+      "checksumAssetName": "Sthang-Studio-Windows-v0.89.0.zip.sha256",
       "notesRequiredTerms": [
-        "Sthang Studio 0.88.0",
+        "Sthang Studio 0.89.0",
         "Public Beta",
         "Windows 10 or 11 x64",
         "Apple Silicon macOS 12.3+",
@@ -201,27 +201,27 @@
         "no public download"
       ],
       "package": {
-        "entrypoint": "Sthang Studio 0.88.0/Install Sthang Studio.bat",
+        "entrypoint": "Sthang Studio 0.89.0/Install Sthang Studio.bat",
         "requiredPaths": [
-          "Sthang Studio 0.88.0/Install Sthang Studio.bat",
-          "Sthang Studio 0.88.0/Read Me.txt",
-          "Sthang Studio 0.88.0/Sthang Studio Files/.env.example",
-          "Sthang Studio 0.88.0/Sthang Studio Files/.sthang/product-manifest.json",
-          "Sthang Studio 0.88.0/Sthang Studio Files/INSTALL-NEW-PC.bat",
-          "Sthang Studio 0.88.0/Sthang Studio Files/README.md",
-          "Sthang Studio 0.88.0/Sthang Studio Files/PRIVACY.md",
-          "Sthang Studio 0.88.0/Sthang Studio Files/package-lock.json",
-          "Sthang Studio 0.88.0/Sthang Studio Files/scripts/install-release-package.ps1"
+          "Sthang Studio 0.89.0/Install Sthang Studio.bat",
+          "Sthang Studio 0.89.0/Read Me.txt",
+          "Sthang Studio 0.89.0/Sthang Studio Files/.env.example",
+          "Sthang Studio 0.89.0/Sthang Studio Files/.sthang/product-manifest.json",
+          "Sthang Studio 0.89.0/Sthang Studio Files/INSTALL-NEW-PC.bat",
+          "Sthang Studio 0.89.0/Sthang Studio Files/README.md",
+          "Sthang Studio 0.89.0/Sthang Studio Files/PRIVACY.md",
+          "Sthang Studio 0.89.0/Sthang Studio Files/package-lock.json",
+          "Sthang Studio 0.89.0/Sthang Studio Files/scripts/install-release-package.ps1"
         ],
         "truth": {
           "paths": [
-            "Sthang Studio 0.88.0/Read Me.txt",
-            "Sthang Studio 0.88.0/Sthang Studio Files/README.md",
-            "Sthang Studio 0.88.0/Sthang Studio Files/PRIVACY.md"
+            "Sthang Studio 0.89.0/Read Me.txt",
+            "Sthang Studio 0.89.0/Sthang Studio Files/README.md",
+            "Sthang Studio 0.89.0/Sthang Studio Files/PRIVACY.md"
           ],
           "requiredTerms": [
             "public Beta",
-            "v0.88.0",
+            "v0.89.0",
             "Gemini Files API",
             "store: false",
             "48 hours"

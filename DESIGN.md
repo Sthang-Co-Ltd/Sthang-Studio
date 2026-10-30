@@ -132,7 +132,7 @@ that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
 
-### Generate caption AI options (source-only)
+### Generate caption AI options (published in 0.89)
 
 Keep **AI options** in the Generate captions card, immediately before its primary
 action. Its collapsed summary shows the current choice. A labeled native

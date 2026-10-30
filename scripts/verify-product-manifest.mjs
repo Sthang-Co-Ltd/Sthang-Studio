@@ -146,14 +146,14 @@ if (manifest && rootPackage && serverPackage && webPackage && sharedPackage && l
   equal(source.defaultBranchClaim, 'main', 'manifest.source.defaultBranchClaim');
 
   const change = exactKeys(manifest.change, 'manifest.change', ['id', 'userVisible', 'documentationImpact', 'releaseImpact']);
-  equal(change.id, 'studio-v0-88-0-release-20261028', 'manifest.change.id');
+  equal(change.id, 'studio-v0-89-0-release-20261030', 'manifest.change.id');
   equal(change.userVisible, true, 'manifest.change.userVisible');
   equal(change.releaseImpact, 'version', 'manifest.change.releaseImpact');
   const documentationImpact = exactKeys(change.documentationImpact, 'manifest.change.documentationImpact', ['status', 'summary']);
   equal(documentationImpact.status, 'required', 'manifest.change.documentationImpact.status');
   equal(
     documentationImpact.summary,
-    'Publish verified Sthang Studio 0.88.0 Windows and Apple Silicon recovery downloads and signed OTA offers, with unfinished-edit recovery, revision-checked saves, project search and storage notices, caption-preserving media replacement, bulk correction preview, export checks and history, and native preview recovery. Synchronize the release and workflow evidence through the separate HQ and Distribution approval process.',
+    'Publish verified Sthang Studio 0.89.0 Windows and Apple Silicon recovery downloads and signed OTA offers, with per-project model choice, draggable and resizable desktop panels, focused timing and Appearance controls, and unobstructed regeneration comparison decisions. Synchronize the release and workflow evidence through the separate HQ and Distribution approval process.',
     'manifest.change.documentationImpact.summary',
   );
 
