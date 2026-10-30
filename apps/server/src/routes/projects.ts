@@ -5,13 +5,14 @@ import fs from 'node:fs/promises';
 import { nanoid } from 'nanoid';
 import { reconcileCaptionWordTiming, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionMode, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
 import { config } from '../config.js';
-import { store } from '../services/store.js';
+import { ProjectDeletionBlockedError, store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
+import { recordExportEvidence } from '../services/export-evidence.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 import { normalizeKhmerDisplayText, normalizeKhmerTokenSpacing } from '../services/tokenizer.js';
 import { transcriptText } from '../services/transcript.js';
@@ -669,6 +670,7 @@ router.get('/:id/export.srt', async (req, res) => {
   const project = await store.get(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const srt = toSrt(project.captions);
+  await store.withProjectWrite(project.id, async (current) => current ? recordExportEvidence(project, 'srt') : false).catch(() => false);
   const durationMs = project.transcript?.timing?.audioDurationMs || 0;
   void captureAnalytics('export_completed', {
     caption_count_bucket: analyticsBuckets.captions(project.captions.length),
@@ -696,6 +698,7 @@ router.delete('/:id', async (req, res) => {
       res.status(204).end();
     });
   } catch (error) {
+    if (error instanceof ProjectDeletionBlockedError) return res.status(409).json({ error: error.message, code: error.code });
     if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
     throw error;
   }

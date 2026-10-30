@@ -414,7 +414,29 @@ body, start processing, or transfer searches to a provider. Reopening does not
 promise a restored playhead or automatic playback. These source changes do not
 establish public-download availability.
 
+## Saved project readability (source-only)
+
+Unreadable project files, duplicate identities, an unreadable project order, and
+incomplete legacy migration must produce a shared notice while healthy projects
+remain usable. An unresolved empty library must offer storage review rather than
+claim that no projects exist. Settings → System check shows bounded count-only
+diagnostics and an explicit read-only recheck. A recheck never adopts external
+file changes into active projects. Retain unreadable sources and index references;
+do not finalize migration while its source is incomplete. Recovery guidance asks
+for a backup, preservation of originals, a stopped app before restoration, and a
+restart. Readability does not establish backup integrity or available disk space.
+See [saved project recovery](docs/PROJECT-STORAGE-RECOVERY.md).
+
 ## Product principles
+
+### Bulk-correction preview (source-only)
+
+Correct everywhere shows each matching caption's original text and exact proposed
+replacement before Apply. Locked matches stay unchanged and are labeled; no-op
+and empty-text results are explicit. The preview and Apply use the same plan for
+literal, case-insensitive and regex modes and the chosen project/selection scope.
+Every match is reachable through bounded pages. Cancel changes no captions.
+Existing timing, locks, undo and save protections remain authoritative.
 
 1. **Evidence stays visible.** Audio/video remains playable during any decision about text, timing, or caption appearance.
 2. **Safe by default.** Regeneration proposes; it never silently destroys reviewed work.
@@ -534,3 +556,15 @@ Restoration is an explicit destructive-to-current-state choice with revision gua
 and fresh media identity, so stale work cannot overwrite the restored project.
 Recovery access survives reopening the project. Clearly describe retention and
 local disk use. No released-download availability is implied by this source contract.
+
+## Export freshness (source-only)
+
+Keep a bounded local receipt for the latest prepared output of each caption-file
+format and completed video. Compare format-relevant content against the open
+project, including unsaved edits. Plain subtitle checks ignore appearance and
+review metadata; styled/video outputs include configured appearance and usable
+word paint, while Studio data includes its archived review metadata. Media changes
+invalidate comparisons. Undoing content to its original state may match again.
+Activity retains a separate content fingerprint for each new completed video job.
+Missing/legacy, invalid or unreadable evidence is unknown. File preparation is not
+proof of disk download, and matching content is not renderer or release validation.

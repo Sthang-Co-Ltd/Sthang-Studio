@@ -311,6 +311,9 @@ export async function installFixture(page: Page): Promise<FixtureState> {
       });
     }
     if (url.pathname === '/api/projects') return json(url.searchParams.get('summary') === '1' ? state.projects.map(summarizeProject) : state.projects);
+    if (url.pathname === '/api/system/project-storage') return json({ schemaVersion: 1, checkedAt: now, loadedProjectCount: state.projects.length,
+      readableProjectCount: state.projects.length, unreadableProjectCount: 0, missingProjectCount: 0, duplicateProjectCount: 0, directoryUnreadable: false,
+      orderUnreadable: false, legacyUnreadable: false, migrationPending: false, restartRequired: false });
     if (url.pathname === '/api/profile/video-export-settings' && method === 'PUT') {
       state.profile = { ...state.profile, lastVideoExportSettings: structuredClone(body.settings) };
       return json(state.profile);

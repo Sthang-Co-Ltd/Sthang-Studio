@@ -5,6 +5,7 @@ export * from './caption-looks.js';
 export * from './word-timing.js';
 export * from './caption-interchange.js';
 export * from './export-checks.js';
+export * from './export-freshness.js';
 export { summarizeProject, type CaptionProjectSummary } from './project-summary.js';
 export { captionWordBreakOffsets, planCaptionRenderStates, captionMotionContextIndices, type CaptionRenderState } from './caption-layout.js';
 
@@ -410,6 +411,22 @@ export interface AppProfile {
 
 export type DoctorCheckStatus = 'ok' | 'warning' | 'error';
 
+export interface ProjectStorageStatus {
+  schemaVersion: 1;
+  checkedAt: string;
+  loadedProjectCount: number;
+  readableProjectCount: number;
+  unreadableProjectCount: number;
+  missingProjectCount: number;
+  duplicateProjectCount: number;
+  directoryUnreadable: boolean;
+  orderUnreadable: boolean;
+  legacyUnreadable: boolean;
+  migrationPending: boolean;
+  /** A recheck never replaces the running store's published state. */
+  restartRequired: boolean;
+}
+
 export interface DoctorCheck {
   id: string;
   label: string;
@@ -531,6 +548,8 @@ export interface ProcessingJob {
   resultProjectId?: string;
   proposalId?: string;
   resultExport?: VideoExportResult;
+  /** Version-1 content fingerprint for this immutable render; absent on legacy jobs. */
+  exportContentFingerprint?: string;
   /** Transient acceptance receipt for video exports; omitted from persisted job snapshots. */
   lastUsedSettingsSaved?: boolean;
   canResume: boolean;

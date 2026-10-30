@@ -537,3 +537,13 @@ project, but it does not silently revoke contribution data that was already sent
 Use **Privacy → Request deletion** for contributor-wide remote corpus deletion.
 
 For security reporting, see `SECURITY.md`.
+
+Source development also keeps bounded local export receipts: one SHA-256 content
+fingerprint, format, schema version and preparation timestamp per output format,
+under that project's existing local history directory. Receipts contain no copy
+of caption text, media, filenames or credentials. New completed video jobs retain
+their own content fingerprint in the existing local job history. Local project
+deletion removes its receipt file through the existing history cleanup. These
+records are not sent to a provider or analytics service. They compare project
+content; they cannot verify where a browser saved a download or identify edits
+made to an exported file outside Studio.

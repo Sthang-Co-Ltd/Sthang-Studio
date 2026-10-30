@@ -36,19 +36,30 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Version 0.88
+
+**v0.88** (package version `0.88.0`) is available as a Public Beta with unfinished-edit recovery,
+revision-checked saves, project search and storage notices, caption-preserving
+media replacement, bulk correction preview, export checks and history, and native
+preview recovery. The [0.88 release record](docs/V0.88-RELEASE.md) tracks the
+verified artifacts, native checks, signed offers and website/documentation handoff.
+
+The [0.88.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
+provides recovery installers for **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
+Both signed in-app update channels now offer `0.88.0`. In an installation with the
+signed updater, choose **Check for updates**, **Download & verify**, then
+**Install & restart**. Older manual-only Mac installations can install the current
+Mac recovery ZIP once to obtain the Finder launcher and updater.
+
 ## Version 0.86
 
-**v0.86** (package version `0.86.0`) brings Khmer word-highlight
+**v0.86** (package version `0.86.0`) introduced Khmer word-highlight
 preparation, responsive native caption preview, playback recovery, reviewed local
 runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The reviewed
 [0.86.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
-provides verified GitHub ZIPs for Windows 10/11 x64 and native Apple Silicon
-macOS 12.3+ installation or recovery. Signed 0.86.0 in-app updates are live on
-both platforms after separate package, signature, latest-pointer, and native
-upgrade/rollback verification. Updater-capable Windows installations can use
-**Check for updates**. Existing Macs using in-app updates need the one-time
-0.85.6 manual bootstrap and Finder launcher; older manual-only Mac installations
-can instead install the published 0.86.0 Mac ZIP directly.
+remains available as the previous recovery release. Current downloads and signed
+offers use `0.88.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
+can use the in-app update workflow.
 
 ## Large-preview editor (source-only)
 
@@ -72,12 +83,12 @@ order; other browsers keep the default order and working resizing.
 Appearance shows Looks, font, color, size and position first. Expand **Motion**,
 **Word highlighting**, **More appearance** or **Saved presets** for additional
 controls. This layout does not change caption data, source media or export
-semantics, and is not a claim about published v0.86.0 downloads. See the
+semantics, and is not a claim about published v0.88.0 downloads. See the
 [editor layout contract and release handoff](docs/EDITOR-LAYOUT.md).
 
-## Find and reopen projects (source-only)
+## Find and reopen projects
 
-The development source keeps six recent projects on Home and adds **All projects**
+Version 0.88 keeps six recent projects on Home and adds **All projects**
 for the complete saved collection. Search by project name, including Khmer, and
 sort by **Last edited**, **Newest created**, or **Name A–Z**. Results are shown in
 pages of 24; search covers the whole collection, including older projects.
@@ -87,12 +98,11 @@ project that has not been generated. **Back to projects** returns to the same
 search, sort order, and page during this Studio session. Reopening uses the current
 saved project and the existing unfinished-draft recovery flow; it does not restart
 generation or resume playback automatically. Listing and searching use local
-project summaries. This source feature is not a claim about published v0.86.0
-downloads.
+project summaries.
 
-## Repair export issues by caption (source-only)
+## Repair export issues by caption
 
-The development source adds **Check before export** with each affected caption's
+Version 0.88 adds **Check before export** with each affected caption's
 text, time, reason and suggested correction. **Go to caption** opens the relevant
 editing workspace; **Back to export** returns to the current output, resolution
 and caption-file choices. Those choices stay in this editor visit and reset when
@@ -105,12 +115,11 @@ Plain SRT stays available when a video-only font or layout issue needs attention
 renderer, including overlapping captions. Changes to captions, appearance,
 resolution or fonts invalidate the result; the final render still checks its own
 saved snapshot. A cancelled or incomplete check never reports that the layout fits.
-See [export checks and repair](docs/EXPORT-CAPTION-REPAIR.md). This source feature
-does not establish availability in the published v0.86.0 downloads.
+See [export checks and repair](docs/EXPORT-CAPTION-REPAIR.md).
 
-## Unfinished-edit recovery (source-only)
+## Unfinished-edit recovery
 
-The development source protects unfinished caption and Accuracy edits when
+Version 0.88 protects unfinished caption and Accuracy edits when
 closing or reloading Studio. Leaving a project waits for pending saves and saves
 both kinds of edits; a failed save keeps the editor open with **Retry save** and
 **Download edits**. Text still being composed is kept without forcing a save.
@@ -127,8 +136,19 @@ Restore checks the current saved captions, context, and exact media again.
 Changed saved data requires downloading and comparing the draft; recovery never
 approves changed captions or imports trusted word timing from browser storage.
 See [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md) for retention,
-storage limits, and the fields included. This is not a claim about the published
-v0.86.0 downloads.
+storage limits, and the fields included.
+
+## Saved project storage notices
+
+Version 0.88 warns when saved project files, the project order, or older
+project data cannot be read completely. Healthy projects remain available. Open
+**Settings → System check → Saved projects** for counts and **Recheck saved
+projects**. Rechecking reads storage without repairing files or reloading restored
+projects into the running session.
+
+Back up the Studio state folder and download available unfinished edits. Stop
+Studio before restoring known-good copies, then restart; keep the original files.
+See [saved project recovery](docs/PROJECT-STORAGE-RECOVERY.md) for limits.
 
 ## Playback and update hardening
 
@@ -214,11 +234,12 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-Sthang Studio `0.86.0` is this source's Public Beta release identity for
-**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**. The matching
-[0.86.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
-is the governed recovery-download location after its assets are published and
-byte-verified.
+Sthang Studio `0.88.0` is available as a verified Public Beta for
+**Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
+The [0.88.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
+contains both recovery installers and their SHA-256 sidecars. Both signed OTA
+channels offer the same version after independent package, signature and public
+pointer verification; see [release evidence](docs/V0.88-RELEASE.md).
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -487,7 +508,7 @@ Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
 Curated public packages target Windows x64 and Apple Silicon macOS. Installed
 Windows updaters and the Apple Silicon `0.85.6` bootstrap can check their separate
 public update channels. Users on the older manual-only Mac line install the
-reviewed `0.86.0` recovery package once to obtain the Finder launcher and updater.
+reviewed `0.88.0` recovery package once to obtain the Finder launcher and updater.
 Every offered platform version requires its own accepted signed release, native
 upgrade/rollback evidence, and deliberately promoted platform pointer. The manual
 installer also refreshes the stable broker; an OTA payload preserves that broker.
@@ -656,6 +677,16 @@ in the current public download.
 
 ## Development
 
+Measure the production caption list with
+`npm run benchmark:caption-list -- data/working/caption-list-new-run`.
+See [caption-list benchmark](docs/CAPTION-LIST-BENCHMARK.md) for prerequisites,
+raw samples, measured limits, and the distinction from playback/customer metrics.
+
+Measure process-cold server project loading with
+`npm run benchmark:project-loading -- data/working/project-loading-new-run`.
+See [project-loading decision](docs/PROJECT-LOADING-BENCHMARK.md) for synthetic
+workloads, retained results, isolation, limits and the decision to defer lazy loading.
+
 Read [`AGENTS.md`](AGENTS.md) before changing the application. Product and UX
 behavior are also documented in [`PRODUCT.md`](PRODUCT.md),
 [`DESIGN.md`](DESIGN.md), and [`UX-AUDIT.md`](UX-AUDIT.md).
@@ -783,3 +814,12 @@ configured integrations and do not imply sponsorship or endorsement.
 ---
 
 **Sthang Studio** is developed by Sthang. Product information: https://sthang.app/
+
+## Export freshness in source development
+
+Export history compares the latest prepared file of each format with the open
+project, including unsaved edits. Activity compares individual new captioned-video
+renders with their saved content fingerprints. Earlier exports without receipts
+remain unknown. Comparisons that include styling stay unknown until the current
+project's saved appearance is reconciled. See [export freshness](docs/EXPORT-FRESHNESS.md). This is source
+development and does not establish availability in a published download.

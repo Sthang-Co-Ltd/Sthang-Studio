@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { summarizeProject, type CaptionAppearance, type CaptionProject } from '@kcs/shared';
+import { summarizeProject, type CaptionAppearance, type CaptionProject, type ProjectStorageStatus } from '@kcs/shared';
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
+import { isLoadableProject, readMigrationMarker, readStorageJson, scanProjectStorage, storageStatusFromScan } from './project-storage.js';
+import { beginProjectLoadingPhase, endProjectLoadingPhase } from './project-loading-observer.js';
 
 const projectDir = path.join(path.dirname(config.dataFile), 'projects');
 const orderFile = path.join(projectDir, 'order.json');
@@ -14,6 +16,33 @@ let initializePromise: Promise<void> | null = null;
 let orderWriteQueue: Promise<void> = Promise.resolve();
 const writeQueues = new Map<string, Promise<void>>();
 const durableProjectWrites = new Map<string, boolean>();
+let storageStatus: ProjectStorageStatus;
+let orderReadFault = false;
+let startupNeedsRestart = false;
+// Display order can include legacy records that exist only in memory while
+// migration is pending. Only published references/files establish missing files.
+let indexedProjectIds = new Set<string>();
+const publishedProjectIds = new Set<string>();
+let migrationDeletionBlocked = false;
+let storageMutationGeneration = 0;
+let activeStorageMutations = 0;
+
+async function withStorageMutation<T>(operation: () => Promise<T>): Promise<T> {
+  storageMutationGeneration++;
+  activeStorageMutations++;
+  try { return await operation(); }
+  finally {
+    activeStorageMutations--;
+    storageMutationGeneration++;
+  }
+}
+
+export class ProjectDeletionBlockedError extends Error {
+  readonly code = 'PROJECT_STORAGE_RECOVERY_REQUIRED';
+  constructor() {
+    super('Project deletion is paused while saved project migration needs recovery. Back up Studio data, review Saved projects in System check, recover the saved files, then restart Studio before deleting.');
+  }
+}
 
 function safeId(id: string) {
   const value = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
@@ -49,14 +78,6 @@ async function atomicWrite(filePath: string, value: string) {
   }
 }
 
-async function readJson<T>(filePath: string): Promise<T | null> {
-  try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
-  } catch {
-    return null;
-  }
-}
-
 function uniqueIds(values: string[]) {
   const seen = new Set<string>();
   return values.filter((id) => {
@@ -68,8 +89,17 @@ function uniqueIds(values: string[]) {
 
 function queueOrderUpdate(transform: (current: string[]) => string[]) {
   const task = orderWriteQueue.then(async () => {
-    const next = uniqueIds(transform(order)).filter((id) => projects.has(id));
-    await atomicWrite(orderFile, `${JSON.stringify(next)}\n`);
+    // Keep references to missing/unreadable project files so recovery retains order.
+    const next = uniqueIds(transform(order));
+    // Preserve a corrupt index for recovery; project files remain authoritative.
+    if (!orderReadFault) {
+      // A pending migration can add usable legacy-only objects to display order.
+      // Publishing a new project must not turn those objects into false missing
+      // file references. Retain genuine existing references even when missing.
+      const publishedOrder = next.filter((id) => indexedProjectIds.has(id) || publishedProjectIds.has(id));
+      await atomicWrite(orderFile, `${JSON.stringify(publishedOrder)}\n`);
+      indexedProjectIds = new Set(publishedOrder);
+    }
     order = next;
   });
   orderWriteQueue = task.then(() => undefined, () => undefined);
@@ -77,14 +107,32 @@ function queueOrderUpdate(transform: (current: string[]) => string[]) {
 }
 
 async function loadProjectFiles() {
-  const names = await fs.readdir(projectDir).catch(() => [] as string[]);
-  const projectNames = names.filter((name) => name.endsWith('.json') && name !== 'order.json');
-  // Bound outstanding I/O and publish in file order, preserving duplicate-ID precedence.
-  for (let start = 0; start < projectNames.length; start += 4) {
-    const batch = await Promise.all(projectNames.slice(start, start + 4)
-      .map((name) => readJson<CaptionProject>(path.join(projectDir, name))));
-    for (const project of batch) if (project?.id) projects.set(project.id, project);
+  const scan = await scanProjectStorage(projectDir);
+  const publishing = beginProjectLoadingPhase('publication');
+  try {
+  for (const entry of scan.entries) if (entry.project) {
+    projects.set(entry.project.id, entry.project);
+    publishedProjectIds.add(entry.project.id);
   }
+  storageStatus = storageStatusFromScan(scan, projects.size);
+  if (storageStatus.directoryUnreadable || storageStatus.unreadableProjectCount || storageStatus.duplicateProjectCount) {
+    startupNeedsRestart = true;
+    storageStatus.restartRequired = true;
+  }
+  return scan;
+  } finally { endProjectLoadingPhase(publishing, scan.entries.length); }
+}
+
+function missingProjectCount(scan: Awaited<ReturnType<typeof scanProjectStorage>>, diskIndex: string[] = []) {
+  if (scan.directoryUnreadable) return 0;
+  const names = new Set(scan.entries.map((entry) => entry.name));
+  const expectedNames = new Set([
+    // Invalid index entries are preserved for recovery, never sanitized into a
+    // different identity or used to probe paths outside the project directory.
+    ...[...indexedProjectIds, ...diskIndex].filter((id) => /^[A-Za-z0-9_-]{1,100}$/.test(id)).map((id) => `${id}.json`),
+    ...[...publishedProjectIds].map((id) => path.basename(projectFile(id))),
+  ]);
+  return [...expectedNames].filter((name) => !names.has(name)).length;
 }
 
 function newestMissingIds() {
@@ -96,38 +144,71 @@ function newestMissingIds() {
 }
 
 async function initialize() {
-  await fs.mkdir(projectDir, { recursive: true });
-  const markerExists = await fs.stat(migrationMarker).then(() => true).catch(() => false);
-  await loadProjectFiles();
+  const creating = beginProjectLoadingPhase('directory-create');
+  try { await fs.mkdir(projectDir, { recursive: true }); }
+  finally { endProjectLoadingPhase(creating); }
+  const marker = await readMigrationMarker(migrationMarker);
+  const markerExists = marker !== 'missing';
+  const scan = await loadProjectFiles();
+  const unreadableFiles = new Set(scan.entries.filter((entry) => !entry.project).map((entry) => entry.name));
+  if (marker === 'unreadable') { storageStatus.migrationPending = true; migrationDeletionBlocked = true; startupNeedsRestart = true; storageStatus.restartRequired = true; }
 
-  const storedOrder = await readJson<string[]>(orderFile);
-  order = Array.isArray(storedOrder)
-    ? uniqueIds(storedOrder).filter((id) => projects.has(id))
+  const orderRead = await readStorageJson(orderFile);
+  const storedOrder = orderRead.state === 'ok' && Array.isArray(orderRead.value) && orderRead.value.every((id) => typeof id === 'string') ? orderRead.value as string[] : null;
+  orderReadFault = orderRead.state === 'unreadable' || (orderRead.state === 'ok' && storedOrder === null);
+  storageStatus.orderUnreadable = orderReadFault;
+  if (orderReadFault) { startupNeedsRestart = true; storageStatus.restartRequired = true; }
+  order = storedOrder
+    ? uniqueIds(storedOrder)
     : [];
+  indexedProjectIds = new Set(order);
+  const finishMissingCheck = () => {
+    storageStatus.missingProjectCount = missingProjectCount(scan);
+    if (storageStatus.missingProjectCount) { startupNeedsRestart = true; storageStatus.restartRequired = true; }
+  };
 
   if (!markerExists) {
     // A previous launch may have stopped halfway through migration. Always
     // reconcile the legacy file against any already-written per-project files;
     // only write the marker after every project and the order index are durable.
-    const legacy = await readJson<CaptionProject[]>(config.dataFile);
+    const legacyRead = await readStorageJson(config.dataFile);
+    const legacy = legacyRead.state === 'ok' && Array.isArray(legacyRead.value) ? legacyRead.value : [];
+    storageStatus.legacyUnreadable = legacyRead.state === 'unreadable'
+      || (legacyRead.state === 'ok' && (!Array.isArray(legacyRead.value) || !legacy.every(isLoadableProject)));
+    let migrationSafe = !storageStatus.legacyUnreadable && !storageStatus.directoryUnreadable && !unreadableFiles.size && !orderReadFault;
     const legacyIds: string[] = [];
     if (Array.isArray(legacy) && legacy.length) {
-      await fs.copyFile(config.dataFile, legacyBackup, 1).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== 'EEXIST') console.warn('[project store] Could not create legacy backup:', error.message);
+      if (migrationSafe) await fs.copyFile(config.dataFile, legacyBackup, 1).catch(async (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST' || !await fs.stat(legacyBackup).then((stat) => stat.isFile()).catch(() => false)) migrationSafe = false;
       });
       for (const project of legacy) {
-        if (!project?.id) continue;
+        if (!isLoadableProject(project) || unreadableFiles.has(path.basename(projectFile(project.id)))) continue;
         legacyIds.push(project.id);
         if (projects.has(project.id)) continue;
         const stored = structuredClone(project);
-        await atomicWrite(projectFile(project.id), `${JSON.stringify(stored)}\n`);
+        if (migrationSafe) {
+          await atomicWrite(projectFile(project.id), `${JSON.stringify(stored)}\n`);
+          publishedProjectIds.add(project.id);
+          scan.entries.push({ name: path.basename(projectFile(project.id)), project: stored });
+          storageStatus.readableProjectCount++;
+        }
         projects.set(project.id, stored);
       }
     }
 
     const remaining = newestMissingIds().filter((id) => !legacyIds.includes(id));
+    if (!migrationSafe) {
+      order = uniqueIds([...order, ...legacyIds, ...remaining]);
+      storageStatus.migrationPending = true;
+      migrationDeletionBlocked = true;
+      startupNeedsRestart = true;
+      storageStatus.restartRequired = true;
+      finishMissingCheck();
+      return;
+    }
     await queueOrderUpdate((current) => [...current, ...legacyIds, ...remaining]);
     await atomicWrite(migrationMarker, 'Sthang Studio per-project storage v1\n');
+    finishMissingCheck();
     if (legacyIds.length) {
       console.log(`[project store] Migrated/reconciled ${projects.size} project(s) to per-project storage; legacy source preserved.`);
     }
@@ -136,6 +217,7 @@ async function initialize() {
 
   const missing = newestMissingIds();
   if (missing.length) await queueOrderUpdate((current) => [...current, ...missing]);
+  finishMissingCheck();
 }
 
 async function ensureInitialized() {
@@ -155,6 +237,10 @@ function queueProjectWrite<T>(id: string, operation: () => Promise<T>) {
 }
 
 async function persistProject(stored: CaptionProject) {
+  return withStorageMutation(() => publishProject(stored));
+}
+
+async function publishProject(stored: CaptionProject) {
   const previous = projects.get(stored.id);
   // A timestamp is the public optimistic content revision. Future-job model
   // preferences have their own compare-and-set and must not expire proposals.
@@ -167,6 +253,7 @@ async function persistProject(stored: CaptionProject) {
     || previous.media.filename !== stored.media.filename
     || previous.media.size !== stored.media.size;
   const durable = await atomicWrite(projectFile(stored.id), `${JSON.stringify(stored)}\n`);
+  publishedProjectIds.add(stored.id);
   durableProjectWrites.set(stored.id, durable);
   projects.set(stored.id, stored);
   if (!previous) await queueOrderUpdate((current) => [stored.id, ...current.filter((id) => id !== stored.id)]);
@@ -174,15 +261,58 @@ async function persistProject(stored: CaptionProject) {
   return structuredClone(stored);
 }
 
+async function recheckProjectStorage() {
+  // Per-project writes remain independent. A scan may be published only when
+  // none of its awaited reads overlapped a file/reference/index mutation.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (activeStorageMutations) break;
+    const generation = storageMutationGeneration;
+    const scan = await scanProjectStorage(projectDir);
+    const next = storageStatusFromScan(scan, projects.size);
+    const index = await readStorageJson(orderFile);
+    next.orderUnreadable = index.state === 'unreadable' || (index.state === 'ok' && (!Array.isArray(index.value) || !index.value.every((id) => typeof id === 'string')));
+    const marker = await readMigrationMarker(migrationMarker);
+    if (marker === 'unreadable') next.migrationPending = true;
+    if (marker === 'missing') {
+      const legacy = await readStorageJson(config.dataFile);
+      next.legacyUnreadable = legacy.state === 'unreadable' || (legacy.state === 'ok' && (!Array.isArray(legacy.value) || !legacy.value.every(isLoadableProject)));
+      next.migrationPending = true;
+    }
+    next.missingProjectCount = missingProjectCount(scan, index.state === 'ok' && !next.orderUnreadable ? index.value as string[] : []);
+    // Discard the entire candidate before touching any sticky recovery state.
+    // There is no await between validation and synchronous publication below.
+    if (activeStorageMutations || generation !== storageMutationGeneration) continue;
+    // A read-only recheck cannot establish a safe migration transition for the
+    // running objects. Once blocked, only a known-safe restart can unlock it.
+    if (next.migrationPending) migrationDeletionBlocked = true;
+    if (next.unreadableProjectCount || next.missingProjectCount || next.duplicateProjectCount || next.directoryUnreadable
+      || next.orderUnreadable || next.legacyUnreadable || next.migrationPending) startupNeedsRestart = true;
+    next.restartRequired = startupNeedsRestart || orderReadFault || scan.entries.some((entry) => entry.project && !projects.has(entry.project.id));
+    storageStatus = next;
+    return;
+  }
+  // The API maps this to its existing sanitized unavailable response. Keep the
+  // previous snapshot and recovery flags until a subsequent stable recheck.
+  throw new Error('Saved project storage changed during the check. Try again.');
+}
+
 export const store = {
+  async storageStatus(recheck = false): Promise<ProjectStorageStatus> {
+    await ensureInitialized();
+    if (recheck) await recheckProjectStorage();
+    return { ...storageStatus, loadedProjectCount: projects.size };
+  },
   /** False after a committed write whose directory flush is unavailable. */
   latestWriteIsDurable(id: string) { return durableProjectWrites.get(id) !== false; },
   async listSummaries() {
     await ensureInitialized();
+    const summarizing = beginProjectLoadingPhase('summary');
+    try {
     return order
       .map((id) => projects.get(id))
       .filter((project): project is CaptionProject => Boolean(project))
       .map(summarizeProject);
+    } finally { endProjectLoadingPhase(summarizing, order.length); }
   },
 
   async list() {
@@ -269,11 +399,17 @@ export const store = {
   async remove(id: string) {
     await ensureInitialized();
     return queueProjectWrite(id, async () => {
-      cancelScheduledProjectPrewarm(id);
-      await fs.rm(projectFile(id), { force: true });
-      projects.delete(id);
-      durableProjectWrites.delete(id);
-      await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
+      // Legacy data remains authoritative on restart until migration finishes.
+      // Removing even a disk-backed record could resurrect it without its media.
+      if (migrationDeletionBlocked) throw new ProjectDeletionBlockedError();
+      return withStorageMutation(async () => {
+        cancelScheduledProjectPrewarm(id);
+        await fs.rm(projectFile(id), { force: true });
+        projects.delete(id);
+        durableProjectWrites.delete(id);
+        await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
+        publishedProjectIds.delete(id);
+      });
     });
   },
 };

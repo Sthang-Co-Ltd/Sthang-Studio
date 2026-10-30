@@ -5,6 +5,7 @@ import { config, rootDir } from '../config.js';
 import { runCommand } from './media.js';
 import { resolveGeminiSettings } from './llm-settings.js';
 import { supportsComplexAssFilterHelp } from './caption-preview.js';
+import { store } from './store.js';
 
 function check(id: string, label: string, status: DoctorCheckStatus, detail: string, fix?: string): DoctorCheck {
   return { id, label, status, detail, fix };
@@ -119,6 +120,15 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
     }
   }
 
+  try {
+    const saved = await store.storageStatus(true);
+    const attention = saved.unreadableProjectCount > 0 || saved.missingProjectCount > 0 || saved.duplicateProjectCount > 0 || saved.directoryUnreadable
+      || saved.orderUnreadable || saved.legacyUnreadable || saved.migrationPending || saved.restartRequired;
+    checks.push(check('project-readability', 'Saved project readability', attention ? 'warning' : 'ok',
+      `${saved.loadedProjectCount} loaded; ${saved.readableProjectCount} readable project files; ${saved.unreadableProjectCount} unreadable.`,
+      attention ? 'Back up the Studio state folder and available edits. Stop Studio before restoring known-good copies, then restart. Keep original files; do not reset or delete them.' : undefined));
+  } catch { checks.push(check('project-readability', 'Saved project readability', 'warning', 'Saved projects could not be checked.', 'Keep existing files and try again or restart Studio.')); }
+
   checks.push(typeof Intl.Segmenter === 'function'
     ? check('segmenter', 'Khmer word segmenter', 'ok', 'Intl.Segmenter available')
     : check('segmenter', 'Khmer word segmenter', 'error', 'Intl.Segmenter is unavailable in this Node runtime', 'Install the current Node.js LTS release.'));
@@ -128,7 +138,7 @@ export async function runSystemDoctor(): Promise<SystemDoctorReport> {
 
   return {
     generatedAt: new Date().toISOString(),
-    engineVersion: '0.86.0',
+    engineVersion: '0.88.0',
     overall,
     checks,
     environment: {

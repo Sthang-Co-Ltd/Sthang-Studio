@@ -1,0 +1,81 @@
+name: Native macOS media replacement smoke (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_commit:
+        description: "Exact 40-character Studio source commit to exercise"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-media-acceptance-${{ inputs.candidate_commit }}
+  cancel-in-progress: false
+
+jobs:
+  native-media:
+    name: Re-encoded media compatibility and preserved project state
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      ORT_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
+      STUDIO_CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select reviewed native Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          architecture: arm64
+
+      - name: Verify candidate and native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$STUDIO_CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$STUDIO_CANDIDATE_COMMIT"
+          git merge-base --is-ancestor "$STUDIO_CANDIDATE_COMMIT" origin/main
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          node -e 'if (process.arch !== "arm64" || process.versions.node !== "24.21.0") process.exit(1)'
+          git rev-parse HEAD
+          sw_vers -productVersion
+          node -p 'require("./package.json").version'
+
+      - name: Install locked test dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Prepare the candidate's checksum-pinned native FFmpeg
+        shell: bash
+        env:
+          STHANG_STUDIO_STATE_ROOT: ${{ runner.temp }}/studio-media-smoke-runtime
+        run: |
+          set -euo pipefail
+          source scripts/macos-common.sh
+          studio_macos_host
+          studio_macos_install_managed_ffmpeg
+          echo "FFMPEG_PATH=$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" >> "$GITHUB_ENV"
+          echo "FFPROBE_PATH=$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" >> "$GITHUB_ENV"
+          "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffmpeg" -version
+          "$STUDIO_MANAGED_FFMPEG_ROOT/bin/ffprobe" -version
+
+      - name: Exercise native re-encoding and the real replacement route
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build --workspace @kcs/shared
+          node --import tsx --test --test-reporter=tap tests/media-compatibility.test.mts tests/preserve-media-server.test.mts | tee "$RUNNER_TEMP/studio-native-media.tap"
+          grep -Fxq '# skipped 0' "$RUNNER_TEMP/studio-native-media.tap"
+          echo "Native Apple Silicon media replacement smoke passed for $STUDIO_CANDIDATE_COMMIT."

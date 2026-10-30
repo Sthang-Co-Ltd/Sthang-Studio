@@ -1,20 +1,32 @@
 # Changelog
 
-## Unreleased
+## 0.88.0 — Public Beta (2026-10-28)
 
-- **Source-only - repair export issues by caption:** show actionable caption-level
+- **Public recovery downloads and signed updates:** publish verified Windows x64
+  and Apple Silicon macOS recovery installers and OTA offers from the same accepted
+  source. Record native acceptance, signatures, package hashes and the later
+  focused media-replacement checks in [the release evidence](docs/V0.88-RELEASE.md).
+- **Editing and project recovery:** bring together unfinished-edit recovery,
+  revision-checked saves, searchable projects, saved-storage notices, and explicit
+  media replacement that retains reviewed captions and timing.
+- **Export and interaction improvements:** preview bulk corrections, check export
+  issues by caption, distinguish export history from current saved work, preserve
+  export choices during repairs, and improve native preview recovery, word-timing
+  controls, waveform navigation and keyboard focus.
+
+- **Repair export issues by caption:** show actionable caption-level
   blockers and review suggestions, with direct editing links and a return to the
   current export choices. Add an explicit local native layout check with overlap
   attribution and stale-response invalidation; retain mandatory final-render
   validation and the existing caption save/conflict protections.
 
-- **Source-only - find and reopen every project:** keep six recent projects on
+- **Find and reopen every project:** keep six recent projects on
   Home and add All projects with name search, last-edited/created/name ordering,
   and 24-row pages. Reopen current saved work through the existing save/recovery
   protections, retaining the collection view when returning from the editor.
   Listing and search use local summaries without loading every caption body.
 
-- **Source-only - reject stale saves:** ordinary caption and Accuracy saves now
+- **Reject stale saves:** ordinary caption and Accuracy saves now
   require a saved revision checked inside the project write lock. A conflicting
   editor keeps its local draft, stops queued saves and retries, and offers
   Download edits and Reload saved project for comparison. Rejected saves do not
@@ -29,7 +41,7 @@
   Khmer-spacing and safe-timing cleanup also require a checked caption revision
   before changing the project or History.
 
-- **Source-only - protect unfinished edits:** warn before closing/reloading with
+- **Protect unfinished edits:** warn before closing/reloading with
   unfinished caption or Accuracy work; wait for pending writes and save both before
   leaving a project. Keep failed saves visible with Retry and Download edits.
   Bounded browser recovery captures focused text and Khmer composition, requires
@@ -37,22 +49,24 @@
   typing through delayed acknowledgements. Changed restored captions are
   unapproved; recovery saves do not create correction or Contributor evidence.
 
-- **Source-only - preserve manual seeks during replay:** a pending source-player
+- **Preserve manual seeks during replay:** a pending source-player
   seek takes precedence over the bounded replay endpoint, keeping the chosen
   position and playback instead of snapping back and pausing.
 
-- **Source-only - accept edited audio while keeping reviewed times:** after local
+- **Accept edited audio while keeping reviewed times:** after local
   file, decoder and timeline safety checks, offer explicit acceptance for volume
   changes, added music and sound effects. Keep exact captions/word times, approvals
   and locks with a persistent unverified-alignment reminder and recoverable backup.
   Confirmation is file/revision-bound; duration/bounds/corrupt-file failures stay
   blocked. No automatic retiming, generation or silent reset.
 
-- **Source-only — keep reviewed captions when replacing footage:** add an explicit
+- **Keep reviewed captions when replacing footage:** add an explicit
   preserving workflow for visual-only revisions, local full-length audio/timeline
   compatibility checks, and recoverable prior-media/project snapshots. Retain
   wording, word timing, approvals, locks, and styling; incompatible or uncertain
   media stops safely without automatic generation. Start-over remains separate.
+
+## 0.86.0 preparation (historical)
 
 - **Windows timing readiness:** resolve the cached Khmer model through the same
   native cache location used by KFA, including redirected installation profiles.
