@@ -455,7 +455,7 @@ for (const { action, foreign } of scenarios) {
       expect(afterSaves.captions[1]).toEqual(afterBatch.captions[1]);
       expect(afterSaves.captions[0]).toEqual(afterBatch.captions[0]);
       expect(finalEditor.texts).toEqual([original.captions[0].text, original.captions[1].text, newestText]);
-      await expect(other.locator('.appearance-highlight-readiness')).toContainText(`${action === 'apply' ? 1 : 0} of 3 captions have usable word timing`);
+      await expect(other.locator('.appearance-highlight-readiness')).toContainText(`${action === 'apply' ? 1 : 0} of 3 captions ready`);
 
       if (foreign) {
         expect(afterSaves).toEqual(afterBatch);

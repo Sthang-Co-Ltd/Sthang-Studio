@@ -73,7 +73,7 @@ function queuedRegenerationJob(id = 'queued-regeneration'): ProcessingJob {
   };
 }
 
-test('changing the slider applies the requested limit only on Apply grouping', async ({ page }) => {
+test('changing the slider applies the requested limit only on Apply grouping', async ({ page }, info) => {
   const current = state.projects[0];
   const tokens: TimedToken[] = ['ខ្មែរ', 'កម្ពុជា', 'ភាសា', 'សួស្តី', 'ខ្មែរ', 'កម្ពុជា'].map((text, i) => ({
     id: `t${i}`, text, spaceBefore: false, startMs: i * 180, endMs: (i + 1) * 180,
@@ -91,6 +91,7 @@ test('changing the slider applies the requested limit only on Apply grouping', a
     await route.fulfill({ json: current });
   });
   await openProject(page); const controls = await grouping(page);
+  await controls.screenshot({ path: info.outputPath('grouping-character-help.png') });
   const slider = controls.getByRole('slider');
   for (const value of ['10', '20', '30']) await slider.fill(value);
   expect(requests).toHaveLength(0);
@@ -106,7 +107,8 @@ test('changing the slider applies the requested limit only on Apply grouping', a
   expect(current.captions.map((caption) => caption.text)).not.toEqual(before);
   await controls.getByRole('button', { name: /^Word/ }).click();
   await expect(slider).toBeDisabled();
-  await expect(controls).toContainText('Character limit, not word count.');
+  await expect(controls).toContainText('Word mode shows one timed token per caption.');
+  await controls.screenshot({ path: info.outputPath('grouping-word-help.png') });
 });
 
 test('failed edit-save prevents regrouping and keeps the draft', async ({ page }) => {

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CaptionGenerationModel } from '@kcs/shared';
+import { ChevronDown } from 'lucide-react';
 import './generation-options.css';
 
 const labels = { automatic: 'Automatic', 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'gemini-3.6-flash': 'Gemini 3.6 Flash' };
@@ -17,7 +18,7 @@ export function GenerationOptions({ value = 'automatic', disabled, saving, expan
   const choice = pending ?? value;
   useEffect(() => { if (expandAfterError && disclosure.current) disclosure.current.open = true; }, [expandAfterError]);
   return <details className="generation-options" ref={disclosure}>
-    <summary>AI options <span>{labels[choice]}</span></summary>
+    <summary><strong>AI options</strong><span>{labels[choice]}</span><ChevronDown className="generation-options-chevron" size={16} aria-hidden="true"/></summary>
     <div className="generation-options-body">
       <label htmlFor={id}>Caption model</label>
       <select id={id} value={choice} disabled={disabled || saving || pending !== null} aria-describedby={`${id}-help ${id}-status`} onChange={(event) => {

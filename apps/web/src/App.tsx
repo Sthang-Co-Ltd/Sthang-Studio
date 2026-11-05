@@ -273,6 +273,8 @@ export default function App() {
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
+  const [dismissedAlignmentNotice, setDismissedAlignmentNotice] = useState<string | null>(null);
+  useEffect(() => { setDismissedAlignmentNotice(null); }, [project?.id]);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
   const [wordTimingPreview, setWordTimingPreview] = useState<{ mediaKey: string; basis: CaptionSegment; caption: CaptionSegment } | null>(null);
   const [wordBatch, setWordBatch] = useState<WordBatchDisplay>(EMPTY_WORD_BATCH);
@@ -3069,6 +3071,9 @@ export default function App() {
   const legacy = Boolean(project?.transcript && !hasHybrid);
   const usedFallback = timing?.engine === 'faster-whisper-local';
   const audioAlignmentUnverified = project?.mediaAlignment?.state === 'unverified-audio-change';
+  const alignmentNoticeKey = project && audioAlignmentUnverified
+    ? JSON.stringify([project.id, project.media.filename, project.media.size, project.mediaAlignment?.acceptedAt, project.mediaAlignment?.sourceRevision])
+    : null;
   const timingConfigured = health?.timing.configured ?? true;
 
   const openReviewWorkspace = () => {
@@ -3306,7 +3311,7 @@ export default function App() {
       </div>
     </header>
 
-    {project.mediaAlignment?.state === 'unverified-audio-change' && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span><strong>Audio alignment not verified.</strong> Existing caption and word times were kept. Check them against the edited audio before exporting.</span></div>}
+    {alignmentNoticeKey && dismissedAlignmentNotice !== alignmentNoticeKey && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span><strong>Audio alignment not verified.</strong> Existing caption and word times were kept. Check them against the edited audio before exporting.</span><button type="button" aria-label="Dismiss audio alignment warning" title="Dismiss warning" onClick={() => setDismissedAlignmentNotice(alignmentNoticeKey)}><X size={16}/></button></div>}
 
     <EditorLayout
       tool={proposal ? 'proposal' : workspaceTool}
@@ -3516,7 +3521,7 @@ export default function App() {
             <label className="slider"><span>Target maximum characters <b>{maxChars}</b></span>
               <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
                 aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
-            <p id="grouping-limit-help">Character limit, not word count. Rhythm, pauses, duration and protected phrases may take priority. Word mode shows one timed token.</p>
+            <p id="grouping-limit-help">{groupingMode === 'word' ? 'Word mode shows one timed token per caption.' : 'Character target, not word count. Speech rhythm and protected phrases may take priority.'}</p>
             <div className="preset-actions">
               <span>Using {modes.find((mode) => mode.id === project.mode)?.label || project.mode}. Apply grouping to update captions; locks stay intact and History keeps the previous version.</span>
               <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>

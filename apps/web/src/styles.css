@@ -21,7 +21,7 @@
 
 .doctor-intro{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;border:1px solid #2b323c;background:#11151a;border-radius:12px;padding:12px}.doctor-intro>div{display:flex;flex-direction:column;gap:3px}.doctor-intro span{font-size:12px;color:#7e8691;line-height:1.45}.doctor-summary{margin-top:12px;border:1px solid #36402c;border-radius:10px;padding:10px;display:grid;grid-template-columns:1fr auto;align-items:center}.doctor-summary>strong,.doctor-summary>span{grid-column:1}.doctor-summary span{font-size:12px;color:#7d8691}.doctor-summary button{grid-column:2;grid-row:1/3}.doctor-warning{border-color:#6f5c2e}.doctor-error{border-color:#713737}.doctor-checks{display:flex;flex-direction:column;gap:7px;margin-top:10px}.doctor-check{display:grid;grid-template-columns:10px 1fr;gap:9px;border:1px solid #282e36;background:#101318;border-radius:9px;padding:9px}.doctor-check i{width:8px;height:8px;border-radius:50%;background:#6d747e;margin-top:4px}.doctor-check>div{display:flex;flex-direction:column;gap:2px}.doctor-check span{font-size:12px;color:#7d8590;word-break:break-word}.doctor-check em{font-style:normal;font-size:12px;color:#d2ad5b}.check-ok i{background:#a5d84f}.check-warning i{background:#d0a43f}.check-error i{background:#dc5959}
 
-@media(max-width:1200px){.header-actions button{padding:0 9px}.header-actions button:not(.primary){font-size:13px}.header-actions button svg,.header-actions button b{font-size:initial}.review-card{grid-template-columns:1fr}.review-selection{text-align:left}.review-actions .regenerate-range{margin-left:0}}
+@media(max-width:1200px){.header-actions button{padding:0 9px}.header-actions button:not(.primary){font-size:13px}.header-actions button svg{font-size:initial}.review-card{grid-template-columns:1fr}.review-selection{text-align:left}.review-actions .regenerate-range{margin-left:0}}
 @media(max-width:900px){.home-tools{position:static;justify-content:center;padding-top:12px}.review-card{grid-template-columns:1fr}.correction-pair{grid-template-columns:1fr}.profile-stats{grid-template-columns:repeat(2,1fr)}.inbox-toolbar>span{display:none}.modal-backdrop{padding:7px}.modal{max-height:97vh}.doctor-intro{grid-template-columns:auto 1fr}.doctor-intro button{grid-column:1/-1}.review-actions .regenerate-range{width:100%;justify-content:center}.pack-create{flex-direction:column}}
 
 /* Sthang Studio brand system */
@@ -58,7 +58,7 @@
 
 .job-list article{display:grid;grid-template-columns:30px 1fr auto;gap:9px;border:1px solid #282e36;background:#101318;border-radius:9px;padding:10px;margin-bottom:7px}.job-status-icon{width:28px;height:28px;border:1px solid #303740;border-radius:8px;display:grid;place-items:center;color:#aab3be}.job-completed .job-status-icon{color:#a9db69;border-color:#40562b}.job-failed .job-status-icon,.job-interrupted .job-status-icon{color:#e49a72;border-color:#60402d}.job-copy{min-width:0}.job-copy>div{display:flex;align-items:baseline;gap:8px}.job-copy strong{font-size:13px}.job-copy>div span{font-size:12px;color:#747d88}.job-copy p{font-size:12px;color:#929aa5;margin:5px 0}.job-copy small{font-size:12px;color:#636c77}.job-copy em{display:block;font-style:normal;color:#e68d8d;font-size:12px;margin-top:4px;white-space:pre-wrap}.job-progress{height:4px;background:#20252c;border-radius:99px;overflow:hidden;margin:6px 0}.job-progress i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}.job-actions{display:flex;gap:5px;align-items:start}.job-actions button{border:1px solid #303741;background:#171b20;color:#d0d5dc;border-radius:7px;padding:6px 8px;display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer}.job-toast{position:fixed;left:18px;bottom:18px;z-index:20;border:1px solid #52622f;background:#141a0f;color:#dfff8a;border-radius:10px;padding:9px 11px;display:flex;align-items:center;gap:8px;box-shadow:0 15px 50px #0008;cursor:pointer}.job-toast>div{display:flex;flex-direction:column;align-items:flex-start;gap:2px}.job-toast strong{font-size:12px}.job-toast span{font-size:12px;color:#8fa169}
 
-.selected-tool{border-color:#617138!important;background:#17200f!important;color:#dfff81!important}.tool-badge{min-width:16px;height:16px;border-radius:99px;background:#2b351b;color:#dfff81;display:grid;place-items:center;font-size:10px}.toast.notice{border-color:#506331;color:#d9ff83}.accuracy-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.selected-tool{border-color:#617138!important;background:#17200f!important;color:#dfff81!important}.tool-badge{min-width:16px;height:16px;flex-shrink:0;border-radius:99px;background:#2b351b;color:#dfff81;display:grid;place-items:center;font-size:10px;line-height:1;font-variant-numeric:tabular-nums}.toast.notice{border-color:#506331;color:#d9ff83}.accuracy-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
 
 @media(max-width:1380px){.header-actions button{padding:0 8px}.review-card{grid-template-columns:1fr 1fr}.qa-profile-control{grid-column:1/-1;border-left:0;border-top:1px solid #293020;padding:8px 0 0}.find-grid{grid-template-columns:1fr 1fr}.replace-memory{grid-template-columns:auto 1fr}.replace-memory select{grid-column:1/-1}}
 @media(max-width:1000px){.waveform-toolbar{align-items:flex-start;flex-direction:column}.waveform-controls{margin-left:0;justify-content:flex-start}.diff-pair{grid-template-columns:1fr}.history-list article{grid-template-columns:30px 1fr auto}.history-badges{display:none}}
@@ -256,7 +256,7 @@ body{color:var(--text);caret-color:var(--accent)}
 .header-actions .primary{padding-inline:15px}
 .header-actions .selected-tool{border-color:#718337;background:#17200f;color:#ebffad}
 .header-actions button:not(.primary){font-size:13px}
-.header-actions button svg,.header-actions button b{font-size:initial}
+.header-actions button svg{font-size:initial}
 
 /* Less-used project actions live in one predictable menu instead of crowding the header. */
 .workspace-tools-menu{position:relative}
@@ -301,6 +301,7 @@ body{color:var(--text);caret-color:var(--accent)}
 .review-card{grid-template-columns:minmax(190px,.9fr) minmax(160px,.65fr) minmax(210px,.8fr);padding:14px;gap:12px}
 .review-score strong,.control-title strong,.timing-card-title strong{font-size:14px}
 .review-score span,.review-selection span,.control-title span,.timing-card-title span{font-size:13px;line-height:1.45}
+#grouping-limit-help{margin:8px 0 0;color:var(--text-muted);font-size:12px;line-height:1.5}
 .review-primary-actions{padding-top:2px}
 .review-actions button,.review-actions label{min-height:36px;height:36px;font-size:13px;padding-inline:10px}
 .review-actions .regenerate-range{margin-left:auto}

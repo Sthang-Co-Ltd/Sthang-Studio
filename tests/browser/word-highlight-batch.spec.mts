@@ -95,7 +95,7 @@ test('prepares unresolved highlights sequentially, applies ready timings explici
 
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('0 of 2 captions have usable word timing');
+  await expect(page.locator('.appearance-highlight-readiness')).toContainText('0 of 2 captions ready');
 
   await page.getByRole('button', { name: 'Prepare word highlights', exact: true }).click();
   await expect.poll(() => syncOrder).toEqual(['c1']);
@@ -123,7 +123,7 @@ test('prepares unresolved highlights sequentially, applies ready timings explici
   const applied = page.getByRole('region', { name: 'Applied word timings' });
   await expect(applied).toBeVisible();
   await expect(applied.getByRole('button', { name: 'Prepare remaining', exact: true })).toBeVisible();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 of 2 captions have usable word timing');
+  await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 of 2 captions ready');
   await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 will stay plain');
   expect(resolveCaptionWordTiming(project.captions[0]).state).toBe('ready');
   expect(resolveCaptionWordTiming(project.captions[1]).state).toBe('partial');
@@ -214,3 +214,73 @@ test('turning highlight off during preparation keeps progress cancellable and ab
   expect(batchApplyRequests).toBe(0);
   expect(project.captions).toEqual(savedCaptions);
 });
+
+for (const allReady of [false, true]) {
+  test(`word highlight controls fit with ${allReady ? 'ready' : 'unresolved'} timing`, async ({ page }, testInfo) => {
+    state = await installFixture(page);
+    const first = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
+    const second = makeCue('c2', 'ស្រឡាញ់ កម្ពុជា', 1400, 2400, [1420, 1920], [1820, 2320]);
+    if (allReady) {
+      first.caption.wordTiming = buildCaptionWordTiming(first.caption, first.tokens)!;
+      second.caption.wordTiming = buildCaptionWordTiming(second.caption, second.tokens)!;
+    }
+    const project = state.projects[0] as CaptionProject;
+    project.captions = [first.caption, second.caption];
+    project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'word' };
+    project.transcript!.tokens = [...first.tokens, ...second.tokens];
+    project.transcript!.segments = structuredClone(project.captions);
+
+    await openProject(page);
+    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    const section = page.getByRole('region', { name: 'Spoken word highlight', exact: true });
+    await expect(section.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(section).toContainText(`${allReady ? 2 : 0} of 2 captions ready`);
+    await expect(section).toContainText('SRT carries text and timing only.');
+    await expect(section.getByRole('button', { name: 'Prepare word highlights', exact: true })).toHaveCount(allReady ? 0 : 1);
+    const disclosure = page.locator('.appearance-word-details');
+    const summary = disclosure.locator(':scope > summary');
+    await summary.focus();
+    await summary.press('Enter');
+    await expect(section).toBeHidden();
+    expect(project.captionAppearance?.highlightMode).toBe('word');
+    await page.locator('.workspace-inspector').screenshot({ path: testInfo.outputPath('word-highlighting-collapsed.png'), animations: 'disabled' });
+    await summary.press('Enter');
+    await expect(section).toBeVisible();
+
+    for (const [width, height] of [[1440, 1000], [390, 1000], [320, 1000], [390, 740], [320, 740]]) {
+      await page.setViewportSize({ width, height });
+      const layout = await section.evaluate((root) => {
+        const bounds = root.getBoundingClientRect();
+        return {
+          fits: root.scrollWidth <= root.clientWidth + 1,
+          controls: [...root.querySelectorAll('button,input')].map((node) => {
+            const rect = node.getBoundingClientRect();
+            return { height: rect.height, inside: rect.left >= bounds.left && rect.right <= bounds.right + 1 };
+          }),
+        };
+      });
+      expect(layout.fits).toBe(true);
+      for (const control of layout.controls) {
+        expect(control.inside).toBe(true);
+        expect(control.height).toBeGreaterThanOrEqual(width <= 620 ? 44 : 36);
+      }
+      if (width <= 620) {
+        for (const control of await section.locator('button,input').all()) {
+          await control.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+          await expect(control).toBeInViewport();
+          expect(await control.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+          })).toBe(true);
+        }
+        await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+        await page.screenshot({ path: testInfo.outputPath(`word-highlighting-${width}x${height}-top.png`), animations: 'disabled' });
+        await section.locator('.appearance-highlight-note').evaluate((node) => node.scrollIntoView({ block: 'end' }));
+        await page.screenshot({ path: testInfo.outputPath(`word-highlighting-${width}x${height}-bottom.png`), animations: 'disabled' });
+      } else {
+        await disclosure.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+        await page.locator('.workspace-inspector').screenshot({ path: testInfo.outputPath(`word-highlighting-${width}x${height}.png`), animations: 'disabled' });
+      }
+    }
+  });
+}
