@@ -17,6 +17,10 @@ test('alignment warning can be dismissed without verifying timing and returns wh
     expect(await warning.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
     const button = warning.getByRole('button', { name: 'Dismiss audio alignment warning' });
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(width <= 620 ? 44 : 32);
+    expect(await button.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+    })).toBe(true);
     await warning.screenshot({ path: testInfo.outputPath(`alignment-warning-${width}.png`) });
   }
   await warning.getByRole('button', { name: 'Dismiss audio alignment warning' }).focus();
