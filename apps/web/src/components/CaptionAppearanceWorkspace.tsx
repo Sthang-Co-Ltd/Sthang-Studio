@@ -21,6 +21,7 @@ import { WordHighlightPreparation, type WordHighlightPreparationView } from './W
 import './caption-appearance.css';
 import './caption-effects.css';
 import './word-highlight.css';
+import './appearance-option-group.css';
 
 type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 
@@ -595,8 +596,8 @@ export function CaptionAppearanceWorkspace({
 
     {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={addingFonts || Boolean(removingFontId)} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
 
-    <details className="appearance-motion-disclosure"><summary>Motion · {motionPreset === 'none' ? 'None' : motionPreset === 'soft-pop' ? 'Soft Pop' : motionPreset === 'rise' ? 'Rise' : 'Fade'}</summary>
-    <section className="caption-effects-section appearance-motion-section" aria-labelledby="appearance-motion-title">
+    <details className="appearance-motion-disclosure appearance-option-group"><summary>Motion · {motionPreset === 'none' ? 'None' : motionPreset === 'soft-pop' ? 'Soft Pop' : motionPreset === 'rise' ? 'Rise' : 'Fade'}</summary>
+    <section className="caption-effects-section appearance-motion-section appearance-option-body" aria-labelledby="appearance-motion-title">
       <div className="caption-effects-section-head">
         <div>
           <strong id="appearance-motion-title">Motion</strong>
@@ -643,14 +644,13 @@ export function CaptionAppearanceWorkspace({
         {motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
       </div>
       {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label="Replay target caption"><span>Replay target</span><b>{sampleCaptionText.trim()}</b></div>}
-      <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay the selected caption once to check its look, motion and word emphasis. Opening frames are prepared first; later frames as needed.'}</span>
+      <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay this caption to check its look.'}</span>
     </section>
 
-    <details className="appearance-word-details" open={appearance.highlightMode === 'word' || Boolean(wordPreparation && wordPreparation.status !== 'idle')}><summary>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
-    <section className="appearance-word-highlight" aria-label="Spoken word highlight">
-      <div className="appearance-word-emphasis-title"><strong>Word emphasis</strong><span>Highlight the current spoken word using word timing.</span></div>
+    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || Boolean(wordPreparation && wordPreparation.status !== 'idle')}><summary>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
+    <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
       <div className="appearance-word-highlight-head">
-        <div><strong>Spoken word highlight</strong><p>Color each spoken word while keeping the full caption visible.</p></div>
+        <p>Color the current word while the full caption stays visible.</p>
         <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
           onClick={() => updateAppearance((current) => ({ ...current, highlightMode: current.highlightMode === 'word' ? 'off' : 'word' }))}>
           {appearance.highlightMode === 'word' ? 'On' : 'Off'}
@@ -660,21 +660,21 @@ export function CaptionAppearanceWorkspace({
         <label className="appearance-highlight-color"><span>Highlight color</span><input type="color" aria-label="Word highlight color" value={appearance.highlightColor || '#D7FF4F'}
           onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
         <div className="appearance-highlight-readiness" role="status">
-          <span>{wordReadiness.total - wordReadiness.unresolved.length} of {wordReadiness.total} captions have usable word timing.
-            {wordReadiness.unresolved.length > 0 ? ` ${wordReadiness.unresolved.length} will stay plain until their words are synced or confirmed.` : ' Pauses keep the normal text color.'}</span>
+          <div><strong>{wordReadiness.total ? `${wordReadiness.total - wordReadiness.unresolved.length} of ${wordReadiness.total} captions ready` : 'No spoken captions'}</strong>
+            {wordReadiness.unresolved.length > 0 && <span>{wordReadiness.unresolved.length} will stay plain until their words are synced or confirmed.</span>}</div>
           <button type="button" onClick={() => onEditWordTiming(wordReadiness.unresolved[0]?.id)}>{wordReadiness.unresolved.length ? 'Review word timing' : 'Edit word timing'}</button>
         </div>
-        <p className="appearance-highlight-note">Captioned video includes word highlights. SRT carries only text and timing.</p>
       </>}
       {wordPreparation && (appearance.highlightMode === 'word' || wordPreparation.status !== 'idle')
         && <WordHighlightPreparation view={wordPreparation}/>}
+      {appearance.highlightMode === 'word' && <p className="appearance-highlight-note">Highlights appear in video. SRT carries text and timing only.</p>}
     </section>
 
     </details>
 
-    <details className="appearance-more">
+    <details className="appearance-more appearance-option-group">
       <summary>More appearance</summary>
-      <div className="appearance-grid">
+      <div className="appearance-grid appearance-option-body">
         <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} title={chosenFont && !chosenFont.boldAvailable ? `${chosenFont.name} includes Regular only.` : undefined} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
         <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
         <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }), { history: 'range' })}/></label>
@@ -690,8 +690,8 @@ export function CaptionAppearanceWorkspace({
       </div>
     </details>
 
-    <details className="appearance-presets-disclosure"><summary>Saved presets</summary>
-<div className="appearance-preset-bar">
+    <details className="appearance-presets-disclosure appearance-option-group"><summary>Saved presets</summary>
+    <div className="appearance-preset-bar appearance-option-body">
       <label htmlFor="appearance-preset-select">
         <span>Preset</span>
         <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
@@ -711,6 +711,6 @@ export function CaptionAppearanceWorkspace({
     </details>
     <details className="appearance-preview-details"><summary>About the preview</summary><p>Style captions against your video. Size and position may update before the exact export preview is ready. Compression and display scaling can soften edges.</p></details>
 
-    <div className="appearance-workspace-footer"><span>Appearance changes only styling. Caption text, timing, locks, correction memory, source media, and SRT stay unchanged.</span></div>
+    <div className="appearance-workspace-footer"><span>Styling only. Caption text, timing and SRT stay unchanged.</span></div>
   </section>;
 }

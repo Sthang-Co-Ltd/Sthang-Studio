@@ -8,6 +8,9 @@
 
 - Dark, precise, restrained.
 - Studio lime `#D7FF4F` is the active/product accent.
+- Appearance groups use neutral graphite surfaces with subtle gradients and
+  white/gray text. Reserve lime for active controls, primary actions and focus;
+  do not tint whole groups green.
 - Sthang orange is reserved for parent-brand references.
 - Approved Studio logos and in-house STHANG wordmarks are immutable and governed by `BRAND.md`, `AGENTS.md`, and `brand-manifest.json`.
 - The approved ribbon-S mark and STHANG wordmark source assets have transparent backgrounds; use the correct dark/light surface variant rather than adding a baked background or CSS filter.
@@ -145,6 +148,8 @@ For projects with captions, expose the same options in Accuracy beside full
 regeneration. Expand options after a model-related generation failure. Keep the
 selector disabled while its save or generation admission is pending, show saving
 state, and retain the previous saved choice with a shared error toast on failure.
+Use a full-width bordered disclosure row with the current choice, a right-hand
+chevron, and clear hover and keyboard-focus states so AI options reads as a control.
 Preserve labeled keyboard focus and 44px mobile controls. Details continues to
 show the model that actually generated the saved wording.
 
@@ -225,6 +230,11 @@ before they reach Export.
   memory, history semantics, or source media.
 
 ### Original Looks and Motion
+
+Motion, Word highlighting, More appearance and Saved presets share one disclosure
+style: a rounded enclosing surface, a defined header and padded content. Keep
+secondary preparation and preset management flat within their parent group.
+Replay remains available outside Motion, including when Motion is closed.
 
 Keep three distinct choices: **Look**, **Motion**, and **Word emphasis**. Present
 six static labeled Look samples, a selected/Custom state, and **Reset look**.
@@ -397,6 +407,10 @@ highlight bitmap remain labeled exact during a word transition or text correctio
 
 Put the optional **Spoken word highlight** toggle and color under Appearance, with
 counts of usable and unresolved captions and a direct **Review word timing** link.
+Keep the disclosure heading and its controls inside one restrained enclosing
+surface, with one explanation, separate color and readiness rows, and flat
+preparation states. Hide idle preparation when no spoken caption needs timing; keep active
+preparation, cancellation and results reachable when highlighting is off.
 An optional **Prepare word highlights** section in the same workspace offers one
 action to check all unresolved captions locally. Show checked/total progress,
 cancel, ready/needs-review totals, explicit **Use ready timings / Keep current**,

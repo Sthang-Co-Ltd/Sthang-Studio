@@ -37,6 +37,48 @@ async function options(page: Page) {
   return page.getByRole('combobox', { name: 'Caption model', exact: true });
 }
 
+for (const surface of ['Generate', 'Accuracy'] as const) {
+  test(`AI options is clickable and keyboard-usable in ${surface} across viewport sizes`, async ({ page }, info) => {
+    if (surface === 'Generate') await initialProject(page);
+    else {
+      await openProject(page);
+      await page.getByRole('button', { name: /^Accuracy/ }).click();
+    }
+    const disclosure = page.locator('.generation-options');
+    const summary = disclosure.locator(':scope > summary');
+    const select = page.getByRole('combobox', { name: 'Caption model', exact: true });
+    for (const [width, height] of [[1440, 1000], [1183, 1244], [320, 844]]) {
+      await page.setViewportSize({ width, height });
+      await expect(select).toBeHidden();
+      await summary.evaluate((node) => { node.blur(); node.scrollIntoView({ block: 'start' }); });
+      expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(await summary.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await page.screenshot({ path: info.outputPath(`ai-options-${width}-closed.png`) });
+      await summary.click();
+      await expect(select).toBeVisible();
+      await expect(select).toHaveValue('automatic');
+      expect(await disclosure.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await summary.focus();
+      await summary.press('Enter');
+      await expect(select).toBeHidden();
+      await summary.press('Enter');
+      await expect(select).toBeVisible();
+      expect(await summary.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+      await summary.evaluate((node) => { node.blur(); node.scrollIntoView({ block: 'start' }); });
+      if (width >= 1200) {
+        await page.locator('.workspace-inspector').screenshot({ path: info.outputPath(`ai-options-${width}-open.png`) });
+        await summary.hover();
+        await page.locator('.workspace-inspector').screenshot({ path: info.outputPath('ai-options-hover.png') });
+        await page.mouse.move(0, 0);
+      } else await page.screenshot({ path: info.outputPath(`ai-options-${width}-open.png`) });
+      await summary.focus();
+      await summary.press('Enter');
+    }
+    expect(modelWrites).toHaveLength(0);
+    expect(submissions).toHaveLength(0);
+  });
+}
+
 test('Generate offers all three choices, saves per project, survives reopening, and never writes global settings', async ({ page }) => {
   await initialProject(page);
   const select = await options(page);

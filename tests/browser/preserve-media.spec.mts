@@ -5,6 +5,32 @@ import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtur
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
+test('alignment warning can be dismissed without verifying timing and returns when the project reopens', async ({ page }, testInfo) => {
+  const state = await installFixture(page);
+  const alignment = { state: 'unverified-audio-change' as const, acceptedAt: '2026-11-05T00:00:00.000Z', sourceRevision: state.projects[0].updatedAt };
+  state.projects[0].mediaAlignment = alignment;
+  await openProject(page);
+  const warning = page.locator('.media-alignment-notice');
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(warning).toBeVisible();
+    expect(await warning.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    const button = warning.getByRole('button', { name: 'Dismiss audio alignment warning' });
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(width <= 620 ? 44 : 32);
+    await warning.screenshot({ path: testInfo.outputPath(`alignment-warning-${width}.png`) });
+  }
+  await warning.getByRole('button', { name: 'Dismiss audio alignment warning' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(warning).toHaveCount(0);
+  expect(state.projects[0].mediaAlignment).toEqual(alignment);
+  await page.locator('header .back').click();
+  await openProject(page);
+  await expect(warning).toBeVisible();
+  await page.getByRole('button', { name: 'Details', exact: true }).click();
+  await expect(page.locator('.timing-card')).toContainText('Previous audio timing evidence');
+  expect(state.projects[0].mediaAlignment).toEqual(alignment);
+});
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => { resolve = r; });

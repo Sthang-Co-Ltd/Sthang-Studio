@@ -212,3 +212,68 @@ test('long Khmer samples remain bounded and the replay controls fit phone and ta
   }
   expect(state.projects[0].captions[0].text).toBe(text);
 });
+
+test('appearance groups open independently without editing settings and remain usable on narrow screens', async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await openAppearance(page);
+  const initialAppearance = structuredClone(state.projects[0].captionAppearance);
+  const groups = ['appearance-motion-disclosure', 'appearance-word-details', 'appearance-more', 'appearance-presets-disclosure'];
+
+  for (const [width, height] of [[1440, 1000], [390, 844], [320, 740]]) {
+    await page.setViewportSize({ width, height });
+    for (const name of groups) {
+      const group = page.locator(`.${name}`);
+      const summary = group.locator(':scope > summary');
+      const body = group.locator(':scope > .appearance-option-body');
+      if (await group.getAttribute('open') !== null) {
+        await summary.focus();
+        await summary.press('Enter');
+      }
+      await expect(body).toBeHidden();
+      await summary.focus();
+      await summary.press('Enter');
+      await expect(body).toBeVisible();
+      if (name === 'appearance-presets-disclosure') {
+        const management = group.locator('.appearance-preset-tools');
+        if (await management.getAttribute('open') === null) await management.locator(':scope > summary').click();
+      }
+
+      expect(await group.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      for (const control of await body.locator('button,input,select,summary').all()) {
+        if (!await control.evaluate((node) => node.checkVisibility())) continue;
+        expect(await control.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const bounds = node.closest('.appearance-option-body')!.getBoundingClientRect();
+          return rect.left >= bounds.left && rect.right <= bounds.right + 1;
+        })).toBe(true);
+        if (width <= 620) {
+          await control.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+          await expect(control).toBeInViewport();
+          expect(await control.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+          })).toBe(true);
+        }
+      }
+      await summary.evaluate((node) => { node.blur(); node.scrollIntoView({ block: innerWidth <= 620 ? 'start' : 'center' }); });
+      if (width === 1440) {
+        await summary.hover();
+        await page.locator('.workspace-inspector').screenshot({ path: testInfo.outputPath(`${name}-hover.png`), animations: 'disabled' });
+        await page.mouse.move(0, 0);
+      }
+      const path = testInfo.outputPath(`${name}-${width}.png`);
+      if (width <= 620) await page.screenshot({ path, animations: 'disabled' });
+      else await page.locator('.workspace-inspector').screenshot({ path, animations: 'disabled' });
+      await summary.focus();
+      await summary.press('Enter');
+      await expect(body).toBeHidden();
+    }
+    const first = page.locator('.appearance-motion-disclosure > summary');
+    await page.locator('.appearance-option-group > summary').evaluateAll((nodes) => nodes.forEach((node) => (node as HTMLElement).blur()));
+    await first.evaluate((node) => { node.blur(); node.scrollIntoView({ block: innerWidth <= 620 ? 'start' : 'center' }); });
+    const path = testInfo.outputPath(`appearance-groups-collapsed-${width}.png`);
+    if (width <= 620) await page.screenshot({ path, animations: 'disabled' });
+    else await page.locator('.workspace-inspector').screenshot({ path, animations: 'disabled' });
+  }
+  expect(state.projects[0].captionAppearance).toEqual(initialAppearance);
+});
