@@ -115,7 +115,7 @@ test('a failed preset save keeps its input and exposes retry without a success r
   await expect(page.getByRole('alert').filter({ hasText: 'Synthetic preset save failure' })).toHaveCount(0);
 });
 
-test('pending saves retain their clicked appearance while newer name and appearance edits stay current', async ({ page }) => {
+for (const editName of [true, false]) test(`pending saves retain their clicked appearance while newer appearance edits stay current (rename: ${editName})`, async ({ page }) => {
   await openPresets(page);
   const size = page.getByLabel('Exact size', { exact: true });
   await size.fill('78'); await size.press('Enter');
@@ -124,14 +124,14 @@ test('pending saves retain their clicked appearance while newer name and appeara
   try {
     await page.getByRole('button', { name: 'Save preset', exact: true }).click();
     await expect.poll(hold.received).toBe(true);
-    await nameField(page).fill('Newer draft name');
+    if (editName) await nameField(page).fill('Newer draft name');
     await size.fill('86'); await size.press('Enter');
     await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled();
     hold.release();
     await expect.poll(() => state.profile.captionAppearances?.length).toBe(1);
-    await expect(page.getByRole('button', { name: 'Save preset', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: editName ? 'Save preset' : 'Update preset', exact: true })).toBeEnabled();
     expect(state.profile.captionAppearances![0]).toMatchObject({ name: 'Clicked look', appearance: { fontSize1080: 78 } });
-    await expect(nameField(page)).toHaveValue('Newer draft name');
+    await expect(nameField(page)).toHaveValue(editName ? 'Newer draft name' : 'Clicked look');
     await expect(size).toHaveValue('86');
     await expect(picker(page)).toHaveValue('');
     await expect(notice(page)).toHaveCount(0);

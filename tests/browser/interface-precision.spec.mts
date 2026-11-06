@@ -204,3 +204,38 @@ test('menu typing in Fine timing never auditions, nudges or invokes timing Undo'
   await page.keyboard.press('Escape');
   await expect(page.locator('.timing-waveform-surface')).toBeVisible();
 });
+
+for (const key of ['Alt+ArrowRight', 'Control+z', 'Meta+z', 'r']) test(`History restore confirmation blocks timing shortcut ${key}`, async ({ page }) => {
+  await page.route('**/api/projects/landscape/history', (route) => route.fulfill({ json: [{
+    id: 'saved-1', projectId: 'landscape', label: 'Before correction', source: 'manual-save',
+    createdAt: '2026-01-01T00:00:00.000Z', captionCount: 3, approvedCount: 0, textLockedCount: 0, timingLockedCount: 0,
+  }] }));
+  await openProject(page);
+  await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
+  await expect(page.locator('.waveform-loading')).toHaveCount(0);
+  const original = structuredClone(state.projects[0].captions);
+  const canvas = page.locator('.waveform-data-canvas');
+  await canvas.press('Alt+ArrowRight');
+  await expect.poll(() => state.projects[0].captions[0].startMs).not.toBe(original[0].startMs);
+  const edited = structuredClone(state.projects[0].captions);
+  await page.locator('video').evaluate((video: HTMLVideoElement) => {
+    (window as any).__timingPlays = 0;
+    video.addEventListener('play', () => { (window as any).__timingPlays++; });
+  });
+  await tools(page).click();
+  await page.getByRole('menuitem', { name: /^History/ }).click();
+  await page.getByRole('dialog', { name: 'Project history', exact: true }).getByRole('button', { name: /^Restore Before correction/ }).click();
+  const confirmation = page.getByRole('alertdialog');
+  const cancel = confirmation.locator('.studio-confirm-cancel');
+  await expect(cancel).toBeFocused();
+  await cancel.press(key);
+  await cancel.click();
+  await page.keyboard.press('Escape');
+  // Flush any unexpected draft through the normal save path, rather than only inspecting old server state.
+  await page.keyboard.press('Control+s');
+  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
+  expect(state.projects[0].captions).toEqual(edited);
+  expect(await page.evaluate(() => (window as any).__timingPlays)).toBe(0);
+  await canvas.press('Control+z');
+  await expect.poll(() => state.projects[0].captions[0].startMs).toBe(original[0].startMs);
+});

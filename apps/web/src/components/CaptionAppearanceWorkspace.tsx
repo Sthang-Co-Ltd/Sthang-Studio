@@ -328,6 +328,7 @@ export function CaptionAppearanceWorkspace({
   ) => {
     const current = appearanceRef.current;
     if (JSON.stringify(current) === JSON.stringify(next)) return false;
+    setPresetNotice('');
     if (replayPending || replayPreparing || replayPlaying) onCancelReplayEffect?.();
     replayRequestRef.current += 1;
     setReplayPending(false);
@@ -538,7 +539,7 @@ export function CaptionAppearanceWorkspace({
       setPresets(updated.captionAppearances || []);
       setPresetError('');
       setSelectedPresetId((current) => JSON.stringify(appearanceRef.current) === appearanceSnapshotKey && current === selectedPresetAtStart ? next.id : current);
-      if (presetNameRevisionRef.current === nameRevision) {
+      if (presetNameRevisionRef.current === nameRevision && JSON.stringify(appearanceRef.current) === appearanceSnapshotKey) {
         setPresetName((current) => current.trim() === name ? '' : current);
         setPresetNotice(`${existing ? 'Updated' : 'Saved'} “${next.name}”.`);
       }

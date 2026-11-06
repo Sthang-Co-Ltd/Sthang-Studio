@@ -752,7 +752,7 @@ export function WaveformEditor({
   };
 
   const handleTimingKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
       if (event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-haspopup="dialog"], [data-editor-layout-control], [role="menu"], [aria-haspopup="menu"]')) return;
