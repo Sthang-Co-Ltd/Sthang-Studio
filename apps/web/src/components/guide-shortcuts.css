@@ -1,0 +1,14 @@
+.new-user-guide>header{flex-shrink:0}
+.guide-content{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.guide-content .guide-workflow,.guide-content .guide-tools{overflow:visible}
+.guide-shortcuts{margin:2px 12px 14px;border-block:1px solid var(--line);padding-block:4px}
+.guide-shortcuts summary{min-height:36px;padding:8px 0;color:var(--text);font-size:13px;cursor:pointer}
+.guide-shortcuts p{color:var(--muted);font-size:12px;line-height:1.6;margin:6px 0 12px}
+.guide-shortcuts h3{color:var(--text);font-size:13px;line-height:1.5;margin:14px 0 8px}
+.guide-shortcuts dl{margin:0 0 12px}
+.guide-shortcuts dl>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);align-items:baseline;gap:10px;padding-block:6px;border-bottom:1px solid var(--line)}
+.guide-shortcuts dt,.guide-shortcuts dd{font-size:13px;line-height:1.6;overflow-wrap:anywhere;margin:0}
+.guide-shortcuts dd{color:var(--muted)}
+.guide-shortcuts kbd{font-family:inherit;color:var(--text)}
+.ai-settings-body button[aria-disabled=true]{opacity:.55;cursor:wait}
+@media(max-width:620px){.guide-shortcuts summary{min-height:44px}.ai-key-field button{min-width:44px}}

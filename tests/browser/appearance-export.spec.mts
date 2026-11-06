@@ -63,8 +63,8 @@ test('appearance controls keep the last native caption visible while the newest 
   state.previewDelay = (body) => body.appearance.fontSize1080 === appearance.fontSize1080 ? 0 : 350;
   const size = page.getByLabel(/^Size /);
   const position = page.getByLabel(/^Position /);
-  const outline = page.locator('.appearance-more label.range-field').filter({ hasText: /^Outline / }).locator('input[type="range"]');
-  const shadow = page.locator('.appearance-more label.range-field').filter({ hasText: /^Shadow / }).locator('input[type="range"]');
+  const outline = page.getByRole('slider', { name: 'Outline slider', exact: true });
+  const shadow = page.getByRole('slider', { name: 'Shadow slider', exact: true });
 
   await size.fill('66');
   await expect.poll(() => state.requests.some((item) => item.path.endsWith('/preview') && item.body.appearance.fontSize1080 === 66)).toBe(true);
@@ -227,7 +227,7 @@ test('Add font is discoverable, selects the imported family, and Manage added fo
   const fontSearch = page.getByLabel('Find Khmer font');
   await expect(fontSearch).toBeVisible();
   await fontSearch.fill('Installed Khmer 17');
-  const liveResult = page.locator('.appearance-font-search-results').getByRole('button', { name: /Installed Khmer 17/ });
+  const liveResult = page.locator('.appearance-font-search-results').getByRole('option', { name: /Installed Khmer 17/ });
   await expect(liveResult).toBeVisible();
   await liveResult.click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Installed Khmer 17');

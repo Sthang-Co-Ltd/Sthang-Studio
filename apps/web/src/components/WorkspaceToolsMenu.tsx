@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useSurfacePresence } from '../use-surface-presence';
+import { useMenuKeyboard } from '../use-menu-keyboard';
 import {
   BookOpenCheck,
   HelpCircle,
@@ -45,13 +47,37 @@ export function WorkspaceToolsMenu({
   onUpdates,
 }: WorkspaceToolsMenuProps) {
   const details = useRef<HTMLDetailsElement | null>(null);
+  const popover = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const openRef = useRef(open); openRef.current = open;
+  const presence = useSurfacePresence(open ? 'tools' : null, popover, 'menu');
+  const menuId = useId();
+  const keyboard = useMenuKeyboard(open ? 'tools' : null, popover, () => details.current?.querySelector('summary'), () => setOpen(false));
+  useLayoutEffect(() => {
+    if (!open) return;
+    const position = () => {
+      const trigger = details.current?.querySelector('summary')?.getBoundingClientRect();
+      const panel = popover.current;
+      if (trigger && panel) {
+        const bounds = panel.getBoundingClientRect();
+        panel.style.setProperty('--menu-origin', `${Math.max(0, Math.min(panel.offsetWidth, trigger.x + trigger.width / 2 - bounds.x))}px`);
+      }
+    };
+    position();
+    window.addEventListener('resize', position);
+    return () => window.removeEventListener('resize', position);
+  }, [open]);
   useEffect(() => {
     const close = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (details.current?.open && target && !details.current.contains(target)) details.current.removeAttribute('open');
+      if (target && !details.current?.contains(target)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') details.current?.removeAttribute('open');
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && openRef.current && !document.querySelector('[aria-modal="true"]')) {
+        event.preventDefault();
+        setOpen(false);
+        details.current?.querySelector('summary')?.focus();
+      }
     };
     document.addEventListener('pointerdown', close);
     window.addEventListener('keydown', closeOnEscape);
@@ -62,21 +88,30 @@ export function WorkspaceToolsMenu({
   }, []);
   const run = (action: () => void) => {
     details.current?.querySelector('summary')?.focus();
-    details.current?.removeAttribute('open');
+    setOpen(false);
     action();
   };
   const attentionCount = activeJobs + pendingCorrections + (llmConfigured ? 0 : 1);
 
-  return <details ref={details} className="workspace-tools-menu">
-    <summary aria-label="Open project tools">
+  return <details ref={details} className="workspace-tools-menu" open={presence.present} data-menu-open={open}>
+    <summary aria-label="Open project tools" aria-haspopup="menu" aria-controls={menuId} aria-expanded={open}
+      onKeyDown={(event) => {
+        if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+          event.preventDefault(); keyboard.openAt(event.key === 'ArrowUp' ? 'last' : 'first'); setOpen(true);
+        }
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        if (open) event.currentTarget.focus({ preventScroll: true }); else keyboard.openAt('first');
+        setOpen((value) => !value);
+      }}>
       <SlidersHorizontal size={16}/><span>Tools</span>
       {attentionCount > 0 && <b className="tool-badge">{attentionCount}</b>}
     </summary>
-    <div className="workspace-tools-popover" role="menu">
-      <div className="tools-menu-intro"><strong>Project tools</strong><span>More project actions and settings.</span></div>
+    <div ref={popover} id={menuId} className="workspace-tools-popover" role="menu" aria-label="Project tools" onKeyDown={keyboard.onKeyDown} data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined}>
       <div className="tools-menu-section">
         <span>Edit and review</span>
-        <button role="menuitem" onClick={() => run(onCorrect)}><Search size={16}/><span><b>Correct everywhere</b><small>Find and correct repeated wording</small></span></button>
+        <button role="menuitem" aria-keyshortcuts="Control+F Meta+F" onClick={() => run(onCorrect)}><Search size={16}/><span><b>Correct everywhere</b><small>Find and correct repeated wording</small></span><kbd aria-hidden="true">{navigator.platform.toLowerCase().includes('mac') ? '⌘ F' : 'Ctrl F'}</kbd></button>
         <button role="menuitem" onClick={() => run(onHistory)}><History size={16}/><span><b>History</b><small>Restore an earlier checkpoint</small></span></button>
       </div>
       <div className="tools-menu-section">
@@ -88,8 +123,8 @@ export function WorkspaceToolsMenu({
         <span>Project and setup</span>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>Replace media</b><small>{replaceDisabled ? 'Finish current work first' : 'Choose whether to keep reviewed captions'}</small></span></button>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onUndoMedia)}><RotateCcw size={16}/><span><b>Undo media replacement</b><small>Restore or manage saved source backups</small></span></button>
-        <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Quick guide</b><small>Review the caption workflow</small></span></button>
-        <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>Check for updates</b><small>Review signed Studio releases</small></span></button>
+        <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Quick guide</b></span></button>
+        <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>Check for updates</b></span></button>
         <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>Settings</b><small>{llmConfigured ? 'AI, profile, privacy, and system' : 'AI key setup needed'}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>
       </div>
     </div>

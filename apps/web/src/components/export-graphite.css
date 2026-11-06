@@ -1,0 +1,107 @@
+/* Export shares Appearance's graphite surfaces; its own width controls layout. */
+.export-workspace.export-graphite {
+  --export-line: #363b43;
+  --export-heading: #eceff3;
+  --export-text: #b7bec8;
+  --export-muted: #9ca4af;
+  container: studio-export / inline-size;
+  gap: 14px;
+  min-width: 0;
+}
+.export-graphite .export-workspace-head { padding: 0; }
+.export-graphite .export-workspace-head > span { color: var(--export-muted); font-size: 12px; line-height: 1.6; }
+.export-graphite .export-mode-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; align-self: stretch; gap: 8px; padding: 0; border: 0; background: transparent; }
+.export-graphite .export-mode-switch button { min-width: 0; min-height: 46px; padding: 9px 10px; border: 1px solid var(--export-line); border-radius: 9px; background: #17191d; color: var(--export-text); justify-content: center; flex-wrap: wrap; font-size: 13px; gap: 5px 7px; }
+.export-graphite .export-mode-switch button small { color: var(--export-muted); font-size: 11px; }
+.export-graphite .export-mode-switch button[aria-pressed=true] { border-color: #82963e; background: #242820; color: #ecf6d0; }
+.export-graphite .export-mode-switch button[aria-pressed=true] small { color: #d7ff4f; }
+.export-graphite .export-mode-switch button:hover:not(:disabled) { border-color: #7e8793; }
+.export-graphite :is(.export-checks, .export-section, .export-finalize) { margin: 0; padding: 14px; border: 1px solid var(--export-line); border-radius: 12px; background: linear-gradient(160deg, #1b1d20 0%, #131518 100%); }
+.export-graphite .export-checks-head { display: flex; align-items: flex-start; flex-wrap: wrap; justify-content: space-between; gap: 8px 12px; }
+.export-graphite .export-checks-head > div { flex: 1 1 220px; min-width: 0; }
+.export-graphite .export-checks-head h3 { color: var(--export-heading); }
+.export-graphite .export-checks-head p { margin: 5px 0 0; color: var(--export-text); }
+.export-graphite .export-checks .export-support-recheck { align-self: flex-start; min-height: 34px; padding: 6px 9px; background: #22252a; border-color: #414750; color: var(--export-text); }
+.export-graphite .export-layout-check { margin-top: 12px; padding: 12px 0 0; border: 0; border-top: 1px solid var(--export-line); border-radius: 0; background: transparent; flex-direction: column; align-items: stretch; }
+.export-graphite .export-layout-check > button { align-self: flex-start; }
+.export-graphite .export-layout-check span { color: var(--export-muted); line-height: 1.6; }
+.export-graphite .export-check-save { margin: 12px 0; padding: 10px; border: 1px solid #725c2f; border-radius: 8px; }
+.export-graphite .export-check-details > summary { color: var(--export-text); }
+.export-graphite .export-check-caption { border: 0; border-radius: 0; background: transparent; padding: 8px 0; }
+.export-graphite .export-section { gap: 16px; }
+.export-graphite .export-section-title { margin: -14px -14px 0; padding: 12px 14px; border-bottom: 1px solid var(--export-line); border-radius: 11px 11px 0 0; background: linear-gradient(180deg, #24272b 0%, #1d2024 100%); flex-wrap: wrap; flex-direction: row; align-items: center; }
+.export-graphite .export-section-title strong { font-size: 14px; color: var(--export-heading); }
+.export-graphite .export-section-title span { color: var(--export-muted); line-height: 1.6; }
+.export-graphite .export-source-chip { max-width: 100%; padding: 0 !important; border: 0; border-radius: 0; background: transparent; color: var(--export-text) !important; white-space: normal; }
+.export-graphite :is(.export-setting-grid, .export-advanced-grid, .export-preset-tools-body) { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.export-graphite :is(.export-setting-grid label, .export-advanced-grid label) { min-width: 0; }
+.export-graphite :is(.export-setting-grid label > span, .export-advanced-grid label > span, .export-quality-choice > span, .export-preset-bar > label > span, .export-preset-tools-body label > span) { color: var(--export-text); font-size: 13px; }
+.export-graphite :is(.export-setting-grid select, .export-advanced-grid select, .export-advanced-grid input[type=number], .export-preset-bar select, .export-preset-tools-body input, .export-preset-tools-body select) { min-width: 0; width: 100%; min-height: 40px; background: #111315; border-color: #3d434c; color: var(--export-heading); font-size: 13px; }
+.export-graphite input::placeholder { color: var(--export-muted); opacity: 1; }
+.export-graphite .export-quality-choice { grid-column: 1 / -1; }
+.export-graphite .export-quality-choice > div { gap: 3px; background: #111315; border-color: #3d434c; }
+.export-graphite .export-quality-choice button { min-width: 0; min-height: 38px; padding-inline: 4px; font-size: 12px; color: var(--export-text); }
+.export-graphite .export-quality-choice button[aria-pressed=true] { background: #292e23; color: #e5f7b8; }
+.export-graphite .export-preset-bar > label > span { padding-right: 0; }
+.export-graphite .export-preset-tools summary { position: static; margin: 4px 0 0; padding: 8px 0; display: list-item; min-height: 36px; color: var(--export-text); }
+.export-graphite .export-preset-tools-body { margin-top: 4px; padding: 12px 0 0; border: 0; border-top: 1px solid var(--export-line); border-radius: 0; background: transparent; }
+.export-graphite .export-preset-hint { color: var(--export-muted); line-height: 1.6; }
+.export-graphite .export-advanced { padding-top: 0; border-color: var(--export-line); }
+.export-graphite .export-advanced summary { min-height: 40px; padding-block: 10px; color: var(--export-text); font-size: 13px; }
+.export-graphite .export-advanced-help { color: var(--export-muted); font-size: 12px; line-height: 1.6; }
+.export-graphite .export-appearance-summary { padding: 0 2px; border: 0; flex-direction: column; align-items: stretch; gap: 10px; }
+.export-graphite .export-appearance-copy { align-items: flex-start; }
+.export-graphite .export-appearance-copy > svg { color: var(--export-text); margin-top: 2px; }
+.export-graphite .export-appearance-copy strong { color: var(--export-heading); font-size: 13px; }
+.export-graphite .export-appearance-copy span { color: var(--export-muted); flex-wrap: wrap; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.export-graphite .export-appearance-summary > button { font-size: 13px; min-height: 38px; flex-shrink: 0; }
+.export-graphite .export-warnings { padding: 0 2px; border: 0; }
+.export-graphite .export-warnings > div { font-size: 12px; line-height: 1.6; }
+.export-graphite .export-warnings > button { align-self: flex-start; min-height: 38px; padding: 7px 11px; border: 1px solid #414750; border-radius: 8px; background: #22252a; color: var(--export-heading); font-size: 13px; cursor: pointer; }
+.export-graphite .export-warnings > button:hover:not(:disabled) { border-color: #7e8793; background: #2a2e34; }
+.export-graphite .export-warnings.export-information > div { color: var(--export-muted); }
+.export-graphite .export-finalize { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: center; }
+.export-graphite .export-finalize .export-summary-line { grid-column: 1 / -1; display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 8px 18px; color: var(--export-text); font-size: 12px; line-height: 1.7; }
+.export-graphite .export-summary-line > span { display: inline; overflow-wrap: anywhere; }
+.export-graphite .export-summary-line svg { vertical-align: -2px; margin-right: 5px; color: var(--export-muted); }
+.export-graphite .export-summary-line b { color: var(--export-heading); }
+.export-graphite .export-finalize > .export-source-note { color: var(--export-muted); font-size: 12px; line-height: 1.6; align-items: flex-start; }
+.export-graphite .export-source-note > svg { flex: none; margin-top: 2px; }
+.export-graphite .export-finalize > button { min-height: 44px; width: 100%; justify-content: center; font-size: 13px; }
+.export-graphite .export-history { margin: 0; padding: 4px 0 0; border: 0; border-top: 1px solid var(--export-line); }
+.export-graphite .export-history summary { color: var(--export-text); font-size: 13px; }
+.export-graphite .export-history p, .export-graphite .export-history time { color: var(--export-muted); }
+.export-graphite .export-history .export-history-error { color: #e6c97b; }
+.export-graphite :is(.handoff-destination, .handoff-primary, .handoff-advanced, .handoff-rendered-video) { border-color: var(--export-line); background: linear-gradient(160deg, #1b1d20 0%, #131518 100%); }
+.export-graphite .handoff-destination-guide { padding: 12px 0 0; border: 0; border-top: 1px solid var(--export-line); border-radius: 0; background: transparent; }
+.export-graphite :is(.handoff-section-head span, .handoff-primary-copy span, .handoff-guide-title span, .handoff-destination-guide p, .handoff-transfer-summary span, .handoff-rendered-video span, .handoff-local-note) { color: var(--export-muted); line-height: 1.6; }
+.export-graphite :is(.handoff-primary, .handoff-rendered-video, .handoff-advanced-action, .handoff-word-readiness, .handoff-restore) { flex-direction: column; align-items: stretch; }
+.export-graphite :is(.handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { width: 100%; min-height: 40px; }
+.export-graphite .handoff-transfer-summary { grid-template-columns: 1fr; border: 0; border-radius: 0; background: transparent; }
+.export-graphite .handoff-transfer-summary > div { grid-template-columns: 1fr; gap: 4px; padding: 10px 2px; }
+.export-graphite .handoff-transfer-summary > div + div { border-left: 0; border-top: 1px solid var(--export-line); }
+.export-graphite .handoff-word-readiness { border: 0; border-bottom: 1px solid var(--export-line); border-radius: 0; background: transparent; padding: 0 0 12px; }
+.export-graphite .handoff-format-grid { grid-template-columns: minmax(0, 1fr); }
+@container studio-export (max-width: 440px) {
+  .export-graphite .export-mode-switch button small { flex-basis: 100%; line-height: 1.2; }
+}
+@container studio-export (min-width: 540px) {
+  .export-graphite .export-setting-grid, .export-graphite .export-advanced-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .export-graphite .export-preset-tools-body { grid-template-columns: minmax(0, 1fr) auto; }
+  .export-graphite .export-preset-tools-body > button { width: auto; }
+  .export-graphite .export-layout-check { flex-direction: row; align-items: center; }
+  .export-graphite .export-layout-check > button { align-self: center; }
+  .export-graphite .export-appearance-summary { flex-direction: row; align-items: center; }
+  .export-graphite .export-appearance-summary > button { width: auto; }
+  .export-graphite .export-finalize { grid-template-columns: minmax(0, 1fr) auto; }
+  .export-graphite .export-finalize > button { width: auto; }
+  .export-graphite :is(.handoff-primary, .handoff-rendered-video, .handoff-advanced-action, .handoff-word-readiness, .handoff-restore) { flex-direction: row; align-items: center; }
+  .export-graphite :is(.handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { width: auto; }
+  .export-graphite .handoff-transfer-summary > div { grid-template-columns: 118px minmax(0, 1fr); gap: 9px; }
+  .export-graphite .handoff-format-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .export-graphite .export-warnings > button { min-height: 44px; }
+  .export-graphite .export-checks .export-support-recheck { min-height: 44px; }
+  .export-graphite :is(.export-mode-switch button, .export-quality-choice button, .export-appearance-summary > button, .export-checks button, .export-advanced summary, .export-preset-tools summary, .export-setting-grid select, .export-advanced-grid select, .export-advanced-grid input[type=number], .export-preset-bar select, .export-preset-tools-body input, .export-preset-tools-body select, .handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { min-height: 44px; }
+}

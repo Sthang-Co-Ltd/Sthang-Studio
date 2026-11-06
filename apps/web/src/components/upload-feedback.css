@@ -1,0 +1,7 @@
+.empty-stage .dropzone{transition:background-color 140ms ease,border-color 140ms ease,box-shadow 140ms ease}
+.empty-stage .dropzone.drag{border-color:#bad94c;background:#12180e}
+.empty-stage .dropzone:disabled{cursor:wait}
+.upload-validation{width:min(620px,90vw);margin:10px 0 0;color:#e6b6a5;font-size:12px;line-height:1.5;text-align:center;overflow-wrap:anywhere}
+.upload-validation:empty{display:none}
+@media(max-width:620px){.upload-validation{font-size:13px}}
+@media(prefers-reduced-motion:reduce){.empty-stage .dropzone{transition:none!important}}

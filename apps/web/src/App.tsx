@@ -79,6 +79,11 @@ import { captionTextForEditing } from './caption-text';
 import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { reconcileCaptionSelection } from './caption-selection-validity';
 import { deferWorkspace } from './components/DeferredWorkspace';
+import { retryWorkspace } from './retry-workspace';
+import { ProjectIdentity } from './components/ProjectIdentity';
+import { ReviewCompletion } from './components/ReviewCompletion';
+import { ToastStack } from './components/ToastStack';
+import { useToastTimeout } from './use-toast-timeout';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
 import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqueContextLines, type AccuracyFields, type AccuracyObservation } from './accuracy-context-draft';
@@ -121,14 +126,20 @@ function compatibilityTranscriptionNotice(value: CaptionProject) {
 }
 import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
+import './interface-motion.css';
+import { ManualSaveButton, useManualSaveFeedback } from './components/ManualSaveButton';
 
-const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
+const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })), { name: 'Fine timing', shape: 'timing' },
+  () => retryWorkspace<typeof import('./components/WaveformEditor')>('WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
 
-const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })));
+const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })), { name: 'Export', shape: 'export' },
+  () => retryWorkspace<typeof import('./components/ExportWorkspace')>('ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })));
 
-const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })));
+const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })), { name: 'Appearance', shape: 'appearance' },
+  () => retryWorkspace<typeof import('./components/CaptionAppearanceWorkspace')>('CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })));
 
-const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })));
+const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })), { name: 'Compare captions', shape: 'comparison' },
+  () => retryWorkspace<typeof import('./components/RegenerationReviewDock')>('RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })));
 
 const modes: Array<{ id: CaptionMode; label: string; desc: string }> = [
   { id: 'dynamic', label: 'Dynamic', desc: 'Fast TikTok rhythm' },
@@ -335,6 +346,7 @@ export default function App() {
   const [showJobs, setShowJobs] = useState(false);
   const [showUpdates, setShowUpdates] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<ProjectHistoryEntry[]>([]);
+  const [historyLoadState, setHistoryLoadState] = useState({ loading: false, loaded: false, error: '' });
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
   const [proposalEntry, setProposalEntry] = useState<{ ticket: ProjectTicket; value: RegenerationProposal } | null>(null);
   const projectScope = useRef(createProjectScope());
@@ -380,6 +392,7 @@ export default function App() {
   const [, refreshContextWrites] = useState(0);
   const accuracyDirty = accuracyDraft.current.hasChanges(profile?.defaultVocabulary);
   const unfinishedChanges = dirty || accuracyDirty || saveConflict || (pendingContextWrites.current.get(mediaKey) || 0) > 0;
+  const manualSaveFeedback = useManualSaveFeedback(viewTicket, unfinishedChanges);
   const saveFailed = saveConflict || autosaveState === 'failed' || contextSaveState === 'failed';
   const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : ''].filter(Boolean).join(' ');
   const [recoveryOwner] = useState(() => crypto.randomUUID());
@@ -602,6 +615,7 @@ export default function App() {
     historyRead.current += 1;
     setShowHistory(false);
     setHistoryEntries([]);
+    setHistoryLoadState({ loading: false, loaded: false, error: '' });
   }
   function beginNavigation() {
     operationRevision.current += 1;
@@ -712,17 +726,8 @@ export default function App() {
     } catch { /* optional legacy migration */ }
   }, [profile]);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(''), 4200);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
-  useEffect(() => {
-    if (!reviewUndo) return;
-    const timer = window.setTimeout(() => setReviewUndo(null), 6500);
-    return () => window.clearTimeout(timer);
-  }, [reviewUndo]);
+  useToastTimeout('notice', notice, 4200, () => setNotice(''));
+  useToastTimeout('review-undo', reviewUndo, 6500, () => setReviewUndo(null));
 
   useEffect(() => {
     if (!project) return;
@@ -1062,6 +1067,12 @@ export default function App() {
   const issues = useMemo(() => analyzeCaptions(draft, vocabularyLines, qaSettings, mediaDurationMs), [draft, vocabularyLines, qaSettings, mediaDurationMs]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const riskyIds = useMemo(() => draft.filter((caption) => !caption.approved && issueMap.has(caption.id)).map((caption) => caption.id), [draft, issueMap]);
+  // Approval suppresses some informational flags. Reconsider the same captions
+  // only for completion copy; the real queue, readiness and export checks keep
+  // their existing analysis and approval semantics.
+  const reviewedFlags = useMemo(() => reviewMode && !riskyIds.length && draft.some((caption) => caption.approved)
+    && analyzeCaptions(draft.map((caption) => caption.approved ? { ...caption, approved: false } : caption), vocabularyLines, qaSettings, mediaDurationMs).length > 0,
+  [reviewMode, riskyIds.length, draft, vocabularyLines, qaSettings, mediaDurationMs]);
   const readiness = useMemo(() => exportReadiness(draft, issues), [draft, issues]);
   const pendingCorrections = profile?.correctionEvents.filter((event) => event.status === 'pending').length || 0;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
@@ -1752,7 +1763,7 @@ export default function App() {
       if (document.querySelector('[aria-modal="true"]') || target?.closest('[data-editor-layout-control]')) return;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault(); void saveUnfinishedChanges(false); return;
+        event.preventDefault(); void manualSaveFeedback.run(() => saveUnfinishedChanges(false)); return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && project) {
         event.preventDefault(); setShowFindReplace(true); return;
@@ -2680,7 +2691,7 @@ export default function App() {
   };
 
   const approveAndNext = () => {
-    if (!selection.ids.length) return;
+    if (!selection.ids.length || !riskyIds.length) return;
     const selectedIds = new Set(selection.ids);
     const undoItems = selection.captions.map((caption) => ({ id: caption.id, approved: Boolean(caption.approved) }));
     const restoreSelectionId = selection.ids[0];
@@ -2701,16 +2712,22 @@ export default function App() {
     setReviewUndo({ items: undoItems, restoreSelectionId, message });
 
     if (nextId) moveToReviewCaption(nextId, profile?.preferences.autoPlayNextReview ?? true);
-    else media.current?.pause();
+    else { cancelPlayback(); media.current?.pause(); }
   };
 
   const undoReviewApproval = () => {
     if (!reviewUndo) return;
+    const restoreDecisionFocus = reviewMode && Boolean(document.activeElement?.closest('.review-undo-toast, .review-completion'));
     const previous = new Map(reviewUndo.items.map((item) => [item.id, item.approved]));
     const restoreId = reviewUndo.restoreSelectionId;
     updateDraft(draftRef.current.map((caption) => previous.has(caption.id) ? { ...caption, approved: previous.get(caption.id)! } : caption), restoreId, 'metadata');
     setReviewUndo(null);
-    schedulePlayback(() => moveToReviewCaption(restoreId, false), 20);
+    schedulePlayback(() => {
+      moveToReviewCaption(restoreId, false);
+      if (restoreDecisionFocus && document.activeElement === document.body) {
+        document.querySelector<HTMLButtonElement>('.review-approve-next')?.focus({ preventScroll: true });
+      }
+    }, 20);
     setNotice('Approval undone.');
   };
 
@@ -2935,13 +2952,13 @@ export default function App() {
   const saveLlmSettings = async (input: SaveLlmSettingsInput) => refreshAiHealth(await api.saveLlmSettings(input));
   const forgetLlmKey = async () => refreshAiHealth(await api.forgetLlmKey());
 
-  const saveProfilePatch = async (patch: Partial<AppProfile>) => {
+  const saveProfilePatch = async (patch: Partial<AppProfile>, feedback: 'toast' | 'inline' = 'toast'): Promise<AppProfile | null> => {
     setBusy('Saving profile…');
-    try { setProfile(await api.patchProfile(patch)); setNotice('Profile updated.'); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Profile update failed'); }
+    try { const saved = await api.patchProfile(patch); setProfile(saved); if (feedback === 'toast') setNotice('Profile updated.'); return saved; }
+    catch (reason) { if (feedback === 'toast') setError(reason instanceof Error ? reason.message : 'Profile update failed'); return null; }
     finally { setBusy(''); }
   };
-  const importProfile = async (value: AppProfile) => {
+  const importProfile = async (value: AppProfile): Promise<boolean> => {
     const ticket = projectScope.current.capture();
     setBusy('Importing profile…');
     try {
@@ -2951,7 +2968,8 @@ export default function App() {
         vocabulary: uniqueLines(imported.defaultVocabulary, accuracyDraft.current.fields.vocabulary.split(/\r?\n/)).join('\n'),
       });
       setNotice('Profile imported. Glossary, topic packs, grouping presets and correction memory are now available on this PC.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Profile import failed'); }
+      return true;
+    } catch { return false; }
     finally { setBusy(''); }
   };
   const runDoctor = async () => {
@@ -2989,21 +3007,27 @@ export default function App() {
     try { setProfile(await api.patchProfile({ preferences })); } catch { /* keep local */ }
   };
 
-  const rememberReplacement = async (line: string, scope: 'project' | 'global') => {
-    if (!project || !profile || mediaMutationInFlight.current) return;
+  const rememberReplacement = async (line: string, scope: 'project' | 'global'): Promise<boolean> => {
+    if (!project || !profile || mediaMutationInFlight.current) return false;
     const ticket = projectScope.current.capture();
     if (scope === 'global') {
       const defaultVocabulary = uniqueLines(profile.defaultVocabulary, [line]);
-      setProfile(await api.patchProfile({ defaultVocabulary }));
-      if (!projectScope.current.isCurrent(ticket)) return;
+      const savedProfile = await api.patchProfile({ defaultVocabulary });
+      setProfile(savedProfile);
+      if (!projectScope.current.isCurrent(ticket)) return false;
+      if (!savedProfile.defaultVocabulary.some((saved) => saved.trim().toLocaleLowerCase('en') === line.trim().toLocaleLowerCase('en'))) return false;
       editAccuracyFields({ vocabulary: uniqueLines(accuracyDraft.current.fields.vocabulary.split(/\r?\n/), [line]).join('\n') });
       setNotice('Replacement remembered globally.');
+      return true;
     } else {
       // Add to the current draft, not the last render's persisted vocabulary.
       // This explicit addition stays visible and retryable even if its save fails.
       editAccuracyFields({ vocabulary: uniqueLines(accuracyDraft.current.fields.vocabulary.split(/\r?\n/), [line]).join('\n') });
       const saved = await saveContext(true);
-      if (saved && projectScope.current.isCurrent(ticket)) setNotice('Replacement added to this project glossary.');
+      if (!saved || !projectScope.current.isCurrent(ticket)) return false;
+      const acknowledged = accuracyDraft.current.saved?.vocabulary?.some((savedLine) => savedLine.trim().toLocaleLowerCase('en') === line.trim().toLocaleLowerCase('en')) ?? false;
+      if (acknowledged) setNotice('Replacement added to this project glossary.');
+      return acknowledged;
     }
   };
 
@@ -3012,12 +3036,16 @@ export default function App() {
     const ticket = projectScope.current.capture();
     if (ticket.key !== projectMediaKey(project)) return;
     const request = ++historyRead.current;
+    setHistoryLoadState((current) => ({ ...current, loading: true, error: '' }));
     try {
       const entries = await api.history(project.id);
-      if (projectScope.current.isCurrent(ticket) && request === historyRead.current) setHistoryEntries(entries);
-    } catch (reason) {
       if (projectScope.current.isCurrent(ticket) && request === historyRead.current) {
-        setError(reason instanceof Error ? reason.message : 'Could not load history');
+        setHistoryEntries(entries);
+        setHistoryLoadState({ loading: false, loaded: true, error: '' });
+      }
+    } catch {
+      if (projectScope.current.isCurrent(ticket) && request === historyRead.current) {
+        setHistoryLoadState((current) => ({ ...current, loading: false, error: 'Could not load history. Try again; your saved versions have not been changed.' }));
       }
     }
   };
@@ -3204,8 +3232,8 @@ export default function App() {
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
     {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>}
-    <FindReplacePanel open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
-    <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
+    <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
+    <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} loadState={historyLoadState} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
     <JobManager open={showJobs} jobs={jobs} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
@@ -3213,7 +3241,7 @@ export default function App() {
       project={project}
       llmConfigured={Boolean(llmSettings?.configured)}
       timingConfigured={timingConfigured}
-      issueCount={issues.length}
+      issueCount={riskyIds.length}
       onClose={() => setShowGuide(false)}
       onConnect={() => { setShowGuide(false); openSettings('ai'); }}
       onOpenDoctor={() => { setShowGuide(false); openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }}
@@ -3230,7 +3258,7 @@ export default function App() {
     {confirmationDialog}
   </>;
 
-  const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <div className="toast-stack" aria-live="polite" aria-atomic="false">
+  const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <ToastStack>
     {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
@@ -3250,19 +3278,19 @@ export default function App() {
       onDiscard={() => void discardUnfinishedDraft(recoveryEntries[0])}/>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
-    {reviewUndo && <div className="toast notice review-undo-toast"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
-    {notice && <div className="toast notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
-  </div>;
+    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
+    {notice && <div className="toast notice" data-toast-timer="notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
+  </ToastStack>;
 
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
   if (!project) return <main className={showAllProjects ? 'project-library-page' : undefined}>
     <div className="home-tools">
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
-      <button onClick={() => setShowGuide(true)} title="Open guide"><HelpCircle size={16}/>Guide</button>
+      <button onClick={() => setShowGuide(true)} data-tooltip="Open guide"><HelpCircle size={16}/>Guide</button>
       {activeJobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity<b>{activeJobs.length}</b></button>}
       {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
-      <button onClick={() => setShowUpdates(true)} title="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
-      <button className={llmSettings?.configured ? '' : 'setup-needed'} title="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
+      <button onClick={() => setShowUpdates(true)} data-tooltip="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
+      <button className={llmSettings?.configured ? '' : 'setup-needed'} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
     </div>
     {!showAllProjects && <>
       {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
@@ -3286,11 +3314,11 @@ export default function App() {
 
   return <main className="workspace refined-workspace" onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
-      <button className="back" aria-label="Back to projects" title="Back to projects" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
-      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><div className="project-title"><strong>{project.title}</strong><span>{project.media.originalName} · {unfinishedChanges ? saveFailed ? "Couldn't save changes" : autosaveState === 'saving' || contextSaveState === 'saving' ? 'saving…' : dirty ? 'autosave pending' : 'Accuracy changes unsaved' : 'saved'}{project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}</span></div></div>
+      <button className="back" aria-label="Back to projects" data-tooltip="Back to projects" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
+      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${unfinishedChanges ? saveFailed ? "Couldn't save changes" : autosaveState === 'saving' || contextSaveState === 'saving' ? 'saving…' : dirty ? 'autosave pending' : 'Accuracy changes unsaved' : 'saved'}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
-        <button className={reviewMode ? 'selected-tool' : ''} title="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b className="tool-badge">{issues.length}</b>}</button>
+        <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
           pendingCorrections={pendingCorrections}
@@ -3306,8 +3334,8 @@ export default function App() {
           onSettings={() => openSettings('ai')}
           onUpdates={() => setShowUpdates(true)}
         />
-        <button className="save-action" disabled={!unfinishedChanges || !!busy || textComposing || saveConflict} title={saveConflict ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption and Accuracy changes' : 'All changes saved'} onClick={() => void saveUnfinishedChanges(false)}><Save size={16}/><span>{unfinishedChanges ? 'Save' : 'Saved'}</span></button>
-        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} title="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
+        <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveConflict} title={saveConflict ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption and Accuracy changes' : 'All changes saved'} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
+        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} data-tooltip="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
 
@@ -3330,7 +3358,7 @@ export default function App() {
       toolbar={!proposal && (
         <div className="workspace-tool-strip">
             <nav aria-label="Caption workspace tools">
-              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{issues.length > 0 && <b>{issues.length}</b>}</button>}
+              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b>{riskyIds.length}</b>}</button>}
               {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
               <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
@@ -3341,7 +3369,7 @@ export default function App() {
       )}
       captions={
         <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} highlightEnabled={previewAppearance.highlightMode === 'word'} onWordTiming={openWordTiming} onNotice={setNotice}
-        active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onEditingChange={setTextEditing}/>
+        active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onReviewComplete={() => { cancelPlayback(); media.current?.pause(); }} onEditingChange={setTextEditing}/>
       }
     >
         {proposal && <RegenerationReviewDock
@@ -3465,10 +3493,19 @@ export default function App() {
           />}
 
           {workspaceTool === 'review' && hasHybrid && <div className="review-card review-active">
-            <div className="review-score"><ListChecks size={22}/><div><strong>{readiness}% export readiness</strong><span>{issues.length ? `${issues.length} caption${issues.length === 1 ? '' : 's'} worth a quick check` : 'No automatic risks detected'}</span></div></div>
+            {!riskyIds.length && draft.length > 0 && <ReviewCompletion reviewed={reviewedFlags} exportDisabled={Boolean(busy)}
+              onShowAll={() => {
+                const returnTo = document.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]');
+                chooseWorkspaceTool('review');
+                requestAnimationFrame(() => returnTo?.focus({ preventScroll: true }));
+              }}
+              onExport={() => chooseWorkspaceTool('export')}/>}
+            {riskyIds.length > 0 && <>
+            <div className="review-score"><ListChecks size={22}/><div><strong>{readiness}% export readiness</strong><span>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</span></div></div>
             <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b><span>{selection.captions.length} selected · {selection.captions.filter((caption) => caption.approved).length} approved</span></div>
+            </>}
             <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
-            <div className="review-actions review-primary-actions">
+            {riskyIds.length > 0 && <div className="review-actions review-primary-actions">
               <div className="review-nav-actions">
                 <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
                 <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>Replay</button>
@@ -3479,7 +3516,7 @@ export default function App() {
                 <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
                 <button className="review-approve-next primary" onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
               </div>
-            </div>
+            </div>}
             <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
           </div>}
 

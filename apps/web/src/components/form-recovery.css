@@ -1,0 +1,13 @@
+.copy-report-control{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;max-width:100%}
+.copy-report-label{display:grid}.copy-report-label>span{grid-area:1/1}.copy-report-label>span[aria-hidden=true]{visibility:hidden}
+.copy-report-recovery{display:flex;flex-direction:column;gap:7px;min-width:0;width:100%;font-size:12px;line-height:1.6;color:#e6c97b}
+.copy-report-recovery textarea{box-sizing:border-box;width:100%;min-width:0;min-height:110px;max-width:100%;resize:vertical;border:1px solid #424a56;border-radius:8px;padding:9px;background:#101419;color:#dfe5ec;font:13px/1.65 'Noto Sans Khmer','Plus Jakarta Sans',sans-serif}
+.profile-form-feedback{margin:8px 0;font-size:12px;line-height:1.6;overflow-wrap:anywhere;color:#b8ce86}
+.profile-form-feedback[role=alert]{color:#e6c97b}
+.profile-import-feedback{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.profile-import-feedback>span{flex:1 1 220px}
+.profile-import-feedback button{min-height:36px;border:1px solid #424a56;border-radius:8px;background:#171b21;color:#e5e8ec;padding:6px 10px;font:inherit;cursor:pointer}
+.doctor-summary .copy-report-control{flex:none;max-width:100%}
+.doctor-summary .copy-report-control:has(.copy-report-recovery){flex:1 1 100%}
+.correction-actions .copy-report-control:has(.copy-report-recovery){flex:1 1 100%}
+@media(max-width:620px){.profile-import-feedback button{min-height:44px}.copy-report-control{max-width:100%}}

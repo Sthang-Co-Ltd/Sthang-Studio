@@ -8,6 +8,8 @@ import {
   useState,
 } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
+import { useSurfacePresence } from '../use-surface-presence';
+import { useMenuKeyboard } from '../use-menu-keyboard';
 import { reconcileCaptionWordTiming, resolveCaptionWordTiming } from '@kcs/shared';
 import {
   AudioLines,
@@ -68,6 +70,7 @@ interface CaptionEditorProps {
   onSelect(id: string, extend: boolean): void;
   onTextCommit(): void;
   onEditCommit?(): void;
+  onReviewComplete?(): void;
   onEditingChange?(editing: boolean): void;
 }
 
@@ -93,6 +96,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   onSelect,
   onTextCommit,
   onEditCommit,
+  onReviewComplete,
   onEditingChange,
 }, ref) {
   const list = useRef<HTMLDivElement | null>(null);
@@ -106,6 +110,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   const [followPlayback, setFollowPlayback] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const actionMenu = useRef<HTMLDivElement | null>(null);
+  const menuActionTrigger = useRef<HTMLButtonElement | null>(null);
+  const menuPresence = useSurfacePresence(openMenuId, actionMenu, 'menu');
+  const menuKeyboard = useMenuKeyboard(openMenuId, actionMenu, () => openMenuId ? rows.current[openMenuId]?.querySelector<HTMLButtonElement>('.row-more') : null, () => setOpenMenuId(null));
   const [menuPlacement, setMenuPlacement] = useState({ up: false, height: 400 });
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const mediaLimit = durationMs && Number.isFinite(durationMs) ? durationMs : Number.MAX_SAFE_INTEGER;
@@ -116,6 +123,16 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     () => reviewMode ? captions.filter((caption) => issueMap.has(caption.id) && !caption.approved) : captions,
     [captions, issueMap, reviewMode],
   );
+  useLayoutEffect(() => {
+    if (openMenuId || !menuActionTrigger.current) return;
+    const opener = menuActionTrigger.current;
+    menuActionTrigger.current = null;
+    if (opener.isConnected) return;
+    // Split/delete may remove the trigger. Continue on the resulting selection.
+    const next = selectedIds.find((id) => rows.current[id]) || visible[0]?.id;
+    const fallback = next ? rows.current[next]?.querySelector<HTMLButtonElement>('.row-more') : list.current?.parentElement?.querySelector<HTMLButtonElement>('[aria-label="Add caption"]');
+    fallback?.focus({ preventScroll: true });
+  }, [openMenuId, selectedIds, visible]);
   const captionIndexMap = useMemo(() => {
     const map = new Map<string, number>();
     for (let i = 0; i < captions.length; i++) {
@@ -181,7 +198,13 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       const target = event.target as HTMLElement | null;
       if (!target?.closest(`[data-caption-menu="${openMenuId}"]`)) setOpenMenuId(null);
     };
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpenMenuId(null); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && !document.querySelector('[aria-modal="true"]')) {
+        event.preventDefault();
+        rows.current[openMenuId]?.querySelector<HTMLButtonElement>('.row-more')?.focus({ preventScroll: true });
+        setOpenMenuId(null);
+      }
+    };
     document.addEventListener('pointerdown', close);
     window.addEventListener('keydown', onKey);
     return () => {
@@ -287,7 +310,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (nextVisible) {
       onSeek(nextVisible.startMs);
       window.setTimeout(() => reveal(nextVisible!.id, 'smooth', true), 40);
-    }
+    } else if (reviewMode && approving) onReviewComplete?.();
   };
   const patchTime = (index: number, value: Partial<CaptionSegment>) => {
     const caption = captions[index];
@@ -382,9 +405,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
         <span>{visible.length} shown · {captions.length} total · {followPlayback ? 'Following playback' : 'Follow paused'}</span>
       </div>
       <div className="panel-tools">
-        <button className="panel-tool" title="Jump to current caption" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
-        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} title={followPlayback ? 'Pause follow' : 'Follow playback'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>{followPlayback ? 'Following' : 'Follow'}</span></button>
-        <button className="icon-btn" aria-label="Add caption" title="Add caption" onClick={add}><Plus size={17}/></button>
+        <button className="panel-tool" data-tooltip="Jump to the caption at the playhead" data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
+        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>{followPlayback ? 'Following' : 'Follow'}</span></button>
+        <button className="icon-btn" aria-label="Add caption" data-tooltip="Add a caption" onClick={add}><Plus size={17}/></button>
       </div>
     </div>
     <div
@@ -399,6 +422,8 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
         const index = captionIndexMap.get(caption.id) ?? -1;
         const issue = issueMap.get(caption.id);
         const destructiveLocked = caption.textLocked || caption.timingLocked;
+        const nextLocked = captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked;
+        const mergeHint = destructiveLocked && nextLocked ? 'Unlock both captions first' : destructiveLocked ? 'Unlock this caption first' : nextLocked ? 'Unlock the next caption first' : '';
         return <div
           ref={(element: HTMLDivElement | null) => { rows.current[caption.id] = element; }}
           data-caption-id={caption.id}
@@ -496,24 +521,40 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               aria-label={caption.approved ? 'Mark caption as needing review' : reviewMode ? 'Approve caption and move to the next review item' : 'Approve caption'}
               aria-pressed={Boolean(caption.approved)}
               onClick={(event) => { event.stopPropagation(); toggleApproval(index, caption); }}
-              title={caption.approved ? 'Needs review' : reviewMode ? 'Approve & next' : 'Approve caption'}
+              data-tooltip={caption.approved ? 'Mark this caption for review again' : reviewMode ? 'Approve and move to the next flagged caption' : 'Approve this caption'}
             ><CheckCircle2 size={15}/></button>
             <button
               className={`row-more ${openMenuId === caption.id ? 'state-on' : ''}`}
               aria-label={`More actions for caption ${index + 1}`}
+              aria-haspopup="menu"
               aria-expanded={openMenuId === caption.id}
-              onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => current === caption.id ? null : caption.id); }}
-              title="More actions"
+              onKeyDown={(event) => {
+                if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+                  event.preventDefault(); event.stopPropagation(); menuKeyboard.openAt(event.key === 'ArrowUp' ? 'last' : 'first', caption.id); setOpenMenuId(caption.id);
+                }
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (openMenuId === caption.id) event.currentTarget.focus({ preventScroll: true }); else menuKeyboard.openAt('first', caption.id);
+                setOpenMenuId((current) => current === caption.id ? null : caption.id);
+              }}
+              data-tooltip="More caption actions"
             ><MoreHorizontal size={16}/></button>
-            {openMenuId === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" style={{ maxHeight: menuPlacement.height, overflowY: 'auto' }}>
+            {menuPresence.present && menuPresence.value === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" aria-label={`Caption ${index + 1} actions`} onKeyDown={menuKeyboard.onKeyDown}
+              onClickCapture={(event) => {
+                if (!(event.target as Element).closest('button:not(:disabled)')) return;
+                menuActionTrigger.current = rows.current[caption.id]?.querySelector<HTMLButtonElement>('.row-more') || null;
+                menuActionTrigger.current?.focus({ preventScroll: true });
+              }}
+              data-motion-state={menuPresence.open ? 'open' : 'closed'} inert={!menuPresence.open} aria-hidden={!menuPresence.open || undefined} style={{ maxHeight: menuPlacement.height, overflowY: 'auto' }}>
               {onWordTiming && <button role="menuitem" onClick={(event) => { event.stopPropagation(); setOpenMenuId(null); onWordTiming(caption.id); }}><Clock3 size={14}/><span>Edit word timing</span></button>}
               <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { textLocked: !caption.textLocked }, 'metadata'); setOpenMenuId(null); }}><LockKeyhole size={14}/><span>{caption.textLocked ? 'Unlock text' : 'Lock text'}</span></button>
               <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { timingLocked: !caption.timingLocked }, 'metadata'); setOpenMenuId(null); }}><Clock3 size={14}/><span>{caption.timingLocked ? 'Unlock timing' : 'Lock timing'}</span></button>
               <div className="caption-menu-divider"/>
-              <button role="menuitem" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, -100); setOpenMenuId(null); }}><span className="menu-micro">−100 ms</span><span>Move earlier</span></button>
-              <button role="menuitem" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, 100); setOpenMenuId(null); }}><span className="menu-micro">+100 ms</span><span>Move later</span></button>
+              <button role="menuitem" data-menu-label="Move earlier" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, -100); setOpenMenuId(null); }}><span className="menu-micro">−100 ms</span><span className="caption-action-copy">Move earlier{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
+              <button role="menuitem" data-menu-label="Move later" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, 100); setOpenMenuId(null); }}><span className="menu-micro">+100 ms</span><span className="caption-action-copy">Move later{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
               <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); split(index); setOpenMenuId(null); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
-              {index < captions.length - 1 && <button role="menuitem" disabled={destructiveLocked || captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><Combine size={14}/><span>Merge with next</span></button>}
+              {index < captions.length - 1 && <button role="menuitem" data-menu-label="Merge with next" disabled={destructiveLocked || nextLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><Combine size={14}/><span className="caption-action-copy">Merge with next{mergeHint && <small>{mergeHint}</small>}</span></button>}
               <div className="caption-menu-divider"/>
               <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); remove(index); setOpenMenuId(null); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
             </div>}

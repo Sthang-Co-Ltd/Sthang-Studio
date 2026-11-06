@@ -1,0 +1,47 @@
+/* Operate UI: brief feedback, no layout travel or animation on editing evidence. */
+:root{--studio-motion-in:180ms;--studio-motion-out:140ms;--studio-motion-ease:cubic-bezier(.16,1,.3,1)}
+.studio-sheet[data-motion-state=closed]{pointer-events:none}
+.studio-sheet[data-motion-state=open]{animation:studio-sheet-backdrop-in var(--studio-motion-in) ease-out}
+.studio-sheet[data-motion-state=closed]{animation:studio-sheet-backdrop-out var(--studio-motion-out) ease-out both}
+@keyframes studio-sheet-backdrop-in{from{background-color:transparent} }
+@keyframes studio-sheet-backdrop-out{to{background-color:transparent} }
+.workspace-tools-popover{transform-origin:var(--menu-origin,calc(100% - 40px)) top}
+.caption-action-menu{transform-origin:calc(100% - 16px) top}
+.caption-action-menu.menu-up{transform-origin:calc(100% - 16px) bottom}
+[data-motion-state=closed][role=menu]{pointer-events:none}
+.workspace-tools-menu[data-menu-open=false]>summary{border-color:#2c323b;background:#12151a;color:#d9dee4}
+
+/* Explicit action surfaces only: never stretch sliders, grips, or caption text. */
+:is(.header-actions>button,.workspace-tools-menu>summary,.workspace-tool-strip nav button,.editor-toolbar nav button,.tools-menu-section>button,.caption-action-menu>button,.modal-head button,.history-toolbar button,.job-actions button,.update-actions button,.editor-arrange-trigger){
+  transition:background-color .14s ease,border-color .14s ease,color .14s ease,opacity .14s ease,translate .1s var(--studio-motion-ease);
+}
+:is(.header-actions>button,.workspace-tool-strip nav button,.editor-toolbar nav button,.tools-menu-section>button,.caption-action-menu>button,.modal-head button,.history-toolbar button,.job-actions button,.update-actions button,.editor-arrange-trigger):not(:disabled):not([aria-disabled=true]):active,
+.workspace-tools-menu>summary:active{translate:0 1px}
+.header-actions .save-action{min-width:93px}
+.header-actions .save-action .save-action-label{min-width:37px;text-align:left}
+.header-actions .save-action .sr-only{position:absolute;width:1px;height:1px;min-width:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.header-actions .save-action .save-action-icon{position:relative;display:block;flex:none;width:16px;height:16px;min-width:16px}
+.save-action-icon svg{position:absolute;inset:0;transition:opacity 140ms ease,transform 140ms var(--studio-motion-ease)}
+.save-action-icon svg:last-child{opacity:0;transform:scale(.9)}
+.save-action[data-save-confirmed] .save-action-icon svg:first-child{opacity:0;transform:scale(.9)}
+.save-action[data-save-confirmed] .save-action-icon svg:last-child{opacity:1;transform:none}
+.header-actions .save-action[data-save-confirmed]{opacity:1;color:#d7e9b1;animation:studio-save-confirmed 360ms ease-out}
+@keyframes studio-save-confirmed{0%,100%{border-color:#2c323b}35%{border-color:#718337}}
+
+/* The browser retains top-layer ownership during the native popover's exit.
+   Older engines retain the original immediate, fully usable show/hide behavior. */
+@supports (transition-behavior:allow-discrete){
+  .editor-arrange-popover{opacity:0;
+    transition:opacity var(--studio-motion-out) var(--studio-motion-ease),display var(--studio-motion-out) allow-discrete,overlay var(--studio-motion-out) allow-discrete}
+  .editor-arrange-content{transform:scale(.98);transform-origin:var(--arrange-origin,calc(100% - 80px)) top;transition:transform var(--studio-motion-out) var(--studio-motion-ease)}
+  .editor-arrange-popover:popover-open{opacity:1;transition-duration:var(--studio-motion-in)}
+  .editor-arrange-popover:popover-open .editor-arrange-content{transform:none;transition-duration:var(--studio-motion-in)}
+  .editor-arrange-popover:not(:popover-open){pointer-events:none}
+  @starting-style{.editor-arrange-popover:popover-open{opacity:0}.editor-arrange-popover:popover-open .editor-arrange-content{transform:scale(.98)}}
+}
+@media(prefers-reduced-motion:reduce){
+  .studio-sheet,.header-actions .save-action[data-save-confirmed]{animation:none}
+  .save-action-icon svg,.editor-arrange-popover,.editor-arrange-content{transition:none!important}
+  .editor-arrange-popover:popover-open .editor-arrange-content{transform:none}
+  :is(.header-actions>button,.workspace-tools-menu>summary,.workspace-tool-strip nav button,.editor-toolbar nav button,.tools-menu-section>button,.caption-action-menu>button,.modal-head button,.history-toolbar button,.job-actions button,.update-actions button,.editor-arrange-trigger):active{translate:none}
+}

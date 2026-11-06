@@ -69,10 +69,18 @@ export function NewUserGuide({
 }: GuideProps) {
   if (!open) return null;
   const hasCaptions = Boolean(project?.captions.length);
+  const mac = navigator.platform.toLowerCase().includes('mac');
+  const modifier = mac ? 'Command' : 'Ctrl';
+  const editingShortcuts = [
+    [`${modifier}+S`, 'Save edits'], [`${modifier}+F`, 'Correct everywhere'], ['Space', 'Play / pause'],
+    ['R', 'Replay selection'], ['E', 'Edit selected caption'], ['J', 'Jump to current caption'],
+    [`${mac ? 'Option' : 'Alt'}+Left / Right`, 'Nudge selected captions by 50 ms'],
+  ];
+  const reviewShortcuts = [['Enter or A', 'Approve & next'], ['S', 'Skip without approving'], ['Up / Down', 'Previous / next flagged caption']];
   return <aside className="new-user-guide" aria-label="Sthang Studio guide">
     <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong></span></div><button onClick={onClose} aria-label="Close guide"><X size={16}/></button></header>
 
-    {!project ? <div className="guide-empty"><FileUp size={28}/><strong>Create a project first</strong><span>Upload a video or audio file from Home to begin.</span></div> : <>
+    {!project ? <div className="guide-empty"><FileUp size={28}/><strong>Create a project first</strong><span>Upload a video or audio file from Home to begin.</span></div> : <div className="guide-content">
       <section className="guide-workflow">
         <h3>Caption workflow</h3>
         <button className={llmConfigured ? 'done' : 'next'} onClick={onConnect}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected' : 'Required to generate caption text.'}</small></span></button>
@@ -83,13 +91,23 @@ export function NewUserGuide({
         <button onClick={onExport} disabled={!hasCaptions}><i>6</i><span><b>Export</b><small>SRT for CapCut Desktop or a captioned video.</small></span><Download size={14}/></button>
       </section>
 
+      <details className="guide-shortcuts">
+        <summary>Keyboard shortcuts</summary>
+        <p>Playback and Review shortcuts apply outside text fields and controls.</p>
+        <h3>Editing and playback</h3>
+        <dl>{editingShortcuts.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
+        <h3>Review only</h3>
+        <dl>{reviewShortcuts.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
+        <p>Approve &amp; next and Skip advance through flagged captions while Review is active.</p>
+      </details>
+
       <section className="guide-tools">
         <h3>Other tools</h3>
         <div><ListChecks size={15}/><span><b>Review</b><small>Flags captions to check; they may be correct.</small></span></div>
         <div><BookOpenCheck size={15}/><span><b>Corrections</b><small>Learns from edits after you approve each suggestion.</small></span></div>
         <div><ListRestart size={15}/><span><b>Regeneration preview</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
       </section>
-    </>}
+    </div>}
 
   </aside>;
 }

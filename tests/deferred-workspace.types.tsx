@@ -7,7 +7,7 @@ interface ToolProps { projectId: string; onSelect(id: string): void; zoom?: numb
 function FunctionTool({ projectId, onSelect }: ToolProps) {
   return <button onClick={() => onSelect(projectId)}>{projectId}</button>;
 }
-const DeferredFunction = deferWorkspace(async () => ({ default: FunctionTool }));
+const DeferredFunction = deferWorkspace(async () => ({ default: FunctionTool }), { name: 'Function tool', shape: 'timing' });
 const validFunction = <DeferredFunction projectId="synthetic" onSelect={(id) => id.toUpperCase()}/>;
 // @ts-expect-error projectId must remain required.
 const missingProject = <DeferredFunction onSelect={() => {}}/>;
@@ -19,7 +19,7 @@ const extraProp = <DeferredFunction projectId="synthetic" onSelect={() => {}} un
 class ClassTool extends Component<ToolProps> {
   render() { return <span>{this.props.projectId}</span>; }
 }
-const DeferredClass = deferWorkspace(async () => ({ default: ClassTool }));
+const DeferredClass = deferWorkspace(async () => ({ default: ClassTool }), { name: 'Class tool', shape: 'comparison' });
 const validClass = <DeferredClass projectId="synthetic" onSelect={() => {}} zoom={2}/>;
 // @ts-expect-error class components must also retain required props.
 const missingCallback = <DeferredClass projectId="synthetic"/>;

@@ -1,0 +1,16 @@
+.review-completion{min-width:0;padding-block:4px 8px}
+.review-completion-copy{display:flex;align-items:flex-start;gap:10px}
+.review-completion-copy>svg{flex:none;margin-top:2px;color:var(--accent)}
+.review-completion-copy>div{min-width:0}
+.review-completion h2{margin:0;font-size:14px;line-height:1.5;font-weight:650;color:var(--text)}
+.review-completion h2:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:3px}
+.review-completion p{margin:6px 0 0;font-size:13px;line-height:1.6;color:#b7c0cc;overflow-wrap:anywhere}
+.review-completion-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.review-completion-actions button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:8px 11px;border:1px solid #38414c;border-radius:8px;background:#171d24;color:#e0e5ed;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}
+.review-completion-actions button:hover:not(:disabled){background:#252e38}
+.review-completion-actions button.primary{margin-left:auto;border-color:transparent;background:var(--accent);color:#172007}
+.review-completion-actions button.primary:hover:not(:disabled){background:#e2ff80}
+.review-completion-actions button:disabled{opacity:.5;cursor:default}
+.review-completion-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:620px){.review-completion-actions button{min-height:44px;flex:1 1 100%}}
+@media(forced-colors:active){.review-completion-actions button.primary{border-color:ButtonText}.review-completion-copy>svg{color:CanvasText}}

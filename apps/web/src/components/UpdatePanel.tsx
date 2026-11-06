@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Download, LoaderCircle, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { api, type UpdateStatus, type UpdateSafetySnapshot } from '../api';
 import { useModalFocus } from '../use-modal-focus';
+import { useSurfacePresence } from '../use-surface-presence';
 import './updates.css';
 
 const SESSION_CHECK_KEY = 'sthang:updates-checked:v1';
@@ -22,6 +23,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
   const operation = useRef(false);
   const wasOpen = useRef(false);
   const dialog = useRef<HTMLElement | null>(null);
+  const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   // The close button becomes disabled during checks; root focus stays stable.
   useModalFocus(open, dialog, () => { if (!operation.current && !working) onClose(); }, dialog);
 
@@ -81,7 +83,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
     return reasons;
   }, [safety]);
 
-  if (!open) return null;
+  if (!presence.present) return null;
   const offer = status?.status === 'available' ? status.offer : null;
   const unsafe = unsafeReasons.length > 0;
   const lastFailure = status?.lastFailure;
@@ -122,8 +124,8 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
     }
   };
 
-  return <div className="update-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
-    <section ref={dialog} tabIndex={-1} className="update-panel" role="dialog" aria-modal="true" aria-labelledby="update-title">
+  return <div className="update-overlay studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
+    <section ref={dialog} tabIndex={-1} className="update-panel" role="dialog" aria-modal={open || undefined} aria-labelledby="update-title">
       <header>
         <div><ShieldCheck size={19}/><div><strong id="update-title">Studio updates</strong><span>Signed releases. You choose when to install.</span></div></div>
         <button aria-label="Close updates" onClick={onClose} disabled={!!working}><X size={17}/></button>

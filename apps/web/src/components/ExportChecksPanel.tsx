@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { Check, ChevronLeft, ChevronRight, ListChecks, LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { ExportCheckIssue, ExportRepairTarget } from '../export-checks';
@@ -20,13 +20,14 @@ interface Props {
   layoutDisabled?: boolean;
   onCheckLayout?(): void;
   onCancelLayout?(): void;
+  supportAction?: ReactNode;
 }
 
 const PAGE_SIZE = 8;
 
 export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlocked,
   appearancePending, appearancePrerequisite,
-  layoutState, layoutMessage, layoutDisabled, onCheckLayout, onCancelLayout }: Props) {
+  layoutState, layoutMessage, layoutDisabled, onCheckLayout, onCancelLayout, supportAction }: Props) {
   const [page, setPage] = useState(0);
   const [issuesExpanded, setIssuesExpanded] = useState(false);
   const identity = issues.map((issue) => issue.id).join('\0');
@@ -49,6 +50,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
       <div><h3 id="export-checks-heading" tabIndex={-1}><ListChecks size={17}/>Check before export</h3>
         <p>{blockers > 0 ? `${blockers} blocker${blockers === 1 ? '' : 's'}` : 'No caption blockers'}
           {suggestions > 0 ? ` · ${suggestions} review suggestion${suggestions === 1 ? '' : 's'}` : ''} for this output.</p></div>
+      {supportAction}
     </div>
 
     {saveBlocked ? <p className="export-check-save" role="status"><TriangleAlert size={16}/>Resolve the saved-project conflict before exporting. Your current edits are kept in the editor.</p>

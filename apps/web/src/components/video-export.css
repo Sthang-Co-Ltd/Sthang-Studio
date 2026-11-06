@@ -15,8 +15,10 @@
 .export-preset-hint{grid-column:1/-1;margin:0;color:#a8afb9;font-size:12px;line-height:1.5}
 .export-preset-status,.export-preset-warning{display:flex;align-items:center;gap:8px;font-size:12px;line-height:1.5}
 .export-preset-status{color:#b8ce86}
+.export-preset-load-error{flex-wrap:wrap}.export-preset-load-error>span{flex:1 1 200px}.export-preset-load-error>button{min-height:36px;border:1px solid #725c2f;background:#211c13;color:#f0d99b;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
 .export-preset-warning{border:1px solid #725c2f;background:#1b1710;color:#e6c97b;border-radius:9px;padding:9px 10px}
 @media(max-width:780px){
+  .export-preset-load-error>button{min-height:44px}
   .export-preset-bar>label>span{padding-right:0}
   .export-preset-tools summary{position:static;margin-top:10px;min-height:44px;display:flex;align-items:center;padding:0 8px}
   .export-preset-tools-body{grid-template-columns:1fr}

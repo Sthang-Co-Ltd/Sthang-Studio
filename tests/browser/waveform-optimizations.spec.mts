@@ -56,8 +56,8 @@ test('Waveform mode avoids spectrum computation on standard load and stays compu
 
   // Waveform canvas is active
   await expect(page.locator('.waveform-data-canvas')).toBeVisible();
-  await expect(page.locator('button[title="Waveform"]')).toHaveClass(/selected/);
-  await expect(page.locator('button[title="Spectral view"]')).not.toHaveClass(/selected/);
+  await expect(page.getByRole('button', { name: 'Waveform', exact: true })).toHaveClass(/selected/);
+  await expect(page.getByRole('button', { name: 'Spectrum overview', exact: true })).not.toHaveClass(/selected/);
 
   // Seek and verify waveform stays computation-free
   await seek(page, 1500);
@@ -72,7 +72,7 @@ test('Activating Spectral view computes spectrum once and caches the result', as
   await openTimeline(page);
 
   // Switch to spectral view
-  const spectrumBtn = page.locator('button[title="Spectral view"]');
+  const spectrumBtn = page.getByRole('button', { name: 'Spectrum overview', exact: true });
   await spectrumBtn.click();
   await expect(spectrumBtn).toHaveClass(/selected/);
 
@@ -80,7 +80,7 @@ test('Activating Spectral view computes spectrum once and caches the result', as
   await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(1);
 
   // Return to waveform mode
-  const waveformBtn = page.locator('button[title="Waveform"]');
+  const waveformBtn = page.getByRole('button', { name: 'Waveform', exact: true });
   await waveformBtn.click();
   await expect(waveformBtn).toHaveClass(/selected/);
 
@@ -98,7 +98,7 @@ test('Unmounting and remounting WaveformEditor reuses in-memory decoded audio an
   await openTimeline(page);
 
   // Switch to spectrum and verify computation
-  await page.locator('button[title="Spectral view"]').click();
+  await page.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
   await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(1);
 
   // Close timeline by clicking Fine timing button again
@@ -120,7 +120,7 @@ test('Initial spectrum preference computes spectrum on initial mount', async ({ 
   await openTimeline(page);
 
   // Since preference was spectrum, it should compute and select spectral view
-  await expect(page.locator('button[title="Spectral view"]')).toHaveClass(/selected/);
+  await expect(page.getByRole('button', { name: 'Spectrum overview', exact: true })).toHaveClass(/selected/);
   await expect.poll(async () => (await getTestHooks(page)).spectrumComputeCount).toBe(1);
 });
 
@@ -138,7 +138,7 @@ test('Waveform pending work: schedules without executing immediately and flushes
   await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
 
   // Switch to spectral view while paused
-  await page.locator('button[title="Spectral view"]').click();
+  await page.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
 
   // Assert scheduled without executing yet
   const hooksScheduled = await getTestHooks(page);
@@ -169,7 +169,7 @@ test('Waveform pending work: unmount before running prevents stale spectrum comp
   await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
 
   // Switch to spectral view while paused
-  await page.locator('button[title="Spectral view"]').click();
+  await page.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
 
   // Verify scheduled but not yet computed while paused
   const hooksScheduled = await getTestHooks(page);
@@ -202,7 +202,7 @@ test('Waveform pending work: project identity and audio change while pending can
 
   // Pause the clock BEFORE requesting spectrum on project 1
   await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
-  await page.locator('button[title="Spectral view"]').click();
+  await page.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
 
   // Verify project 1 work is scheduled while paused, but NOT computed
   const pendingHooksA = await getTestHooks(page);
@@ -223,7 +223,7 @@ test('Waveform pending work: project identity and audio change while pending can
   });
 
   await openTimeline(page, true);
-  await page.locator('button[title="Spectral view"]').click();
+  await page.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
 
   // Execute project 2 work under controlled virtual time (advance 50ms)
   await page.clock.runFor(50);
@@ -270,7 +270,7 @@ test('Waveform pending work: project identity and audio change while pending can
   await page.evaluate(() => {
     (window as any).__STHANG_TEST_HOOKS__.spectrumDelayMs = 0;
   });
-  await page.locator('button[title="Spectral view"]').click();
+  await page.getByRole('button', { name: 'Spectrum overview', exact: true }).click();
   await page.clock.runFor(50);
 
   const finalHooks = await getTestHooks(page);
@@ -299,7 +299,7 @@ test('playhead movement within a fixed viewport does not repaint the waveform ba
   await openProject(page);
   await openTimeline(page);
   // Fine Timing now opens focused on the selected caption, with follow paused.
-  await expect(page.locator('.waveform-card').getByTitle('Follow playhead', { exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.waveform-card').getByRole('button', { name: 'Follow playhead', exact: true })).toHaveAttribute('aria-pressed', 'false');
   // Count actual painting on the data layer. Ignore the transparent cursor layer.
   await page.locator('.waveform-data-canvas').evaluate((canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d')!;

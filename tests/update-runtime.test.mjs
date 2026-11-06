@@ -587,6 +587,7 @@ test('frontend build identity is versioned, content-bound and served by the fron
     'packages/shared/tsconfig.json': '{}',
     'package-lock.json': '{}',
     'scripts/web-runtime-identity.mjs': '// identity plugin',
+    'scripts/workspace-retry.mjs': '// workspace retry plugin',
   };
   for (const [relative, value] of Object.entries(files)) {
     await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });

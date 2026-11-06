@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import type { AppProfile, CorrectionEvent } from '@kcs/shared';
-import { BookOpenCheck, CirclePlay, Clipboard, X, XCircle, FolderPlus, CheckCheck } from 'lucide-react';
+import { BookOpenCheck, CirclePlay, X, XCircle, FolderPlus, CheckCheck } from 'lucide-react';
+import { CopyReportButton } from './CopyReportButton';
 import { useModalFocus } from '../use-modal-focus';
+import { useSurfacePresence } from '../use-surface-presence';
 import './correction-inbox.css';
 
 const formatTime = (ms: number) => {
@@ -20,6 +22,7 @@ interface CorrectionInboxProps {
 
 export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onAction }: CorrectionInboxProps) {
   const dialog = useRef<HTMLElement | null>(null);
+  const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   useModalFocus(open, dialog, onClose);
   const [showAll, setShowAll] = useState(false);
   const events = useMemo(() => [...profile.correctionEvents]
@@ -27,8 +30,7 @@ export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onA
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [profile.correctionEvents, showAll]);
   const pending = profile.correctionEvents.filter((event) => event.status === 'pending').length;
 
-  const copyReport = async (event: CorrectionEvent) => {
-    const report = [
+  const reportText = (event: CorrectionEvent) => [
       `Before: ${event.originalText}`,
       `After: ${event.correctedText}`,
       `Project: ${event.projectTitle}`,
@@ -36,23 +38,10 @@ export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onA
       event.contextBefore || event.contextAfter ? `Context: … ${event.contextBefore || ''} [${event.correctedText}] ${event.contextAfter || ''} …` : '',
       `Suggested memory: ${event.suggestedVocabularyLine || event.correctedText}`,
     ].filter(Boolean).join('\n');
-    try {
-      await navigator.clipboard.writeText(report);
-    } catch {
-      const fallback = document.createElement('textarea');
-      fallback.value = report;
-      fallback.style.position = 'fixed';
-      fallback.style.opacity = '0';
-      document.body.appendChild(fallback);
-      fallback.select();
-      document.execCommand('copy');
-      fallback.remove();
-    }
-  };
 
-  if (!open) return null;
-  return <div className="modal-backdrop" onMouseDown={onClose}>
-    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="correction-inbox-title" tabIndex={-1} className="modal correction-modal" onMouseDown={(event) => event.stopPropagation()}>
+  if (!presence.present) return null;
+  return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
+    <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="correction-inbox-title" tabIndex={-1} className="modal correction-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
         <div><strong id="correction-inbox-title">Correction Inbox</strong><span>{pending} pending · Edits appear when you leave a caption field, Save, or Export.</span></div>
         <button className="icon-btn" aria-label="Close correction inbox" onClick={onClose}><X size={18}/></button>
@@ -71,7 +60,7 @@ export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onA
           <div className="correction-suggestion"><span>Suggested memory</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
           <div className="correction-actions">
             <button onClick={() => onOpenEvent(event)}><CirclePlay size={15}/>Review audio</button>
-            <button onClick={() => void copyReport(event)}><Clipboard size={15}/>Copy report</button>
+            <CopyReportButton text={reportText(event)}/>
             {event.status === 'pending' && <>
               <button disabled={busy} className="remember" aria-label="Remember for all projects" onClick={() => onAction(event, 'remember-global')}><BookOpenCheck size={15}/>Remember everywhere</button>
               <button disabled={busy} aria-label="Remember for this project" onClick={() => onAction(event, 'add-project')}><FolderPlus size={15}/>Remember here</button>
