@@ -1,0 +1,32 @@
+/* Notification geometry is confined to the existing fixed stack. */
+.toast-slot{min-width:0;display:grid;grid-template-rows:1fr;border-radius:10px;box-shadow:0 10px 24px #0004;transition:grid-template-rows 140ms ease,margin-bottom 140ms ease}
+.toast-slot-body{min-height:0;overflow:hidden}
+.toast-slot-body:focus-within{overflow:visible}
+.toast-stack .toast-slot .toast,.toast-stack .toast-slot .job-toast{box-shadow:none}
+.toast-slot[data-motion-state=closed]{grid-template-rows:0fr;margin-bottom:-8px;pointer-events:none}
+@starting-style{.toast-slot[data-motion-state=open]{grid-template-rows:0fr;margin-bottom:-8px}}
+
+.studio-tooltip{position:fixed;z-index:120;display:flex;align-items:center;gap:10px;width:max-content;max-width:min(320px,calc(100vw - 16px));padding:8px 11px;border-radius:7px;background:#29323d;color:#f0f3f6;box-shadow:0 6px 20px #0005;font:12px/1.45 'Plus Jakarta Sans','Noto Sans Khmer',sans-serif;overflow-wrap:anywhere;animation:studio-tooltip-in 100ms ease-out;pointer-events:auto}
+.studio-tooltip::before{content:"";position:absolute;inset:-8px 0;z-index:-1}
+.studio-tooltip>span{white-space:pre-line}
+.caption-action-copy{min-width:0}
+.caption-action-copy small{display:block;margin-top:3px;color:#b7c2ce;font-size:11px;line-height:1.5;white-space:normal}
+.caption-action-menu button:disabled{opacity:1;color:#9ca7b3;cursor:default}
+.timing-unavailable-reason{margin:8px 0 0;color:#c2cbd5;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.studio-tooltip kbd{flex:none;border:1px solid #637184;border-radius:4px;padding:1px 5px;color:#e4eaf0;font-family:inherit;font-size:11px;line-height:1.4;white-space:nowrap}
+@keyframes studio-tooltip-in{from{opacity:0}to{opacity:1}}
+
+/* Local background covers move with the content; the faint shadows stay at
+   the scrollport edges. No observer, overlay, masks, or layout space needed. */
+:is(.inspector-content,.history-list,.job-list,.correction-list,.ai-settings-body,.profile-body,.doctor-body,.find-preview,.update-content){
+  --scroll-cue-surface:#0d1014;
+  background-image:linear-gradient(var(--scroll-cue-surface) 55%,transparent),linear-gradient(to top,var(--scroll-cue-surface) 55%,transparent),radial-gradient(farthest-side at 50% 0,#0007,transparent),radial-gradient(farthest-side at 50% 100%,#0007,transparent);
+  background-position:center top,center bottom,center top,center bottom;
+  background-repeat:no-repeat;
+  background-size:100% 30px,100% 30px,100% 12px,100% 12px;
+  background-attachment:local,local,scroll,scroll;
+}
+.find-preview{--scroll-cue-surface:#0b0e12}
+.update-content{--scroll-cue-surface:#101216}
+@media(prefers-reduced-motion:reduce){.toast-slot{transition:none}.studio-tooltip{animation:none}}
+@media(forced-colors:active){.studio-tooltip{border:1px solid CanvasText;background:Canvas;color:CanvasText}.studio-tooltip kbd{border-color:CanvasText;color:CanvasText}}

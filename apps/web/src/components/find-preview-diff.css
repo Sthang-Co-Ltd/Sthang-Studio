@@ -1,0 +1,16 @@
+/* Keep unchanged wording quiet; only the changed grapheme spans carry color. */
+.find-replace-modal .find-preview-copy .find-after{color:#eef1f4}
+.find-preview-copy .find-preview-removed,.find-preview-copy .find-preview-added{font:inherit;text-decoration-line:underline;text-decoration-thickness:1px;text-underline-offset:.18em;text-decoration-skip-ink:auto}
+.find-preview-copy .find-preview-removed{color:#ffc5b8;background:#4b25254d;text-decoration-color:#df9b8f;text-decoration-style:dotted}
+.find-preview-copy .find-preview-added{color:#e0f2ba;background:#36471b70;text-decoration-color:#c0dd81;text-decoration-style:solid}
+.find-preview-copy .find-preview-empty{display:block;font-size:12px;line-height:1.75}
+.find-preview-row:focus{outline:2px solid var(--accent);outline-offset:-3px}
+.find-glossary-result{margin:16px;min-width:0;font-size:13px;line-height:1.65}
+.find-glossary-result strong{font-size:14px;color:#edf1f5}
+.find-glossary-result p{margin:6px 0 16px;color:#b8c1cd}
+.find-glossary-result dl{margin:0;padding-top:12px;border-top:1px solid #303640}
+.find-glossary-result dt{font-size:12px;color:#a9b3c1}
+.find-glossary-result dd{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:'Noto Sans Khmer','Plus Jakarta Sans',sans-serif}
+.find-preview-pages>span{min-width:0;text-align:center;line-height:1.5}
+@media(max-width:620px){.find-preview-pages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.find-preview-pages>span{grid-column:1/-1;grid-row:1}.find-preview-pages>button:first-child{grid-column:1;grid-row:2}.find-preview-pages>button:last-child{grid-column:2;grid-row:2}}
+@media(forced-colors:active){.find-preview-copy .find-preview-removed,.find-preview-copy .find-preview-added{color:CanvasText;background:transparent;text-decoration-color:CanvasText}}

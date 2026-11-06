@@ -97,10 +97,8 @@
 .inspector-content .appearance-look-card{min-height:70px}
 .inspector-content .appearance-replay-section{display:flex;flex-direction:column;gap:8px;padding-top:8px}
 .inspector-content .appearance-replay-target b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-.inspector-content .export-setting-grid,.inspector-content .export-advanced-grid,.inspector-content .export-preset-tools-body,.inspector-content .regen-comparison{grid-template-columns:minmax(0,1fr)}
-.inspector-content .export-workspace-head,.inspector-content .export-appearance-summary,.inspector-content .export-srt-panel,.inspector-content .export-finalize{flex-direction:column;align-items:stretch}
+.inspector-content .regen-comparison{grid-template-columns:minmax(0,1fr)}
 .inspector-content .export-summary-line,.inspector-content .export-mode-switch,.inspector-content .regen-refine-actions,.inspector-content .regen-apply-actions,.inspector-content .regen-playback-bar{flex-wrap:wrap}
-.inspector-content .export-preset-tools summary{position:static;margin-block:8px}
 @media(min-width:1200px){
   @container(min-width:340px){
     .inspector-content .timing-edge-actions{grid-template-columns:repeat(4,minmax(0,1fr))}

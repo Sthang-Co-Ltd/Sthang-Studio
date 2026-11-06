@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTimingDock } from './EditorLayout';
 import { EDITOR_LAYOUT_CHANGE } from '../editor-layout-state';
@@ -184,6 +184,7 @@ export function WaveformEditor({
   onPreferenceChange,
 }: WaveformEditorProps) {
   const timingDock = useTimingDock();
+  const unavailableId = useId();
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
@@ -228,6 +229,8 @@ export function WaveformEditor({
   const editLimitMs = mediaDurationMs && Number.isFinite(mediaDurationMs)
     ? (durationMs ? Math.min(durationMs, mediaDurationMs) : mediaDurationMs) : durationMs;
   const editingDisabled = !selectedCaption || Boolean(selectedCaption.timingLocked) || !editLimitMs;
+  const editReason = selectedCaption?.timingLocked ? 'Timing locked. Unlock it in the caption menu to edit. You can still listen.'
+    : !editLimitMs ? 'Wait for audio timing to load before editing.' : '';
   const wordResolution = useMemo(() => currentCaption ? resolveCaptionWordTiming(currentCaption) : null, [currentCaption]);
   const editableWords = wordResolution?.state === 'stale' ? [] : wordResolution?.words || [];
   const selectedWord = editableWords.find((word) => word.id === selectedWordId) || editableWords[0];
@@ -247,6 +250,12 @@ export function WaveformEditor({
       max: edge === 'start' ? currentCaption.endMs - 40 : allowOverlap ? editLimitMs : neighbourLimits.upper,
       blocked: false,
     };
+  };
+  const edgeReason = (edge: 'start' | 'end') => {
+    if (editingDisabled || drag || !edgeBounds(edge).blocked) return '';
+    const other = edge === 'start' ? neighbourLimits.previous : neighbourLimits.next;
+    return other ? 'The adjoining caption has timing locked. Unlock it, or turn off “Move adjoining edge too”.'
+      : `There is no ${edge === 'start' ? 'previous' : 'next'} caption. Turn off “Move adjoining edge too” to edit this edge.`;
   };
 
   const focusCaption = (caption = selectedCaption) => {
@@ -743,10 +752,10 @@ export function WaveformEditor({
   };
 
   const handleTimingKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
       if (event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [aria-modal="true"], [data-editor-layout-control]')) return;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-haspopup="dialog"], [data-editor-layout-control], [role="menu"], [aria-haspopup="menu"]')) return;
       if (dragRef.current) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault(); if (event.shiftKey ? canRedo : canUndo) restore(event.shiftKey ? 'redo' : 'undo');
@@ -779,10 +788,10 @@ export function WaveformEditor({
       <div className="timing-view-controls">
         <span className="timing-view-span">{(viewDurationMs / 1000).toFixed(1)} s visible</span>
         <div className="timing-view-actions" role="group" aria-label="Waveform view">
-          <button aria-label="Focus caption" title="Focus caption" onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><Focus size={17}/></button>
-          <button aria-label="Full clip" title="Full clip" onClick={() => setZoomValue(1)} disabled={!durationMs}><Expand size={17}/></button>
-          <button aria-label="Zoom out" title="Zoom out" onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs}><ZoomOut size={17}/></button>
-          <button aria-label="Zoom in" title="Zoom in" onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs}><ZoomIn size={17}/></button>
+          <button aria-label="Focus caption" data-tooltip="Focus caption" onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><Focus size={17}/></button>
+          <button aria-label="Full clip" data-tooltip="Full clip" onClick={() => setZoomValue(1)} disabled={!durationMs}><Expand size={17}/></button>
+          <button aria-label="Zoom out" data-tooltip="Zoom out" onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs}><ZoomOut size={17}/></button>
+          <button aria-label="Zoom in" data-tooltip="Zoom in" onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs}><ZoomIn size={17}/></button>
         </div>
       </div>
     </div>
@@ -887,12 +896,12 @@ export function WaveformEditor({
         </div>
       </div>
       <div className="timing-transport">
-        <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} title="Replay this caption (R)"><Play size={15}/>Replay caption</button>
-        <button onClick={onStopPreview} title="Stop timing preview"><Square size={14}/>Stop</button>
+        <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} data-tooltip="Replay this caption" data-tooltip-shortcut="R"><Play size={15}/>Replay caption</button>
+        <button onClick={onStopPreview} data-tooltip="Stop timing preview"><Square size={14}/>Stop</button>
         <label className="timing-loop"><input type="checkbox" checked={loop} onChange={(event) => { setLoop(event.target.checked); onStopPreview(); }}/>Loop</label>
         <div className="timing-history">
-          <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} title="Undo timing edit (Ctrl+Z)"><Undo2 size={15}/>Undo</button>
-          <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} title="Redo timing edit (Ctrl+Shift+Z)"><Redo2 size={15}/>Redo</button>
+          <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} data-tooltip="Undo the last timing edit" data-tooltip-shortcut="Ctrl Z"><Undo2 size={15}/>Undo</button>
+          <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} data-tooltip="Redo the timing edit" data-tooltip-shortcut="Ctrl Shift Z"><Redo2 size={15}/>Redo</button>
         </div>
       </div>
     </div>
@@ -902,27 +911,28 @@ export function WaveformEditor({
     </div>
     {timingDock ? createPortal(waveform, timingDock) : waveform}
     {currentCaption && editMode === 'caption' && <>
-      {currentCaption.timingLocked && <p className="timing-lock-status">Timing locked. Unlock it in the caption menu to edit. You can still listen.</p>}
+      {editReason && <p id={unavailableId} className="timing-lock-status">{editReason}</p>}
       <div className="timing-edge-grid">
         {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
           <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
             <TimestampInput key={currentCaption.id} label={`Fine timing ${edge}`} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
               minMs={edgeBounds(edge).min} maxMs={edgeBounds(edge).max}
-              disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
+              describedBy={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
           </div>
           <div className="timing-edge-actions">
-            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={`Move ${edge} earlier by ${stepMs} milliseconds`}>−{stepMs} ms</button>
-            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={`Move ${edge} later by ${stepMs} milliseconds`}>+{stepMs} ms</button>
-            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max} onClick={() => edit(edge, playheadMs)} aria-label={`Set ${edge} to playhead`} title={`Set ${edge} to the current playback position`}>Set to playhead</button>
+            <button aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={`Move ${edge} earlier by ${stepMs} milliseconds`}>−{stepMs} ms</button>
+            <button aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={`Move ${edge} later by ${stepMs} milliseconds`}>+{stepMs} ms</button>
+            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max} onClick={() => edit(edge, playheadMs)} aria-label={`Set ${edge} to playhead`} aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} data-tooltip={editReason || edgeReason(edge) || (playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max ? 'Move the playhead within this edge’s allowed range first.' : `Set ${edge} to the current playback position`)}>Set to playhead</button>
             <button disabled={!editLimitMs || Boolean(drag)} onClick={() => audition(edge)}>Hear {edge}</button>
           </div>
+          {edgeReason(edge) && <p id={`${unavailableId}-${edge}`} className="timing-unavailable-reason">{edgeReason(edge)}</p>}
         </div>)}
       </div>
       <p className="timing-hint">{sharedBoundary ? 'Moving Start also moves the previous caption’s End; moving End also moves the next caption’s Start.' : allowOverlap ? 'Overlaps allowed. Other captions stay in place.' : 'Neighbor protection on: edits cannot create or increase overlaps.'}</p>
       <div className="timing-move-controls">
         <label>Step<select aria-label="Timing nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label>
-        <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', -stepMs)} title="Move the whole caption earlier (Alt+Left)">Move earlier</button>
-        <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', stepMs)} title="Move the whole caption later (Alt+Right)">Move later</button>
+        <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', -stepMs)} aria-describedby={editReason ? unavailableId : undefined} data-tooltip={editReason || 'Move the whole caption earlier'} data-tooltip-shortcut={editingDisabled ? undefined : 'Alt ←'}>Move earlier</button>
+        <button disabled={editingDisabled || Boolean(drag)} onClick={() => edit('move', stepMs)} aria-describedby={editReason ? unavailableId : undefined} data-tooltip={editReason || 'Move the whole caption later'} data-tooltip-shortcut={editingDisabled ? undefined : 'Alt →'}>Move later</button>
         <span className="timing-duration">Duration {((currentCaption.endMs - currentCaption.startMs) / 1000).toFixed(3)} s</span>
       </div>
       {captions.some((caption) => caption.id !== currentCaption.id && caption.startMs < currentCaption.endMs && caption.endMs > currentCaption.startMs)
@@ -939,15 +949,15 @@ export function WaveformEditor({
         <label><input type="checkbox" checked={allowOverlap} onChange={(event) => setAllowOverlap(event.target.checked)}/>Allow overlaps</label>
         <label><input type="checkbox" checked={sharedBoundary} onChange={(event) => setSharedBoundary(event.target.checked)}/>Move adjoining edge too</label>
         <label><input type="checkbox" checked={showReferenceWords} onChange={(event) => setShowReferenceWords(event.target.checked)}/>Show original word estimates</label>
-        <label>Snap<select value={snap} onChange={(event) => setSnap(event.target.value as typeof snap)} title="Boundary snapping" aria-label="Boundary snapping">
+        <label>Snap<select value={snap} onChange={(event) => setSnap(event.target.value as typeof snap)} data-tooltip="Boundary snapping" aria-label="Boundary snapping">
           <option value="word" disabled={!tokens.length}>Words</option><option value="silence">Quiet gaps</option><option value="off">Off</option>
         </select></label>
-        <label>Speed<select value={playbackRate} onChange={(event) => onPlaybackRate(Number(event.target.value))} title="Playback speed" aria-label="Timing playback speed">
+        <label>Speed<select value={playbackRate} onChange={(event) => onPlaybackRate(Number(event.target.value))} data-tooltip="Playback speed" aria-label="Timing playback speed">
           {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
         </select></label>
-        <button className={mode === 'waveform' ? 'selected' : ''} aria-pressed={mode === 'waveform'} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} title="Waveform"><AudioLines size={15}/>Waveform</button>
-        <button className={mode === 'spectrum' ? 'selected' : ''} aria-pressed={mode === 'spectrum'} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} title="Spectral view"><ScanLine size={15}/>Spectrum overview</button>
-        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} title={follow ? 'Pause follow' : 'Follow playhead'}><LocateFixed size={15}/>{follow ? 'Following playhead' : 'Follow playhead'}</button>
+        <button className={mode === 'waveform' ? 'selected' : ''} aria-pressed={mode === 'waveform'} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} data-tooltip="Waveform"><AudioLines size={15}/>Waveform</button>
+        <button className={mode === 'spectrum' ? 'selected' : ''} aria-pressed={mode === 'spectrum'} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} data-tooltip="Spectral view"><ScanLine size={15}/>Spectrum overview</button>
+        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} data-tooltip={follow ? 'Pause automatic scrolling during playback' : 'Keep the playhead in view'}><LocateFixed size={15}/>{follow ? 'Following playhead' : 'Follow playhead'}</button>
       </div>
       <p className="timing-hint">Word marks show timing estimates. Quiet-gap snapping needs a clear drop in audio volume. Undo history clears when this tool closes.</p>
     </details>

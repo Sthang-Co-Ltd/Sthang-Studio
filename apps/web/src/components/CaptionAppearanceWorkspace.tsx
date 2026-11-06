@@ -16,6 +16,8 @@ import { api } from '../api';
 import { useAppearanceInteraction } from '../use-appearance-interaction';
 import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionLooksGallery } from './CaptionLooksGallery';
+import { AppearanceRange } from './AppearanceRange';
+import { FontSearch } from './FontSearch';
 import type { StudioConfirmOptions } from './ConfirmationDialog';
 import { WordHighlightPreparation, type WordHighlightPreparationView } from './WordHighlightPreparation';
 import './caption-appearance.css';
@@ -84,6 +86,9 @@ export function CaptionAppearanceWorkspace({
   const [presetName, setPresetName] = useState('');
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetError, setPresetError] = useState('');
+  const [presetNotice, setPresetNotice] = useState('');
+  const [presetSaveAction, setPresetSaveAction] = useState<'save' | 'update' | null>(null);
+  const presetNameRevisionRef = useRef(0);
   const [undoAppearance, setUndoAppearance] = useState<CaptionAppearance | null>(null);
   const [redoAppearance, setRedoAppearance] = useState<CaptionAppearance | null>(null);
   const [replayPending, setReplayPending] = useState(false);
@@ -155,6 +160,8 @@ export function CaptionAppearanceWorkspace({
     setSelectedPresetId('');
     setPresetName('');
     setPresetError('');
+    setPresetNotice('');
+    presetNameRevisionRef.current += 1;
     setUndoAppearance(null);
     setRedoAppearance(null);
     setReplayPending(false);
@@ -270,6 +277,7 @@ export function CaptionAppearanceWorkspace({
     return [{ name: appearance.fontFamily, available: false, boldAvailable: appearance.bold, source: 'user-installed' as const }, ...fonts];
   }, [fonts, currentFontAvailable, appearance.fontFamily, appearance.bold]);
   const currentPreset = presets.find((preset) => preset.id === selectedPresetId);
+  const matchingPresetName = presets.some((preset) => preset.name.toLocaleLowerCase('en') === presetName.trim().toLocaleLowerCase('en'));
   const chosenFont = fonts.find((font) => font.name === appearance.fontFamily);
   const addedFonts = fonts.filter((font) => font.source === 'studio-imported' && font.removable && font.id);
   const installedFonts = fontOptions.filter((font) => font.available && font.source !== 'studio-imported');
@@ -320,6 +328,7 @@ export function CaptionAppearanceWorkspace({
   ) => {
     const current = appearanceRef.current;
     if (JSON.stringify(current) === JSON.stringify(next)) return false;
+    setPresetNotice('');
     if (replayPending || replayPreparing || replayPlaying) onCancelReplayEffect?.();
     replayRequestRef.current += 1;
     setReplayPending(false);
@@ -506,30 +515,38 @@ export function CaptionAppearanceWorkspace({
 
   const savePreset = async () => {
     const name = presetName.trim();
-    if (!name) return;
+    if (!name || savingPreset) return;
     const appearanceSnapshot = { ...appearanceRef.current };
     const appearanceSnapshotKey = JSON.stringify(appearanceSnapshot);
     const selectedPresetAtStart = selectedPresetId;
+    const nameRevision = presetNameRevisionRef.current;
     setSavingPreset(true);
+    setPresetSaveAction(matchingPresetName ? 'update' : 'save');
     setPresetError('');
+    setPresetNotice('');
     try {
       const profile = await api.profile();
       const now = new Date().toISOString();
       const existing = (profile.captionAppearances || []).find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
+      if (mountedRef.current) setPresetSaveAction(existing ? 'update' : 'save');
       const next: CaptionAppearancePreset = existing
         ? { ...existing, name, appearance: appearanceSnapshot, updatedAt: now }
         : { id: crypto.randomUUID(), name, appearance: appearanceSnapshot, createdAt: now, updatedAt: now };
       const captionAppearances = [next, ...(profile.captionAppearances || []).filter((preset) => preset.id !== next.id)].slice(0, 20);
       const updated = await api.patchProfile({ captionAppearances });
+      if (!mountedRef.current) return;
       presetGenerationRef.current += 1;
       setPresets(updated.captionAppearances || []);
       setPresetError('');
       setSelectedPresetId((current) => JSON.stringify(appearanceRef.current) === appearanceSnapshotKey && current === selectedPresetAtStart ? next.id : current);
-      setPresetName((current) => current.trim() === name ? '' : current);
+      if (presetNameRevisionRef.current === nameRevision && JSON.stringify(appearanceRef.current) === appearanceSnapshotKey) {
+        setPresetName((current) => current.trim() === name ? '' : current);
+        setPresetNotice(`${existing ? 'Updated' : 'Saved'} “${next.name}”.`);
+      }
     } catch (error) {
-      setPresetError(error instanceof Error ? error.message : 'Could not save appearance preset');
+      if (mountedRef.current) setPresetError(error instanceof Error ? error.message : 'Could not save appearance preset');
     } finally {
-      setSavingPreset(false);
+      if (mountedRef.current) { setSavingPreset(false); setPresetSaveAction(null); }
     }
   };
 
@@ -546,6 +563,7 @@ export function CaptionAppearanceWorkspace({
     if (!confirmed) return;
     setSavingPreset(true);
     setPresetError('');
+    setPresetNotice('');
     try {
       const profile = await api.profile();
       const updated = await api.patchProfile({ captionAppearances: (profile.captionAppearances || []).filter((preset) => preset.id !== targetId) });
@@ -588,10 +606,10 @@ export function CaptionAppearanceWorkspace({
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <div className="appearance-font-search-wrap"><input className="appearance-font-search" type="search" aria-label="Find Khmer font" aria-expanded={Boolean(normalizedFontQuery)} aria-controls="appearance-font-search-results" value={fontQuery} onChange={(event) => setFontQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFontQuery(''); else if (event.key === 'Enter' && fontSearchResults[0]) { event.preventDefault(); chooseFont(fontSearchResults[0].name); } }} placeholder={`Find among ${installedFonts.length} installed Khmer fonts…`}/>{normalizedFontQuery && <div id="appearance-font-search-results" className="appearance-font-search-results" aria-label="Matching Khmer fonts">{fontSearchResults.length > 0 ? fontSearchResults.map((font) => <button type="button" key={`${font.source}:${font.name}`} className={font.name === appearance.fontFamily ? 'selected' : ''} onClick={() => chooseFont(font.name)}><span>{font.name}</span><small>{font.source === 'studio-imported' ? 'Added to Studio' : 'Installed'} · {font.boldAvailable ? 'Regular + Bold' : 'Regular only'}</small></button>) : <div className="appearance-font-search-empty">No matching Khmer fonts</div>}</div>}</div>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
+      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
-      <label className="range-field"><span>Size <b>{appearance.fontSize1080}px @1080p</b></span><input type="range" min="22" max="120" value={appearance.fontSize1080} onChange={(event) => updateAppearance((current) => ({ ...current, fontSize1080: Number(event.target.value) }), { history: 'range' })}/></label>
-      <label className="range-field"><span>Position <b>{appearance.positionBottomPct}% from bottom</b></span><input type="range" min="3" max="82" value={appearance.positionBottomPct} onChange={(event) => updateAppearance((current) => ({ ...current, positionBottomPct: Number(event.target.value) }), { history: 'range' })}/></label>
+      <AppearanceRange key={`fontSize1080:${project.id}:${project.media.filename}`} label="Size" value={appearance.fontSize1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.fontSize1080} min={22} max={120} step={1} unit="px" context="At 1080p" onChange={(value, history) => updateAppearance((current) => ({ ...current, fontSize1080: value }), { history })}/>
+      <AppearanceRange key={`positionBottomPct:${project.id}:${project.media.filename}`} label="Position" value={appearance.positionBottomPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.positionBottomPct} min={3} max={82} step={1} unit="%" context="From bottom" onChange={(value, history) => updateAppearance((current) => ({ ...current, positionBottomPct: value }), { history })}/>
     </div>
 
     {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={addingFonts || Boolean(removingFontId)} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
@@ -618,12 +636,10 @@ export function CaptionAppearanceWorkspace({
           {(motionPreset === 'rise' || motionPreset === 'soft-pop') && hasOverlappingCaptions
             && <span className="appearance-motion-overlap-note">Overlapping captions stay still and fade for readability.</span>}
         </div>
-        {motionPreset !== 'none' && <label className="appearance-motion-duration range-field">
-          <span>{motionDurationLabel} <b>{appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs} ms</b></span>
-          <input type="range" min="80" max="400" step="10" value={appearance.motionDurationMs || DEFAULT_CAPTION_APPEARANCE.motionDurationMs}
-            aria-label={motionDurationLabel}
-            onChange={(event) => updateAppearance((current) => ({ ...current, motionDurationMs: Number(event.target.value) }), { history: 'range' })}/>
-        </label>}
+        {motionPreset !== 'none' && <AppearanceRange className="appearance-motion-duration" label={motionDurationLabel}
+          value={appearance.motionDurationMs ?? DEFAULT_CAPTION_APPEARANCE.motionDurationMs!} defaultValue={DEFAULT_CAPTION_APPEARANCE.motionDurationMs!}
+          min={80} max={400} step={10} unit="ms"
+          onChange={(value, history) => updateAppearance((current) => ({ ...current, motionDurationMs: value }), { history })}/>}
       </div>
     </section>
     </details>
@@ -677,15 +693,15 @@ export function CaptionAppearanceWorkspace({
       <div className="appearance-grid appearance-option-body">
         <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} title={chosenFont && !chosenFont.boldAvailable ? `${chosenFont.name} includes Regular only.` : undefined} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
         <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
-        <label className="range-field"><span>Outline <b>{appearance.outlineWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.outlineWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, outlineWidth1080: Number(event.target.value) }), { history: 'range' })}/></label>
-        <label className="range-field"><span>Shadow <b>{appearance.shadowWidth1080.toFixed(1)}</b></span><input type="range" min="0" max="12" step="0.5" value={appearance.shadowWidth1080} onChange={(event) => updateAppearance((current) => ({ ...current, shadowWidth1080: Number(event.target.value) }), { history: 'range' })}/></label>
-        <label className="range-field"><span>Max width <b>{appearance.maxWidthPct}%</b></span><input type="range" min="45" max="96" value={appearance.maxWidthPct} onChange={(event) => updateAppearance((current) => ({ ...current, maxWidthPct: Number(event.target.value) }), { history: 'range' })}/></label>
+        <AppearanceRange key={`outlineWidth1080:${project.id}:${project.media.filename}`} label="Outline" value={appearance.outlineWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.outlineWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, outlineWidth1080: value }), { history })}/>
+        <AppearanceRange key={`shadowWidth1080:${project.id}:${project.media.filename}`} label="Shadow" value={appearance.shadowWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.shadowWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, shadowWidth1080: value }), { history })}/>
+        <AppearanceRange key={`maxWidthPct:${project.id}:${project.media.filename}`} label="Max width" value={appearance.maxWidthPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.maxWidthPct} min={45} max={96} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, maxWidthPct: value }), { history })}/>
         <label><span>Alignment</span><select value={appearance.alignment} onChange={(event) => updateAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
         <div className="toggle-field"><span>Background box</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? 'On' : 'Off'}</button></div>
-        {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Background opacity <b>{Math.round(appearance.backgroundOpacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(appearance.backgroundOpacity * 100)} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundOpacity: Number(event.target.value) / 100 }), { history: 'range' })}/></label><label className="range-field"><span>Box padding <b>{appearance.backgroundPadding1080}px</b></span><input type="range" min="0" max="28" value={appearance.backgroundPadding1080} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundPadding1080: Number(event.target.value) }), { history: 'range' })}/></label></>}
+        {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`backgroundOpacity:${project.id}:${project.media.filename}`} label="Background opacity" value={Number((appearance.backgroundOpacity * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.backgroundOpacity * 100)} min={5} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundOpacity: value / 100 }), { history })}/><AppearanceRange key={`backgroundPadding1080:${project.id}:${project.media.filename}`} label="Box padding" value={appearance.backgroundPadding1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080} min={0} max={28} step={1} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundPadding1080: value }), { history })}/></>}
         <div className="appearance-glow-group">
           <div className="toggle-field"><span>Glow</span><button aria-pressed={appearance.glowEnabled === true} className={appearance.glowEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, glowEnabled: !current.glowEnabled }))}>{appearance.glowEnabled ? 'On' : 'Off'}</button></div>
-          {appearance.glowEnabled && <><label><span>Glow color</span><input type="color" value={appearance.glowColor || DEFAULT_CAPTION_APPEARANCE.glowColor} onChange={(event) => updateAppearance((current) => ({ ...current, glowColor: event.target.value.toUpperCase() }))}/></label><label className="range-field"><span>Glow width <b>{(appearance.glowWidth1080 || 0).toFixed(1)}</b></span><input type="range" min="0" max="16" step="0.5" value={appearance.glowWidth1080 || 0} onChange={(event) => updateAppearance((current) => ({ ...current, glowWidth1080: Number(event.target.value) }), { history: 'range' })}/></label><label className="range-field"><span>Glow opacity <b>{Math.round((appearance.glowOpacity || 0) * 100)}%</b></span><input type="range" min="0" max="100" value={Math.round((appearance.glowOpacity || 0) * 100)} onChange={(event) => updateAppearance((current) => ({ ...current, glowOpacity: Number(event.target.value) / 100 }), { history: 'range' })}/></label></>}
+          {appearance.glowEnabled && <><label><span>Glow color</span><input type="color" value={appearance.glowColor || DEFAULT_CAPTION_APPEARANCE.glowColor} onChange={(event) => updateAppearance((current) => ({ ...current, glowColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`glowWidth1080:${project.id}:${project.media.filename}`} label="Glow width" value={(appearance.glowWidth1080 ?? DEFAULT_CAPTION_APPEARANCE.glowWidth1080!)} defaultValue={DEFAULT_CAPTION_APPEARANCE.glowWidth1080!} min={0} max={16} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowWidth1080: value }), { history })}/><AppearanceRange key={`glowOpacity:${project.id}:${project.media.filename}`} label="Glow opacity" value={Number(((appearance.glowOpacity ?? DEFAULT_CAPTION_APPEARANCE.glowOpacity!) * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.glowOpacity! * 100)} min={0} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowOpacity: value / 100 }), { history })}/></>}
         </div>
       </div>
     </details>
@@ -702,8 +718,9 @@ export function CaptionAppearanceWorkspace({
       <details className="appearance-preset-tools">
         <summary>Manage presets</summary>
         <div className="appearance-preset-tools-body">
-          <label><span>Save current appearance as</span><input value={presetName} maxLength={80} onChange={(event) => setPresetName(event.target.value)} placeholder="Example: Clean Khmer"/></label>
-          <button disabled={!presetName.trim() || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
+          <label><span>Save current appearance as</span><input value={presetName} maxLength={80} onChange={(event) => { presetNameRevisionRef.current += 1; setPresetName(event.target.value); setPresetNotice(''); }} placeholder="Example: Clean Khmer"/></label>
+          <button disabled={!presetName.trim() || savingPreset} aria-busy={presetSaveAction ? true : undefined} onClick={() => void savePreset()}><Save size={14}/>{presetSaveAction ? presetSaveAction === 'update' ? 'Updating…' : 'Saving…' : matchingPresetName ? 'Update preset' : 'Save preset'}</button>
+          {presetNotice && <div className="appearance-preset-notice" role="status"><CheckCircle2 size={14} aria-hidden="true"/><span>{presetNotice}</span></div>}
           {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
         </div>
       </details>

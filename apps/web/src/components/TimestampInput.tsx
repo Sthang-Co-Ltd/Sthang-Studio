@@ -8,6 +8,7 @@ export interface TimestampInputProps {
   maxMs?: number;
   roundingMs?: number;
   disabled?: boolean;
+  describedBy?: string;
   onCommit(ms: number): boolean | void;
   onEditingChange?(editing: boolean): void;
   onFocus?(): void;
@@ -27,11 +28,13 @@ const invalidInputStyle: CSSProperties = {
 
 const errorStyle: CSSProperties = {
   display: 'block',
-  marginTop: 3,
+  marginTop: 5,
   color: '#f0a3a3',
-  fontSize: 10,
-  lineHeight: 1.25,
-  whiteSpace: 'nowrap',
+  fontFamily: "'Plus Jakarta Sans', 'Noto Sans Khmer', sans-serif",
+  fontSize: 12,
+  lineHeight: 1.5,
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
 };
 
 export function TimestampInput({
@@ -41,6 +44,7 @@ export function TimestampInput({
   maxMs,
   roundingMs = 1,
   disabled = false,
+  describedBy,
   onCommit,
   onEditingChange,
   onFocus,
@@ -120,7 +124,7 @@ export function TimestampInput({
     <input
       aria-label={label}
       aria-invalid={error ? 'true' : undefined}
-      aria-describedby={error ? errorId : undefined}
+      aria-describedby={[describedBy, error ? errorId : ''].filter(Boolean).join(' ') || undefined}
       aria-errormessage={error ? errorId : undefined}
       autoComplete="off"
       disabled={disabled}

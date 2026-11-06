@@ -40,7 +40,11 @@ test('deletion, unchanged proposals and invalid regex are clear before applying'
   await panel.getByLabel('Replace with', { exact: true }).fill('Third caption');
   await expect(panel.getByRole('button', { name: 'Replace editable matches' })).toBeDisabled();
   await panel.getByLabel('Replace with', { exact: true }).fill('');
-  await expect(panel.locator('.find-after')).toHaveText('Empty caption text');
+  const row = panel.getByRole('group', { name: 'Caption preview 1 of 1', exact: true });
+  await expect(row.locator('.find-after')).toBeEmpty();
+  const emptyHint = row.locator('.find-preview-empty');
+  await expect(emptyHint).toBeVisible();
+  await expect(emptyHint).toHaveText('Empty caption text');
   await panel.locator('label:has-text("Match") select').selectOption('regex');
   await panel.getByLabel('Find', { exact: true }).fill('[');
   await expect(panel).toContainText('Invalid regular expression');

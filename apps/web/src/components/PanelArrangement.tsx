@@ -77,12 +77,22 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
       const rect = trigger.current?.getBoundingClientRect(); if (rect) popover.current?.style.setProperty('--arrange-top', `${rect.bottom + 8}px`);
     }}
       title={supported ? 'Choose panel positions' : 'Update your browser to rearrange panels with matching keyboard navigation.'}><PanelsTopLeft size={15}/>Arrange panels</button>
-    <div ref={popover} id={id} className="editor-arrange-popover" popover="auto" role="region" aria-label="Arrange panels" onToggle={(event) => {
+    <div ref={popover} id={id} className="editor-arrange-popover" popover="auto" role="region" aria-label="Arrange panels" onBeforeToggle={(event) => {
+      // A native closing popover may remain painted briefly, but is already dismissed.
+      event.currentTarget.inert = (event.nativeEvent as ToggleEvent).newState !== 'open';
+      event.currentTarget.setAttribute('aria-hidden', String(event.currentTarget.inert));
+    }} onToggle={(event) => {
       if ((event.nativeEvent as ToggleEvent).newState === 'open') {
         const rect = trigger.current?.getBoundingClientRect();
-        if (rect) event.currentTarget.style.setProperty('--arrange-top', `${rect.bottom + 8}px`);
+        if (rect) {
+          const panel = event.currentTarget;
+          panel.style.setProperty('--arrange-top', `${rect.bottom + 8}px`);
+          const left = window.innerWidth - 12 - panel.offsetWidth;
+          panel.style.setProperty('--arrange-origin', `${Math.max(0, Math.min(panel.offsetWidth, rect.x + rect.width / 2 - left))}px`);
+        }
       } else finish(false);
     }}>
+      <div className="editor-arrange-content">
       <div className="editor-arrange-heading"><strong>Arrange panels</strong><button type="button" aria-label="Close panel arrangement" popoverTarget={id} popoverTargetAction="hide"><X size={16}/></button></div>
       <p>Put the preview where you work best.</p>
       <div className="editor-position-presets" role="group" aria-label="Preview position">
@@ -125,6 +135,7 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
       </div>
       {!open && <p>Your tool panel returns to its saved position when opened.</p>}
       <div className="editor-arrange-status" role="status" aria-live="polite">{announcement || `From left: ${panes.map((pane) => PANE_LABELS[pane]).join(', ')}.`}</div>
+      </div>
       {ghost && <PanelDragGhost {...ghost}/>}
     </div>
   </div>;

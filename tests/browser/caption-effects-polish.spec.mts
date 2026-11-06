@@ -240,7 +240,8 @@ test('appearance groups open independently without editing settings and remain u
 
       expect(await group.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
       for (const control of await body.locator('button,input,select,summary').all()) {
-        if (!await control.evaluate((node) => node.checkVisibility())) continue;
+        // Default Reset controls retain layout space but are hidden and cannot be hit-tested.
+        if (!await control.evaluate((node) => node.checkVisibility({ visibilityProperty: true }))) continue;
         expect(await control.evaluate((node) => {
           const rect = node.getBoundingClientRect();
           const bounds = node.closest('.appearance-option-body')!.getBoundingClientRect();
@@ -276,4 +277,23 @@ test('appearance groups open independently without editing settings and remain u
     else await page.locator('.workspace-inspector').screenshot({ path, animations: 'disabled' });
   }
   expect(state.projects[0].captionAppearance).toEqual(initialAppearance);
+});
+
+for (const [width, height] of [[1440, 1000], [390, 844], [320, 740]]) test(`Outline Reset is hidden at its default and usable after editing at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height });
+  await openAppearance(page);
+  await page.locator('.appearance-more > summary').click();
+  const outline = page.getByRole('spinbutton', { name: 'Exact outline', exact: true });
+  const reset = page.locator('.appearance-more').getByRole('button', { name: 'Reset outline to 3 px', exact: true, includeHidden: true });
+  await expect(outline).toHaveValue('3');
+  await expect(reset).toBeHidden();
+  await outline.fill('4.5');
+  await outline.press('Enter');
+  await expect(reset).toBeVisible();
+  await expect.poll(() => state.projects[0].captionAppearance?.outlineWidth1080).toBe(4.5);
+  await reset.click();
+  await expect(outline).toHaveValue('3');
+  await expect(reset).toBeHidden();
+  await expect(outline).toBeFocused();
+  await expect.poll(() => state.projects[0].captionAppearance?.outlineWidth1080).toBe(3);
 });

@@ -105,7 +105,12 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const [presets, setPresets] = useState<VideoExportPreset[]>([]);
   const [lastUsedSettings, setLastUsedSettings] = useState<VideoExportSettings | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(videoProject);
+  const [profileLoadError, setProfileLoadError] = useState('');
+  const [profileReload, setProfileReload] = useState(0);
   const [savingPreset, setSavingPreset] = useState(false);
+  const [presetSaveAction, setPresetSaveAction] = useState<'save' | 'update' | null>(null);
+  const presetNameRevision = useRef(0);
+  const presetMutation = useRef(false);
   const [presetName, setPresetName] = useState('');
   const [presetError, setPresetError] = useState('');
   const [presetNotice, setPresetNotice] = useState('');
@@ -131,7 +136,8 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const [checkingLayoutKey, setCheckingLayoutKey] = useState<string | null>(null);
   const layoutRequest = useRef<AbortController | null>(null);
   const startRequest = useRef(0);
-  useEffect(() => () => { startRequest.current += 1; }, []);
+  const presetLifecycle = useRef(0);
+  useEffect(() => () => { startRequest.current += 1; presetLifecycle.current += 1; }, []);
   useEffect(() => { document.getElementById('export-checks-heading')?.focus({ preventScroll: true }); }, []);
 
   const capabilityRequest = useRef(0);
@@ -141,6 +147,8 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   useEffect(() => {
     if (!videoProject) { setLoadingProfile(false); return; }
     let active = true;
+    setLoadingProfile(true);
+    setProfileLoadError('');
     void api.profile().then((profile) => {
       if (!active) return;
       const loadedPresets = profile.videoExportPresets || [];
@@ -148,7 +156,6 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
       setPresets(loadedPresets);
       // A stale profile read must not replace a newer accepted render's choices.
       if (!acceptedExportInVisit.current) setLastUsedSettings(lastUsed);
-      setPresetError('');
       onSessionChange((current) => {
         const managedPresetId = loadedPresets.some((preset) => preset.id === current.managedPresetId)
           ? current.managedPresetId : '';
@@ -163,11 +170,11 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
         return { ...current, settings: lastUsed || current.settings, settingsHydrated: true,
           selectedPresetId: lastUsed ? LAST_USED_PRESET_ID : '', managedPresetId };
       });
-    }).catch((error) => {
-      if (active) setPresetError(error instanceof Error ? error.message : 'Could not load saved video presets.');
+    }).catch(() => {
+      if (active) setProfileLoadError('Could not load saved video presets. Your current export settings are kept.');
     }).finally(() => { if (active) setLoadingProfile(false); });
     return () => { active = false; };
-  }, [project.id, project.media.filename, project.media.size]);
+  }, [project.id, project.media.filename, project.media.size, profileReload]);
 
   const loadCapabilities = async (refresh = false) => {
     if (!videoProject) {
@@ -347,50 +354,62 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
   const savePreset = async () => {
     const name = presetName.trim();
-    if (!name || savingPreset || loadingProfile) return;
+    if (!name || presetMutation.current || loadingProfile || profileLoadError) return;
+    presetMutation.current = true;
+    const ownership = presetLifecycle.current;
+    const nameRevision = presetNameRevision.current;
     const snapshot = normalizeVideoExportSettings(currentSettings.current);
     const snapshotKey = JSON.stringify(snapshot);
     const previous = presets.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
     setSavingPreset(true);
+    setPresetSaveAction(previous ? 'update' : 'save');
     setPresetError('');
     setPresetNotice('');
     try {
       const updated = await api.saveVideoExportPreset(name, snapshot);
+      if (presetLifecycle.current !== ownership) return;
       const entries = updated.videoExportPresets || [];
       const saved = entries.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
       setPresets(entries);
-      if (saved) onSessionChange((current) => ({ ...current,
+      if (!saved || JSON.stringify(normalizeVideoExportSettings(saved.settings)) !== snapshotKey) throw new Error('The saved preset could not be confirmed. Your name and settings are kept; try again.');
+      const currentForm = presetNameRevision.current === nameRevision && JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey;
+      if (currentForm) onSessionChange((current) => ({ ...current,
         managedPresetId: saved.id, settingsHydrated: true,
         selectedPresetId: JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey
           ? saved.id : current.selectedPresetId,
       }));
-      setPresetName((current) => current.trim() === name ? '' : current);
-      setPresetNotice(`${previous ? 'Updated' : 'Saved'} video preset “${saved?.name || name}”.`);
+      if (currentForm) {
+        setPresetName('');
+        setPresetNotice(`${previous ? 'Updated' : 'Saved'} video preset “${saved.name}”.`);
+      }
     } catch (error) {
-      setPresetError(error instanceof Error ? error.message : 'Could not save video preset.');
+      if (presetLifecycle.current === ownership) setPresetError(error instanceof Error ? error.message : 'Could not save video preset.');
     } finally {
-      setSavingPreset(false);
+      presetMutation.current = false;
+      if (presetLifecycle.current === ownership) { setSavingPreset(false); setPresetSaveAction(null); }
     }
   };
 
   const deletePreset = async () => {
-    if (savingPreset) return;
+    if (presetMutation.current || loadingProfile || profileLoadError) return;
     const selectedId = session.managedPresetId;
     const target = presets.find((preset) => preset.id === selectedId);
     if (!target) return;
-    const ownership = startRequest.current;
+    const ownership = presetLifecycle.current;
     const confirmed = await onConfirm({
       title: `Delete “${target.name}”?`,
       message: 'This removes the saved video preset from your profile. Your current video settings stay as they are.',
       confirmLabel: 'Delete preset',
       tone: 'warning',
     });
-    if (!confirmed || startRequest.current !== ownership) return;
+    if (!confirmed || presetLifecycle.current !== ownership || presetMutation.current) return;
+    presetMutation.current = true;
     setSavingPreset(true);
     setPresetError('');
     setPresetNotice('');
     try {
       const updated = await api.deleteVideoExportPreset(target.id);
+      if (presetLifecycle.current !== ownership) return;
       setPresets(updated.videoExportPresets || []);
       onSessionChange((current) => ({ ...current, settingsHydrated: true,
         selectedPresetId: current.selectedPresetId === target.id ? '' : current.selectedPresetId,
@@ -398,22 +417,23 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
       }));
       setPresetNotice(`Deleted video preset “${target.name}”. Current settings are unchanged.`);
     } catch (error) {
-      setPresetError(error instanceof Error ? error.message : 'Could not delete video preset.');
+      if (presetLifecycle.current === ownership) setPresetError(error instanceof Error ? error.message : 'Could not delete video preset.');
     } finally {
-      setSavingPreset(false);
+      presetMutation.current = false;
+      if (presetLifecycle.current === ownership) setSavingPreset(false);
     }
   };
 
   const currentPreset = presets.find((preset) => preset.id === session.selectedPresetId);
+  const matchingPresetName = presets.some((preset) => preset.name.toLocaleLowerCase('en') === presetName.trim().toLocaleLowerCase('en'));
   const managedPreset = presets.find((preset) => preset.id === session.managedPresetId);
   const selectedPresetId = session.selectedPresetId === LAST_USED_PRESET_ID
     ? (lastUsedSettings ? LAST_USED_PRESET_ID : '')
     : currentPreset?.id || '';
 
-  return <div className="export-workspace">
+  return <div className="export-workspace export-graphite">
     <div className="export-workspace-head">
-      <div><strong>Export</strong><span>Choose a file or captioned video. Edit the look in Appearance.</span></div>
-      {videoProject && outputMode === 'video' && <button onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} title="Recheck video export support"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck</button>}
+      <span>Choose a file or captioned video. Edit the look in Appearance.</span>
     </div>
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
@@ -424,6 +444,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     {!videoProject && <p className="export-mode-help">Audio projects can export editable caption files. Captioned video requires a video source.</p>}
 
     {!captionImportPreview && <ExportChecksPanel captions={project.captions} issues={checkIssues} onRepair={onRepair}
+      supportAction={videoProject && outputMode === 'video' ? <button className="export-support-recheck" onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} aria-label="Recheck video export support" title="Recheck video export support"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck support</button> : undefined}
       unsaved={unsaved} saveBlocked={saveBlocked}
       appearancePending={checksAppearance && loadingAppearance}
       appearancePrerequisite={checksAppearance && appearanceError ? {
@@ -457,7 +478,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
       {capabilities?.supported && <>
         <section className="export-section" aria-labelledby="video-quality-title">
-          <div className="export-section-title"><div><strong id="video-quality-title">Video</strong><span>For most videos, use Match source + Recommended.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
+          <div className="export-section-title"><div><strong id="video-quality-title">Video settings</strong><span>For most videos, use Match source + Recommended.</span></div>{source && <span className="export-source-chip">{source.displayWidth}×{source.displayHeight} · {source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0)} fps · {source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase()}</span>}</div>
 
           <div className="export-preset-bar">
             <label htmlFor="video-export-preset-select">
@@ -481,15 +502,16 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
                   </select>
                 </label>}
                 <label htmlFor="video-export-preset-name"><span>Save current video settings as</span>
-                  <input id="video-export-preset-name" aria-label="Save video export preset as" value={presetName} maxLength={80} placeholder="Example: Vertical high quality" onChange={(event) => setPresetName(event.target.value)}/>
+                  <input id="video-export-preset-name" aria-label="Save video export preset as" value={presetName} maxLength={80} placeholder="Example: Vertical high quality" onChange={(event) => { presetNameRevision.current++; setPresetName(event.target.value); setPresetNotice(''); }}/>
                 </label>
-                <button type="button" disabled={!presetName.trim() || loadingProfile || savingPreset} onClick={() => void savePreset()}><Save size={14}/>{savingPreset ? 'Saving…' : 'Save preset'}</button>
-                {managedPreset && <div className="export-preset-delete"><span>Delete saved preset: <b>{managedPreset.name}</b></span><button type="button" className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
+                <button type="button" disabled={!presetName.trim() || loadingProfile || Boolean(profileLoadError) || savingPreset} aria-busy={Boolean(presetSaveAction) || undefined} onClick={() => void savePreset()}><Save size={14}/>{presetSaveAction ? presetSaveAction === 'update' ? 'Updating…' : 'Saving…' : matchingPresetName ? 'Update preset' : 'Save preset'}</button>
+                {managedPreset && <div className="export-preset-delete"><span>Delete saved preset: <b>{managedPreset.name}</b></span><button type="button" className="danger-quiet" disabled={loadingProfile || Boolean(profileLoadError) || savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
                 <p className="export-preset-hint">Saved presets include video quality and advanced output settings. Caption appearance stays with each project. Saving an existing name updates that preset. Managing a preset does not change the current video settings.</p>
               </div>
             </details>
           </div>
           {loadingProfile && <div className="export-preset-status" role="status"><LoaderCircle className="spin" size={14}/>Loading saved video settings…</div>}
+          {profileLoadError && <div className="export-preset-warning export-preset-load-error"><span role="alert">{profileLoadError}</span><button type="button" disabled={loadingProfile} onClick={() => setProfileReload((value) => value + 1)}>Retry saved presets</button></div>}
           {presetError && <div className="export-preset-warning" role="alert"><TriangleAlert size={15}/>{presetError}</div>}
           {presetNotice && <div className="export-preset-status" role="status">{presetNotice}</div>}
 
@@ -507,11 +529,6 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
               </select>
             </label>
             <div className="export-quality-choice"><span>Quality</span><div role="group" aria-label="Video quality">{(['smaller', 'recommended', 'high'] as VideoQualityPreset[]).map((quality) => <button key={quality} aria-pressed={settings.quality === quality} className={settings.quality === quality ? 'selected' : ''} onClick={() => setSettings((current) => ({ ...current, quality, customBitrateMbps: undefined }))}>{qualityCopy[quality]}</button>)}</div></div>
-          </div>
-
-          <div className="export-summary-line" aria-live="polite">
-            <span><Film size={14}/><b>{resolution ? `${resolution.width}×${resolution.height}` : 'Source'}</b>{resolution?.upscaled ? ' · Upscaled' : ''} · {frameRateLabel(settings.frameRate, source?.frameRate || 0)} · {settings.codec.toUpperCase()}{settings.encoder !== 'auto' ? ` · ${settings.encoder.toUpperCase()} encoder` : ''}{settings.customBitrateMbps ? ` · ${settings.customBitrateMbps} Mbps custom` : ''}</span>
-            <span><HardDrive size={14}/>≈ <b>{bytes(estimatedBytes)}</b> · {bytes(capabilities.availableDiskBytes)} free</span>
           </div>
 
           <details className="export-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
@@ -545,7 +562,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
           <button onClick={onEditAppearance}>Edit appearance</button>
         </section>
 
-        {appearance.highlightMode === 'word' && <div className="export-warnings" role="status">
+        {appearance.highlightMode === 'word' && <div className={`export-warnings${plainWordCaptions.length === 0 ? ' export-information' : ''}`} role="status">
           <div><Palette size={14}/><span>Word highlights appear in captioned video.
             {plainWordCaptions.length > 0 ? ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.` : ' All captions with text have usable word timing.'}</span></div>
           {plainWordCaptions.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(plainWordCaptions[0].id)}>Review word timing</button>}
@@ -556,7 +573,11 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
         {capabilities.warnings.length > 0 && <div className="export-warnings" aria-label="Video export notices">{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={14}/><span>{warning}</span></div>)}</div>}
 
         <div className="export-finalize">
-          <div><ShieldCheck size={17}/><span>Your source stays unchanged. Studio renders from a snapshot of your captions, appearance and settings, then verifies the file.</span></div>
+          <div className="export-summary-line" aria-live="polite">
+            <span><Film size={14}/><b>{resolution ? `${resolution.width}×${resolution.height}` : 'Source'}</b>{resolution?.upscaled ? ' · Upscaled' : ''} · {frameRateLabel(settings.frameRate, source?.frameRate || 0)} · {settings.codec.toUpperCase()}{settings.encoder !== 'auto' ? ` · ${settings.encoder.toUpperCase()} encoder` : ''}{settings.customBitrateMbps ? ` · ${settings.customBitrateMbps} Mbps custom` : ''}</span>
+            <span><HardDrive size={14}/>≈ <b>{bytes(estimatedBytes)}</b> · {bytes(capabilities.availableDiskBytes)} free</span>
+          </div>
+          <div className="export-source-note"><ShieldCheck size={17}/><span>Your source stays unchanged. Studio renders from a snapshot of your captions, appearance and settings, then verifies the file.</span></div>
           <button className="primary" disabled={exportBlocked} onClick={() => void startExport()}>{startingExport ? <LoaderCircle className="spin" size={16}/> : <Film size={16}/>} {activeExportJob ? 'Export already running' : startingExport ? 'Starting…' : 'Render captioned video'}</button>
         </div>
       </>}

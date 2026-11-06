@@ -177,7 +177,7 @@ test('FindReplacePanel rendering smoke check: returns null markup when open is f
       initialSearch: 'Hello',
       onClose: () => {},
       onApply: () => {},
-      onRemember: async () => {},
+      onRemember: async () => true,
     })
   );
 
@@ -199,7 +199,7 @@ test('FindReplacePanel rendering smoke check: renders modal markup structure whe
       initialSearch: 'hello',
       onClose: () => {},
       onApply: () => {},
-      onRemember: async () => {},
+      onRemember: async () => true,
     })
   );
 

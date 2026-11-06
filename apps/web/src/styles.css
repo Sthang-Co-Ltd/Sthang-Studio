@@ -250,7 +250,7 @@ body{color:var(--text);caret-color:var(--accent)}
 .workspace header{height:66px;padding-inline:14px;gap:10px;position:relative;z-index:30}
 .header-actions{margin-left:auto;display:flex;align-items:center;gap:7px;min-width:0;overflow:visible}
 .header-actions>button,.workspace-tools-menu>summary{height:38px;min-height:38px;border:1px solid #2c323b;border-radius:10px;background:#12151a;color:#d9dee4;padding:0 12px;display:flex;align-items:center;gap:7px;white-space:nowrap;font-size:13px;cursor:pointer}
-.header-actions>button:hover,.workspace-tools-menu>summary:hover{border-color:#47515d;background:#181c22;color:#fff}
+.header-actions>button:hover:not(:disabled),.workspace-tools-menu>summary:hover{border-color:#47515d;background:#181c22;color:#fff}
 .header-actions .save-action:not(.selected-tool){color:#aeb6bf}
 .header-actions .save-action span{min-width:34px}
 .header-actions .primary{padding-inline:15px}
@@ -264,17 +264,16 @@ body{color:var(--text);caret-color:var(--accent)}
 .workspace-tools-menu>summary::-webkit-details-marker{display:none}
 .workspace-tools-menu[open]>summary{border-color:#66783a;background:#17200f;color:#edffb2}
 .workspace-tools-popover{position:absolute;top:46px;right:0;width:min(340px,calc(100vw - 24px));max-height:min(650px,calc(100vh - 86px));overflow:auto;border:1px solid #343b45;border-radius:14px;background:#0e1115;box-shadow:0 24px 80px #000c;padding:8px;z-index:70;overscroll-behavior:contain}
-.tools-menu-intro{padding:8px 9px 11px;display:flex;flex-direction:column;gap:3px;border-bottom:1px solid #242a32}
-.tools-menu-intro strong{font-size:14px;color:#f0f3f5}
-.tools-menu-intro span{font-size:12px;line-height:1.45;color:var(--text-muted)}
-.tools-menu-section{display:flex;flex-direction:column;gap:3px;padding:9px 0;border-bottom:1px solid #222830}
+.tools-menu-section{display:flex;flex-direction:column;gap:1px;padding:6px 0;border-bottom:1px solid #222830}
 .tools-menu-section:last-child{border-bottom:0;padding-bottom:1px}
-.tools-menu-section>span{padding:0 9px 5px;color:#747e89;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-.tools-menu-section>button{width:100%;min-height:48px;border:1px solid transparent;border-radius:9px;background:transparent;color:#cfd5db;padding:7px 9px;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;text-align:left;cursor:pointer}
+.tools-menu-section>span{padding:0 9px 3px;color:#939da8;font-size:11px;font-weight:600}
+.tools-menu-section>button{width:100%;min-height:44px;border:1px solid transparent;border-radius:9px;background:transparent;color:#cfd5db;padding:6px 9px;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;text-align:left;cursor:pointer}
 .tools-menu-section>button:hover:not(:disabled){border-color:#303842;background:#171b20;color:#fff}
 .tools-menu-section>button>span{display:flex;flex-direction:column;gap:2px;min-width:0}
 .tools-menu-section b{font-size:13px;font-weight:600}
-.tools-menu-section small{font-size:12px;color:#808a94;line-height:1.35}
+.tools-menu-section small{font-size:12px;color:#929ca7;line-height:1.35}
+.tools-menu-section kbd{font-size:11px;font-family:inherit;color:#a6b0bb;white-space:nowrap}
+.tools-menu-section>button:focus-visible,.caption-action-menu>button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;background:#1a2113}
 .tools-menu-section em{min-width:21px;height:21px;padding:0 6px;border-radius:99px;background:#2d3719;color:#dfff82;display:grid;place-items:center;font-size:11px;font-style:normal;font-weight:700}
 .tools-warning-icon{color:#e6ad75}
 

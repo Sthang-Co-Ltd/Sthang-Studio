@@ -5,6 +5,7 @@ import type { AppearanceReconciliation } from '../caption-appearance-reconciliat
 import { Ban, CheckCircle2, CircleAlert, Clock3, Download, LoaderCircle, Play, RefreshCw, X } from 'lucide-react';
 import { JOBS_UPDATED_EVENT } from '../api';
 import { useModalFocus } from '../use-modal-focus';
+import { useSurfacePresence } from '../use-surface-presence';
 import './job-manager.css';
 
 interface Props {
@@ -83,6 +84,7 @@ function formatDuration(ms: number) {
 
 export function JobManager({ open, jobs, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
   const dialog = useRef<HTMLElement | null>(null);
+  const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   useModalFocus(open, dialog, onClose);
   const [now, setNow] = useState(Date.now());
   const [exportDirectory, setExportDirectory] = useState('');
@@ -123,7 +125,7 @@ export function JobManager({ open, jobs, project, appearanceReconciliation, onCl
     return () => { cancelled = true; };
   }, [open, hasCompletedExport]);
 
-  if (!open) return null;
+  if (!presence.present) return null;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
   const runningJobs = activeJobs.filter((job) => job.status === 'running');
   const queueSummary = runningJobs.length
@@ -132,8 +134,8 @@ export function JobManager({ open, jobs, project, appearanceReconciliation, onCl
       ? 'Queued work starts automatically.'
       : 'Recent caption and video export jobs.';
 
-  return <div className="modal-backdrop" onMouseDown={onClose}>
-    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="activity-title" tabIndex={-1} className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
+  return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
+    <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="activity-title" tabIndex={-1} className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head job-modal-head">
         <div className="job-modal-heading-copy"><strong id="activity-title">Activity</strong><span>{queueSummary}</span></div>
         <button className="job-modal-close" aria-label="Close Activity" title="Close Activity" onClick={onClose}><X size={18}/></button>
@@ -147,25 +149,34 @@ export function JobManager({ open, jobs, project, appearanceReconciliation, onCl
       <div className="job-list">
         {jobs.map((job) => {
           const duration = jobDurationMs(job, now);
-          const durationCopy = duration > 0
+          const durationCopy = Number.isFinite(Date.parse(job.startedAt || ''))
             ? job.status === 'completed'
-              ? ` · Took ${formatDuration(duration)}`
-              : job.status === 'running'
-                ? ` · ${formatDuration(duration)} elapsed`
-                : ` · ${formatDuration(duration)}`
+              ? `Took ${formatDuration(duration)}`
+              : `${formatDuration(duration)} elapsed`
             : '';
-          return <article key={job.id} className={`job-${job.status}`}>
-            <div className="job-status-icon" title={activityLabel(job)}>{icon(job)}</div>
+          return <article key={job.id} className={`job-${job.status}`} aria-label={`${jobLabel(job)} · ${job.projectTitle}`}>
+            <div className="job-status-icon" aria-hidden="true">{icon(job)}</div>
             <div className="job-copy">
-              <div className="job-title-line"><strong>{jobLabel(job)}</strong><span>{job.projectTitle}</span></div>
-              <p>{job.message}</p>
-              <div className="job-progress" role="progressbar" aria-label={`${jobLabel(job)} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress}><i style={{ width: `${job.progress}%` }}/></div>
+              <div className="job-title-line"><strong>{jobLabel(job)}</strong><span title={job.projectTitle}>{job.projectTitle}</span></div>
               <div className="job-meta">
-                <small>{activityLabel(job)} · {job.stage.replaceAll('-', ' ')} · {job.progress}%{durationCopy} · {new Date(job.updatedAt).toLocaleTimeString()}</small>
-                {job.resultExport && <small>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</small>}
+                <span className="job-state">{activityLabel(job)}</span>
+                <span className="job-duration">{durationCopy}</span>
+              </div>
+              <p>{job.message}</p>
+              <div className="job-progress-line">
+                <div className="job-progress" role="progressbar" aria-label={`${jobLabel(job)} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress} aria-valuetext={`${job.progress}% · ${activityLabel(job)}`}><i style={{ width: `${job.progress}%` }}/></div>
+                <span className="job-percent" aria-hidden="true">{job.progress}%</span>
               </div>
               {job.error && <em>{job.error}</em>}
               {job.status === 'completed' && job.resultExport && <ExportJobFreshness job={job} project={project} appearance={appearanceReconciliation.value}/>}
+              <details className="job-details">
+                <summary>Details</summary>
+                <dl>
+                  <div><dt>Stage</dt><dd>{job.stage.replaceAll('-', ' ')}</dd></div>
+                  <div><dt>Updated</dt><dd><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString()}</time></dd></div>
+                  {job.resultExport && <div><dt>Video</dt><dd>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</dd></div>}
+                </dl>
+              </details>
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}

@@ -40,7 +40,7 @@ export function webSourceIdentity(sourceRoot) {
     'apps/web/tsconfig.json', 'apps/web/tsconfig.app.json',
     'apps/web/src', 'apps/web/public', 'packages/shared/src',
     'packages/shared/package.json', 'packages/shared/tsconfig.json',
-    'package-lock.json', 'scripts/web-runtime-identity.mjs',
+    'package-lock.json', 'scripts/web-runtime-identity.mjs', 'scripts/workspace-retry.mjs',
   ]) visit(relative);
   return { schemaVersion: 1, service: 'sthang-studio-web', version, buildId: digest.digest('hex') };
 }
