@@ -16,6 +16,7 @@ const notifyGeometry = () => window.dispatchEvent(new Event(EDITOR_LAYOUT_CHANGE
 interface Props {
   preview: ReactNode; toolbar: ReactNode; captions: ReactNode; children: ReactNode;
   tool: string | null; title: string; open: boolean; onClose?: () => void;
+  getCloseFocusTarget?: (fallback: HTMLButtonElement | null) => HTMLElement | null;
 }
 interface ResizeGesture {
   pointer: number; handle: HTMLDivElement; x: number; left: EditorPane; right: EditorPane;
@@ -23,7 +24,7 @@ interface ResizeGesture {
 }
 
 /** Content never changes parent or DOM position. Grid and reading flow own the arrangement. */
-export function EditorLayout({ preview, toolbar, captions, children, tool, title, open, onClose }: Props) {
+export function EditorLayout({ preview, toolbar, captions, children, tool, title, open, onClose, getCloseFocusTarget }: Props) {
   const grid = useRef<HTMLElement | null>(null);
   const [width, setWidth] = useState(window.innerWidth - 24);
   const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1200px)').matches);
@@ -150,8 +151,12 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         <aside className="workspace-inspector" hidden={!open} aria-label={`${title} workspace`}>
           <div className="inspector-heading"><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" onClick={() => {
             const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.editor-toolbar button[aria-pressed="true"]')
-              || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]');
-            onClose(); requestAnimationFrame(() => returnTo?.focus());
+              || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]') || null;
+            onClose();
+            requestAnimationFrame(() => {
+              const target = getCloseFocusTarget ? getCloseFocusTarget(returnTo) : returnTo;
+              if (target?.isConnected) target.focus();
+            });
           }}><X size={14}/>Close tool</button>}</div>
           <div className="inspector-content">{children}</div>
         </aside>

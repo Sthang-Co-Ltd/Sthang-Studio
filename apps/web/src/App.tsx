@@ -30,6 +30,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Clock3,
   FileOutput,
@@ -364,6 +365,8 @@ export default function App() {
   const [proposalAccuracyHint, setProposalAccuracyHint] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
+  const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
+  const generationAccuracyEntry = useRef<HTMLButtonElement>(null);
   const [exportVisit, setExportVisit] = useState<{ ticket: ProjectTicket; session: ExportWorkspaceSession } | null>(null);
   const [exportRepair, setExportRepair] = useState<{ ticket: ProjectTicket; target: ExportRepairTarget } | null>(null);
   const exportRepairFocus = useRef(false);
@@ -374,8 +377,13 @@ export default function App() {
   const [captionHandoffWorking, setCaptionHandoffWorking] = useState(false);
   const [pendingCaptionImport, setPendingCaptionImport] = useState<PendingCaptionImport | null>(null);
   const handoffRequest = useRef<AbortController | null>(null);
-  const handoffWorkspace = useRef(workspaceTool);
-  handoffWorkspace.current = workspaceTool;
+  const currentWorkspaceTool = useRef(workspaceTool);
+  currentWorkspaceTool.current = workspaceTool;
+  const getAccuracyCloseFocusTarget = (fallback: HTMLButtonElement | null = null) => {
+    if (!projectScope.current.isCurrent(viewTicket) || currentWorkspaceTool.current !== null) return null;
+    return generationAccuracyEntry.current ?? fallback;
+  };
+  const restoreInlineAccuracyFocus = () => requestAnimationFrame(() => getAccuracyCloseFocusTarget()?.focus());
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
   });
@@ -1774,7 +1782,15 @@ export default function App() {
         if (showCorrections || showProfile || showFindReplace || showHistory || showJobs || showUpdates) {
           setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
         }
-        if (workspaceTool) { setWorkspaceTool(null); setReviewMode(false); return; }
+        if (workspaceTool) {
+          setWorkspaceTool(null);
+          setReviewMode(false);
+          if (workspaceTool === 'accuracy') {
+            accuracyDescriptionFocus.current = null;
+            restoreInlineAccuracyFocus();
+          }
+          return;
+        }
         return;
       }
       if (typing || !project || target?.closest('button, select, summary, [role="button"], [role="slider"], [role="combobox"]')) return;
@@ -2732,7 +2748,7 @@ export default function App() {
   };
 
   const prepareCaptionHandoff = async (target: CaptionProject, ticket: ProjectTicket, editRevision: number, signal: AbortSignal, needsAppearance = false) => {
-    const active = () => !signal.aborted && projectScope.current.isCurrent(ticket) && handoffWorkspace.current === 'export';
+    const active = () => !signal.aborted && projectScope.current.isCurrent(ticket) && currentWorkspaceTool.current === 'export';
     const hadEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     await saveQueue.current;
@@ -2768,7 +2784,7 @@ export default function App() {
       const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal, ['ass', 'data', 'bundle'].includes(format));
       if (!prepared) return false;
       const result = await captionHandoffApi.export(target.id, format, prepared.basis, controller.signal);
-      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || handoffWorkspace.current !== 'export') return false;
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || currentWorkspaceTool.current !== 'export') return false;
       if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
         throw new Error('The captions changed while the file was being prepared. Export again to include the latest edits.');
       }
@@ -2801,7 +2817,7 @@ export default function App() {
       const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal);
       if (!prepared) return;
       const preview = await captionHandoffApi.previewRestore(target.id, data, prepared.basis, controller.signal);
-      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || handoffWorkspace.current !== 'export') return;
+      if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || currentWorkspaceTool.current !== 'export') return;
       if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
         throw new Error('The captions changed while reading the file. Open it again to review the latest state.');
       }
@@ -2817,7 +2833,7 @@ export default function App() {
     const pending = pendingCaptionImport;
     if (!project || !pending || handoffRequest.current || busy || currentProjectActiveJob) return;
     const target = project;
-    const valid = () => projectScope.current.isCurrent(pending.ticket) && handoffWorkspace.current === 'export'
+    const valid = () => projectScope.current.isCurrent(pending.ticket) && currentWorkspaceTool.current === 'export'
       && !dirtyRef.current && draftEditRevision.current === pending.editRevision
       && JSON.stringify(draftRef.current) === pending.captionSnapshot;
     if (!valid()) { setNotice('The project changed. Open the caption-data file again before replacing captions.'); return; }
@@ -2847,7 +2863,7 @@ export default function App() {
 
 
   const startVideoExport = async (settings: VideoExportSettings, appearance: CaptionAppearance, exportStillCurrent: () => boolean): Promise<ProcessingJob | null> => {
-    const currentExport = () => handoffWorkspace.current === 'export' && exportStillCurrent();
+    const currentExport = () => currentWorkspaceTool.current === 'export' && exportStillCurrent();
     if (!project || !currentExport()) return null;
     const targetProject = project;
     const intent = captureOperationIntent();
@@ -3097,6 +3113,9 @@ export default function App() {
   const timing = project?.transcript?.timing;
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
+  const showGenerationAccuracy = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
+  const savedContext = project?.transcriptionContext;
+  const hasSavedContext = Boolean(savedContext?.description?.trim() || savedContext?.vocabulary?.some((term) => term.trim()));
   const usedFallback = timing?.engine === 'faster-whisper-local';
   const audioAlignmentUnverified = project?.mediaAlignment?.state === 'unverified-audio-change';
   const alignmentNoticeKey = project && audioAlignmentUnverified
@@ -3111,6 +3130,7 @@ export default function App() {
     if (id) moveToReviewCaption(id, false);
   };
   const chooseWorkspaceTool = (tool: Exclude<WorkspaceTool, null>) => {
+    accuracyDescriptionFocus.current = null;
     cancelPlayback();
     if (tool === 'timeline') setRequestedTimingMode('caption');
     if (tool === 'review') {
@@ -3126,6 +3146,10 @@ export default function App() {
       if (id) { setSelectionAnchor(id); setSelectionEnd(id); }
     }
     setWorkspaceTool((current) => current === tool ? null : tool);
+  };
+  const toggleAccuracyToolbar = () => {
+    chooseWorkspaceTool('accuracy');
+    if (workspaceTool === 'accuracy') restoreInlineAccuracyFocus();
   };
   const openWordTiming = (id?: string) => {
     cancelPlayback();
@@ -3346,6 +3370,7 @@ export default function App() {
       title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
       onClose={proposal ? () => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
+      getCloseFocusTarget={!proposal && workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
       preview={
         <div className="media-stage">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} onElementChange={setMediaElement}
@@ -3357,14 +3382,14 @@ export default function App() {
       }
       toolbar={!proposal && (
         <div className="workspace-tool-strip">
-            <nav aria-label="Caption workspace tools">
+            {(!showGenerationAccuracy || draft.length > 0) && <nav aria-label="Caption workspace tools">
               {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b>{riskyIds.length}</b>}</button>}
               {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
-              <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={() => chooseWorkspaceTool('accuracy')}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>
+              {!showGenerationAccuracy && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>}
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
               {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
-            </nav>
+            </nav>}
           </div>
       )}
       captions={
@@ -3536,6 +3561,26 @@ export default function App() {
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
             <Captions size={28}/><div><strong>{legacy ? 'Rebuild with local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild with current timing.' : 'Create Khmer text aligned to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div>
+            {showGenerationAccuracy && <div className="generation-accuracy">
+              <div className="generation-accuracy-copy">
+                <BookOpenText size={18} aria-hidden="true"/>
+                <div>
+                  <strong>Accuracy context <small id="generation-accuracy-optional">Optional</small></strong>
+                  <span id="generation-accuracy-help">Add names, brands, and exact terms.</span>
+                </div>
+              </div>
+              <button type="button" ref={generationAccuracyEntry} aria-describedby="generation-accuracy-optional generation-accuracy-help" onClick={() => {
+                chooseWorkspaceTool('accuracy');
+                accuracyDescriptionFocus.current = viewTicket;
+                requestAnimationFrame(() => {
+                  if (accuracyDescriptionFocus.current === viewTicket && projectScope.current.isCurrent(viewTicket)) {
+                    document.getElementById('accuracy-context-description')?.focus();
+                  }
+                });
+              }}>
+                {hasSavedContext ? 'Edit context' : 'Add context'} <ChevronRight size={14} aria-hidden="true"/>
+              </button>
+            </div>}
             {generationOptions}
             <button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
