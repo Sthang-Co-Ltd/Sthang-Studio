@@ -37,6 +37,56 @@ async function options(page: Page) {
   return page.getByRole('combobox', { name: 'Caption model', exact: true });
 }
 
+test('optional Accuracy entry reflects saved project context', async ({ page }, info) => {
+  await page.route('**/api/projects/landscape/context', (route) => {
+    const { transcriptionContext } = route.request().postDataJSON();
+    state.projects[0].transcriptionContext = transcriptionContext;
+    return route.fulfill({ json: state.projects[0] });
+  });
+  await initialProject(page);
+  const generate = page.getByRole('complementary', { name: 'Generate captions workspace' });
+  const add = generate.getByRole('button', { name: 'Add context', exact: true });
+  const edit = generate.getByRole('button', { name: 'Edit context', exact: true });
+  const accuracy = page.getByRole('complementary', { name: 'Accuracy workspace' });
+  const description = accuracy.getByLabel('What is this clip about?', { exact: true });
+  const close = accuracy.getByRole('button', { name: 'Close tool', exact: true });
+  const toolbarAccuracy = page.getByRole('button', { name: /^Accuracy/ });
+  await expect(toolbarAccuracy).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reset layout', exact: true })).toBeVisible();
+  await expect(generate.getByText('Optional', { exact: true })).toBeVisible();
+  await expect(generate.getByRole('button', { name: 'Generate captions', exact: true })).toBeEnabled();
+  const row = generate.locator('.generation-accuracy');
+  await expect(row.locator('+ .generation-options')).toBeVisible();
+  await generate.screenshot({ path: info.outputPath('accuracy-entry-desktop.png') });
+
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect(page.locator('.editor-toolbar')).toBeHidden();
+  await add.scrollIntoViewIfNeeded();
+  expect((await add.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await row.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('accuracy-entry-mobile.png') });
+  await add.press('Enter');
+  await expect(description).toBeFocused();
+  await expect(toolbarAccuracy).toHaveAttribute('aria-pressed', 'true');
+  await description.fill('A clip about the Studio launch.');
+  await close.click();
+  await expect(add).toBeFocused();
+  await add.click();
+  await expect(description).toHaveValue('A clip about the Studio launch.');
+  await accuracy.getByRole('button', { name: 'Save for project', exact: true }).click();
+  await expect(page.getByText('Accuracy context saved.', { exact: true })).toBeVisible();
+  await close.click();
+  await expect(edit).toBeFocused();
+  await expect(toolbarAccuracy).toHaveCount(0);
+
+  await openProject(page);
+  await edit.click();
+  await expect(description).toHaveValue('A clip about the Studio launch.');
+  await description.press('Escape');
+  await expect(edit).toBeFocused();
+  expect(submissions).toHaveLength(0);
+});
+
 for (const surface of ['Generate', 'Accuracy'] as const) {
   test(`AI options is clickable and keyboard-usable in ${surface} across viewport sizes`, async ({ page }, info) => {
     if (surface === 'Generate') await initialProject(page);
@@ -100,6 +150,7 @@ test('Generate offers all three choices, saves per project, survives reopening, 
 });
 
 test('Generate waits for the choice save and submits the exact selected model', async ({ page }) => {
+  const { transcript, captions } = state.projects[0];
   await initialProject(page); const select = await options(page);
   let release!: () => void; hold = new Promise<void>((resolve) => { release = resolve; });
   await select.selectOption('gemini-3.6-flash');
@@ -110,6 +161,13 @@ test('Generate waits for the choice save and submits the exact selected model', 
   await page.getByRole('button', { name: 'Generate captions', exact: true }).click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0].generationModel).toBe('gemini-3.6-flash');
+  await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
+  Object.assign(state.projects[0], { transcript, captions });
+  state.jobs = [{ ...state.jobs[0], status: 'completed', stage: 'complete', progress: 100, resultProjectId: 'landscape' }];
+  await expect(page.getByText('Background caption generation completed.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add context', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await expect(page.getByRole('button', { name: 'Preview full regeneration', exact: true })).toBeVisible();
 });
 
 test('failed option save restores the saved choice and keeps captions intact', async ({ page }) => {

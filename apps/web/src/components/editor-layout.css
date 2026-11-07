@@ -125,6 +125,8 @@
   .refined-workspace:has(.regeneration-dock):has(>.toast-stack:not(:empty)) .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
   .refined-workspace:has(.regeneration-dock):has(>.toast-stack:not(:empty)) .inspector-content :is(button,input,select,summary,canvas){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
   .editor-toolbar{align-items:flex-start;min-height:60px;position:sticky;top:0;z-index:8}
+  .editor-toolbar:has(.workspace-tool-strip:empty){display:none}
+  .editor-toolbar:has(.workspace-tool-strip:empty)+.refined-editor>.stage-column{top:0}
   .editor-toolbar .workspace-tool-strip{overflow-x:auto}
   .editor-toolbar .workspace-tool-strip nav{flex-wrap:nowrap;width:max-content}
 }
