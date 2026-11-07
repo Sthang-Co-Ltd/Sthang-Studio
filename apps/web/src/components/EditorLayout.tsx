@@ -16,7 +16,7 @@ const notifyGeometry = () => window.dispatchEvent(new Event(EDITOR_LAYOUT_CHANGE
 interface Props {
   preview: ReactNode; toolbar: ReactNode; captions: ReactNode; children: ReactNode;
   tool: string | null; title: string; open: boolean; onClose?: () => void;
-  getCloseFocusTarget?: () => HTMLElement | null;
+  getCloseFocusTarget?: (fallback: HTMLButtonElement | null) => HTMLElement | null;
 }
 interface ResizeGesture {
   pointer: number; handle: HTMLDivElement; x: number; left: EditorPane; right: EditorPane;
@@ -151,8 +151,12 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         <aside className="workspace-inspector" hidden={!open} aria-label={`${title} workspace`}>
           <div className="inspector-heading"><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" onClick={() => {
             const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.editor-toolbar button[aria-pressed="true"]')
-              || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]');
-            onClose(); requestAnimationFrame(() => (getCloseFocusTarget?.() ?? returnTo)?.focus());
+              || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]') || null;
+            onClose();
+            requestAnimationFrame(() => {
+              const target = getCloseFocusTarget ? getCloseFocusTarget(returnTo) : returnTo;
+              if (target?.isConnected) target.focus();
+            });
           }}><X size={14}/>Close tool</button>}</div>
           <div className="inspector-content">{children}</div>
         </aside>
