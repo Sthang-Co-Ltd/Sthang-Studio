@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CaptionProject, CaptionProjectSummary, RegenerationProposal } from '@kcs/shared';
+import { openAccuracy as accuracy } from './accuracy-workspace.mjs';
 import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
 import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi, type OwnedApi } from './owned-api-harness.mjs';
 import { closeOwnedBrowserContext, continueOwnedRoute, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
@@ -162,14 +163,6 @@ async function saveCaption(page: Page, name: Case, text: string, index = 1) {
   expect((await response).status()).toBe(200);
   await expect(page.locator('.save-action')).toBeDisabled();
   await expect(page.locator('.save-action')).toHaveText('Saved');
-}
-async function accuracy(page: Page) {
-  const button = page.getByRole('button', { name: /^Accuracy/ });
-  if (await button.getAttribute('aria-pressed') !== 'true') await button.click();
-  return {
-    description: page.getByLabel('What is this clip about?', { exact: true }),
-    vocabulary: page.getByLabel('Exact terms to preserve', { exact: true }),
-  };
 }
 async function saveContext(page: Page, name: Case, text: string) {
   const fields = await accuracy(page);

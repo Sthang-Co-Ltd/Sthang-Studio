@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { hydrateCaptionWordTimings, type CaptionProject } from '@kcs/shared';
+import { openAccuracy } from './accuracy-workspace.mjs';
 import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures, seek, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
@@ -119,14 +120,6 @@ async function fixture(page: Page) {
   return { state, original, requests, replacements, backupSnapshots, hold: (promise: Promise<void>) => { hold = promise; }, fail: (status: number, message: string, code = 'MEDIA_AUDIO_MISMATCH') => { error = { status, message, code }; }, changeAudio: () => { changedAudio = true; }, restoreCount: () => restores };
 }
 
-async function openAccuracy(page: Page) {
-  const button = page.getByRole('button', { name: /^Accuracy/ });
-  if (await button.getAttribute('aria-pressed') !== 'true') await button.click();
-  return {
-    description: page.getByLabel('What is this clip about?', { exact: true }),
-    vocabulary: page.getByLabel('Exact terms to preserve', { exact: true }),
-  };
-}
 async function submitReplacement(page: Page, mode: 'preserve' | 'reset') {
   const dialog = await chooseFile(page);
   if (mode === 'preserve') {
