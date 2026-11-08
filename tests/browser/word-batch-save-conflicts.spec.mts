@@ -298,6 +298,7 @@ for (const { action, foreign } of scenarios) {
     const firstText = `CLIENT B TYPED WHILE THE ${action.toUpperCase()} ACK WAS HELD`;
     const newestText = `សេចក្ដីព្រាង B ថ្មី ${action}\nNEWER THIRD CAPTION MUST SURVIVE`;
     const foreignText = `FOREIGN SECOND CAPTION FROM CLIENT A BEFORE ${action.toUpperCase()}`;
+    const candidateGate = deferred();
     const batchGate = deferred();
     const saveGate = deferred();
     const batches: BatchRequest[] = [];
@@ -313,6 +314,7 @@ for (const { action, foreign } of scenarios) {
       const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
       candidateIds.push(caption.id);
       expect(caption).toEqual(original.captions[0]);
+      await candidateGate.promise;
       await route.fulfill({ json: {
         basis: caption, wordTiming: preparedTimings.get(name), sourceRevision: `synthetic-word-batch-${name}`, warnings: [],
       } });
@@ -349,16 +351,14 @@ for (const { action, foreign } of scenarios) {
 
     try {
       await other.getByRole('button', { name: 'Appearance', exact: true }).click();
-      await other.getByRole('button', { name: 'Prepare word highlights', exact: true }).click();
-      const prepared = other.getByRole('region', { name: 'Prepared word timings', exact: true });
-      await expect(prepared).toContainText('1 ready');
-      expect(candidateIds).toEqual(['c1']);
+      await other.getByRole('button', { name: 'Sync remaining', exact: true }).click();
+      await expect.poll(() => candidateIds).toEqual(['c1']);
 
       if (action === 'undo') {
-        await prepared.getByRole('button', { name: 'Use ready timings', exact: true }).click();
-        await expect(other.getByRole('region', { name: 'Applied word timings', exact: true }).getByRole('button', { name: 'Undo batch', exact: true })).toBeEnabled();
+        candidateGate.resolve();
+        await expect(other.getByRole('button', { name: 'Undo timing changes', exact: true })).toBeEnabled();
         const cleanApplied = await disk(name);
-        expect(cleanApplied.captions[0]).toEqual({ ...original.captions[0], wordTiming: preparedTimings.get(name), approved: false });
+        expect(cleanApplied.captions[0]).toEqual({ ...original.captions[0], wordTiming: preparedTimings.get(name) });
         evidence.cleanApplyBeforeUndo = cleanApplied;
         // A must actually adopt the clean apply before making its own c2 edit.
         // B stays open with the genuine Undo offer and its older c2 baseline.
@@ -372,7 +372,8 @@ for (const { action, foreign } of scenarios) {
       await expect(captionField(other, 2)).toHaveValue(original.captions[1].text);
 
       const busyLabel = action === 'apply' ? 'Applying word highlights…' : 'Undoing prepared word timings…';
-      await other.getByRole('button', { name: action === 'apply' ? 'Use ready timings' : 'Undo batch', exact: true }).click();
+      if (action === 'apply') candidateGate.resolve();
+      else await other.getByRole('button', { name: 'Undo timing changes', exact: true }).click();
       await expect.poll(() => heldBatch !== null).toBe(true);
       await expect(other.getByText(busyLabel, { exact: true })).toBeVisible();
       const persistedBatch = heldBatch!.project;
@@ -385,7 +386,7 @@ for (const { action, foreign } of scenarios) {
       expect(heldBatchRequest!.changes).toHaveLength(1);
       expect(heldBatchRequest!.changes[0].before.id).toBe('c1');
       expect(afterBatch.captions).toEqual(beforeBatch.captions.map((caption) => caption.id === 'c1'
-        ? { ...caption, wordTiming: action === 'apply' ? preparedTimings.get(name) : original.captions[0].wordTiming, approved: action === 'undo' }
+        ? { ...caption, wordTiming: action === 'apply' ? preparedTimings.get(name) : original.captions[0].wordTiming }
         : caption));
       expect(resolveCaptionWordTiming(afterBatch.captions[0]).state).toBe(action === 'apply' ? 'ready' : 'partial');
       const newCheckpointFiles = Object.keys(historyAfterBatch).filter((filename) => filename !== 'index.json' && !(filename in historyBeforeBatch));
@@ -517,6 +518,7 @@ for (const { action, foreign } of scenarios) {
     } finally {
       // Release every route even after an assertion fails, so teardown cannot
       // leave a pending request or remove a guard around a live editor.
+      candidateGate.resolve();
       batchGate.resolve();
       saveGate.resolve();
       evidence.batchRequests = batches;
@@ -567,9 +569,7 @@ test('typing on the prepared target during its held acknowledgement cannot undo 
 
   try {
     await other.getByRole('button', { name: 'Appearance', exact: true }).click();
-    await other.getByRole('button', { name: 'Prepare word highlights', exact: true }).click();
-    await expect(other.getByRole('region', { name: 'Prepared word timings', exact: true })).toContainText('1 ready');
-    await other.getByRole('button', { name: 'Use ready timings', exact: true }).click();
+    await other.getByRole('button', { name: 'Sync remaining', exact: true }).click();
     await expect.poll(() => held !== null).toBe(true);
     const savedBatch = await disk(name);
     const savedHistory = await history(name);

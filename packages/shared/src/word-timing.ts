@@ -1,4 +1,5 @@
 import type { CaptionProject, CaptionSegment, TimedToken } from './index.js';
+import { segmentKhmerWords } from './khmer-word-segmentation.js';
 
 export type CaptionWordSource = 'aligned' | 'manual' | 'estimated';
 
@@ -20,6 +21,12 @@ export interface CaptionWordTiming {
   /** Exact caption text snapshot used by every stored offset. */
   text: string;
   words: CaptionWord[];
+}
+
+export interface CaptionEdgeRepair {
+  before: CaptionSegment[];
+  after: CaptionSegment[];
+  guards: CaptionSegment[];
 }
 
 export interface CaptionWordTimingResolution {
@@ -66,7 +73,7 @@ function graphemeBoundaries(text: string) {
 
 function speechUnits(text: string): SpeechUnit[] | null {
   if (typeof Intl.Segmenter !== 'function') return null;
-  const segments = [...new Intl.Segmenter('km', { granularity: 'word' }).segment(text)];
+  const segments = segmentKhmerWords(text);
   const units: SpeechUnit[] = [];
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
@@ -475,6 +482,58 @@ export function resolveCaptionWordTiming(caption: CaptionSegment): CaptionWordTi
     : { state: 'ready', words: words as CaptionWord[] };
 }
 
+const MAX_AUTO_WORD_TRIM_MS = 50;
+
+/** Trim small conflicts in measured intervals. Keep word onsets when both words
+ * are aligned, and keep either edge of a manually timed word. */
+export function repairSmallWordTimingBoundaries(caption: CaptionSegment): CaptionWordTiming | undefined {
+  const resolved = resolveCaptionWordTiming(caption);
+  if (caption.timingLocked || !caption.wordTiming || resolved.state !== 'partial'
+    || !Number.isFinite(caption.startMs) || !Number.isFinite(caption.endMs)) return undefined;
+  if (resolved.words.some((word) => word.needsReview || word.source === 'estimated' || !hasValidInterval(word))) return undefined;
+
+  const words = resolved.words.map((word) => ({
+    ...word,
+    startMs: Math.max(word.startMs!, caption.startMs),
+    endMs: Math.min(word.endMs!, caption.endMs),
+  }));
+  for (let index = 1; index < words.length; index += 1) {
+    const previous = words[index - 1];
+    const current = words[index];
+    if (previous.endMs <= current.startMs) continue;
+    if (previous.startMs >= current.startMs || previous.endMs >= current.endMs) return undefined;
+    if (previous.source === 'manual') current.startMs = previous.endMs;
+    else previous.endMs = current.startMs;
+  }
+
+  const safe = words.every((word, index) => {
+    const original = resolved.words[index];
+    const trim = (word.startMs - original.startMs!) + (original.endMs! - word.endMs);
+    const limit = Math.min(MAX_AUTO_WORD_TRIM_MS, (original.endMs! - original.startMs!) / 4);
+    return trim === 0 || (word.source === 'aligned' && trim <= limit && word.endMs - word.startMs >= 10);
+  });
+  if (!safe) return undefined;
+  const timing = { ...caption.wordTiming, words };
+  return resolveCaptionWordTiming({ ...caption, wordTiming: timing }).state === 'ready' ? timing : undefined;
+}
+
+/** Match existing manual anchors by exact text span, even if alignment chose
+ * different IDs. Reject a candidate that cannot carry every manual anchor. */
+export function preserveManualCaptionWords(caption: CaptionSegment, timing: CaptionWordTiming): CaptionWordTiming | undefined {
+  const existing = caption.wordTiming?.words;
+  const manual = Array.isArray(existing) ? existing.filter((word) => word?.source === 'manual') : [];
+  if (!manual.length) return timing;
+  if (caption.wordTiming?.text !== timing.text) return undefined;
+  const anchors = new Map(manual.map((word) => [`${word.startOffset}:${word.endOffset}`, word]));
+  const words = timing.words.map((word) => {
+    const key = `${word.startOffset}:${word.endOffset}`;
+    const anchor = anchors.get(key);
+    anchors.delete(key);
+    return anchor ?? word;
+  });
+  return anchors.size ? undefined : { ...timing, words };
+}
+
 export function reconcileCaptionWordTiming(before: CaptionSegment, after: CaptionSegment): CaptionSegment {
   if (before === after) return after;
   const afterOwnsTrack = Object.prototype.hasOwnProperty.call(after, 'wordTiming');
@@ -609,7 +668,6 @@ export function editCaptionWord(
     ...caption,
     timingSource: 'manual',
     timingQuality: 'medium',
-    approved: false,
     wordTiming: { ...caption.wordTiming, words },
   };
   return resolveCaptionWordTiming(edited).state === 'stale' ? caption : edited;

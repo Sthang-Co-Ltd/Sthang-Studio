@@ -49,13 +49,13 @@ function readyChange(before: CaptionSegment, shift = 10): CaptionSegment {
   const after = structuredClone(before);
   assert.ok(after.wordTiming);
   after.wordTiming.words[0].startMs! += shift;
-  after.approved = false;
   assert.equal(resolveCaptionWordTiming(after).state, 'ready');
   return after;
 }
 
 test('atomic planning applies target word timing while preserving unrelated same-media edits', () => {
   const original = fixture();
+  original.captions[0].approved = true;
   const before = structuredClone(original.captions[0]);
   const project = structuredClone(original);
   project.captions[2] = { ...project.captions[2], textLocked: true, approved: true };
@@ -68,7 +68,7 @@ test('atomic planning applies target word timing while preserving unrelated same
   assert.deepEqual(result.project.captions[2], unrelated);
   assert.equal(result.project.engineVersion, original.engineVersion);
   assert.equal(result.project.captions[0].wordTiming!.words[0].startMs, after.wordTiming!.words[0].startMs);
-  assert.equal(result.project.captions[0].approved, false);
+  assert.equal(result.project.captions[0].approved, true);
 });
 
 test('cross-tab target changes reject the whole two-caption batch without touching either target', () => {
@@ -109,6 +109,7 @@ test('apply accepts only ready timing and rejects unsupported caption mutations 
   assert.throws(() => planCaptionWordBatchApply(project, project.media, [{ before, after: partial }], 'apply'), CaptionWordBatchInputError);
   assert.throws(() => planCaptionWordBatchApply(project, project.media, [{ before, after: readyChange(before) }], 'later'), CaptionWordBatchInputError);
   assert.throws(() => planCaptionWordBatchApply(project, project.media, [{ before, after: { ...readyChange(before), text: 'changed text' } }]), CaptionWordBatchInputError);
+  assert.throws(() => planCaptionWordBatchApply(project, project.media, [{ before, after: { ...readyChange(before), approved: !before.approved } }]), /may change only word timing/);
   assert.throws(() => planCaptionWordBatchApply(project, project.media, [{
     before,
     after: { ...readyChange(before), dangerouslySetInnerHTML: '<img src=x onerror=alert(1)>' } as CaptionSegment,
@@ -166,7 +167,7 @@ test('legacy exact captions compare against safe hydrated timing without persist
   assert.throws(() => planCaptionWordBatchApply(corrected, corrected.media, [{ before: hydrated, after }]), CaptionWordBatchConflictError);
 });
 
-test('reversed undo atomically restores missing and partial tracks plus approval state', () => {
+test('reversed undo atomically restores missing and partial tracks with approval preserved', () => {
   const project = fixture('undo');
   const missingBefore = structuredClone(project.captions[0]);
   delete missingBefore.wordTiming;
@@ -179,16 +180,9 @@ test('reversed undo atomically restores missing and partial tracks plus approval
   assert.equal(resolveCaptionWordTiming(partialBefore).state, 'partial');
   project.captions[1] = structuredClone(partialBefore);
 
-  const readyOne = structuredClone(fixture('ready-one').captions[0]);
-  readyOne.id = missingBefore.id;
-  readyOne.startMs = missingBefore.startMs;
-  readyOne.endMs = missingBefore.endMs;
-  readyOne.text = missingBefore.text;
-  readyOne.wordTiming = structuredClone(fixture('undo').captions[0].wordTiming);
-  readyOne.approved = false;
+  const readyOne = { ...missingBefore, wordTiming: structuredClone(fixture('undo').captions[0].wordTiming) };
   const readyTwo = structuredClone(partialBefore);
   delete readyTwo.wordTiming!.words[0].needsReview;
-  readyTwo.approved = false;
   assert.equal(resolveCaptionWordTiming(readyOne).state, 'ready');
   assert.equal(resolveCaptionWordTiming(readyTwo).state, 'ready');
 

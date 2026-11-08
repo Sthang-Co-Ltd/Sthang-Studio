@@ -16,14 +16,8 @@
 .word-highlight-preparation-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; font-size: 12px; color: var(--appearance-group-text, #b7bec8); }
 .word-highlight-preparation-progress progress { display: block; width: 100%; height: 7px; accent-color: #d7ff4f; }
 
-.word-highlight-preparation-results { display: flex; gap: 6px 16px; flex-wrap: wrap; margin-top: 10px; }
-.word-highlight-preparation-results span { color: var(--appearance-group-text, #b7bec8); font-size: 13px; }
-.word-highlight-preparation-results b { color: var(--appearance-group-heading, #eceff3); font-size: 13px; }
-
 .word-highlight-preparation-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
 .appearance-word-highlight .word-highlight-preparation-actions button { min-height: 36px; font-size: 13px; }
-.appearance-word-highlight .word-highlight-preparation-actions button.primary { border-color: #d7ff4f; background: #d7ff4f; color: #182108; font-weight: 650; }
-.appearance-word-highlight .word-highlight-preparation-actions button.primary:hover:not(:disabled) { border-color: #e2ff83; background: #e2ff83; }
 .appearance-word-highlight .word-highlight-preparation-actions button:disabled { opacity: .45; cursor: default; }
 .appearance-word-highlight .word-highlight-preparation :is(button,progress):focus-visible { outline: 2px solid #d7ff4f; outline-offset: 3px; }
 

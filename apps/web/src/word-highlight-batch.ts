@@ -1,4 +1,4 @@
-import { hydrateCaptionWordTimings, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment } from '@kcs/shared';
+import { hydrateCaptionWordTimings, preserveManualCaptionWords, repairSmallWordTimingBoundaries, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment } from '@kcs/shared';
 import type { CaptionWordTimingCandidate } from './api';
 import { sameTimingRevision } from './timing-edit';
 
@@ -35,13 +35,13 @@ function isTimingBusy(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'status' in error && error.status === 429);
 }
 
-function candidateCaption(candidate: CaptionWordTimingCandidate) {
-  return { ...candidate.basis, wordTiming: candidate.wordTiming };
-}
-
 function readyCandidateFor(caption: CaptionSegment, candidate: CaptionWordTimingCandidate) {
   if (caption.timingLocked || !sameTimingRevision(caption, candidate.basis)) return null;
-  const proposed = { ...caption, wordTiming: candidate.wordTiming, approved: false };
+  const wordTiming = preserveManualCaptionWords(caption, candidate.wordTiming);
+  if (!wordTiming) return null;
+  const proposed = { ...caption, wordTiming };
+  const repaired = repairSmallWordTimingBoundaries(proposed);
+  if (repaired) return { ...proposed, wordTiming: repaired };
   return resolveCaptionWordTiming(proposed).state === 'ready' ? proposed : null;
 }
 
@@ -82,13 +82,14 @@ export async function prepareWordHighlightBatch(options: {
 
     progress(caption.id);
     try {
-      const candidate = await options.sync(caption, options.signal);
+      const repaired = repairSmallWordTimingBoundaries(caption);
+      const candidate = repaired ? { basis: caption, wordTiming: repaired } : await options.sync(caption, options.signal);
       if (options.signal.aborted) { canceled = true; break; }
       if (!sameTimingRevision(caption, candidate.basis)) {
         needsReview.push({ id: caption.id, reason: 'Caption changed while word timing was prepared.' });
       } else {
-        const resolution = resolveCaptionWordTiming(candidateCaption(candidate));
-        if (resolution.state === 'ready') ready.push(candidate);
+        const proposed = readyCandidateFor(caption, candidate);
+        if (proposed) ready.push({ ...candidate, wordTiming: proposed.wordTiming });
         else needsReview.push({ id: caption.id, reason: 'Word timing still needs review.' });
       }
       completed += 1;
@@ -180,8 +181,6 @@ export function mergePublishedWordHighlightBatch(
     const merged = { ...caption } as CaptionSegment;
     if (Object.prototype.hasOwnProperty.call(serverCaption, 'wordTiming') && serverCaption.wordTiming !== undefined) merged.wordTiming = serverCaption.wordTiming;
     else delete merged.wordTiming;
-    if (Object.prototype.hasOwnProperty.call(serverCaption, 'approved') && serverCaption.approved !== undefined) merged.approved = serverCaption.approved;
-    else delete merged.approved;
     changed = true;
     return merged;
   });

@@ -1,3 +1,5 @@
+import { endsWithKhmerWord, segmentKhmerWords } from '@kcs/shared';
+
 export interface TextToken {
   text: string;
   spaceBefore: boolean;
@@ -6,7 +8,6 @@ export interface TextToken {
 
 const PUNCT = /^[\p{P}\p{S}។៕…]+$/u;
 const KHMER_WORD_START = /^[\u1780-\u17D3\u17DD]/u;
-const KHMER_WORD_END = /[\u1780-\u17D3\u17DD]$/u;
 const STRONG_END = /[។៕៘៙៚!?…]["'»”’\)\]\}]*$/u;
 const KHMER_INTERNAL_SPACE = /([\u1780-\u17D3\u17DD])[\t \u00A0]+(?=[\u1780-\u17D3\u17DD])/gu;
 const SPACE_BEFORE_PUNCT = /\s+([,.;:!?%…។៕៘៙៚\)\]\}»”’])/gu;
@@ -27,7 +28,7 @@ export function normalizeForMatch(value: string) {
 export function tokenizeText(text: string): TextToken[] {
   const clean = text.normalize('NFC').trim();
   if (!clean) return [];
-  const segments = [...new Intl.Segmenter('km', { granularity: 'word' }).segment(clean)];
+  const segments = segmentKhmerWords(clean);
   const out: Array<TextToken & { endIndex: number }> = [];
 
   for (const seg of segments) {
@@ -60,7 +61,7 @@ interface JoinableToken {
 }
 
 function isKhmerBoundary(left: JoinableToken, right: JoinableToken) {
-  return KHMER_WORD_END.test(left.text) && KHMER_WORD_START.test(right.text);
+  return endsWithKhmerWord(left.text) && KHMER_WORD_START.test(right.text);
 }
 
 /**

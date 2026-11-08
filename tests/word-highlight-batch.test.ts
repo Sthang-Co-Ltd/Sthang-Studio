@@ -101,6 +101,32 @@ test('prepare keeps partial/grid-unsafe results for review and continues after p
   assert.equal(result.completed, 4);
 });
 
+test('preparation repairs saved evidence before syncing and carries existing manual anchors into ready results', async () => {
+  const repairable = caption('repair');
+  repairable.wordTiming = timingFor(repairable);
+  repairable.wordTiming.words[0].endMs = repairable.wordTiming.words[1].startMs! + 10;
+  const syncable = caption('sync');
+  syncable.wordTiming = timingFor(syncable, { partial: true });
+  const anchor = syncable.wordTiming.words[0];
+  anchor.source = 'manual';
+  anchor.startMs! += 20;
+  const calls: string[] = [];
+  const result = await prepareWordHighlightBatch({
+    captions: [repairable, syncable],
+    signal: new AbortController().signal,
+    sync: async (cue) => {
+      calls.push(cue.id);
+      return candidateFor(cue);
+    },
+  });
+  assert.deepEqual(calls, ['sync']);
+  const { next } = applyWordHighlightBatch([repairable, syncable], result.ready);
+  assert.equal(next[0].wordTiming?.words[0].endMs, repairable.wordTiming.words[1].startMs);
+  assert.deepEqual(next[1].wordTiming?.words[0], anchor);
+  assert.ok(next.every((cue) => cue.approved && resolveCaptionWordTiming(cue).state === 'ready'));
+  assert.equal(resolveCaptionWordTiming(repairable).state, 'partial');
+});
+
 test('prepare rejects a stale candidate basis without accepting its word timing', async () => {
   const cue = caption('stale');
   const result = await prepareWordHighlightBatch({
@@ -190,7 +216,7 @@ test('apply changes only exact ready revisions and rejects locked, stale, partia
   assert.equal(result.next[0].text, good.text);
   assert.equal(result.next[0].startMs, good.startMs);
   assert.equal(result.next[0].endMs, good.endMs);
-  assert.equal(result.next[0].approved, false);
+  assert.equal(result.next[0].approved, true);
   assert.equal(resolveCaptionWordTiming(result.next[0]).state, 'ready');
   assert.equal(good.wordTiming, undefined);
 });
@@ -209,7 +235,7 @@ test('apply with no candidates is unchanged and undo is atomic across every appl
   assert.equal(undone[0], first);
   assert.equal(undone[1], second);
 
-  const changedAfterApply = applied.next.map((cue) => cue.id === 'second' ? { ...cue, approved: true } : cue);
+  const changedAfterApply = applied.next.map((cue) => cue.id === 'second' ? { ...cue, approved: false } : cue);
   assert.equal(undoWordHighlightBatch(changedAfterApply, applied.applied), null);
   assert.equal(changedAfterApply[0], applied.next[0]);
 });
@@ -226,7 +252,7 @@ test('published batch merge preserves unrelated local edits while adopting serve
   assert.notEqual(merged, local);
   assert.equal(merged[0].text, target.text);
   assert.deepEqual(merged[0].wordTiming, published[0].wordTiming);
-  assert.equal(merged[0].approved, false);
+  assert.equal(merged[0].approved, true);
   assert.equal(merged[1], localUnrelated);
   assert.equal(local[0], target);
   assert.equal(target.wordTiming, undefined);
@@ -244,11 +270,11 @@ test('published batch merge keeps a target that changed locally during the reque
   assert.equal(merged[0].wordTiming, undefined);
 });
 
-test('published undo merge removes restored word timing and approval when the server omits them', () => {
+test('published undo merge removes restored word timing and retains local approval', () => {
   const original: CaptionSegment = { id: 'target', text: 'one two', startMs: 1_000, endMs: 2_000 };
   const applied = applyWordHighlightBatch([original], [candidateFor(original)]);
   assert.ok(applied.next[0].wordTiming);
-  assert.equal(applied.next[0].approved, false);
+  assert.equal(applied.next[0].approved, undefined);
   const reverse = applied.applied.map(({ before, after }) => ({ before: after, after: before }));
   const serverRestored = [{ ...original }];
 
@@ -257,7 +283,7 @@ test('published undo merge removes restored word timing and approval when the se
   assert.equal(Object.prototype.hasOwnProperty.call(merged[0], 'wordTiming'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(merged[0], 'approved'), false);
   assert.ok(applied.next[0].wordTiming);
-  assert.equal(applied.next[0].approved, false);
+  assert.equal(applied.next[0].approved, undefined);
 });
 
 function wordBatchAuthorityProject(captions: CaptionSegment[]): CaptionProject {
@@ -388,7 +414,6 @@ test('word-batch authority accepts a safely hydrated legacy target without chang
   assert.equal(resolveCaptionWordTiming(before).state, 'ready');
   const after = structuredClone(before);
   after.wordTiming!.words[0].startMs! += 10;
-  after.approved = false;
   const expected = wordHighlightBatchSaveBasis(basis, [{ before, after }]);
   assert.ok(expected);
   const returned = { ...basis, captions: [after], updatedAt: '2026-10-20T00:00:03.000Z' };

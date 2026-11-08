@@ -208,28 +208,46 @@ Whole-caption movement translates owned word times; edge trims never stretch
 them. Text correction, splitting, merging, regrouping, regeneration, locking, and
 History must preserve only timing that still matches the resulting wording.
 
-Changed/ambiguous words cannot silently become highlight-ready through guessed
-proportional timings. **Sync words** aligns the saved exact wording locally and
-returns an unapplied, revision-bound candidate; **Use timing** is explicit and
-undoable. Manual word adjustments and confirmation provide a recovery path for
-uncertain or absent alignment. The operation changes no source media or wording
-and makes no new cloud transcription request.
+Changed or ambiguous words need exact local alignment or human confirmation.
+**Sync words** applies a ready, revision-bound result in Fine Timing and records
+it for Undo. Tentative results are available as an optional preview for manual
+recovery. Word-only changes preserve the caption’s wording, outer boundaries,
+and Review approval.
 
-The source-only **Prepare word highlights** action checks unresolved captions
-sequentially using the same local exact-word alignment, skipping already-ready
-tracks and leaving locked/partial/failed captions for review. Progress and Cancel
-remain visible in Appearance; cancel stops further requests but the current local
-alignment may still finish cleaning up. Successful tracks are proposals until
-**Use ready timings**. The server applies all selected ready proposals in one
-revision-guarded, history-backed project write; any stale/locked changed target
-rejects the entire write. **Undo batch** uses the same guarded transaction to
-restore the previous tracks. Newer edits and other-project data must remain safe.
-These source changes are not a public-release availability claim.
+**Sync words** can suggest an edge repair when a short caption's measured
+speech falls outside the saved cue. A local alignment with adjacent captions
+must support the new cuts. Preview the full change and apply explicitly as one
+timing edit. Applying clears Review approval for the changed cues, and Undo
+restores their previous edges, word timing, and approvals.
+
+In source builds, explicitly turning on **Word highlighting** starts a local pass
+over unresolved, unlocked captions. Reuse ready tracks and repair small geometric
+conflicts only where measured intervals support the correction. Clip the smallest
+required edges while preserving manual anchors. Send remaining targets through
+exact-word local alignment and intersect measured first and last words with the
+saved cue. If a short cue's padded clip puts a word in an adjoining caption,
+use a neighbor-bounded retry only when its words agree with a contextual
+alignment and fit the saved cue with at most a small edge trim. Carry any
+independently measured splits into both checks. Captions with uncertain, missing, or locked timing
+remain available through **Review remaining** and **Next timing issue**.
+
+Show progress and Cancel in Appearance. The ready results apply automatically
+in a revision-guarded, history-backed project write. Cancel before the write
+discards prepared timings. **Undo timing changes** restores the previous tracks
+through the same guard. The pass uses the existing local audio and makes no
+cloud transcription request.
 
 Source-only Khmer alignment refinement preserves each directly forced-aligned
 KFA acoustic word interval until the final wording is reconciled. Differences
 between Khmer display token boundaries and KFA orthography cannot create
 fabricated internal acoustic edges or make a proportional split highlight-ready.
+Word sync can remeasure such a split using the exact displayed words as separate
+alignment inputs. Keep the new boundaries only when they fit the original
+measured span and its unchanged neighbors. If both passes independently place a
+pause inside one display word, preserve the measured parts as separate exact
+text spans so the pause uses the normal caption color.
+Treat a Khmer word and its repetition sign `ៗ` as one written unit in timing and
+caption wrapping. Use the measured timing for the exact marked unit.
 Raw KFA CTC path scores are not calibrated ASR confidence and must not themselves
 trigger word review; lexical correspondence, measured interval validity, and
 explicit uncertainty still govern readiness. Local faster-whisper fallback word

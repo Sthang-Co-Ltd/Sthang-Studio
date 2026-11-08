@@ -25,7 +25,7 @@ import { computeSpectrum } from '../audio/spectrum';
 import { buildWaveformPeaks, waveformExtrema, type WaveformPeaks } from '../audio/peaks';
 import { TimestampInput } from './TimestampInput';
 import { focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEditKind } from '../timing-edit';
-import { captionNeighborLimits, planCaptionTimingEdit, type CaptionTimingOptions, type CaptionTimingTransaction } from '../caption-timing-transaction';
+import { captionNeighborLimits, planCaptionTimingEdit, timingTransactionMatches, type CaptionTimingOptions, type CaptionTimingTransaction } from '../caption-timing-transaction';
 import type { TimingPlaybackRange } from '../timing-playback';
 import { WordTimingPanel, type WordTimingCandidate } from './WordTimingPanel';
 import { changeWordTiming } from '../word-timing-edit';
@@ -44,15 +44,15 @@ interface WaveformEditorProps {
   initialZoom: number;
   initialEditMode?: 'caption' | 'words';
   onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
-  onAutoSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null | undefined>;
+  onNextWordTimingIssue?(): void;
   syncDisabled: boolean;
   highlightEnabled: boolean;
   onOpenAppearance(): void;
   onEditCaptionText(): void;
-  onWordPreview(basis: CaptionSegment, preview: CaptionSegment | null): void;
+  onWordPreview(ownerId: string, preview: CaptionTimingTransaction | null): void;
   onSeek(ms: number): void;
   onSelect(id: string): void;
-  onTimingChange(before: CaptionSegment[], after: CaptionSegment[]): boolean;
+  onTimingChange(before: CaptionSegment[], after: CaptionSegment[], guards?: CaptionSegment[]): boolean;
   onPreview(range: TimingPlaybackRange): void;
   onStopPreview(): void;
   onNotice(message: string): void;
@@ -168,7 +168,7 @@ export function WaveformEditor({
   initialZoom,
   initialEditMode = 'caption',
   onSyncWords,
-  onAutoSyncWords,
+  onNextWordTimingIssue,
   syncDisabled,
   highlightEnabled,
   onOpenAppearance,
@@ -206,7 +206,7 @@ export function WaveformEditor({
   const [sharedBoundary, setSharedBoundary] = useState(false);
   const [editMode, setEditMode] = useState<'caption' | 'words'>(initialEditMode);
   const [selectedWordId, setSelectedWordId] = useState<string | null>(null);
-  const [wordCandidate, setWordCandidate] = useState<{ basis: CaptionSegment; preview: CaptionSegment } | null>(null);
+  const [wordCandidate, setWordCandidate] = useState<{ ownerId: string; preview: CaptionTimingTransaction } | null>(null);
   const [showReferenceWords, setShowReferenceWords] = useState(false);
   const [stepMs, setStepMs] = useState(50);
   const [loop, setLoop] = useState(false);
@@ -220,9 +220,11 @@ export function WaveformEditor({
   const memoryKey = useMemo(() => waveformIdentity(projectId, mediaIdentity, tokens), [projectId, mediaIdentity, tokens]);
   const captionIndex = captions.findIndex((caption) => caption.id === selectedIds[0]);
   const selectedCaption = captions[captionIndex];
-  const validCandidate = wordCandidate && sameTimingRevision(selectedCaption, wordCandidate.basis) ? wordCandidate.preview : null;
-  const currentCaption = dragPreview?.find((caption) => caption.id === selectedCaption?.id) || validCandidate || selectedCaption;
-  const drawnCaptions = useMemo(() => dragPreview ? captions.map((caption) => dragPreview.find((preview) => preview.id === caption.id) || caption) : captions, [captions, dragPreview]);
+  const validCandidate = wordCandidate && selectedCaption?.id === wordCandidate.ownerId
+    && timingTransactionMatches(captions, wordCandidate.preview) ? wordCandidate.preview : null;
+  const previewCaptions = dragPreview ?? validCandidate?.after;
+  const currentCaption = previewCaptions?.find((caption) => caption.id === selectedCaption?.id) ?? selectedCaption;
+  const drawnCaptions = useMemo(() => previewCaptions ? captions.map((caption) => previewCaptions.find((preview) => preview.id === caption.id) ?? caption) : captions, [captions, previewCaptions]);
   const maxZoom = Math.max(24, durationMs / 500);
   const viewDurationMs = durationMs ? durationMs / zoom : 1;
   const viewEndMs = viewStartMs + viewDurationMs;
@@ -671,16 +673,16 @@ export function WaveformEditor({
   };
 
   const commit = (transaction: CaptionTimingTransaction, record = true) => {
-    const { before, after, limited } = transaction;
+    const { before, after, guards, limited } = transaction;
     if (limited) onNotice(limited);
     if (!after.length || after.every((caption, index) => sameTimingRevision(caption, before[index]))) return false;
-    if (!before.every((expected) => sameTimingRevision(captions.find((caption) => caption.id === expected.id), expected)) || !onTimingChange(before, after)) {
+    if (!timingTransactionMatches(captions, transaction) || !onTimingChange(before, after, guards)) {
       onNotice('This caption changed during the timing edit. Its newer edits were kept.');
       return false;
     }
     onStopPreview();
     if (record) {
-      history.current.undo = [...history.current.undo.slice(-49), { before, after }];
+      history.current.undo = [...history.current.undo.slice(-49), { before, after, guards }];
       history.current.redo = [];
     }
     setHistoryRevision((value) => value + 1);
@@ -695,7 +697,7 @@ export function WaveformEditor({
     if (!entry) return;
     const before = direction === 'undo' ? entry.after : entry.before;
     const after = direction === 'undo' ? entry.before : entry.after;
-    if (commit({ before, after }, false)) {
+    if (commit({ before, after, guards: entry.guards }, false)) {
       stack.pop();
       history.current[direction === 'undo' ? 'redo' : 'undo'].push(entry);
       const target = after.find((caption) => caption.id === selectedCaption?.id) || after[0];
@@ -736,8 +738,8 @@ export function WaveformEditor({
   };
   const lastUndo = history.current.undo.at(-1);
   const lastRedo = history.current.redo.at(-1);
-  const canUndo = Boolean(lastUndo && lastUndo.after.every((expected) => sameTimingRevision(captions.find((caption) => caption.id === expected.id), expected)));
-  const canRedo = Boolean(lastRedo && lastRedo.before.every((expected) => sameTimingRevision(captions.find((caption) => caption.id === expected.id), expected)));
+  const canUndo = Boolean(lastUndo && timingTransactionMatches(captions, { before: lastUndo.after, after: lastUndo.before, guards: lastUndo.guards }));
+  const canRedo = Boolean(lastRedo && timingTransactionMatches(captions, lastRedo));
 
   const setZoomValue = (value: number) => {
     const next = clamp(value, 1, maxZoom);
@@ -940,8 +942,13 @@ export function WaveformEditor({
     </>}
     {selectedCaption && editMode === 'words' && <WordTimingPanel key={selectedCaption.id} caption={selectedCaption} selectedWordId={selectedWordId}
       playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop} highlightEnabled={highlightEnabled}
-      onSelectWord={setSelectedWordId} onChange={(before, after) => commit({ before: [before], after: [after] })} onSync={onSyncWords} onAutoSync={onAutoSyncWords}
-      onCandidatePreview={(basis, preview) => { setWordCandidate(preview ? { basis, preview } : null); onWordPreview(basis, preview); }}
+      onSelectWord={setSelectedWordId} onChange={(before, after) => commit({ before: [before], after: [after] })} onSync={onSyncWords} onNextWordTimingIssue={onNextWordTimingIssue}
+      captionContext={captions} onApplyEdgeRepair={commit}
+      onCandidatePreview={(basis, preview, repair) => {
+        const change = preview ? repair ?? { before: [basis], after: [preview] } : null;
+        setWordCandidate(change ? { ownerId: basis.id, preview: change } : null);
+        onWordPreview(basis.id, change);
+      }}
       onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText}/>}
     {editMode === 'words' && <div className="timing-move-controls"><label>Step<select aria-label="Word nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}
     <details className="timing-options"><summary>Snapping, playback speed and display</summary>

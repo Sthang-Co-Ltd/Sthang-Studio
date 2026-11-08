@@ -663,12 +663,15 @@ export function CaptionAppearanceWorkspace({
       <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay this caption to check its look.'}</span>
     </section>
 
-    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || Boolean(wordPreparation && wordPreparation.status !== 'idle')}><summary>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
+    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.status === 'preparing' || wordPreparation?.status === 'applying'}><summary>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
     <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
       <div className="appearance-word-highlight-head">
         <p>Color the current word while the full caption stays visible.</p>
         <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
-          onClick={() => updateAppearance((current) => ({ ...current, highlightMode: current.highlightMode === 'word' ? 'off' : 'word' }))}>
+          onClick={() => {
+            const enabled = appearanceRef.current.highlightMode !== 'word';
+            if (updateAppearance((current) => ({ ...current, highlightMode: enabled ? 'word' : 'off' }))) wordPreparation?.onToggle(enabled);
+          }}>
           {appearance.highlightMode === 'word' ? 'On' : 'Off'}
         </button>
       </div>
@@ -677,12 +680,11 @@ export function CaptionAppearanceWorkspace({
           onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
         <div className="appearance-highlight-readiness" role="status">
           <div><strong>{wordReadiness.total ? `${wordReadiness.total - wordReadiness.unresolved.length} of ${wordReadiness.total} captions ready` : 'No spoken captions'}</strong>
-            {wordReadiness.unresolved.length > 0 && <span>{wordReadiness.unresolved.length} will stay plain until their words are synced or confirmed.</span>}</div>
-          <button type="button" onClick={() => onEditWordTiming(wordReadiness.unresolved[0]?.id)}>{wordReadiness.unresolved.length ? 'Review word timing' : 'Edit word timing'}</button>
+            {wordReadiness.unresolved.length > 0 && <span>Captions that need timing stay plain.</span>}</div>
+          {!wordReadiness.unresolved.length && wordReadiness.total > 0 && <button type="button" onClick={() => onEditWordTiming()}>Edit word timing</button>}
         </div>
       </>}
-      {wordPreparation && (appearance.highlightMode === 'word' || wordPreparation.status !== 'idle')
-        && <WordHighlightPreparation view={wordPreparation}/>}
+      {wordPreparation && <WordHighlightPreparation view={wordPreparation} enabled={appearance.highlightMode === 'word'}/>}
       {appearance.highlightMode === 'word' && <p className="appearance-highlight-note">Highlights appear in video. SRT carries text and timing only.</p>}
     </section>
 
@@ -728,6 +730,6 @@ export function CaptionAppearanceWorkspace({
     </details>
     <details className="appearance-preview-details"><summary>About the preview</summary><p>Style captions against your video. Size and position may update before the exact export preview is ready. Compression and display scaling can soften edges.</p></details>
 
-    <div className="appearance-workspace-footer"><span>Styling only. Caption text, timing and SRT stay unchanged.</span></div>
+    <div className="appearance-workspace-footer"><span>Appearance controls the look of captioned video. SRT carries caption text and cue timing.</span></div>
   </section>;
 }

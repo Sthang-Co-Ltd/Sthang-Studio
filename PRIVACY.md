@@ -129,11 +129,17 @@ a persisted recovery snapshot and is lost when dismissed or the editor reloads.
 
 ### Local word timing and highlighting
 
-**Sync words** processes a bounded clip from the existing project audio and the
-caption's current wording on this computer. It does not call Gemini or add a new
-cloud transfer. The candidate stays in the local browser until applied; accepted
-word intervals persist with the caption and its local History. Existing model
-setup/download behavior is unchanged.
+In source builds, turning on **Word highlighting** checks unresolved captions
+and syncs words when needed. **Sync remaining** and Fine Timing’s **Sync words**
+can also start this work. Studio processes bounded clips from the existing
+project audio and current caption wording on this computer. Ready word timings
+are saved with the captions and local History. Audio and wording used for this
+timing step stay on this computer.
+
+For short captions, word sync may check adjoining captions and their audio on
+this computer to distinguish nearby speech. An explicit **Sync words** request
+can also use that check to suggest a caption-edge repair. The audio, wording,
+and proposed repair stay local.
 
 Spoken-word highlighting uses those intervals in local native preview and
 captioned-video rendering. Preview requests travel only over the existing

@@ -183,6 +183,7 @@ test('equal-time word selection clears an invalid draft and exposes review statu
   first().wordTiming!.words[0].endMs = 850;
   first().wordTiming!.words[1].needsReview = true;
   await openTiming(page);
+  await selectWord(page, 1, 'I');
   const end = page.getByLabel('Word end time', { exact: true });
   await end.fill('00:');
   await selectWord(page, 2, 'love');
@@ -225,7 +226,7 @@ test('an untimed word with no available gap explains recovery and becomes editab
   expect(first().wordTiming!.words[4].startMs).toBe(1300);
 });
 
-test('local sync is a proposal until Use timing, and applying it participates in undo', async ({ page }) => {
+test('local sync applies ready timing with approval intact and participates in undo', async ({ page }) => {
   await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
     const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
     const wordTiming = structuredClone(caption.wordTiming!);
@@ -234,19 +235,69 @@ test('local sync is a proposal until Use timing, and applying it participates in
   });
   await openTiming(page);
   await page.getByRole('button', { name: 'Sync words', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toBeVisible();
-  expect(first().wordTiming!.words[3].startMs).toBe(1550);
+  await expect(page.getByText('Word timing applied. Replay to check it.', { exact: true })).toBeVisible();
   await selectWord(page, 4, 'very');
   await expect(page.getByLabel('Word start time', { exact: true })).toHaveValue('00:01.450');
-  await page.getByRole('button', { name: 'Use timing', exact: true }).click();
   await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1450);
+  expect(first().approved).toBe(true);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1550);
 });
 
-test('opening unresolved word timing automatically prepares one ready local proposal without applying it', async ({ page }) => {
+test('a suggested shared caption repair previews, applies, and undoes both captions together', async ({ page }, testInfo) => {
+  const [left, target] = project().captions;
+  target.wordTiming!.words[0] = { ...target.wordTiming!.words[0], source: 'estimated', needsReview: true };
+  const before = structuredClone([left, target]);
+  const leftTrack = structuredClone(left.wordTiming!);
+  leftTrack.words.at(-1)!.endMs = 2450;
+  const targetTrack = structuredClone(target.wordTiming!);
+  targetTrack.words[0] = { ...targetTrack.words[0], startMs: 2450, source: 'aligned', needsReview: undefined };
+  const after = [
+    { ...left, endMs: 2450, wordTiming: leftTrack, approved: false },
+    { ...target, startMs: 2450, wordTiming: targetTrack, approved: false },
+  ];
+  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
+    const body = route.request().postDataJSON() as { caption: CaptionSegment; suggestEdges?: boolean };
+    expect(body.suggestEdges).toBe(true);
+    expect(body.caption.id).toBe(target.id);
+    await route.fulfill({ json: { basis: body.caption, wordTiming: target.wordTiming, edgeRepair: { before, after, guards: [] } } });
+  });
+
+  await openTiming(page);
+  await page.getByRole('button', { name: 'Next caption', exact: true }).click();
+  await page.getByRole('button', { name: 'Sync words', exact: true }).click();
+  const proposal = page.getByRole('region', { name: 'Suggested caption timing' });
+  await expect(proposal).toContainText('00:02.450');
+  await expect(proposal).toContainText('Applying clears Review approval on 2 captions.');
+  expect(project().captions).toEqual(before);
+  await proposal.getByRole('button', { name: 'Play suggestion', exact: true }).click();
+  await expect.poll(() => page.locator('video').evaluate((media: HTMLVideoElement) => media.currentTime)).toBeLessThan(2);
+  expect(project().captions).toEqual(before);
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+
+  await proposal.screenshot({ path: testInfo.outputPath('suggested-caption-timing.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const apply = proposal.getByRole('button', { name: 'Apply timing repair', exact: true });
+  await expect(apply).toBeEnabled();
+  expect(await proposal.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await proposal.evaluate((element) => element.scrollIntoView({ block: 'end' }));
+  await expect.poll(() => apply.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+  })).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('suggested-caption-timing-mobile.png'), animations: 'disabled' });
+  await apply.click();
+  await expect(proposal).toHaveCount(0);
+  await expect.poll(() => project().captions.map((cue) => [cue.startMs, cue.endMs, cue.approved])).toEqual([
+    [200, 2450, false], [2450, 3600, false],
+  ]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(() => project().captions).toEqual(before);
+});
+
+test('opening unresolved word timing selects the issue without repeating the sync', async ({ page }) => {
   let requests = 0;
-  first().wordTiming!.words[0].needsReview = true;
+  first().wordTiming!.words[3].needsReview = true;
   await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
     requests += 1;
     const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
@@ -258,29 +309,29 @@ test('opening unresolved word timing automatically prepares one ready local prop
 
   const before = structuredClone(first().wordTiming);
   await openTiming(page);
-  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toBeVisible();
-  expect(requests).toBe(1);
+  await expect(page.getByLabel('Word start time', { exact: true })).toHaveValue('00:01.550');
+  await expect(page.getByRole('button', { name: 'Sync words', exact: true })).toBeEnabled();
   expect(first().wordTiming).toEqual(before);
-  await page.getByRole('button', { name: 'Keep current', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toHaveCount(0);
-  expect(requests).toBe(1);
+  expect(requests).toBe(0);
 });
 
-test('an unchanged sync proposal clears the selected word invalid draft without applying it', async ({ page }) => {
+test('a tentative sync preview can be closed while keeping existing word timing', async ({ page }) => {
   await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
     const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
-    await route.fulfill({ json: { basis: caption, wordTiming: caption.wordTiming } });
+    const wordTiming = structuredClone(caption.wordTiming!);
+    wordTiming.words[0].needsReview = true;
+    await route.fulfill({ json: { basis: caption, wordTiming } });
   });
   await openTiming(page);
   const original = structuredClone(first().wordTiming);
   const start = page.getByLabel('Word start time', { exact: true });
   await start.fill('00:');
   await page.getByRole('button', { name: 'Sync words', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Use tentative timing', exact: true })).toBeVisible();
   await expect(start).toBeDisabled();
   await expect(start).toHaveValue('00:00.200');
   await expect(start).not.toHaveAttribute('aria-invalid', 'true');
-  await page.getByRole('button', { name: 'Keep current', exact: true }).click();
+  await page.getByRole('button', { name: 'Close preview', exact: true }).click();
   await expect(start).toBeEnabled();
   await expect(start).toHaveValue('00:00.200');
   expect(first().wordTiming).toEqual(original);
@@ -304,7 +355,7 @@ test('a newer word edit invalidates a local-sync response without losing the edi
     await page.getByRole('button', { name: 'Move word earlier', exact: true }).click();
     release();
     await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1500);
-    await expect(page.getByRole('button', { name: 'Use timing', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Use tentative timing', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Sync words', exact: true })).toBeEnabled();
   } finally { release?.(); }
 });

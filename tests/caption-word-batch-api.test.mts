@@ -49,7 +49,6 @@ function projectFixture(id: string): CaptionProject {
 function preparedChange(before: CaptionSegment) {
   const afterCaption = structuredClone(before);
   afterCaption.wordTiming!.words[0].startMs! += 10;
-  afterCaption.approved = false;
   assert.equal(shared.resolveCaptionWordTiming(afterCaption).state, 'ready');
   return { before: structuredClone(before), after: afterCaption };
 }
@@ -102,7 +101,7 @@ test('batch-apply HTTP boundary validates media, payload, action, job gate and a
   const applied = await appliedResponse.json();
   assert.equal(applied.appliedCount, 1);
   assert.equal(shared.resolveCaptionWordTiming(applied.project.captions[0]).state, 'ready');
-  assert.equal(applied.project.captions[0].approved, false);
+  assert.equal(applied.project.captions[0].approved, true);
 
   const stale = await request(project.id, { expectedMedia, changes: [change], action: 'apply' });
   assert.equal(stale.status, 409);

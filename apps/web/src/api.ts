@@ -1,6 +1,7 @@
 import type {
   AppProfile,
   CaptionAppearance,
+  CaptionEdgeRepair,
   CaptionGenerationModel,
   CaptionLayoutCheckInput,
   CaptionLayoutCheckResult,
@@ -131,6 +132,7 @@ export interface CaptionWordTimingCandidate {
   wordTiming: CaptionWordTiming;
   sourceRevision?: string;
   warnings?: string[];
+  edgeRepair?: CaptionEdgeRepair;
 }
 
 export type ReplacementCleanupWarning = 'history' | 'proposals' | 'old-media' | 'durability';
@@ -299,10 +301,11 @@ export const api = {
     caption: CaptionSegment,
     expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
     signal?: AbortSignal,
+    suggestEdges = false,
   ) => request<CaptionWordTimingCandidate>(`/api/projects/${projectId}/caption-word-timing`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ caption, expectedMedia }),
+    body: JSON.stringify({ caption, expectedMedia, ...(suggestEdges ? { suggestEdges } : {}) }),
     signal,
   }),
   applyWordHighlightBatch: (

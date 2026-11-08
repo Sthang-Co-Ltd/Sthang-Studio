@@ -20,7 +20,7 @@ test('moving an individual word keeps caption edges and every other word untouch
   assert.equal(after.wordTiming!.words[3].startMs, 2400);
   assert.equal(after.wordTiming!.words[3].endMs, 2700);
   assert.deepEqual(after.wordTiming!.words.filter((word) => word.id !== 'w3'), before.wordTiming!.words.filter((word) => word.id !== 'w3'));
-  assert.equal(after.approved, false);
+  assert.equal(after.approved, true);
 });
 
 test('word moves and trims stop at neighboring words and cue bounds', () => {
