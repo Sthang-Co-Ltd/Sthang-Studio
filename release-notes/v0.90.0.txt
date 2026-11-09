@@ -1,0 +1,21 @@
+Sthang Studio 0.90.0 - Public Beta
+
+Turn on Word highlighting in Appearance to sync unresolved captions locally and save usable timings. Review remaining captions in
+Fine Timing or undo the timing changes. For short cues, Sync words can suggest a caption-edge repair to audition and apply.
+Timing repairs that change caption edges require a fresh review of the affected captions.
+
+Open optional Accuracy context before generation to add names and wording guidance for the current project. Preview Find and
+Replace changes before applying them. The Graphite export workspace makes preset feedback and previous exports easier to find.
+Editor feedback is clearer around saving, uploads, loading workspaces, and adjusting appearance.
+
+Requirements: Windows 10 or 11 x64, or Apple Silicon macOS 12.3+, internet for initial setup and AI wording, and a Gemini
+Developer API key. The Mac installer provides a local Finder launcher.
+Studio requests store: false for Gemini interactions. Audio goes through the Gemini Files API, where Google controls retention
+for up to 48 hours. Word sync processes audio and wording locally. Contributor and analytics transfers each require explicit opt-in.
+
+Recovery assets, each with a matching SHA-256 file:
+- Sthang-Studio-Windows-v0.90.0.zip
+- Sthang-Studio-macOS-Apple-Silicon-v0.90.0.zip
+
+In Studio, choose Check for updates, then Download & verify and Install & restart. The manual installer is the recovery route
+and delivers stable-broker changes. Existing Apple Silicon installations need the 0.85.6 or newer bootstrap for in-app updates.
