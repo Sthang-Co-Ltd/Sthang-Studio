@@ -12,6 +12,7 @@ import {
   createUntimedCaptionWordTiming,
   editCaptionWord,
   reconcileCaptionWordTiming,
+  repairSmallWordTimingBoundaries,
   resolveCaptionWordTiming,
 } from '../packages/shared/src/word-timing.js';
 
@@ -36,6 +37,45 @@ const sourceTokens = (): TimedToken[] => [
   token({ id: 'khmer', text: 'ខ្មែរ', startMs: 1_050, endMs: 1_350, spaceBefore: false }),
   token({ id: 'ai', text: 'AI!', startMs: 1_420, endMs: 1_700, spaceBefore: true }),
 ];
+
+test('small boundary repair trims measured words at the cue edges and in the middle', () => {
+  const cue = caption({ text: 'ខ្មែរ AI now', approved: true });
+  cue.wordTiming = buildCaptionWordTimingForExactText(cue, [
+    token({ id: 'first', text: 'ខ្មែរ', startMs: 985, endMs: 1_260, spaceBefore: false }),
+    token({ id: 'middle', text: 'AI', startMs: 1_300, endMs: 1_718, spaceBefore: true }),
+    token({ id: 'last', text: 'now', startMs: 1_700, endMs: 2_015, spaceBefore: true }),
+  ]);
+  assert.ok(cue.wordTiming);
+  const before = structuredClone(cue);
+  const repaired = repairSmallWordTimingBoundaries(cue);
+  assert.ok(repaired);
+  assert.deepEqual(repaired.words.map(({ startMs, endMs }) => [startMs, endMs]), [
+    [1_000, 1_260], [1_300, 1_700], [1_700, 2_000],
+  ]);
+  assert.ok(repaired.words.every((word) => word.source === 'aligned'));
+  assert.equal(resolveCaptionWordTiming({ ...cue, wordTiming: repaired }).state, 'ready');
+  assert.equal(repairSmallWordTimingBoundaries({ ...cue, timingLocked: true }), undefined);
+  assert.deepEqual(cue, before);
+});
+
+test('repair respects manual anchors and leaves uncertain, large, or proportionally large conflicts unresolved', () => {
+  const cue = caption();
+  const timing = buildCaptionWordTiming(cue, sourceTokens());
+  assert.ok(timing);
+  const [first, last] = timing.words;
+  const tryRepair = (a = first, b = last) => repairSmallWordTimingBoundaries({
+    ...cue, wordTiming: { ...timing, words: [a, b] },
+  });
+  const manual = { ...first, source: 'manual' as const };
+  const repaired = tryRepair(manual, { ...last, startMs: 1_337 });
+  assert.deepEqual(repaired?.words[0], manual);
+  assert.equal(repaired?.words[1].startMs, 1_350);
+  assert.equal(tryRepair({ ...first, endMs: 1_440, needsReview: true }), undefined);
+  assert.equal(tryRepair({ ...first, endMs: 1_480 }), undefined);
+  assert.equal(tryRepair(manual, { ...last, startMs: 1_330, endMs: 1_390 }), undefined);
+  assert.equal(tryRepair(manual, { ...last, startMs: 1_337, source: 'manual' }), undefined);
+  assert.equal(tryRepair({ ...first, startMs: 999, source: 'estimated' }), undefined);
+});
 
 test('builds exact grapheme-safe UTF-16 offsets and requires exact contiguous token text', () => {
   const source = caption();
@@ -392,7 +432,7 @@ test('reconcile keeps no-ops cheap and respects an explicit word-timing clear', 
 });
 
 test('manual word edits respect cue bounds, neighbors and timing locks', () => {
-  const source = caption();
+  const source = caption({ approved: true });
   source.wordTiming = buildCaptionWordTiming(source, sourceTokens());
   assert.ok(source.wordTiming);
 
@@ -402,7 +442,7 @@ test('manual word edits respect cue bounds, neighbors and timing locks', () => {
   assert.equal(edited.wordTiming?.words[0].needsReview, undefined);
   assert.equal(edited.timingSource, 'manual');
   assert.equal(edited.timingQuality, 'medium');
-  assert.equal(edited.approved, false);
+  assert.equal(edited.approved, true);
   assert.equal(resolveCaptionWordTiming(edited).state, 'ready');
 
   assert.equal(editCaptionWord(source, 'khmer', { startMs: 1_020, endMs: 1_500 }), source);

@@ -155,10 +155,10 @@ test('explicit candidate batch apply preserves alignment warning and unrelated r
   const before = structuredClone(project.captions[0]);
   const after = structuredClone(before);
   after.wordTiming!.words[0].startMs = 240;
-  after.approved = false;
   const applied = planCaptionWordBatchApply(project, project.media, [{ before, after }]).project;
   assert.equal(applied.captions[0].wordTiming!.words[0].startMs, 240);
   assert.equal(applied.captions[0].textLocked, true);
+  assert.equal(applied.captions[0].approved, before.approved);
   assert.deepEqual(applied.mediaAlignment, project.mediaAlignment);
   assert.deepEqual(applied.transcript, project.transcript);
   assert.deepEqual(project.captions[0], before);

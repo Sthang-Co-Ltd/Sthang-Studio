@@ -80,11 +80,18 @@ retained word intervals. Overlapping word intervals still require review; the
 merge does not invent a new speech sequence.
 
 **Sync words** listens locally to the existing caption interval and a small
-margin, aligning the exact current wording without rewriting it or calling
-Gemini. The result is a proposal: inspect/listen, then choose **Use timing** or
-**Keep current**. It can still contain uncertain words. A newer text, word,
-caption-edge, lock, or media change invalidates an in-flight result. Applying a
-candidate participates in Fine Timing undo and normal autosave/History.
+margin and aligns the exact current wording. In source builds, usable timing
+applies automatically and participates in Fine Timing Undo and local
+autosave/History. Tentative timing can be previewed, then used as a starting
+point for edits or closed. Newer text, word, caption-edge, lock, or media
+changes invalidate an in-flight result.
+
+For a short caption with measured words outside its edges, **Sync words** can
+check the adjoining captions and suggest a new cut. **Play suggestion** auditions
+the proposed edges and highlights against the video. **Apply timing repair**
+saves the changed edges and word timings together and clears Review approval
+on affected captions. Fine Timing **Undo** restores both. If you close the
+preview, you can still edit the caption edges manually.
 
 For manual correction, adjust a tentative word and/or choose **Confirm this
 word** after listening. An untimed word has editable local Start/End fields and
@@ -96,10 +103,10 @@ the wording or leave it plain rather than treating generated timestamps as fact.
 If neighboring words or the caption edges leave less than 10 ms, the word editor
 explains that there is no room and disables the impossible edit. Select a
 neighboring word to make space, adjust the caption edges, or use **Sync words**
-to review a new proposal. Other words are never moved automatically. Words marked
-**Needs review** expose that status to screen readers as well as visually.
-During a sync proposal, words remain selectable for inspection and listening;
-choose **Use timing** or **Keep current** before making manual edits.
+to try a fresh alignment. Words marked **Needs review** expose that status to
+screen readers as well as visually. During a tentative preview, words remain
+selectable for inspection and listening. Choose **Use tentative timing** or
+**Close preview** to resume editing.
 
 Sync is bounded to one active local word-sync operation and captions no longer
 than 60 seconds/2,000 Unicode code points. Active caption processing must finish
@@ -112,12 +119,20 @@ kept together. Timing a displayed word/unit does not promise syllable-level
 highlighting. Text composition uses a stable edit basis so temporary unfinished
 Khmer input does not progressively erase valid surrounding anchors.
 
+The Khmer repetition sign `ៗ` stays with the preceding Khmer word in timing and
+caption wrapping. Word sync can use a measured interval for that whole written
+unit while retaining the original spelling.
+
 In version 0.86, directly aligned KFA word intervals remain
 acoustic anchors even when Khmer display segmentation disagrees. A single
 displayed word can use the entire measured KFA interval; splitting one measured
 word into several displayed words still creates tentative positions that need
-review. Raw KFA path scores are not read as ASR confidence for automatic word
-highlight readiness. If KFA cannot align the wording and faster-whisper supplies
+review. In source builds, word sync can ask the local aligner to measure those
+displayed words separately. It uses the new intervals when they fit the original
+measured span and the surrounding words. When both passes measure a pause
+inside one displayed word, Studio can highlight the measured parts separately
+and show the base color during the pause. Raw KFA path scores are not read as
+ASR confidence for automatic word highlight readiness. If KFA cannot align the wording and faster-whisper supplies
 word timestamps instead, captions can still use those times, but their spoken
 word highlights remain plain until **Sync words** succeeds or you manually
 confirm them. Saved manual corrections are retained as they were.
@@ -135,29 +150,35 @@ that caption to highlight. Missing, stale, overlapping, out-of-range, estimated,
 or review-needed timings leave the entire caption plain. Correcting the text
 therefore cannot silently highlight the wrong old word.
 
-### Project-wide preparation (version 0.86)
+### Automatic preparation in source builds
 
-In version 0.86, turn **Spoken word highlight** On in **Appearance**
-and select **Prepare word highlights**. Studio first saves current caption edits,
-then checks unresolved, unlocked captions sequentially using local exact-word
-alignment. Already-ready tracks are reused; locked captions and any uncertain,
-failed, or estimated results remain for manual review. You can watch the video
-while the checked/total progress advances. **Cancel** stops further requests and
-keeps completed proposals, although an in-progress server alignment may still
-finish before another sync is available.
+After reviewing the caption wording, turn on **Word highlighting** in
+Appearance. Captions with usable timing can highlight immediately. Studio waits
+for pending caption edits to save, checks unresolved captions locally, and saves
+ready word timings in one guarded write with a History checkpoint. This preserves
+Review approvals, caption text and outer boundaries, and manual word timing anchors.
 
-When preparation completes, **Use ready timings** writes eligible proposals in
-one guarded project transaction and records a History checkpoint. **Keep current**
-discards them. New text, word timing, locks, caption boundaries, or media changes
-invalidate the corresponding proposals; the server checks saved caption revisions
-atomically before writing. **Undo batch** reverses the saved changes only while
-the affected captions still match the applied versions. **Review remaining**
-opens the first unresolved caption in Fine Timing for individual correction.
-After applying a batch, **Prepare remaining** can retry captions that still have
-unresolved words, including captions changed by later text edits; starting a
-new batch retires the previous batch's quick Undo, while History preserves the
-saved checkpoints.
-This workflow is part of the 0.86 source and its matching release packages.
+Small overlaps or spill in an existing measured track can be repaired with a
+trim of at most 50 ms and a quarter of the word’s duration. Other unresolved
+captions get an exact-word local alignment attempt. For the first and last word
+of a freshly aligned caption, Studio uses the measured portion inside the
+caption. If nearby speech interferes with a short caption, Studio can retry
+with a clip bounded by the adjoining captions. It can carry separately
+measured words into that retry when the first pass grouped them together.
+The timings must agree with the neighboring-context check. Studio may trim
+up to 25 ms of measured spill at each caption edge.
+Timing that is still uncertain and locked captions stay available
+through **Review remaining**.
+Use **Next timing issue** to move between exceptions, or **Sync remaining** in
+Appearance to retry after an edit.
+
+**Cancel** or turning the effect off during preparation stops future requests
+and discards the pending results. An alignment already running can finish
+cleanup. **Undo timing changes** reverses the last successful batch while its
+caption revisions still match. History preserves earlier checkpoints.
+
+Published builds starting with version 0.86 used **Prepare word highlights**
+followed by **Use ready timings** for the project-wide pass.
 
 Native preview and captioned MP4 consume the same word intervals, whole-text
 layout, and color states. **SRT has no word-highlight or per-word timing metadata**;
@@ -216,3 +237,9 @@ carry the shipped feature identity while protected services and identity remain
 unchanged.
 The subsequent [Fine Timing refinement handoff](FINE-TIMING-REFINEMENT-HANDOFF.md)
 records selection-state, accessibility, and no-room recovery corrections.
+
+Proposed intake `studio-automatic-word-highlights-20261108` updates the public
+workflow and the local processing trigger once a release is verified. The
+affected evidence is the README, this guide, and the local word timing section
+of PRIVACY.md. Carry the workflow into the HQ documentation impact and
+Distribution’s `/studio/` help during their approved synchronization.

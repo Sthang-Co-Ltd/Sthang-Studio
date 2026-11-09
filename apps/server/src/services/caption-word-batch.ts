@@ -99,6 +99,7 @@ function stableNonBatchFields(caption: CaptionSegment) {
     confidence: caption.confidence ?? null,
     timingQuality: caption.timingQuality ?? null,
     timingSource: caption.timingSource ?? null,
+    approved: caption.approved ?? null,
     textLocked: caption.textLocked ?? null,
     timingLocked: caption.timingLocked ?? null,
   };
@@ -131,7 +132,7 @@ function parseChanges(value: unknown): CaptionWordBatchChange[] {
     if (ids.has(before.id)) throw new CaptionWordBatchInputError('Each caption may appear only once in a word timing batch.');
     ids.add(before.id);
     if (!sameNonBatchFields(before, after)) {
-      throw new CaptionWordBatchInputError(`Change ${index + 1} may change only word timing and approval state.`);
+      throw new CaptionWordBatchInputError(`Change ${index + 1} may change only word timing.`);
     }
     if (resolveCaptionWordTiming(after).state === 'stale') {
       throw new CaptionWordBatchInputError(`Change ${index + 1} has invalid word timing for its caption text.`);
@@ -161,17 +162,12 @@ function replaceBatchFields(current: CaptionSegment, after: CaptionSegment): Cap
   } else {
     delete next.wordTiming;
   }
-  if (Object.prototype.hasOwnProperty.call(after, 'approved') && after.approved !== undefined) {
-    next.approved = after.approved;
-  } else {
-    delete next.approved;
-  }
   return next;
 }
 
 /**
  * Validate a prepared word-timing batch against one exact persisted project snapshot.
- * The returned project changes only targeted caption wordTiming/approved fields.
+ * The returned project changes only targeted caption word timing.
  */
 export function planCaptionWordBatchApply(
   project: CaptionProject,
@@ -208,7 +204,7 @@ export function planCaptionWordBatchApply(
       throw new CaptionWordBatchConflictError('A prepared caption changed. Its newer edits were kept; prepare word timing again.');
     }
     // Preserve any unrelated persisted fields, including fields added by a newer
-    // project schema. This operation owns only wordTiming and approved.
+    // project schema. This operation owns only wordTiming.
     replacements.set(current.id, replaceBatchFields(current, after));
   }
 

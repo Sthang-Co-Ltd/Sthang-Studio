@@ -2,6 +2,7 @@ import type { CaptionSegment } from './index.js';
 import type { CaptionAppearance } from './caption-settings.js';
 import { captionRenderTime } from './caption-settings.js';
 import { resolveCaptionWordTiming } from './word-timing.js';
+import { segmentKhmerWords } from './khmer-word-segmentation.js';
 
 /** Render-only linguistic break opportunities, expressed in original UTF-16 offsets.
  * Native libass measures the actual font and width; a character count must never
@@ -12,7 +13,7 @@ export function captionWordBreakOffsets(text: string): number[] {
   const graphemes = new Set(Array.from(
     new Intl.Segmenter('km', { granularity: 'grapheme' }).segment(text), (part) => part.index,
   ));
-  const words = Array.from(new Intl.Segmenter('km', { granularity: 'word' }).segment(text));
+  const words = segmentKhmerWords(text);
   return words.flatMap((word, index) => {
     let previousIndex = index - 1;
     // Keep closing punctuation with the preceding word and honor a creator's

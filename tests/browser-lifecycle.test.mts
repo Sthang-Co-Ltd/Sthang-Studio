@@ -58,6 +58,8 @@ test('held context forwarding drains after page closure without losing route own
   const received = deferred();
   const release = deferred();
   const draining = deferred();
+  const disposing = deferred();
+  const releaseDisposal = deferred();
   const requests: Array<{ method?: string; url?: string }> = [];
   const phases: string[] = [];
   const server = http.createServer(async (request, response) => {
@@ -83,7 +85,13 @@ test('held context forwarding drains after page closure without losing route own
         route.fetch = async (options) => {
           const response = await originalFetch(options);
           const originalDispose = response.dispose.bind(response);
-          response.dispose = async () => { await originalDispose(); disposed++; phases.push('response-disposed'); };
+          response.dispose = async () => {
+            disposing.resolve();
+            await releaseDisposal.promise;
+            await originalDispose();
+            disposed++;
+            phases.push('response-disposed');
+          };
           return response;
         };
       }
@@ -111,6 +119,9 @@ test('held context forwarding drains after page closure without losing route own
     // The response gate is released by a lifecycle event, not a timing sleep.
     await bounded(Promise.race([draining.promise, cleanup.then(() => { throw new Error('Cleanup skipped the context drain.'); })]), 'closed-page drain entered');
     release.resolve();
+    await bounded(Promise.race([disposing.promise, cleanup.then(() => { throw new Error('Cleanup skipped response disposal.'); })]), 'owned response disposal entered');
+    assert.deepEqual(phases, ['closed-pages-before-context-drain']);
+    releaseDisposal.resolve();
     await cleanup;
     assert.equal(forwarded, 1);
     assert.equal(disposed, 1);
@@ -122,6 +133,7 @@ test('held context forwarding drains after page closure without losing route own
     outcomes.push({ case: 'held-route', forwarded, disposed, phases, requests });
   } finally {
     release.resolve();
+    releaseDisposal.resolve();
     try { if (cleanup) await cleanup; }
     finally { try { if (browser) await browser.close(); } finally { await close(server); } }
   }

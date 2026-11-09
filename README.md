@@ -181,6 +181,15 @@ behavior. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
 
 ## Word-highlight preparation
 
+In source builds, turning on **Word highlighting** in Appearance syncs the
+unresolved captions locally and applies usable timing automatically. Finish
+reviewing caption wording first. Word timing edits preserve Review approvals.
+**Review remaining** opens the exceptions in Fine Timing, and **Undo timing
+changes** restores the previous word timings. See the [Fine Timing
+guide](docs/FINE-TIMING.md#enable-spoken-word-highlighting) for details. For short
+captions whose words extend past the cue, **Sync words** can suggest an edge
+repair to audition and apply in Fine Timing.
+
 Version 0.86 adds **Appearance → Prepare word highlights**. It checks
 unresolved captions with the existing local Khmer aligner, skips ready tracks,
 reports which captions still need review, and offers one explicit, guarded batch

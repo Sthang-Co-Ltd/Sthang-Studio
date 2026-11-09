@@ -1,9 +1,10 @@
 import type { CaptionSegment } from '@kcs/shared';
-import { editCaptionTiming, MIN_CAPTION_MS, type TimingEditKind } from './timing-edit';
+import { editCaptionTiming, MIN_CAPTION_MS, sameTimingRevision, type TimingEditKind } from './timing-edit';
 
 export interface CaptionTimingTransaction {
   before: CaptionSegment[];
   after: CaptionSegment[];
+  guards?: CaptionSegment[];
   limited?: string;
 }
 
@@ -40,6 +41,13 @@ export function captionNeighborLimitMap(captions: readonly CaptionSegment[], dur
 
 function overlap(a: CaptionSegment, b: CaptionSegment) {
   return Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
+}
+
+export function timingTransactionMatches(captions: readonly CaptionSegment[], { before, after, guards }: CaptionTimingTransaction) {
+  if (![...before, ...(guards ?? [])].every((cue) => sameTimingRevision(captions.find((item) => item.id === cue.id), cue))) return false;
+  if (!guards) return true;
+  const replacements = new Map(after.map((cue) => [cue.id, cue]));
+  return after.every((cue) => captions.every((item) => item.id === cue.id || overlap(cue, replacements.get(item.id) ?? item) === 0));
 }
 
 /** Plan the complete edit before mutating the draft. A shared boundary is a

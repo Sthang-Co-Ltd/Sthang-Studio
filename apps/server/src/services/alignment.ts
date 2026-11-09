@@ -12,10 +12,17 @@ interface MatchGroup {
   score: number;
 }
 
+interface MeasuredSplitAnchor {
+  tokenStart: number;
+  tokenCount: number;
+  startMs: number;
+  endMs: number;
+}
+
 type Assigned = Omit<TimedToken, 'id' | 'text' | 'spaceBefore'> | undefined;
 
 const EXACT_LEXICAL_SCORE = 1 - 1e-9;
-const MAX_DIRECT_UNION_GAP_MS = 150;
+export const MAX_DIRECT_UNION_GAP_MS = 150;
 const MAX_DIRECT_UNION_OVERLAP_MS = 60;
 
 function buildEquivalenceMap(entries: VocabularyEntry[] | undefined) {
@@ -239,6 +246,7 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
   const directKfaEvidence = timing.engine === 'kfa-local' && timing.directAlignment === true;
   const groups = alignSequences(gemini, sttWords, buildEquivalenceMap(vocabularyEntries), directKfaEvidence);
   const assigned: Assigned[] = Array(gemini.length).fill(undefined);
+  const measuredSplitAnchors: MeasuredSplitAnchor[] = [];
   const unverifiedAsrEvidence = timing.directAlignment === false
     || timing.engine === 'faster-whisper-local'
     || (Boolean(timing.fallbackReason) && timing.directAlignment !== true);
@@ -253,6 +261,10 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
     const weights = gemini.slice(group.gStart, group.gStart + group.gLen).map((t) => Math.max(1, [...t.normalized].length));
     const ranges = splitRange(startMs, endMs, weights);
     const hasDerivedTiming = words.some((word) => word.derived);
+    if (directKfaEvidence && group.gLen > 1 && group.sLen === 1 && !hasDerivedTiming
+      && concatNormalized(gemini, group.gStart, group.gLen, (token) => token.normalized) === normalizeForMatch(words[0].text)) {
+      measuredSplitAnchors.push({ tokenStart: group.gStart, tokenCount: group.gLen, startMs, endMs });
+    }
     const directAlignedUnion = directKfaEvidence
       && group.gLen === 1
       && group.sLen > 1
@@ -348,5 +360,5 @@ export function alignGeminiToTiming(fullText: string, timing: TimingResult, audi
     fallbackReason: timing.fallbackReason,
   };
 
-  return { tokens, diagnostics };
+  return { tokens, diagnostics, measuredSplitAnchors };
 }

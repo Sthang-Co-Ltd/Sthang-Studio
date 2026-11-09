@@ -57,8 +57,8 @@ export function parsePreviewBboxes(stderr: string, frameWidth: number, frameHeig
       const kind = match[1].toLowerCase();
       const pointer = match[2]; // Opaque context token: Linux 0x... and Windows hex both work.
       // Stop at any other FFmpeg context prefix, not merely another bbox prefix.
-      const body = line.slice(match.index! + match[0].length,
-        prefixes[i + 1]?.index ?? line.length).split(/\[[^\]\r\n]+\s+@\s+[^\]\s]+\]/)[0].trim();
+      const segment = line.slice(match.index! + match[0].length, prefixes[i + 1]?.index ?? line.length);
+      const body = segment.split(/\[[^\]\r\n]+\s+@\s+[^\]\s]+\]/)[0].trim();
       const context = `${kind}:${pointer}`;
       const header = /^n:(\d+)(?=\s|$)/.exec(body);
       if (header) {
@@ -78,9 +78,10 @@ export function parsePreviewBboxes(stderr: string, frameWidth: number, frameHeig
         }
         // A continuation without a matching header is ignored, not borrowed.
       } else {
-        // Unknown output from the same context invalidates the pending association.
+        // An empty prefix contributes no coordinates to a completed record.
+        // Keep the association so later malformed or conflicting data still invalidates it.
         const record = current.get(context);
-        if (record) record.invalid = true;
+        if (record && (!record.coordinates || segment.trim())) record.invalid = true;
       }
     }
   }

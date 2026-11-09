@@ -91,8 +91,8 @@ import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqu
 import { createUnfinishedEditRecoveryStore, assessRecovery, restoredCaptions, type RecoveryEntry } from './unfinished-edit-recovery';
 import { UnfinishedEditRecoveryNotice } from './components/UnfinishedEditRecoveryNotice';
 import { checkedSaveRevision, editorAdoptedAccuracy, matchesCaptionSaveBasis, matchesVocabularyAddition } from './save-revision';
-import { sameTimingRevision, timingFields, timingRevisionKey } from './timing-edit';
-import { captionNeighborLimits } from './caption-timing-transaction';
+import { sameTimingRevision, timingFields } from './timing-edit';
+import { captionNeighborLimits, timingTransactionMatches, type CaptionTimingTransaction } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
 import { waitForCaptionAppearanceSaves, withCaptionAppearanceBarrier } from './caption-appearance-save';
 import { useReconciledAppearance } from './caption-appearance-reconciliation';
@@ -102,7 +102,6 @@ import {
   prepareWordHighlightBatch,
   undoWordHighlightBatch,
   wordHighlightBatchSaveBasis,
-  type WordHighlightBatchResult,
 } from './word-highlight-batch';
 import type { WordHighlightPreparationView } from './components/WordHighlightPreparation';
 import { createExportWorkspaceSession, type ExportWorkspaceSession } from './export-session';
@@ -178,20 +177,18 @@ type ReviewUndoState = {
   message: string;
 };
 
-type WordBatchStatus = 'idle' | 'preparing' | 'review' | 'applied';
+type WordBatchStatus = 'idle' | 'preparing' | 'applying' | 'complete';
 interface WordBatchDisplay {
   status: WordBatchStatus;
   completed: number;
   total: number;
-  ready: number;
-  needsReview: number;
-  unchecked?: number;
+  applied: number;
   canceled: boolean;
   interruptedByBusy?: boolean;
 }
 
 const EMPTY_WORD_BATCH: WordBatchDisplay = {
-  status: 'idle', completed: 0, total: 0, ready: 0, needsReview: 0, canceled: false,
+  status: 'idle', completed: 0, total: 0, applied: 0, canceled: false,
 };
 
 type ReplacementEditRecovery = {
@@ -288,9 +285,9 @@ export default function App() {
   const [dismissedAlignmentNotice, setDismissedAlignmentNotice] = useState<string | null>(null);
   useEffect(() => { setDismissedAlignmentNotice(null); }, [project?.id]);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
-  const [wordTimingPreview, setWordTimingPreview] = useState<{ mediaKey: string; basis: CaptionSegment; caption: CaptionSegment } | null>(null);
+  const [wordTimingPreview, setWordTimingPreview] = useState<{ mediaKey: string; ownerId: string; change: CaptionTimingTransaction } | null>(null);
   const [wordBatch, setWordBatch] = useState<WordBatchDisplay>(EMPTY_WORD_BATCH);
-  const [wordBatchResult, setWordBatchResult] = useState<{ ticket: ProjectTicket; value: WordHighlightBatchResult } | null>(null);
+  const [wordBatchRequested, setWordBatchRequested] = useState<ProjectTicket | null>(null);
   const [wordBatchUndo, setWordBatchUndo] = useState<{ ticket: ProjectTicket; applied: Array<{ before: CaptionSegment; after: CaptionSegment }> } | null>(null);
   const [busy, setBusy] = useState('');
   const [generationModelSaving, setGenerationModelSaving] = useState(false);
@@ -439,8 +436,6 @@ export default function App() {
   const queuedCaption = useRef<string | null>(null);
   const trackedJobIds = useRef(new Set<string>());
   const handledJobIds = useRef(new Set<string>());
-  const automaticWordSyncAttempts = useRef(new Set<string>());
-  const automaticWordSyncInFlight = useRef(new Set<string>());
   const wordBatchController = useRef<AbortController | null>(null);
   const wordBatchRunning = useRef(false);
   const wordBatchMutation = useRef<symbol | null>(null);
@@ -644,7 +639,7 @@ export default function App() {
     // canceled request nor an old undo offer remains attached to that editor.
     wordBatchController.current?.abort();
     setWordBatch(EMPTY_WORD_BATCH);
-    setWordBatchResult(null);
+    setWordBatchRequested(null);
     setWordBatchUndo(null);
     setOpeningProjectId(null);
     setProposal(null);
@@ -804,14 +799,11 @@ export default function App() {
     wordBatchRunning.current = false;
     wordBatchMutation.current = null;
     setWordBatch(EMPTY_WORD_BATCH);
-    setWordBatchResult(null);
+    setWordBatchRequested(null);
     setWordBatchUndo(null);
   }, [mediaKey]);
 
   useEffect(() => () => { wordBatchController.current?.abort(); }, []);
-  useEffect(() => {
-    if (workspaceTool !== 'appearance') wordBatchController.current?.abort();
-  }, [workspaceTool]);
 
   useEffect(() => {
     if (!project) return;
@@ -1109,8 +1101,8 @@ export default function App() {
   const videoCaptions = useMemo(() => {
     if (!proposal || proposalPreviewMode === 'current') {
       if (workspaceTool === 'timeline' && wordTimingPreview?.mediaKey === mediaKey
-        && sameTimingRevision(draft.find((caption) => caption.id === wordTimingPreview.basis.id), wordTimingPreview.basis)) {
-        return draft.map((caption) => caption.id === wordTimingPreview.basis.id ? wordTimingPreview.caption : caption);
+        && timingTransactionMatches(draft, wordTimingPreview.change)) {
+        return draft.map((caption) => wordTimingPreview.change.after.find((preview) => preview.id === caption.id) ?? caption);
       }
       return draft;
     }
@@ -1133,6 +1125,11 @@ export default function App() {
     setCaptionFontRevision((value) => value + 1);
   }, []);
   const previewAppearance = useMemo(() => normalizeCaptionAppearance(liveAppearance?.mediaKey === mediaKey ? liveAppearance.appearance : project?.captionAppearance), [mediaKey, project?.captionAppearance, liveAppearance]);
+  useEffect(() => {
+    if (previewAppearance.highlightMode === 'word') return;
+    setWordBatchRequested(null);
+    if (!wordBatchMutation.current) wordBatchController.current?.abort();
+  }, [previewAppearance.highlightMode]);
   useEffect(() => { stopEffectReplay(); }, [mediaKey, selectionAnchor, selectionEnd, workspaceTool]);
   const replayAppearanceEffect = async () => {
     const element = media.current;
@@ -1340,7 +1337,7 @@ export default function App() {
     if (!basis || basis.timingLocked) return null;
     setBusy('Syncing word timing…');
     try {
-      const candidate = await api.syncCaptionWords(project.id, basis, { filename: project.media.filename, size: project.media.size }, signal);
+      const candidate = await api.syncCaptionWords(project.id, basis, { filename: project.media.filename, size: project.media.size }, signal, true);
       if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
       if (!sameTimingRevision(draftRef.current.find((item) => item.id === basis.id), basis)) {
         setNotice('The caption changed during word sync. Your newer edits were kept.');
@@ -1350,157 +1347,91 @@ export default function App() {
     } finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
-  const autoSyncCaptionWords = async (caption: CaptionSegment, signal?: AbortSignal) => {
-    if (!project) return undefined;
-    const attemptKey = `${mediaKey}:${timingRevisionKey(caption)}`;
-    if (automaticWordSyncAttempts.current.has(attemptKey) || automaticWordSyncInFlight.current.has(attemptKey)) return undefined;
-    automaticWordSyncInFlight.current.add(attemptKey);
-    try {
-      const result = await syncCaptionWords(caption, signal);
-      if (!signal?.aborted) automaticWordSyncAttempts.current.add(attemptKey);
-      return result;
-    } catch (error) {
-      if (!signal?.aborted) automaticWordSyncAttempts.current.add(attemptKey);
-      throw error;
-    } finally {
-      automaticWordSyncInFlight.current.delete(attemptKey);
-    }
-  };
-
   const startWordHighlightPreparation = async () => {
-    if (!project || wordBatchRunning.current || busy || textEditing || groupingApplying
-      || currentProjectActiveJob || !(health?.timing.configured ?? true)
-      || automaticWordSyncInFlight.current.size > 0) return;
+    if (!project || !canPrepareWordHighlights || wordBatchRunning.current || wordBatchMutation.current
+      || mediaMutationInFlight.current || dirtyRef.current || compositionInProgress.current) return;
 
-    const unresolvedCount = draftRef.current.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, '')
-      && resolveCaptionWordTiming(caption).state !== 'ready').length;
-    if (!unresolvedCount) {
-      setNotice('All captions already have usable spoken-word timing.');
-      return;
-    }
+    const total = unresolvedWordCaptions.length;
+    if (!total) return;
 
     const target = project;
     const ticket = projectScope.current.capture();
     const controller = new AbortController();
+    const expectedMedia = { filename: target.media.filename, size: target.media.size };
     wordBatchController.current = controller;
     wordBatchRunning.current = true;
-    setWordBatchUndo(null);
-    setWordBatchResult(null);
-    setWordBatch({ status: 'preparing', completed: 0, total: unresolvedCount, ready: 0, needsReview: 0, canceled: false });
+    setWordBatch({ ...EMPTY_WORD_BATCH, status: 'preparing', total });
     setBusy('Preparing spoken-word timing…');
     setError('');
 
+    let completed = 0;
+    let applied = 0;
+    let interruptedByBusy = false;
+    let mutation: symbol | undefined;
     try {
-      const beforeSaveRevision = draftEditRevision.current;
-      const hadUnsavedEdits = dirtyRef.current;
-      const saved = await saveDraft(true, 'manual-save', true);
-      if (!projectScope.current.isCurrent(ticket)) return;
-      if (controller.signal.aborted) {
-        setWordBatch(EMPTY_WORD_BATCH);
-        setNotice('Word-highlight preparation canceled.');
-        return;
-      }
-      if (hadUnsavedEdits && !saved) throw new Error('Save the current captions before preparing word highlights.');
-      if (draftEditRevision.current !== beforeSaveRevision || dirtyRef.current) {
-        throw new Error('Caption edits changed while preparing. Save them and run preparation again.');
-      }
-
-      const captions = structuredClone(draftRef.current);
       const result = await prepareWordHighlightBatch({
-        captions,
+        captions: structuredClone(draftRef.current),
         signal: controller.signal,
-        sync: (caption, signal) => api.syncCaptionWords(target.id, caption,
-          { filename: target.media.filename, size: target.media.size }, signal),
+        sync: (caption, signal) => {
+          if (health?.timing.configured === false) return Promise.reject(new Error('Local timing is unavailable.'));
+          return api.syncCaptionWords(target.id, caption, expectedMedia, signal);
+        },
         onProgress: (progress) => {
+          completed = progress.completed;
           if (wordBatchController.current !== controller || !projectScope.current.isCurrent(ticket)) return;
-          setWordBatch({
-            status: 'preparing', completed: progress.completed, total: progress.total,
-            ready: progress.ready, needsReview: progress.needsReview,
-            canceled: controller.signal.aborted,
-          });
+          setWordBatch((state) => ({ ...state, completed, total: progress.total }));
         },
       });
-      if (!projectScope.current.isCurrent(ticket) || wordBatchController.current !== controller) return;
-      const applicable = applyWordHighlightBatch(draftRef.current, result.ready);
-      setWordBatchResult({ ticket, value: result });
-      setWordBatch({
-        status: 'review', completed: result.completed, total: result.total,
-        ready: applicable.applied.length,
-        needsReview: result.needsReview.length + applicable.staleIds.length,
-        unchecked: result.total - result.completed,
-        canceled: result.canceled,
-        interruptedByBusy: result.interruptedByBusy,
-      });
-    } catch (reason) {
-      if (projectScope.current.isCurrent(ticket) && wordBatchController.current === controller) {
-        if (controller.signal.aborted) {
-          setWordBatch((state) => ({ ...state, status: 'review', canceled: true }));
-        } else {
-          setWordBatch(EMPTY_WORD_BATCH);
-          setError(reason instanceof Error ? reason.message : 'Could not prepare word highlights.');
+      interruptedByBusy = Boolean(result.interruptedByBusy);
+      if (!projectScope.current.isCurrent(ticket) || controller.signal.aborted || result.canceled) return;
+      if (!result.ready.length) return;
+      if (dirtyRef.current || compositionInProgress.current) {
+        throw new Error('Captions changed during sync. Try syncing the remaining captions after your edits are saved.');
+      }
+
+      const changes = applyWordHighlightBatch(draftRef.current, result.ready).applied;
+      if (!changes.length) return;
+      mutation = Symbol('word-batch-apply');
+      wordBatchMutation.current = mutation;
+      setWordBatch((state) => ({ ...state, status: 'applying' }));
+      setBusy('Applying word highlights…');
+      const response = await queueSameMediaMutation(ticket, async () => {
+        if (controller.signal.aborted) return null;
+        if (dirtyRef.current || compositionInProgress.current) {
+          throw new Error('Captions changed before saving word timing. Sync the remaining captions after your edits are saved.');
         }
+        const editRevision = draftEditRevision.current;
+        const captionBasis = wordHighlightBatchSaveBasis(ordinarySaveBasis.current, changes);
+        return { ...(await api.applyWordHighlightBatch(target.id, expectedMedia, changes)), captionBasis, editRevision };
+      });
+      if (!response || !projectScope.current.isCurrent(ticket)) return;
+      const published = publishWordBatchMutation(response.project, ticket, response.editRevision, changes, response.captionBasis,
+        'Prepared timings were saved, but newer editor changes remain here. Save those edits before preparing again.');
+      if (published !== 'stale') {
+        applied = response.appliedCount;
+        setWordBatchUndo({ ticket, applied: changes });
+      }
+    } catch (reason) {
+      if (projectScope.current.isCurrent(ticket) && !controller.signal.aborted) {
+        setError(reason instanceof Error ? reason.message : 'Could not apply the prepared timings.');
       }
     } finally {
+      if (wordBatchMutation.current === mutation) wordBatchMutation.current = null;
       if (wordBatchController.current === controller) {
         wordBatchController.current = null;
         wordBatchRunning.current = false;
-        if (projectScope.current.isCurrent(ticket)) setBusy('');
+        if (projectScope.current.isCurrent(ticket)) {
+          setWordBatch({ status: 'complete', completed, total, applied, canceled: controller.signal.aborted && !applied, interruptedByBusy });
+          setBusy('');
+        }
       }
     }
   };
 
   const cancelWordHighlightPreparation = () => {
+    setWordBatchRequested(null);
     wordBatchController.current?.abort();
     setWordBatch((state) => ({ ...state, canceled: true }));
-  };
-
-  const applyPreparedWordHighlights = async () => {
-    if (!project || busy || currentProjectActiveJob || dirtyRef.current || wordBatchMutation.current || !wordBatchResult
-      || !projectScope.current.isCurrent(wordBatchResult.ticket)) return;
-    const ticket = wordBatchResult.ticket;
-    const target = project;
-    const result = applyWordHighlightBatch(draftRef.current, wordBatchResult.value.ready);
-    if (!result.applied.length) {
-      setWordBatch((state) => ({ ...state, ready: 0 }));
-      setNotice('Prepared timings no longer match these captions. Prepare them again after editing.');
-      return;
-    }
-    const token = Symbol('word-batch-apply');
-    wordBatchMutation.current = token;
-    setBusy('Applying word highlights…');
-    try {
-      const editRevision = draftEditRevision.current;
-      const response = await queueSameMediaMutation(ticket, async () => {
-        // Capture after earlier queued acknowledgements, before this request.
-        const captionBasis = wordHighlightBatchSaveBasis(ordinarySaveBasis.current, result.applied);
-        return { ...(await api.applyWordHighlightBatch(target.id,
-          { filename: target.media.filename, size: target.media.size }, result.applied)), captionBasis };
-      });
-      if (!response || !projectScope.current.isCurrent(ticket)) return;
-      const published = publishWordBatchMutation(response.project, ticket, editRevision, result.applied, response.captionBasis,
-        'Prepared timings were saved, but newer editor changes remain here. Save those edits before preparing again.');
-      if (published === 'applied') {
-        setWordBatchUndo({ ticket, applied: result.applied });
-        setWordBatch((state) => ({
-          ...state, status: 'applied', ready: response.appliedCount,
-          needsReview: wordBatchResult.value.needsReview.length + result.staleIds.length,
-          unchecked: wordBatchResult.value.total - wordBatchResult.value.completed,
-        }));
-        setNotice(`Applied spoken-word timing to ${response.appliedCount} caption${response.appliedCount === 1 ? '' : 's'}.`);
-      } else if (published === 'preserved') {
-        setWordBatchResult(null);
-        setWordBatch(EMPTY_WORD_BATCH);
-      }
-    } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) {
-        setError(reason instanceof Error ? reason.message : 'Could not apply the prepared timings.');
-      }
-    } finally {
-      if (wordBatchMutation.current === token) {
-        wordBatchMutation.current = null;
-        if (projectScope.current.isCurrent(ticket)) setBusy('');
-      }
-    }
   };
 
   const undoPreparedWordHighlights = async () => {
@@ -1530,11 +1461,10 @@ export default function App() {
         'Prepared timings were undone on disk. Your newer local caption edits remain in the editor.');
       if (published === 'applied') {
         setWordBatchUndo(null);
-        setWordBatch((state) => ({ ...state, status: 'review' }));
+        setWordBatch(EMPTY_WORD_BATCH);
         setNotice('Prepared word timings were undone.');
       } else if (published === 'preserved') {
         setWordBatchUndo(null);
-        setWordBatchResult(null);
         setWordBatch(EMPTY_WORD_BATCH);
       }
     } catch (reason) {
@@ -1549,15 +1479,11 @@ export default function App() {
     }
   };
 
-  const discardPreparedWordHighlights = () => {
-    if (wordBatchRunning.current) return;
-    setWordBatchResult(null);
-    setWordBatch(EMPTY_WORD_BATCH);
-  };
-
-  const reviewRemainingWordHighlights = () => {
-    const next = draftRef.current.find((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, '')
-      && resolveCaptionWordTiming(caption).state !== 'ready');
+  const reviewRemainingWordHighlights = (afterId?: string) => {
+    const index = draftRef.current.findIndex((caption) => caption.id === afterId);
+    const unresolvedIds = new Set(unresolvedWordCaptions.map((caption) => caption.id));
+    const next = draftRef.current.slice(index + 1).find((caption) => unresolvedIds.has(caption.id))
+      ?? unresolvedWordCaptions.find((caption) => caption.id !== afterId);
     if (next) openWordTiming(next.id);
     else setNotice('Every caption now has usable word timing.');
   };
@@ -3212,37 +3138,39 @@ export default function App() {
     return () => cancelAnimationFrame(frame);
   }, [exportRepair, workspaceTool, viewTicket]);
 
-  const wordBatchMatchesProject = Boolean(wordBatchResult && projectScope.current.isCurrent(wordBatchResult.ticket));
-  const currentBatchCheck = wordBatchMatchesProject && wordBatchResult
-    ? applyWordHighlightBatch(draft, wordBatchResult.value.ready)
-    : null;
-  const canUndoWordBatch = Boolean(wordBatchUndo && projectScope.current.isCurrent(wordBatchUndo.ticket)
-    && undoWordHighlightBatch(draft, wordBatchUndo.applied));
-  const unresolvedWordCount = draft.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, '')
-    && resolveCaptionWordTiming(caption).state !== 'ready').length;
+  const unresolvedWordCaptions = useMemo(() => draft.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, '')
+    && resolveCaptionWordTiming(caption).state !== 'ready'), [draft]);
+  const hasSyncTargets = unresolvedWordCaptions.some((caption) => !caption.timingLocked);
+  // Let ordinary autosave finish first. Appearance is not a separate trigger
+  // for caption correction memory, approval capture, or contribution.
+  const canPrepareWordHighlights = Boolean(project && hasSyncTargets && !busy && !dirty && !textEditing && !textComposing
+    && !saveConflict && !groupingApplying && !mediaMutationStatus && !currentProjectActiveJob);
+  const hasWordBatchUndo = Boolean(wordBatchUndo && projectScope.current.isCurrent(wordBatchUndo.ticket));
+  useEffect(() => {
+    if (!wordBatchRequested) return;
+    if (!projectScope.current.isCurrent(wordBatchRequested) || !hasSyncTargets) {
+      setWordBatchRequested(null);
+    } else if (previewAppearance.highlightMode === 'word' && canPrepareWordHighlights) {
+      setWordBatchRequested(null);
+      void startWordHighlightPreparation();
+    }
+  }, [wordBatchRequested, hasSyncTargets, previewAppearance.highlightMode, canPrepareWordHighlights]);
+
   const wordPreparation: WordHighlightPreparationView = {
     ...wordBatch,
-    total: wordBatch.status === 'idle' ? unresolvedWordCount : wordBatch.total,
-    ready: wordBatch.status === 'review' ? currentBatchCheck?.applied.length ?? 0 : wordBatch.ready,
-    needsReview: wordBatch.status === 'review' && wordBatchResult
-      ? wordBatchResult.value.needsReview.length + (currentBatchCheck?.staleIds.length ?? 0)
-      : wordBatch.status === 'applied' ? unresolvedWordCount
-      : wordBatch.needsReview,
-    unchecked: wordBatch.status === 'review' && wordBatchResult
-      ? wordBatchResult.value.total - wordBatchResult.value.completed
-      : wordBatch.status === 'applied' ? 0
-      : wordBatch.unchecked,
-    canStart: Boolean(project && !busy && !wordBatchRunning.current && !textEditing && !groupingApplying
-      && !currentProjectActiveJob && (health?.timing.configured ?? true)
-      && automaticWordSyncInFlight.current.size === 0
-      && unresolvedWordCount > 0),
-    canApply: wordBatch.status === 'review' && !busy && !currentProjectActiveJob && !dirty && !wordBatchMutation.current && Boolean(currentBatchCheck?.applied.length),
-    canUndo: wordBatch.status === 'applied' && !busy && !currentProjectActiveJob && !dirty && !wordBatchMutation.current && canUndoWordBatch,
+    waiting: Boolean(wordBatchRequested && hasSyncTargets),
+    needsReview: unresolvedWordCaptions.length,
+    hasSyncTargets,
+    canStart: canPrepareWordHighlights,
+    hasUndo: hasWordBatchUndo,
+    canUndo: hasWordBatchUndo && !busy && !currentProjectActiveJob && !dirty && !wordBatchMutation.current,
+    onToggle: (enabled) => {
+      setWordBatchRequested(enabled ? projectScope.current.capture() : null);
+      if (!enabled && !wordBatchMutation.current) wordBatchController.current?.abort();
+    },
     onStart: () => void startWordHighlightPreparation(),
     onCancel: cancelWordHighlightPreparation,
-    onApply: applyPreparedWordHighlights,
-    onDiscard: discardPreparedWordHighlights,
-    onReview: reviewRemainingWordHighlights,
+    onReview: () => reviewRemainingWordHighlights(),
     onUndo: undoPreparedWordHighlights,
   };
 
@@ -3479,9 +3407,10 @@ export default function App() {
             initialEditMode={requestedTimingMode}
             onSeek={seek}
             onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
-            onTimingChange={(before, after) => {
+            onTimingChange={(before, after, guards) => {
               if (!projectScope.current.isCurrent(viewTicket) || !before.length || before.length !== after.length
-                || new Set(before.map((caption) => caption.id)).size !== before.length) return false;
+                || new Set(before.map((caption) => caption.id)).size !== before.length
+                || (guards && !timingTransactionMatches(draftRef.current, { before, after, guards }))) return false;
               for (let index = 0; index < before.length; index++) {
                 const prior = before[index];
                 const next = after[index];
@@ -3495,15 +3424,16 @@ export default function App() {
               return true;
             }}
             onSyncWords={syncCaptionWords}
-            onAutoSyncWords={autoSyncCaptionWords}
+            onNextWordTimingIssue={previewAppearance.highlightMode === 'word' && unresolvedWordCaptions.some((caption) => caption.id !== selection.ids[0])
+              ? () => reviewRemainingWordHighlights(selection.ids[0]) : undefined}
             syncDisabled={Boolean(busy || currentProjectActiveJob || !timingConfigured)}
             highlightEnabled={previewAppearance.highlightMode === 'word'}
             onOpenAppearance={() => chooseWorkspaceTool('appearance')}
             onEditCaptionText={() => { if (selection.ids[0]) editor.current?.focusCaption(selection.ids[0]); }}
-            onWordPreview={(basis, preview) => {
-              if (preview && projectScope.current.isCurrent(viewTicket) && sameTimingRevision(draftRef.current.find((caption) => caption.id === basis.id), basis)) {
-                setWordTimingPreview({ mediaKey, basis, caption: preview });
-              } else setWordTimingPreview((current) => current?.basis.id === basis.id ? null : current);
+            onWordPreview={(ownerId, change) => {
+              if (change && projectScope.current.isCurrent(viewTicket) && timingTransactionMatches(draftRef.current, change)) {
+                setWordTimingPreview({ mediaKey, ownerId, change });
+              } else setWordTimingPreview((current) => current?.ownerId === ownerId ? null : current);
             }}
             onPreview={(range) => {
               cancelPlayback();

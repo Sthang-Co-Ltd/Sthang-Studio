@@ -333,7 +333,8 @@ export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRo
       return;
     }
     try {
-      res.json(await jobAdmission.runForProject(projectId, () => dependencies.syncCaptionWords(projectId, caption, preparedFor)));
+      res.json(await jobAdmission.runForProject(projectId, () =>
+        dependencies.syncCaptionWords(projectId, caption, preparedFor, undefined, req.body?.suggestEdges === true)));
     } catch (error) {
       if (error instanceof JobAdmissionError) { res.status(409).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingNotFoundError) { res.status(404).json({ error: error.message }); return; }

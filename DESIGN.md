@@ -417,23 +417,28 @@ word timing**; tentative times require adjustment or **Confirm this word**.
 Corrected text is reconciled against a stable editing/composition basis so
 unfinished Khmer input cannot progressively destroy surrounding timing evidence.
 
-**Sync words** uses the current exact wording and proposes timing without changing
-the saved caption. Keep **Use timing / Keep current** visible while that candidate
-is previewed. Newer text/timing/lock/media edits invalidate it. Do not let an old
-highlight bitmap remain labeled exact during a word transition or text correction.
+**Sync words** uses the current exact wording and applies usable timing with Undo
+in Fine Timing. Tentative results offer **Use tentative timing** and **Close
+preview** as recovery actions. Newer text, timing, lock, or media edits invalidate
+the result. During a word transition or text correction, label only the current
+highlight bitmap exact.
+
+When **Sync words** finds corroborated speech beyond a short caption, show the
+suggested edges and word timing in the existing preview area. **Play suggestion**
+uses the actual video. **Apply timing repair** commits the affected captions as
+one undoable edit and explains its effect on Review approval before applying.
 
 Put the optional **Spoken word highlight** toggle and color under Appearance, with
-counts of usable and unresolved captions and a direct **Review word timing** link.
+counts of usable and unresolved captions and a direct **Review remaining** link.
 Keep the disclosure heading and its controls inside one restrained enclosing
 surface, with one explanation, separate color and readiness rows, and flat
-preparation states. Hide idle preparation when no spoken caption needs timing; keep active
-preparation, cancellation and results reachable when highlighting is off.
-An optional **Prepare word highlights** section in the same workspace offers one
-action to check all unresolved captions locally. Show checked/total progress,
-cancel, ready/needs-review totals, explicit **Use ready timings / Keep current**,
-and **Review remaining** into the existing Fine Timing editor. After applying,
-offer a guarded **Undo batch**. Keep preparation non-modal and preserve playback;
-never imply estimated, stale, or locked words were made ready automatically.
+preparation states. Turning the effect on starts local preparation and applies
+ready results automatically. Show checked/total progress and Cancel during
+preparation. **Review remaining** opens the first exception in Fine Timing and
+**Next timing issue** moves between unresolved captions. **Sync remaining** retries
+unresolved, unlocked captions. Keep the guarded **Undo timing changes** accessible
+after applying, including when the effect is off. Keep preparation non-modal
+and preserve playback.
 For Khmer word-boundary mismatches, display trusted KFA acoustic evidence without
 claiming a separate boundary when no separate measurement exists. A confirmed
 whole-word interval can be used for one exact displayed word; any proportional

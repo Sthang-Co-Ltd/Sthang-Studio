@@ -34,16 +34,20 @@ function makeCue(id: string, text: string, startMs: number, endMs: number, start
   return { caption, tokens };
 }
 
-test('prepares unresolved highlights sequentially, applies ready timings explicitly, reviews the partial caption, and undoes the batch', async ({ page }) => {
+test('enabling highlights syncs and repairs words, applies ready tracks with approval, and exposes exceptions and Undo', async ({ page }) => {
   state = await installFixture(page);
   const first = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
   const second = makeCue('c2', 'ស្រឡាញ់ កម្ពុជា', 1400, 2400, [1420, 1920], [1820, 2320]);
+  const repair = makeCue('c3', 'ខ្មែរ AI now', 2450, 3550, [2460, 2700, 3110], [2650, 3120, 3510]);
+  repair.caption.wordTiming!.words[0] = { ...repair.caption.wordTiming!.words[0], source: 'aligned', needsReview: undefined };
+  const locked = makeCue('c4', 'Next issue', 3600, 4300, [3610, 4000], [3940, 4290]);
+  locked.caption.timingLocked = true;
   const project = state.projects[0] as CaptionProject;
-  project.captions = [first.caption, second.caption];
-  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'word' };
-  project.transcript!.tokens = [...first.tokens, ...second.tokens];
+  project.captions = [first.caption, second.caption, repair.caption, locked.caption];
+  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'off' };
+  project.transcript!.tokens = [...first.tokens, ...second.tokens, ...repair.tokens, ...locked.tokens];
   project.transcript!.segments = structuredClone(project.captions);
-  project.transcript!.fullText = `${first.caption.text} ${second.caption.text}`;
+  project.transcript!.fullText = project.captions.map((caption) => caption.text).join(' ');
 
   const syncOrder: string[] = [];
   let activeSyncs = 0;
@@ -95,36 +99,25 @@ test('prepares unresolved highlights sequentially, applies ready timings explici
 
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('0 of 2 captions ready');
-
-  await page.getByRole('button', { name: 'Prepare word highlights', exact: true }).click();
+  await page.locator('.appearance-word-details > summary').click();
+  await page.getByRole('button', { name: 'Highlight spoken word', exact: true }).click();
   await expect.poll(() => syncOrder).toEqual(['c1']);
   const preparing = page.getByRole('region', { name: 'Preparing word highlights' });
   await expect(preparing).toBeVisible();
-  await expect(preparing).toContainText('0 of 2 captions checked');
+  await expect(preparing).toContainText('0 of 4 captions checked');
   await expect(preparing.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
 
-  releaseFirst();
-  const prepared = page.getByRole('region', { name: 'Prepared word timings' });
-  await expect(prepared).toBeVisible();
-  await expect(prepared).toContainText('1 ready');
-  await expect(prepared).toContainText('1 need review');
-  expect(syncOrder.slice(0, 2)).toEqual(['c1', 'c2']);
-  expect(maxActiveSyncs).toBe(1);
   expect(batchRequests).toHaveLength(0);
-  expect(resolveCaptionWordTiming(project.captions[0]).state).toBe('partial');
-
-  await prepared.getByRole('button', { name: 'Use ready timings', exact: true }).click();
+  releaseFirst();
   await expect.poll(() => batchRequests.length).toBe(1);
+  expect(syncOrder).toEqual(['c1', 'c2']);
+  expect(maxActiveSyncs).toBe(1);
   expect(batchRequests[0].action).toBe('apply');
-  expect(batchRequests[0].changes).toHaveLength(1);
-  expect(batchRequests[0].changes[0].before.id).toBe('c1');
-  expect(resolveCaptionWordTiming(batchRequests[0].changes[0].after).state).toBe('ready');
-  const applied = page.getByRole('region', { name: 'Applied word timings' });
-  await expect(applied).toBeVisible();
-  await expect(applied.getByRole('button', { name: 'Prepare remaining', exact: true })).toBeVisible();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 of 2 captions ready');
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 will stay plain');
+  expect(batchRequests[0].changes.map(({ before }) => before.id)).toEqual(['c1', 'c3']);
+  expect(batchRequests[0].changes.every(({ after }) => after.approved && resolveCaptionWordTiming(after).state === 'ready')).toBe(true);
+  expect(project.captions[2].wordTiming?.words[1].endMs).toBe(3110);
+  await expect(page.getByRole('button', { name: 'Sync remaining', exact: true })).toBeVisible();
+  await expect(page.locator('.appearance-highlight-readiness')).toContainText('2 of 4 captions ready');
   expect(resolveCaptionWordTiming(project.captions[0]).state).toBe('ready');
   expect(resolveCaptionWordTiming(project.captions[1]).state).toBe('partial');
 
@@ -135,30 +128,30 @@ test('prepares unresolved highlights sequentially, applies ready timings explici
   });
   await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-paint-key', /^[^|]+$/);
 
-  await applied.getByRole('button', { name: 'Review remaining', exact: true }).click();
+  await page.getByRole('button', { name: 'Review remaining (2)', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.timing-caption-text')).toContainText(second.caption.text);
+  await page.getByRole('button', { name: 'Next timing issue', exact: true }).click();
+  await expect(page.locator('.timing-caption-text')).toContainText(locked.caption.text);
+  expect(syncOrder).toEqual(['c1', 'c2']);
 
   await page.getByRole('button', { name: /^Appearance$/i }).click();
-  const appliedAgain = page.getByRole('region', { name: 'Applied word timings' });
-  await expect(appliedAgain).toBeVisible();
-  await appliedAgain.getByRole('button', { name: 'Undo batch', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo timing changes', exact: true }).click();
   await expect.poll(() => batchRequests.length).toBe(2);
   expect(batchRequests[1].action).toBe('undo');
-  expect(batchRequests[1].changes).toHaveLength(1);
-  expect(batchRequests[1].changes[0].before.id).toBe('c1');
-  expect(resolveCaptionWordTiming(batchRequests[1].changes[0].after).state).toBe('partial');
+  expect(batchRequests[1].changes.map(({ before }) => before.id)).toEqual(['c1', 'c3']);
+  expect(batchRequests[1].changes.every(({ after }) => after.approved && resolveCaptionWordTiming(after).state === 'partial')).toBe(true);
   expect(resolveCaptionWordTiming(project.captions[0]).state).toBe('partial');
-  await expect(page.getByRole('region', { name: 'Prepared word timings' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review remaining (4)', exact: true })).toBeVisible();
 });
 
-test('turning highlight off during preparation keeps progress cancellable and aborts before later captions or apply', async ({ page }) => {
+test('turning highlight off during preparation cancels before later captions or apply', async ({ page }) => {
   state = await installFixture(page);
   const first = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
   const second = makeCue('c2', 'ស្រឡាញ់ កម្ពុជា', 1400, 2400, [1420, 1920], [1820, 2320]);
   const project = state.projects[0] as CaptionProject;
   project.captions = [first.caption, second.caption];
-  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'word' };
+  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'off' };
   project.transcript!.tokens = [...first.tokens, ...second.tokens];
   project.transcript!.segments = structuredClone(project.captions);
   project.transcript!.fullText = `${first.caption.text} ${second.caption.text}`;
@@ -188,7 +181,9 @@ test('turning highlight off during preparation keeps progress cancellable and ab
 
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await page.getByRole('button', { name: 'Prepare word highlights', exact: true }).click();
+  await page.locator('.appearance-word-details > summary').click();
+  const toggle = page.getByRole('button', { name: 'Highlight spoken word', exact: true });
+  await toggle.click();
   await expect.poll(() => syncOrder).toEqual(['c1']);
 
   const preparing = page.getByRole('region', { name: 'Preparing word highlights' });
@@ -197,22 +192,54 @@ test('turning highlight off during preparation keeps progress cancellable and ab
   const cancel = preparing.getByRole('button', { name: 'Cancel', exact: true });
   await expect(cancel).toBeVisible();
 
-  const toggle = page.getByRole('button', { name: 'Highlight spoken word', exact: true });
   await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(preparing).toBeVisible();
-  await expect(preparing).toContainText('0 of 2 captions checked');
-  await expect(cancel).toBeVisible();
-
-  await cancel.click();
   releaseFirst();
-
-  const canceled = page.getByRole('region', { name: 'Prepared word timings' });
-  await expect(canceled).toBeVisible();
-  await expect(canceled).toContainText('Preparation stopped early');
+  await expect(page.locator('.appearance-word-details > summary')).toHaveText('Word highlighting · Off');
+  await expect(preparing).toHaveCount(0);
   expect(syncOrder).toEqual(['c1']);
   expect(batchApplyRequests).toBe(0);
   expect(project.captions).toEqual(savedCaptions);
+});
+
+test('enabling highlights waits for an approval to save through ordinary autosave', async ({ page }) => {
+  state = await installFixture(page);
+  await page.clock.install();
+  state.profile.preferences.autosaveDelayMs = 60_000;
+  const { caption, tokens } = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
+  const project = state.projects[0] as CaptionProject;
+  project.captions = [{ ...caption, approved: false }];
+  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'off' };
+  project.transcript!.tokens = tokens;
+  project.transcript!.segments = structuredClone(project.captions);
+  project.transcript!.fullText = caption.text;
+  const syncApprovals: Array<boolean | undefined> = [];
+  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
+    const { caption: basis } = route.request().postDataJSON() as { caption: CaptionSegment };
+    syncApprovals.push(basis.approved);
+    await route.fulfill({ json: { basis, wordTiming: buildCaptionWordTiming(basis, tokens) } });
+  });
+  await page.route('**/api/projects/landscape/caption-word-timing/batch-apply', async (route) => {
+    const { changes } = route.request().postDataJSON() as { changes: Array<{ after: CaptionSegment }> };
+    project.captions = changes.map(({ after }) => after);
+    await route.fulfill({ json: { project, appliedCount: changes.length } });
+  });
+  const captionSaves = () => state.requests.filter(({ path, method }) => path.endsWith('/captions') && method === 'PUT');
+
+  await openProject(page);
+  await page.getByRole('button', { name: 'Approve caption', exact: true }).click();
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.appearance-word-details > summary').click();
+  await page.getByRole('button', { name: 'Highlight spoken word', exact: true }).click();
+  await expect(page.getByText('Word sync will start after current caption work is saved.')).toBeVisible();
+  expect(captionSaves()).toHaveLength(0);
+  expect(syncApprovals).toEqual([]);
+
+  await page.clock.fastForward(61_000);
+  await expect(page.getByRole('button', { name: 'Undo timing changes', exact: true })).toBeEnabled();
+  expect(captionSaves()).toHaveLength(1);
+  expect(captionSaves()[0].body).toMatchObject({ source: 'autosave', recordCorrections: false });
+  expect(syncApprovals).toEqual([true]);
+  expect(project.captions[0].approved).toBe(true);
 });
 
 for (const allReady of [false, true]) {
@@ -236,7 +263,7 @@ for (const allReady of [false, true]) {
     await expect(section.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(section).toContainText(`${allReady ? 2 : 0} of 2 captions ready`);
     await expect(section).toContainText('SRT carries text and timing only.');
-    await expect(section.getByRole('button', { name: 'Prepare word highlights', exact: true })).toHaveCount(allReady ? 0 : 1);
+    await expect(section.getByRole('button', { name: 'Sync remaining', exact: true })).toHaveCount(allReady ? 0 : 1);
     const disclosure = page.locator('.appearance-word-details');
     const summary = disclosure.locator(':scope > summary');
     await summary.focus();
