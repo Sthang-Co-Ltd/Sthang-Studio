@@ -36,14 +36,19 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
-## Version 0.90 release preparation
+## Version 0.90
 
-Source version `0.90.0` adds local word sync when enabling Word highlighting,
-optional Accuracy context before generation, and refinements to editing and
-export. See [Fine Timing](docs/FINE-TIMING.md) for timing suggestions and undo.
-The [0.90.0 release target](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.90.0)
-requires native acceptance and signed release verification before availability
-can be confirmed. The published 0.89.0 release is documented below.
+**v0.90.0** is available as a Public Beta for **Windows 10/11 x64** and
+**Apple Silicon macOS 12.3+**. Turn on Word highlighting to sync unresolved captions
+locally. Fine Timing can suggest new edges for short captions, and optional
+Accuracy context is available before generation. Find and Replace previews
+changes, and Export makes preset feedback and previous exports easier to find.
+
+The [0.90.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.90.0)
+provides both recovery installers. Choose **Check for updates**, **Download & verify**,
+then **Install & restart** for either signed in-app offer. Older manual-only Mac
+installations can use the current recovery ZIP to obtain the Finder launcher and
+updater. See [verified release evidence](docs/V0.90-RELEASE.md).
 
 ## Version 0.89
 
@@ -55,10 +60,7 @@ acceptance, recovery installers and independently verified signed offers.
 
 The [0.89.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.89.0)
 provides recovery installers for **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
-Both signed in-app update channels offer `0.89.0`. In an installation with the
-signed updater, choose **Check for updates**, **Download & verify**, then
-**Install & restart**. Older manual-only Mac installations can install the current
-Mac recovery ZIP once to obtain the Finder launcher and updater.
+Both installers remain available for recovery.
 
 ## Version 0.88
 
@@ -70,7 +72,7 @@ verified artifacts, native checks, signed offers and website/documentation hando
 
 The [0.88.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.88.0)
 provides recovery installers for **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
-Its immutable recovery installers remain available; current signed offers use `0.89.0`.
+Its immutable recovery installers remain available; current signed offers use `0.90.0`.
 
 ## Version 0.86
 
@@ -79,7 +81,7 @@ preparation, responsive native caption preview, playback recovery, reviewed loca
 runtimes, and Gemini 3.8 primary with a distinct 3.6 fallback. The reviewed
 [0.86.0 public Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.86.0)
 remains available as the previous recovery release. Current downloads and signed
-offers use `0.89.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
+offers use `0.90.0`. Existing Macs with the `0.85.6` or newer signed-update bootstrap
 can use the in-app update workflow.
 
 ## Large-preview editor
@@ -190,7 +192,7 @@ behavior. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
 
 ## Word-highlight preparation
 
-In source builds, turning on **Word highlighting** in Appearance syncs the
+In v0.90.0, turning on **Word highlighting** in Appearance syncs the
 unresolved captions locally and applies usable timing automatically. Finish
 reviewing caption wording first. Word timing edits preserve Review approvals.
 **Review remaining** opens the exceptions in Fine Timing, and **Undo timing
@@ -264,12 +266,12 @@ not change either listen or imply a measured end-to-end speedup on real media.
 
 ## Distribution status
 
-Sthang Studio `0.89.0` is available as a verified Public Beta for
+Sthang Studio `0.90.0` is available as a verified Public Beta for
 **Windows 10/11 x64** and **Apple Silicon macOS 12.3+**.
-The [0.89.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.89.0)
+The [0.90.0 Beta release](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.90.0)
 contains both recovery installers and their SHA-256 sidecars. Both signed OTA
 channels offer the same version after independent package, signature and public
-pointer verification; see [release evidence](docs/V0.89-RELEASE.md).
+pointer verification; see [release evidence](docs/V0.90-RELEASE.md).
 GitHub's **Code → Download ZIP** is the source tree for developers and is
 intentionally not the end-user installer.
 
@@ -538,7 +540,7 @@ Linux contributors may run the source with compatible Node/Python/FFmpeg setups.
 Curated public packages target Windows x64 and Apple Silicon macOS. Installed
 Windows updaters and the Apple Silicon `0.85.6` bootstrap can check their separate
 public update channels. Users on the older manual-only Mac line install the
-reviewed `0.89.0` recovery package once to obtain the Finder launcher and updater.
+reviewed `0.90.0` recovery package once to obtain the Finder launcher and updater.
 Every offered platform version requires its own accepted signed release, native
 upgrade/rollback evidence, and deliberately promoted platform pointer. The manual
 installer also refreshes the stable broker; an OTA payload preserves that broker.
