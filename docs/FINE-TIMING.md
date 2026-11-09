@@ -1,6 +1,6 @@
 # Fine Timing and spoken-word highlights
 
-Status: included in Sthang Studio `0.85.5` for Windows and Apple Silicon macOS.
+Fine Timing is available from Sthang Studio `0.85.5`. Automatic word sync and caption-edge suggestions are available from `0.90.0` on Windows and Apple Silicon macOS.
 
 ## Choose the timing you need to change
 
@@ -80,7 +80,7 @@ retained word intervals. Overlapping word intervals still require review; the
 merge does not invent a new speech sequence.
 
 **Sync words** listens locally to the existing caption interval and a small
-margin and aligns the exact current wording. In source builds, usable timing
+margin and aligns the exact current wording. In v0.90.0, usable timing
 applies automatically and participates in Fine Timing Undo and local
 autosave/History. Tentative timing can be previewed, then used as a starting
 point for edits or closed. Newer text, word, caption-edge, lock, or media
@@ -127,7 +127,7 @@ In version 0.86, directly aligned KFA word intervals remain
 acoustic anchors even when Khmer display segmentation disagrees. A single
 displayed word can use the entire measured KFA interval; splitting one measured
 word into several displayed words still creates tentative positions that need
-review. In source builds, word sync can ask the local aligner to measure those
+review. In v0.90.0, word sync can ask the local aligner to measure those
 displayed words separately. It uses the new intervals when they fit the original
 measured span and the surrounding words. When both passes measure a pause
 inside one displayed word, Studio can highlight the measured parts separately
@@ -150,7 +150,7 @@ that caption to highlight. Missing, stale, overlapping, out-of-range, estimated,
 or review-needed timings leave the entire caption plain. Correcting the text
 therefore cannot silently highlight the wrong old word.
 
-### Automatic preparation in source builds
+### Automatic preparation in v0.90.0
 
 After reviewing the caption wording, turn on **Word highlighting** in
 Appearance. Captions with usable timing can highlight immediately. Studio waits

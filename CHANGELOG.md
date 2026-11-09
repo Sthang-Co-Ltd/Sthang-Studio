@@ -1,12 +1,12 @@
 # Changelog
 
-## 0.90.0 release preparation (2026-11-10)
+## 0.90.0 Public Beta (2026-11-10)
 
 - Turning on Word highlighting syncs unresolved captions locally and saves usable timings. Review the exceptions in Fine Timing or undo the timing changes.
 - Fine Timing can suggest a caption-edge repair for short cues. Preview and apply it explicitly, then review affected captions again.
 - Open optional Accuracy context before generating captions to add names and wording guidance.
 - Find and Replace previews proposed changes, and export has a Graphite layout with clearer feedback for presets and history.
-- Candidate downloads and signed update offers require exact Windows and Apple Silicon acceptance and publication verification.
+- Windows and Apple Silicon recovery downloads and signed updates are live. See [release evidence](docs/V0.90-RELEASE.md).
 
 ## 0.89.0 — Public Beta (2026-10-30)
 

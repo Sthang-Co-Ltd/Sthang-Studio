@@ -129,7 +129,7 @@ a persisted recovery snapshot and is lost when dismissed or the editor reloads.
 
 ### Local word timing and highlighting
 
-In source builds, turning on **Word highlighting** checks unresolved captions
+In v0.90.0, turning on **Word highlighting** checks unresolved captions
 and syncs words when needed. **Sync remaining** and Fine Timing’s **Sync words**
 can also start this work. Studio processes bounded clips from the existing
 project audio and current caption wording on this computer. Ready word timings
