@@ -1,5 +1,14 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
+
+const test = base.extend({
+  context: async ({ context }, use) => {
+    await use(context);
+    // Playwright records assertion and fixture teardown failures separately.
+    await closeOwnedBrowserContext(context);
+  },
+});
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);

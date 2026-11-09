@@ -34,6 +34,27 @@ test('ordinary one-line record and diagnostic indexes unchanged', () => {
   assert.equal(rows[0].length, 9);
   assert.deepEqual(box(rows, 0), expected);
 });
+test('captured Linux stderr preserves the complete frame before a bare prefix', () => {
+  // Exact excerpt from PR #111, run 42492251921 attempt 2, 00-FF0000-016/ffmpeg-stderr.txt.
+  const stderr = '[bbox@caption @ 0x72a008105580] n:5 pts:2300 pts_time:2.3 x1:139 x2:502 y1:301 y2:318 w:364 h:18 crop=364:18:139:301 drawbox=139:301:364:18Application provided invalid, non monotonically increasing dts to muxer in stream 0: 2 >= 2\n' +
+    '[bbox@caption @ 0x72a008105580] \n';
+  assert.deepEqual(box(parse(stderr), 5), expected);
+  const bareStart = stderr.lastIndexOf('[bbox@caption');
+  for (let end = bareStart; end <= stderr.length; end += 1) {
+    // The buffered stderr may end anywhere in the prefix or its line ending.
+    assert.deepEqual(box(parse(stderr.slice(0, end)), 5), expected);
+  }
+});
+test('a bare prefix cannot repair an incomplete frame or mask a subsequent conflict', () => {
+  assert.deepEqual(parse(`${header(0)}\n${prefix()}\n${prefix()}${coords}`), []);
+  for (const body of [small, 'x1:139 x2:502', 'n:bad', 'unexpected metadata']) {
+    assert.deepEqual(parse(`${header(0)} ${coords}\n${prefix()}\n${prefix()}${body}`), []);
+  }
+  assert.deepEqual(parse(`${header(0)} ${coords}\n${prefix()}[other @ 0xdef] ${small}`), []);
+  const rows = parse(`${header(0)} ${coords}\n${prefix()}\n${header(1)}\n${prefix()}${small}`);
+  assert.deepEqual(box(rows, 0), expected);
+  assert.deepEqual(box(rows, 1), { x: 1, y: 3, width: 2, height: 2 });
+});
 test('warning-interrupted record with repeated context prefix', () => {
   assert.deepEqual(box(parse(`${header(3)}Application provided invalid dts\n${prefix()} ${coords}`), 3), expected);
 });

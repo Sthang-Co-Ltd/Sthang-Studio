@@ -171,12 +171,15 @@ test('a focused unsaved caption survives reload and explicit recovery without ap
   expect(f.captionWrites).toEqual([]);
   for (const viewport of [{ width: 1440, height: 1000, name: 'desktop' }, { width: 390, height: 844, name: 'mobile' }]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    const box = await notice.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.y).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+    // The toast slot can be visible while its entrance transition still clips it.
+    await expect(async () => {
+      const box = await notice.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+    }).toPass({ timeout: 8000 });
     await notice.screenshot({ path: testInfo.outputPath(`unfinished-recovery-${viewport.name}.png`) });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
