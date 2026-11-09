@@ -36,6 +36,15 @@ available without crowding the main editing flow.
   separate optional product analytics; both require explicit consent before the
   corresponding Sthang cloud data flow is enabled.
 
+## Version 0.90 release preparation
+
+Source version `0.90.0` adds local word sync when enabling Word highlighting,
+optional Accuracy context before generation, and refinements to editing and
+export. See [Fine Timing](docs/FINE-TIMING.md) for timing suggestions and undo.
+The [0.90.0 release target](https://github.com/Sthang-Co-Ltd/Sthang-Studio/releases/tag/v0.90.0)
+requires native acceptance and signed release verification before availability
+can be confirmed. The published 0.89.0 release is documented below.
+
 ## Version 0.89
 
 **v0.89** (package version `0.89.0`) is available as a Public Beta with per-project
