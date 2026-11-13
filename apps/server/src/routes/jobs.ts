@@ -31,7 +31,7 @@ function jobErrorStatus(error: unknown) {
 
 function requestedGenerationModel(value: unknown) {
   if (value === undefined) return undefined;
-  if (!isCaptionGenerationModel(value)) throw new JobMediaPreconditionError('Choose Automatic, Gemini 3.8 Flash, or Gemini 3.6 Flash.', 400);
+  if (!isCaptionGenerationModel(value)) throw new JobMediaPreconditionError('Choose Automatic, Gemini 3.8 Flash, Gemini 4 Hydrogen, or Gemini 3.6 Flash.', 400);
   return value;
 }
 

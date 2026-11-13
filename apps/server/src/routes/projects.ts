@@ -408,7 +408,7 @@ router.put('/:id/generation-model', async (req, res) => {
   const choice = req.body?.generationModel;
   const previous = req.body?.expectedGenerationModel;
   if (!isCaptionGenerationModel(choice) || !isCaptionGenerationModel(previous)) {
-    return res.status(400).json({ error: 'Choose Automatic, Gemini 3.8 Flash, or Gemini 3.6 Flash.' });
+    return res.status(400).json({ error: 'Choose Automatic, Gemini 3.8 Flash, Gemini 4 Hydrogen, or Gemini 3.6 Flash.' });
   }
   try {
     const result = await store.withProjectWrite(req.params.id, async (current, persist) => {

@@ -46,11 +46,52 @@ test('real GenAI SDK preserves Studio request/privacy shapes without network', a
     { type: 'text', text: 'Transcribe synthetic audio.' },
     { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
   ]);
+  assert.deepEqual(requests[0].generation_config, { thinking_level: 'low' });
   assert.equal((requests[0].response_format as Record<string, unknown>).mime_type, 'application/json');
   assert.deepEqual(requests[1].input, [{ type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType }]);
   assert.deepEqual(requests[1].generation_config, { transcription_config: {
     language_codes: ['km-KH'], mode: { type: 'verbatim' }, custom_vocabulary: ['Sthang'],
   } });
+});
+
+test('real GenAI SDK serializes Hydrogen and existing caption models with low thinking', async () => {
+  const requests: Record<string, unknown>[] = [];
+  await offlineSdk(async (client) => {
+    for (const model of ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-4-hydrogen', 'custom-preview']) {
+      const answer = await makePromptOnlyInteraction(client, model, uploaded, 'Keep the exact spoken Khmer wording.');
+      assert.equal(answer.outputText, responseText);
+    }
+  }, async (input, options) => {
+    const request = input instanceof Request ? input : new Request(input, options);
+    assert.equal(request.method, 'POST');
+    const body = JSON.parse(await request.text()) as Record<string, unknown>;
+    requests.push(body);
+    return new Response(JSON.stringify({
+      id: 'offline-hydrogen-id', object: 'interaction', status: 'completed',
+      model: body.model, output_text: responseText, outputs: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+
+  assert.deepEqual(requests.map((body) => body.model),
+    ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-4-hydrogen', 'custom-preview']);
+  for (const body of requests) {
+    assert.equal(body.store, false);
+    assert.equal(typeof body.system_instruction, 'string');
+    assert.deepEqual(body.input, [
+      { type: 'text', text: 'Keep the exact spoken Khmer wording.' },
+      { type: 'audio', uri: uploaded.uri, mime_type: uploaded.mimeType },
+    ]);
+    const responseFormat = body.response_format as {
+      type: string; mime_type: string; schema: { required: string[] };
+    };
+    assert.equal(responseFormat.type, 'text');
+    assert.equal(responseFormat.mime_type, 'application/json');
+    assert.deepEqual(responseFormat.schema.required, ['language', 'fullText']);
+  }
+  for (const body of requests.slice(0, 3)) {
+    assert.deepEqual(body.generation_config, { thinking_level: 'low' });
+  }
+  assert.equal(Object.hasOwn(requests[3], 'generation_config'), false);
 });
 
 test('real GenAI SDK performs one transport attempt for a transient provider response', async () => {

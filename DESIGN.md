@@ -135,14 +135,19 @@ that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
 
-### Generate caption AI options (published in 0.89)
+### Generate caption AI options
 
 Keep **AI options** in the Generate captions card, immediately before its primary
 action. Its collapsed summary shows the current choice. A labeled native
-**Caption model** selector offers **Automatic**, **Gemini 3.8 Flash**, and
-**Gemini 3.6 Flash**, with a short explanation that the choice applies only to
+**Caption model** selector in current source offers **Automatic**, **Gemini 3.8 Flash**,
+**Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
 this project and leaves global settings unchanged. Existing projects start with
 Automatic. Model names are appropriate in this explicit configuration disclosure.
+
+Hydrogen is an optional development addition to the choices published in 0.89.
+Keep Automatic on the configured primary/fallback policy, with 3.8/3.6 as the
+shipped defaults. Supported caption models use low thinking without an additional
+control in the generation workflow; AI connection settings may explain that policy.
 
 For projects with captions, expose the same options in Accuracy beside full
 regeneration. Expand options after a model-related generation failure. Keep the

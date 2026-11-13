@@ -41,10 +41,10 @@ Upload → optional accuracy context → generate → review flagged captions �
 
 Everything else is secondary and should appear progressively, at the moment it becomes useful.
 
-## Project caption model choice (published in 0.89)
+## Project caption model choice
 
-Generate captions exposes a collapsed **AI options** disclosure with Automatic,
-Gemini 3.8 Flash, and Gemini 3.6 Flash. The choice saves locally for this project;
+Current source exposes a collapsed **AI options** disclosure with Automatic,
+Gemini 3.8 Flash, Gemini 4 Hydrogen, and Gemini 3.6 Flash. The choice saves locally for this project;
 it does not change Settings or another project. Automatic uses the configured
 primary/fallback policy. An explicit model uses only that model for new generation,
 range regeneration, Alternative take, and Deep Verify. Exact-word local realignment
@@ -55,7 +55,11 @@ Resume retains that pair; changing the project choice affects a new job, not an
 existing job or review proposal. Older jobs without a pair snapshot Automatic on
 their first execution after upgrade. Model choice alone must not change the
 caption content revision, overwrite captions/context, or expire a review proposal.
-Public availability is recorded in [0.89 release evidence](docs/V0.89-RELEASE.md).
+The original Automatic/Flash choices are published in [0.89 release evidence](docs/V0.89-RELEASE.md).
+Hydrogen is an optional development addition pending a reviewed release. Automatic
+still defaults to 3.8 Flash with 3.6 Flash as fallback. Supported context-aware
+caption models use an explicit low thinking level; legacy environment overrides
+cannot raise it. See [model choice and request policy](docs/GENERATION-MODEL-CHOICE.md).
 
 ## Editor layout contract (published in 0.89)
 

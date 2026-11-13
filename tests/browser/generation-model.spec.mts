@@ -185,12 +185,12 @@ for (const surface of ['Generate', 'Accuracy'] as const) {
   });
 }
 
-test('Generate offers all three choices, saves per project, survives reopening, and never writes global settings', async ({ page }) => {
+test('Generate offers all four choices, saves Hydrogen per project, survives reopening, and never writes global settings', async ({ page }) => {
   await initialProject(page);
   const select = await options(page);
   await expect(select).toHaveValue('automatic');
-  await expect(select.locator('option')).toHaveText(['Automatic', 'Gemini 3.8 Flash', 'Gemini 3.6 Flash']);
-  for (const value of ['gemini-3.8-flash', 'gemini-3.6-flash', 'automatic', 'gemini-3.6-flash']) {
+  await expect(select.locator('option')).toHaveText(['Automatic', 'Gemini 3.8 Flash', 'Gemini 4 Hydrogen', 'Gemini 3.6 Flash']);
+  for (const value of ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-4-hydrogen', 'automatic', 'gemini-4-hydrogen']) {
     await select.selectOption(value); await expect(select).toBeEnabled(); await expect(select).toHaveValue(value);
     await expect(page.getByRole('status').filter({ hasText: 'Saved for this project' })).toBeVisible();
   }
@@ -200,23 +200,23 @@ test('Generate offers all three choices, saves per project, survives reopening, 
   await expect(await options(page)).toHaveValue('automatic');
   await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
-  await expect(await options(page)).toHaveValue('gemini-3.6-flash');
-  expect(modelWrites).toHaveLength(4);
+  await expect(await options(page)).toHaveValue('gemini-4-hydrogen');
+  expect(modelWrites).toHaveLength(5);
   expect(state.requests.filter((r) => r.path === '/api/system/llm-settings' && r.method !== 'GET')).toEqual([]);
 });
 
-test('Generate waits for the choice save and submits the exact selected model', async ({ page }) => {
+test('Generate waits for the choice save and submits Hydrogen exactly', async ({ page }) => {
   const { transcript, captions } = state.projects[0];
   await initialProject(page); const select = await options(page);
   let release!: () => void; hold = new Promise<void>((resolve) => { release = resolve; });
-  await select.selectOption('gemini-3.6-flash');
+  await select.selectOption('gemini-4-hydrogen');
   await expect(select).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Generate captions', exact: true })).toBeDisabled();
   expect(submissions).toHaveLength(0);
   release(); await expect(select).toBeEnabled();
   await page.getByRole('button', { name: 'Generate captions', exact: true }).click();
   await expect.poll(() => submissions.length).toBe(1);
-  expect(submissions[0].generationModel).toBe('gemini-3.6-flash');
+  expect(submissions[0].generationModel).toBe('gemini-4-hydrogen');
   await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
   Object.assign(state.projects[0], { transcript, captions });
   state.jobs = [{ ...state.jobs[0], status: 'completed', stage: 'complete', progress: 100, resultProjectId: 'landscape' }];
@@ -239,9 +239,9 @@ test('failed option save restores the saved choice and keeps captions intact', a
   expect(state.projects[0].captions).toEqual(captions); expect(state.projects[0].generationModel).toBeUndefined();
 });
 
-test('full regeneration uses the project choice and locks it while prerequisite captions save', async ({ page }) => {
+test('full regeneration uses Hydrogen and locks the choice while prerequisite captions save', async ({ page }) => {
   await openProject(page); await page.getByRole('button', { name: /^Accuracy/ }).click();
-  const select = await options(page); await select.selectOption('gemini-3.6-flash'); await expect(select).toBeEnabled();
+  const select = await options(page); await select.selectOption('gemini-4-hydrogen'); await expect(select).toBeEnabled();
   let release!: () => void; const barrier = new Promise<void>((r) => { release = r; }); let entered = false;
   await page.route('**/api/projects/landscape/captions', async (route) => {
     entered = true; await barrier; const body = route.request().postDataJSON(); state.projects[0].captions = body.captions;
@@ -252,7 +252,7 @@ test('full regeneration uses the project choice and locks it while prerequisite 
   await expect.poll(() => entered).toBe(true);
   await expect(select).toBeDisabled(); expect(submissions).toHaveLength(0);
   release(); await expect.poll(() => submissions.length).toBe(1);
-  expect(submissions[0].generationModel).toBe('gemini-3.6-flash');
+  expect(submissions[0].generationModel).toBe('gemini-4-hydrogen');
 });
 
 test('a model-related failure reveals AI options and the selector remains usable on small screens', async ({ page }, info) => {
@@ -260,9 +260,9 @@ test('a model-related failure reveals AI options and the selector remains usable
   await initialProject(page);
   await expect(page.locator('.generation-options')).toHaveAttribute('open', '');
   const select = page.getByRole('combobox', { name: 'Caption model', exact: true });
-  await select.selectOption('gemini-3.6-flash'); await expect(select).toBeEnabled();
+  await select.selectOption('gemini-4-hydrogen'); await expect(select).toBeEnabled();
   await page.screenshot({ path: info.outputPath('generation-desktop.png'), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 320, height: 844 });
   await select.scrollIntoViewIfNeeded();
   await expect(select).toBeVisible();
   expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(44);

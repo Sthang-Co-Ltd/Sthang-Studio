@@ -10,7 +10,7 @@ import { currentProcessingRun } from './run-context.js';
 import { readRunCheckpoint, writeRunCheckpoint } from './run-checkpoints.js';
 import { canonicalizeVocabularyAliases, contextRecognitionHints, parseVocabulary, type VocabularyEntry } from './vocabulary.js';
 import { GeminiRequestTimeoutError, withGeminiRequestTimeout } from './gemini-request-timeout.js';
-import { canonicalGeminiModel } from './gemini-model-policy.js';
+import { canonicalGeminiModel, dedicatedTranscriptionModel, geminiTranscriptionGenerationConfig } from './gemini-model-policy.js';
 
 const schema = {
   type: 'object',
@@ -237,23 +237,13 @@ function sleep(ms: number) {
 
 type InteractionResult = { outputText: string; nativeVocabularyBias: boolean };
 
-function thinkingGenerationConfig(model: string) {
-  return /^gemini-(?:3(?:\.|-|$)|2\.5(?:-|$))/i.test(model)
-    ? { thinking_level: config.geminiTranscriptionThinkingLevel }
-    : undefined;
-}
-
-function dedicatedTranscriptionModel(model: string) {
-  return /^gemini-3\.5-transcribe(?:$|-)/i.test(model.trim());
-}
-
 export async function makePromptOnlyInteraction(
   ai: GoogleGenAI,
   model: string,
   uploaded: { uri: string; mimeType: string },
   prompt: string,
 ): Promise<InteractionResult> {
-  const generationConfig = thinkingGenerationConfig(model);
+  const generationConfig = geminiTranscriptionGenerationConfig(model);
   return withGeminiRequestTimeout(config.geminiRequestTimeoutMs, async (signal) => {
     const interaction = await ai.interactions.create({
       model,
@@ -736,25 +726,26 @@ export async function geminiCheckpointSignature(
   audioPath: string,
   context: TranscriptionContext | undefined,
   guidance: GeminiTranscriptionGuidance | undefined,
-  llm: ResolvedGeminiSettings,
+  llm: Pick<ResolvedGeminiSettings, 'apiKey' | 'model' | 'fallbackModel'>,
 ) {
   const stat = await fs.stat(audioPath);
   const audioIdentity = immutableAudioIdentity(audioPath, stat);
   const keyFingerprint = crypto.createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
   return crypto.createHash('sha256').update(JSON.stringify({
-    version: 'gemini-job-stage-v5',
+    version: 'gemini-job-stage-v6',
     audioIdentity,
     context,
     guidance,
     primaryModel: llm.model,
     fallbackModel: llm.fallbackModel,
+    primaryGenerationConfig: geminiTranscriptionGenerationConfig(llm.model),
+    fallbackGenerationConfig: geminiTranscriptionGenerationConfig(llm.fallbackModel),
     transcriptionRescueEnabled: config.geminiTranscriptionRescueEnabled,
     transcriptionRescueModel: config.geminiTranscriptionRescueEnabled && llm.fallbackModel.trim()
       ? config.geminiTranscriptionRescueModel
       : '',
     keyFingerprint,
     nativeVocabularyBias: config.geminiNativeVocabularyBias,
-    thinkingLevel: config.geminiTranscriptionThinkingLevel,
   })).digest('hex').slice(0, 32);
 }
 

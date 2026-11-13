@@ -228,7 +228,7 @@ export interface PipelineCacheInfo {
   lastRangeRegeneratedAt?: string;
 }
 
-export type CaptionGenerationModel = 'automatic' | 'gemini-3.8-flash' | 'gemini-3.6-flash';
+export type CaptionGenerationModel = 'automatic' | 'gemini-3.8-flash' | 'gemini-4-hydrogen' | 'gemini-3.6-flash';
 
 export interface CaptionProject {
   id: string;

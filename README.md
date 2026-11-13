@@ -596,6 +596,14 @@ An accepted job retains its model pair through **Activity → Resume**; choose a
 model and start a new generation to use a different pair. See
 [project model choice](docs/GENERATION-MODEL-CHOICE.md).
 
+**Development source — Gemini 4 Hydrogen:** current source adds **Gemini 4 Hydrogen**
+(`gemini-4-hydrogen`) as an optional project caption model and an AI connection
+suggestion. Automatic still defaults to 3.8 Flash with 3.6 Flash as fallback.
+Supported context-aware caption models send an explicit low thinking level;
+legacy `GEMINI_TRANSCRIPTION_THINKING_LEVEL` overrides are ignored. This addition
+has not yet been published in a reviewed release. Existing saved choices and
+accepted jobs retain their model IDs.
+
 HTTP 503 indicates temporary service unavailability; an unused daily quota does
 not rule it out. HTTP 429 indicates rate limiting. For 429 responses, Studio skips
 repeated Retry-After loops on the same model and advances to the configured

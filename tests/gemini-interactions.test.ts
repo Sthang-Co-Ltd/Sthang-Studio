@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import type { GoogleGenAI } from '@google/genai';
 import { config } from '../apps/server/src/config.ts';
 import {
   buildTranscriptionRecognitionHints,
   createInteractionWithRetry,
+  geminiCheckpointSignature,
   geminiRetryDelayMs,
   GeminiLanguageMismatchError,
   GeminiUnavailableError,
@@ -83,6 +88,7 @@ test('prompt-only interaction disables hidden SDK retries and receives the Studi
 
   assert.equal(result.nativeVocabularyBias, false);
   assert.equal(requestBody?.model, 'gemini-3.8-flash');
+  assert.deepEqual(requestBody?.generation_config, { thinking_level: 'low' });
   assert.equal(typeof requestBody?.system_instruction, 'string');
   assert.deepEqual(requestBody?.input, [
     { type: 'text', text: 'Transcribe this audio.' },
@@ -93,6 +99,81 @@ test('prompt-only interaction disables hidden SDK retries and receives the Studi
   const fetchOptions = requestOptions?.fetchOptions as { signal?: AbortSignal } | undefined;
   assert.ok(fetchOptions?.signal instanceof AbortSignal);
   assert.equal(fetchOptions.signal.aborted, false);
+});
+
+test('Hydrogen uses the same private audio and JSON transcript request with explicit low thinking', async () => {
+  const requests: Record<string, unknown>[] = [];
+  const ai = {
+    interactions: {
+      create: async (body: Record<string, unknown>) => {
+        requests.push(body);
+        return { output_text: '{"language":"km-KH","fullText":"សួស្តី"}' };
+      },
+    },
+  } as unknown as GoogleGenAI;
+
+  for (const model of ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-4-hydrogen', 'custom-preview']) {
+    await makePromptOnlyInteraction(ai, model, { uri: 'https://example.invalid/audio', mimeType: 'audio/wav' }, 'Listen to this Khmer clip.');
+  }
+  assert.deepEqual(requests.map((request) => request.model),
+    ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-4-hydrogen', 'custom-preview']);
+  for (const request of requests) {
+    assert.equal(request.store, false);
+    assert.equal(typeof request.system_instruction, 'string');
+    assert.deepEqual(request.input, [
+      { type: 'text', text: 'Listen to this Khmer clip.' },
+      { type: 'audio', uri: 'https://example.invalid/audio', mime_type: 'audio/wav' },
+    ]);
+    const format = request.response_format as { type: string; mime_type: string; schema: { required: string[] } };
+    assert.equal(format.type, 'text');
+    assert.equal(format.mime_type, 'application/json');
+    assert.deepEqual(format.schema.required, ['language', 'fullText']);
+  }
+  for (const request of requests.slice(0, 3)) {
+    assert.deepEqual(request.generation_config, { thinking_level: 'low' });
+  }
+  assert.equal(Object.hasOwn(requests[3], 'generation_config'), false,
+    'custom models retain the existing absence of an explicit thinking configuration');
+});
+
+test('Hydrogen low policy invalidates legacy same-job checkpoints created with implicit thinking', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'sthang-hydrogen-cache-'));
+  try {
+    const audioPath = path.join(directory, 'synthetic.wav');
+    await fs.writeFile(audioPath, Buffer.alloc(64));
+    const llm = { apiKey: 'offline-signature-fixture', model: 'gemini-4-hydrogen', fallbackModel: '' };
+    const context = { description: 'Synthetic Khmer speech', vocabulary: [] };
+    const newSignature = await geminiCheckpointSignature(audioPath, context, undefined, llm);
+
+    // Historical v5 format deliberately retained here to check migration.
+    // It recorded a global thinking setting even when Gemini 4 received no generation_config.
+    const stat = await fs.stat(audioPath);
+    const inode = Number(stat.ino || 0);
+    const audioIdentity = inode
+      ? `inode:${Number(stat.dev || 0)}:${inode}:${stat.size}:${Number(stat.mtimeMs).toFixed(3)}`
+      : `path:${audioPath}:${stat.size}:${Number(stat.mtimeMs).toFixed(3)}`;
+    const keyFingerprint = createHash('sha256').update(llm.apiKey).digest('hex').slice(0, 16);
+    const oldSignature = createHash('sha256').update(JSON.stringify({
+      version: 'gemini-job-stage-v5',
+      audioIdentity,
+      context,
+      guidance: undefined,
+      primaryModel: llm.model,
+      fallbackModel: llm.fallbackModel,
+      transcriptionRescueEnabled: config.geminiTranscriptionRescueEnabled,
+      transcriptionRescueModel: '',
+      keyFingerprint,
+      nativeVocabularyBias: config.geminiNativeVocabularyBias,
+      thinkingLevel: 'low',
+    })).digest('hex').slice(0, 32);
+
+    assert.notEqual(newSignature, oldSignature, 'old implicit-thinking Hydrogen result must be invalid');
+    const fallbackSignature = await geminiCheckpointSignature(audioPath, context, undefined,
+      { ...llm, fallbackModel: 'gemini-3.6-flash' });
+    assert.notEqual(newSignature, fallbackSignature, 'fallback request policy changes the job checkpoint');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('a 504 fast-fails the current context-aware model instead of consuming more long retries', async () => {
