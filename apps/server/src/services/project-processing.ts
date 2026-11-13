@@ -32,6 +32,7 @@ import { proposalStore, type StoredRegenerationProposal } from './proposal-store
 import { historyStore } from './history-store.js';
 import type { ResolvedGeminiSettings } from './llm-settings.js';
 import { resolveGenerationSettings } from './generation-settings.js';
+import { geminiTranscriptionGenerationConfig } from './gemini-model-policy.js';
 import { settlePairWithPrimaryFollowup } from './pipeline-overlap.js';
 import { assertRetainedTimingCanBeDerived } from './media-alignment.js';
 
@@ -120,11 +121,13 @@ export async function transcribeProject(
     throw new Error('Connect Gemini in Settings → AI connection before generating captions.');
   }
   const geminiSignature = stageSignature({
-    version: 7,
+    version: 8,
     mediaFingerprint: normalized.fingerprint,
     context,
     primaryModel: llm.model,
     fallbackModel: llm.fallbackModel,
+    primaryGenerationConfig: geminiTranscriptionGenerationConfig(llm.model),
+    fallbackGenerationConfig: geminiTranscriptionGenerationConfig(llm.fallbackModel),
     transcriptionRescueEnabled: config.geminiTranscriptionRescueEnabled,
     transcriptionRescueModel: config.geminiTranscriptionRescueEnabled && llm.fallbackModel.trim()
       ? config.geminiTranscriptionRescueModel

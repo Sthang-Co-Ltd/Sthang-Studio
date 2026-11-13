@@ -198,9 +198,9 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
         <div className="ai-model-grid">
           <label><span>Primary model</span><input list="gemini-model-options" value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>
           <label><span>Fallback model <em>optional</em></span><input list="gemini-model-options" value={fallbackModel} onChange={(event) => { revisions.current.fallback++; edited.current.fallback = true; setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
-          <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-3.6-flash"/></datalist>
+          <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-4-hydrogen"/><option value="gemini-3.6-flash"/></datalist>
         </div>
-        <p className="ai-model-help">Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p>
+        <p className="ai-model-help">Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Gemini 4 Hydrogen is also an option. These caption models use low thinking. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p>
       </section>
     </div>
 

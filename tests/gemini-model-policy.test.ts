@@ -5,8 +5,10 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   canonicalGeminiModel,
+  dedicatedTranscriptionModel,
   defaultGeminiFallbackModel,
   defaultGeminiModel,
+  geminiTranscriptionGenerationConfig,
   resolveGeminiModelPair,
 } from '../apps/server/src/services/gemini-model-policy.js';
 
@@ -38,6 +40,24 @@ test('historical defaults migrate to distinct Flash models; deliberate custom ch
     model: 'gemini-3.8-flash',
     fallbackModel: 'custom-secondary',
   });
+  assert.deepEqual(resolveGeminiModelPair('gemini-4-hydrogen', ''), { model: 'gemini-4-hydrogen', fallbackModel: '' });
+});
+
+test('caption request policy forces low thinking only for recognized context-aware models', () => {
+  for (const model of [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'models/gemini-3.7-flash',
+    'gemini-2.5-flash',
+    'gemini-4-hydrogen',
+  ]) {
+    assert.deepEqual(geminiTranscriptionGenerationConfig(model), { thinking_level: 'low' }, model);
+  }
+  for (const model of ['', 'custom-model-preview', 'gemini-4-argon', 'gemini-4-carbon', 'gemini-3.5-transcribe']) {
+    assert.equal(geminiTranscriptionGenerationConfig(model), undefined, model);
+  }
+  assert.equal(dedicatedTranscriptionModel('models/gemini-3.5-transcribe'), true);
+  assert.equal(dedicatedTranscriptionModel('gemini-4-hydrogen'), false);
 });
 
 test('old environment and stored default pairs migrate without accessing real secrets or saving on read', {
@@ -46,7 +66,7 @@ test('old environment and stored default pairs migrate without accessing real se
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sthang-gemini-policy-'));
   const envNames = [
     'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'STHANG_STUDIO_STATE_ROOT', 'STHANG_STUDIO_ENV_FILE',
-    'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_FALLBACK_MODEL',
+    'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_FALLBACK_MODEL', 'GEMINI_TRANSCRIPTION_THINKING_LEVEL',
   ] as const;
   const previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
   try {
@@ -57,10 +77,14 @@ test('old environment and stored default pairs migrate without accessing real se
     process.env.GEMINI_API_KEY = 'your_google_ai_studio_api_key_here';
     process.env.GEMINI_MODEL = 'gemini-3.8-flash';
     process.env.GEMINI_FALLBACK_MODEL = 'gemini-3.7-flash';
+    process.env.GEMINI_TRANSCRIPTION_THINKING_LEVEL = 'high'; // Stale installations cannot override the low request policy.
 
     const { config } = await import('../apps/server/src/config.js');
     assert.equal(config.geminiModel, 'gemini-3.8-flash');
     assert.equal(config.geminiFallbackModel, 'gemini-3.6-flash', 'a previously installed .env default needs an independent fallback');
+    assert.equal('geminiTranscriptionThinkingLevel' in config, false);
+    assert.deepEqual(geminiTranscriptionGenerationConfig(config.geminiModel), { thinking_level: 'low' });
+    assert.deepEqual(geminiTranscriptionGenerationConfig(config.geminiFallbackModel), { thinking_level: 'low' });
 
     const settingsDir = path.join(tempRoot, process.platform === 'win32' ? 'Sthang Studio' : 'sthang-studio');
     const metadataFile = path.join(settingsDir, 'llm-settings.json');

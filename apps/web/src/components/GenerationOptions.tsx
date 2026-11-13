@@ -3,7 +3,7 @@ import type { CaptionGenerationModel } from '@kcs/shared';
 import { ChevronDown } from 'lucide-react';
 import './generation-options.css';
 
-const labels = { automatic: 'Automatic', 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'gemini-3.6-flash': 'Gemini 3.6 Flash' };
+const labels = { automatic: 'Automatic', 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'gemini-4-hydrogen': 'Gemini 4 Hydrogen', 'gemini-3.6-flash': 'Gemini 3.6 Flash' };
 
 export function GenerationOptions({ value = 'automatic', disabled, saving, expandAfterError, onChange }: {
   value?: CaptionGenerationModel;
@@ -28,6 +28,7 @@ export function GenerationOptions({ value = 'automatic', disabled, saving, expan
       }}>
         <option value="automatic">Automatic</option>
         <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+        <option value="gemini-4-hydrogen">Gemini 4 Hydrogen</option>
         <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
       </select>
       <p id={`${id}-help`}>For this project only. {choice === 'automatic' ? 'Uses your default model and existing fallback rules.' : 'Uses only this model for new caption generation and regeneration.'} Global settings stay unchanged.</p>

@@ -20,6 +20,23 @@ export function canonicalGeminiModel(model: string): string {
   return id;
 }
 
+export function dedicatedTranscriptionModel(model: string): boolean {
+  return /^gemini-3\.5-transcribe(?:$|-)/i.test(canonicalGeminiModel(model));
+}
+
+/**
+ * The effective Interactions request policy for context-aware caption listens.
+ * Keep this independent of obsolete local thinking-level environment overrides.
+ * Unknown model IDs retain their provider-defined request behavior.
+ */
+export function geminiTranscriptionGenerationConfig(model: string): { thinking_level: 'low' } | undefined {
+  const id = canonicalGeminiModel(model);
+  if (dedicatedTranscriptionModel(id)) return undefined; // Separate verbatim transcription API shape.
+  return /^gemini-(?:3(?:\.|-|$)|2\.5(?:-|$))/i.test(id) || id === 'gemini-4-hydrogen'
+    ? { thinking_level: 'low' }
+    : undefined;
+}
+
 export function resolveGeminiModelPair(model: string, fallbackModel: string): { model: string; fallbackModel: string } {
   const requestedModel = modelId(model);
   const requestedFallback = modelId(fallbackModel);

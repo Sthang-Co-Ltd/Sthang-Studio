@@ -5,7 +5,7 @@ import { currentProcessingRun } from './run-context.js';
 export interface GenerationModelPair { model: string; fallbackModel: string }
 
 export function isCaptionGenerationModel(value: unknown): value is CaptionGenerationModel {
-  return value === 'automatic' || value === 'gemini-3.8-flash' || value === 'gemini-3.6-flash';
+  return value === 'automatic' || value === 'gemini-3.8-flash' || value === 'gemini-4-hydrogen' || value === 'gemini-3.6-flash';
 }
 
 export function generationModelPair(choice: CaptionGenerationModel | undefined, defaults: GenerationModelPair): GenerationModelPair {

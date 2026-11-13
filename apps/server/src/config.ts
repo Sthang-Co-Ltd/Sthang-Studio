@@ -35,11 +35,6 @@ function envBool(name: string, fallback: boolean) {
   return !['0', 'false', 'no', 'off'].includes(raw.toLowerCase());
 }
 
-function envThinkingLevel(name: string, fallback: 'low' | 'medium' | 'high') {
-  const raw = String(process.env[name] || '').trim().toLowerCase();
-  return ['low', 'medium', 'high'].includes(raw) ? raw as 'low' | 'medium' | 'high' : fallback;
-}
-
 function httpsOriginValue(value: unknown) {
   const raw = String(value || '').trim().replace(/\/+$/, '');
   if (!raw) return '';
@@ -92,7 +87,6 @@ export const config = {
   geminiRetryBaseMs: Math.max(250, Math.min(10000, Number(process.env.GEMINI_RETRY_BASE_MS || 1000))),
   geminiRetryMaxMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_RETRY_MAX_MS || 60000))),
   geminiRequestTimeoutMs: Math.max(10000, Math.min(600000, Number(process.env.GEMINI_REQUEST_TIMEOUT_MS || 120000))),
-  geminiTranscriptionThinkingLevel: envThinkingLevel('GEMINI_TRANSCRIPTION_THINKING_LEVEL', 'low'),
   geminiNativeVocabularyBias: envBool('GEMINI_NATIVE_VOCABULARY_BIAS', true),
 
   localTimingPython: process.env.LOCAL_TIMING_PYTHON || defaultVenvPython,

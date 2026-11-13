@@ -58,15 +58,18 @@ async function storedJob(id: string) { return JSON.parse(await fs.readFile(confi
 test('allowlist and effective pair preserve Automatic defaults and isolate explicit models', () => {
   const defaults = { model: 'custom-primary', fallbackModel: 'custom-fallback' };
   for (const choice of [undefined, 'automatic'] as const) assert.deepEqual(generationModelPair(choice, defaults), defaults);
-  for (const choice of ['gemini-3.8-flash', 'gemini-3.6-flash'] as const) assert.deepEqual(generationModelPair(choice, defaults), { model: choice, fallbackModel: '' });
-  for (const value of [null, {}, 36, '', '3.6', 'models/gemini-3.6-flash', 'custom-model']) assert.equal(isCaptionGenerationModel(value), false);
+  for (const choice of ['gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-3.6-flash'] as const) {
+    assert.equal(isCaptionGenerationModel(choice), true);
+    assert.deepEqual(generationModelPair(choice, defaults), { model: choice, fallbackModel: '' });
+  }
+  for (const value of [null, {}, 36, '', '3.6', 'models/gemini-3.6-flash', 'models/gemini-4-hydrogen', 'gemini-4-argon', 'gemini-4-carbon', 'custom-model']) assert.equal(isCaptionGenerationModel(value), false);
   assert.deepEqual(defaults, { model: 'custom-primary', fallbackModel: 'custom-fallback' });
 });
 
 test('project choice is durable, guarded, and preserves captions/context/other projects/global defaults', async () => {
   let project = await seed('options'); const other = await seed('untouched');
   const globalBefore = await publicLlmSettings();
-  for (const choice of ['gemini-3.8-flash', 'gemini-3.6-flash', 'automatic'] as const) {
+  for (const choice of ['gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-3.6-flash', 'automatic'] as const) {
     const response = await put(project, choice); assert.equal(response.status, 200);
     project = await response.json() as CaptionProject;
     assert.equal(project.generationModel, choice);
@@ -90,12 +93,12 @@ test('concurrent option saves compare the previous choice under the project writ
   assert.deepEqual((await store.get(project.id))?.captions, project.captions);
 });
 
-test('accepted jobs keep their model pair across preference/default changes and resume without storing keys', async () => {
-  const project = await seed('snapshot', 'gemini-3.6-flash');
+test('accepted Hydrogen jobs keep their model pair across preference/default changes and resume without storing keys', async () => {
+  const project = await seed('snapshot', 'gemini-4-hydrogen');
   const job = await jobStore.create('transcribe', project.id, {});
   await idle();
   const snapshot = await storedJob(job.id);
-  assert.deepEqual(snapshot.payload.geminiModels, { model: 'gemini-3.6-flash', fallbackModel: '' });
+  assert.deepEqual(snapshot.payload.geminiModels, { model: 'gemini-4-hydrogen', fallbackModel: '' });
   assert.equal(JSON.stringify(snapshot).includes('non-secret-offline-fixture'), false);
   assert.equal('payload' in (await jobStore.get(job.id))!, false);
   const requestChoice = await jobStore.create('transcribe', project.id, { generationModel: 'gemini-3.8-flash' }); await idle();
@@ -116,7 +119,7 @@ test('parallel run scopes override current preferences independently without lea
     const llm = await resolveGenerationSettings('gemini-3.8-flash');
     return { model: llm.model, fallbackModel: llm.fallbackModel };
   });
-  assert.deepEqual(await Promise.all([run('gemini-3.6-flash'), run('gemini-3.8-flash')]), [{ model: 'gemini-3.6-flash', fallbackModel: '' }, { model: 'gemini-3.8-flash', fallbackModel: '' }]);
+  assert.deepEqual(await Promise.all([run('gemini-3.6-flash'), run('gemini-3.8-flash'), run('gemini-4-hydrogen')]), [{ model: 'gemini-3.6-flash', fallbackModel: '' }, { model: 'gemini-3.8-flash', fallbackModel: '' }, { model: 'gemini-4-hydrogen', fallbackModel: '' }]);
   assert.equal((await resolveGenerationSettings()).fallbackModel, 'gemini-3.6-flash');
 });
 
@@ -124,7 +127,7 @@ test('explicit choices never switch models on temporary failure, even with exper
   const retries = config.geminiMaxRetries; const rescue = config.geminiTranscriptionRescueEnabled;
   config.geminiMaxRetries = 0; config.geminiTranscriptionRescueEnabled = true;
   try {
-    for (const model of ['gemini-3.8-flash', 'gemini-3.6-flash'] as const) {
+    for (const model of ['gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-3.6-flash'] as const) {
       const calls: string[] = [];
       const ai = { interactions: { create: async (request: { model: string }) => { calls.push(request.model); throw Object.assign(new Error('Synthetic unavailable'), { status: 503 }); } } };
       await assert.rejects(runGeminiModelChain(ai as any, { uri: 'https://example.invalid/audio', mimeType: 'audio/wav' }, 'Synthetic transcription', [], undefined, generationModelPair(model, { model: 'ignored', fallbackModel: 'ignored' })));
@@ -139,10 +142,12 @@ test('same-job checkpoints require the effective model signature and never cross
   const signature = await geminiCheckpointSignature(file, { description: 'Synthetic', vocabulary: [] }, undefined, settings);
   const otherSignature = await geminiCheckpointSignature(file, { description: 'Synthetic', vocabulary: [] }, undefined, { ...settings, model: 'gemini-3.8-flash' });
   const fallbackSignature = await geminiCheckpointSignature(file, { description: 'Synthetic', vocabulary: [] }, undefined, { ...settings, fallbackModel: 'gemini-3.8-flash' });
-  assert.notEqual(signature, otherSignature); assert.notEqual(signature, fallbackSignature);
+  const hydrogenSignature = await geminiCheckpointSignature(file, { description: 'Synthetic', vocabulary: [] }, undefined, { ...settings, model: 'gemini-4-hydrogen' });
+  assert.notEqual(signature, otherSignature); assert.notEqual(signature, fallbackSignature); assert.notEqual(signature, hydrogenSignature);
   await writeRunCheckpoint('checkpoint', 'job-one', 'gemini-standard', signature, { textModel: settings.model });
   assert.deepEqual(await readRunCheckpoint('checkpoint', 'job-one', 'gemini-standard', signature), { textModel: settings.model });
   assert.equal(await readRunCheckpoint('checkpoint', 'job-one', 'gemini-standard', otherSignature), null);
+  assert.equal(await readRunCheckpoint('checkpoint', 'job-one', 'gemini-standard', hydrogenSignature), null);
   assert.equal(await readRunCheckpoint('checkpoint', 'job-two', 'gemini-standard', signature), null);
 });
 
