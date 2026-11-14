@@ -1,4 +1,4 @@
-import type { CaptionFileFormat, VideoExportSettings } from '@kcs/shared';
+import type { CaptionFileFormat, CaptionLayoutCheckResult, VideoExportSettings } from '@kcs/shared';
 
 export type CaptionDestinationId = 'capcut-desktop' | 'capcut-mobile' | 'premiere' | 'resolve' | 'final-cut' | 'web-other' | 'subtitle-tools';
 
@@ -8,7 +8,7 @@ export interface CaptionHandoffSession {
   advancedOpen: boolean;
 }
 
-/** Kept only while repairing this project's export in the current editor visit. */
+/** Current export visit, combining remembered output choices with ephemeral diagnostic evidence. */
 export interface ExportWorkspaceSession {
   outputMode: 'video' | 'captions';
   settings: VideoExportSettings;
@@ -20,6 +20,10 @@ export interface ExportWorkspaceSession {
   managedPresetId: string;
   advancedOpen: boolean;
   handoff: CaptionHandoffSession;
+  /** Visit-only diagnostic evidence. Never included in remembered output choices. */
+  layoutCheck?: { key: string; result?: CaptionLayoutCheckResult; error?: string } | null;
+  /** Keeps an explicit support recheck invalidating old diagnostics through tool changes. */
+  layoutCapabilityRevision?: number;
 }
 
 export function createExportWorkspaceSession(videoProject: boolean): ExportWorkspaceSession {

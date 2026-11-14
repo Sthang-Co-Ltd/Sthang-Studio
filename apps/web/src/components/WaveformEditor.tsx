@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTimingDock } from './EditorLayout';
 import { EDITOR_LAYOUT_CHANGE } from '../editor-layout-state';
@@ -25,10 +25,11 @@ import { computeSpectrum } from '../audio/spectrum';
 import { buildWaveformPeaks, waveformExtrema, type WaveformPeaks } from '../audio/peaks';
 import { TimestampInput } from './TimestampInput';
 import { focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEditKind } from '../timing-edit';
-import { captionNeighborLimits, planCaptionTimingEdit, timingTransactionMatches, type CaptionTimingOptions, type CaptionTimingTransaction } from '../caption-timing-transaction';
+import { captionTimingBasisMatches, prepareCaptionTiming, planCaptionTimingEdit, timingTransactionMatches, type CaptionTimingGestureBasis, type CaptionTimingOptions, type CaptionTimingTransaction, type PreparedCaptionTiming } from '../caption-timing-transaction';
 import type { TimingPlaybackRange } from '../timing-playback';
 import { WordTimingPanel, type WordTimingCandidate } from './WordTimingPanel';
 import { changeWordTiming } from '../word-timing-edit';
+import { hitTestWaveformEdges, type WaveformEdgeTarget } from './waveform-hit-targets';
 import './waveform-editor.css';
 
 interface WaveformEditorProps {
@@ -52,7 +53,7 @@ interface WaveformEditorProps {
   onWordPreview(ownerId: string, preview: CaptionTimingTransaction | null): void;
   onSeek(ms: number): void;
   onSelect(id: string): void;
-  onTimingChange(before: CaptionSegment[], after: CaptionSegment[], guards?: CaptionSegment[]): boolean;
+  onTimingChange(before: CaptionSegment[], after: CaptionSegment[], guards?: CaptionSegment[], gestureBasis?: CaptionTimingGestureBasis): boolean;
   onPreview(range: TimingPlaybackRange): void;
   onStopPreview(): void;
   onNotice(message: string): void;
@@ -65,12 +66,21 @@ interface DragState {
   edge: TimingEditKind;
   before: CaptionSegment;
   basis: CaptionSegment[];
+  prepared: PreparedCaptionTiming;
   options: CaptionTimingOptions;
   originMs: number;
   originX: number;
   pointerId: number;
   wordId?: string;
 }
+
+type WaveformHover = {
+  kind: 'edge' | 'move';
+  lane: 'caption' | 'word';
+  ownerId: string;
+  edge?: 'start' | 'end';
+  timeMs?: number;
+};
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -202,6 +212,7 @@ export function WaveformEditor({
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [dragPreview, setDragPreview] = useState<CaptionSegment[] | null>(null);
+  const [hover, setHover] = useState<WaveformHover | null>(null);
   const [allowOverlap, setAllowOverlap] = useState(false);
   const [sharedBoundary, setSharedBoundary] = useState(false);
   const [editMode, setEditMode] = useState<'caption' | 'words'>(initialEditMode);
@@ -236,7 +247,29 @@ export function WaveformEditor({
   const wordResolution = useMemo(() => currentCaption ? resolveCaptionWordTiming(currentCaption) : null, [currentCaption]);
   const editableWords = wordResolution?.state === 'stale' ? [] : wordResolution?.words || [];
   const selectedWord = editableWords.find((word) => word.id === selectedWordId) || editableWords[0];
-  const neighbourLimits = captionNeighborLimits(captions, selectedCaption?.id || '', editLimitMs);
+  const captionEdges = useMemo<WaveformEdgeTarget[]>(() => captions.flatMap((caption) => caption.timingLocked ? [] : [
+    { ownerId: caption.id, edge: 'start' as const, timeMs: caption.startMs, selected: selected.has(caption.id) },
+    { ownerId: caption.id, edge: 'end' as const, timeMs: caption.endMs, selected: selected.has(caption.id) },
+  ]), [captions, selected]);
+  const wordEdges = useMemo<WaveformEdgeTarget[]>(() => selectedCaption?.timingLocked ? [] : editableWords.flatMap((word) => word.startMs === null || word.endMs === null ? [] : [
+    { ownerId: word.id, edge: 'start' as const, timeMs: word.startMs, selected: word.id === selectedWord?.id },
+    { ownerId: word.id, edge: 'end' as const, timeMs: word.endMs, selected: word.id === selectedWord?.id },
+  ]), [editableWords, selectedCaption?.timingLocked, selectedWord?.id]);
+  const preparedTiming = useMemo(() => prepareCaptionTiming(captions, editLimitMs), [captions, editLimitMs]);
+  const neighbourLimits = preparedTiming.limits.get(selectedCaption?.id || '')
+    || { lower: 0, upper: editLimitMs, previous: undefined, next: undefined };
+  useLayoutEffect(() => {
+    const gesture = dragRef.current;
+    if (!gesture) return;
+    const limits = gesture.prepared.limits.get(gesture.captionId);
+    const adjoining = gesture.options.sharedBoundary && gesture.edge !== 'move'
+      ? gesture.edge === 'start' ? limits?.previous : limits?.next : undefined;
+    const owners = adjoining ? [gesture.before, adjoining] : [gesture.before];
+    if (gesture.prepared.durationMs === editLimitMs && captionTimingBasisMatches(captions, gesture.basis, owners)) return;
+    dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null);
+    if (canvas.current?.hasPointerCapture(gesture.pointerId)) canvas.current.releasePointerCapture(gesture.pointerId);
+    onNotice('Caption timing changed during this drag. Newer changes were kept. Drag again to adjust.');
+  }, [captions, editLimitMs]);
   const edgeBounds = (edge: 'start' | 'end') => {
     if (!currentCaption) return { min: 0, max: editLimitMs, blocked: true };
     if (sharedBoundary) {
@@ -277,11 +310,12 @@ export function WaveformEditor({
   }, [memoryKey, selectedCaption?.id, durationMs]);
 
   useEffect(() => () => onStopPreview(), []);
-  useEffect(() => { dragRef.current = null; setDrag(null); setDragPreview(null); }, [timingDock]);
+  useEffect(() => { dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null); }, [timingDock]);
+  useEffect(() => setHover(null), [selectedCaption?.id, editMode, viewStartMs, viewDurationMs]);
   useEffect(() => {
     const cancelForLayout = () => {
       const gesture = dragRef.current;
-      dragRef.current = null; setDrag(null); setDragPreview(null);
+      dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null);
       if (gesture && canvas.current?.hasPointerCapture(gesture.pointerId)) canvas.current.releasePointerCapture(gesture.pointerId);
     };
     window.addEventListener(EDITOR_LAYOUT_CHANGE, cancelForLayout);
@@ -569,7 +603,7 @@ export function WaveformEditor({
       if (isSelected) {
         for (const x of [x1, x2]) {
           ctx.fillStyle = caption.timingLocked ? '#e7b95d' : '#d7ff4f';
-          ctx.fillRect(x - 3, 139, 6, 38);
+          ctx.fillRect(x - 4, 139, 8, 38);
           ctx.strokeStyle = 'rgba(215,255,79,.55)';
           ctx.beginPath(); ctx.moveTo(x, 22); ctx.lineTo(x, 138); ctx.stroke();
         }
@@ -615,7 +649,7 @@ export function WaveformEditor({
         ctx.lineWidth = activeWord ? 2 : 1;
         ctx.strokeRect(x1 + .5, 100.5, Math.max(1, x2 - x1 - 1), 32);
         if (activeWord) for (const x of [x1, x2]) {
-          ctx.fillStyle = '#d7ff4f'; ctx.fillRect(x - 3, 98, 6, 36);
+          ctx.fillStyle = '#d7ff4f'; ctx.fillRect(x - 4, 98, 8, 36);
         }
         ctx.save();
         ctx.beginPath(); ctx.rect(Math.max(0, x1 + 7), 102, Math.max(0, Math.min(width, x2 - 6) - Math.max(0, x1 + 7)), 28); ctx.clip();
@@ -652,31 +686,62 @@ export function WaveformEditor({
       ctx.fillStyle = '#d7ff4f';
       ctx.beginPath(); ctx.moveTo(playheadX - 5, 0); ctx.lineTo(playheadX + 5, 0); ctx.lineTo(playheadX, 7); ctx.closePath(); ctx.fill();
     }
-  }, [timingDock, width, durationMs, loading, viewStartMs, viewDurationMs, playheadMs]);
+    if (hover?.kind === 'edge' && hover.timeMs !== undefined) {
+      const x = timeToX(hover.timeMs);
+      if (x >= -13 && x <= width + 13) {
+        const top = hover.lane === 'word' ? 96 : 136;
+        const bottom = hover.lane === 'word' ? 136 : 180;
+        ctx.fillStyle = 'rgba(215,255,79,.13)';
+        ctx.fillRect(x - 12, top, 24, bottom - top);
+        ctx.strokeStyle = '#edffb0';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+      }
+    }
+  }, [timingDock, width, durationMs, loading, viewStartMs, viewDurationMs, playheadMs, hover]);
 
   const pointerTime = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return xToTime(clamp(event.clientX - rect.left, 0, rect.width) / rect.width * width);
   };
 
-  const chooseBoundary = (value: number) => {
-    let best: { caption: CaptionSegment; edge: 'start' | 'end'; distance: number } | null = null;
-    const tolerance = viewDurationMs / width * 10;
-    for (const caption of [...captions].sort((a, b) => Number(selected.has(b.id)) - Number(selected.has(a.id)))) {
-      if (caption.timingLocked) continue;
-      for (const edge of ['start', 'end'] as const) {
-        const distance = Math.abs(caption[edge === 'start' ? 'startMs' : 'endMs'] - value);
-        if (distance <= tolerance && (!best || distance < best.distance)) best = { caption, edge, distance };
+  const hitCaptionEdges = (value: number, pointerType: string) => hitTestWaveformEdges(captionEdges, value, viewDurationMs / width, pointerType);
+  const hitWordEdges = (value: number, pointerType: string) => hitTestWaveformEdges(wordEdges, value, viewDurationMs / width, pointerType);
+  const showHover = (next: WaveformHover | null) => setHover((previous) =>
+    previous?.kind === next?.kind && previous?.lane === next?.lane && previous?.ownerId === next?.ownerId
+      && previous?.edge === next?.edge && previous?.timeMs === next?.timeMs ? previous : next);
+  const updateHover = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch' || !durationMs || loading || loadError) { showHover(null); return; }
+    const time = pointerTime(event);
+    const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
+    let next: WaveformHover | null = null;
+    if (editMode === 'words' && y >= 96 && y < 136 && selectedCaption) {
+      const hit = hitWordEdges(time, event.pointerType);
+      if (!selectedCaption.timingLocked && !validCandidate) {
+        if (hit.target) next = { kind: 'edge', lane: 'word', ownerId: hit.target.ownerId, edge: hit.target.edge, timeMs: hit.target.timeMs };
+        else if (!hit.ambiguous) {
+          const body = editableWords.find((word) => word.startMs !== null && word.endMs !== null && time >= word.startMs && time < word.endMs);
+          if (body) next = { kind: 'move', lane: 'word', ownerId: body.id };
+        }
+      }
+    } else if (editMode === 'caption' && y >= 136 && y <= 180) {
+      const hit = hitCaptionEdges(time, event.pointerType);
+      if (hit.target) next = { kind: 'edge', lane: 'caption', ownerId: hit.target.ownerId, edge: hit.target.edge, timeMs: hit.target.timeMs };
+      else if (!hit.ambiguous) {
+        const body = captions.find((caption) => selected.has(caption.id) && !caption.timingLocked && time >= caption.startMs && time < caption.endMs)
+          || captions.find((caption) => !caption.timingLocked && time >= caption.startMs && time < caption.endMs);
+        if (body) next = { kind: 'move', lane: 'caption', ownerId: body.id };
       }
     }
-    return best;
+    showHover(next);
   };
 
   const commit = (transaction: CaptionTimingTransaction, record = true) => {
-    const { before, after, guards, limited } = transaction;
+    const { before, after, guards, limited, gestureBasis } = transaction;
     if (limited) onNotice(limited);
     if (!after.length || after.every((caption, index) => sameTimingRevision(caption, before[index]))) return false;
-    if (!timingTransactionMatches(captions, transaction) || !onTimingChange(before, after, guards)) {
+    if (gestureBasis && !captionTimingBasisMatches(captions, gestureBasis.captions, before)
+      || !timingTransactionMatches(captions, transaction) || !onTimingChange(before, after, guards, gestureBasis)) {
       onNotice('This caption changed during the timing edit. Its newer edits were kept.');
       return false;
     }
@@ -689,7 +754,7 @@ export function WaveformEditor({
     return true;
   };
   const edit = (kind: TimingEditKind, value: number) => {
-    return selectedCaption ? commit(planCaptionTimingEdit(captions, selectedCaption.id, kind, value, editLimitMs, { allowOverlap, sharedBoundary })) : false;
+    return selectedCaption ? commit(planCaptionTimingEdit(captions, selectedCaption.id, kind, value, editLimitMs, { allowOverlap, sharedBoundary }, preparedTiming)) : false;
   };
   const restore = (direction: 'undo' | 'redo') => {
     const stack = history.current[direction];
@@ -716,14 +781,14 @@ export function WaveformEditor({
       if (word?.startMs == null || word.endMs == null) return { before: [], after: [] };
       const value = gesture.edge === 'move' ? delta : (gesture.edge === 'start' ? word.startMs : word.endMs) + delta;
       const after = changeWordTiming(gesture.before, gesture.wordId, gesture.edge, value);
-      return after === gesture.before ? { before: [], after: [] } : { before: [gesture.before], after: [after] };
+      return after === gesture.before ? { before: [], after: [] } : { before: [gesture.before], after: [after], gestureBasis: gesture.prepared };
     }
     const target = gesture.edge === 'move' ? gesture.before.startMs + delta
       : gesture.before[gesture.edge === 'start' ? 'startMs' : 'endMs'] + delta;
     const snapped = event.shiftKey ? target : snapTime(target, gesture.edge);
-    return planCaptionTimingEdit(gesture.basis, gesture.before.id, gesture.edge, gesture.edge === 'move' ? snapped - gesture.before.startMs : snapped, editLimitMs, gesture.options);
+    return { ...planCaptionTimingEdit(gesture.basis, gesture.before.id, gesture.edge, gesture.edge === 'move' ? snapped - gesture.before.startMs : snapped, gesture.prepared.durationMs, gesture.options, gesture.prepared), gestureBasis: gesture.prepared };
   };
-  const cancelDrag = () => { dragRef.current = null; setDrag(null); setDragPreview(null); };
+  const cancelDrag = () => { dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null); };
   const updateDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const gesture = dragRef.current;
     if (gesture?.pointerId === event.pointerId) setDragPreview(previewForPointer(event, gesture).after);
@@ -754,14 +819,15 @@ export function WaveformEditor({
   };
 
   const handleTimingKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
-      if (event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph') || document.querySelector('[aria-modal="true"]')) return;
+      const unmodified = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      if (unmodified && event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-haspopup="dialog"], [data-editor-layout-control], [role="menu"], [aria-haspopup="menu"]')) return;
+      if (target?.matches('[data-media-preview-focus]') || target?.closest('video, audio, input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-haspopup="dialog"], [data-editor-layout-control], [role="menu"], [aria-haspopup="menu"]')) return;
       if (dragRef.current) return;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      if (event.ctrlKey !== event.metaKey && !event.altKey && event.key.toLowerCase() === 'z') {
         event.preventDefault(); if (event.shiftKey ? canRedo : canUndo) restore(event.shiftKey ? 'redo' : 'undo');
-      } else if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      } else if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault();
         const delta = (event.key === 'ArrowLeft' ? -1 : 1) * stepMs;
         if (editMode === 'words') {
@@ -770,7 +836,7 @@ export function WaveformEditor({
             if (after !== selectedCaption) commit({ before: [selectedCaption], after: [after] });
           }
         } else edit('move', delta);
-      } else if (!event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'r') {
+      } else if (unmodified && event.key.toLowerCase() === 'r') {
         event.preventDefault(); audition('caption');
       }
   };
@@ -809,7 +875,7 @@ export function WaveformEditor({
       </div>}
       <canvas
         ref={canvas}
-        className="waveform-data-canvas"
+        className={`waveform-data-canvas${hover?.kind === 'edge' ? ' hover-edge' : hover?.kind === 'move' ? ' hover-move' : ''}`}
         tabIndex={0}
         aria-label={editMode === 'words'
           ? 'Audio timing view. Click audio to seek. Drag word edges to trim or the middle to move. Use the time controls for keyboard editing.'
@@ -817,31 +883,30 @@ export function WaveformEditor({
         onPointerDown={(event: React.PointerEvent<HTMLCanvasElement>) => {
           if (!durationMs || loading || loadError || event.button !== 0) return;
           event.currentTarget.focus({ preventScroll: true });
+          showHover(null);
           const value = pointerTime(event);
           const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
           if (editMode === 'words' && y >= 96 && y < 136 && selectedCaption) {
-            const tolerance = viewDurationMs / width * 10;
+            const hit = hitWordEdges(value, event.pointerType);
             const possible = editableWords.filter((word) => word.startMs !== null && word.endMs !== null);
-            let wordEdge: { id: string; edge: 'start' | 'end'; distance: number } | undefined;
-            for (const word of possible) for (const edge of ['start', 'end'] as const) {
-              const distance = Math.abs(value - (edge === 'start' ? word.startMs! : word.endMs!));
-              if (distance <= tolerance && (!wordEdge || distance < wordEdge.distance)) wordEdge = { id: word.id, edge, distance };
-            }
-            const word = wordEdge ? possible.find((item) => item.id === wordEdge!.id) : possible.find((item) => value >= item.startMs! && value < item.endMs!);
+            const wordEdge = hit.target;
+            const word = hit.ambiguous ? undefined : wordEdge ? possible.find((item) => item.id === wordEdge.ownerId)
+              : possible.find((item) => value >= item.startMs! && value < item.endMs!);
             setFollow(false); onStopPreview();
             if (word) {
               setSelectedWordId(word.id);
               if (!selectedCaption.timingLocked && !validCandidate) {
                 event.currentTarget.setPointerCapture(event.pointerId);
-                const gesture: DragState = { captionId: selectedCaption.id, edge: wordEdge?.edge || 'move', wordId: word.id, before: selectedCaption, basis: captions, options: {}, originMs: value, originX: event.clientX, pointerId: event.pointerId };
+                const gesture: DragState = { captionId: selectedCaption.id, edge: wordEdge?.edge || 'move', wordId: word.id, before: selectedCaption, basis: captions, prepared: preparedTiming, options: {}, originMs: value, originX: event.clientX, pointerId: event.pointerId };
                 dragRef.current = gesture; setDrag(gesture); setDragPreview([selectedCaption]);
               }
             } else onSeek(value);
             return;
           }
           const inCaptionLane = y >= 136 && y <= 180;
-          const boundary = inCaptionLane ? chooseBoundary(value) : null;
-          const bodyCaption = inCaptionLane ? (captions.find((item) => selected.has(item.id) && value >= item.startMs && value < item.endMs)
+          const hit = inCaptionLane ? hitCaptionEdges(value, event.pointerType) : null;
+          const boundary = hit?.target ? { caption: captions.find((item) => item.id === hit.target?.ownerId), edge: hit.target.edge } : null;
+          const bodyCaption = inCaptionLane && !hit?.ambiguous ? (captions.find((item) => selected.has(item.id) && value >= item.startMs && value < item.endMs)
             || captions.find((item) => value >= item.startMs && value < item.endMs)) : undefined;
           const target = boundary?.caption || bodyCaption;
           setFollow(false);
@@ -849,7 +914,7 @@ export function WaveformEditor({
           if (target && !target.timingLocked && editMode === 'caption') {
             event.currentTarget.setPointerCapture(event.pointerId);
             focusIdentity.current = `${memoryKey}:${target.id}`;
-            const gesture: DragState = { captionId: target.id, edge: boundary?.edge || 'move', before: target, basis: captions, options: { allowOverlap, sharedBoundary }, originMs: value, originX: event.clientX, pointerId: event.pointerId };
+            const gesture: DragState = { captionId: target.id, edge: boundary?.edge || 'move', before: target, basis: captions, prepared: preparedTiming, options: { allowOverlap, sharedBoundary }, originMs: value, originX: event.clientX, pointerId: event.pointerId };
             dragRef.current = gesture;
             setDrag(gesture);
             setDragPreview([target]);
@@ -859,7 +924,8 @@ export function WaveformEditor({
             onSeek(value);
           }
         }}
-        onPointerMove={updateDrag}
+        onPointerMove={(event) => { if (dragRef.current) updateDrag(event); else updateHover(event); }}
+        onPointerLeave={() => { if (!dragRef.current) showHover(null); }}
         onPointerUp={(event: React.PointerEvent<HTMLCanvasElement>) => {
           const gesture = dragRef.current;
           if (gesture?.pointerId === event.pointerId) commit(previewForPointer(event, gesture));

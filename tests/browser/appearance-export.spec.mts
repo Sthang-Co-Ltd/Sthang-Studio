@@ -106,9 +106,9 @@ test('failed appearance saves block export and recovery retries without losing t
   await openProject(page); await appearancePanel(page);
   state.appearanceFailure = true;
   await page.getByLabel(/^Size /).fill('90');
-  await expect(page.getByText('Appearance could not be saved')).toBeVisible();
+  await expect(page.locator('.appearance-save-state').getByText('Appearance could not be saved', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Export', exact: true }).click();
-  await expect(page.getByText(/latest caption appearance could not be saved/)).toBeVisible();
+  await expect(page.locator('.export-appearance-prerequisite').getByText(/latest caption appearance could not be saved/)).toBeVisible();
   await expect(page.getByRole('button', { name: /Render captioned video/ })).toBeDisabled();
   await page.getByRole('button', { name: 'Edit appearance' }).click();
   await expect(page.getByLabel(/^Size /)).toHaveValue('90');

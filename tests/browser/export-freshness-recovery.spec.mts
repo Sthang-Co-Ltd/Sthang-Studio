@@ -30,7 +30,7 @@ for (const format of ['srt', 'vtt'] as const) test(`plain ${format.toUpperCase()
   await page.getByLabel(/^Size /).fill('90');
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(90);
   let failReads = true;
-  await page.route('**/api/projects/landscape', (route) => {
+  await page.route('**/api/projects/landscape/appearance', (route) => {
     if (failReads) return route.fulfill({ status: 503, json: { error: 'Synthetic comparison read failure' } });
     return route.fulfill({ json: state.projects[0] });
   });

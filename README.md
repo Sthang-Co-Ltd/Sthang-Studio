@@ -161,6 +161,11 @@ approves changed captions or imports trusted word timing from browser storage.
 See [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md) for retention,
 storage limits, and the fields included.
 
+Current development source also offers **Download edits** directly when a browser
+recovery copy cannot be kept, even before a save fails. Keep the tab open until
+the changes save or download the current draft for manual recovery. This source
+behavior does not establish availability in an additional public release.
+
 ## Saved project storage notices
 
 Version 0.88 warns when saved project files, the project order, or older

@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 import { normalizeCaptionAppearance, type CaptionAppearance, type CaptionSegment } from '@kcs/shared';
 import { config } from '../config.js';
 import { buildAssCaptionFilter, buildAssDocument } from './caption-renderer.js';
+import { CaptionOverflowBatchBudgetError, MAX_CAPTION_OVERFLOW_BATCH_CHARACTERS, MAX_CAPTION_OVERFLOW_TOTAL_CHARACTERS,
+  planCaptionOverflowBatches } from './caption-overflow-batches.js';
 
 /** A layout rejection must not be mistaken for a failed preview transport. */
 export class CaptionOverflowError extends Error {
@@ -333,7 +335,7 @@ async function measure(file: string, fontDirectory: string, width: number, heigh
  * fit inference is permitted. Recovered coverage > 0 is ink, including faint antialias/glow.
  * Successful exact documents are cached only in bounded process memory.
  */
-export async function validateCaptionOverflow(input: {
+interface CaptionOverflowInput {
   captions: CaptionSegment[];
   appearance: Partial<CaptionAppearance> | undefined;
   width: number;
@@ -344,7 +346,12 @@ export async function validateCaptionOverflow(input: {
   shouldCancel?: () => boolean;
   cacheScope?: string;
   collectIssues?: boolean;
-}): Promise<void> {
+}
+
+/** Existing single-document native authority. The <=200,000-character path
+ * continues to call this without changing any script, font, cache or crop math.
+ */
+async function validateCaptionOverflowDocument(input: CaptionOverflowInput): Promise<void> {
   const { captions, width, height, fontDirectory, workDir, signal, shouldCancel, cacheScope } = input;
   const checkCancelled = () => { signal?.throwIfAborted(); if (shouldCancel?.()) throw new Error('Caption bounds check cancelled.'); };
   checkCancelled();
@@ -439,5 +446,77 @@ export async function validateCaptionOverflow(input: {
     throw unverifiable();
   } finally {
     await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+
+/** Inspect every source cue, while keeping each connected temporal overlap group
+ * intact. Only the oversized path uses batches; final video/ASS export still
+ * receives the complete unmodified caption list and original source clocks.
+ * The optional tighter character budget is solely for bounded native fixtures.
+ */
+export async function validateCaptionOverflow(
+  input: CaptionOverflowInput,
+  maxBatchCharacters = MAX_CAPTION_OVERFLOW_BATCH_CHARACTERS,
+): Promise<void> {
+  input.signal?.throwIfAborted();
+  const totalCharacters = input.captions.reduce((sum, caption) => sum + caption.text.length, 0);
+  if (maxBatchCharacters === MAX_CAPTION_OVERFLOW_BATCH_CHARACTERS && totalCharacters <= MAX_CAPTION_OVERFLOW_BATCH_CHARACTERS) {
+    return validateCaptionOverflowDocument(input);
+  }
+  if (input.shouldCancel?.()) throw new Error('Caption bounds check cancelled.');
+  if (!input.captions.some((caption) => caption.text.trim())) return;
+  if (totalCharacters > MAX_CAPTION_OVERFLOW_TOTAL_CHARACTERS) throw unverifiable();
+
+  // The old native process had a 120s limit. A multi-batch request gets that
+  // same ceiling in aggregate, including the planning and cleanup intervals.
+  const deadline = AbortSignal.timeout(120_000);
+  const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
+  const check = () => {
+    input.signal?.throwIfAborted();
+    if (input.shouldCancel?.()) throw new Error('Caption bounds check cancelled.');
+    if (deadline.aborted) throw unverifiable();
+  };
+  try {
+    check();
+    const batches = planCaptionOverflowBatches(input.captions, maxBatchCharacters);
+    const appearance = normalizeCaptionAppearance(input.appearance);
+    // Count the *actual* measured paint frontier. The many transient states of
+    // a faded caption must not be mistaken for independently measured frames.
+    // This preliminary zero-offset probe is only a budget check: every accepted
+    // batch is then re-probed with its real native padding and font metrics.
+    let measuredStates = 0;
+    for (const batch of batches) {
+      check();
+      const indices = input.collectIssues ? new Map<string, number[]>() : undefined;
+      const document = buildAssDocument(batch.captions, appearance, input.width, input.height, undefined, undefined, indices);
+      measuredStates += buildCaptionOverflowProbe(document, input.width, input.height, 0, 0, indices).count;
+      if (measuredStates > MAX_STATES) throw unverifiable();
+      check();
+    }
+
+    const overflowGroups = new Map<string, string[]>();
+    for (const batch of batches) {
+      check();
+      try {
+        await validateCaptionOverflowDocument({ ...input, captions: batch.captions, signal });
+      } catch (error) {
+        check();
+        if (!(error instanceof CaptionOverflowError) || error.kind !== 'overflow') throw error;
+        if (!input.collectIssues) throw error;
+        // The validator resolves indices back to the exact source IDs inside
+        // this batch. No index remapping, ID rewriting, or partial diagnostics.
+        for (const ids of error.captionGroups.length ? error.captionGroups : [[]]) {
+          overflowGroups.set(JSON.stringify(ids), ids);
+        }
+      }
+    }
+    check();
+    if (overflowGroups.size) throw new CaptionOverflowError(undefined, [...overflowGroups.values()]);
+  } catch (error) {
+    check();
+    if (error instanceof CaptionOverflowBatchBudgetError) throw unverifiable();
+    if (error instanceof CaptionOverflowError) throw error;
+    throw unverifiable();
   }
 }

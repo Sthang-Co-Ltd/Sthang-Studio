@@ -27,7 +27,7 @@ export function FontSearch({ query, onQueryChange, options, selected, count, onS
       value={query} onFocus={() => setExpanded(true)} onChange={(event) => { setExpanded(true); setActive(0); onQueryChange(event.target.value); }}
       onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
       onKeyDown={(event) => {
-        if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph') || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
         if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && query.trim() && options.length) {
           event.preventDefault(); event.stopPropagation();
           setExpanded(true);

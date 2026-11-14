@@ -7,6 +7,7 @@ export { endsWithKhmerWord, segmentKhmerWords } from './khmer-word-segmentation.
 export * from './caption-interchange.js';
 export * from './export-checks.js';
 export * from './export-freshness.js';
+export { isProfileImport } from './profile-import.js';
 export { summarizeProject, type CaptionProjectSummary } from './project-summary.js';
 export { captionWordBreakOffsets, planCaptionRenderStates, captionMotionContextIndices, type CaptionRenderState } from './caption-layout.js';
 
@@ -255,6 +256,9 @@ export interface CaptionProject {
     sourceRevision: string;
   };
 }
+
+/** Published saved-look authority without caption, transcript or Accuracy data. */
+export type CaptionProjectAppearance = Pick<CaptionProject, 'id' | 'media' | 'captionAppearance'>;
 
 export interface SegmentOptions {
   mode: CaptionMode;

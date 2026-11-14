@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCaptionWordTiming, hydrateCaptionWordTimings, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionWordTiming, type TimedToken } from '@kcs/shared';
 import { checkedSaveRevision } from '../apps/web/src/save-revision.js';
-import type { CaptionWordTimingCandidate } from '../apps/web/src/api.js';
+import { ApiRequestError, type CaptionWordTimingCandidate } from '../apps/web/src/api.js';
 import {
   applyWordHighlightBatch,
   mergePublishedWordHighlightBatch,
@@ -85,7 +85,7 @@ test('prepare keeps partial/grid-unsafe results for review and continues after p
     captions: [partial, collapsed, failed, good],
     signal: new AbortController().signal,
     sync: async (cue) => {
-      if (cue.id === 'failed') throw new Error('secret provider details must not escape');
+      if (cue.id === 'failed') throw new ApiRequestError('secret per-cue details must not escape', 400);
       if (cue.id === 'partial') return candidateFor(cue, timingFor(cue, { partial: true }));
       if (cue.id === 'collapsed') return candidateFor(cue, timingFor(cue, { collapseGrid: true }));
       return candidateFor(cue);

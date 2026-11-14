@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { summarizeProject, type CaptionAppearance, type CaptionProject, type ProjectStorageStatus } from '@kcs/shared';
+import { summarizeProject, type CaptionAppearance, type CaptionProject, type CaptionProjectAppearance, type ProjectStorageStatus } from '@kcs/shared';
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
 import { isLoadableProject, readMigrationMarker, readStorageJson, scanProjectStorage, storageStatusFromScan } from './project-storage.js';
@@ -87,7 +87,7 @@ function uniqueIds(values: string[]) {
   });
 }
 
-function queueOrderUpdate(transform: (current: string[]) => string[]) {
+function queueOrderUpdate(transform: (current: string[]) => string[], retainOnFailure = false) {
   const task = orderWriteQueue.then(async () => {
     // Keep references to missing/unreadable project files so recovery retains order.
     const next = uniqueIds(transform(order));
@@ -97,7 +97,8 @@ function queueOrderUpdate(transform: (current: string[]) => string[]) {
       // Publishing a new project must not turn those objects into false missing
       // file references. Retain genuine existing references even when missing.
       const publishedOrder = next.filter((id) => indexedProjectIds.has(id) || publishedProjectIds.has(id));
-      await atomicWrite(orderFile, `${JSON.stringify(publishedOrder)}\n`);
+      try { await atomicWrite(orderFile, `${JSON.stringify(publishedOrder)}\n`); }
+      catch (error) { if (retainOnFailure) order = next; throw error; }
       indexedProjectIds = new Set(publishedOrder);
     }
     order = next;
@@ -236,11 +237,11 @@ function queueProjectWrite<T>(id: string, operation: () => Promise<T>) {
   return task;
 }
 
-async function persistProject(stored: CaptionProject) {
-  return withStorageMutation(() => publishProject(stored));
+async function persistProject(stored: CaptionProject, recoverCreationOrder = false) {
+  return withStorageMutation(() => publishProject(stored, recoverCreationOrder));
 }
 
-async function publishProject(stored: CaptionProject) {
+async function publishProject(stored: CaptionProject, recoverCreationOrder = false) {
   const previous = projects.get(stored.id);
   // A timestamp is the public optimistic content revision. Future-job model
   // preferences have their own compare-and-set and must not expire proposals.
@@ -256,7 +257,15 @@ async function publishProject(stored: CaptionProject) {
   publishedProjectIds.add(stored.id);
   durableProjectWrites.set(stored.id, durable);
   projects.set(stored.id, stored);
-  if (!previous) await queueOrderUpdate((current) => [stored.id, ...current.filter((id) => id !== stored.id)]);
+  if (!previous) {
+    try { await queueOrderUpdate((current) => [stored.id, ...current.filter((id) => id !== stored.id)], recoverCreationOrder); }
+    catch (error) {
+      if (!recoverCreationOrder) throw error;
+      startupNeedsRestart = true;
+      storageStatus = { ...storageStatus, restartRequired: true };
+      console.warn('[project store] New project saved; project order could not be saved. Published media was retained.');
+    }
+  }
   if (mediaChanged) scheduleProjectMediaPrewarm(stored);
   return structuredClone(stored);
 }
@@ -304,6 +313,7 @@ export const store = {
   },
   /** False after a committed write whose directory flush is unavailable. */
   latestWriteIsDurable(id: string) { return durableProjectWrites.get(id) !== false; },
+  projectOrderIsSaved(id: string) { return indexedProjectIds.has(id); },
   async listSummaries() {
     await ensureInitialized();
     const summarizing = beginProjectLoadingPhase('summary');
@@ -342,6 +352,13 @@ export const store = {
     return project ? { id: project.id, media: structuredClone(project.media) } : null;
   },
 
+  /** The same published snapshot as get(), without cloning private caption payloads. */
+  async getAppearance(id: string): Promise<CaptionProjectAppearance | null> {
+    await ensureInitialized();
+    const project = projects.get(id);
+    return project ? structuredClone({ id: project.id, media: project.media, captionAppearance: project.captionAppearance }) : null;
+  },
+
   async upsert(project: CaptionProject) {
     const snapshot = structuredClone(project);
     await ensureInitialized();
@@ -360,7 +377,7 @@ export const store = {
     id: string,
     operation: (
       current: CaptionProject | null,
-      persist: (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean }) => Promise<CaptionProject>,
+      persist: (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean; recoverCreationOrder?: boolean }) => Promise<CaptionProject>,
     ) => Promise<T>,
   ): Promise<T> {
     await ensureInitialized();
@@ -368,7 +385,7 @@ export const store = {
       const current = projects.get(id);
       const detached = current ? structuredClone(current) : null;
       let persisted = false;
-      const persist = async (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean }) => {
+      const persist = async (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean; recoverCreationOrder?: boolean }) => {
         if (next.id !== id) throw new Error('Project write cannot change project id');
         if (persisted) throw new Error('Project write already persisted');
         const snapshot = structuredClone(next);
@@ -379,7 +396,7 @@ export const store = {
           else delete snapshot.generationModel;
         }
         persisted = true;
-        return persistProject(snapshot);
+        return persistProject(snapshot, !published && options?.recoverCreationOrder === true);
       };
       return operation(detached, persist);
     });

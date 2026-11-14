@@ -564,6 +564,12 @@ export function createCaptionHandoffService(dependencies: CaptionHandoffDependen
   };
 
   return {
+    /** History needs a readable project identity, not a portable caption export. */
+    async requireProject(projectId: string) {
+      const project = await dependencies.getProject(projectId);
+      if (!project || project.id !== projectId) throw new CaptionHandoffError('Project not found.', 404);
+    },
+
     async summary(projectId: string) {
       const project = await dependencies.getProject(projectId);
       if (!project) throw new CaptionHandoffError('Project not found.', 404);

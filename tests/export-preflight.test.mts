@@ -58,6 +58,24 @@ test('layout input rejects ambiguous IDs, invalid times, unsafe sizes and malfor
   ]) assert.throws(() => parseCaptionLayoutCheckInput({ ...valid, ...patch }), CaptionLayoutCheckError);
 });
 
+test('layout input accepts the entire 223893-character project with intact source IDs', () => {
+  const captions = Array.from({ length: 5000 }, (_, index) => ({ id: `full-${index}`,
+    startMs: index * 2000, endMs: index * 2000 + 1800, text: 'ខ'.repeat(44 + Number(index < 3893)) }));
+  assert.equal(captions.reduce((sum, caption) => sum + caption.text.length, 0), 223_893);
+  const parsed = parseCaptionLayoutCheckInput({ ...input(), captions });
+  assert.equal(parsed.captions.length, 5000);
+  assert.deepEqual(parsed.captions.map((caption) => caption.id), captions.map((caption) => caption.id));
+  assert.equal(parsed.captions[4999].text, captions[4999].text);
+  // This is acceptance of the complete draft into the shared native path, not
+  // evidence that the full native check passed or that any output was rendered.
+});
+
+test('layout input still rejects excessive total caption content before starting native work', () => {
+  const captions = Array.from({ length: 3600 }, (_, index) => ({ id: `oversize-${index}`,
+    startMs: index * 2000, endMs: index * 2000 + 1800, text: 'x'.repeat(500) }));
+  assert.throws(() => parseCaptionLayoutCheckInput({ ...input(), captions }), CaptionLayoutCheckError);
+});
+
 test('unsupported renderer, missing font and cancelled checks never report a fit', async () => {
   const parsed = parseCaptionLayoutCheckInput(input());
   assert.equal((await checkCaptionLayout(parsed, { ...capabilities, subtitlesFilter: false }, 'layout')).status, 'unavailable');

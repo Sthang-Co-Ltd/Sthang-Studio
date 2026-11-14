@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import {
   applyCaptionLook,
   DEFAULT_CAPTION_APPEARANCE,
@@ -13,8 +13,9 @@ import {
 } from '@kcs/shared';
 import { CheckCircle2, LoaderCircle, Play, Plus, Redo2, RotateCcw, Save, Trash2, TriangleAlert, Undo2 } from 'lucide-react';
 import { api } from '../api';
+import { projectMediaKey } from '../project-scope';
 import { useAppearanceInteraction } from '../use-appearance-interaction';
-import { queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
+import { flushCaptionAppearanceSaves, getCaptionAppearanceSaveState, markCaptionAppearanceDraft, observeSavedCaptionAppearance, queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, subscribeCaptionAppearanceSaves, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionLooksGallery } from './CaptionLooksGallery';
 import { AppearanceRange } from './AppearanceRange';
 import { FontSearch } from './FontSearch';
@@ -30,6 +31,7 @@ type AppearanceSaveState = 'saved' | 'pending' | 'saving' | 'error';
 interface Props {
   project: CaptionProject;
   captions: CaptionSegment[];
+  initialAppearance?: CaptionAppearance;
   onEditWordTiming(id?: string): void;
   onAppearanceChange(appearance: CaptionAppearance): void;
   onInteractionChange(active: boolean): void;
@@ -43,6 +45,7 @@ interface Props {
   sampleCaptionText?: string;
   wordPreparation?: WordHighlightPreparationView;
   flushSave?: RefObject<(() => Promise<boolean>) | null>;
+  profileImportRevision?: number;
 }
 
 function saveStateCopy(state: AppearanceSaveState) {
@@ -52,9 +55,15 @@ function saveStateCopy(state: AppearanceSaveState) {
   return 'Saved automatically';
 }
 
+function revealAppearanceControl(target: HTMLElement | null | undefined) {
+  target?.focus({ preventScroll: true });
+  target?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+}
+
 export function CaptionAppearanceWorkspace({
   project,
   captions,
+  initialAppearance,
   onEditWordTiming,
   onAppearanceChange,
   onInteractionChange,
@@ -68,20 +77,33 @@ export function CaptionAppearanceWorkspace({
   sampleCaptionText,
   wordPreparation,
   flushSave,
+  profileImportRevision = 0,
 }: Props) {
-  const initial = normalizeCaptionAppearance(project.captionAppearance);
+  const initial = recoverUnsavedCaptionAppearance(project.id, project.media) ?? normalizeCaptionAppearance(initialAppearance ?? project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
+  const sharedSaveState = useSyncExternalStore(subscribeCaptionAppearanceSaves,
+    () => getCaptionAppearanceSaveState(project.id, project.media), () => getCaptionAppearanceSaveState(null));
+  const seenSharedRevision = useRef(sharedSaveState.revision);
+  const appearanceEditRevision = useRef(0);
+  const [loadingAppearance, setLoadingAppearance] = useState(true);
+  const [appearanceReadError, setAppearanceReadError] = useState('');
+  const appearanceReadRequest = useRef<symbol | null>(null);
   const [fonts, setFonts] = useState<VideoExportFontCapability[]>([]);
   const [loadingFonts, setLoadingFonts] = useState(true);
   const [fontError, setFontError] = useState('');
   const [fontDiscoveryFailed, setFontDiscoveryFailed] = useState(false);
+  const [fontReadError, setFontReadError] = useState('');
+  const [fontsLoaded, setFontsLoaded] = useState(false);
   const [fontNotice, setFontNotice] = useState('');
   const [fontWarnings, setFontWarnings] = useState<string[]>([]);
   const [fontQuery, setFontQuery] = useState('');
   const [addingFonts, setAddingFonts] = useState(false);
   const [removingFontId, setRemovingFontId] = useState('');
   const [presets, setPresets] = useState<CaptionAppearancePreset[]>([]);
+  const [loadingPresets, setLoadingPresets] = useState(true);
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
+  const [presetReadError, setPresetReadError] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [presetName, setPresetName] = useState('');
   const [savingPreset, setSavingPreset] = useState(false);
@@ -93,7 +115,16 @@ export function CaptionAppearanceWorkspace({
   const [redoAppearance, setRedoAppearance] = useState<CaptionAppearance | null>(null);
   const [replayPending, setReplayPending] = useState(false);
   const appearanceRef = useRef<CaptionAppearance>(initial);
+  const fontImportChoiceRevisionRef = useRef(0);
   const fontInputRef = useRef<HTMLInputElement>(null);
+  const fontPickerRef = useRef<HTMLSelectElement>(null);
+  const saveStatusRef = useRef<HTMLDivElement>(null);
+  const retrySavePendingRef = useRef(false);
+  const fontMutationRef = useRef(false);
+  const presetMutationRef = useRef(false);
+  const presetPickerRef = useRef<HTMLSelectElement>(null);
+  const presetDisclosureRef = useRef<HTMLDetailsElement>(null);
+  const wordHighlightSummaryRef = useRef<HTMLElement>(null);
   const dirtyRef = useRef(false);
   const appearanceSaveTimer = useRef<number | null>(null);
   const isRecoveringRef = useRef(false);
@@ -102,6 +133,95 @@ export function CaptionAppearanceWorkspace({
   const mountedRef = useRef(true);
   const fontGenerationRef = useRef(0);
   const presetGenerationRef = useRef(0);
+  const importRevision = useRef(profileImportRevision);
+  importRevision.current = profileImportRevision;
+  const resourceOwner = JSON.stringify([project.id, project.media.filename]);
+  const resourceOwnerRef = useRef(resourceOwner);
+  resourceOwnerRef.current = resourceOwner;
+  const fontReadRequest = useRef<symbol | null>(null);
+  const presetReadRequest = useRef<symbol | null>(null);
+  const readFocus = useRef<{ kind: 'fonts' | 'presets'; owner: string; button: HTMLButtonElement } | null>(null);
+  const loadFonts = async (refresh = false) => {
+    if (fontReadRequest.current) return;
+    const token = Symbol('font read');
+    const generation = fontGenerationRef.current;
+    const owner = resourceOwnerRef.current;
+    fontReadRequest.current = token;
+    setLoadingFonts(true);
+    const owns = () => mountedRef.current && resourceOwnerRef.current === owner && fontReadRequest.current === token && fontGenerationRef.current === generation;
+    try {
+      const result = await api.captionFonts(refresh);
+      if (!owns()) return;
+      setFonts(result.fonts.filter((font) => font.available));
+      setFontsLoaded(true); setFontDiscoveryFailed(false); setFontReadError('');
+    } catch (error) {
+      if (owns()) {
+        setFontDiscoveryFailed(true);
+        setFontReadError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
+      }
+    } finally {
+      if (fontReadRequest.current === token) {
+        fontReadRequest.current = null;
+        if (mountedRef.current && resourceOwnerRef.current === owner && fontGenerationRef.current === generation) setLoadingFonts(false);
+      }
+    }
+  };
+  const loadPresets = async () => {
+    if (presetReadRequest.current) return;
+    const token = Symbol('preset read');
+    const generation = presetGenerationRef.current;
+    const owner = resourceOwnerRef.current;
+    const submittedImportRevision = importRevision.current;
+    presetReadRequest.current = token;
+    setLoadingPresets(true);
+    const owns = () => mountedRef.current && resourceOwnerRef.current === owner && presetReadRequest.current === token
+      && presetGenerationRef.current === generation && importRevision.current === submittedImportRevision;
+    try {
+      const profile = await api.profile();
+      if (!owns()) return;
+      const entries = profile.captionAppearances || [];
+      setPresets(entries);
+      setSelectedPresetId((current) => {
+        const selected = entries.find((preset) => preset.id === current);
+        return selected && JSON.stringify(normalizeCaptionAppearance(selected.appearance)) === JSON.stringify(appearanceRef.current) ? current : '';
+      });
+      setPresetsLoaded(true); setPresetReadError('');
+    } catch (error) {
+      if (owns()) setPresetReadError(error instanceof Error ? error.message : 'Could not load saved appearance presets');
+    } finally {
+      if (presetReadRequest.current === token) {
+        presetReadRequest.current = null;
+        if (mountedRef.current && resourceOwnerRef.current === owner && presetGenerationRef.current === generation) setLoadingPresets(false);
+      }
+    }
+  };
+  useEffect(() => {
+    void loadFonts();
+    return () => {
+      fontReadRequest.current = null;
+      readFocus.current = null;
+    };
+  }, [resourceOwner]);
+  useEffect(() => {
+    presetGenerationRef.current += 1;
+    presetReadRequest.current = null;
+    setPresetError(''); setPresetNotice('');
+    void loadPresets();
+    return () => {
+      presetReadRequest.current = null;
+      if (readFocus.current?.kind === 'presets') readFocus.current = null;
+    };
+  }, [resourceOwner, profileImportRevision]);
+  useLayoutEffect(() => {
+    const intent = readFocus.current;
+    if (!intent || (intent.kind === 'fonts' ? loadingFonts : loadingPresets)) return;
+    readFocus.current = null;
+    if (intent.owner !== resourceOwner || (document.activeElement !== intent.button && document.activeElement !== document.body)) return;
+    const error = intent.kind === 'fonts' ? fontReadError : presetReadError;
+    const presetTarget = presetPickerRef.current?.getClientRects().length ? presetPickerRef.current : presetDisclosureRef.current?.querySelector('summary');
+    const target = error ? intent.button : intent.kind === 'fonts' ? fontPickerRef.current : presetTarget;
+    if (target?.isConnected) target.focus({ preventScroll: true });
+  }, [resourceOwner, loadingFonts, loadingPresets, fontReadError, presetReadError]);
   const wordReadiness = useMemo(() => {
     const spoken = captions.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, ''));
     return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
@@ -119,19 +239,71 @@ export function CaptionAppearanceWorkspace({
     return false;
   }, [captions]);
 
-  const persistAppearance = async (snapshot: CaptionAppearance): Promise<boolean> => {
-    const snapshotKey = JSON.stringify(snapshot);
-    setSaveState('saving');
-    const saved = await queueCaptionAppearanceSave(project.id, snapshot, project.media);
-    if (saved) {
-      if (JSON.stringify(appearanceRef.current) === snapshotKey) {
-        dirtyRef.current = false;
-        setSaveState('saved');
-      } else setSaveState('pending');
-      return true;
+  useLayoutEffect(() => {
+    const externalDraft = sharedSaveState.revision > seenSharedRevision.current;
+    seenSharedRevision.current = sharedSaveState.revision;
+    if (!sharedSaveState.appearance) return;
+    if (JSON.stringify(sharedSaveState.appearance) !== JSON.stringify(appearanceRef.current)) {
+      // Explicit recovery can publish into an already open, clean workspace.
+      // A later local edit owns its own revision and must never be replaced.
+      if (!externalDraft || dirtyRef.current) return;
+      appearanceEditRevision.current += 1;
+      appearanceReadRequest.current = null;
+      setLoadingAppearance(false);
+      setAppearanceReadError('');
+      isRecoveringRef.current = true;
+      appearanceRef.current = { ...sharedSaveState.appearance };
+      setAppearance(appearanceRef.current);
     }
-    if (JSON.stringify(appearanceRef.current) === snapshotKey) setSaveState('error');
-    return false;
+    dirtyRef.current = sharedSaveState.status !== 'saved';
+    setSaveState(sharedSaveState.status);
+  }, [sharedSaveState]);
+
+  const persistAppearance = (snapshot: CaptionAppearance): Promise<boolean> => {
+    setSaveState('saving');
+    return queueCaptionAppearanceSave(project.id, snapshot, project.media);
+  };
+
+  const loadSavedAppearance = async () => {
+    if (appearanceReadRequest.current) return;
+    const request = Symbol('saved appearance');
+    appearanceReadRequest.current = request;
+    const owner = resourceOwner;
+    const revision = appearanceEditRevision.current;
+    const owns = () => appearanceReadRequest.current === request && resourceOwnerRef.current === owner;
+    setLoadingAppearance(true);
+    setAppearanceReadError('');
+    try {
+      const priorSaved = await waitForCaptionAppearanceSaves(project.id, project.media);
+      if (!owns() || appearanceEditRevision.current !== revision) return;
+      if (!priorSaved) {
+        const recovered = recoverUnsavedCaptionAppearance(project.id, project.media);
+        if (recovered) {
+          isRecoveringRef.current = true;
+          appearanceRef.current = recovered;
+          dirtyRef.current = true;
+          setAppearance(recovered);
+        }
+        setSaveState(getCaptionAppearanceSaveState(project.id, project.media).status);
+        return;
+      }
+      const fresh = await api.getAppearance(project.id);
+      if (!owns() || appearanceEditRevision.current !== revision || dirtyRef.current) return;
+      if (projectMediaKey(fresh) !== projectMediaKey(project)) {
+        setAppearanceReadError('The source changed. Reopen this project before changing its saved appearance.');
+        return;
+      }
+      const next = normalizeCaptionAppearance(fresh.captionAppearance);
+      observeSavedCaptionAppearance(project.id, next, project.media);
+      appearanceRef.current = next;
+      setAppearance(next);
+    } catch {
+      if (owns() && appearanceEditRevision.current === revision) {
+        setAppearanceReadError('Could not reload the saved appearance. Your current look is kept.');
+      }
+    } finally {
+      if (owns()) { appearanceReadRequest.current = null; setLoadingAppearance(false); }
+    }
   };
 
   // Media transactions must include even a change still in the debounce window.
@@ -144,15 +316,16 @@ export function CaptionAppearanceWorkspace({
       }
       return dirtyRef.current
         ? persistAppearance({ ...appearanceRef.current })
-        : waitForCaptionAppearanceSaves(project.id, project.media);
+        : flushCaptionAppearanceSaves(project.id, project.media);
     };
     flushSave.current = flush;
     return () => { if (flushSave.current === flush) flushSave.current = null; };
   });
 
   useEffect(() => {
-    let active = true;
-    const localInitial = normalizeCaptionAppearance(project.captionAppearance);
+    appearanceEditRevision.current += 1;
+    const localInitial = recoverUnsavedCaptionAppearance(project.id, project.media) ?? normalizeCaptionAppearance(initialAppearance ?? project.captionAppearance);
+    observeSavedCaptionAppearance(project.id, localInitial, project.media);
     setAppearance(localInitial);
     appearanceRef.current = localInitial;
     dirtyRef.current = false;
@@ -174,62 +347,13 @@ export function CaptionAppearanceWorkspace({
     setFontWarnings([]);
     setFontQuery('');
 
-    void (async () => {
-      const priorSaved = await waitForCaptionAppearanceSaves(project.id, project.media);
-      if (!active) return;
-      if (!priorSaved) {
-        const recovered = recoverUnsavedCaptionAppearance(project.id, project.media);
-        if (recovered) {
-          isRecoveringRef.current = true;
-          appearanceRef.current = recovered;
-          dirtyRef.current = true;
-          setAppearance(recovered);
-        }
-        setSaveState('error');
-        return;
-      }
-      try {
-        const fresh = await api.get(project.id);
-        if (!active || dirtyRef.current) return;
-        const next = normalizeCaptionAppearance(fresh.captionAppearance);
-        setAppearance(next);
-        appearanceRef.current = next;
-      } catch {
-        if (active) setSaveState('error');
-      }
-    })();
-
-    const fontGeneration = fontGenerationRef.current;
-    void api.captionFonts(true)
-      .then((result) => {
-        if (active && fontGenerationRef.current === fontGeneration) {
-          setFonts(result.fonts.filter((font) => font.available));
-          setFontDiscoveryFailed(false);
-        }
-      })
-      .catch((error) => {
-        if (active && fontGenerationRef.current === fontGeneration) {
-          setFontDiscoveryFailed(true);
-          setFontError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
-        }
-      })
-      .finally(() => { if (active && fontGenerationRef.current === fontGeneration) setLoadingFonts(false); });
-
-    const presetGeneration = presetGenerationRef.current;
-    void api.profile().then((profile) => {
-      if (active && presetGenerationRef.current === presetGeneration) setPresets(profile.captionAppearances || []);
-    }).catch((error) => {
-      if (active && presetGenerationRef.current === presetGeneration) {
-        setPresetError(error instanceof Error ? error.message : 'Could not load saved appearance presets');
-      }
-    });
-
-    return () => { active = false; };
+    void loadSavedAppearance();
+    return () => { appearanceReadRequest.current = null; };
   }, [project.id, project.media.filename]);
 
   useEffect(() => {
     return () => {
-      if (dirtyRef.current) {
+      if (getCaptionAppearanceSaveState(project.id, project.media).status === 'pending') {
         const finalSnapshot = { ...appearanceRef.current };
         void queueCaptionAppearanceSave(project.id, finalSnapshot, project.media);
       }
@@ -256,11 +380,11 @@ export function CaptionAppearanceWorkspace({
   const interactionHandlers = useAppearanceInteraction(appearance, onAppearanceChange, onInteractionChange);
 
   useEffect(() => {
-    if (!dirtyRef.current) return;
     if (isRecoveringRef.current) {
       isRecoveringRef.current = false;
       return;
     }
+    if (!dirtyRef.current) return;
     setSaveState((state) => state === 'saving' ? state : 'pending');
     const snapshot = { ...appearance };
     const timer = window.setTimeout(() => { appearanceSaveTimer.current = null; void persistAppearance(snapshot); }, 650);
@@ -327,6 +451,7 @@ export function CaptionAppearanceWorkspace({
     options: { history?: 'discrete' | 'range' | 'none'; clearPreset?: boolean } = {},
   ) => {
     const current = appearanceRef.current;
+    if (current.fontFamily !== next.fontFamily || current.bold !== next.bold) fontImportChoiceRevisionRef.current += 1;
     if (JSON.stringify(current) === JSON.stringify(next)) return false;
     setPresetNotice('');
     if (replayPending || replayPreparing || replayPlaying) onCancelReplayEffect?.();
@@ -343,8 +468,11 @@ export function CaptionAppearanceWorkspace({
       setRedoAppearance(null);
     }
     if (options.clearPreset !== false) setSelectedPresetId('');
+    appearanceEditRevision.current += 1;
+    setAppearanceReadError('');
     appearanceRef.current = next;
     dirtyRef.current = true;
+    seenSharedRevision.current = markCaptionAppearanceDraft(project.id, next, project.media, current).revision;
     setSaveState('pending');
     setAppearance(next);
     return true;
@@ -359,6 +487,7 @@ export function CaptionAppearanceWorkspace({
 
   const undoAppearanceChange = () => {
     if (!undoAppearance) return;
+    fontImportChoiceRevisionRef.current += 1;
     const current = { ...appearanceRef.current };
     rangeHistoryActiveRef.current = false;
     setRedoAppearance(current);
@@ -369,6 +498,7 @@ export function CaptionAppearanceWorkspace({
 
   const redoAppearanceChange = () => {
     if (!redoAppearance) return;
+    fontImportChoiceRevisionRef.current += 1;
     const current = { ...appearanceRef.current };
     rangeHistoryActiveRef.current = false;
     setUndoAppearance(current);
@@ -405,6 +535,7 @@ export function CaptionAppearanceWorkspace({
   };
 
   const resetLook = () => {
+    fontImportChoiceRevisionRef.current += 1;
     updateAppearance((current) => applyCaptionLook(current, null));
   };
 
@@ -417,6 +548,7 @@ export function CaptionAppearanceWorkspace({
   }, [loadingFonts, fonts, project.id]);
 
   const chooseFont = (name: string) => {
+    fontImportChoiceRevisionRef.current += 1;
     const chosen = fonts.find((font) => font.name === name);
     setFontQuery('');
     setFontNotice('');
@@ -431,20 +563,26 @@ export function CaptionAppearanceWorkspace({
 
   const addFonts = async (files: FileList | File[] | null) => {
     const selected = Array.from(files || []);
-    if (!selected.length || addingFonts || removingFontId) return;
+    if (!selected.length || addingFonts || removingFontId || fontMutationRef.current) return;
+    const owner = resourceOwnerRef.current;
+    const choiceRevision = fontImportChoiceRevisionRef.current;
+    fontMutationRef.current = true;
     setAddingFonts(true);
     setFontError('');
     setFontNotice('');
     setFontWarnings([]);
     try {
       const result = await api.addCaptionFonts(selected);
+      if (result.imported.length > 0) onFontLibraryChange?.();
+      if (!mountedRef.current || resourceOwnerRef.current !== owner) return;
       fontGenerationRef.current += 1;
+      fontReadRequest.current = null;
       const available = result.fonts.filter((font) => font.available);
       setFonts(available);
       setLoadingFonts(false);
       setFontDiscoveryFailed(false);
+      setFontsLoaded(true); setFontReadError('');
       setFontError('');
-      if (result.imported.length > 0) onFontLibraryChange?.();
       setFontWarnings(result.warnings);
       const firstName = result.imported[0];
       const first = firstName ? available.find((font) => font.name === firstName) : undefined;
@@ -452,20 +590,28 @@ export function CaptionAppearanceWorkspace({
         if (!result.warnings.length) setFontError('No compatible Khmer font was added. Choose a Regular .ttf or .otf font file.');
         return;
       }
+      const count = result.imported.length;
+      const added = count === 1 ? `Added “${first.name}”` : `Added ${count} Khmer font families`;
+      if (fontImportChoiceRevisionRef.current !== choiceRevision) {
+        setFontNotice(`${added}. Your newer appearance choices are kept. Choose the added font from Khmer font when you are ready.`);
+        return;
+      }
       setFontQuery('');
       const boldMismatch = appearanceRef.current.bold && !first.boldAvailable;
       updateAppearance((current) => ({ ...current, fontFamily: first.name, ...(boldMismatch ? { bold: false } : {}) }));
-      const count = result.imported.length;
-      setFontNotice(`${count === 1 ? `Added “${first.name}”` : `Added ${count} Khmer font families`}. ${first.name} is selected.${boldMismatch ? ' No Bold face; using Regular. Other settings are unchanged.' : ''}`);
+      setFontNotice(`${added}. ${first.name} is selected.${boldMismatch ? ' No Bold face; using Regular. Other settings are unchanged.' : ''}`);
     } catch (error) {
-      setFontError(error instanceof Error ? error.message : 'Could not add the selected font files');
+      if (mountedRef.current && resourceOwnerRef.current === owner) setFontError(error instanceof Error ? error.message : 'Could not add the selected font files');
     } finally {
-      setAddingFonts(false);
+      fontMutationRef.current = false;
+      if (mountedRef.current && resourceOwnerRef.current === owner) setAddingFonts(false);
     }
   };
 
   const removeAddedFont = async (font: VideoExportFontCapability) => {
-    if (!font.id || !font.removable || addingFonts || removingFontId) return;
+    if (!font.id || !font.removable || addingFonts || removingFontId || fontMutationRef.current) return;
+    const owner = resourceOwnerRef.current;
+    const owns = () => mountedRef.current && resourceOwnerRef.current === owner;
     const selectedHere = appearanceRef.current.fontFamily === font.name;
     const confirmed = await onConfirm({
       title: `Remove “${font.name}” from Studio?`,
@@ -475,28 +621,36 @@ export function CaptionAppearanceWorkspace({
       confirmLabel: 'Remove font',
       tone: 'warning',
     });
-    if (!confirmed) return;
+    if (!confirmed || !owns() || fontMutationRef.current) return;
+    // The confirmed row will disable and may disappear. Continue at its stable picker.
+    revealAppearanceControl(fontPickerRef.current);
+    fontMutationRef.current = true;
     setRemovingFontId(font.id);
     setFontError('');
     setFontNotice('');
     setFontWarnings([]);
     try {
       const result = await api.removeCaptionFont(font.id);
+      onFontLibraryChange?.();
+      if (!owns()) return;
       fontGenerationRef.current += 1;
+      fontReadRequest.current = null;
       setFonts(result.fonts.filter((item) => item.available));
       setLoadingFonts(false);
       setFontDiscoveryFailed(false);
+      setFontsLoaded(true); setFontReadError('');
       setFontError('');
-      onFontLibraryChange?.();
       setFontNotice(`Removed “${font.name}” from Studio. Fonts installed on your PC are unchanged.`);
     } catch (error) {
-      setFontError(error instanceof Error ? error.message : 'Could not remove that font from Studio');
+      if (owns()) setFontError(error instanceof Error ? error.message : 'Could not remove that font from Studio');
     } finally {
-      setRemovingFontId('');
+      fontMutationRef.current = false;
+      if (owns()) setRemovingFontId('');
     }
   };
 
   const applyPreset = (id: string) => {
+    fontImportChoiceRevisionRef.current += 1;
     setSelectedPresetId(id);
     if (!id) return;
     const preset = presets.find((item) => item.id === id);
@@ -515,7 +669,11 @@ export function CaptionAppearanceWorkspace({
 
   const savePreset = async () => {
     const name = presetName.trim();
-    if (!name || savingPreset) return;
+    if (!name || savingPreset || presetMutationRef.current) return;
+    presetMutationRef.current = true;
+    const owner = resourceOwnerRef.current;
+    const submittedImportRevision = importRevision.current;
+    const owns = () => mountedRef.current && resourceOwnerRef.current === owner && importRevision.current === submittedImportRevision;
     const appearanceSnapshot = { ...appearanceRef.current };
     const appearanceSnapshotKey = JSON.stringify(appearanceSnapshot);
     const selectedPresetAtStart = selectedPresetId;
@@ -526,16 +684,19 @@ export function CaptionAppearanceWorkspace({
     setPresetNotice('');
     try {
       const profile = await api.profile();
+      if (!owns()) return;
       const now = new Date().toISOString();
       const existing = (profile.captionAppearances || []).find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
-      if (mountedRef.current) setPresetSaveAction(existing ? 'update' : 'save');
+      setPresetSaveAction(existing ? 'update' : 'save');
       const next: CaptionAppearancePreset = existing
         ? { ...existing, name, appearance: appearanceSnapshot, updatedAt: now }
         : { id: crypto.randomUUID(), name, appearance: appearanceSnapshot, createdAt: now, updatedAt: now };
       const captionAppearances = [next, ...(profile.captionAppearances || []).filter((preset) => preset.id !== next.id)].slice(0, 20);
       const updated = await api.patchProfile({ captionAppearances });
-      if (!mountedRef.current) return;
+      if (!owns()) return;
       presetGenerationRef.current += 1;
+      presetReadRequest.current = null;
+      setLoadingPresets(false); setPresetsLoaded(true); setPresetReadError('');
       setPresets(updated.captionAppearances || []);
       setPresetError('');
       setSelectedPresetId((current) => JSON.stringify(appearanceRef.current) === appearanceSnapshotKey && current === selectedPresetAtStart ? next.id : current);
@@ -544,14 +705,18 @@ export function CaptionAppearanceWorkspace({
         setPresetNotice(`${existing ? 'Updated' : 'Saved'} “${next.name}”.`);
       }
     } catch (error) {
-      if (mountedRef.current) setPresetError(error instanceof Error ? error.message : 'Could not save appearance preset');
+      if (owns()) setPresetError(error instanceof Error ? error.message : 'Could not save appearance preset');
     } finally {
+      presetMutationRef.current = false;
       if (mountedRef.current) { setSavingPreset(false); setPresetSaveAction(null); }
     }
   };
 
   const deletePreset = async () => {
-    if (!selectedPresetId) return;
+    if (!selectedPresetId || savingPreset || presetMutationRef.current) return;
+    const owner = resourceOwnerRef.current;
+    const submittedImportRevision = importRevision.current;
+    const owns = () => mountedRef.current && resourceOwnerRef.current === owner && importRevision.current === submittedImportRevision;
     const targetId = selectedPresetId;
     const target = presets.find((item) => item.id === targetId);
     const confirmed = await onConfirm({
@@ -560,29 +725,42 @@ export function CaptionAppearanceWorkspace({
       confirmLabel: 'Delete preset',
       tone: 'warning',
     });
-    if (!confirmed) return;
+    if (!confirmed || !owns() || presetMutationRef.current) return;
+    revealAppearanceControl(presetDisclosureRef.current?.querySelector<HTMLElement>('summary'));
+    presetMutationRef.current = true;
     setSavingPreset(true);
     setPresetError('');
     setPresetNotice('');
     try {
       const profile = await api.profile();
+      if (!owns()) return;
       const updated = await api.patchProfile({ captionAppearances: (profile.captionAppearances || []).filter((preset) => preset.id !== targetId) });
+      if (!owns()) return;
       presetGenerationRef.current += 1;
+      presetReadRequest.current = null;
+      setLoadingPresets(false); setPresetsLoaded(true); setPresetReadError('');
       setPresets(updated.captionAppearances || []);
       setPresetError('');
       setSelectedPresetId((current) => current === targetId ? '' : current);
+      setPresetNotice(`Deleted appearance preset “${target?.name || 'Preset'}”. Current appearance is kept.`);
     } catch (error) {
-      setPresetError(error instanceof Error ? error.message : 'Could not delete appearance preset');
+      if (owns()) setPresetError(error instanceof Error ? error.message : 'Could not delete appearance preset');
     } finally {
-      setSavingPreset(false);
+      presetMutationRef.current = false;
+      if (mountedRef.current) setSavingPreset(false);
     }
   };
 
   return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title" {...interactionHandlers}>
     <div className="caption-appearance-head">
       <strong id="caption-appearance-workspace-title" className="appearance-accessible-title">Caption appearance</strong>
-      <div className={`appearance-save-state ${saveState}`} role="status" aria-live="polite">
-        {saveState === 'saving' || saveState === 'pending' ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{saveStateCopy(saveState)}</span>{saveState === 'error' && <button onClick={() => void persistAppearance({ ...appearanceRef.current })}>Retry</button>}
+      <div ref={saveStatusRef} className={`appearance-save-state ${saveState}`} tabIndex={-1} role="status" aria-live="polite">
+        {saveState === 'saving' || saveState === 'pending' || loadingAppearance ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' || appearanceReadError ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{sharedSaveState.conflict ? 'Saved appearance changed' : saveState === 'saved' && loadingAppearance ? 'Checking saved appearance…' : saveState === 'saved' && appearanceReadError ? 'Current look kept' : saveStateCopy(saveState)}</span>{saveState === 'error' && !sharedSaveState.conflict && <button onClick={() => {
+          if (retrySavePendingRef.current) return;
+          retrySavePendingRef.current = true;
+          revealAppearanceControl(saveStatusRef.current);
+          void persistAppearance({ ...appearanceRef.current }).finally(() => { retrySavePendingRef.current = false; });
+        }}>Retry</button>}
       </div>
       <div className="appearance-effect-toolbar" aria-label="Appearance history">
       <div className="appearance-history">
@@ -592,7 +770,22 @@ export function CaptionAppearanceWorkspace({
     </div>
     </div>
 
+    {appearanceReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{appearanceReadError}</span><button type="button" disabled={loadingAppearance} aria-busy={loadingAppearance || undefined} onClick={() => {
+      if (appearanceReadRequest.current) return;
+      revealAppearanceControl(saveStatusRef.current);
+      void loadSavedAppearance();
+    }}>Retry saved appearance</button></div>}
     {presetError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{presetError}</span></div>}
+    {fontReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{fontReadError}. {fontsLoaded ? 'Last checked fonts are still shown.' : 'Your saved font is not yet verified.'} Your current appearance is kept.</span><button type="button" disabled={loadingFonts} aria-busy={loadingFonts || undefined} onClick={(event) => {
+      if (fontReadRequest.current) return;
+      if (document.activeElement === event.currentTarget) readFocus.current = { kind: 'fonts', owner: resourceOwner, button: event.currentTarget };
+      void loadFonts(true);
+    }}>{loadingFonts ? 'Checking fonts…' : 'Retry fonts'}</button></div>}
+    {presetReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{presetReadError}. {presetsLoaded ? 'Last loaded presets are still shown.' : 'Saved presets could not be loaded.'} Your current appearance and preset name are kept.</span><button type="button" disabled={loadingPresets} aria-busy={loadingPresets || undefined} onClick={(event) => {
+      if (presetReadRequest.current) return;
+      if (document.activeElement === event.currentTarget) readFocus.current = { kind: 'presets', owner: resourceOwner, button: event.currentTarget };
+      void loadPresets();
+    }}>{loadingPresets ? 'Loading presets…' : 'Retry appearance presets'}</button></div>}
     {fontError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{fontError}. Your current appearance remains unchanged.</span></div>}
     {fontWarnings.length > 0 && <div className="appearance-inline-warning" role="status"><TriangleAlert size={15}/><span>{fontWarnings.join(' ')}</span></div>}
     {fontNotice && <div className="appearance-font-notice" role="status"><CheckCircle2 size={15}/><span>{fontNotice}</span></div>}
@@ -606,7 +799,7 @@ export function CaptionAppearanceWorkspace({
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fontOptions.length} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · unavailable</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
+      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · {loadingFonts ? 'checking local fonts…' : fontDiscoveryFailed ? 'not yet verified' : 'unavailable'}</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
       <AppearanceRange key={`fontSize1080:${project.id}:${project.media.filename}`} label="Size" value={appearance.fontSize1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.fontSize1080} min={22} max={120} step={1} unit="px" context="At 1080p" onChange={(value, history) => updateAppearance((current) => ({ ...current, fontSize1080: value }), { history })}/>
       <AppearanceRange key={`positionBottomPct:${project.id}:${project.media.filename}`} label="Position" value={appearance.positionBottomPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.positionBottomPct} min={3} max={82} step={1} unit="%" context="From bottom" onChange={(value, history) => updateAppearance((current) => ({ ...current, positionBottomPct: value }), { history })}/>
@@ -663,7 +856,7 @@ export function CaptionAppearanceWorkspace({
       <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay this caption to check its look.'}</span>
     </section>
 
-    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.status === 'preparing' || wordPreparation?.status === 'applying'}><summary>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
+    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.status === 'preparing' || wordPreparation?.status === 'applying'}><summary ref={wordHighlightSummaryRef}>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
     <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
       <div className="appearance-word-highlight-head">
         <p>Color the current word while the full caption stays visible.</p>
@@ -684,7 +877,7 @@ export function CaptionAppearanceWorkspace({
           {!wordReadiness.unresolved.length && wordReadiness.total > 0 && <button type="button" onClick={() => onEditWordTiming()}>Edit word timing</button>}
         </div>
       </>}
-      {wordPreparation && <WordHighlightPreparation view={wordPreparation} enabled={appearance.highlightMode === 'word'}/>}
+      {wordPreparation && <WordHighlightPreparation view={wordPreparation} enabled={appearance.highlightMode === 'word'} actionFocusTarget={wordHighlightSummaryRef}/>}
       {appearance.highlightMode === 'word' && <p className="appearance-highlight-note">Highlights appear in video. SRT carries text and timing only.</p>}
     </section>
 
@@ -708,11 +901,11 @@ export function CaptionAppearanceWorkspace({
       </div>
     </details>
 
-    <details className="appearance-presets-disclosure appearance-option-group"><summary>Saved presets</summary>
+    <details ref={presetDisclosureRef} className="appearance-presets-disclosure appearance-option-group"><summary>Saved presets</summary>
     <div className="appearance-preset-bar appearance-option-body">
       <label htmlFor="appearance-preset-select">
         <span>Preset</span>
-        <select id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
+        <select ref={presetPickerRef} id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} disabled={loadingPresets && !presetsLoaded} aria-busy={loadingPresets || undefined} onChange={(event) => applyPreset(event.target.value)}>
           <option value="">Custom / current project</option>
           {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
         </select>

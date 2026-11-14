@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type {
   ProcessingJob,
   RegenerationApplyMode,
@@ -82,6 +82,8 @@ export function RegenerationReviewDock({
   const proposedOriginal = useMemo(() => naturalText(proposal.proposedCaptions), [proposal]);
   const currentText = useMemo(() => naturalText(proposal.currentCaptions), [proposal]);
   const edited = editedText.trim() !== proposedOriginal.trim();
+  const wordingEmpty = !editedText.trim();
+  const wordingHelpId = useId();
   const change = proposal.changes[changeIndex] || null;
   const textChanges = proposal.changes.filter((item) => item.textChanged).length;
   const timingChanges = proposal.changes.filter((item) => item.timingChanged).length;
@@ -124,8 +126,8 @@ export function RegenerationReviewDock({
 
     <div className="regen-playback-bar">
       <div className="regen-preview-switch" role="group" aria-label="Caption preview version">
-        <button className={previewMode === 'current' ? 'selected' : ''} onClick={() => onPreviewMode('current')}>Current</button>
-        <button className={previewMode === 'proposed' ? 'selected' : ''} onClick={() => onPreviewMode('proposed')}>Proposed</button>
+        <button className={previewMode === 'current' ? 'selected' : ''} aria-pressed={previewMode === 'current'} onClick={() => onPreviewMode('current')}>Current</button>
+        <button className={previewMode === 'proposed' ? 'selected' : ''} aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>Proposed</button>
       </div>
       <button onClick={() => onReplay()}><Play size={14}/>Replay range</button>
       <button className={loop ? 'selected' : ''} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>{loop ? 'Looping' : 'Loop'}</button>
@@ -153,22 +155,24 @@ export function RegenerationReviewDock({
 
     <div className="regen-comparison">
       <article className={previewMode === 'current' ? 'previewing' : ''}>
-        <header><span>Current text</span><button aria-label="Preview current captions" onClick={() => onPreviewMode('current')}>Preview</button></header>
+        <header><span>Current text</span><button aria-label="Preview current captions" aria-pressed={previewMode === 'current'} onClick={() => onPreviewMode('current')}>Preview</button></header>
         <p>{currentText || 'No current text in this range.'}</p>
       </article>
       <article className={previewMode === 'proposed' ? 'previewing proposed' : 'proposed'}>
-        <header><span>Proposed text</span><button aria-label="Preview proposed captions" onClick={() => onPreviewMode('proposed')}>Preview</button></header>
+        <header><span>Proposed text</span><button aria-label="Preview proposed captions" aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>Preview</button></header>
         <textarea
           value={editedText}
           onChange={(event) => { onEditedText(event.target.value); onPreviewMode('proposed'); }}
           aria-label="Edit proposed caption wording"
+          aria-invalid={wordingEmpty || undefined}
+          aria-describedby={wordingHelpId}
           rows={Math.max(3, Math.min(7, Math.ceil(editedText.length / 58)))}
         />
-        <small><PencilLine size={11}/>Edit the wording before accepting or realigning it.</small>
+        <small id={wordingHelpId} aria-live="polite"><PencilLine size={11}/>{wordingEmpty ? 'Enter wording before accepting text or the full proposal.' : 'Edit the wording before accepting or realigning it.'}</small>
       </article>
     </div>
 
-    {edited && <div className="regen-honesty-note warning">
+    {edited && !wordingEmpty && <div className="regen-honesty-note warning">
       <Lightbulb size={15}/><span><b>Wording edited.</b> Accepting now keeps the proposal’s timing. Choose <b>Realign exact wording</b> to update timing first.</span>
     </div>}
 
@@ -204,9 +208,9 @@ export function RegenerationReviewDock({
 
     <div className="regen-apply-actions">
       <button disabled={working} onClick={() => onApply('reject')}><X size={14}/>Keep current</button>
-      <button disabled={working || (!textChanges && !edited)} onClick={() => onApply('text-only', editedText)}><FileText size={14}/>Accept text only</button>
+      <button disabled={working || wordingEmpty || (!textChanges && !edited)} onClick={() => onApply('text-only', editedText)}><FileText size={14}/>Accept text only</button>
       <button disabled={working || !timingChanges} onClick={() => onApply('timing-only')}><Clock3 size={14}/>Accept timing only</button>
-      <button className="primary" disabled={working} onClick={() => onApply('all', edited ? editedText : undefined)}><Check size={14}/>{edited ? 'Accept edited proposal' : 'Accept proposed range'}</button>
+      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}><Check size={14}/>{edited ? 'Accept edited proposal' : 'Accept proposed range'}</button>
     </div>
   </section>;
 }

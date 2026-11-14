@@ -13,6 +13,7 @@ export function useModalFocus(
     const root = dialog.current;
     if (!open || !root) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let composingTarget: HTMLElement | null = null;
     const focusable = () => Array.from(root.querySelectorAll<HTMLElement>(
       'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
     )).filter((item) => item.tabIndex >= 0 && item.getClientRects().length > 0 && !item.closest('[inert], [aria-hidden="true"]'));
@@ -22,8 +23,12 @@ export function useModalFocus(
       (preferred && !preferred.matches(':disabled') && preferred.getClientRects().length ? preferred : focusable()[0] || root).focus();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isTopmost() || event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+      if (!isTopmost() || event.defaultPrevented) return;
+      if (composingTarget && (!composingTarget.isConnected || !composingTarget.contains(document.activeElement))) composingTarget = null;
+      if (composingTarget || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === 'Escape') {
+        if (event.shiftKey) return;
         event.preventDefault();
         event.stopPropagation();
         dismiss.current();
@@ -39,13 +44,29 @@ export function useModalFocus(
         }
       }
     };
+    const onCompositionStart = (event: CompositionEvent) => {
+      if (isTopmost() && event.target instanceof HTMLElement && root.contains(event.target)) composingTarget = event.target;
+    };
+    const onCompositionEnd = (event: CompositionEvent) => {
+      if (event.target === composingTarget) composingTarget = null;
+    };
+    const onFocusOut = (event: FocusEvent) => {
+      if (composingTarget && event.target instanceof Node && composingTarget.contains(event.target)
+        && !(event.relatedTarget instanceof Node && composingTarget.contains(event.relatedTarget))) composingTarget = null;
+    };
     const onFocusIn = () => { if (isTopmost() && !root.contains(document.activeElement)) focusFirst(); };
     focusFirst();
     window.addEventListener('keydown', onKeyDown);
     document.addEventListener('focusin', onFocusIn);
+    root.addEventListener('compositionstart', onCompositionStart, true);
+    root.addEventListener('compositionend', onCompositionEnd, true);
+    root.addEventListener('focusout', onFocusOut, true);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('focusin', onFocusIn);
+      root.removeEventListener('compositionstart', onCompositionStart, true);
+      root.removeEventListener('compositionend', onCompositionEnd, true);
+      root.removeEventListener('focusout', onFocusOut, true);
       if (previous?.isConnected) {
         const target = previous.getClientRects().length ? previous : previous.closest('details')?.querySelector('summary');
         target?.focus();

@@ -11,10 +11,13 @@ import './job-manager.css';
 interface Props {
   open: boolean;
   jobs: ProcessingJob[];
+  loadState: { loading: boolean; loaded: boolean; error: string };
+  pendingActions: Readonly<Partial<Record<string, 'resume' | 'cancel'>>>;
+  openingJobId?: string | null;
   project?: CaptionProject;
   appearanceReconciliation: AppearanceReconciliation;
   onClose(): void;
-  onRefresh(): void;
+  onRefresh(feedback?: boolean): void;
   onResume(id: string): void;
   onCancel(id: string): void;
   onOpen(job: ProcessingJob): void;
@@ -25,6 +28,10 @@ function isStopping(job: ProcessingJob) {
 }
 
 function activityLabel(job: ProcessingJob) {
+  if (job.type === 'export-video' && job.status === 'interrupted') {
+    if (job.stage === 'checking-export-completion') return 'Checking output';
+    if (job.stage === 'export-completion-uncertain') return 'Completion uncertain';
+  }
   if (job.status === 'queued') return 'Waiting';
   if (isStopping(job)) return 'Stopping';
   if (job.status === 'running') return 'Working';
@@ -82,18 +89,20 @@ function formatDuration(ms: number) {
   return `${seconds}s`;
 }
 
-export function JobManager({ open, jobs, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+export function JobManager({ open, jobs, loadState, pendingActions, openingJobId, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   useModalFocus(open, dialog, onClose);
   const [now, setNow] = useState(Date.now());
   const [exportDirectory, setExportDirectory] = useState('');
   const [exportDirectoryError, setExportDirectoryError] = useState('');
-  const hasCompletedExport = jobs.some((job) => job.status === 'completed' && Boolean(job.resultExport));
+  const hasCompletedExport = jobs.some((job) => job.status === 'completed' && Boolean(job.resultExport)
+    || job.type === 'export-video' && ['checking-export-completion', 'export-completion-uncertain'].includes(job.stage));
 
   useEffect(() => {
-    window.addEventListener(JOBS_UPDATED_EVENT, onRefresh);
-    return () => window.removeEventListener(JOBS_UPDATED_EVENT, onRefresh);
+    const refresh = () => onRefresh();
+    window.addEventListener(JOBS_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(JOBS_UPDATED_EVENT, refresh);
   }, [onRefresh]);
 
   useEffect(() => {
@@ -140,14 +149,23 @@ export function JobManager({ open, jobs, project, appearanceReconciliation, onCl
         <div className="job-modal-heading-copy"><strong id="activity-title">Activity</strong><span>{queueSummary}</span></div>
         <button className="job-modal-close" aria-label="Close Activity" title="Close Activity" onClick={onClose}><X size={18}/></button>
       </div>
-      <div className="history-toolbar job-toolbar"><span>{activeJobs.length} active · {jobs.length} recent</span><button onClick={onRefresh}><RefreshCw size={13}/>Refresh</button></div>
+      <div className="history-toolbar job-toolbar">
+        <span role="status" aria-live="polite" aria-atomic="true">{openingJobId ? 'Opening saved result… Close Activity to cancel.' : loadState.loading
+          ? loadState.loaded ? 'Refreshing activity…' : 'Loading activity…'
+          : loadState.error && !loadState.loaded ? 'Activity unavailable'
+          : `${loadState.error ? 'Last loaded: ' : ''}${activeJobs.length} active · ${jobs.length} recent`}</span>
+        <button disabled={loadState.loading} aria-busy={loadState.loading || undefined} onClick={() => onRefresh(true)}><RefreshCw size={13}/>{loadState.error ? 'Retry activity' : 'Refresh'}</button>
+      </div>
+      {loadState.error && <p className="job-load-error" role="alert">{loadState.error}{loadState.loaded ? ' The last loaded activity is still shown.' : ''}</p>}
       {appearanceReconciliation.value.status === 'error' && jobs.some((job) => job.projectId === project?.id && job.resultExport && job.exportContentFingerprint) && <div className="history-toolbar" role="status"><span>Current appearance could not be compared.</span><button onClick={() => void appearanceReconciliation.refresh()}>Retry appearance comparison</button></div>}
       {hasCompletedExport && <div className="activity-export-location" aria-label="Video export location" aria-live="polite">
         <span>Export folder</span>
         <code title={exportDirectory || undefined}>{exportDirectory || exportDirectoryError || 'Loading location…'}</code>
       </div>}
-      <div className="job-list">
+      <div className="job-list" aria-busy={loadState.loading}>
         {jobs.map((job) => {
+          const pending = pendingActions[job.id];
+          const stopping = isStopping(job);
           const duration = jobDurationMs(job, now);
           const durationCopy = Number.isFinite(Date.parse(job.startedAt || ''))
             ? job.status === 'completed'
@@ -178,16 +196,16 @@ export function JobManager({ open, jobs, project, appearanceReconciliation, onCl
                 </dl>
               </details>
               <div className="job-actions">
-                {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button onClick={() => onOpen(job)}><Play size={13}/>Open result</button>}
+                {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}><Play size={13}/>{openingJobId === job.id ? 'Opening result…' : 'Open result'}</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
-                {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button onClick={() => onOpen(job)}>Open project to compare</button>}
-                {job.canResume && <button onClick={() => onResume(job.id)}><Play size={13}/>Resume</button>}
-                {['queued', 'running'].includes(job.status) && <button onClick={() => onCancel(job.id)}><Ban size={13}/>Cancel</button>}
+                {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}>{openingJobId === job.id ? 'Opening project…' : 'Open project to compare'}</button>}
+                {job.canResume && <button disabled={Boolean(pending)} aria-busy={pending === 'resume' || undefined} onClick={() => onResume(job.id)}><Play size={13}/>{pending === 'resume' ? 'Resuming…' : 'Resume'}</button>}
+                {['queued', 'running'].includes(job.status) && <button disabled={Boolean(pending) || stopping} aria-busy={pending === 'cancel' || undefined} onClick={() => onCancel(job.id)}><Ban size={13}/>{stopping ? 'Stopping…' : pending === 'cancel' ? 'Requesting stop…' : 'Cancel'}</button>}
               </div>
             </div>
           </article>;
         })}
-        {!jobs.length && <div className="review-empty">No jobs yet.</div>}
+        {loadState.loaded && !loadState.loading && !loadState.error && !jobs.length && <div className="review-empty">No jobs yet.</div>}
       </div>
     </section>
   </div>;

@@ -4,12 +4,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { DEFAULT_CAPTION_APPEARANCE } from '@kcs/shared';
+import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionSegment, type TimedToken } from '@kcs/shared';
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'caption-overflow-native-'));
 process.env.STHANG_STUDIO_STATE_ROOT = root;
 process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'missing.env');
 const { fontCapabilities, prepareCaptionFonts, buildAssDocument, buildAssCaptionFilter } = await import('../apps/server/src/services/caption-renderer.js');
 const { validateCaptionOverflow, CaptionOverflowError, invalidateCaptionOverflowCache, buildCaptionOverflowProbe, captionCmapGlyph, captionOverflowSourceFilter, parseCaptionOverflowBounds } = await import('../apps/server/src/services/caption-overflow.js');
+const { planCaptionOverflowBatches } = await import('../apps/server/src/services/caption-overflow-batches.js');
 after(async () => { invalidateCaptionOverflowCache(); await fs.rm(root, { recursive: true, force: true }); });
 const fonts = await fontCapabilities();
 const font = fonts.find((item) => item.available && item.boldAvailable);
@@ -37,6 +38,8 @@ test('black paint, faded motion and odd frame dimensions are measured', async ()
 });
 test('cancellation, unsafe allocation and missing fonts never produce a cached fit', async () => {
   await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue('hello')], shouldCancel: () => true }), /cancelled/);
+  await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue('  ')], shouldCancel: () => true }), /cancelled/);
+  await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue('  ')], shouldCancel: () => true }, 1), /cancelled/);
   await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue('hello')], width: 8192, height: 8192 }), CaptionOverflowError);
   const empty = path.join(root, 'empty'); await fs.mkdir(empty);
   await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue('hello')], fontDirectory: empty }), CaptionOverflowError);
@@ -212,4 +215,77 @@ test('diagnostic opacity dominance retains different source groups and rejects u
     assert.deepEqual(error.captionGroups, []);
     return true;
   });
+});
+
+test('whole-overlap native batches preserve original IDs and identify a late overflow', async () => {
+  const captions = [
+    { ...cue('a'), id: 'fits-first', startMs: 100, endMs: 700 },
+    { ...cue('b'), id: 'fits-second', startMs: 800, endMs: 1400 },
+    { ...cue('SUBSCRIPTION'), id: 'late-overflow', startMs: 1500, endMs: 2200 },
+  ];
+  const batches = planCaptionOverflowBatches(captions, 12);
+  assert.deepEqual(batches.map((batch) => batch.captions.map((caption) => caption.id)),
+    [['fits-first', 'fits-second'], ['late-overflow']]);
+  const large = { ...appearance, fontSize1080: 120 };
+  await assert.rejects(validateCaptionOverflow({ ...base, captions, appearance: large, collectIssues: true }, 12), (error: unknown) => {
+    assert.ok(error instanceof CaptionOverflowError);
+    assert.equal(error.kind, 'overflow');
+    assert.deepEqual(error.captionGroups, [['late-overflow']]);
+    return true;
+  });
+  // Existing 120-second finite budget and interruption ownership apply to every
+  // native child. Aborting a multi-batch request cannot publish a clean result.
+  const stopped = AbortSignal.abort(new Error('batch was cancelled'));
+  await assert.rejects(validateCaptionOverflow({ ...base, captions, appearance: large, signal: stopped }, 12), /batch was cancelled/);
+  assert.deepEqual((await fs.readdir(root)).filter((name) => name.startsWith('caption-bounds-')), []);
+});
+
+test('whole-overlap partition preserves exact native word, glow, background and motion geometry', async () => {
+  const spoken: CaptionSegment = { id: 'spoken', text: 'ខ្មែរកម្ពុជា', startMs: 100, endMs: 900 };
+  const words: TimedToken[] = [
+    { id: 'khmer', text: 'ខ្មែរ', startMs: 180, endMs: 340, spaceBefore: false, timingSource: 'stt' },
+    { id: 'cambodia', text: 'កម្ពុជា', startMs: 500, endMs: 700, spaceBefore: false, timingSource: 'stt' },
+  ];
+  const timing = buildCaptionWordTiming(spoken, words);
+  assert.ok(timing);
+  const captions = [
+    { ...cue('OK'), id: 'overlay-first', startMs: 400, endMs: 780 },
+    { ...spoken, wordTiming: timing },
+    { ...cue('Later'), id: 'later', startMs: 1100, endMs: 1850 },
+  ];
+  const firstComponentChars = captions[0].text.length + captions[1].text.length;
+  const batches = planCaptionOverflowBatches(captions, firstComponentChars);
+  assert.deepEqual(batches.map((batch) => batch.captions.map((caption) => caption.id)),
+    [['overlay-first', 'spoken'], ['later']]);
+
+  const decorated = { ...appearance, fontSize1080: 36, maxWidthPct: 90, positionBottomPct: 15,
+    highlightMode: 'word' as const, glowEnabled: true, glowWidth1080: 4, glowOpacity: .35,
+    backgroundEnabled: true, backgroundPadding1080: 4, backgroundOpacity: .45,
+    motionDurationMs: 160 };
+  const events = (document: string) => document.split('\n').filter((line) => line.startsWith('Dialogue: '));
+  for (const motionPreset of ['fade', 'rise', 'soft-pop'] as const) {
+    const style = { ...decorated, motionPreset };
+    const full = buildAssDocument(captions, style, 360, 640);
+    const split = batches.flatMap((batch) => events(buildAssDocument(batch.captions, style, 360, 640)));
+    assert.deepEqual(split, events(full), `${motionPreset}: layer, active group, original clock, word paint and geometry stay byte-identical`);
+  }
+
+  const style = { ...decorated, motionPreset: 'soft-pop' as const };
+  await validateCaptionOverflow({ ...base, captions, appearance: style }, firstComponentChars);
+  const { config } = await import('../apps/server/src/config.js');
+  const render = async (document: string, atMs: number, label: string) => {
+    const file = path.join(root, `partition-${label}-${atMs}.ass`);
+    await fs.writeFile(file, document, 'utf8');
+    return execFileSync(config.ffmpegPath, [
+      '-hide_banner', '-nostdin', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=c=black:s=360x640:r=1,format=rgba',
+      '-vf', `settb=1/1000,setpts=${atMs},${buildAssCaptionFilter(file, fontDirectory)}`,
+      '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-',
+    ], { windowsHide: true, maxBuffer: 2_000_000, timeout: 30_000 });
+  };
+  for (const [index, atMs] of [600, 1300].entries()) {
+    const full = await render(buildAssDocument(captions, style, 360, 640), atMs, 'full');
+    const partial = await render(buildAssDocument(batches[index].captions, style, 360, 640), atMs, 'batch');
+    assert.deepEqual(partial, full, `at ${atMs}ms the saved full renderer and the native measured subset have identical pixels`);
+  }
 });

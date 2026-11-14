@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { Replace, Search, ShieldPlus, X } from 'lucide-react';
 import { applyReplacementPlan, planReplacement, type MatchMode } from '../find-replace';
@@ -38,6 +38,16 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   const find = useRef<HTMLInputElement | null>(null);
+  const queryRevision = useRef(0);
+  const openingSelection = useRef<{ visit: number; revision: number; value: string } | null>(null);
+  const patternErrorId = useId();
+  const selectOpeningQuery = () => {
+    const pending = openingSelection.current;
+    const input = find.current;
+    if (!pending || !input || input.value !== pending.value) return;
+    openingSelection.current = null;
+    if (isOpen.current && pending.visit === visit.current && pending.revision === queryRevision.current && document.activeElement === input) input.select();
+  };
   const close = () => {
     visit.current += 1;
     if (!saving.current) setGlossary(null);
@@ -48,10 +58,17 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
 
   useEffect(() => {
     visit.current += 1;
+    openingSelection.current = null;
     if (!open) return;
+    const seededQuery = !saving.current && initialSearch ? initialSearch : query;
+    if (!glossary) openingSelection.current = { visit: visit.current, revision: queryRevision.current, value: seededQuery };
     if (!saving.current && initialSearch) setQuery(initialSearch);
     setError('');
+    // The existing value may already be committed. A changed seed is selected
+    // by the layout effect below, after React updates the input's exact value.
+    selectOpeningQuery();
   }, [open]);
+  useLayoutEffect(selectOpeningQuery, [open, query, Boolean(glossary)]);
 
   useEffect(() => {
     if (mode === 'regex' && remember !== 'none') setRemember('none');
@@ -131,7 +148,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
       <div className="modal-head"><div><Search size={18}/><div><strong id="find-replace-title">Find & Correct Everywhere</strong><span>Preview every occurrence. Locked text stays unchanged.</span></div></div><button aria-label="Close find and correct" onClick={close}><X size={17}/></button></div>
       {!glossary && <>
       <div className="find-grid">
-        <label><span>Find</span><input ref={find} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
+        <label><span>Find</span><input ref={find} value={query} aria-invalid={Boolean(preview.error) || undefined} aria-describedby={preview.error ? patternErrorId : undefined} onChange={(event) => { queryRevision.current += 1; openingSelection.current = null; setQuery(event.target.value); }} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
         <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Terra or GPT 5.6 Luna"/></label>
         <label><span>Match</span><select value={mode} onChange={(event) => setMode(event.target.value as MatchMode)}><option value="literal">Case-sensitive text</option><option value="case-insensitive">Ignore Latin case</option><option value="regex">Regular expression</option></select></label>
         <label><span>Scope</span><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option value="project">Entire project</option><option value="selection" disabled={!selectedIds.length}>Selected captions ({selectedIds.length})</option></select></label>
@@ -155,7 +172,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
             </div>
           </div>
         </div>)}
-        {!preview.entries.length && <div className="review-empty">{preview.error || (query ? 'No matches found.' : 'Enter text to find matches.')}</div>}
+        {!preview.entries.length && <div className="review-empty" id={preview.error ? patternErrorId : undefined} role={preview.error ? 'alert' : undefined}>{preview.error || (query ? 'No matches found.' : 'Enter text to find matches.')}</div>}
       </div>
       {pageCount > 1 && <nav className="find-preview-pages" aria-label="Replacement preview pages"><button disabled={currentPage === 0} onClick={() => changePage(currentPage - 1)}>Previous matches</button><span role="status" aria-live="polite" aria-atomic="true">Page {currentPage + 1} of {pageCount} · Captions {currentPage * 30 + 1}–{Math.min((currentPage + 1) * 30, preview.entries.length)} of {preview.entries.length}</span><button disabled={currentPage === pageCount - 1} onClick={() => changePage(currentPage + 1)}>Next matches</button></nav>}
       {error && <div className="inline-form-error">{error}</div>}

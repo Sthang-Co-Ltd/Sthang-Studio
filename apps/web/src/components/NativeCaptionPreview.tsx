@@ -9,6 +9,7 @@ import './native-caption-preview.css';
 interface Props {
   project: CaptionProject;
   media: RefObject<HTMLMediaElement | null>;
+  recoveryFocusTarget: RefObject<HTMLElement | null>;
   mediaElement: HTMLMediaElement | null;
   captions: CaptionSegment[];
   appearance: CaptionAppearance;
@@ -128,7 +129,7 @@ export interface NativeCaptionPreviewHandle {
   prepareReplay(startMs: number, endMs: number, signal: AbortSignal): Promise<boolean>;
 }
 
-export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, mediaElement, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0 }, ref) {
+export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, recoveryFocusTarget, mediaElement, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0 }, ref) {
   const normalizedAppearance = useMemo(() => normalizeCaptionAppearance(appearance), [appearance]);
   const highlightWords = normalizedAppearance.highlightMode === 'word';
   const motionPreset = normalizedAppearance.motionPreset;
@@ -626,7 +627,17 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
   const image = current?.blockedCueKey != null && current.blockedCueKey === state?.key ? undefined : exactImage || retainedImage;
   const transform = !exactImage && image && frame ? captionPreviewTransform(image.appearance, payload.appearance, image.width, image.height, image.bounds, frame.width, frame.height) : undefined;
   const box = focusMask ? image?.focusBounds : image?.bounds;
-  const retry = () => { if (current) { current.error = ''; current.blockedCueKey = null; current.retries = 0; redraw(); } };
+  const retry = (trigger: HTMLButtonElement) => {
+    if (!current) return;
+    if (document.activeElement === trigger) {
+      const target = recoveryFocusTarget.current;
+      if (target?.isConnected) {
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      }
+    }
+    current.error = ''; current.blockedCueKey = null; current.retries = 0; redraw();
+  };
 
   return <>
     {frame && image && <div className="native-caption-surface" data-preview-mode={exactImage ? 'exact' : transform ? 'interpolated' : 'pending'} data-paint-key={renderKey} style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}>
@@ -642,7 +653,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     </div>}
     {image && !exactImage && !error && <div className="native-preview-refining">{transform ? 'Interactive preview · refining layout…' : 'Updating caption appearance…'}</div>}
     {state?.key && (!image || error) && <div className={`native-preview-status ${error ? 'error' : ''}`} role="status">
-      <span>{error || 'Preparing caption preview…'}</span>{error && <button onClick={retry}>Retry preview</button>}
+      <span>{error || 'Preparing caption preview…'}</span>{error && <button type="button" onClick={(event) => retry(event.currentTarget)}>Retry preview</button>}
     </div>}
   </>;
 });

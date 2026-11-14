@@ -149,7 +149,9 @@ export function usePanelHeaderDrag(options: Options) {
     const cancel = () => finishRef.current(false);
     const geometry = () => { finishRef.current(false, undefined, undefined, false); landing.current = null; stopMotion(); };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && gesture.current) { event.preventDefault(); event.stopPropagation(); cancel(); }
+      if (event.key !== 'Escape' || !gesture.current || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
+        || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault(); event.stopPropagation(); cancel();
     };
     window.addEventListener(EDITOR_LAYOUT_CHANGE, geometry);
     window.addEventListener('blur', cancel); window.addEventListener('keydown', escape, true);
@@ -204,7 +206,8 @@ export function usePanelHeaderDrag(options: Options) {
       onPointerCancel(event) { if (gesture.current?.pointer === event.pointerId) finish(false); },
       onLostPointerCapture(event) { if (gesture.current?.pointer === event.pointerId) finish(false); },
       onKeyDown(event) {
-        if (!current.current.enabled || event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+        if (!current.current.enabled || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
+          || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || document.querySelector('[aria-modal="true"]') || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
         event.preventDefault(); event.stopPropagation();
         const { order, open } = current.current;
         const panes = visibleEditorPanes(order, open);

@@ -1,6 +1,6 @@
 export interface TimingPlaybackRange { startMs: number; endMs: number; loop: boolean }
 
-/** A bounded audition owns its listeners/animation only until stopped or paused. */
+/** A bounded audition owns playback only until stopped, paused or manually sought. */
 export function playTimingRange(
   media: HTMLMediaElement,
   range: TimingPlaybackRange,
@@ -14,20 +14,25 @@ export function playTimingRange(
   let active = true;
   let frame = 0;
   let restarting = false;
+  let ownSeekTarget: number | null = null;
   const cleanup = () => {
     if (!active) return;
     active = false;
     cancelAnimationFrame(frame);
     media.removeEventListener('pause', paused);
     media.removeEventListener('ended', ended);
+    media.removeEventListener('seeking', seeking);
+    media.removeEventListener('seeked', seeked);
+    ownSeekTarget = null;
     onFinish?.();
   };
   const stop = () => { cleanup(); media.pause(); };
   const play = () => { void media.play().catch(() => { if (active) { stop(); onError(); } }); };
+  const seekToStart = () => { ownSeekTarget = start; media.currentTime = start; };
   const restart = () => {
     if (!active) return;
     restarting = true;
-    media.currentTime = start;
+    seekToStart();
     play();
     restarting = false;
   };
@@ -38,6 +43,13 @@ export function playTimingRange(
     if (!restarting && !(range.loop && media.ended)) cleanup();
   };
   const ended = () => { if (range.loop) restart(); else cleanup(); };
+  const seeking = () => {
+    // Initial playback and every loop restart seek deliberately. Their queued
+    // events must not retire the range; another seek yields without pausing it.
+    if (ownSeekTarget !== null && Math.abs(media.currentTime - ownSeekTarget) < 0.05) return;
+    cleanup();
+  };
+  const seeked = () => { ownSeekTarget = null; };
   const tick = () => {
     if (!active) return;
     // A new seek position is visible before its queued seeking handler can
@@ -50,7 +62,9 @@ export function playTimingRange(
   };
   media.addEventListener('pause', paused);
   media.addEventListener('ended', ended);
-  media.currentTime = start;
+  media.addEventListener('seeking', seeking);
+  media.addEventListener('seeked', seeked);
+  seekToStart();
   play();
   frame = requestAnimationFrame(tick);
   // Releasing range ownership after a user's seek must leave their new position

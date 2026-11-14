@@ -87,8 +87,10 @@ test('an interrupted caption job is surfaced after restart instead of sitting si
 
   await openProject(page);
   const dialog = page.getByRole('dialog', { name: 'Activity', exact: true });
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.toast.notice')).toContainText('Processing was interrupted');
+  await page.getByRole('button', { name: 'Open Activity', exact: true }).click();
   await expect(dialog).toBeVisible();
-  await expect(page.locator('.toast.notice')).toContainText('Studio restarted while this job was running');
   await expect(dialog.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(dialog).toContainText('Queued to resume');
@@ -108,15 +110,18 @@ test('a recovered interrupted job discovered after a lost enqueue response is su
 
   await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
   const dialog = page.getByRole('dialog', { name: 'Activity', exact: true });
-  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCount(0);
   await expect(page.locator('.toast.notice')).toHaveCount(1);
-  await expect(page.locator('.toast.notice')).toContainText('Studio restarted while this job was running');
+  await expect(page.locator('.toast.notice')).toContainText('Processing was interrupted');
   expect(state.requests.filter((item) => item.method === 'POST' && item.path.includes('/api/jobs/'))).toHaveLength(0);
 
   await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
   await expect(page.locator('.toast.notice')).toHaveCount(1);
+  await expect(dialog).toHaveCount(0);
   expect(state.requests.filter((item) => item.method === 'POST' && item.path.includes('/api/jobs/'))).toHaveLength(0);
 
+  await page.getByRole('button', { name: 'Open Activity', exact: true }).click();
+  await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(dialog).toContainText('Queued to resume');
   expect(state.requests.filter((item) => item.method === 'POST' && item.path.includes('/api/jobs/')).map((item) => item.path))

@@ -1,7 +1,9 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Request } from '@playwright/test';
 import fs from 'node:fs/promises';
 import { hydrateCaptionWordTimings, type CaptionProject, type CaptionSegment, type RegenerationProposal, type TranscriptionContext } from '@kcs/shared';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import type { RecoveryDraft } from '../../apps/web/src/unfinished-edit-recovery.js';
+import { expectRecoveryOfferReachable } from './recovery-layout.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -171,16 +173,8 @@ test('a focused unsaved caption survives reload and explicit recovery without ap
   expect(f.captionWrites).toEqual([]);
   for (const viewport of [{ width: 1440, height: 1000, name: 'desktop' }, { width: 390, height: 844, name: 'mobile' }]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    // The toast slot can be visible while its entrance transition still clips it.
-    await expect(async () => {
-      const box = await notice.boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.x).toBeGreaterThanOrEqual(0);
-      expect(box!.y).toBeGreaterThanOrEqual(0);
-      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
-      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
-    }).toPass({ timeout: 8000 });
-    await notice.screenshot({ path: testInfo.outputPath(`unfinished-recovery-${viewport.name}.png`) });
+    await expectRecoveryOfferReachable(page, notice, viewport.width, notice.getByText(text, { exact: true }));
+    await page.screenshot({ path: testInfo.outputPath(`unfinished-recovery-${viewport.name}.png`) });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await notice.getByRole('button', { name: 'Restore draft', exact: true }).click();
@@ -286,8 +280,14 @@ for (const changed of ['captions', 'Accuracy context', 'media'] as const) {
     const text = 'Local-only unfinished text kept for comparison';
     await openProject(page);
     const caption = page.getByLabel('Caption 1 text', { exact: true });
-    await caption.fill(text);
-    await expectCapturedWhileFocused(page, caption, text);
+    if (changed === 'Accuracy context') {
+      const fields = await openAccuracy(page);
+      await fields.description.fill(text);
+      await expectCapturedWhileFocused(page, fields.description, text);
+    } else {
+      await caption.fill(text);
+      await expectCapturedWhileFocused(page, caption, text);
+    }
     if (changed === 'captions') f.state.projects[0].captions[0].text = 'A different saved correction';
     if (changed === 'Accuracy context') f.state.projects[0].transcriptionContext = { description: 'Context saved in another session', vocabulary: ['OtherBrand'] };
     if (changed === 'media') f.state.projects[0].media = { ...f.state.projects[0].media, filename: 'replacement.mp4', originalName: 'replacement.mp4', url: '/media/replacement.mp4', size: 7777 };
@@ -300,21 +300,41 @@ for (const changed of ['captions', 'Accuracy context', 'media'] as const) {
     await expect(caption).toHaveValue(currentCanonical.captions[0].text);
     expect(f.captionWrites).toEqual([]);
     expect(f.contextWrites).toEqual([]);
-
-    if (changed === 'media') {
-      const download = page.waitForEvent('download');
-      await notice.getByRole('button', { name: 'Download draft', exact: true }).click();
-      const file = await download;
-      expect(file.suggestedFilename()).toBe('sthang-unfinished-draft.json');
-      const copy = JSON.parse(await fs.readFile((await file.path())!, 'utf8'));
-      expect(copy.projectId).toBe('landscape');
-      expect(copy.captions[0].text).toBe(text);
-      await notice.getByRole('button', { name: 'Discard draft', exact: true }).click();
-      await page.getByRole('alertdialog', { name: 'Discard this recovery draft?', exact: true })
-        .getByRole('button', { name: 'Discard draft', exact: true }).click();
-      await expect(notice).toHaveCount(0);
-      expect(f.state.projects[0]).toEqual(currentCanonical);
+    const entries = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('sthang-studio:unfinished-edits:'))
+      .map((key) => ({ key, raw: localStorage.getItem(key)! })));
+    const offered = entries.find((entry) => {
+      const draft = JSON.parse(entry.raw) as RecoveryDraft;
+      return draft.projectId === 'landscape' && (changed === 'Accuracy context' ? draft.accuracy?.description === text : draft.captions?.[0].text === text);
+    });
+    expect(offered).toBeDefined();
+    if (!offered) throw new Error('The exact offered recovery draft is missing.');
+    const draft = JSON.parse(offered.raw) as RecoveryDraft;
+    expect(draft.version).toBe(3);
+    if (changed === 'Accuracy context') {
+      expect(Object.keys(draft.basis)).toEqual(['context']); expect(draft.accuracy?.description).toBe(text);
+      expect(draft.captions).toBeUndefined(); expect(draft.basis.captions).toBeUndefined();
+      for (const cue of f.original.captions) expect(offered.raw).not.toContain(cue.text);
+    } else {
+      expect(Object.keys(draft.basis)).toEqual(['captions']); expect(draft.captions?.[0].text).toBe(text);
+      expect(draft.accuracy).toBeUndefined(); expect(draft.basis.context).toBeUndefined();
+      expect(offered.raw).not.toContain(f.original.transcriptionContext!.description!);
     }
+    const exactRecord = () => page.evaluate((key) => localStorage.getItem(key), offered.key);
+    expect(await exactRecord()).toBe(offered.raw);
+    expect(f.state.projects[0]).toEqual(currentCanonical);
+    const download = page.waitForEvent('download');
+    await notice.getByRole('button', { name: 'Download draft', exact: true }).click();
+    const file = await download; expect(file.suggestedFilename()).toBe('sthang-unfinished-draft.json');
+    const downloaded = await fs.readFile((await file.path())!, 'utf8');
+    expect(downloaded).toBe(offered.raw); expect((JSON.parse(downloaded) as RecoveryDraft).projectId).toBe('landscape');
+    expect(await exactRecord()).toBe(offered.raw); expect(f.state.projects[0]).toEqual(currentCanonical);
+    expect(f.captionWrites).toEqual([]); expect(f.contextWrites).toEqual([]); noLearningOrGeneration(f.state);
+    await notice.getByRole('button', { name: 'Discard draft', exact: true }).click();
+    const confirmation = page.getByRole('alertdialog', { name: 'Discard this recovery draft?', exact: true });
+    await expect(confirmation).toBeVisible(); expect(await exactRecord()).toBe(offered.raw);
+    await confirmation.getByRole('button', { name: 'Discard draft', exact: true }).click();
+    await expect(notice).toHaveCount(0); expect(await exactRecord()).toBeNull();
+    expect(f.state.projects[0]).toEqual(currentCanonical); expect(f.captionWrites).toEqual([]); expect(f.contextWrites).toEqual([]);
     noLearningOrGeneration(f.state);
   });
 }
@@ -565,21 +585,34 @@ test('a failed recovery check from a previous project cannot surface its error o
   await expect(recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true })).toBeEnabled();
 
   const gate = deferred();
+  const staleHandlerDrained = deferred();
+  let staleRequest: Request | undefined;
   let canonicalReads = 0;
   await page.route('**/api/projects/landscape', async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     const read = ++canonicalReads;
     f.state.requests.push({ path: '/api/projects/landscape', method: 'GET', body: null });
     if (read === 1) {
-      await gate.promise;
-      return route.fulfill({ status: 503, json: { error: 'Synthetic previous-project recovery check failure' } });
+      const request = route.request();
+      staleRequest = request;
+      try {
+        await gate.promise;
+        await route.fulfill({ status: 503, json: { error: 'Synthetic previous-project recovery check failure' } });
+      } catch (error) {
+        if (!page.isClosed() && request.failure()?.errorText !== 'net::ERR_ABORTED') throw error;
+      } finally { staleHandlerDrained.resolve(); }
+      return;
     }
     return route.fulfill({ json: f.state.projects[0] });
   });
   try {
     await recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true }).click();
     await expect.poll(() => canonicalReads).toBe(1);
+    const staleCancelled = page.waitForEvent('requestfailed', { predicate: (request) => request === staleRequest });
     await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    const cancelled = await staleCancelled;
+    expect(cancelled.failure()?.errorText).toBe('net::ERR_ABORTED');
+    expect(await cancelled.response()).toBeNull();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(page.locator('.project-title strong')).toHaveText('Audit second');
     const fields = await openAccuracy(page);
@@ -591,17 +624,15 @@ test('a failed recovery check from a previous project cannot surface its error o
     expect(f.contextWrites).toEqual([]);
     expect(secondContextWrites).toEqual([]);
 
-    const staleResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/landscape') && response.request().method() === 'GET');
     gate.resolve();
-    const response = await staleResponse;
-    expect(response.status()).toBe(503);
-    await response.finished();
+    await staleHandlerDrained.promise;
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 
     await expect(page.getByRole('alert').filter({ hasText: 'Could not check the saved project.' })).toHaveCount(0);
     await expect(page.locator('.project-title strong')).toHaveText('Audit second');
     await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
     await expect(caption).toHaveValue(secondText);
+    await expect(caption).toBeFocused();
     await expect(fields.description).toHaveValue(secondDescription);
     await expect(fields.vocabulary).toHaveValue(secondVocabulary);
     await expect(page.locator('.save-action')).toBeEnabled();
@@ -628,5 +659,5 @@ test('a failed recovery check from a previous project cannot surface its error o
     expect(f.contextWrites).toEqual([]);
     expect(await hasUnloadGuard(page)).toBe(true);
     noLearningOrGeneration(f.state);
-  } finally { gate.resolve(); }
+  } finally { gate.resolve(); if (staleRequest) await staleHandlerDrained.promise; }
 });

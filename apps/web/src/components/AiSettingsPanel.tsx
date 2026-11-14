@@ -135,6 +135,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     const owner = lifetime.current;
     const accepted = await confirm({ title: 'Forget saved key?', message: 'Remove the API key saved by Studio on this computer. Your Google AI Studio key itself will not be deleted, and any typed replacement stays in this form.', confirmLabel: 'Forget saved key', tone: 'warning' });
     if (!accepted || lifetime.current !== owner) { pending.current = false; return; }
+    keyInput.current?.focus({ preventScroll: true });
+    keyInput.current?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
     resetFeedback();
     setWorking('forget');
     try {

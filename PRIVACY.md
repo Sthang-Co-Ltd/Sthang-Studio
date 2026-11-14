@@ -76,12 +76,24 @@ from Git by `.gitignore`.
 ### Unfinished edits in browser storage (source-only)
 
 Current development source keeps a recovery copy of unfinished caption wording,
-caption edges and locks, and raw Accuracy description/vocabulary in this browser
+caption edges and locks, raw Accuracy description/vocabulary, and caption Appearance in this browser
 profile's local storage. Each copy includes project/media identity, a capture time,
-and saved-caption/context comparison evidence, which can contain saved text and
-word-timing metadata. It contains no source audio/video or API key. Recovery does
+and comparison evidence for the fields it restores. Caption/Accuracy copies can
+contain saved text and word-timing metadata. Field-specific version 3 records and
+their compact version 4 fallback include only
+the comparison for each included field: Accuracy-only copies omit caption text
+and timing evidence, and caption-only copies omit Accuracy text. Mixed copies
+include the comparisons needed for every included field. Existing version 1/2
+copies remain readable with their original conservative checks. An appearance-only
+copy contains its normalized style settings and saved-look comparison, with no caption/Accuracy
+payload or text comparison evidence. It contains no source audio/video or API key. Recovery does
 not add a hosted service or upload; guarded recovery saves do not create correction
 memory, Contributor candidates, or approval-analytics events.
+
+The compact format retains the same exact comparison and editable values, using
+tuples and references to unchanged rows to fit more large drafts within the same
+storage budget. It remains unencrypted local JSON and adds no data category or
+transfer. Large text or word-timing payloads can still exceed the byte limits.
 
 Copies belong to the Studio browser origin (scheme, host and port), so another
 browser/profile/address may not see them. Storage is not encrypted by Studio.
@@ -91,16 +103,51 @@ aggregate admission limits. Valid copies expire after seven days and are removed
 when recovery is next inspected or written. A successful save clears that page's
 acknowledged copy; explicit discard removes the selected copy. Newer copies from
 other tabs are retained. Invalid or unsupported records are ignored, not imported.
+When several copies exist, the Recovery draft selector previews them without
+discarding another copy. Only the selected exact copy is restored, downloaded or
+discarded. Returning to earlier caption wording while a save is pending, or after
+a submitted save's response is unconfirmed, can still require a comparison copy:
+the earlier text alone is not proof that it remains saved.
 
 Browser storage restrictions, quota, private browsing, eviction or clearing site
 data can prevent or remove recovery. Studio keeps the active editor usable and
-warns when it cannot keep a copy. Clear Studio's site data to remove all browser
+warns when it cannot keep a copy, with **Download edits** available before a save
+has failed. Clear Studio's site data to remove all browser
 copies, including drafts for projects no longer available. **Download draft** or
 **Download edits** explicitly creates a local JSON file containing private caption
-and context text for manual comparison; normal browser download retention applies.
+and context text and any included appearance settings for manual comparison; normal browser download retention applies.
 These files are not automatically shared or imported as trusted caption data.
+Recovery is offered after reopening the project; it is not automatically applied.
+Explicit Restore of compatible Appearance uses its normal guarded local save.
+An already saved appearance is identified without another write, and a different
+saved look requires manual comparison. The same retention and storage limits apply.
 See [recovery behavior and limits](docs/UNFINISHED-EDIT-RECOVERY.md). This describes
 development source, not verified availability in a released package.
+
+### Local upload recovery (source-only)
+
+Current development source identifies each Home upload attempt with an opaque
+local project ID. The saved project also retains the selected file's name, size,
+media type and modification time to reject mismatched retries. Before submitting,
+Studio also keeps a browser-origin reminder containing that opaque ID, the file
+details and a capture time. File names may reveal private information. Reminders
+contain no media bytes, custom project title, captions, Accuracy context or API key,
+and are not added to cloud requests. They are not encrypted by Studio.
+
+The reminder budget is five entries, 4 KiB per entry and 20 KiB in total, counting
+UTF-16 key/value bytes. Valid entries expire after seven days and are removed when
+next inspected. Concurrent tabs can briefly race aggregate admission limits. Opening
+the confirmed result or explicitly forgetting its reminder removes only the exact
+stored entry; forgetting does not delete the server's saved project or media.
+
+After reopening the same browser profile/address, Check and Open are deliberate.
+Studio never automatically reuploads. The File itself exists only in page memory;
+if the saved result cannot be confirmed, retry requires choosing the original file
+with matching details and explicitly submitting the same attempt. Storage denial,
+quota, private browsing, eviction or cleared site data can prevent recovery. Studio
+warns when a reminder cannot be kept and retains the live File while the page stays
+open. Clear Studio's site data to remove all reminders. These are development-source
+behaviors, not additional verified public-release claims.
 
 ### Local media-replacement recovery (source-only)
 
@@ -174,6 +221,29 @@ These records contain encoding choices, not footage, captions or cloud credentia
 They are included when the creator deliberately exports a profile and can be
 restored through profile import. Saving or applying them does not send new data
 to Gemini, Contributor, analytics or another external service.
+
+### Per-project Export choices in browser storage (source-only)
+
+Development source optionally remembers one current Export session per project,
+bound to its source filename and size, in this browser origin's local storage.
+The record contains the project ID, source filename/size, capture time, output
+type, normalized video settings, preset identifiers, handoff destination/format
+and disclosure state. A source filename can reveal private information. It
+contains no caption or Accuracy text, media bytes, appearance, preview images or
+credentials, and is not sent to a provider or analytics service.
+
+The budget is 20 valid records, at most 4 KiB of serialized UTF-8 value per record,
+with seven-day expiry from the last write. Valid expired records are removed on
+read or a later write; a successful write may remove the oldest valid records to
+stay within that metadata budget. Invalid records are ignored. Concurrent tabs
+can race this limit. Studio adds no encryption. Clearing its browser site data
+removes these choices; the installation-local profile presets and Last used are
+separate. Storage denial, eviction or cleared data can prevent recall, while the
+active page retains its current choices.
+
+Recalling this metadata does not start a render, download, import or cloud request.
+Matching media and current capabilities are still checked, and output operations
+remain deliberate. These source changes do not establish release availability.
 
 ## Editable caption handoff
 
@@ -544,6 +614,8 @@ Use **Privacy → Request deletion** for contributor-wide remote corpus deletion
 
 For security reporting, see `SECURITY.md`.
 
+## Local export receipts (source-only)
+
 Source development also keeps bounded local export receipts: one SHA-256 content
 fingerprint, format, schema version and preparation timestamp per output format,
 under that project's existing local history directory. Receipts contain no copy
@@ -553,3 +625,20 @@ deletion removes its receipt file through the existing history cleanup. These
 records are not sent to a provider or analytics service. They compare project
 content; they cannot verify where a browser saved a download or identify edits
 made to an exported file outside Studio.
+
+Separately, before publishing a verified captioned MP4, development source stores
+a publication receipt in that job's existing local history. It includes the job
+and project IDs, source filename/size, exact output filename/local download URL,
+output dimensions/codecs/duration/size and creation time, a SHA-256 of the output
+bytes and the rendered-content fingerprint. Unlike the per-format comparison
+receipt above, it includes file identity. The receipt itself contains no caption
+or Accuracy text, source-media bytes, video bytes or credentials. Job metadata
+already holds the render snapshot while work is resumable; completion removes its
+caption snapshot under the existing job lifecycle.
+
+After a restart, Studio streams only that exact locally stored output to verify
+size and SHA-256 in the background. This adds no scan for guessed filenames, new
+render or external transfer. Matching bytes can recover the same completed job;
+a missing file offers explicit Resume, while unreadable or changed output remains
+uncertain and requires checking the export folder. These records remain local
+within the bounded job history and do not establish availability in a new release.

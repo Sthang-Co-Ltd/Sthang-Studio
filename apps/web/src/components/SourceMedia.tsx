@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent, type RefObject } from 'react';
 import { needsCompatiblePlayback, requestMediaPreview, type MediaPreviewStatus } from '../media-preview-client';
 import { playbackFailureMessage, recoveryPosition, restoredPosition, type PlaybackSettings } from '../media-playback-recovery';
+import { createMediaClockBinding } from '../media-clock';
 import './source-media.css';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   video: boolean;
   playbackRate: number;
   media: RefObject<HTMLMediaElement | null>;
+  recoveryFocusTarget: RefObject<HTMLElement | null>;
   onElementChange: (element: HTMLMediaElement | null) => void;
   onLoadedMetadata: (element: HTMLMediaElement) => void;
   onTimeUpdate: (element: HTMLMediaElement) => void;
@@ -17,7 +19,7 @@ interface Props {
 }
 
 /** Mount with a project/media key. Recovery never changes the source project. */
-export function SourceMedia({ src, projectId, source, video, playbackRate, media, onElementChange, onLoadedMetadata, onTimeUpdate, onRetry }: Props) {
+export function SourceMedia({ src, projectId, source, video, playbackRate, media, recoveryFocusTarget, onElementChange, onLoadedMetadata, onTimeUpdate, onRetry }: Props) {
   const [playbackSrc, setPlaybackSrc] = useState(src);
   const [failed, setFailed] = useState(false);
   const [failureCode, setFailureCode] = useState<number>();
@@ -37,6 +39,14 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   // Set before any metadata/status reply; later speed controls write to the
   // current element directly and must not change this stable ref callback.
   const initialPlaybackRate = useRef(playbackRate);
+  const [bindClock] = useState(() => createMediaClockBinding());
+  const handoffRecoveryFocus = (trigger?: HTMLButtonElement) => {
+    if (!trigger || document.activeElement !== trigger || document.querySelector('[aria-modal="true"]')) return;
+    const target = recoveryFocusTarget.current;
+    if (!target?.isConnected || !target.getClientRects().length || target.closest('[inert], [aria-hidden="true"]')) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+  };
   const attach = useCallback((element: HTMLMediaElement | null) => {
     media.current = element;
     if (element) {
@@ -45,7 +55,8 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       Object.assign(element, { defaultPlaybackRate: rate, playbackRate: rate, ...settings });
     }
     onElementChange(element);
-  }, [media, onElementChange]);
+    bindClock(element);
+  }, [media, onElementChange, bindClock]);
   const preservePosition = () => {
     const element = media.current;
     // Repeated Retry clicks before metadata must not replace the saved position with zero.
@@ -75,8 +86,9 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       replacePlayer();
     }
   };
-  const prepare = async () => {
+  const prepare = async (trigger?: HTMLButtonElement) => {
     if (inFlight.current || preview?.state === 'processing' || (playbackSrc !== src && !failed)) return;
+    handoffRecoveryFocus(trigger);
     attempted.current = true;
     inFlight.current = true;
     const request = ++sequence.current;
@@ -130,7 +142,8 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     return () => { clearTimeout(timer); controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview?.state, projectId, source, pollGeneration]);
-  const cancel = async () => {
+  const cancel = async (trigger?: HTMLButtonElement) => {
+    handoffRecoveryFocus(trigger);
     const request = ++sequence.current;
     setPollGeneration((generation) => generation + 1);
     setRequesting(true);
@@ -141,8 +154,9 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       if (alive.current && sequence.current === request) setPreviewError('Could not cancel preparation. Try again.');
     } finally { if (alive.current && sequence.current === request) setRequesting(false); }
   };
-  const retry = () => {
+  const retry = (trigger: HTMLButtonElement) => {
     if (!media.current) return;
+    handoffRecoveryFocus(trigger);
     preservePosition();
     setPreviewError('');
     setPreview((value) => value && value.state !== 'ready' ? { ...value, state: 'original', message: undefined } : value);
@@ -190,10 +204,10 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     {video ? <video key={playerGeneration} ref={attach} {...props}/> : <audio key={playerGeneration} ref={attach} {...props}/>}
     {message && <div className="source-media-status" role="status">
       <span>{message}</span>
-      {preview?.state === 'processing' ? <button type="button" disabled={requesting} onClick={() => void cancel()}>Cancel preparation</button>
+      {preview?.state === 'processing' ? <button type="button" disabled={requesting} onClick={(event) => void cancel(event.currentTarget)}>Cancel preparation</button>
         : <>
-          {(failed || recovering) && <button type="button" onClick={retry}>{recovering ? 'Retry again' : 'Retry playback'}</button>}
-          {offerCopy && <button type="button" disabled={processing} onClick={() => void prepare()}>Prepare playback</button>}
+          {(failed || recovering) && <button type="button" onClick={(event) => retry(event.currentTarget)}>{recovering ? 'Retry again' : 'Retry playback'}</button>}
+          {offerCopy && <button type="button" disabled={processing} onClick={(event) => void prepare(event.currentTarget)}>Prepare playback</button>}
         </>}
     </div>}
   </>;

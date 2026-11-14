@@ -168,6 +168,11 @@ test('global timing shortcuts use bounded movement and the timing undo history',
   await openTiming(page);
   await page.locator('video').focus();
   await page.keyboard.press('Alt+ArrowRight');
+  // Native media controls own their keys. The editor shortcut applies after
+  // focus returns to the surrounding editing workspace.
+  await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
+  await page.locator('video').evaluate((video: HTMLVideoElement) => video.blur());
+  await page.keyboard.press('Alt+ArrowRight');
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.250');
   await page.keyboard.press('Control+z');
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');

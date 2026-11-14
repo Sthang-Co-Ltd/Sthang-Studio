@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
-import { ArrowUpRight, ChevronLeft, ChevronRight, FolderOpen, LoaderCircle, Search } from 'lucide-react';
+import { ArrowUpRight, ChevronLeft, ChevronRight, FolderOpen, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import type { CaptionProjectSummary } from '@kcs/shared';
 import { selectProjectLibrary, type ProjectLibrarySort, type ProjectLibraryView } from '../project-library';
 import '../project-library.css';
@@ -10,6 +10,9 @@ interface ProjectLibraryProps {
   onViewChange: (value: ProjectLibraryView) => void;
   loading: boolean;
   loadFailed: boolean;
+  refreshing: boolean;
+  refreshError: string;
+  refresh(): void;
   disabled: boolean;
   openingProjectId: string | null;
   onOpen: (id: string) => void;
@@ -26,7 +29,7 @@ function ProjectDate({ label, value }: { label: string; value: string }) {
   return <span>{label} <time dateTime={date.toISOString()} title={date.toLocaleString()}>{dateFormatter.format(date)}</time></span>;
 }
 
-export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, disabled, openingProjectId, onOpen, onBack, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
+export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
   const ids = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
@@ -47,6 +50,9 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
   useEffect(() => {
     if (retryFocusPending.current && !loading) {
       retryFocusPending.current = false;
+      // A later search, sort or Settings interaction owns its focus. Return only
+      // while the persistent opening handoff is still the user's current target.
+      if (document.activeElement !== heading.current) return;
       if (loadFailed) retry.current?.focus();
       else resultHeading.current?.focus();
     }
@@ -89,10 +95,23 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
 
     {loading && <div className="project-library-empty" role="status"><LoaderCircle className="spin" size={22} aria-hidden="true"/><h2>Loading projects…</h2><p>Your saved projects will appear here.</p></div>}
     {!loading && loadFailed && <div className="project-library-empty" role="alert"><FolderOpen size={25} aria-hidden="true"/><h2>Could not load projects</h2><p>Your saved projects have not been changed. Try loading the list again.</p>
-      <button ref={retry} type="button" onClick={() => { retryFocusPending.current = true; onRetry(); }}>Retry projects</button>
+      <button ref={retry} type="button" onClick={() => {
+        if (retryFocusPending.current) return;
+        retryFocusPending.current = true;
+        heading.current?.focus({ preventScroll: true });
+        onRetry();
+      }}>Retry projects</button>
     </div>}
 
     {ready && <>
+      <div className="project-library-refresh">
+        <span role="status" aria-live="polite" aria-atomic="true">{refreshing ? 'Refreshing projects…' : refreshError
+          ? `${refreshError} Last loaded projects are shown; this list may be out of date.` : 'Project list loaded.'}</span>
+        <button type="button" aria-disabled={refreshing || undefined} aria-busy={refreshing || undefined}
+          onClick={() => { if (!refreshing) refresh(); }}>
+          {refreshing ? <LoaderCircle size={16} className="spin" aria-hidden="true"/> : <RefreshCw size={16} aria-hidden="true"/>}Refresh projects
+        </button>
+      </div>
       <div className="project-library-summary">
         <h2 ref={resultHeading} tabIndex={-1} aria-live="polite" aria-atomic="true">{result.matches === result.total
           ? `${result.total} ${result.total === 1 ? 'project' : 'projects'}`

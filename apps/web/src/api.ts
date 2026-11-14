@@ -8,6 +8,7 @@ import type {
   CaptionFontImportResult,
   CaptionMode,
   CaptionProject,
+  CaptionProjectAppearance,
   CaptionProjectSummary,
   CaptionSegment,
   CaptionWordTiming,
@@ -25,11 +26,20 @@ import type {
   VideoExportFontCapability,
   VideoExportSettings,
 } from '@kcs/shared';
+import type { ProfilePatch } from './profile-state';
 
 export const JOBS_UPDATED_EVENT = 'sthang:jobs-updated';
+export type ProjectCreationResponse = CaptionProject & {
+  creation?: { attemptId: string; reused: boolean; orderSaved: boolean };
+};
 let jobSnapshot: ProcessingJob[] | null = null;
 let jobEventSource: EventSource | null = null;
 let jobStreamOpen = false;
+let jobSnapshotRevision = 0;
+let jobReadSequence = 0;
+let cachedJobRead = 0;
+const pendingJobReads = new Map<string | undefined, { revision: number; promise: Promise<ProcessingJob[]> }>();
+const JOB_READ_TIMEOUT_MS = 15_000;
 
 function ensureJobEventStream() {
   if (typeof window === 'undefined' || typeof EventSource === 'undefined' || jobEventSource) return;
@@ -42,6 +52,7 @@ function ensureJobEventStream() {
       const value = JSON.parse((event as MessageEvent<string>).data) as ProcessingJob[];
       if (!Array.isArray(value)) return;
       jobSnapshot = value;
+      jobSnapshotRevision++;
       jobStreamOpen = true;
       window.dispatchEvent(new Event(JOBS_UPDATED_EVENT));
     } catch {
@@ -163,7 +174,7 @@ export interface CorrectionActionResponse {
 }
 
 export class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) {
+  constructor(message: string, readonly status: number, readonly code?: string, readonly retryable?: boolean) {
     super(message);
     this.name = 'ApiRequestError';
   }
@@ -187,7 +198,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       && typeof confirmation?.expiresAt === 'string' && Number.isFinite(Date.parse(confirmation.expiresAt))) {
       throw new MediaAudioMismatchError(message, { token: confirmation.token, expiresAt: confirmation.expiresAt });
     }
-    throw new ApiRequestError(message, res.status, typeof body?.code === 'string' ? body.code : undefined);
+    throw new ApiRequestError(message, res.status, typeof body?.code === 'string' ? body.code : undefined,
+      typeof body?.retryable === 'boolean' ? body.retryable : undefined);
   }
   return res.status === 204 ? undefined as T : res.json();
 }
@@ -197,20 +209,59 @@ async function jobsRequest(projectId?: string) {
   if (jobStreamOpen && jobSnapshot) {
     return projectId ? jobSnapshot.filter((job) => job.projectId === projectId) : jobSnapshot;
   }
-  const result = await request<ProcessingJob[]>(`/api/jobs${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`);
-  if (!projectId) jobSnapshot = result;
-  return result;
+  const revision = jobSnapshotRevision;
+  const current = pendingJobReads.get(projectId);
+  if (current?.revision === revision) return current.promise;
+  const read = ++jobReadSequence;
+  // Polls, stream reconnects and a manual refresh share one current HTTP read.
+  // A job mutation advances the revision, so its follow-up cannot join a read
+  // that began before that mutation. Retired reads cannot clear the new owner.
+  const controller = new AbortController();
+  // Bound this metadata read, including its response body, rather than keeping
+  // every coalesced caller attached to a stalled transport indefinitely.
+  const timer = setTimeout(() => controller.abort(), JOB_READ_TIMEOUT_MS);
+  const pending: { revision: number; promise: Promise<ProcessingJob[]> } = {
+    revision,
+    promise: request<ProcessingJob[]>(`/api/jobs${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`, { signal: controller.signal }).then((result) => {
+      if (revision !== jobSnapshotRevision && jobStreamOpen && jobSnapshot) {
+        return projectId ? jobSnapshot.filter((job) => job.projectId === projectId) : jobSnapshot;
+      }
+      if (!projectId && revision === jobSnapshotRevision && read > cachedJobRead) {
+        cachedJobRead = read;
+        jobSnapshot = result;
+      }
+      return result;
+    }).catch((error: unknown) => {
+      if (revision !== jobSnapshotRevision && jobStreamOpen && jobSnapshot) {
+        return projectId ? jobSnapshot.filter((job) => job.projectId === projectId) : jobSnapshot;
+      }
+      throw error;
+    }).finally(() => {
+      clearTimeout(timer);
+      if (pendingJobReads.get(projectId) === pending) pendingJobReads.delete(projectId);
+    }),
+  };
+  pendingJobReads.set(projectId, pending);
+  return pending.promise;
 }
 
 async function jobMutation<T>(operation: () => Promise<T>) {
   // Until the server's SSE mutation arrives, force any fallback refresh to ask the
   // server rather than returning a snapshot from immediately before the mutation.
   jobSnapshot = null;
-  return operation();
+  jobSnapshotRevision++;
+  try {
+    return await operation();
+  } finally {
+    // A request can succeed on the server even when its response is lost.
+    // Re-read after either outcome; an older in-flight GET cannot seed the cache.
+    jobSnapshot = null;
+    jobSnapshotRevision++;
+  }
 }
 
 export const api = {
-  health: () => request<HealthResponse>('/api/health'),
+  health: (signal?: AbortSignal) => request<HealthResponse>('/api/health', { signal }),
   projectStorage: (recheck = false, signal?: AbortSignal) => request<ProjectStorageStatus>(`/api/system/project-storage${recheck ? '?recheck=1' : ''}`, { signal, cache: 'no-store' }),
   updateStatus: () => request<UpdateStatus>('/api/updates'),
   downloadUpdate: (manifestDigest: string, safety: UpdateSafetySnapshot) => request<{ version: string; downloaded: true }>('/api/updates/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manifestDigest, safety }) }),
@@ -225,13 +276,16 @@ export const api = {
   }),
   forgetLlmKey: () => request<LlmSettingsStatus>('/api/system/llm-settings/key', { method: 'DELETE' }),
   list: () => request<CaptionProject[]>('/api/projects'),
-  listSummaries: () => request<CaptionProjectSummary[]>('/api/projects?summary=1'),
+  listSummaries: (signal?: AbortSignal) => request<CaptionProjectSummary[]>('/api/projects?summary=1', { signal }),
   get: (id: string, signal?: AbortSignal) => request<CaptionProject>(`/api/projects/${encodeURIComponent(id)}`, { signal }),
-  create: (file: File, title: string) => {
+  getAppearance: (id: string, signal?: AbortSignal) => request<CaptionProjectAppearance>(`/api/projects/${encodeURIComponent(id)}/appearance`, { signal, cache: 'no-store' }),
+  create: (file: File, title: string, creationAttemptId?: string) => {
     const fd = new FormData();
     fd.append('media', file);
     fd.append('title', title);
-    return request<CaptionProject>('/api/projects', { method: 'POST', body: fd });
+    if (creationAttemptId) fd.append('creationAttemptId', creationAttemptId);
+    fd.append('lastModified', String(file.lastModified));
+    return request<ProjectCreationResponse>('/api/projects', { method: 'POST', body: fd });
   },
   replaceMedia: (id: string, file: File, mode: MediaReplacementMode, basis: MediaReplacementBasis, audioChangeConfirmation?: string) => {
     const fd = new FormData();
@@ -275,13 +329,13 @@ export const api = {
     return request<CaptionFontImportResult>('/api/video-export/fonts', { method: 'POST', body: fd });
   },
   removeCaptionFont: (fontId: string) => request<{ fonts: VideoExportFontCapability[] }>(`/api/video-export/fonts/${encodeURIComponent(fontId)}`, { method: 'DELETE' }),
-  saveCaptionAppearance: (projectId: string, appearance: CaptionAppearance, expectedMedia: MediaReplacementBasis['expectedMedia']) => request<CaptionProject>(`/api/video-export/${projectId}/appearance`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appearance, expectedMedia }),
+  saveCaptionAppearance: (projectId: string, appearance: CaptionAppearance, expectedMedia: MediaReplacementBasis['expectedMedia'], expectedAppearance: CaptionAppearance) => request<CaptionProject>(`/api/video-export/${projectId}/appearance`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appearance, expectedMedia, expectedAppearance }),
   }),
-  startVideoExportJob: (projectId: string, settings: VideoExportSettings, appearance: CaptionAppearance, expectedMedia: MediaReplacementBasis['expectedMedia']) => jobMutation(() => request<ProcessingJob>(`/api/video-export/${projectId}/jobs`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, appearance, expectedMedia }),
+  startVideoExportJob: (projectId: string, settings: VideoExportSettings, appearance: CaptionAppearance, expectedMedia: MediaReplacementBasis['expectedMedia'], expectedContentFingerprint: string) => jobMutation(() => request<ProcessingJob>(`/api/video-export/${projectId}/jobs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings, appearance, expectedMedia, expectedContentFingerprint }),
   })),
-  regenerationProposal: (projectId: string, proposalId: string) => request<RegenerationProposal>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}`),
+  regenerationProposal: (projectId: string, proposalId: string, signal?: AbortSignal) => request<RegenerationProposal>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}`, { signal }),
   applyRegenerationProposal: (projectId: string, proposalId: string, mode: RegenerationApplyMode, editedText?: string) => request<CaptionProject>(`/api/projects/${projectId}/regeneration-proposals/${proposalId}/apply`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, editedText }),
   }),
@@ -338,7 +392,7 @@ export const api = {
   }),
 
   profile: () => request<AppProfile>('/api/profile'),
-  patchProfile: (patch: Partial<AppProfile>) => request<AppProfile>('/api/profile', {
+  patchProfile: (patch: ProfilePatch) => request<AppProfile>('/api/profile', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
   }),
   saveVideoExportPreset: (name: string, settings: VideoExportSettings) => request<AppProfile>('/api/profile/video-export-presets', {

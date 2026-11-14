@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
     if (route.request().method() !== 'POST') return route.fallback();
     uploads++;
     await hold;
-    await route.fulfill({ status: 503, json: { error: 'Synthetic upload failed. Choose the file again.' } });
+    await route.fulfill({ status: 503, json: { error: 'Synthetic upload failed. Choose the file again.', code: 'PROJECT_CREATE_NOT_APPLIED' } });
   });
   await page.goto('/');
   await expect(dropzone(page)).toBeEnabled();

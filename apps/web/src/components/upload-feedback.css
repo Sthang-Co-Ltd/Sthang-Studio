@@ -1,7 +1,27 @@
 .empty-stage .dropzone{transition:background-color 140ms ease,border-color 140ms ease,box-shadow 140ms ease}
 .empty-stage .dropzone.drag{border-color:#bad94c;background:#12180e}
-.empty-stage .dropzone:disabled{cursor:wait}
+.empty-stage .dropzone:disabled,.empty-stage .dropzone[aria-disabled=true]{cursor:default;border-color:#3a404b;background:#0e1014;box-shadow:0 24px 90px #0008}
+.empty-stage .dropzone[aria-busy=true]{cursor:wait}
 .upload-validation{width:min(620px,90vw);margin:10px 0 0;color:#e6b6a5;font-size:12px;line-height:1.5;text-align:center;overflow-wrap:anywhere}
 .upload-validation:empty{display:none}
+.upload-availability{color:var(--muted)}
+.upload-recovery{width:min(620px,90vw);margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.upload-recovery strong{font-size:14px}
+.upload-recovery p{margin:8px 0 0;color:var(--muted)}
+.upload-recovery .upload-recovery-filename{color:inherit}
+.upload-recovery-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.upload-recovery-actions button{min-height:44px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:#171a20;text-align:left;cursor:pointer}
+.upload-recovery-actions button:disabled,.upload-recovery-actions button[aria-disabled=true]{cursor:default;opacity:.55}
+.upload-recovery-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.upload-storage-feedback,.upload-earlier-recoveries{width:min(620px,90vw);font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.upload-storage-feedback{margin:12px 0 0;color:#e6b6a5;text-align:center}
+.upload-earlier-recoveries{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--panel)}
+.upload-earlier-recoveries>summary{cursor:pointer;min-height:36px;display:list-item;align-content:center;color:var(--text)}
+.upload-earlier-recoveries>p{margin:8px 0;color:var(--muted)}
+.upload-earlier-recoveries label{display:grid;gap:6px;min-width:0}
+.upload-earlier-recoveries select{width:100%;min-width:0;min-height:44px;padding:8px;background:#171a20;color:inherit;border:1px solid var(--line);border-radius:8px;font:inherit}
+.upload-earlier-recoveries :is(summary,select):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.upload-recovery .upload-reselection-feedback{color:var(--text)}
 @media(max-width:620px){.upload-validation{font-size:13px}}
+@media(max-width:900px){.upload-earlier-recoveries>summary{min-height:44px}}
 @media(prefers-reduced-motion:reduce){.empty-stage .dropzone{transition:none!important}}

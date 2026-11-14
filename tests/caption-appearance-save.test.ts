@@ -3,12 +3,20 @@ import assert from 'node:assert/strict';
 import { DEFAULT_CAPTION_APPEARANCE } from '@kcs/shared';
 import {
   queueCaptionAppearanceSave,
+  flushCaptionAppearanceSaves,
+  getCaptionAppearanceSaveState,
+  markCaptionAppearanceDraft,
+  observeSavedCaptionAppearance,
   recoverUnsavedCaptionAppearance,
+  subscribeCaptionAppearanceSaves,
   waitForCaptionAppearanceSaves,
   withCaptionAppearanceBarrier,
 } from '../apps/web/src/caption-appearance-save.js';
 
 const sourceMedia = { filename: 'synthetic-source.mp4', size: 100 };
+
+// Each editor starts from an adopted saved look. The queue never invents one.
+test.beforeEach((t) => observeSavedCaptionAppearance(t.name, DEFAULT_CAPTION_APPEARANCE, sourceMedia));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -109,6 +117,7 @@ test('a stalled project does not block appearance saves for another project', as
   const response = deferred<Response>();
   const started = deferred<void>();
   const stalledId = `${t.name}-stalled`;
+  observeSavedCaptionAppearance(stalledId, DEFAULT_CAPTION_APPEARANCE, sourceMedia);
   t.mock.method(globalThis, 'fetch', (url: unknown) => {
     if (url === `/api/video-export/${stalledId}/appearance`) {
       started.resolve();
@@ -173,6 +182,7 @@ test('a failed write does not poison the next already-queued save', async (t) =>
 test('queued appearance captures media identity and recovery cannot leak across replacement', async (t) => {
   const source = { filename: 'retired.mp4', size: 42 };
   const next = { filename: 'replacement.mp4', size: 84 };
+  observeSavedCaptionAppearance(t.name, DEFAULT_CAPTION_APPEARANCE, source);
   const pending = deferred<Response>();
   const started = deferred<void>();
   const bodies: Array<Record<string, unknown>> = [];
@@ -191,4 +201,141 @@ test('queued appearance captures media identity and recovery cannot leak across 
   assert.ok(recoverUnsavedCaptionAppearance(t.name, { filename: 'retired.mp4', size: 42 }));
   assert.equal(recoverUnsavedCaptionAppearance(t.name, next), null);
   assert.equal(await waitForCaptionAppearanceSaves(t.name, next), true);
+});
+
+test('an appearance edit is protected during debounce and an older success cannot mark its newer draft saved', async (t) => {
+  const firstResponse = deferred<Response>();
+  const started = deferred<void>();
+  const sent: number[] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, options?: RequestInit) => {
+    sent.push(JSON.parse(String(options?.body)).appearance.fontSize1080);
+    if (sent.length === 1) { started.resolve(); return firstResponse.promise; }
+    return new Response(null, { status: 204 });
+  });
+  const seen: string[] = [];
+  const unsubscribe = subscribeCaptionAppearanceSaves(() => seen.push(getCaptionAppearanceSaveState(t.name, sourceMedia).status));
+  try {
+    const first = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 70 }, sourceMedia);
+    await started.promise;
+    const newer = markCaptionAppearanceDraft(t.name, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 91 }, sourceMedia);
+    assert.equal(newer.status, 'pending');
+    firstResponse.resolve(new Response(null, { status: 204 }));
+    assert.equal(await first, true);
+    assert.equal(await waitForCaptionAppearanceSaves(t.name, sourceMedia), false);
+    assert.deepEqual(getCaptionAppearanceSaveState(t.name, sourceMedia), {
+      ...newer, basis: { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 70 },
+    }, 'only the saved basis advances; the newer revision, value and pending state remain');
+    assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia)?.fontSize1080, 91);
+    assert.equal(await flushCaptionAppearanceSaves(t.name, sourceMedia), true);
+    assert.deepEqual(sent, [70, 91]);
+    assert.equal(getCaptionAppearanceSaveState(t.name, sourceMedia).status, 'saved');
+    assert.equal(getCaptionAppearanceSaveState(t.name, sourceMedia).revision, newer.revision);
+    assert.ok(seen.includes('pending') && seen.includes('saving') && seen.at(-1) === 'saved');
+  } finally { unsubscribe(); firstResponse.resolve(new Response(null, { status: 204 })); }
+});
+
+test('a failed older write preserves the newer debounce draft and one explicit retry saves that latest look', async (t) => {
+  const firstResponse = deferred<Response>();
+  const started = deferred<void>();
+  const sent: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, options?: RequestInit) => {
+    sent.push(JSON.parse(String(options?.body)).appearance.textColor);
+    if (sent.length === 1) { started.resolve(); return firstResponse.promise; }
+    return new Response(null, { status: 204 });
+  });
+  const first = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, textColor: '#111111' }, sourceMedia);
+  await started.promise;
+  markCaptionAppearanceDraft(t.name, { ...DEFAULT_CAPTION_APPEARANCE, textColor: '#222222' }, sourceMedia);
+  firstResponse.reject(new Error('Synthetic interrupted save'));
+  assert.equal(await first, false);
+  assert.equal(getCaptionAppearanceSaveState(t.name, sourceMedia).status, 'pending');
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia)?.textColor, '#222222');
+  assert.equal(await flushCaptionAppearanceSaves(t.name, sourceMedia), true);
+  assert.deepEqual(sent, ['#111111', '#222222']);
+});
+
+test('a tool flush, navigation and header Save share one pending write and can retry its failure after the tool closes', async (t) => {
+  const response = deferred<Response>();
+  const started = deferred<void>();
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => { started.resolve(); return response.promise; });
+  const look = { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 84 };
+  markCaptionAppearanceDraft(t.name, look, sourceMedia);
+  const write = queueCaptionAppearanceSave(t.name, look, sourceMedia);
+  await started.promise;
+  const repeated = queueCaptionAppearanceSave(t.name, look, sourceMedia);
+  const header = flushCaptionAppearanceSaves(t.name, sourceMedia);
+  assert.equal(repeated, write);
+  assert.equal(fetchMock.mock.callCount(), 1);
+  response.reject(new Error('Synthetic offline response'));
+  assert.deepEqual(await Promise.all([write, repeated, header]), [false, false, false]);
+  assert.equal(getCaptionAppearanceSaveState(t.name, sourceMedia).status, 'error');
+  fetchMock.mock.mockImplementation(async () => new Response(null, { status: 204 }));
+  assert.equal(await flushCaptionAppearanceSaves(t.name, sourceMedia), true);
+  assert.equal(fetchMock.mock.callCount(), 2);
+  assert.equal(recoverUnsavedCaptionAppearance(t.name, sourceMedia), null);
+});
+
+test('editing back to a previously saved value is a new draft after a different saved look was loaded', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+  const original = { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 72 };
+  await queueCaptionAppearanceSave(t.name, original, sourceMedia);
+  const saved = getCaptionAppearanceSaveState(t.name, sourceMedia);
+  // Another tab can save a different look which the workspace loads directly.
+  // A deliberate edit back to72 must still be submitted, even though this lane
+  // last acknowledged72 before that external save.
+  observeSavedCaptionAppearance(t.name, { ...original, fontSize1080: 85 }, sourceMedia);
+  const edited = markCaptionAppearanceDraft(t.name, original, sourceMedia);
+  assert.equal(edited.status, 'pending');
+  assert.ok(edited.revision > saved.revision);
+  assert.equal(await waitForCaptionAppearanceSaves(t.name, sourceMedia), false);
+  assert.equal(await flushCaptionAppearanceSaves(t.name, sourceMedia), true);
+  assert.equal(fetchMock.mock.callCount(), 2);
+});
+
+test('a missing adopted appearance basis fails closed without submitting a write', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+  const id = t.name + '-unopened';
+  assert.equal(await queueCaptionAppearanceSave(id, DEFAULT_CAPTION_APPEARANCE, sourceMedia), false);
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(getCaptionAppearanceSaveState(id, sourceMedia).status, 'error');
+  assert.ok(recoverUnsavedCaptionAppearance(id, sourceMedia));
+});
+
+test('queued changes use only their own preceding acknowledged appearance as the next basis', async (t) => {
+  const response = deferred<Response>(); const started = deferred<void>();
+  const bodies: Array<{ appearance: typeof DEFAULT_CAPTION_APPEARANCE; expectedAppearance: typeof DEFAULT_CAPTION_APPEARANCE }> = [];
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, options?: RequestInit) => {
+    bodies.push(JSON.parse(String(options?.body)));
+    if (bodies.length === 1) { started.resolve(); return response.promise; }
+    return new Response(null, { status: 204 });
+  });
+  const firstLook = { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 76 };
+  const secondLook = { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 91 };
+  const first = queueCaptionAppearanceSave(t.name, firstLook, sourceMedia);
+  await started.promise;
+  const second = queueCaptionAppearanceSave(t.name, secondLook, sourceMedia);
+  observeSavedCaptionAppearance(t.name, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 120 }, sourceMedia);
+  response.resolve(new Response(null, { status: 204 }));
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  assert.deepEqual(bodies.map((body) => body.expectedAppearance.fontSize1080), [DEFAULT_CAPTION_APPEARANCE.fontSize1080, 76]);
+  assert.deepEqual(bodies.map((body) => body.appearance.fontSize1080), [76, 91]);
+  assert.equal(getCaptionAppearanceSaveState(t.name, sourceMedia).basis?.fontSize1080, 91);
+});
+
+test('a foreign appearance conflict retains the newest draft and prevents queued or explicit overwrites', async (t) => {
+  const response = deferred<Response>(); const started = deferred<void>();
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => { started.resolve(); return response.promise; });
+  const first = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 76 }, sourceMedia);
+  await started.promise;
+  const second = queueCaptionAppearanceSave(t.name, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 91 }, sourceMedia);
+  response.resolve(new Response(JSON.stringify({ error: 'Saved appearance changed', code: 'APPEARANCE_REVISION_CHANGED' }), { status: 409 }));
+  assert.deepEqual(await Promise.all([first, second]), [false, false]);
+  assert.equal(await flushCaptionAppearanceSaves(t.name, sourceMedia), false);
+  assert.equal(fetchMock.mock.callCount(), 1);
+  const state = getCaptionAppearanceSaveState(t.name, sourceMedia);
+  assert.equal(state.conflict, true);
+  assert.equal(state.appearance?.fontSize1080, 91);
+  assert.deepEqual(state.basis, DEFAULT_CAPTION_APPEARANCE);
+  observeSavedCaptionAppearance(t.name, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 100 }, sourceMedia);
+  assert.equal(getCaptionAppearanceSaveState(t.name, sourceMedia), state, 'an unrelated read cannot rebase a conflict');
 });

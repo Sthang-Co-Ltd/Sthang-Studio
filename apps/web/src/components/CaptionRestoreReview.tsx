@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { Check, X } from 'lucide-react';
 import type { HandoffRestorePreview } from '../caption-handoff-client';
 import './caption-restore-review.css';
@@ -10,14 +10,17 @@ export interface CaptionRestoreReviewState {
   stale: boolean;
 }
 
-export function CaptionRestoreReview({ review, busy, onApply, onCancel }: {
+export function CaptionRestoreReview({ review, busy, importBlockedReason, onReady, onApply, onCancel }: {
   review: CaptionRestoreReviewState;
   busy: boolean;
+  importBlockedReason: string;
+  onReady(heading: HTMLHeadingElement): void;
   onApply(): void;
   onCancel(): void;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [review.filename]);
+  const blockedReasonId = useId();
+  useEffect(() => { if (heading.current) onReady(heading.current); }, [review.filename, onReady]);
   const captions = review.preview.candidate.captions;
   const stamp = (ms: number) => `${(ms / 1000).toFixed(3)} s`;
   return <section className="caption-restore-review" aria-labelledby="caption-restore-title">
@@ -34,10 +37,11 @@ export function CaptionRestoreReview({ review, busy, onApply, onCancel }: {
     </div>
     {review.preview.warnings?.map((warning, index) => <p key={index} className="caption-restore-warning">{warning}</p>)}
     {review.stale && <p className="caption-restore-warning" role="status">The project changed since this preview. Keep your current captions and reopen the file to review the latest state.</p>}
+    {importBlockedReason && <p id={blockedReasonId} className="caption-restore-warning" role="status">{importBlockedReason}</p>}
     <p>Studio saves a History checkpoint first. Review imported captions afterward. Appearance settings remain in the file for reference; your current style stays unchanged.</p>
     <div className="caption-restore-actions">
       <button type="button" disabled={busy} onClick={onCancel}><X size={15}/>Keep current captions</button>
-      <button type="button" className="primary" disabled={busy || review.stale || !captions.length} onClick={onApply}><Check size={15}/>{busy ? 'Replacing…' : 'Replace captions'}</button>
+      <button type="button" className="primary" disabled={busy || review.stale || !captions.length || Boolean(importBlockedReason)} aria-describedby={importBlockedReason ? blockedReasonId : undefined} onClick={onApply}><Check size={15}/>{busy ? 'Replacing…' : 'Replace captions'}</button>
     </div>
   </section>;
 }

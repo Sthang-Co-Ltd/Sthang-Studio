@@ -223,6 +223,7 @@ test('replace semantics reset installation-specific consent while preserving upg
       privacyUpgradeNoticeVersion: 'foreign-machine-marker',
       reviewPreRollMs: 250,
     },
+    updatedAt: '2026-01-01T00:00:00.000Z',
   };
 
   const result = await profileStore.replace(importedProfile);
@@ -232,6 +233,101 @@ test('replace semantics reset installation-specific consent while preserving upg
   // Local machine upgrade notice version must be preserved, not overwritten
   assert.equal(result.preferences.privacyUpgradeNoticeVersion, 'v0.8.0');
   assert.deepEqual(result.defaultVocabulary, ['Imported Term']);
+});
+
+test('incomplete profile imports preserve saved categories, consent and exact file bytes', async () => {
+  const original = await profileStore.get();
+  try {
+    await profileStore.replace({
+      ...original,
+      defaultVocabulary: ['Keep saved term'],
+      topicPacks: [{ id: 'keep-pack', name: 'Keep topic', description: 'Saved topic', vocabulary: ['Keep entity'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }],
+      correctionRules: [{ id: 'keep-rule', kind: 'protected-term', canonical: 'Keep canonical', aliases: [], createdAt: '2026-01-01' }],
+      correctionEvents: [{ id: 'keep-event', projectId: 'keep-project', projectTitle: 'Synthetic project', captionId: 'keep-caption', startMs: 0, endMs: 1000,
+        originalText: 'Original', correctedText: 'Correction', suggestedVocabularyLine: 'Correction | Original', suggestionKind: 'alias', status: 'pending', createdAt: '2026-01-01' }],
+      videoExportPresets: [{ id: 'keep-output', name: 'Keep output', settings: videoSettings(), createdAt: '2026-01-01', updatedAt: '2026-01-01' }],
+    });
+    const before = await profileStore.patch({ preferences: { analyticsConsent: 'granted', khmerContributionConsent: 'granted', privacyUpgradeNoticeVersion: 'v0.8.0' } });
+    const bytes = await fs.readFile(config.profileFile);
+    const malformed: Array<{ label: string; value: unknown }> = [
+      { label: 'truncated vocabulary-only file', value: { version: 1, defaultVocabulary: ['Replacement'] } },
+      { label: 'unsupported version', value: { ...before, version: 2 } },
+      { label: 'non-string vocabulary', value: { ...before, defaultVocabulary: [42] } },
+      { label: 'array instead of profile', value: [] },
+    ];
+    for (const field of ['styles', 'topicPacks', 'correctionRules', 'correctionEvents'] as const) {
+      const missing = { ...before } as Record<string, unknown>;
+      delete missing[field];
+      malformed.push({ label: `missing ${field}`, value: missing }, { label: `non-array ${field}`, value: { ...before, [field]: {} } });
+    }
+    for (const preferences of [undefined, null, [], 'invalid']) malformed.push({ label: `invalid preferences ${JSON.stringify(preferences)}`, value: { ...before, preferences } });
+    for (const updatedAt of [undefined, '', '  ', 42]) malformed.push({ label: `invalid timestamp ${JSON.stringify(updatedAt)}`, value: { ...before, updatedAt } });
+    for (const candidate of malformed) {
+      await assert.rejects(profileStore.replace(candidate.value), /not a readable Studio profile/, candidate.label);
+      assert.deepEqual(await fs.readFile(config.profileFile), bytes, candidate.label);
+      assert.deepEqual(await profileStore.get(), before, candidate.label);
+    }
+  } finally { await profileStore.replace(original); }
+});
+
+test('complete legacy profile imports keep core data and existing normalization while newer fields remain optional', async () => {
+  const original = await profileStore.get();
+  try {
+    const { captionAppearances: _looks, videoExportPresets: _outputs, lastVideoExportSettings: _last, ...core } = original;
+    const legacy = { ...core,
+      topicPacks: [{ id: 'legacy-pack', name: 'Legacy topic', description: 'Saved topic', vocabulary: ['Legacy entity'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }],
+      correctionRules: [{ id: 'legacy-rule', kind: 'protected-term', canonical: 'Legacy canonical', aliases: [], sourceCorrectionId: undefined, createdAt: '2026-01-01' }],
+      correctionEvents: [{ id: 'legacy-event', projectId: 'legacy-project', projectTitle: 'Synthetic project', captionId: 'legacy-caption', startMs: 0, endMs: 1000,
+        originalText: 'Original', correctedText: 'Correction', suggestedVocabularyLine: 'Correction | Original', suggestionKind: 'alias', status: 'pending', createdAt: '2026-01-01',
+        sourceTimingSource: undefined, sourceTimingQuality: undefined, sourceConfidence: undefined, sourceTextModel: undefined, sourceEngineVersion: undefined }],
+    };
+    const imported = await profileStore.replace({
+      ...legacy,
+      defaultVocabulary: ['  Legacy term  ', 'Legacy term', 'ខ្មែរ'],
+      styles: [{ id: 'legacy-style', name: '  Legacy style  ', mode: 'phrase', maxChars: 999 }],
+      preferences: { reviewPreRollMs: 9999, reviewPostRollMs: -30, autoLoopReview: false, analyticsConsent: 'granted', khmerContributionConsent: 'granted' },
+    });
+    assert.deepEqual(imported.defaultVocabulary, ['Legacy term', 'ខ្មែរ']);
+    assert.deepEqual(imported.styles, [{ id: 'legacy-style', name: 'Legacy style', mode: 'phrase', maxChars: 80 }]);
+    assert.deepEqual(imported.topicPacks, legacy.topicPacks);
+    assert.deepEqual(imported.correctionRules, legacy.correctionRules);
+    assert.deepEqual(imported.correctionEvents, legacy.correctionEvents);
+    assert.deepEqual(imported.captionAppearances, []);
+    assert.deepEqual(imported.videoExportPresets, []);
+    assert.equal(imported.lastVideoExportSettings, undefined);
+    assert.equal(imported.preferences.reviewPreRollMs, 3000);
+    assert.equal(imported.preferences.reviewPostRollMs, 0);
+    assert.equal(imported.preferences.autoLoopReview, false);
+    assert.equal(imported.preferences.analyticsConsent, 'unset');
+    assert.equal(imported.preferences.khmerContributionConsent, 'unset');
+    assert.equal(imported.preferences.privacyUpgradeNoticeVersion, original.preferences.privacyUpgradeNoticeVersion);
+    assert.deepEqual(await profileStore.get(), imported);
+  } finally { await profileStore.replace(original); }
+});
+
+test('profile import HTTP rejects corrupt core structure without replacing the profile or resetting consent', async () => {
+  const original = await profileStore.get();
+  const { default: profileRouter } = await import('../apps/server/src/routes/profile.js');
+  const app = express();
+  app.use(express.json());
+  app.use('/api/profile', profileRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const before = await profileStore.patch({ preferences: { analyticsConsent: 'granted', khmerContributionConsent: 'granted' } });
+    const bytes = await fs.readFile(config.profileFile);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/profile/import`;
+    for (const value of [{ version: 1, defaultVocabulary: ['Incomplete'] }, { ...before, preferences: [] }]) {
+      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) });
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /not a readable Studio profile.*Export profile/);
+      assert.deepEqual(await fs.readFile(config.profileFile), bytes);
+      assert.deepEqual(await profileStore.get(), before);
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await profileStore.replace(original);
+  }
 });
 
 test('privacy consent choices survive concurrent unrelated profile mutations without resetting to unset', async () => {

@@ -508,7 +508,7 @@ export async function syncCaptionWordsLocally(
     };
     const measuredTrack = buildTrack(aligned.tokens);
     if (!measuredTrack) {
-      throw new Error('Local timing could not map the exact caption wording to spoken-word anchors.');
+      throw new CaptionWordTimingInputError('These words could not be matched to this caption’s audio. Check its wording and start/end times, or set word timing manually.');
     }
     let wordTiming = fitTrack(measuredTrack);
     let recoveryEvidence: ShortCueEvidence = { wordTiming: measuredTrack, alignmentText: basis.text };

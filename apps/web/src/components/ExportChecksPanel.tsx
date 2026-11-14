@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, type Ref } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { Check, ChevronLeft, ChevronRight, ListChecks, LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { ExportCheckIssue, ExportRepairTarget } from '../export-checks';
@@ -13,8 +13,9 @@ interface Props {
   onRepair(target: ExportRepairTarget): void;
   unsaved: boolean;
   saveBlocked: boolean;
+  headingRef?: Ref<HTMLHeadingElement>;
   appearancePending?: boolean;
-  appearancePrerequisite?: { message: string; actionLabel: string; onRecover(): void };
+  appearancePrerequisite?: { message: string; actionLabel: string; onRecover(trigger: HTMLButtonElement): void };
   layoutState?: ExportLayoutState;
   layoutMessage?: string;
   layoutDisabled?: boolean;
@@ -26,7 +27,7 @@ interface Props {
 const PAGE_SIZE = 8;
 
 export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlocked,
-  appearancePending, appearancePrerequisite,
+  headingRef, appearancePending, appearancePrerequisite,
   layoutState, layoutMessage, layoutDisabled, onCheckLayout, onCancelLayout, supportAction }: Props) {
   const [page, setPage] = useState(0);
   const [issuesExpanded, setIssuesExpanded] = useState(false);
@@ -47,7 +48,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
 
   return <section className="export-checks" aria-labelledby="export-checks-heading">
     <div className="export-checks-head">
-      <div><h3 id="export-checks-heading" tabIndex={-1}><ListChecks size={17}/>Check before export</h3>
+      <div><h3 id="export-checks-heading" ref={headingRef} tabIndex={-1}><ListChecks size={17}/>Check before export</h3>
         <p>{blockers > 0 ? `${blockers} blocker${blockers === 1 ? '' : 's'}` : 'No caption blockers'}
           {suggestions > 0 ? ` · ${suggestions} review suggestion${suggestions === 1 ? '' : 's'}` : ''} for this output.</p></div>
       {supportAction}
@@ -59,7 +60,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
     {appearancePending && <p className="export-check-save" role="status"><LoaderCircle className="spin" size={16}/>Loading saved caption appearance… Styled export stays blocked until it is verified. Plain SRT does not use appearance.</p>}
     {appearancePrerequisite && <div className="export-layout-check error export-appearance-prerequisite" role="alert">
       <div><strong><TriangleAlert size={16}/>Caption appearance needs attention</strong><span>{appearancePrerequisite.message} Plain SRT does not use appearance.</span></div>
-      <button type="button" onClick={appearancePrerequisite.onRecover}>{appearancePrerequisite.actionLabel}</button>
+      <button type="button" onClick={(event) => appearancePrerequisite.onRecover(event.currentTarget)}>{appearancePrerequisite.actionLabel}</button>
     </div>}
 
     {onCheckLayout && <div className={`export-layout-check ${layoutState || 'unchecked'}`}>

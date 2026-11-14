@@ -73,7 +73,7 @@ export function createCaptionHandoffRouter(service: CaptionHandoffService = crea
     const id = projectId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Project id is required.' });
     try {
-      await service.summary(id);
+      await service.requireProject(id);
       res.json(await readExportEvidence(id));
     } catch {
       res.status(503).json({ error: 'Export history is unavailable. Your exports and project were not changed.' });

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
-import { formatTimestamp, parseTimestamp, validateTimestamp } from '../timestamp';
+import { formatTimestamp, normalizeTimestampInput, parseTimestamp, validateTimestamp } from '../timestamp';
 
 export interface TimestampInputProps {
   valueMs: number;
@@ -61,9 +61,9 @@ export function TimestampInput({
     setError(null);
   }, [valueMs]);
 
-  const validate = (candidate: string) => validateTimestamp(candidate, { minMs, maxMs });
+  const validate = (candidate: string) => validateTimestamp(normalizeTimestampInput(candidate), { minMs, maxMs });
   const commit = (candidate: string) => {
-    const parsed = parseTimestamp(candidate);
+    const parsed = parseTimestamp(normalizeTimestampInput(candidate));
     if (parsed !== null && parsed === currentValue.current) {
       setError(null);
       setText(formatTimestamp(parsed));
@@ -106,6 +106,7 @@ export function TimestampInput({
   };
 
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();

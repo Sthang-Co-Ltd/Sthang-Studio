@@ -18,6 +18,7 @@ interface ReplaceProps {
 export function ReplaceMediaDialog({ filename, captionCount, working, error, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
+  const audioAcceptance = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<MediaReplacementMode>('preserve');
   const [audioChangeAccepted, setAudioChangeAccepted] = useState(false);
   const [confirmationExpired, setConfirmationExpired] = useState(() => Boolean(preserveAudioConfirmation && Date.parse(preserveAudioConfirmation.expiresAt) <= Date.now()));
@@ -26,7 +27,18 @@ export function ReplaceMediaDialog({ filename, captionCount, working, error, pre
     const expiresAt = preserveAudioConfirmation ? Date.parse(preserveAudioConfirmation.expiresAt) : 0;
     setConfirmationExpired(Boolean(preserveAudioConfirmation && expiresAt <= Date.now()));
     if (!preserveAudioConfirmation || expiresAt <= Date.now()) return;
-    const timer = window.setTimeout(() => { setAudioChangeAccepted(false); setConfirmationExpired(true); }, Math.min(expiresAt - Date.now(), 2_147_483_647));
+    const timer = window.setTimeout(() => {
+      const checkbox = audioAcceptance.current;
+      const target = cancel.current;
+      if (checkbox && document.activeElement === checkbox && dialog.current?.isConnected
+        && Array.from(document.querySelectorAll('[aria-modal="true"]')).at(-1) === dialog.current
+        && target && !target.disabled) {
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+      }
+      setAudioChangeAccepted(false);
+      setConfirmationExpired(true);
+    }, Math.min(expiresAt - Date.now(), 2_147_483_647));
     return () => window.clearTimeout(timer);
   }, [preserveAudioConfirmation?.token, preserveAudioConfirmation?.expiresAt]);
   const chooseMode = (next: MediaReplacementMode) => {
@@ -58,7 +70,7 @@ export function ReplaceMediaDialog({ filename, captionCount, working, error, pre
         {preserveAudioConfirmation ? <div className="media-replacement-audio-warning" role="status">
           <h3>Keep old timing with different audio?</h3>
           <p>The new audio differs. Caption and word times will stay unchanged. You must check their alignment against the new audio.</p>
-          {confirmationExpired ? <p>The audio check expired. Check the replacement again before continuing.</p> : <label><input type="checkbox" checked={audioChangeAccepted} disabled={Boolean(working)} onChange={(event) => setAudioChangeAccepted(event.target.checked)}/><span>I accept the existing times and will check their alignment.</span></label>}
+          {confirmationExpired ? <p>The audio check expired. Check the replacement again before continuing.</p> : <label><input ref={audioAcceptance} type="checkbox" checked={audioChangeAccepted} disabled={Boolean(working)} onChange={(event) => setAudioChangeAccepted(event.target.checked)}/><span>I accept the existing times and will check their alignment.</span></label>}
         </div> : <p>Changes in volume, music, or sound effects may need confirmation. The new media must have the same duration.</p>}
       </div>}
       <p className="media-replacement-helper">Studio backs up the previous media and project so you can undo the replacement. No captions are generated automatically.</p>
@@ -90,6 +102,14 @@ export function RestoreMediaDialog({ checkpoints, loading, working, error, onCan
   const selected = checkpoints.find((item) => item.id === chosen) || checkpoints[0];
   const dismiss = () => { if (!working) onCancel(); };
   useModalFocus(true, dialog, dismiss, working ? dialog : cancel);
+  const reload = () => {
+    if (working || loading) return;
+    // Refresh disappears when the previous read error clears. Keep a visible
+    // keyboard target now; a late read must not take focus from newer actions.
+    cancel.current?.focus({ preventScroll: true });
+    cancel.current?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+    onReload();
+  };
 
   return <div className="media-replacement-backdrop" onMouseDown={dismiss}>
     <div ref={dialog} className="media-replacement-dialog" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="restore-media-title" aria-describedby="restore-media-description" aria-busy={Boolean(working || loading)} onMouseDown={(event) => event.stopPropagation()}>
@@ -108,7 +128,7 @@ export function RestoreMediaDialog({ checkpoints, loading, working, error, onCan
       {(working || loading) && <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/><span>{working || 'Loading backups…'}</span></p>}
       <div className="media-replacement-actions media-replacement-backup-actions">
         <button ref={cancel} disabled={Boolean(working)} onClick={dismiss}>Close</button>
-        {error && <button disabled={Boolean(working || loading)} onClick={onReload}>Refresh backups</button>}
+        {error && <button disabled={Boolean(working || loading)} onClick={reload}>Refresh backups</button>}
         {selected && <button className="media-replacement-delete" disabled={Boolean(working || loading)} onClick={() => onDelete(selected)}>Delete backup</button>}
         <button className="primary" disabled={!selected || Boolean(working || loading)} onClick={() => selected && onRestore(selected)}>Restore selected backup</button>
       </div>

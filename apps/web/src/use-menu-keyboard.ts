@@ -27,12 +27,20 @@ export function useMenuKeyboard(openKey: string | null, menu: RefObject<HTMLElem
   return {
     openAt: (edge: 'first' | 'last', key = openKey) => { openingEdge.current = edge; if (openKey && openKey === key) { const enabled = items(); focus(edge === 'last' ? enabled.at(-1) : enabled[0]); } },
     onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-      if (!openKey || event.defaultPrevented || event.nativeEvent.isComposing || document.querySelector('[aria-modal="true"]')) return;
+      if (!openKey || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph') || document.querySelector('[aria-modal="true"]')) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.key === 'Tab') {
         trigger()?.focus({ preventScroll: true }); close();
         return; // Native Tab proceeds to the adjacent page control after dismissal.
       }
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      // Shift still belongs to reverse Tab and uppercase typeahead.
+      if (event.shiftKey && event.key.length !== 1) return;
+      if (event.key === 'Escape') {
+        // Close the owned menu before global Escape can close its workspace.
+        event.preventDefault(); event.stopPropagation();
+        trigger()?.focus({ preventScroll: true }); close();
+        return;
+      }
       const enabled = items();
       const index = enabled.indexOf(document.activeElement as HTMLButtonElement);
       let next: HTMLButtonElement | undefined;

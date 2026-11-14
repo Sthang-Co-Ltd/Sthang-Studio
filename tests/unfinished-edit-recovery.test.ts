@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveCaptionWordTiming, type CaptionProject, type CaptionSegment } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, normalizeCaptionAppearance, resolveCaptionWordTiming, type CaptionAppearance, type CaptionProject, type CaptionSegment } from '@kcs/shared';
 import {
-  assessRecovery, createUnfinishedEditRecoveryStore, restoredCaptions,
+  assessRecovery, createUnfinishedEditRecoveryStore, restoredAppearance, restoredCaptions,
   UNFINISHED_EDIT_RECOVERY_LIMITS as limits,
   type RecoveryEntry,
 } from '../apps/web/src/unfinished-edit-recovery.js';
@@ -308,4 +308,291 @@ test('aggregate byte cap refuses new storage without evicting fresh copies', () 
   assert.equal(store.write({ project: project('overflow'), accuracy: largeAccuracy }).status, 'too-large');
   assert.equal(storage.items.size, entries.length);
   for (const entry of entries) assert.equal(storage.getItem(entry.key), entry.raw);
+});
+
+const look = (change: Partial<CaptionAppearance> = {}) => normalizeCaptionAppearance({ ...DEFAULT_CAPTION_APPEARANCE, ...change });
+
+test('an appearance-only recovery survives a new owner without copying caption or Accuracy text', () => {
+  const { source, storage, store } = setup();
+  const basis = look();
+  const appearance = look({ fontSize1080: 92, textColor: '#123456' });
+  const entry = saved(store.write({ project: source, appearance, appearanceBasis: basis }));
+  assert.equal(entry.draft.version, 2);
+  assert.deepEqual(Object.keys(entry.draft.basis), ['appearance']);
+  assert.equal(entry.draft.captions, undefined);
+  assert.equal(entry.draft.accuracy, undefined);
+  for (const privateText of ['Hello world', 'Saved topic', 'SavedBrand']) assert.equal(entry.raw.includes(privateText), false);
+  const reopened = createUnfinishedEditRecoveryStore(() => storage, 'reopened');
+  assert.deepEqual(reopened.list(source.id), [entry]);
+  const unrelated = { ...source, title: 'New title', updatedAt: '2026-11-01',
+    captions: edited(source, 'New saved captions'), transcriptionContext: { description: 'New context', vocabulary: [] } };
+  assert.equal(assessRecovery(entry, unrelated), 'matching');
+  const recovered = restoredAppearance(entry, unrelated)!;
+  assert.deepEqual(recovered, appearance);
+  recovered.fontSize1080 = 40;
+  assert.equal(restoredAppearance(entry, unrelated)?.fontSize1080, 92, 'restoration returns a detached validated copy');
+  assert.equal(restoredCaptions(entry, unrelated), undefined);
+  assert.equal(reopened.contains(entry), true);
+});
+
+test('a lost appearance acknowledgement is already saved without rewriting or deleting its exact copy', () => {
+  const { source, storage, store } = setup();
+  const appearance = look({ fontSize1080: 87 });
+  const entry = saved(store.write({ project: source, appearance, appearanceBasis: look() }));
+  const canonical = { ...source, captionAppearance: appearance, captions: edited(source), updatedAt: '2026-11-01' };
+  assert.equal(assessRecovery(entry, canonical), 'already-saved');
+  assert.equal(restoredAppearance(entry, canonical), undefined);
+  assert.equal(store.contains(entry), true);
+  assert.equal(storage.getItem(entry.key), entry.raw, 'a read cannot prove an older pending write drained');
+  assert.deepEqual(store.list(source.id), [entry]);
+});
+
+test('mixed recovery skips an already saved appearance and preserves existing caption and context guards', () => {
+  const { source, store } = setup();
+  const appearance = look({ fontSize1080: 95 });
+  const entry = saved(store.write({ project: source, captions: edited(source), accuracy, appearance, appearanceBasis: look() }));
+  assert.equal(entry.draft.version, 3);
+  assert.deepEqual(Object.keys(entry.draft.basis).sort(), ['appearance', 'captions', 'context']);
+  assert.equal(assessRecovery(entry, source), 'matching');
+  assert.deepEqual(restoredAppearance(entry, source), appearance);
+  const canonical = { ...source, captionAppearance: appearance };
+  assert.equal(assessRecovery(entry, canonical), 'matching');
+  assert.equal(restoredAppearance(entry, canonical), undefined);
+  assert.equal(restoredCaptions(entry, canonical)?.[0].text, 'Hello moon');
+  for (const changed of [
+    { ...canonical, captions: edited(source, 'Other saved wording') },
+    { ...canonical, transcriptionContext: { description: 'Other saved context', vocabulary: [] } },
+    { ...canonical, captionAppearance: look({ textColor: '#FEDCBA' }) },
+  ]) {
+    assert.equal(assessRecovery(entry, changed), 'changed');
+    assert.equal(restoredAppearance(entry, changed), undefined);
+    assert.equal(restoredCaptions(entry, changed), undefined);
+  }
+});
+
+test('a foreign saved look or changed media cannot authorize appearance restoration', () => {
+  const { source, store } = setup();
+  const entry = saved(store.write({ project: source, appearance: look({ fontSize1080: 90 }), appearanceBasis: look() }));
+  const changedLook = { ...source, captionAppearance: look({ fontSize1080: 81 }) };
+  assert.equal(assessRecovery(entry, changedLook), 'changed');
+  assert.equal(restoredAppearance(entry, changedLook), undefined);
+  for (const changed of [
+    { ...source, id: 'other' },
+    { ...source, media: { ...source.media, filename: 'replacement.mp4' } },
+    { ...source, media: { ...source.media, size: 201 } },
+    { ...source, media: { ...source.media, url: '/media/replacement.mp4' } },
+    { ...source, media: { ...source.media, mimeType: 'audio/wav' } },
+  ]) {
+    assert.equal(assessRecovery(entry, changed), 'media-changed');
+    assert.equal(restoredAppearance(entry, changed), undefined);
+  }
+  entry.draft.appearance!.fontSize1080 = 22;
+  entry.draft.basis.appearance = JSON.stringify(look({ fontSize1080: 81 }));
+  assert.equal(restoredAppearance(entry, source)?.fontSize1080, 90, 'mutable display data never overrides validated raw evidence');
+  assert.equal(assessRecovery(entry, changedLook), 'changed');
+});
+
+test('a pending edit back to its starting look remains durable while an older submitted look may still land', () => {
+  const { source, storage, store } = setup();
+  const basis = look();
+  const older = saved(store.write({ project: source, appearance: look({ fontSize1080: 79 }), appearanceBasis: basis }));
+  const latest = saved(store.write({ project: source, appearance: basis, appearanceBasis: basis }));
+  assert.equal(store.remove(older), true);
+  assert.equal(storage.getItem(latest.key), latest.raw);
+  const reopened = createUnfinishedEditRecoveryStore(() => storage, 'new-page');
+  assert.equal(reopened.contains(latest), true);
+  assert.equal(assessRecovery(latest, source), 'already-saved');
+  assert.equal(assessRecovery(latest, { ...source, captionAppearance: look({ fontSize1080: 79 }) }), 'changed');
+  assert.equal(reopened.contains(latest), true, 'the desired final look stays available for manual comparison');
+});
+
+test('appearance recovery rejects incomplete, coerced, unknown and noncanonical persisted settings', () => {
+  const corruptions: Array<(draft: Record<string, any>) => void> = [
+    (draft) => { draft.version = 1; },
+    (draft) => { delete draft.appearance; },
+    (draft) => { delete draft.basis.appearance; },
+    (draft) => { draft.basis.captions = 'unrelated private text'; },
+    (draft) => { draft.appearance.extra = 'not visual settings'; },
+    (draft) => { delete draft.appearance.bold; },
+    (draft) => { draft.appearance.bold = 'false'; },
+    (draft) => { draft.appearance.fontSize1080 = '90'; },
+    (draft) => { draft.appearance.fontSize1080 = 121; },
+    (draft) => { draft.appearance.textColor = '#abcdef'; },
+    (draft) => { draft.appearance.motionDurationMs = 165; },
+    (draft) => { draft.appearance.fontFamily = 'x'.repeat(81); },
+    (draft) => { draft.basis.appearance = '{}'; },
+    (draft) => { draft.basis.appearance = JSON.stringify({ ...look(), glowWidth1080: null }); },
+  ];
+  for (const corrupt of corruptions) {
+    const { source, storage, store } = setup();
+    const entry = saved(store.write({ project: source, appearance: look({ fontSize1080: 90 }), appearanceBasis: look() }));
+    const draft = JSON.parse(entry.raw);
+    corrupt(draft);
+    const raw = JSON.stringify(draft);
+    storage.setItem(entry.key, raw);
+    const malformed = { ...entry, raw };
+    assert.deepEqual(store.list(source.id), []);
+    assert.equal(store.contains(malformed), false);
+    assert.equal(assessRecovery(malformed, source), 'changed');
+    assert.equal(restoredAppearance(malformed, source), undefined);
+  }
+});
+
+test('appearance write admission requires its own canonical saved basis and retains the prior record on failure', () => {
+  const { source, storage, store } = setup();
+  const entry = saved(store.write({ project: source, appearance: look({ fontSize1080: 90 }), appearanceBasis: look() }));
+  assert.equal(store.write({ project: source, appearance: look({ fontSize1080: 91 }) }).status, 'unavailable');
+  assert.equal(store.write({ project: source, appearanceBasis: look() }).status, 'unavailable');
+  assert.equal(store.write({ project: source, appearance: { ...look(), fontSize1080: 900 }, appearanceBasis: look() }).status, 'unavailable');
+  storage.fail = 'set';
+  assert.equal(store.write({ project: source, appearance: look({ fontSize1080: 91 }), appearanceBasis: look() }).status, 'unavailable');
+  storage.fail = undefined;
+  assert.equal(storage.getItem(entry.key), entry.raw);
+  assert.equal(store.contains(entry), true);
+});
+
+test('contains requires an exact current valid record and fails closed after cross-tab discard or replacement', () => {
+  const { source, storage, store } = setup();
+  const first = saved(store.write({ project: source, accuracy }));
+  assert.equal(store.contains(first), true);
+  const newer = saved(store.write({ project: source, accuracy: { ...accuracy, description: 'Newer' } }));
+  assert.equal(store.contains(first), false);
+  assert.equal(store.contains(newer), true);
+  storage.items.set(newer.key, newer.raw + ' ');
+  assert.equal(store.contains(newer), false, 'a different raw value at the same key supersedes this exact offer');
+  storage.items.set(newer.key, newer.raw);
+  const other = createUnfinishedEditRecoveryStore(() => storage, 'other-tab');
+  assert.equal(other.remove(newer), true);
+  assert.equal(store.contains(newer), false);
+  assert.equal(createUnfinishedEditRecoveryStore(() => null, 'unavailable').contains(first), false);
+});
+
+test('contains rejects expired records and unavailable storage without removing a valid stored copy', () => {
+  const storage = new MemoryStorage();
+  const source = project();
+  const now = Date.now();
+  const writer = createUnfinishedEditRecoveryStore(() => storage, 'writer', () => now);
+  const entry = saved(writer.write({ project: source, appearance: look({ fontSize1080: 90 }), appearanceBasis: look() }));
+  const expired = createUnfinishedEditRecoveryStore(() => storage, 'later', () => now + limits.ttlMs + 1);
+  assert.equal(expired.contains(entry), false);
+  assert.equal(storage.getItem(entry.key), entry.raw, 'containment is read-only');
+  storage.fail = 'get';
+  assert.equal(writer.contains(entry), false);
+  storage.fail = undefined;
+  assert.equal(writer.contains(entry), true);
+  assert.equal(storage.getItem(entry.key), entry.raw);
+});
+
+test('appearance-only records share existing admission limits and preserve another page copy on acknowledgement or discard', () => {
+  const source = project();
+  const storage = new MemoryStorage();
+  const stores = Array.from({ length: limits.maxProjectEntries }, (_, index) => createUnfinishedEditRecoveryStore(() => storage, `appearance-${index}`));
+  const entries = stores.map((store, index) => saved(store.write({ project: source, appearance: look({ fontSize1080: 80 + index }), appearanceBasis: look() })));
+  const overflow = createUnfinishedEditRecoveryStore(() => storage, 'extra');
+  assert.equal(overflow.write({ project: source, appearance: look({ fontSize1080: 99 }), appearanceBasis: look() }).status, 'too-large');
+  assert.equal(stores[0].write({ project: source }).status, 'cleared');
+  for (const entry of entries.slice(1)) assert.equal(overflow.contains(entry), true);
+  assert.equal(overflow.remove(entries[1]), true);
+  for (const entry of entries.slice(2)) assert.equal(overflow.contains(entry), true);
+});
+
+test('Accuracy-only recovery omits private caption evidence and remains valid after unrelated saved caption changes', () => {
+  const { source, storage, store } = setup();
+  source.captions = Array.from({ length: 12 }, (_, index) => ({ id: `private-${index}`, text: 'Private caption wording '.repeat(5000), startMs: index * 1000, endMs: (index + 1) * 1000 }));
+  const before = JSON.stringify(source);
+  const entry = saved(store.write({ project: source, accuracy }));
+  assert.equal(entry.draft.version, 3);
+  assert.deepEqual(Object.keys(entry.draft.basis), ['context']);
+  assert.equal(entry.draft.captions, undefined);
+  assert.equal(entry.raw.includes('Private caption wording'), false);
+  assert.ok(entry.raw.length < 2000, 'a small Accuracy edit does not duplicate a large transcript');
+  const canonical = { ...source, captions: [{ id: 'remote', text: 'New saved wording', startMs: 0, endMs: 500, approved: true }], transcriptNeedsSync: true };
+  assert.equal(assessRecovery(entry, canonical), 'matching');
+  assert.equal(restoredCaptions(entry, canonical), undefined);
+  assert.equal(assessRecovery(entry, { ...canonical, transcriptionContext: { description: 'New saved topic', vocabulary: [] } }), 'changed');
+  assert.deepEqual(createUnfinishedEditRecoveryStore(() => storage, 'reopened').list(source.id), [entry]);
+  assert.equal(JSON.stringify(source), before);
+});
+
+test('caption-only recovery omits saved Accuracy text and compares only current caption evidence', () => {
+  const { source, store } = setup();
+  const entry = saved(store.write({ project: source, captions: edited(source) }));
+  assert.equal(entry.draft.version, 3);
+  assert.deepEqual(Object.keys(entry.draft.basis), ['captions']);
+  assert.equal(entry.draft.accuracy, undefined);
+  for (const text of ['Saved topic', 'SavedBrand']) assert.equal(entry.raw.includes(text), false);
+  const canonical = { ...source, transcriptionContext: { description: 'A newer saved topic', vocabulary: ['NewBrand'] }, updatedAt: '2026-11-14' };
+  assert.equal(assessRecovery(entry, canonical), 'matching');
+  assert.equal(restoredCaptions(entry, canonical)?.[0].text, 'Hello moon');
+  assert.deepEqual(canonical.transcriptionContext, { description: 'A newer saved topic', vocabulary: ['NewBrand'] });
+  assert.equal(assessRecovery(entry, { ...canonical, captions: [{ ...source.captions[0], approved: false }] }), 'changed');
+});
+
+test('legacy v1 and mixed v2 records remain readable and retain their two-field basis contract', () => {
+  for (const version of [1, 2] as const) {
+    for (const field of ['captions', 'accuracy'] as const) {
+      const { source, storage, store } = setup();
+      const complete = saved(store.write({ project: source, captions: edited(source), accuracy,
+        ...(version === 2 ? { appearance: look({ fontSize1080: 93 }), appearanceBasis: look() } : {}) }));
+      const draft = { ...complete.draft, version };
+      if (field === 'captions') delete draft.accuracy;
+      else delete draft.captions;
+      const entry = { ...complete, draft, raw: JSON.stringify(draft) };
+      storage.setItem(entry.key, entry.raw);
+      assert.deepEqual(store.list(source.id), [entry]);
+      assert.equal(assessRecovery(entry, source), 'matching');
+      const unrelated = field === 'captions'
+        ? { ...source, transcriptionContext: { description: 'Changed remotely', vocabulary: [] } }
+        : { ...source, captions: edited(source, 'Changed remotely') };
+      assert.equal(assessRecovery(entry, unrelated), 'changed', 'legacy evidence is never silently reinterpreted');
+      assert.equal(store.contains(entry), true);
+    }
+  }
+});
+
+test('v3 records reject missing or unrelated bases, empty payloads and unguarded appearances', () => {
+  const corruptions: Array<(draft: Record<string, any>) => void> = [
+    (draft) => { delete draft.basis.context; },
+    (draft) => { draft.basis.captions = 'Unrelated private text'; },
+    (draft) => { delete draft.accuracy; },
+    (draft) => { draft.basis.appearance = JSON.stringify(look()); },
+    (draft) => { draft.appearance = look({ fontSize1080: 91 }); },
+    (draft) => { draft.version = 4; },
+  ];
+  for (const corrupt of corruptions) {
+    const { source, storage, store } = setup();
+    const original = saved(store.write({ project: source, accuracy }));
+    const draft = JSON.parse(original.raw);
+    corrupt(draft);
+    const malformed = { ...original, raw: JSON.stringify(draft) };
+    storage.setItem(original.key, malformed.raw);
+    assert.deepEqual(store.list(source.id), []);
+    assert.equal(store.contains(malformed), false);
+    assert.equal(assessRecovery(malformed, source), 'changed');
+    assert.equal(storage.getItem(original.key), malformed.raw, 'unknown or malformed data is not silently deleted');
+  }
+  const { source, storage, store } = setup();
+  const original = saved(store.write({ project: source, captions: edited(source), accuracy, appearance: look({ fontSize1080: 91 }), appearanceBasis: look() }));
+  for (const basis of ['captions', 'context', 'appearance'] as const) {
+    const draft = JSON.parse(original.raw);
+    delete draft.basis[basis];
+    const malformed = { ...original, raw: JSON.stringify(draft) };
+    storage.setItem(original.key, malformed.raw);
+    assert.equal(store.contains(malformed), false);
+  }
+});
+
+test('a forced baseline caption snapshot remains bounded, field-specific and exact-owned while an older save is pending', () => {
+  const { source, storage, store } = setup();
+  const other = createUnfinishedEditRecoveryStore(() => storage, 'other-tab');
+  const foreign = saved(other.write({ project: source, accuracy }));
+  const pending = saved(store.write({ project: source, captions: source.captions, keepUnchangedCaptions: true }));
+  assert.equal(pending.draft.version, 3);
+  assert.deepEqual(Object.keys(pending.draft.basis), ['captions']);
+  assert.equal(assessRecovery(pending, source), 'matching');
+  assert.equal(assessRecovery(pending, { ...source, captions: edited(source, 'Older submitted wording') }), 'changed');
+  assert.equal(store.write({ project: source, captions: source.captions }).status, 'cleared');
+  assert.equal(store.contains(pending), false);
+  assert.equal(store.contains(foreign), true);
+  assert.equal(storage.getItem(foreign.key), foreign.raw);
 });

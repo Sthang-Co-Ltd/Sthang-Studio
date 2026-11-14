@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CAPTION_APPEARANCE, exportContentBasis, type CaptionProject } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, exportContentBasis, type CaptionProject, type CaptionProjectAppearance } from '@kcs/shared';
 import { appearanceComparisonBasis, reconcileCaptionAppearance } from '../apps/web/src/caption-appearance-reconciliation.js';
 
 function project(): CaptionProject {
@@ -11,9 +11,8 @@ function project(): CaptionProject {
 
 test('reconciliation flushes debounce, waits the complete lane and reads only then', async () => {
   const source = project();
-  const fresh = structuredClone(source);
+  const fresh: CaptionProjectAppearance = { id: source.id, media: structuredClone(source.media), captionAppearance: structuredClone(source.captionAppearance) };
   fresh.captionAppearance!.fontSize1080 = 90;
-  fresh.captions[0].text = 'Foreign saved caption must not replace the draft';
   const calls: string[] = [];
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -30,6 +29,14 @@ test('reconciliation flushes debounce, waits the complete lane and reads only th
   assert.equal(source.captions[0].text, 'ខ្មែរ caption');
   assert.equal(source.captionAppearance!.fontSize1080, DEFAULT_CAPTION_APPEARANCE.fontSize1080);
   assert.equal('captions' in result, false);
+});
+
+test('a saved-look projection with no stored appearance keeps the canonical default look', async () => {
+  const source = project();
+  const fresh: CaptionProjectAppearance = { id: source.id, media: structuredClone(source.media) };
+  const result = await reconcileCaptionAppearance(source, { wait: async () => true, load: async () => fresh });
+  assert.deepEqual(result, { status: 'ready', appearance: DEFAULT_CAPTION_APPEARANCE });
+  assert.equal('captions' in fresh, false); assert.equal('transcript' in fresh, false); assert.equal('transcriptionContext' in fresh, false);
 });
 
 test('failed flush or lane cannot certify old saved appearance', async () => {

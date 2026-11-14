@@ -26,6 +26,8 @@ import { buildAssDocument, buildAssCaptionFilter, fontCapabilities, requireCapti
 import { invalidateCaptionFontCache } from './font-library.js';
 import { supportsComplexAssFilterHelp } from './caption-preview.js';
 import { hydrateProjectWordTimings } from './caption-word-timing.js';
+import { hashExportFile } from './export-publication.js';
+import { createPrerequisiteCache } from './prerequisite-cache.js';
 export { supportsComplexAssFilterHelp };
 
 interface ProbeStream {
@@ -56,11 +58,12 @@ interface ProbePayload {
 interface RenderCallbacks {
   onProgress?: (progress: number, message: string) => Promise<void> | void;
   shouldCancel?: () => boolean;
+  /** Must durably record the exact verified result before the atomic rename. */
+  beforePublish?: (result: VideoExportResult, sha256: string) => Promise<void>;
 }
 
 const encoderProbeCache = new Map<string, Promise<boolean>>();
-const capabilityCache = new Map<string, { at: number; value: VideoExportCapabilities }>();
-const capabilityCacheMs = 30_000;
+const capabilityCache = createPrerequisiteCache<string, VideoExportCapabilities>({ maxEntries: 32, ttlMs: 30_000 });
 
 /**
  * Capture the exact caption payload a render job will own. Legacy projects gain
@@ -72,7 +75,7 @@ export function createVideoExportCaptionSnapshot(project: CaptionProject): Capti
 }
 
 export function invalidateVideoExportCapabilityCache() {
-  capabilityCache.clear();
+  capabilityCache.invalidate();
 }
 
 const resolutionLabels: Record<VideoResolutionPreset, string> = {
@@ -270,12 +273,16 @@ function projectMediaPath(project: CaptionProject) {
 export async function probeVideoExportCapabilities(project: CaptionProject, force = false): Promise<VideoExportCapabilities> {
   const cacheKey = `${project.id}:${project.media.filename}:${project.media.size}`;
   if (force) {
-    capabilityCache.delete(cacheKey);
+    // A deliberate machine recheck also retires work already in flight. Font
+    // changes affect every project's capability snapshot, not only this source.
+    invalidateVideoExportCapabilityCache();
     encoderProbeCache.clear();
     invalidateCaptionFontCache({ system: true });
   }
-  const cached = capabilityCache.get(cacheKey);
-  if (!force && cached && Date.now() - cached.at < capabilityCacheMs) return cached.value;
+  return capabilityCache.read(cacheKey, () => inspectVideoExportCapabilities(project));
+}
+
+async function inspectVideoExportCapabilities(project: CaptionProject): Promise<VideoExportCapabilities> {
   const [source, complexAssFilter, encoders, fonts, availableDiskBytes] = await Promise.all([
     probeMedia(projectMediaPath(project)),
     hasComplexAssFilter(),
@@ -313,9 +320,6 @@ export async function probeVideoExportCapabilities(project: CaptionProject, forc
     availableDiskBytes,
     warnings,
   };
-  for (const [key, entry] of capabilityCache) if (Date.now() - entry.at >= capabilityCacheMs) capabilityCache.delete(key);
-  if (capabilityCache.size >= 32) capabilityCache.delete(capabilityCache.keys().next().value!);
-  capabilityCache.set(cacheKey, { at: Date.now(), value });
   return value;
 }
 
@@ -612,8 +616,7 @@ export async function renderCaptionedVideo(
     throwIfCancelled(callbacks);
     await emitProgress(callbacks, 99, 'Finalizing export…');
     throwIfCancelled(callbacks);
-    await fs.rename(partialPath, finalPath);
-    return {
+    const result: VideoExportResult = {
       filename,
       url: `/exports/${encodeURIComponent(filename)}`,
       sizeBytes: verified.sizeBytes,
@@ -626,6 +629,15 @@ export async function renderCaptionedVideo(
       durationMs: verified.result.durationMs,
       createdAt: new Date().toISOString(),
     };
+    if (callbacks.beforePublish) {
+      const hashed = await hashExportFile(partialPath, callbacks.shouldCancel);
+      if (hashed.sizeBytes !== result.sizeBytes) throw new Error('The verified video changed before publication.');
+      throwIfCancelled(callbacks);
+      await callbacks.beforePublish(result, hashed.sha256);
+    }
+    throwIfCancelled(callbacks);
+    await fs.rename(partialPath, finalPath);
+    return result;
   } finally {
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }

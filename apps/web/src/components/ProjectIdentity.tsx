@@ -38,11 +38,11 @@ export function ProjectIdentity({ title, filename, status }: { title: string; fi
     const inside = (target: EventTarget | null) => target instanceof Node && (trigger.current?.contains(target) || panel.current?.contains(target));
     const outside = (event: Event) => { if (!inside(event.target)) setOpen(false); };
     const key = (event: KeyboardEvent) => {
-      if (event.isComposing || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      if (event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph') || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
       // Find must capture the stable header control as its return target,
       // before moving focus closes this temporary name surface.
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') { close(true); return; }
-      if (event.key !== 'Escape') return;
+      if (event.ctrlKey !== event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') { close(true); return; }
+      if (event.key !== 'Escape' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
       event.preventDefault(); event.stopPropagation(); close(true);
     };
     document.addEventListener('pointerdown', outside, true);
@@ -55,10 +55,10 @@ export function ProjectIdentity({ title, filename, status }: { title: string; fi
     };
   }, [open]);
   return <div className="project-title inspectable-project-title">
-    <button ref={trigger} type="button" className="project-name-button" aria-label="Project details" aria-haspopup="dialog"
+    <button ref={trigger} type="button" className="project-name-button" aria-label="Project details" aria-describedby={`${id}-name`} aria-haspopup="dialog" data-project-entry-focus
       aria-expanded={open} aria-controls={open ? id : undefined} data-tooltip={open ? undefined : `${title}\n${filename}`}
       onClick={() => setOpen((value) => !value)}>
-      <strong>{title}</strong><span className="project-name-compact">Project details</span><ChevronDown size={13} aria-hidden="true"/>
+      <strong id={`${id}-name`}>{title}</strong><span className="project-name-compact">Project details</span><ChevronDown size={13} aria-hidden="true"/>
     </button>
     <span className="project-file-status">{filename} · {status}</span>
     {open && createPortal(<section ref={panel} id={id} role="dialog" aria-labelledby={`${id}-heading`} className="project-name-dialog" style={position}>

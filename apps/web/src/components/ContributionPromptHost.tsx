@@ -36,8 +36,7 @@ export function ContributionPromptHost() {
   const choose = async (consent: 'granted' | 'declined') => {
     setWorking(true); setError('');
     try {
-      const profile = await api.profile();
-      await api.patchProfile({ preferences: { ...profile.preferences, khmerContributionConsent: consent } });
+      await api.patchProfile({ preferences: { khmerContributionConsent: consent } });
       setOpen(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save your choice');

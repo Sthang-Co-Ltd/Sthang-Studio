@@ -1,5 +1,9 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useSurfacePresence } from '../use-surface-presence';
+import { focusPreservingCaptionViewport } from '../caption-field-viewport';
+
+export interface ToastLayoutState { hasContent: boolean; hasPersistentRecovery: boolean; hasSaveFailure: boolean }
+const emptyLayout: ToastLayoutState = { hasContent: false, hasPersistentRecovery: false, hasSaveFailure: false };
 
 /** Presentation may linger briefly; dismissed actions become inert immediately. */
 function ToastSlot({ open, children, onExited, restoreFocus }: { open: boolean; children: ReactNode; onExited(): void; restoreFocus(): void }) {
@@ -15,7 +19,7 @@ function ToastSlot({ open, children, onExited, restoreFocus }: { open: boolean; 
   </div>;
 }
 
-export function ToastStack({ children }: { children: ReactNode }) {
+export function ToastStack({ children, onLayoutChange }: { children: ReactNode; onLayoutChange?: (state: ToastLayoutState) => void }) {
   const root = useRef<HTMLDivElement | null>(null);
   const returnTo = useRef<HTMLElement | null>(null);
   const current = useMemo(() => Children.toArray(children).filter(isValidElement), [children]);
@@ -32,9 +36,29 @@ export function ToastStack({ children }: { children: ReactNode }) {
   const [restoreFocus] = useState(() => () => {
     const target = returnTo.current;
     if (target?.isConnected && target.getClientRects().length && !target.closest('[inert],[hidden],[aria-hidden="true"]') && !target.matches(':disabled')) {
-      target.focus({ preventScroll: true });
+      focusPreservingCaptionViewport(target);
     }
   });
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!element || !onLayoutChange) return;
+    let previous = '';
+    // Observe only the small notice stack, including retained exit animations.
+    // Ancestor :has() rules made every caption edit restyle the entire editor.
+    const report = () => {
+      const hasSaveFailure = Boolean(element.querySelector('.save-failure'));
+      const next = { hasContent: element.childElementCount > 0, hasSaveFailure,
+        hasPersistentRecovery: hasSaveFailure || Boolean(element.querySelector('.unfinished-recovery,.recovery-storage-error')) };
+      const signature = `${next.hasContent}:${next.hasPersistentRecovery}:${next.hasSaveFailure}`;
+      if (signature === previous) return;
+      previous = signature;
+      onLayoutChange(next);
+    };
+    report();
+    const observer = new MutationObserver(report);
+    observer.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    return () => { observer.disconnect(); onLayoutChange(emptyLayout); };
+  }, [onLayoutChange]);
   useEffect(() => {
     const remember = () => {
       const target = document.activeElement;

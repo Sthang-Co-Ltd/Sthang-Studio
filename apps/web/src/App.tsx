@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -55,23 +55,27 @@ import {
   X,
 } from 'lucide-react';
 import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
-import { Upload } from './components/Upload';
+import { Upload, type UploadRecoveryResult, type UploadResult } from './components/Upload';
+import { captureUploadRecoveryForProject, clearUploadRecoveryForProject } from './upload-recovery';
 import { EditorLayout } from './components/EditorLayout';
 import { GenerationOptions } from './components/GenerationOptions';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
 import { ProfileDoctor, type SettingsTab } from './components/ProfileDoctor';
 import { storageNeedsAttention, useProjectStorage } from './project-storage';
+import { reconcileProfileAcknowledgement, type ProfilePatch } from './profile-state';
 import { StudioBrand } from './components/Brand';
 import { FindReplacePanel } from './components/FindReplacePanel';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
 import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
+import { jobObservation, mergeJobSnapshot } from './processing-jobs';
 import { ProjectLibrary } from './components/ProjectLibrary';
 import { DEFAULT_PROJECT_LIBRARY_VIEW, type ProjectLibraryView } from './project-library';
+import { captureProjectCollectionBasis, reconcileProjectCollection } from './project-collection';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
-import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming, resolveCaptionWordTiming, createCaptionData } from '@kcs/shared';
+import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCaptionWordTimings, reconcileCaptionWordTiming, resolveCaptionWordTiming, createCaptionData, exportContentBasis } from '@kcs/shared';
 import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { ReplaceMediaDialog, RestoreMediaDialog } from './components/ReplaceMediaDialog';
@@ -82,19 +86,22 @@ import { reconcileCaptionSelection } from './caption-selection-validity';
 import { deferWorkspace } from './components/DeferredWorkspace';
 import { retryWorkspace } from './retry-workspace';
 import { ProjectIdentity } from './components/ProjectIdentity';
+import { useProjectNavigationFocus } from './use-project-navigation-focus';
 import { ReviewCompletion } from './components/ReviewCompletion';
-import { ToastStack } from './components/ToastStack';
+import { ToastStack, type ToastLayoutState } from './components/ToastStack';
+import { captionFieldViewport, revealFocusedCaptionField } from './caption-field-viewport';
 import { useToastTimeout } from './use-toast-timeout';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
 import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqueContextLines, type AccuracyFields, type AccuracyObservation } from './accuracy-context-draft';
-import { createUnfinishedEditRecoveryStore, assessRecovery, restoredCaptions, type RecoveryEntry } from './unfinished-edit-recovery';
+import { createUnfinishedEditRecoveryStore, assessRecovery, restoredAppearance, restoredCaptions, type RecoveryEntry, type RecoveryStatus } from './unfinished-edit-recovery';
 import { UnfinishedEditRecoveryNotice } from './components/UnfinishedEditRecoveryNotice';
 import { checkedSaveRevision, editorAdoptedAccuracy, matchesCaptionSaveBasis, matchesVocabularyAddition } from './save-revision';
+import { createCaptionSaveCoalescer } from './caption-save-coalescing';
 import { sameTimingRevision, timingFields } from './timing-edit';
-import { captionNeighborLimits, timingTransactionMatches, type CaptionTimingTransaction } from './caption-timing-transaction';
+import { captionTimingBasisMatches, limitCaptionSelectionDelta, timingTransactionMatches, type CaptionTimingTransaction } from './caption-timing-transaction';
 import { playTimingRange } from './timing-playback';
-import { waitForCaptionAppearanceSaves, withCaptionAppearanceBarrier } from './caption-appearance-save';
+import { flushCaptionAppearanceSaves, getCaptionAppearanceSaveState, markCaptionAppearanceDraft, observeSavedCaptionAppearance, queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, subscribeCaptionAppearanceSaves, waitForCaptionAppearanceSaves, withCaptionAppearanceBarrier } from './caption-appearance-save';
 import { useReconciledAppearance } from './caption-appearance-reconciliation';
 import {
   applyWordHighlightBatch,
@@ -102,9 +109,12 @@ import {
   prepareWordHighlightBatch,
   undoWordHighlightBatch,
   wordHighlightBatchSaveBasis,
+  type WordHighlightBatchPause,
 } from './word-highlight-batch';
 import type { WordHighlightPreparationView } from './components/WordHighlightPreparation';
 import { createExportWorkspaceSession, type ExportWorkspaceSession } from './export-session';
+import { createExportSessionStorage } from './export-session-storage';
+import { ownReviewPlayback, type ReviewPlaybackOwner } from './review-playback';
 import type { ExportRepairTarget } from './export-checks';
 
 function compatibilityTranscriptionNotice(value: CaptionProject) {
@@ -172,7 +182,7 @@ interface PendingCaptionImport {
 type ReviewPlaybackPass = 'context' | 'focus';
 
 type ReviewUndoState = {
-  items: Array<{ id: string; approved: boolean }>;
+  items: Array<{ id: string; approved: boolean; applied: CaptionSegment }>;
   restoreSelectionId: string;
   message: string;
 };
@@ -185,6 +195,8 @@ interface WordBatchDisplay {
   applied: number;
   canceled: boolean;
   interruptedByBusy?: boolean;
+  pauseReason?: WordHighlightBatchPause;
+  checkingReadiness?: boolean;
 }
 
 const EMPTY_WORD_BATCH: WordBatchDisplay = {
@@ -263,7 +275,16 @@ function distributePreviewText(text: string, slots: CaptionSegment[]) {
 }
 
 export default function App() {
-  const [projects, setProjects] = useState<CaptionProjectSummary[]>([]);
+  const projectNavigationFocus = useProjectNavigationFocus();
+  const [projects, setProjectItems] = useState<CaptionProjectSummary[]>([]);
+  const projectItems = useRef<CaptionProjectSummary[]>([]);
+  const setProjects = useCallback((update: CaptionProjectSummary[] | ((current: CaptionProjectSummary[]) => CaptionProjectSummary[])) => {
+    const next = typeof update === 'function' ? update(projectItems.current) : update;
+    projectItems.current = next;
+    setProjectItems(next);
+  }, []);
+  const [projectListState, setProjectListState] = useState({ refreshing: false, error: '' });
+  const projectListRequest = useRef<AbortController | null>(null);
   const [showAllProjects, setShowAllProjects] = useState(false);
   // Keep the collection position while its editor is open, without persisting
   // project names or searches outside this tab's existing local project flow.
@@ -298,6 +319,41 @@ export default function App() {
   const generationPreparation = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [toastLayout, setToastLayout] = useState<ToastLayoutState>({ hasContent: false, hasPersistentRecovery: false, hasSaveFailure: false });
+  const toastLayoutRef = useRef(toastLayout);
+  const toastFocusFrame = useRef<{ frame: number; field: HTMLElement; list: HTMLElement; workbench: HTMLElement } | null>(null);
+  const handleToastLayoutChange = useCallback((next: ToastLayoutState) => {
+    const pending = toastFocusFrame.current;
+    if (pending) cancelAnimationFrame(pending.frame);
+    toastFocusFrame.current = null;
+    const previous = toastLayoutRef.current;
+    toastLayoutRef.current = next;
+    const active = document.activeElement;
+    const field = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement && !['checkbox', 'range'].includes(active.type) ? active : null;
+    const list = field?.closest<HTMLElement>('.caption-list');
+    const workbench = list?.closest<HTMLElement>('.editor-workbench');
+    const changesViewport = previous.hasSaveFailure !== next.hasSaveFailure
+      || window.matchMedia('(max-width: 1199px)').matches && previous.hasPersistentRecovery !== next.hasPersistentRecovery
+      || previous.hasContent !== next.hasContent && Boolean(workbench?.closest('.workspace')?.classList.contains('has-caption-proposal'));
+    const ownsPending = pending?.field === field && pending?.list === list && pending?.workbench === workbench;
+    let wasVisible = false;
+    if ((changesViewport || ownsPending) && field && list && workbench && /auto|scroll/.test(getComputedStyle(workbench).overflowY)) {
+      const { box, top, bottom } = captionFieldViewport(field, list, workbench);
+      wasVisible = box.bottom > top && box.top < bottom;
+    }
+    setToastLayout(next);
+    if (!wasVisible && !ownsPending || !field || !list || !workbench) return;
+    // Carry an already-owned reveal through consecutive layout changes. Only the
+    // outer narrow-screen workbench moves; caption-list scrolling owns Follow.
+    const queued = { frame: 0, field, list, workbench };
+    queued.frame = requestAnimationFrame(() => {
+      if (toastFocusFrame.current !== queued) return;
+      toastFocusFrame.current = null;
+      revealFocusedCaptionField(field, list, workbench);
+    });
+    toastFocusFrame.current = queued;
+  }, []);
+  useEffect(() => () => { if (toastFocusFrame.current) cancelAnimationFrame(toastFocusFrame.current.frame); toastFocusFrame.current = null; }, []);
   const [replacementEditRecoveries, setReplacementEditRecoveries] = useState<ReplacementEditRecovery[]>([]);
   const [pendingMediaReplacement, setPendingMediaReplacement] = useState<PendingMediaReplacement | null>(null);
   const mediaReplacementSequence = useRef(0);
@@ -313,9 +369,16 @@ export default function App() {
   const retainedMediaSeek = useRef<{ key: string; timeMs: number } | null>(null);
   const flushAppearanceSave = useRef<(() => Promise<boolean>) | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const currentTimingStatus = useRef(health?.timing);
+  currentTimingStatus.current = health?.timing;
   const [llmSettings, setLlmSettings] = useState<LlmSettingsStatus | null>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
+  const [profileImportRevision, setProfileImportRevision] = useState(0);
   const [doctor, setDoctor] = useState<SystemDoctorReport | null>(null);
+  const [doctorLoadState, setDoctorLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [doctorError, setDoctorError] = useState('');
+  const doctorRequest = useRef(0);
+  const doctorInFlight = useRef(false);
   const [time, setTime] = useState(0);
   const [loadedMediaDurationMs, setLoadedMediaDurationMs] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -325,10 +388,18 @@ export default function App() {
   const [groupingMode, setGroupingMode] = useState<CaptionMode>('dynamic');
   const [groupingApplying, setGroupingApplying] = useState(false);
   const groupingInFlight = useRef(false);
+  const [groupingPresetSaving, setGroupingPresetSaving] = useState(false);
+  const groupingPresetWrite = useRef(false);
+  const groupingChoices = useRef({ mode: groupingMode, maxChars });
+  groupingChoices.current = { mode: groupingMode, maxChars };
   const accuracyDraft = useRef(createAccuracyContextDraft());
   const [accuracyFields, setAccuracyFields] = useState(accuracyDraft.current.fields);
+  const [globalGlossarySaving, setGlobalGlossarySaving] = useState(false);
+  const globalGlossaryWrite = useRef(false);
+  const [globalGlossaryFeedback, setGlobalGlossaryFeedback] = useState<{ ticket: ProjectTicket | null; error: boolean; message: string; savedVocabulary?: string[] }>({ ticket: null, error: false, message: '' });
   const { description: contextDescription, vocabulary: vocabularyText } = accuracyFields;
   const editAccuracyFields = (change: Partial<AccuracyFields>) => {
+    if (change.vocabulary !== undefined) setGlobalGlossaryFeedback({ ticket: null, error: false, message: '' });
     setAccuracyFields(accuracyDraft.current.edit(change));
     if (!accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && !hasPendingContextWrite()) setContextSaveState('saved');
     captureUnfinishedRecovery();
@@ -341,17 +412,42 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('ai');
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showJobs, setShowJobs] = useState(false);
+  const [showJobs, setShowJobsState] = useState(false);
+  const jobsViewRevision = useRef(0);
+  const setShowJobs = (open: boolean) => { jobsViewRevision.current += 1; setShowJobsState(open); };
+  const [jobNotification, setJobNotification] = useState<{ id: string; observation: string; projectTitle: string; message: string; error: boolean } | null>(null);
+  const jobNotificationRevision = useRef(0);
+  const notifyJob = (job: ProcessingJob, message: string, error = true) => {
+    jobNotificationRevision.current += 1;
+    setJobNotification({ id: job.id, observation: jobObservation(job), projectTitle: job.projectTitle, message, error });
+  };
+  const dismissJobNotification = () => { jobNotificationRevision.current += 1; setJobNotification(null); };
   const [showUpdates, setShowUpdates] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<ProjectHistoryEntry[]>([]);
   const [historyLoadState, setHistoryLoadState] = useState({ loading: false, loaded: false, error: '' });
-  const [jobs, setJobs] = useState<ProcessingJob[]>([]);
+  const [jobs, setJobItems] = useState<ProcessingJob[]>([]);
+  const jobItems = useRef<ProcessingJob[]>([]);
+  const setJobs = useCallback((update: ProcessingJob[] | ((current: ProcessingJob[]) => ProcessingJob[])) => {
+    const next = typeof update === 'function' ? update(jobItems.current) : update;
+    jobItems.current = next;
+    setJobItems(next);
+  }, []);
+  const [jobLoadState, setJobLoadState] = useState({ loading: true, loaded: false, error: '' });
+  const manualJobRead = useRef<number | null>(null);
+  const [pendingJobActions, setPendingJobActions] = useState<Record<string, 'resume' | 'cancel'>>({});
+  const pendingJobActionIds = useRef(new Set<string>());
+  const [openingJobId, setOpeningJobId] = useState<string | null>(null);
+  const pendingJobResult = useRef<{ id: string; request: AbortController } | null>(null);
+  const jobReadGeneration = useRef(0);
+  const appliedJobRead = useRef(0);
   const [proposalEntry, setProposalEntry] = useState<{ ticket: ProjectTicket; value: RegenerationProposal } | null>(null);
   const projectScope = useRef(createProjectScope());
   const proposalRead = useRef(0);
   const historyRead = useRef(0);
+  const pendingHistoryRead = useRef<number | null>(null);
   const operationRevision = useRef(0);
   const playbackTimers = useRef(new Set<number>());
+  const reviewPlaybackOwner = useRef<ReviewPlaybackOwner | null>(null);
   const timingPreviewCancel = useRef<(() => void) | null>(null);
   const viewTicket = projectScope.current.capture();
   const proposal = proposalForProject(proposalEntry, viewTicket, project);
@@ -360,16 +456,41 @@ export default function App() {
   const [proposalLoop, setProposalLoop] = useState(true);
   const [proposalEditedText, setProposalEditedText] = useState('');
   const [proposalAccuracyHint, setProposalAccuracyHint] = useState('');
+  const proposalViewRevision = useRef(0);
+  const currentProposal = useRef(proposal); currentProposal.current = proposal;
+  const proposalJobRevisions = useRef(new Map<string, number>());
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
   const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
+  const guideWorkspaceFocus = useRef<{
+    ticket: ProjectTicket; tool: 'accuracy' | 'review' | 'export'; previous: Element | null;
+  } | null>(null);
   const generationAccuracyEntry = useRef<HTMLButtonElement>(null);
-  const [exportVisit, setExportVisit] = useState<{ ticket: ProjectTicket; session: ExportWorkspaceSession } | null>(null);
+  const [exportVisit, setExportVisitState] = useState<{ ticket: ProjectTicket; session: ExportWorkspaceSession } | null>(null);
+  const exportVisitRef = useRef(exportVisit);
+  const setExportVisit = (next: typeof exportVisit) => { exportVisitRef.current = next; setExportVisitState(next); };
+  const [exportChoiceStorage] = useState(() => createExportSessionStorage(() => {
+    try { return window.localStorage; } catch { return null; }
+  }));
+  const [exportChoiceStorageError, setExportChoiceStorageError] = useState('');
   const [exportRepair, setExportRepair] = useState<{ ticket: ProjectTicket; target: ExportRepairTarget } | null>(null);
   const exportRepairFocus = useRef(false);
   const exportSession = exportVisit?.ticket === viewTicket && viewTicket.key === mediaKey
     ? exportVisit.session : createExportWorkspaceSession(Boolean(project && isVideoProject(project)));
-  useEffect(() => { setExportVisit(null); setExportRepair(null); exportRepairFocus.current = false; }, [mediaKey]);
+  useEffect(() => {
+    if (project && viewTicket.key === mediaKey) {
+      const previous = exportVisitRef.current;
+      const sameMedia = previous?.ticket.key === mediaKey;
+      setExportVisit({ ticket: viewTicket, session: sameMedia ? previous.session
+        : exportChoiceStorage.read(project) ?? createExportWorkspaceSession(isVideoProject(project)) });
+      if (!sameMedia) setExportChoiceStorageError('');
+    } else if (!project) {
+      setExportVisit(null);
+      setExportChoiceStorageError('');
+    }
+    setExportRepair(null);
+    exportRepairFocus.current = false;
+  }, [mediaKey, viewTicket]);
   const [requestedTimingMode, setRequestedTimingMode] = useState<'caption' | 'words'>('caption');
   const [captionHandoffWorking, setCaptionHandoffWorking] = useState(false);
   const [pendingCaptionImport, setPendingCaptionImport] = useState<PendingCaptionImport | null>(null);
@@ -381,6 +502,19 @@ export default function App() {
     return generationAccuracyEntry.current ?? fallback;
   };
   const restoreInlineAccuracyFocus = () => requestAnimationFrame(() => getAccuracyCloseFocusTarget()?.focus());
+  useEffect(() => {
+    const request = guideWorkspaceFocus.current;
+    if (!request) return;
+    guideWorkspaceFocus.current = null;
+    if (showGuide || proposal || workspaceTool !== request.tool || !projectScope.current.isCurrent(request.ticket)
+      || document.querySelector('[aria-modal="true"]')
+      || (document.activeElement !== request.previous && document.activeElement !== document.body)) return;
+    const inspector = document.querySelector<HTMLElement>('.workspace-inspector:not([hidden])');
+    const target = request.tool === 'accuracy'
+      ? inspector?.querySelector<HTMLElement>('#accuracy-context-description') : inspector;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+  }, [showGuide, workspaceTool, viewTicket, proposal]);
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
   });
@@ -394,20 +528,40 @@ export default function App() {
   const [contextSaveError, setContextSaveError] = useState('');
   const [saveConflict, setSaveConflict] = useState(false);
   const pendingContextWrites = useRef(new Map<string, number>());
+  const pendingCaptionWrites = useRef(new Map<string, number>());
+  const uncertainCaptionWrites = useRef(new Set<string>());
   const [, refreshContextWrites] = useState(0);
   const accuracyDirty = accuracyDraft.current.hasChanges(profile?.defaultVocabulary);
-  const unfinishedChanges = dirty || accuracyDirty || saveConflict || (pendingContextWrites.current.get(mediaKey) || 0) > 0;
+  const currentAppearanceSave = () => getCaptionAppearanceSaveState(project?.id ?? null, project?.media);
+  const appearanceSave = useSyncExternalStore(subscribeCaptionAppearanceSaves, currentAppearanceSave, () => getCaptionAppearanceSaveState(null));
+  const appearanceDirty = appearanceSave.status !== 'saved';
+  const saveNeedsComparison = saveConflict || appearanceSave.conflict;
+  const unfinishedChanges = dirty || accuracyDirty || appearanceDirty || saveConflict
+    || (pendingContextWrites.current.get(mediaKey) || 0) > 0 || (pendingCaptionWrites.current.get(mediaKey) || 0) > 0;
   const manualSaveFeedback = useManualSaveFeedback(viewTicket, unfinishedChanges);
-  const saveFailed = saveConflict || autosaveState === 'failed' || contextSaveState === 'failed';
-  const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : ''].filter(Boolean).join(' ');
+  const saveFailed = saveConflict || autosaveState === 'failed' || contextSaveState === 'failed' || appearanceSave.status === 'error';
+  const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : '',
+    appearanceSave.conflict ? 'The saved appearance changed. Download your edits, then reload the saved project to compare.'
+      : appearanceSave.status === 'error' ? 'Your latest caption appearance could not be saved.' : ''].filter(Boolean).join(' ');
+  const projectSaveStatus = !unfinishedChanges ? 'saved' : saveFailed ? "Couldn't save changes"
+    : autosaveState === 'saving' || contextSaveState === 'saving' || appearanceSave.status === 'saving' ? 'saving…'
+      : appearanceDirty ? 'Appearance changes unsaved' : dirty ? 'autosave pending' : 'Accuracy changes unsaved';
   const [recoveryOwner] = useState(() => crypto.randomUUID());
   const [recoveryStore] = useState(() => createUnfinishedEditRecoveryStore(() => {
     try { return window.localStorage; } catch { return null; }
   }, recoveryOwner));
   const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntry[]>([]);
-  const [recoveryConflict, setRecoveryConflict] = useState<{ key: string; raw: string; status: 'changed' | 'media-changed' } | null>(null);
+  const [selectedRecoveryKey, setSelectedRecoveryKey] = useState<string | null>(null);
+  const selectedRecovery = recoveryEntries.find((entry) => entry.key === selectedRecoveryKey) ?? recoveryEntries[0];
+  const [recoveryConflict, setRecoveryConflict] = useState<{ key: string; raw: string; status: Exclude<RecoveryStatus, 'matching'> } | null>(null);
   const [recoveryWorking, setRecoveryWorking] = useState(false);
+  const recoveryRead = useRef<AbortController | null>(null);
   const [recoveryStorageError, setRecoveryStorageError] = useState('');
+  const captureRecoveryRef = useRef<() => boolean>(() => false);
+  captureRecoveryRef.current = captureUnfinishedRecovery;
+  // Draft publication is synchronous, including the debounce window. Do not
+  // depend on an unload event or a later React effect to preserve an accepted edit.
+  useEffect(() => subscribeCaptionAppearanceSaves(() => { captureRecoveryRef.current(); }), []);
   // `project.captions` sometimes contains newer unsaved edits. Recovery compares
   // against actual server acknowledgements, owned separately from that view.
   const savedProject = useRef<CaptionProject | null>(null);
@@ -421,6 +575,7 @@ export default function App() {
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
+  const mediaPreviewFocus = useRef<HTMLDivElement | null>(null);
   const [mediaElement, setMediaElement] = useState<HTMLMediaElement | null>(null);
   const nativeCaptionPreview = useRef<NativeCaptionPreviewHandle | null>(null);
   const effectReplayController = useRef<AbortController | null>(null);
@@ -433,9 +588,10 @@ export default function App() {
   const draftEditRevision = useRef(0);
   const dirtyRef = useRef(false);
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const [captionSaveRequests] = useState(() => createCaptionSaveCoalescer<CaptionProject | null>());
   const queuedCaption = useRef<string | null>(null);
   const trackedJobIds = useRef(new Set<string>());
-  const handledJobIds = useRef(new Set<string>());
+  const handledJobVersions = useRef(new Map<string, string>());
   const wordBatchController = useRef<AbortController | null>(null);
   const wordBatchRunning = useRef(false);
   const wordBatchMutation = useRef<symbol | null>(null);
@@ -458,6 +614,53 @@ export default function App() {
     }
   }, [project, showAllProjects]);
 
+  async function refreshProjects(options: { startup?: boolean; isCurrent?(): boolean } = {}) {
+    if (projectListRequest.current && !options.startup) return;
+    projectListRequest.current?.abort();
+    const request = new AbortController();
+    projectListRequest.current = request;
+    const basis = captureProjectCollectionBasis(projectItems.current);
+    const owns = () => !request.signal.aborted && projectListRequest.current === request && options.isCurrent?.() !== false;
+    setProjectListState((current) => ({ ...current, refreshing: true }));
+    try {
+      const items = await api.listSummaries(request.signal);
+      if (!owns()) return;
+      setProjects((current) => reconcileProjectCollection(current, items, basis));
+      startupLoaded.current.add('Projects');
+      setStartupErrors((current) => current.filter((label) => label !== 'Projects'));
+      setProjectListState({ refreshing: false, error: '' });
+    } catch {
+      if (!owns()) return;
+      setProjectListState({ refreshing: false, error: 'Could not update projects. Try again.' });
+      if (!startupLoaded.current.has('Projects')) setStartupErrors((current) => current.includes('Projects') ? current : [...current, 'Projects']);
+    } finally {
+      if (projectListRequest.current === request) {
+        projectListRequest.current = null;
+        if (options.isCurrent?.() !== false) setProjectListState((current) => ({ ...current, refreshing: false }));
+      }
+    }
+  }
+  const previousCollectionScreen = useRef({ projectId: project?.id, all: showAllProjects });
+  useEffect(() => {
+    const previous = previousCollectionScreen.current;
+    previousCollectionScreen.current = { projectId: project?.id, all: showAllProjects };
+    if (!project && startupLoaded.current.has('Projects')
+      && (previous.projectId !== undefined || previous.all !== showAllProjects)) void refreshProjects();
+  }, [project?.id, showAllProjects]);
+  useEffect(() => {
+    if (project) return;
+    let lastWake = 0;
+    const refreshOnReturn = () => {
+      if (document.visibilityState !== 'visible' || !startupLoaded.current.has('Projects') || Date.now() - lastWake < 500) return;
+      lastWake = Date.now();
+      void refreshProjects();
+    };
+    window.addEventListener('focus', refreshOnReturn);
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => { window.removeEventListener('focus', refreshOnReturn); document.removeEventListener('visibilitychange', refreshOnReturn); };
+  }, [Boolean(project)]);
+  useEffect(() => () => { projectListRequest.current?.abort(); }, []);
+
   useEffect(() => {
     let disposed = false;
     setStartupErrors([]);
@@ -472,32 +675,44 @@ export default function App() {
     };
     // Independent requests publish independently. Preferences remain required before
     // opening/uploading a project, so late profile hydration cannot reset an edit.
-    load('Projects', api.listSummaries, (items) => setProjects((current) => {
-      const localIds = new Set(current.map((item) => item.id));
-      return [...current, ...items.filter((item) => !localIds.has(item.id))];
-    }));
+    if (!startupLoaded.current.has('Projects')) void refreshProjects({ startup: true, isCurrent: () => !disposed });
     load('System status', api.health, setHealth);
     load('Preferences', api.profile, setProfile);
-    load('Activity', api.jobs, (items) => {
-      items.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status))
-        .forEach((job) => trackedJobIds.current.add(job.id));
-      setJobs(items);
-    });
+    if (!startupLoaded.current.has('Activity')) {
+      void refreshJobs({ feedback: true, startup: true, isCurrent: () => !disposed });
+    }
     load('AI connection', api.llmSettings, setLlmSettings);
     return () => { disposed = true; };
   }, [startupAttempt]);
 
   useEffect(() => () => {
+    pendingJobResult.current?.request.abort();
     projectOpen.current?.abort();
     projectScope.current.invalidate();
     cancelPlayback();
   }, []);
 
-  function cancelPlayback() {
+  function cancelPlayback(preserveReview = false) {
+    if (!preserveReview) {
+      reviewPlaybackOwner.current?.release();
+      reviewPlaybackOwner.current = null;
+    }
     stopEffectReplay();
     stopTimingPreview();
-    for (const timer of playbackTimers.current) window.clearTimeout(timer);
-    playbackTimers.current.clear();
+    if (!preserveReview) {
+      for (const timer of playbackTimers.current) window.clearTimeout(timer);
+      playbackTimers.current.clear();
+    }
+  }
+  function armReviewPlayback(kind: 'review' | 'proposal', startMs: number, pause = false) {
+    cancelPlayback();
+    const element = media.current;
+    if (!element) return;
+    reviewPlaybackOwner.current = ownReviewPlayback(element, kind, startMs, pause, () => {
+      // Yield without pausing or seeking: the native control now owns playback.
+      for (const timer of playbackTimers.current) window.clearTimeout(timer);
+      playbackTimers.current.clear();
+    });
   }
   function stopEffectReplay() {
     effectReplayController.current?.abort();
@@ -522,6 +737,7 @@ export default function App() {
   }
   function setProposal(value: RegenerationProposal | null) {
     proposalRead.current += 1;
+    proposalViewRevision.current += 1;
     cancelPlayback();
     const ticket = projectScope.current.capture();
     setProposalEntry(value && value.projectId === project?.id
@@ -534,8 +750,23 @@ export default function App() {
       (entry.draft.ownerId !== recoveryOwner || entry.draft.mediaKey !== projectMediaKey(saved))
       && entry.key !== restoredRecovery.current?.origin.key));
   }
+  function cancelUnfinishedRecovery(restoreFocus = false) {
+    const request = recoveryRead.current;
+    if (!request) return;
+    const focusRequest = restoreFocus ? projectNavigationFocus.capture() : null;
+    recoveryRead.current = null;
+    request.abort();
+    setRecoveryWorking(false);
+    if (restoreFocus) projectNavigationFocus.complete(focusRequest, () =>
+      document.querySelector<HTMLElement>('.unfinished-recovery .primary') || document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+  }
   function hasPendingContextWrite() {
     return (pendingContextWrites.current.get(projectScope.current.capture().key) || 0) > 0;
+  }
+  function trackCaptionWrite(key: string, change: 1 | -1) {
+    const count = (pendingCaptionWrites.current.get(key) || 0) + change;
+    if (count > 0) pendingCaptionWrites.current.set(key, count); else pendingCaptionWrites.current.delete(key);
+    refreshContextWrites((revision) => revision + 1);
   }
   function trackContextWrite(key: string, change: 1 | -1) {
     const count = (pendingContextWrites.current.get(key) || 0) + change;
@@ -548,29 +779,39 @@ export default function App() {
     // A pending save can replace the old baseline even when newer typing has
     // returned to that baseline. Keep those exact fields until its ACK settles.
     const contextChanged = accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || hasPendingContextWrite();
+    // Returning to the old text is still an unfinished intent while an older
+    // write may replace that baseline. An unconfirmed POST retains the same
+    // protection until an acknowledged save establishes the actual result.
+    const captionsMayChange = (pendingCaptionWrites.current.get(projectMediaKey(saved)) || 0) > 0
+      || uncertainCaptionWrites.current.has(projectMediaKey(saved));
     const recovery = restoredRecovery.current?.key === projectMediaKey(saved) ? restoredRecovery.current : null;
     const conflict = conflictedSave.current?.key === projectMediaKey(saved) ? conflictedSave.current : null;
+    const appearanceState = getCaptionAppearanceSaveState(saved.id, saved.media);
+    const appearance = appearanceState.status !== 'saved' ? appearanceState.appearance : null;
     const result = recoveryStore.write({
       // An unrelated mutation can return foreign saved captions/context while
       // the whole local draft is preserved. Never silently rebase that draft:
       // its persisted comparison basis advances only with a guarded save ACK.
       project: conflict?.basis ?? recovery?.basis ?? ordinarySaveBasis.current ?? { ...saved, transcriptionContext: accuracyDraft.current.saved },
-      ...(dirtyRef.current || conflict ? { captions: draftRef.current } : {}),
+      ...(dirtyRef.current || conflict || captionsMayChange ? { captions: draftRef.current } : {}),
       ...(contextChanged || conflict ? { accuracy: accuracyDraft.current.fields } : {}),
-      ...(conflict ? { keepUnchangedCaptions: true } : {}),
+      ...(appearance && appearanceState.basis ? { appearance: { ...appearance }, appearanceBasis: { ...appearanceState.basis } } : {}),
+      ...(conflict || captionsMayChange ? { keepUnchangedCaptions: true } : {}),
     });
-    setRecoveryStorageError(result.status === 'unavailable' || result.status === 'too-large'
+    const unavailable = result.status === 'unavailable' || result.status === 'too-large' || Boolean(appearance && !appearanceState.basis);
+    setRecoveryStorageError(unavailable
       ? 'A recovery copy could not be kept in this browser. Keep this tab open until your changes save.' : '');
-    if (!conflict && !dirtyRef.current && !contextChanged && restoredRecovery.current?.key === projectMediaKey(saved)) {
+    if (!conflict && !dirtyRef.current && !captionsMayChange && !contextChanged && !appearance && restoredRecovery.current?.key === projectMediaKey(saved)) {
       recoveryStore.remove(restoredRecovery.current.origin);
       restoredRecovery.current = null;
     }
-    return result.status === 'saved' || result.status === 'cleared';
+    return !unavailable && (result.status === 'saved' || result.status === 'cleared');
   }
   async function reloadSavedProject() {
     const ticket = projectScope.current.capture();
     const captionRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
+    const appearanceRevision = currentAppearanceSave().revision;
     if (!captureUnfinishedRecovery()) {
       const confirmed = await confirmInStudio({
         title: 'Reload without a recovery copy?',
@@ -578,7 +819,8 @@ export default function App() {
         confirmLabel: 'Reload anyway',
       });
       if (!confirmed || !projectScope.current.isCurrent(ticket)
-        || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) return;
+        || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
+        || appearanceRevision !== currentAppearanceSave().revision) return;
     }
     window.location.reload();
   }
@@ -614,14 +856,26 @@ export default function App() {
     operationRevision.current += 1;
     return captureOperationIntent();
   }
+  function openNotifiedActivity() {
+    // This temporary notice disappears on entry or when the job advances. Give
+    // the dialog a persistent return target before it captures keyboard focus.
+    const returnTo = project
+      ? document.querySelector<HTMLElement>('[aria-label="Open project tools"]')
+      : document.querySelector<HTMLElement>('.home-tools button:not(:disabled)');
+    returnTo?.focus({ preventScroll: true });
+    setShowJobs(true);
+    dismissJobNotification();
+  }
   function closeHistory() {
     historyRead.current += 1;
+    pendingHistoryRead.current = null;
     setShowHistory(false);
     setHistoryEntries([]);
     setHistoryLoadState({ loading: false, loaded: false, error: '' });
   }
   function beginNavigation() {
     operationRevision.current += 1;
+    cancelUnfinishedRecovery();
     captureUnfinishedRecovery();
     closeHistory();
     setNotice('');
@@ -631,7 +885,6 @@ export default function App() {
     projectOpen.current?.abort();
     projectOpen.current = null;
     projectScope.current.invalidate();
-    setExportVisit(null);
     setExportRepair(null);
     exportRepairFocus.current = false;
     // Navigation can be canceled by an unsuccessful save, leaving the same media
@@ -651,6 +904,7 @@ export default function App() {
     return projectScope.current.capture();
   }
   async function goHome() {
+    const initiatingControl = document.activeElement;
     if (mediaMutationInFlight.current) {
       setNotice('Wait for the media change to finish before leaving this project.');
       return;
@@ -661,6 +915,7 @@ export default function App() {
     }
     const intent = requestNavigation();
     if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
+    const focusRequest = showAllProjects ? null : projectNavigationFocus.capture(initiatingControl);
     beginNavigation();
     projectScope.current.select(null);
     setProject(null);
@@ -676,6 +931,7 @@ export default function App() {
     setTime(0);
     setSelectionAnchor(null);
     setSelectionEnd(null);
+    projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('.empty-stage .dropzone'));
   }
   function changeProjectListView(allProjects: boolean) {
     if (project || busy) return;
@@ -686,16 +942,26 @@ export default function App() {
     restoreHomeProjectsFocus.current = !allProjects;
     setShowAllProjects(allProjects);
   }
-  async function loadProposal(projectId: string, proposalId: string, ticket: ProjectTicket, automatic = false) {
+  async function loadProposal(projectId: string, proposalId: string, ticket: ProjectTicket, automatic = false, submittedViewRevision?: number,
+    owner?: { isCurrent(): boolean; signal: AbortSignal }) {
     const request = ++proposalRead.current;
-    const value = await api.regenerationProposal(projectId, proposalId);
-    if (!projectScope.current.isCurrent(ticket) || request !== proposalRead.current) return false;
+    const readViewRevision = proposalViewRevision.current;
+    const value = await api.regenerationProposal(projectId, proposalId, owner?.signal);
+    if (!projectScope.current.isCurrent(ticket) || request !== proposalRead.current || owner?.signal.aborted || owner?.isCurrent() === false) return false;
     if (value.projectId !== projectId) throw new Error('This preview belongs to another project.');
+    if (automatic && (proposalViewRevision.current !== readViewRevision
+      || (submittedViewRevision === undefined ? Boolean(currentProposal.current) : proposalViewRevision.current !== submittedViewRevision))) {
+      setNotice(currentProposal.current
+        ? 'A new take is ready. Your current comparison is kept; open the result from Activity.'
+        : 'Regeneration preview ready. Open it from Activity when you are ready.');
+      return false;
+    }
     if (automatic && (dirtyRef.current || (media.current && !media.current.paused))) {
       setNotice('Regeneration preview ready. Open it from Activity when you are ready.');
       return false;
     }
     cancelPlayback();
+    proposalViewRevision.current += 1;
     setProposalEntry({ ticket, value });
     return true;
   }
@@ -762,6 +1028,7 @@ export default function App() {
     setMediaBackups([]);
     setMediaMutationError('');
     setRecoveryConflict(null);
+    setSelectedRecoveryKey(null);
     refreshUnfinishedRecoveries();
   }, [mediaKey]);
 
@@ -771,6 +1038,8 @@ export default function App() {
     window.addEventListener('beforeunload', protectPending);
     return () => window.removeEventListener('beforeunload', protectPending);
   }, [mediaMutationStatus, unfinishedChanges, profile?.defaultVocabulary]);
+  useEffect(() => { cancelUnfinishedRecovery(); }, [mediaKey]);
+  useEffect(() => () => { recoveryRead.current?.abort(); recoveryRead.current = null; }, []);
   useEffect(() => {
     const preserve = () => captureUnfinishedRecovery();
     const onStorage = () => refreshUnfinishedRecoveries();
@@ -824,16 +1093,22 @@ export default function App() {
     const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
     return schedulePlayback(() => {
       if (!media.current) return;
-      media.current.currentTime = Math.max(0, proposal.startMs - preRoll) / 1000;
+      armReviewPlayback('proposal', proposal.startMs - preRoll);
     });
   }, [proposal?.id, mediaKey]);
 
-  const applyProject = (next: CaptionProject, replaceDraft = true, options: { preserveSelection?: boolean } = {}) => {
+  const applyProject = (next: CaptionProject, replaceDraft = true, options: { preserveSelection?: boolean; reuseUnchangedDraft?: boolean } = {}) => {
     next = withCaptionWordTimings(next);
     projectOpen.current?.abort();
     projectOpen.current = null;
     setOpeningProjectId(null);
     const changedMedia = projectScope.current.capture().key !== projectMediaKey(next);
+    // An owned save may acknowledge the exact normalized draft. Preserve its
+    // row identities without mutating the response or discarding canonical data.
+    if (replaceDraft && options.reuseUnchangedDraft && !changedMedia
+      && JSON.stringify(next.captions) === JSON.stringify(draftRef.current)) {
+      next = { ...next, captions: draftRef.current };
+    }
     if (changedMedia) {
       generationModelAck.current = null;
       closeHistory();
@@ -858,7 +1133,7 @@ export default function App() {
     setProject(next);
     setProjects((items) => [summarizeProject(next), ...items.filter((item) => item.id !== next.id)]);
     if (replaceDraft) {
-      cancelPlayback();
+      cancelPlayback(Boolean(options.preserveSelection && !changedMedia));
       setDraft(next.captions);
       draftRef.current = next.captions;
       draftVersion.current += 1;
@@ -1032,6 +1307,9 @@ export default function App() {
   };
 
   const updateDraft = (next: CaptionSegment[], preferredSelectionId?: string, reason: DraftChangeReason = 'metadata') => {
+    if (wordBatchRunning.current && !wordBatchMutation.current) {
+      wordBatchController.current?.abort('captions-changed');
+    }
     stopEffectReplay();
     if (workspaceTool === 'timeline') cancelPlayback();
     const previous = new Map(draftRef.current.map((caption) => [caption.id, caption]));
@@ -1060,6 +1338,10 @@ export default function App() {
     () => uniqueLines(profile?.defaultVocabulary, vocabularyText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)),
     [profile?.defaultVocabulary, vocabularyText],
   );
+  const globalGlossaryMessage = globalGlossaryFeedback.ticket !== viewTicket ? ''
+    : globalGlossaryFeedback.savedVocabulary && JSON.stringify(profile?.defaultVocabulary) !== JSON.stringify(globalGlossaryFeedback.savedVocabulary)
+      ? 'Earlier glossary save completed. Newer global glossary choices and your current Accuracy text are kept.'
+      : globalGlossaryFeedback.message;
   const contextPayload = (): TranscriptionContext => accuracyPayload(accuracyDraft.current.fields, profile?.defaultVocabulary);
   const qaSettings = useMemo(() => resolveQaProfile(profile?.preferences.qaProfileId, profile?.preferences.qaCustom), [profile?.preferences.qaProfileId, profile?.preferences.qaCustom]);
   const mediaDurationMs = loadedMediaDurationMs || project?.transcript?.timing?.audioDurationMs;
@@ -1209,27 +1491,21 @@ export default function App() {
     if (valid.end !== selectionEnd) setSelectionEnd(valid.end);
   }, [draft, selectionAnchor, selectionEnd, time]);
 
-  const runProject = async (label: string, operation: () => Promise<CaptionProject>) => {
-    projectOpen.current?.abort();
-    projectOpen.current = null;
-    setOpeningProjectId(null);
-    setBusy(label);
-    setError('');
-    let ticket = projectScope.current.capture();
-    try {
-      const result = await operation();
-      if (!projectScope.current.isCurrent(ticket)) return null;
-      applyProject(result);
-      ticket = projectScope.current.capture();
-      return result;
-    } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Something went wrong');
-      return null;
-    } finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
-  };
-
   const refreshProfile = async () => {
-    try { setProfile(await api.profile()); } catch { /* optional */ }
+    const basis = profile;
+    try {
+      const received = await api.profile();
+      setProfile((current) => reconcileProfileAcknowledgement(current, basis, received));
+    } catch { /* optional */ }
+  };
+  const saveProfilePreferences = async (patch: Partial<AppProfile['preferences']>) => {
+    if (!profile) return;
+    const expected = { ...profile, preferences: { ...profile.preferences, ...patch } };
+    setProfile((current) => current ? { ...current, preferences: { ...current.preferences, ...patch } } : current);
+    try {
+      const received = await api.patchProfile({ preferences: patch });
+      setProfile((current) => reconcileProfileAcknowledgement(current, expected, received, { preferences: patch }));
+    } catch { /* Retain the existing optimistic local preference behavior. */ }
   };
 
   // Full-project same-media mutations and caption saves share one acknowledgement
@@ -1257,63 +1533,81 @@ export default function App() {
     const snapshot = draftRef.current;
     const version = draftVersion.current;
     const recovery = restoredRecovery.current?.key === ticket.key ? restoredRecovery.current : null;
-    const capturedBasis = ordinarySaveBasis.current;
+    // Blur, export and other prerequisites may request this same draft before
+    // its ACK clears dirty. Join its owned write, without replaying admission or
+    // weakening a later request to record correction evidence.
+    return captionSaveRequests.run({ ticket, snapshot, version, recovery,
+      recordCorrections: !recovery && recordCorrections }, () => {
+      const capturedBasis = ordinarySaveBasis.current;
+      let submitted = false;
+      trackCaptionWrite(ticket.key, 1);
+      captureUnfinishedRecovery();
 
-    const execute = async () => {
-      if (conflictedSave.current?.key === ticket.key) return null;
-      if (projectScope.current.isCurrent(ticket)) {
-        if (!silent) { setBusy('Saving captions…'); setError(''); }
-        setAutosaveState('saving');
-      }
-      try {
-        const result = await withCaptionAppearanceBarrier(targetProject.id, async () => {
-          const basis = projectScope.current.isCurrent(ticket) ? ordinarySaveBasis.current : capturedBasis;
-          // Restored drafts still carry recovery-only learning semantics, but a
-          // safe Appearance/context write may have advanced the saved revision.
-          const expectedUpdatedAt = checkedSaveRevision(recovery?.basis ?? basis, await api.get(targetProject.id), 'captions');
-          return api.saveCaptions(
-            targetProject.id, snapshot,
-            { filename: targetProject.media.filename, size: targetProject.media.size },
-            { expectedUpdatedAt, source, recordCorrections: recovery ? false : recordCorrections,
-              ...(recovery ? { recoveryExpectedUpdatedAt: expectedUpdatedAt } : {}) },
-          );
-        });
-        // Saving the old project's snapshot is valid; navigating back to it is not.
-        if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result.project) !== ticket.key) return result.project;
-        rememberSavedCaptions(result.project);
-        if (recovery) {
-          recovery.expectedUpdatedAt = result.project.updatedAt;
-          // A caption ACK does not adopt foreign Accuracy returned beside it.
-          recovery.basis = { ...withCaptionWordTimings(result.project), transcriptionContext: recovery.basis.transcriptionContext };
-        }
-        const unchanged = version === draftVersion.current;
-        if (unchanged) applyProject(result.project, true, { preserveSelection: true });
-        else {
-          const acknowledged = retainAccuracyContext(result.project);
-          setProject((current) => current?.id === result.project.id ? { ...acknowledged, captions: draftRef.current } : current);
-          setProjects((items) => [summarizeProject(result.project), ...items.filter((item) => item.id !== result.project.id)]);
-          setAutosaveState('pending');
-        }
-        captureUnfinishedRecovery();
-        if (result.correctionsCreated > 0) {
-          await refreshProfile();
-          if (projectScope.current.isCurrent(ticket)) setNotice(`${result.correctionsCreated} correction${result.correctionsCreated === 1 ? '' : 's'} captured in the Inbox.`);
-        } else if (!silent) setNotice('Captions saved.');
-        return result.project;
-      } catch (reason) {
-        if (projectScope.current.isCurrent(ticket)) {
-          protectSaveConflict(reason, ticket);
-          setCaptionSaveError(reason instanceof Error ? reason.message : 'Caption save failed.');
-          setAutosaveState('failed');
+      const execute = async () => {
+        try {
+          if (conflictedSave.current?.key === ticket.key) return null;
+          if (projectScope.current.isCurrent(ticket)) {
+            if (!silent) { setBusy('Saving captions…'); setError(''); }
+            setAutosaveState('saving');
+          }
+          const result = await withCaptionAppearanceBarrier(targetProject.id, async () => {
+            const basis = projectScope.current.isCurrent(ticket) ? ordinarySaveBasis.current : capturedBasis;
+            // Restored drafts still carry recovery-only learning semantics, but a
+            // safe Appearance/context write may have advanced the saved revision.
+            const expectedUpdatedAt = checkedSaveRevision(recovery?.basis ?? basis, await api.get(targetProject.id), 'captions');
+            submitted = true;
+            return api.saveCaptions(
+              targetProject.id, snapshot,
+              { filename: targetProject.media.filename, size: targetProject.media.size },
+              { expectedUpdatedAt, source, recordCorrections: recovery ? false : recordCorrections,
+                ...(recovery ? { recoveryExpectedUpdatedAt: expectedUpdatedAt } : {}) },
+            );
+          });
+          uncertainCaptionWrites.current.delete(ticket.key);
+          // Saving the old project's snapshot is valid; navigating back to it is not.
+          if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result.project) !== ticket.key) return result.project;
+          rememberSavedCaptions(result.project);
+          if (recovery) {
+            recovery.expectedUpdatedAt = result.project.updatedAt;
+            // A caption ACK does not adopt foreign Accuracy returned beside it.
+            recovery.basis = { ...withCaptionWordTimings(result.project), transcriptionContext: recovery.basis.transcriptionContext };
+          }
+          const unchanged = version === draftVersion.current;
+          if (unchanged) applyProject(result.project, true, { preserveSelection: true, reuseUnchangedDraft: true });
+          else {
+            const acknowledged = retainAccuracyContext(result.project);
+            setProject((current) => current?.id === result.project.id ? { ...acknowledged, captions: draftRef.current } : current);
+            setProjects((items) => [summarizeProject(result.project), ...items.filter((item) => item.id !== result.project.id)]);
+            setAutosaveState('pending');
+          }
           captureUnfinishedRecovery();
+          if (result.correctionsCreated > 0) {
+            await refreshProfile();
+            if (projectScope.current.isCurrent(ticket)) setNotice(`${result.correctionsCreated} correction${result.correctionsCreated === 1 ? '' : 's'} captured in the Inbox.`);
+          } else if (!silent) setNotice('Captions saved.');
+          return result.project;
+        } catch (reason) {
+          if (submitted) uncertainCaptionWrites.current.add(ticket.key);
+          if (projectScope.current.isCurrent(ticket)) {
+            protectSaveConflict(reason, ticket);
+            setCaptionSaveError(reason instanceof Error ? reason.message : 'Caption save failed.');
+            setAutosaveState('failed');
+            captureUnfinishedRecovery();
+          }
+          return null;
+        } finally {
+          trackCaptionWrite(ticket.key, -1);
+          if (projectScope.current.isCurrent(ticket)) {
+            captureUnfinishedRecovery();
+            if (!silent) setBusy('');
+          }
         }
-        return null;
-      } finally { if (!silent && projectScope.current.isCurrent(ticket)) setBusy(''); }
-    };
+      };
 
-    const task = saveQueue.current.then(execute, execute);
-    saveQueue.current = task.then(() => undefined, () => undefined);
-    return task;
+      const task = saveQueue.current.then(execute, execute);
+      saveQueue.current = task.then(() => undefined, () => undefined);
+      return task;
+    });
   };
 
   useEffect(() => {
@@ -1347,43 +1641,81 @@ export default function App() {
     } finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
-  const startWordHighlightPreparation = async () => {
+  const startWordHighlightPreparation = async (recheckUnavailable = false) => {
     if (!project || !canPrepareWordHighlights || wordBatchRunning.current || wordBatchMutation.current
       || mediaMutationInFlight.current || dirtyRef.current || compositionInProgress.current) return;
 
     const total = unresolvedWordCaptions.length;
     if (!total) return;
+    if (health?.timing.configured === false && !recheckUnavailable) {
+      setWordBatch({ ...EMPTY_WORD_BATCH, status: 'complete', total, pauseReason: 'unavailable' });
+      return;
+    }
 
     const target = project;
     const ticket = projectScope.current.capture();
     const controller = new AbortController();
+    const editRevision = draftEditRevision.current;
     const expectedMedia = { filename: target.media.filename, size: target.media.size };
+    const newerEdits = () => editRevision !== draftEditRevision.current || dirtyRef.current || compositionInProgress.current;
+    const owns = () => wordBatchController.current === controller && projectScope.current.isCurrent(ticket) && !controller.signal.aborted;
     wordBatchController.current = controller;
     wordBatchRunning.current = true;
-    setWordBatch({ ...EMPTY_WORD_BATCH, status: 'preparing', total });
-    setBusy('Preparing spoken-word timing…');
+    const checkingReadiness = health?.timing.configured === false;
+    const readinessTimingBasis = health?.timing;
+    setWordBatch({ ...EMPTY_WORD_BATCH, status: 'preparing', total, checkingReadiness });
+    setBusy(checkingReadiness ? 'Checking word timing setup…' : 'Preparing spoken-word timing…');
     setError('');
 
     let completed = 0;
     let applied = 0;
     let interruptedByBusy = false;
+    let pauseReason: WordHighlightBatchPause | undefined;
     let mutation: symbol | undefined;
     try {
+      if (checkingReadiness) {
+        const timer = window.setTimeout(() => controller.abort('readiness-timeout'), 15_000);
+        try {
+          const current = await api.health(controller.signal);
+          if (!owns()) return;
+          if (newerEdits()) { controller.abort('captions-changed'); return; }
+          // This read owns timing readiness only; keep newer connection/settings
+          // evidence published through the existing Settings workflow.
+          const timing = currentTimingStatus.current && currentTimingStatus.current !== readinessTimingBasis
+            ? currentTimingStatus.current : current.timing;
+          setHealth((previous) => previous && previous.timing !== readinessTimingBasis
+            ? previous : previous ? { ...previous, timing: current.timing } : current);
+          if (!timing.configured) { pauseReason = 'unavailable'; return; }
+        } catch (reason) {
+          if (!controller.signal.aborted || controller.signal.reason === 'readiness-timeout') {
+            pauseReason = reason instanceof ApiRequestError ? 'unavailable' : 'connection';
+          }
+          return;
+        } finally { window.clearTimeout(timer); }
+        if (!owns()) return;
+        setWordBatch((state) => ({ ...state, checkingReadiness: false }));
+        setBusy('Preparing spoken-word timing…');
+      }
       const result = await prepareWordHighlightBatch({
         captions: structuredClone(draftRef.current),
         signal: controller.signal,
         sync: (caption, signal) => {
-          if (health?.timing.configured === false) return Promise.reject(new Error('Local timing is unavailable.'));
+          if (newerEdits()) controller.abort('captions-changed');
+          if (!owns()) return Promise.reject(controller.signal.reason || new DOMException('Word sync stopped.', 'AbortError'));
           return api.syncCaptionWords(target.id, caption, expectedMedia, signal);
         },
         onProgress: (progress) => {
           completed = progress.completed;
           if (wordBatchController.current !== controller || !projectScope.current.isCurrent(ticket)) return;
+          if (newerEdits()) { controller.abort('captions-changed'); return; }
           setWordBatch((state) => ({ ...state, completed, total: progress.total }));
         },
       });
       interruptedByBusy = Boolean(result.interruptedByBusy);
+      pauseReason = result.pauseReason;
       if (!projectScope.current.isCurrent(ticket) || controller.signal.aborted || result.canceled) return;
+      // A changed project/source is not authority to apply any prepared snapshot.
+      if (pauseReason === 'project-changed') return;
       if (!result.ready.length) return;
       if (dirtyRef.current || compositionInProgress.current) {
         throw new Error('Captions changed during sync. Try syncing the remaining captions after your edits are saved.');
@@ -1421,7 +1753,10 @@ export default function App() {
         wordBatchController.current = null;
         wordBatchRunning.current = false;
         if (projectScope.current.isCurrent(ticket)) {
-          setWordBatch({ status: 'complete', completed, total, applied, canceled: controller.signal.aborted && !applied, interruptedByBusy });
+          if (controller.signal.reason === 'captions-changed') pauseReason = 'edits';
+          setWordBatch({ status: 'complete', completed, total, applied,
+            canceled: controller.signal.aborted && controller.signal.reason !== 'readiness-timeout' && !applied,
+            interruptedByBusy, pauseReason });
           setBusy('');
         }
       }
@@ -1488,16 +1823,101 @@ export default function App() {
     else setNotice('Every caption now has usable word timing.');
   };
 
-  const refreshJobs = async () => {
+  const refreshJobs = async (options: { feedback?: boolean; startup?: boolean; isCurrent?(): boolean } = {}) => {
+    if (options.feedback && !options.startup && manualJobRead.current !== null) return;
+    const read = ++jobReadGeneration.current;
+    if (options.feedback) {
+      manualJobRead.current = read;
+      setJobLoadState((current) => ({ ...current, loading: true }));
+    }
+    const ownsRead = () => options.isCurrent?.() !== false && read >= appliedJobRead.current;
+    const settleFeedback = () => {
+      if (manualJobRead.current !== null && read >= manualJobRead.current) manualJobRead.current = null;
+    };
     try {
       const items = await api.jobs();
+      if (!ownsRead()) return;
+      appliedJobRead.current = read;
+      settleFeedback();
       items.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status))
         .forEach((job) => trackedJobIds.current.add(job.id));
-      setJobs(items);
-    } catch { /* queue is optional during startup */ }
+      setJobs((current) => mergeJobSnapshot(current, items));
+      startupLoaded.current.add('Activity');
+      setStartupErrors((current) => current.includes('Activity') ? current.filter((label) => label !== 'Activity') : current);
+      setJobLoadState((current) => {
+        const loading = manualJobRead.current !== null;
+        return current.loaded && !current.error && current.loading === loading ? current : { loading, loaded: true, error: '' };
+      });
+    } catch {
+      if (!ownsRead()) return;
+      appliedJobRead.current = read;
+      settleFeedback();
+      setJobLoadState((current) => ({ ...current, loading: manualJobRead.current !== null, error: 'Could not update activity. Try again.' }));
+      if (options.startup && !startupLoaded.current.has('Activity')) {
+        setStartupErrors((current) => current.includes('Activity') ? current : [...current, 'Activity']);
+      }
+    } finally {
+      if (manualJobRead.current === read) {
+        manualJobRead.current = null;
+        if (options.isCurrent?.() !== false) setJobLoadState((current) => ({ ...current, loading: false }));
+      }
+    }
   };
 
+  const actOnJob = async (id: string, action: 'resume' | 'cancel') => {
+    if (pendingJobActionIds.current.has(id)) return;
+    const requestedJob = jobs.find((job) => job.id === id);
+    if (!requestedJob) return;
+    pendingJobActionIds.current.add(id);
+    appliedJobRead.current = ++jobReadGeneration.current;
+    if (action === 'resume') {
+      trackedJobIds.current.add(id);
+      // Resume retains the job's original input, not the current comparison draft.
+      proposalJobRevisions.current.delete(id);
+      // Ignore the old failure while listening for a new server observation.
+      handledJobVersions.current.set(id, jobObservation(requestedJob));
+    }
+    setPendingJobActions((current) => ({ ...current, [id]: action }));
+    try {
+      const updated = await (action === 'resume' ? api.resumeJob(id) : api.cancelJob(id));
+      appliedJobRead.current = ++jobReadGeneration.current;
+      // The mutation response is server evidence even if the following refresh
+      // fails. A late response must not replace a newer streamed job state.
+      setJobs((current) => current.map((job) => {
+        if (job.id !== id || job !== requestedJob && Date.parse(job.updatedAt) >= Date.parse(updated.updatedAt)) return job;
+        return updated;
+      }));
+    } catch {
+      setError(action === 'cancel'
+        ? 'Could not confirm the stop request. Check Activity and try again.'
+        : 'Could not confirm the resume request. Check Activity and try again.');
+    } finally {
+      pendingJobActionIds.current.delete(id);
+      setPendingJobActions((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      void refreshJobs();
+    }
+  };
+
+  const closeActivity = () => {
+    const pending = pendingJobResult.current;
+    if (pending) {
+      pending.request.abort();
+      if (projectOpen.current === pending.request) projectOpen.current = null;
+      pendingJobResult.current = null;
+      setOpeningJobId(null);
+      // Closing this surface withdraws its explicit Open intent, including a
+      // proposal read that follows a completed project read.
+      operationRevision.current += 1;
+      proposalRead.current += 1;
+    }
+    setShowJobs(false);
+  };
   const openJobResult = async (job: ProcessingJob) => {
+    if (pendingJobResult.current?.id === job.id) return;
     if (mediaMutationInFlight.current) {
       setNotice('Wait for the media change to finish before opening another result.');
       return;
@@ -1507,54 +1927,101 @@ export default function App() {
       return;
     }
     const intent = requestNavigation();
+    pendingJobResult.current?.request.abort();
+    const pending = { id: job.id, request: new AbortController() };
+    pendingJobResult.current = pending;
+    setOpeningJobId(job.id);
     let ticket = intent.ticket;
+    let navigationRevision = intent.revision;
     setError('');
     try {
-      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
+      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)
+        || pendingJobResult.current !== pending) return;
       ticket = beginNavigation();
+      navigationRevision = operationRevision.current;
+      projectOpen.current = pending.request;
       const readRevision = draftEditRevision.current;
       const contextRevision = accuracyDraft.current.editRevision;
+      const appearanceRevision = currentAppearanceSave().revision;
       const contextObservation = accuracyDraft.current.capture(ticket);
-      const target = await api.get(job.resultProjectId || job.projectId);
-      if (!projectScope.current.isCurrent(ticket)) return;
-      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)) {
+      const target = await api.get(job.resultProjectId || job.projectId, pending.request.signal);
+      if (pending.request.signal.aborted || projectOpen.current !== pending.request || pendingJobResult.current !== pending
+        || operationRevision.current !== navigationRevision || !projectScope.current.isCurrent(ticket)) return;
+      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
+        || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
         setNotice('Newer edits arrived while the result was loading. They are kept here; open the result again when you are ready.');
         return;
       }
+      // The GET is settled. Applying it may perform further proposal reads;
+      // do not mark this navigation aborted merely because its first read ended.
+      projectOpen.current = null;
       publishContextProject(target, contextObservation);
       applyProject(target);
       ticket = projectScope.current.capture();
       if (job.proposalId) {
-        if (!await loadProposal(target.id, job.proposalId, ticket) || !projectScope.current.isCurrent(ticket)) return;
+        if (!await loadProposal(target.id, job.proposalId, ticket, false, undefined, {
+          signal: pending.request.signal,
+          isCurrent: () => pendingJobResult.current === pending && operationRevision.current === navigationRevision,
+        }) || !projectScope.current.isCurrent(ticket)
+          || pendingJobResult.current !== pending || operationRevision.current !== navigationRevision) return;
         setNotice('Regeneration preview opened. Current captions remain untouched until you approve it.');
       } else setNotice(compatibilityTranscriptionNotice(target) || (job.resultExport ? 'Export project opened. Compare the video with current content in Activity.' : 'Completed caption job opened.'));
       setShowJobs(false);
-      handledJobIds.current.add(job.id);
+      handledJobVersions.current.set(job.id, jobObservation(job));
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not open the job result');
+      if (!pending.request.signal.aborted && pendingJobResult.current === pending
+        && operationRevision.current === navigationRevision && projectScope.current.isCurrent(ticket)) {
+        setError(reason instanceof Error ? reason.message : 'Could not open the job result. Try opening it again from Activity.');
+      }
+    } finally {
+      if (projectOpen.current === pending.request) projectOpen.current = null;
+      if (pendingJobResult.current === pending) { pendingJobResult.current = null; setOpeningJobId(null); }
     }
   };
 
+  const shouldPollJobs = showJobs || jobs.some((job) => ['queued', 'running'].includes(job.status));
   useEffect(() => {
-    const activeNow = jobs.some((job) => ['queued', 'running'].includes(job.status));
-    if (!activeNow && !showJobs) return;
-    const timer = window.setInterval(() => { void refreshJobs(); }, 1000);
-    return () => window.clearInterval(timer);
-  }, [jobs, showJobs]);
+    if (!shouldPollJobs) return;
+    let disposed = false;
+    let timer: number;
+    const poll = async () => {
+      await refreshJobs({ isCurrent: () => !disposed });
+      if (!disposed) timer = window.setTimeout(() => void poll(), 1000);
+    };
+    timer = window.setTimeout(() => void poll(), 1000);
+    return () => { disposed = true; window.clearTimeout(timer); };
+  }, [shouldPollJobs]);
+
+  useEffect(() => {
+    setJobNotification((current) => current && jobs.some((job) => job.id === current.id && jobObservation(job) === current.observation) ? current : null);
+  }, [jobs]);
 
   useEffect(() => {
     if (mediaMutationInFlight.current || pendingMediaReplacement || showMediaBackups) return;
     for (const job of jobs) {
-      if (!trackedJobIds.current.has(job.id) || handledJobIds.current.has(job.id)) continue;
+      const observation = jobObservation(job);
+      if (!trackedJobIds.current.has(job.id) || handledJobVersions.current.get(job.id) === observation) continue;
       if (job.status === 'completed') {
+        const submittedViewRevision = proposalJobRevisions.current.get(job.id);
+        proposalJobRevisions.current.delete(job.id);
         if (project?.id === job.projectId) {
-          handledJobIds.current.add(job.id);
+          handledJobVersions.current.set(job.id, observation);
           const ticket = projectScope.current.capture();
           const version = draftVersion.current;
+          const notificationRevision = jobNotificationRevision.current;
+          const activityRevision = jobsViewRevision.current;
+          const reportResultReadFailure = () => {
+            if (!projectScope.current.isCurrent(ticket) || handledJobVersions.current.get(job.id) !== observation
+              || jobNotificationRevision.current !== notificationRevision) return;
+            notifyJob(job, 'Processing completed, but the result could not be loaded. Open Activity and choose Open result to try again.');
+          };
           if (job.proposalId) {
-            void loadProposal(job.projectId, job.proposalId, ticket, true)
-              .then((opened) => { if (opened && projectScope.current.isCurrent(ticket)) { setShowJobs(false); setNotice('Regeneration preview ready. Review it before applying.'); } })
-              .catch((reason) => { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not open regeneration preview'); });
+            void loadProposal(job.projectId, job.proposalId, ticket, true, submittedViewRevision)
+              .then((opened) => { if (opened && projectScope.current.isCurrent(ticket)) {
+                if (jobsViewRevision.current === activityRevision) setShowJobs(false);
+                setNotice('Regeneration preview ready. Review it before applying.');
+              } })
+              .catch(reportResultReadFailure);
           } else if (job.resultProjectId) {
             const contextObservation = accuracyDraft.current.capture(ticket);
             void api.get(job.resultProjectId).then((value) => {
@@ -1569,19 +2036,22 @@ export default function App() {
               publishContextProject(value, contextObservation);
               applyProject(value);
               setNotice(compatibilityNotice || 'Background caption generation completed.');
-            }).catch(() => {});
+            }).catch(reportResultReadFailure);
           } else if (job.resultExport) {
             setNotice(`Captioned video ready: ${job.resultExport.filename}. Open Activity to download it.`);
           }
         }
       } else if (job.status === 'failed') {
-        handledJobIds.current.add(job.id);
-        setError(job.error || 'Background processing failed. Open Jobs to retry.');
-        setShowJobs(true);
-      } else if (job.status === 'interrupted' && project?.id === job.projectId) {
-        handledJobIds.current.add(job.id);
-        setNotice('Studio restarted while this job was running. Open Activity and choose Resume to continue from saved checkpoints.');
-        setShowJobs(true);
+        proposalJobRevisions.current.delete(job.id);
+        handledJobVersions.current.set(job.id, observation);
+        notifyJob(job, job.error || 'Processing could not finish. Open Activity to review the result and retry.');
+      } else if (job.status === 'interrupted') {
+        handledJobVersions.current.set(job.id, observation);
+        notifyJob(job, job.canResume
+          ? 'Processing was interrupted. Open Activity and choose Resume to continue from saved progress.'
+          : job.message || 'Processing needs attention. Open Activity to check its saved outcome.', false);
+      } else if (job.status === 'cancelled') {
+        proposalJobRevisions.current.delete(job.id);
       }
     }
   }, [jobs, project?.id, pendingMediaReplacement, showMediaBackups, mediaMutationStatus]);
@@ -1595,20 +2065,30 @@ export default function App() {
       return null;
     }
     const ownsPreparation = captionJob && !generationPreparation.current;
+    const submittedViewRevision = proposalViewRevision.current;
+    const submittedActivityRevision = jobsViewRevision.current;
     if (ownsPreparation) { generationPreparation.current = true; setGenerationPreparing(true); }
     setError('');
     try {
       const job = await operation();
-      trackedJobIds.current.add(job.id);
-      handledJobIds.current.delete(job.id);
-      setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
-      if (isCurrentOperation(intent)) {
-        if (openQueue) setShowJobs(true);
-        setNotice(message);
+      if ((job.type === 'refine-proposal' || job.type === 'regenerate-range') && !handledJobVersions.current.has(job.id)) {
+        proposalJobRevisions.current.set(job.id, submittedViewRevision);
       }
-      return job;
+      appliedJobRead.current = ++jobReadGeneration.current;
+      trackedJobIds.current.add(job.id);
+      // A fast job can finish before its initial POST acknowledgement arrives.
+      // Keep the newest observed result and its already handled completion.
+      const observed = mergeJobSnapshot(jobItems.current, [job])[0];
+      setJobs((current) => [observed, ...current.filter((item) => item.id !== job.id)]);
+      if (isCurrentOperation(intent)) {
+        if (openQueue && jobsViewRevision.current === submittedActivityRevision) setShowJobs(true);
+        if (observed.status === 'queued' || observed.status === 'running') setNotice(message);
+      }
+      return observed;
     } catch (reason) {
-      if (isCurrentOperation(intent)) setError(reason instanceof Error ? reason.message : 'Could not start processing job');
+      if (isCurrentOperation(intent)) setError(reason instanceof ApiRequestError
+        ? reason.message
+        : 'The request outcome could not be confirmed. Check Activity for accepted work before starting another request.');
       return null;
     } finally {
       if (ownsPreparation) { generationPreparation.current = false; setGenerationPreparing(false); }
@@ -1626,17 +2106,15 @@ export default function App() {
   };
   const replayProposal = (focusMs?: number) => {
     if (!media.current || !proposal || !projectScope.current.isCurrent(viewTicket)) return;
-    cancelPlayback();
     const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
     const start = typeof focusMs === 'number' ? focusMs : proposal.startMs;
-    media.current.currentTime = Math.max(0, start - preRoll) / 1000;
+    armReviewPlayback('proposal', start - preRoll);
     media.current.play().catch(() => {});
   };
   const playReviewSelection = (pass: ReviewPlaybackPass = 'focus') => {
     if (!media.current || !selection.captions.length || !projectScope.current.isCurrent(viewTicket)) return;
-    cancelPlayback();
     reviewPlaybackPass.current = pass;
-    media.current.currentTime = Math.max(0, selection.startMs - reviewLeadMs(pass)) / 1000;
+    armReviewPlayback('review', selection.startMs - reviewLeadMs(pass));
     media.current.play().catch(() => {});
   };
   const replaySelection = () => playReviewSelection('focus');
@@ -1651,10 +2129,9 @@ export default function App() {
     const caption = draftRef.current.find((item) => item.id === id);
     if (!caption) return;
     reviewPlaybackPass.current = 'context';
-    media.current?.pause();
     setSelectionAnchor(id);
     setSelectionEnd(id);
-    seek(caption.startMs - reviewLeadMs('context'));
+    armReviewPlayback('review', caption.startMs - reviewLeadMs('context'), true);
     schedulePlayback(() => {
       editor.current?.revealCaption(id);
       if (play) media.current?.play().catch(() => {});
@@ -1663,7 +2140,9 @@ export default function App() {
   const selectRisk = (delta: number, play = false) => {
     if (!riskyIds.length) return;
     const current = riskyIds.findIndex((id) => selection.ids.includes(id));
-    const nextIndex = current < 0 ? 0 : Math.max(0, Math.min(riskyIds.length - 1, current + delta));
+    const nextIndex = current + delta;
+    // Keyboard navigation shares the disabled Previous/Skip boundaries.
+    if (nextIndex < 0 || nextIndex >= riskyIds.length) return;
     moveToReviewCaption(riskyIds[nextIndex], play);
   };
   const shiftSelection = (delta: number) => {
@@ -1672,17 +2151,7 @@ export default function App() {
     const targets = draftRef.current.filter((caption) => selected.has(caption.id));
     if (!targets.length) return;
     if (targets.some((caption) => caption.timingLocked)) { setNotice('Unlock the selected timing before moving these captions together.'); return; }
-    const minimum = Math.min(...targets.map((caption) => caption.startMs));
-    const maximum = Math.max(...targets.map((caption) => caption.endMs));
-    const outsiders = draftRef.current.filter((caption) => !selected.has(caption.id));
-    let lower = -minimum;
-    let upper = mediaDurationMs ? mediaDurationMs - maximum : Number.MAX_SAFE_INTEGER;
-    for (const caption of targets) {
-      const limits = captionNeighborLimits([...outsiders, caption], caption.id, mediaDurationMs || Number.MAX_SAFE_INTEGER);
-      lower = Math.max(lower, limits.lower - caption.startMs);
-      upper = Math.min(upper, limits.upper - caption.endMs);
-    }
-    const safeDelta = Math.max(lower, Math.min(delta, upper));
+    const safeDelta = limitCaptionSelectionDelta(draftRef.current, selected, delta, mediaDurationMs || Number.MAX_SAFE_INTEGER);
     if (safeDelta !== delta) setNotice('Reached a caption outside the selection. Other captions stayed in place.');
     if (!safeDelta) return;
     updateDraft(draftRef.current.map((caption) => selected.has(caption.id)
@@ -1692,16 +2161,23 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
       const target = event.target as HTMLElement | null;
       if (document.querySelector('[aria-modal="true"]') || target?.closest('[data-editor-layout-control]')) return;
       const typing = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      const command = event.ctrlKey !== event.metaKey && !event.altKey && !event.shiftKey;
+      if (command && event.key.toLowerCase() === 's') {
         event.preventDefault(); void manualSaveFeedback.run(() => saveUnfinishedChanges(false)); return;
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && project) {
+      if (command && event.key.toLowerCase() === 'f' && project) {
         event.preventDefault(); setShowFindReplace(true); return;
       }
+      // Native player controls retarget their keyboard events to the media host.
+      // Keep their playback, volume and dismissal keys out of caption shortcuts.
+      if (target?.closest('video, audio')) return;
+      // Only the documented chords belong to the editor. Browser/system
+      // shortcuts must never become a bare playback or approval action.
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey && !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       if (event.key === 'Escape') {
         if (proposal) { setProposal(null); return; }
         if (showGuide) { setShowGuide(false); return; }
@@ -1709,6 +2185,7 @@ export default function App() {
           setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
         }
         if (workspaceTool) {
+          cancelPlayback();
           setWorkspaceTool(null);
           setReviewMode(false);
           if (workspaceTool === 'accuracy') {
@@ -1719,8 +2196,10 @@ export default function App() {
         }
         return;
       }
-      if (typing || !project || target?.closest('button, select, summary, [role="button"], [role="slider"], [role="combobox"]')) return;
-      if (event.key === ' ') {
+      if (typing || !project || target?.matches('[data-media-preview-focus]') || target?.closest('button, select, summary, [role="button"], [role="slider"], [role="combobox"]')) return;
+      if (event.altKey) {
+        event.preventDefault(); shiftSelection(event.key === 'ArrowLeft' ? -50 : 50);
+      } else if (event.key === ' ') {
         event.preventDefault(); if (media.current?.paused) media.current.play().catch(() => {}); else media.current?.pause();
       } else if (event.key.toLowerCase() === 'r') {
         event.preventDefault(); replaySelection();
@@ -1732,12 +2211,8 @@ export default function App() {
         event.preventDefault(); selectRisk(1);
       } else if (reviewMode && !proposal && event.key === 'ArrowUp') {
         event.preventDefault(); selectRisk(-1);
-      } else if (event.altKey && event.key === 'ArrowLeft') {
-        event.preventDefault(); shiftSelection(-50);
-      } else if (event.altKey && event.key === 'ArrowRight') {
-        event.preventDefault(); shiftSelection(50);
       } else if (reviewMode && !proposal && (event.key === 'Enter' || event.key.toLowerCase() === 'a')) {
-        event.preventDefault(); approveAndNext();
+        event.preventDefault(); if (!event.repeat) approveAndNext();
       } else if (reviewMode && !proposal && event.key.toLowerCase() === 's') {
         event.preventDefault(); selectRisk(1, profile?.preferences.autoPlayNextReview ?? true);
       }
@@ -1750,13 +2225,19 @@ export default function App() {
     if (media.current !== element || !projectScope.current.isCurrent(viewTicket)) return;
     setTime(element.currentTime);
     const proposalPostRoll = profile?.preferences.reviewPostRollMs ?? 300;
-    if (proposal && proposalLoop && !element.paused && element.currentTime * 1000 >= proposal.endMs + proposalPostRoll) {
+    const owner = reviewPlaybackOwner.current;
+    // The new seek position is observable before its native seeking event.
+    // Never pull the playhead back while that newer action is still pending.
+    if (element.seeking) return;
+    if (proposal && proposalLoop && owner?.active && owner.media === element && owner.kind === 'proposal'
+      && !element.paused && element.currentTime * 1000 >= proposal.endMs + proposalPostRoll) {
       replayProposal();
       return;
     }
     const autoLoop = profile?.preferences.autoLoopReview ?? true;
     const reviewPostRoll = reviewTailMs(reviewPlaybackPass.current);
-    if (reviewMode && autoLoop && selection.captions.length && !element.paused && element.currentTime * 1000 >= selection.endMs + reviewPostRoll) {
+    if (reviewMode && autoLoop && owner?.active && owner.media === element && owner.kind === 'review'
+      && selection.captions.length && !element.paused && element.currentTime * 1000 >= selection.endMs + reviewPostRoll) {
       playReviewSelection('focus');
     }
   };
@@ -1780,10 +2261,14 @@ export default function App() {
     if (media.current) media.current.playbackRate = rate;
   };
 
-  const openRecentProject = async (id: string) => {
-    if (!profile || busy || mediaMutationInFlight.current) return;
+  const openRecentProject = async (id: string): Promise<boolean> => {
+    const initiatingControl = document.activeElement;
+    if (!profile || busy || mediaMutationInFlight.current) return false;
+    const uploadReminder = captureUploadRecoveryForProject(id);
     const intent = requestNavigation();
-    if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
+    if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return false;
+    const focusRequest = projectNavigationFocus.capture(initiatingControl);
+    let focusCompleted = false;
     const ticket = beginNavigation();
     const request = new AbortController();
     projectOpen.current = request;
@@ -1792,29 +2277,84 @@ export default function App() {
     try {
       const readRevision = draftEditRevision.current;
       const contextRevision = accuracyDraft.current.editRevision;
+      const appearanceRevision = currentAppearanceSave().revision;
       const contextObservation = accuracyDraft.current.capture(ticket);
       const value = await api.get(id, request.signal);
       if (projectScope.current.isCurrent(ticket) && projectOpen.current === request && !request.signal.aborted) {
-        if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)) {
+        if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
+          || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
           setNotice('Newer edits arrived while the project was loading. Save them before opening another project.');
-          return;
+          return false;
         }
         publishContextProject(value, contextObservation);
         applyProject(value);
+        clearUploadRecoveryForProject(id, uploadReminder);
+        projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+        focusCompleted = true;
+        return true;
       }
     } catch (reason) {
       if (projectOpen.current === request && !request.signal.aborted) {
         setError(reason instanceof Error ? reason.message : 'Could not open project. Try again.');
+        projectNavigationFocus.complete(focusRequest, () => focusRequest?.owner || null);
+        focusCompleted = true;
       }
     } finally {
       if (projectOpen.current === request) { projectOpen.current = null; setOpeningProjectId(null); }
+      if (!focusCompleted) projectNavigationFocus.cancel(focusRequest);
     }
+    return false;
   };
 
-  const upload = async (file: File, title: string) => {
-    if (mediaMutationInFlight.current) return null;
-    beginNavigation();
-    return runProject('Uploading…', () => api.create(file, title));
+  const checkUploadAttempt = async (attemptId: string): Promise<UploadRecoveryResult> => {
+    const ticket = projectScope.current.capture();
+    // The exact receipt owns this outcome. Updating unrelated collection cards
+    // may finish later and already has its own reconciliation and request gate.
+    void refreshProjects();
+    try {
+      const saved = await api.get(attemptId);
+      if (saved.id === attemptId) {
+        if (projectScope.current.isCurrent(ticket)) setProjects((current) => current.some((item) => item.id === attemptId)
+          ? current : [summarizeProject(saved), ...current]);
+        return { state: 'found', project: { id: saved.id, title: saved.title } };
+      }
+    } catch {
+      // A failed read cannot distinguish an unpublished attempt from a lost ACK.
+    }
+    // A missing record does not prove failure: the original upload may still be
+    // publishing. Only its exact attempt can be retried or deliberately opened.
+    return { state: 'uncertain', message: 'Studio could not confirm whether this upload was saved. Check again or retry this same upload.' };
+  };
+  const upload = async (file: File, title: string, attemptId: string): Promise<UploadResult> => {
+    if (mediaMutationInFlight.current) return { state: 'not-created', message: 'Wait for the media change to finish, then retry this upload.' };
+    const focusRequest = projectNavigationFocus.capture(document.activeElement);
+    let focusCompleted = false;
+    let ticket = beginNavigation();
+    setBusy('Uploading…');
+    setError('');
+    try {
+      const result = await api.create(file, title, attemptId);
+      if (!projectScope.current.isCurrent(ticket)) return { state: 'uncertain', project: { id: result.id, title: result.title }, message: 'This upload was saved. Open its saved project when you are ready.' };
+      applyProject(result);
+      ticket = projectScope.current.capture();
+      if (result.creation?.orderSaved === false) setNotice('Project saved, but its order in Recent projects could not be saved.');
+      projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+      focusCompleted = true;
+      return { state: 'opened' };
+    } catch (reason) {
+      if (reason instanceof ApiRequestError && (reason.code === 'PROJECT_CREATE_NOT_APPLIED' || reason.code === 'PROJECT_CREATE_ATTEMPT_MISMATCH')) {
+        // Upload owns the persistent, actionable alert for this exact attempt.
+        // A second global toast repeats it and can cover the next Home action.
+        return { state: 'not-created', message: reason.message, retryable: reason.retryable ?? reason.code !== 'PROJECT_CREATE_ATTEMPT_MISMATCH' };
+      }
+      const recovery = await checkUploadAttempt(attemptId);
+      return recovery.state === 'found'
+        ? { state: 'uncertain', project: recovery.project, message: 'This upload was saved. Open its saved project to continue.' }
+        : recovery;
+    } finally {
+      if (projectScope.current.isCurrent(ticket)) setBusy('');
+      if (!focusCompleted) projectNavigationFocus.cancel(focusRequest);
+    }
   };
   const replaceMedia = (file?: File) => {
     if (!file || !project || mediaMutationInFlight.current || busy || currentProjectAnyActiveJob) return;
@@ -2246,11 +2786,18 @@ export default function App() {
   async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true): Promise<boolean> {
     if (!isCurrentIntent()) return false;
     if (!project) return true;
+    if (currentAppearanceSave().conflict) {
+      setNotice('The saved appearance changed. Download your edits and reload the saved project to compare.');
+      return false;
+    }
     if (compositionInProgress.current) {
       setNotice('Finish the current text input before saving or leaving.');
       return false;
     }
     const ticket = projectScope.current.capture();
+    const captionRevision = draftEditRevision.current;
+    const contextRevision = accuracyDraft.current.editRevision;
+    const appearanceRevision = currentAppearanceSave().revision;
     const pending = saveQueue.current;
     await pending;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
@@ -2259,12 +2806,22 @@ export default function App() {
       setNotice('Changes are still being saved or entered. Wait for them to finish before leaving.');
       return false;
     }
-    const captionRevision = draftEditRevision.current;
-    const contextRevision = accuracyDraft.current.editRevision;
+    if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
+      || appearanceRevision !== currentAppearanceSave().revision) {
+      setNotice('Newer changes arrived while saving. Your project is still open; save again when you are ready.');
+      return false;
+    }
     if (dirtyRef.current && !await saveDraft(silent, 'manual-save', true)) return false;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && !await saveContext(silent)) return false;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
+    if (flushAppearanceSave.current && !await flushAppearanceSave.current()) return false;
+    if (!await flushCaptionAppearanceSaves(project.id, project.media)) return false;
+    if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
+    if (appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
+      setNotice('Newer appearance changes arrived while saving. Your project is still open; continue when you are ready.');
+      return false;
+    }
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
       || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) {
       setNotice('Newer changes are still unsaved. Save them before leaving.');
@@ -2274,27 +2831,42 @@ export default function App() {
   }
 
   const restoreUnfinishedDraft = async (entry: RecoveryEntry) => {
-    if (!project || busy || recoveryWorking || mediaMutationInFlight.current || wordBatchMutation.current || currentProjectAnyActiveJob) return;
-    if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current) {
+    if (!project || busy || recoveryRead.current || mediaMutationInFlight.current || wordBatchMutation.current || currentProjectAnyActiveJob) return;
+    if (!recoveryStore.contains(entry)) { refreshUnfinishedRecoveries(); return; }
+    if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current || currentAppearanceSave().status !== 'saved') {
       setNotice('Save your current edits before restoring another draft.');
       return;
     }
     const ticket = projectScope.current.capture();
     const captionRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
+    const appearanceRevision = currentAppearanceSave().revision;
     const observation = accuracyDraft.current.capture(ticket);
+    const focusRequest = projectNavigationFocus.capture();
+    const request = new AbortController();
+    recoveryRead.current = request;
+    const owns = () => recoveryRead.current === request && !request.signal.aborted && projectScope.current.isCurrent(ticket);
+    let focusCompleted = false;
     setRecoveryWorking(true);
     try {
-      const latest = withCaptionWordTimings(await api.get(project.id));
-      if (!projectScope.current.isCurrent(ticket)) return;
+      const latest = withCaptionWordTimings(await api.get(project.id, request.signal));
+      if (!owns()) return;
+      if (!recoveryStore.contains(entry)) {
+        setNotice('That recovery copy was removed or changed. Your current project is kept.');
+        refreshUnfinishedRecoveries();
+        return;
+      }
       if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
-        || dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current) {
+        || dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current
+        || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
         setNotice('Newer edits are still here. Save them before restoring this draft.');
         return;
       }
       const compatibility = assessRecovery(entry, latest);
       if (compatibility !== 'matching') {
-        setNotice('The saved project or media has changed. Download this draft to compare your edits.');
+        setNotice(compatibility === 'already-saved'
+          ? 'This appearance is already saved. You can download or discard its recovery copy.'
+          : 'The saved project or media has changed. Download this draft to compare your edits.');
         // A refused restore does not make the old visible editor a draft based
         // on this newer server state. Only the offer's eligibility changes.
         setRecoveryConflict({ key: entry.key, raw: entry.raw, status: compatibility });
@@ -2302,18 +2874,38 @@ export default function App() {
         return;
       }
       const captions = restoredCaptions(entry, latest);
+      const appearance = restoredAppearance(entry, latest);
       publishContextProject(latest, observation);
       applyProject(latest, true, { preserveSelection: true });
+      observeSavedCaptionAppearance(latest.id, normalizeCaptionAppearance(latest.captionAppearance), latest.media);
       restoredRecovery.current = { key: ticket.key, expectedUpdatedAt: latest.updatedAt, basis: latest, origin: entry };
       if (captions) updateDraft(captions, undefined, 'text');
       if (entry.draft.accuracy) editAccuracyFields(entry.draft.accuracy);
+      if (appearance) {
+        markCaptionAppearanceDraft(latest.id, appearance, latest.media, normalizeCaptionAppearance(latest.captionAppearance));
+        setLiveAppearance({ mediaKey: ticket.key, appearance });
+        // Restore is explicit. Its normal save is still compared atomically with
+        // the freshly checked look; merely opening a recovery offer never writes.
+        void queueCaptionAppearanceSave(latest.id, appearance, latest.media);
+      }
       captureUnfinishedRecovery();
       refreshUnfinishedRecoveries();
       if (!captions && entry.draft.accuracy) { setWorkspaceTool('accuracy'); setReviewMode(false); }
-      setNotice('Draft restored for review. Changed captions need approval again.');
+      else if (!captions && appearance) { setWorkspaceTool('appearance'); setReviewMode(false); }
+      setNotice(captions ? 'Draft restored for review. Changed captions need approval again.' : 'Draft restored. Its changes use the normal save protection.');
+      projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+      focusCompleted = true;
     } catch {
-      if (projectScope.current.isCurrent(ticket)) setError('Could not check the saved project. Your recovery draft is still available; try restoring again.');
-    } finally { setRecoveryWorking(false); }
+      if (owns()) setError('Could not check the saved project. Your recovery draft is still available; try restoring again.');
+    } finally {
+      if (recoveryRead.current === request) {
+        recoveryRead.current = null;
+        setRecoveryWorking(false);
+        if (!focusCompleted && projectScope.current.isCurrent(ticket)) projectNavigationFocus.complete(focusRequest, () =>
+          document.querySelector<HTMLElement>('.unfinished-recovery .primary') || document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+        else if (!focusCompleted) projectNavigationFocus.cancel(focusRequest);
+      } else projectNavigationFocus.cancel(focusRequest);
+    }
   };
 
   const downloadDraftText = (raw: string) => {
@@ -2338,6 +2930,8 @@ export default function App() {
       captions: draftRef.current.map(({ id, text, startMs, endMs, textLocked, timingLocked }) =>
         ({ id, text, startMs, endMs, textLocked: Boolean(textLocked), timingLocked: Boolean(timingLocked) })),
       accuracy: { ...accuracyDraft.current.fields },
+      ...(recoverUnsavedCaptionAppearance(project.id, project.media)
+        ? { appearance: recoverUnsavedCaptionAppearance(project.id, project.media) } : {}),
     }, null, 2));
   };
   const discardUnfinishedDraft = async (entry: RecoveryEntry) => {
@@ -2347,20 +2941,62 @@ export default function App() {
   };
 
   const saveDefaultGlossary = async () => {
-    if (!profile) return;
+    if (!profile || !project || busy || globalGlossaryWrite.current) return;
+    const ticket = projectScope.current.capture();
+    const revision = accuracyDraft.current.editRevision;
+    const basis = profile;
+    const submitted = uniqueContextLines(profile.defaultVocabulary, accuracyDraft.current.fields.vocabulary.split(/\r?\n/));
+    const report = (error: boolean, message: string, savedVocabulary?: string[]) => {
+      if (projectScope.current.isCurrent(ticket)) setGlobalGlossaryFeedback({ ticket, error, message, savedVocabulary });
+    };
+    globalGlossaryWrite.current = true;
+    setGlobalGlossarySaving(true);
+    report(false, '');
     setBusy('Saving global glossary…');
-    try { setProfile(await api.patchProfile({ defaultVocabulary: vocabularyLines })); setNotice('Global glossary saved.'); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Glossary save failed'); }
-    finally { setBusy(''); }
+    try {
+      const saved = await api.patchProfile({ defaultVocabulary: submitted });
+      setProfile((current) => reconcileProfileAcknowledgement(current, basis, saved, { defaultVocabulary: submitted }));
+      if (JSON.stringify(uniqueContextLines(saved.defaultVocabulary)) !== JSON.stringify(submitted)) {
+        report(true, 'Some glossary terms were not saved. Your text is kept. Shorten the list or long terms, then try again.');
+        return;
+      }
+      report(false, accuracyDraft.current.editRevision === revision
+        ? 'Global glossary saved.'
+        : 'Earlier glossary saved globally. Your newer Accuracy edits are kept; save again to include newer terms.', saved.defaultVocabulary);
+    } catch {
+      report(true, 'Could not save the global glossary. Your text is kept; try again.');
+    } finally {
+      globalGlossaryWrite.current = false;
+      setGlobalGlossarySaving(false);
+      setBusy((current) => current === 'Saving global glossary…' ? '' : current);
+    }
   };
   const saveStyle = async () => {
-    if (!profile || !project) return;
+    if (!profile || !project || groupingPresetWrite.current) return;
+    groupingPresetWrite.current = true;
+    setGroupingPresetSaving(true);
+    setError('');
     const next = { id: 'my-tiktok-style', name: 'My TikTok Style', mode: groupingMode, maxChars };
     const styles = [...profile.styles];
     const index = styles.findIndex((style) => style.id === next.id);
     if (index >= 0) styles[index] = next; else styles.unshift(next);
-    try { setProfile(await api.patchProfile({ styles })); setNotice('Caption grouping saved to your transferable profile.'); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Grouping save failed'); }
+    try {
+      const saved = await api.patchProfile({ styles });
+      const acknowledged = saved.styles.find((style) => style.id === next.id);
+      if (!acknowledged || acknowledged.mode !== next.mode || acknowledged.maxChars !== next.maxChars) {
+        throw new Error('The saved grouping preset could not be confirmed. Try saving again.');
+      }
+      setProfile((current) => reconcileProfileAcknowledgement(current, profile, saved, { styles }));
+      const label = modes.find((mode) => mode.id === next.mode)?.label || next.mode;
+      const snapshot = next.mode === 'word' ? label : `${label}, target ${next.maxChars} characters`;
+      const newerChoices = groupingChoices.current.mode !== next.mode || groupingChoices.current.maxChars !== next.maxChars;
+      setNotice(`Grouping preset saved: ${snapshot}.${newerChoices ? ' Newer choices are kept in the controls.' : ''}`);
+    } catch (reason) {
+      setError(`${reason instanceof Error ? reason.message : 'Grouping preset save failed.'} Your current grouping choices are kept.`);
+    } finally {
+      groupingPresetWrite.current = false;
+      setGroupingPresetSaving(false);
+    }
   };
   const applyGrouping = async (mode = groupingMode, limit = maxChars) => {
     if (!project || busy || groupingInFlight.current || currentProjectActiveJob) return;
@@ -2488,6 +3124,10 @@ export default function App() {
 
   const applyProposal = async (mode: RegenerationApplyMode, editedText?: string) => {
     if (!project || !proposal) return;
+    if ((mode === 'all' || mode === 'text-only') && editedText !== undefined && !editedText.trim()) {
+      setError('Enter proposed wording before accepting text.');
+      return;
+    }
     const ticket = projectScope.current.capture();
     const editRevision = draftEditRevision.current;
     const draftWasDirty = dirtyRef.current;
@@ -2619,10 +3259,7 @@ export default function App() {
   };
 
   const setQaProfile = async (id: QaProfileId) => {
-    if (!profile) return;
-    const preferences = { ...profile.preferences, qaProfileId: id };
-    setProfile({ ...profile, preferences });
-    try { setProfile(await api.patchProfile({ preferences })); } catch { /* local optimistic setting */ }
+    await saveProfilePreferences({ qaProfileId: id });
   };
 
   const patchSelected = (patch: Partial<CaptionSegment>, message: string) => {
@@ -2635,7 +3272,8 @@ export default function App() {
   const approveAndNext = () => {
     if (!selection.ids.length || !riskyIds.length) return;
     const selectedIds = new Set(selection.ids);
-    const undoItems = selection.captions.map((caption) => ({ id: caption.id, approved: Boolean(caption.approved) }));
+    const changed = selection.captions.filter((caption) => !caption.approved);
+    if (!changed.length) return;
     const restoreSelectionId = selection.ids[0];
     const draftIndex = new Map(draft.map((caption, index) => [caption.id, index]));
     const lastSelectedIndex = Math.max(...selection.ids.map((id) => draftIndex.get(id) ?? -1));
@@ -2645,6 +3283,8 @@ export default function App() {
     const wrapped = Boolean(nextId && !later);
     const nextDraft = draft.map((caption) => selectedIds.has(caption.id) ? { ...caption, approved: true } : caption);
     updateDraft(nextDraft, nextId || restoreSelectionId, 'metadata');
+    const appliedById = new Map(draftRef.current.map((caption) => [caption.id, caption]));
+    const undoItems = changed.map((caption) => ({ id: caption.id, approved: Boolean(caption.approved), applied: appliedById.get(caption.id)! }));
 
     const message = nextId
       ? wrapped
@@ -2659,9 +3299,25 @@ export default function App() {
 
   const undoReviewApproval = () => {
     if (!reviewUndo) return;
-    const restoreDecisionFocus = reviewMode && Boolean(document.activeElement?.closest('.review-undo-toast, .review-completion'));
-    const previous = new Map(reviewUndo.items.map((item) => [item.id, item.approved]));
-    const restoreId = reviewUndo.restoreSelectionId;
+    const ownsUndoFocus = Boolean(document.activeElement?.closest('.review-undo-toast, .review-completion'));
+    const restoreDecisionFocus = reviewMode && ownsUndoFocus;
+    const currentById = new Map(draftRef.current.map((caption) => [caption.id, caption]));
+    // Undo owns only the approval transitions it made, at their exact applied
+    // caption revision. Never reinstate approval on wording edited afterward.
+    const eligible = reviewUndo.items.filter((item) => sameTimingRevision(currentById.get(item.id), item.applied));
+    const skipped = reviewUndo.items.length - eligible.length;
+    if (!eligible.length) {
+      if (ownsUndoFocus) {
+        // No caption was restored. The persistent Review entry stays clear of
+        // the preview and the replacement notice without moving the editor.
+        document.querySelector<HTMLButtonElement>('.header-actions > button[aria-pressed]')?.focus({ preventScroll: true });
+      }
+      setReviewUndo(null);
+      setNotice('No approval was changed. These captions were edited or removed after approval; your newer changes are kept.');
+      return;
+    }
+    const previous = new Map(eligible.map((item) => [item.id, item.approved]));
+    const restoreId = previous.has(reviewUndo.restoreSelectionId) ? reviewUndo.restoreSelectionId : eligible[0].id;
     updateDraft(draftRef.current.map((caption) => previous.has(caption.id) ? { ...caption, approved: previous.get(caption.id)! } : caption), restoreId, 'metadata');
     setReviewUndo(null);
     schedulePlayback(() => {
@@ -2670,7 +3326,9 @@ export default function App() {
         document.querySelector<HTMLButtonElement>('.review-approve-next')?.focus({ preventScroll: true });
       }
     }, 20);
-    setNotice('Approval undone.');
+    setNotice(skipped
+      ? `Undid approval for ${eligible.length} caption${eligible.length === 1 ? '' : 's'}. Newer changes to ${skipped} caption${skipped === 1 ? '' : 's'} were kept.`
+      : 'Approval undone.');
   };
 
   const prepareCaptionHandoff = async (target: CaptionProject, ticket: ProjectTicket, editRevision: number, signal: AbortSignal, needsAppearance = false) => {
@@ -2806,10 +3464,18 @@ export default function App() {
     const hadUnsavedEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (hadUnsavedEdits && !saved) return null;
+    await saveQueue.current;
     if (!currentExport() || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
+    // The browser's reviewed picture is the export authority, including in a
+    // clean stale tab. Hash the shared rendering basis; unrelated context/title
+    // changes need not block this output.
+    const reviewed = { ...(savedProject.current || targetProject), captions: draftRef.current, captionAppearance: appearance };
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(exportContentBasis(reviewed, 'video')));
+    const expectedContentFingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    if (!currentExport() || !isCurrentOperation(intent) || dirtyRef.current || draftEditRevision.current !== editRevision) return null;
     return startJob(
       intent,
-      () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }),
+      () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }, expectedContentFingerprint),
       'Captioned video export queued. Studio saved a caption/settings snapshot, so you can keep editing while it renders.',
       false,
       false,
@@ -2862,10 +3528,12 @@ export default function App() {
       setShowCorrections(false); setBusy('Opening correction audio…');
       const readRevision = draftEditRevision.current;
       const contextRevision = accuracyDraft.current.editRevision;
+      const appearanceRevision = currentAppearanceSave().revision;
       const contextObservation = accuracyDraft.current.capture(ticket);
       const target = await api.get(event.projectId);
       if (!projectScope.current.isCurrent(ticket)) return;
-      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)) {
+      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
+        || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
         setNotice('Newer edits arrived while the correction was loading. They are kept here; open the correction again when you are ready.');
         return;
       }
@@ -2887,66 +3555,82 @@ export default function App() {
   };
   const refreshAiHealth = async (next: LlmSettingsStatus) => {
     setLlmSettings(next);
-    try { setHealth(await api.health()); } catch { /* settings remain usable even if health refresh fails */ }
+    // A report started with earlier connection settings cannot become current.
+    doctorRequest.current++;
     setDoctor(null);
+    setDoctorError('');
+    setDoctorLoadState('idle');
+    try { setHealth(await api.health()); } catch { /* settings remain usable even if health refresh fails */ }
     return next;
   };
   const saveLlmSettings = async (input: SaveLlmSettingsInput) => refreshAiHealth(await api.saveLlmSettings(input));
   const forgetLlmKey = async () => refreshAiHealth(await api.forgetLlmKey());
 
-  const saveProfilePatch = async (patch: Partial<AppProfile>, feedback: 'toast' | 'inline' = 'toast'): Promise<AppProfile | null> => {
+  const saveProfilePatch = async (patch: ProfilePatch, feedback: 'toast' | 'inline' = 'toast'): Promise<AppProfile | null> => {
+    const basis = profile;
     setBusy('Saving profile…');
-    try { const saved = await api.patchProfile(patch); setProfile(saved); if (feedback === 'toast') setNotice('Profile updated.'); return saved; }
+    try {
+      const saved = await api.patchProfile(patch);
+      setProfile((current) => reconcileProfileAcknowledgement(current, basis, saved, patch));
+      if (feedback === 'toast') setNotice('Profile updated.');
+      return saved;
+    }
     catch (reason) { if (feedback === 'toast') setError(reason instanceof Error ? reason.message : 'Profile update failed'); return null; }
-    finally { setBusy(''); }
+    finally { setBusy((current) => current === 'Saving profile…' ? '' : current); }
   };
   const importProfile = async (value: AppProfile): Promise<boolean> => {
     const ticket = projectScope.current.capture();
+    const basis = profile;
+    const accuracyRevision = accuracyDraft.current.editRevision;
     setBusy('Importing profile…');
     try {
       const imported = await api.importProfile(value);
-      setProfile(imported);
-      if (projectScope.current.isCurrent(ticket)) editAccuracyFields({
+      setProfile((current) => reconcileProfileAcknowledgement(current, basis, imported));
+      setProfileImportRevision((current) => current + 1);
+      if (projectScope.current.isCurrent(ticket) && accuracyDraft.current.editRevision === accuracyRevision) editAccuracyFields({
         vocabulary: uniqueLines(imported.defaultVocabulary, accuracyDraft.current.fields.vocabulary.split(/\r?\n/)).join('\n'),
       });
       setNotice('Profile imported. Glossary, topic packs, grouping presets and correction memory are now available on this PC.');
       return true;
     } catch { return false; }
-    finally { setBusy(''); }
+    finally { setBusy((current) => current === 'Importing profile…' ? '' : current); }
   };
   const runDoctor = async () => {
+    if (busy || doctorInFlight.current) return;
+    doctorInFlight.current = true;
+    const request = ++doctorRequest.current;
+    setDoctorLoadState('loading');
+    setDoctorError('');
     setBusy('Running system checks…');
-    try { setDoctor(await api.doctor()); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'System check failed'); }
-    finally { setBusy(''); }
+    try {
+      const report = await api.doctor();
+      if (doctorRequest.current === request) { setDoctor(report); setDoctorLoadState('ready'); }
+    } catch (reason) {
+      if (doctorRequest.current === request) {
+        setDoctorError(reason instanceof Error ? reason.message : 'System check failed.');
+        setDoctorLoadState('error');
+      }
+    } finally {
+      doctorInFlight.current = false;
+      setBusy((current) => current === 'Running system checks…' ? '' : current);
+    }
   };
   const applyTopicPack = (pack: TopicPack) => {
+    if (!project || busy) return;
     editAccuracyFields({ description: pack.description, vocabulary: uniqueLines(profile?.defaultVocabulary, pack.vocabulary).join('\n') });
     setShowProfile(false); setNotice(`Applied topic pack: ${pack.name}`);
   };
   const setAutoLoop = async (enabled: boolean) => {
-    if (!profile) return;
-    const preferences = { ...profile.preferences, autoLoopReview: enabled };
-    setProfile({ ...profile, preferences });
-    try { setProfile(await api.patchProfile({ preferences })); } catch { /* keep local */ }
+    await saveProfilePreferences({ autoLoopReview: enabled });
   };
   const setAutoPlayNext = async (enabled: boolean) => {
-    if (!profile) return;
-    const preferences = { ...profile.preferences, autoPlayNextReview: enabled };
-    setProfile({ ...profile, preferences });
-    try { setProfile(await api.patchProfile({ preferences })); } catch { /* keep local */ }
+    await saveProfilePreferences({ autoPlayNextReview: enabled });
   };
   const setReviewFocusMode = async (mode: 'brackets-label' | 'brackets' | 'off') => {
-    if (!profile) return;
-    const preferences = { ...profile.preferences, reviewFocusMode: mode };
-    setProfile({ ...profile, preferences });
-    try { setProfile(await api.patchProfile({ preferences })); } catch { /* keep local */ }
+    await saveProfilePreferences({ reviewFocusMode: mode });
   };
   const saveWaveformPreference = async (value: { waveformMode?: 'waveform' | 'spectrum'; waveformZoom?: number }) => {
-    if (!profile) return;
-    const preferences = { ...profile.preferences, ...value };
-    setProfile({ ...profile, preferences });
-    try { setProfile(await api.patchProfile({ preferences })); } catch { /* keep local */ }
+    await saveProfilePreferences(value);
   };
 
   const rememberReplacement = async (line: string, scope: 'project' | 'global'): Promise<boolean> => {
@@ -2955,7 +3639,7 @@ export default function App() {
     if (scope === 'global') {
       const defaultVocabulary = uniqueLines(profile.defaultVocabulary, [line]);
       const savedProfile = await api.patchProfile({ defaultVocabulary });
-      setProfile(savedProfile);
+      setProfile((current) => reconcileProfileAcknowledgement(current, profile, savedProfile, { defaultVocabulary }));
       if (!projectScope.current.isCurrent(ticket)) return false;
       if (!savedProfile.defaultVocabulary.some((saved) => saved.trim().toLocaleLowerCase('en') === line.trim().toLocaleLowerCase('en'))) return false;
       editAccuracyFields({ vocabulary: uniqueLines(accuracyDraft.current.fields.vocabulary.split(/\r?\n/), [line]).join('\n') });
@@ -2974,10 +3658,11 @@ export default function App() {
   };
 
   const loadHistory = async () => {
-    if (!project) return;
+    if (!project || pendingHistoryRead.current !== null) return;
     const ticket = projectScope.current.capture();
     if (ticket.key !== projectMediaKey(project)) return;
     const request = ++historyRead.current;
+    pendingHistoryRead.current = request;
     setHistoryLoadState((current) => ({ ...current, loading: true, error: '' }));
     try {
       const entries = await api.history(project.id);
@@ -2989,6 +3674,8 @@ export default function App() {
       if (projectScope.current.isCurrent(ticket) && request === historyRead.current) {
         setHistoryLoadState((current) => ({ ...current, loading: false, error: 'Could not load history. Try again; your saved versions have not been changed.' }));
       }
+    } finally {
+      if (pendingHistoryRead.current === request) pendingHistoryRead.current = null;
     }
   };
   const openHistory = async () => {
@@ -3055,6 +3742,15 @@ export default function App() {
     const id = riskyIds[0] || selection.ids[0] || draft[0]?.id;
     if (id) moveToReviewCaption(id, false);
   };
+  const openWorkspaceFromGuide = (tool: 'accuracy' | 'review' | 'export') => {
+    if (!project) return;
+    guideWorkspaceFocus.current = { ticket: viewTicket, tool, previous: document.activeElement };
+    accuracyDescriptionFocus.current = null;
+    setShowGuide(false);
+    cancelPlayback();
+    if (tool === 'review') openReviewWorkspace();
+    else { setReviewMode(false); setWorkspaceTool(tool); }
+  };
   const chooseWorkspaceTool = (tool: Exclude<WorkspaceTool, null>) => {
     accuracyDescriptionFocus.current = null;
     cancelPlayback();
@@ -3086,14 +3782,19 @@ export default function App() {
     setWorkspaceTool('timeline');
   };
 
-  const changeExportSession = (update: ExportWorkspaceSession | ((current: ExportWorkspaceSession) => ExportWorkspaceSession)) => {
+  const changeExportSession = (update: ExportWorkspaceSession | ((current: ExportWorkspaceSession) => ExportWorkspaceSession), remember = true) => {
     const ticket = viewTicket;
     if (!project || !projectScope.current.isCurrent(ticket) || ticket.key !== mediaKey) return;
-    setExportVisit((current) => {
-      if (!projectScope.current.isCurrent(ticket)) return current;
-      const previous = current?.ticket === ticket ? current.session : createExportWorkspaceSession(isVideoProject(project));
-      return { ticket, session: typeof update === 'function' ? update(previous) : update };
-    });
+    const current = exportVisitRef.current;
+    const previous = current?.ticket === ticket ? current.session : createExportWorkspaceSession(isVideoProject(project));
+    const session = typeof update === 'function' ? update(previous) : update;
+    if (JSON.stringify(session) === JSON.stringify(previous)) return;
+    setExportVisit({ ticket, session });
+    // Only a direct output decision remembers choices. Delayed profile reads,
+    // preset acknowledgements and capability fallbacks cannot overwrite another
+    // tab's more recent decisions in browser storage.
+    if (remember) setExportChoiceStorageError(exportChoiceStorage.write(project, session) ? ''
+      : 'These export choices could not be remembered in this browser. They remain selected while this project is open.');
   };
   const repairExportIssue = (target: ExportRepairTarget) => {
     if (!project || !projectScope.current.isCurrent(viewTicket)) return;
@@ -3168,10 +3869,12 @@ export default function App() {
       setWordBatchRequested(enabled ? projectScope.current.capture() : null);
       if (!enabled && !wordBatchMutation.current) wordBatchController.current?.abort();
     },
-    onStart: () => void startWordHighlightPreparation(),
+    onStart: () => void startWordHighlightPreparation(true),
     onCancel: cancelWordHighlightPreparation,
     onReview: () => reviewRemainingWordHighlights(),
     onUndo: undoPreparedWordHighlights,
+    onOpenSetup: () => { openSettings('doctor'); void runDoctor(); },
+    onReloadProject: () => void reloadSavedProject(),
   };
 
   const overlays = <>
@@ -3183,10 +3886,12 @@ export default function App() {
       onCancel={() => { if (!mediaMutationInFlight.current) { mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
-    {profile && llmSettings && <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} busy={!!busy} currentContext={project ? contextPayload() : null} onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>}
+    <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
+      loadFailed={startupErrors.includes('Preferences') || startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
+      onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} loadState={historyLoadState} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
-    <JobManager open={showJobs} jobs={jobs} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={() => setShowJobs(false)} onRefresh={() => void refreshJobs()} onResume={(id) => { trackedJobIds.current.add(id); handledJobIds.current.delete(id); void api.resumeJob(id).then(() => refreshJobs()); }} onCancel={(id) => void api.cancelJob(id).then(() => refreshJobs())} onOpen={(job) => void openJobResult(job)}/>
+    <JobManager open={showJobs} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => void actOnJob(id, 'resume')} onCancel={(id) => void actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}
@@ -3198,36 +3903,48 @@ export default function App() {
       onConnect={() => { setShowGuide(false); openSettings('ai'); }}
       onOpenDoctor={() => { setShowGuide(false); openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }}
       onGenerate={() => { setShowGuide(false); void generate(); }}
-      onReview={() => { setShowGuide(false); openReviewWorkspace(); }}
-      onContext={() => {
-        setShowGuide(false);
-        setWorkspaceTool('accuracy');
-        setReviewMode(false);
-        window.setTimeout(() => document.querySelector('.accuracy-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
-      }}
-      onExport={() => { setShowGuide(false); setReviewMode(false); setWorkspaceTool('export'); }}
+      onReview={() => openWorkspaceFromGuide('review')}
+      onContext={() => openWorkspaceFromGuide('accuracy')}
+      onExport={() => openWorkspaceFromGuide('export')}
     />
     {confirmationDialog}
   </>;
 
-  const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <ToastStack>
+  const recoveryRestoreBlockedReason = textComposing ? 'Finish entering your current text before restoring this draft.'
+    : currentProjectAnyActiveJob ? 'Wait for the current project task to finish before restoring this draft.'
+    : mediaMutationStatus ? 'Wait for the media change to finish before restoring this draft.'
+    : busy ? 'Wait for the current action to finish before restoring this draft.'
+    : unfinishedChanges ? 'Save your current edits before restoring this draft.' : '';
+
+  const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <ToastStack onLayoutChange={handleToastLayoutChange}>
     {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
     {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
-    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>{saveConflict ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveConflict
+    {jobNotification && !showJobs && <div className={`toast processing-notice ${jobNotification.error ? 'error' : 'notice'}`} role={jobNotification.error ? 'alert' : 'status'}>
+      <span><strong>{jobNotification.projectTitle}.</strong> {jobNotification.message}</span>
+      <button className="toast-action" onClick={openNotifiedActivity}>Open Activity</button>
+      <button aria-label="Dismiss processing notice" onClick={dismissJobNotification}><X size={14}/></button>
+    </div>}
+    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>{saveNeedsComparison ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveNeedsComparison
       ? <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void reloadSavedProject()}>Reload saved project</button>
       : <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button>}<button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
-    {recoveryStorageError && unfinishedChanges && <div className="toast error" role="status"><span>{recoveryStorageError}</span></div>}
-    {project && recoveryEntries[0] && <UnfinishedEditRecoveryNotice
-      count={recoveryEntries.length} savedAt={recoveryEntries[0].draft.savedAt}
-      captions={recoveryEntries[0].draft.captions} accuracy={recoveryEntries[0].draft.accuracy}
-      status={recoveryConflict?.key === recoveryEntries[0].key && recoveryConflict.raw === recoveryEntries[0].raw ? recoveryConflict.status : assessRecovery(recoveryEntries[0], savedProject.current || project)}
+    {recoveryStorageError && unfinishedChanges && <div className="toast error recovery-storage-error" role="status"><span>{recoveryStorageError}</span>{!saveFailed && <button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button>}</div>}
+    {project && selectedRecovery && <UnfinishedEditRecoveryNotice
+      count={recoveryEntries.length} savedAt={selectedRecovery.draft.savedAt}
+      entries={recoveryEntries.map((entry) => ({ key: entry.key, savedAt: entry.draft.savedAt,
+        label: [entry.draft.captions && 'Captions', entry.draft.accuracy && 'Accuracy', entry.draft.appearance && 'Appearance'].filter(Boolean).join(' + ') }))}
+      selectedKey={selectedRecovery.key}
+      onSelect={(key) => { cancelUnfinishedRecovery(); setRecoveryConflict(null); setSelectedRecoveryKey(key); }}
+      captions={selectedRecovery.draft.captions} accuracy={selectedRecovery.draft.accuracy} appearance={selectedRecovery.draft.appearance}
+      status={recoveryConflict?.key === selectedRecovery.key && recoveryConflict.raw === selectedRecovery.raw ? recoveryConflict.status : assessRecovery(selectedRecovery, savedProject.current || project)}
       working={recoveryWorking} disabled={unfinishedChanges || textComposing || !!busy || !!currentProjectAnyActiveJob || !!mediaMutationStatus}
-      onRestore={() => void restoreUnfinishedDraft(recoveryEntries[0])}
-      onDownload={() => downloadUnfinishedDraft(recoveryEntries[0])}
-      onDiscard={() => void discardUnfinishedDraft(recoveryEntries[0])}/>}
+      restoreBlockedReason={recoveryRestoreBlockedReason}
+      onRestore={() => void restoreUnfinishedDraft(selectedRecovery)}
+      onCancel={() => cancelUnfinishedRecovery(true)}
+      onDownload={() => downloadUnfinishedDraft(selectedRecovery)}
+      onDiscard={() => void discardUnfinishedDraft(selectedRecovery)}/>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
     {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
@@ -3239,35 +3956,40 @@ export default function App() {
     <div className="home-tools">
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
       <button onClick={() => setShowGuide(true)} data-tooltip="Open guide"><HelpCircle size={16}/>Guide</button>
-      {activeJobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity<b>{activeJobs.length}</b></button>}
+      {jobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity{activeJobs.length > 0 && <b>{activeJobs.length}</b>}</button>}
       {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
       <button onClick={() => setShowUpdates(true)} data-tooltip="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
       <button className={llmSettings?.configured ? '' : 'setup-needed'} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
     </div>
-    {!showAllProjects && <>
+    <div hidden={showAllProjects} inert={showAllProjects || undefined}>
       {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
-      <Upload onUpload={upload} busy={!!busy || !profile} beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
-    </>}
+      <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
+        disabledReason={!profile ? startupErrors.includes('Preferences') ? 'Preferences could not load. Retry startup below to enable uploads.' : 'Loading preferences before you can upload.'
+          : busy && busy !== 'Uploading…' ? 'Wait for the current task to finish before uploading.' : ''}
+        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+    </div>
     {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
-    {!profile && startupErrors.length === 0 && <div className="setup-warning" role="status">Loading preferences…</div>}
+    {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">Loading preferences…</div>}
     {showAllProjects ? <ProjectLibrary
       projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
       loading={!startupLoaded.current.has('Projects') && !startupErrors.includes('Projects')}
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
+      refreshing={projectListState.refreshing} refreshError={projectListState.error} refresh={() => void refreshProjects()}
       openingProjectId={openingProjectId} onOpen={(id) => void openRecentProject(id)}
       onBack={() => changeProjectListView(false)} onRetry={() => setStartupAttempt((value) => value + 1)}
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
     /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
+    {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{projectListState.error} Last loaded projects are shown.</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>Refresh projects</button></div>}
     {statusToasts}
     {overlays}
   </main>;
 
-  return <main className="workspace refined-workspace" onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
+  return <main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label="Back to projects" data-tooltip="Back to projects" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
-      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${unfinishedChanges ? saveFailed ? "Couldn't save changes" : autosaveState === 'saving' || contextSaveState === 'saving' ? 'saving…' : dirty ? 'autosave pending' : 'Accuracy changes unsaved' : 'saved'}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
+      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
         <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
@@ -3286,8 +4008,8 @@ export default function App() {
           onSettings={() => openSettings('ai')}
           onUpdates={() => setShowUpdates(true)}
         />
-        <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveConflict} title={saveConflict ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption and Accuracy changes' : 'All changes saved'} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
-        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} data-tooltip="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
+        <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveNeedsComparison} title={saveNeedsComparison ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption, Accuracy and appearance changes' : 'All changes saved'} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
+        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} data-workspace-trigger="export" data-tooltip="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
 
@@ -3300,11 +4022,11 @@ export default function App() {
       onClose={proposal ? () => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={!proposal && workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
       preview={
-        <div className="media-stage">
-          <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} onElementChange={setMediaElement}
+        <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label="Media preview">
+          <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} recoveryFocusTarget={mediaPreviewFocus} onElementChange={setMediaElement}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
       }
@@ -3338,8 +4060,8 @@ export default function App() {
           onLoop={setProposalLoop}
           onReplay={replayProposal}
           onSeek={seek}
-          onEditedText={setProposalEditedText}
-          onAccuracyHint={setProposalAccuracyHint}
+          onEditedText={(value) => { proposalViewRevision.current += 1; setProposalEditedText(value); }}
+          onAccuracyHint={(value) => { proposalViewRevision.current += 1; setProposalAccuracyHint(value); }}
           onApply={(mode, editedText) => void applyProposal(mode, editedText)}
           onRefine={(input) => void refineProposal(input)}
         />}
@@ -3356,10 +4078,12 @@ export default function App() {
 
           {workspaceTool === 'export' && <ExportWorkspace key={mediaKey}
             appearanceReconciliation={reconciledAppearance}
+            profileImportRevision={profileImportRevision}
             onPreviewResolution={setPreviewResolution}
             onConfirm={confirmInStudio}
             project={{ ...project, captions: draft }}
             session={exportSession}
+            sessionStorageError={exportChoiceStorageError}
             onSessionChange={changeExportSession}
             onRepair={repairExportIssue}
             reviewIssues={issues}
@@ -3370,6 +4094,7 @@ export default function App() {
             activeExportJob={activeExportJob}
             onExportCaptions={exportCaptionFile}
             onImportCaptionData={previewCaptionImport}
+            importBlockedReason={currentProjectActiveJob ? 'Wait for caption processing to finish before replacing captions.' : ''}
             captionImportPreview={pendingCaptionImport && projectScope.current.isCurrent(pendingCaptionImport.ticket) ? {
               filename: pendingCaptionImport.filename, preview: pendingCaptionImport.preview, currentCount: draft.length,
               stale: dirty || pendingCaptionImport.editRevision !== draftEditRevision.current
@@ -3383,6 +4108,8 @@ export default function App() {
           />}
 
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={mediaKey} project={project} captions={draft}
+            initialAppearance={previewAppearance}
+            profileImportRevision={profileImportRevision}
             flushSave={flushAppearanceSave}
             onEditWordTiming={openWordTiming}
             wordPreparation={wordPreparation}
@@ -3407,10 +4134,17 @@ export default function App() {
             initialEditMode={requestedTimingMode}
             onSeek={seek}
             onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
-            onTimingChange={(before, after, guards) => {
+            onTimingChange={(before, after, guards, gestureBasis) => {
               if (!projectScope.current.isCurrent(viewTicket) || !before.length || before.length !== after.length
                 || new Set(before.map((caption) => caption.id)).size !== before.length
                 || (guards && !timingTransactionMatches(draftRef.current, { before, after, guards }))) return false;
+              // A saved result may update the authoritative draft before the
+              // timeline's next commit can retire its older pointer preview.
+              if (gestureBasis && !captionTimingBasisMatches(draftRef.current, gestureBasis.captions, before)) return false;
+              const nativeDuration = media.current?.duration;
+              const currentDurationMs = nativeDuration && Number.isFinite(nativeDuration)
+                ? Math.round(nativeDuration * 1000) : mediaDurationMs;
+              if (gestureBasis && currentDurationMs && gestureBasis.durationMs > currentDurationMs) return false;
               for (let index = 0; index < before.length; index++) {
                 const prior = before[index];
                 const next = after[index];
@@ -3469,10 +4203,10 @@ export default function App() {
               </div>
               <div className="review-decision-actions">
                 <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
-                <button className="review-approve-next primary" onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
+                <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
               </div>
             </div>}
-            <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
+            <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">
@@ -3483,10 +4217,10 @@ export default function App() {
             </div>
             <div className="context-field">
               <span><label htmlFor="accuracy-context-vocabulary">Exact terms to preserve</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
-              <textarea id="accuracy-context-vocabulary" aria-describedby="accuracy-vocabulary-count accuracy-vocabulary-help" rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
+              <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
             {hasHybrid && generationOptions}
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button disabled={!!busy} onClick={saveDefaultGlossary}>Save globally</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div></div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
           </div>}
 
           {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
@@ -3539,7 +4273,7 @@ export default function App() {
               <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
                 {groupingApplying ? 'Applying grouping…' : 'Apply grouping'}</button>
               <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>Clean Khmer spacing</button>
-              <button onClick={saveStyle} disabled={!!busy || groupingApplying}>Save grouping preset</button>
+              <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? 'Saving grouping preset…' : 'Save grouping preset'}</button>
               {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying}>Apply saved grouping</button> : null}
             </div>
           </div>}

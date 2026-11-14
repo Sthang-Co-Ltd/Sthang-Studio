@@ -142,7 +142,8 @@ test('a font added during initial discovery remains selected and completes loadi
   const entered = deferred();
   const release = deferred();
   const original = structuredClone(state.fonts);
-  await page.route('**/api/video-export/fonts?refresh=1', async (route) => {
+  await page.route('**/api/video-export/fonts*', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
     entered.resolve();
     await release.promise;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ fonts: original }) });

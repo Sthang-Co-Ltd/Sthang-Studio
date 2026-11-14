@@ -37,9 +37,12 @@ look for a recovery offer:
 - **Discard draft** requires confirmation and removes that recovery copy, without
   changing the saved project or current editor text.
 
-If the saved captions, context, or media no longer match the recovery basis,
-Studio offers download/comparison instead of applying the old draft. A revision
-check also protects the initial recovered save against a project change after
+If the saved fields covered by a record, or its media, no longer match its basis,
+Studio offers download/comparison instead of applying the old draft. Older
+version 1/2 caption/Accuracy records conservatively compare both saved fields;
+current development source uses the field-specific contract below, encoded as
+version 3 or a compact version 4 record.
+A revision check also protects the initial recovered save against a project change after
 the restore check. A conflict keeps the draft; retrying does not authorize an
 overwrite. Download the active unfinished draft before reloading if a failed
 save cannot be resolved, especially when browser storage is unavailable.
@@ -87,7 +90,10 @@ History checkpoint of the previous saved captions.
 Recovery records contain editable caption IDs, text, start/end edges and locks;
 raw Accuracy text; project/media identity; timestamps; and equality evidence for
 the saved baseline. That equality evidence can itself contain saved caption text
-and word timings. It is comparison data, not authority to restore those timings.
+and word timings. Field-specific version 3 and compact version 4 copies omit unrelated field evidence: Accuracy-only
+copies contain no caption text/timings, and caption-only copies contain no Accuracy
+text. Older records retain their original data and conservative checks. Equality
+evidence is comparison data, not authority to restore those timings.
 Records contain no source audio/video or API keys and are not sent to a new
 external service. Studio stores this JSON in the browser's local storage without
 adding its own encryption.
@@ -117,19 +123,146 @@ Storage belongs to a browser **profile and origin**: scheme, host, and port all
 matter. Another browser, private session, or Studio port may not see the copy.
 Clearing site data, private-mode cleanup, browser eviction, storage restrictions,
 or device failure can remove or prevent it. A failed or oversized optional write
-keeps editing available and displays a warning; keep the tab open until the
-changes save or download the draft. Deleting installation/project folders is not
+keeps editing available and displays a warning with **Download edits**; keep the
+tab open until the changes save or download the draft. The action also remains
+available in an existing save-failure notice. Deleting installation/project folders is not
 a purge of browser site data. An unavailable or replaced project cannot be
 silently recreated from this record.
 
 Only fields accepted into the caption/Accuracy drafts are covered. Uncommitted
-timestamp input, draft-only per-word timing, approval-only changes, appearance,
+timestamp input, draft-only per-word timing, approval-only changes,
 generation proposals, and source media are outside the editable recovery payload.
-Ordinary caption and Accuracy writes have revision protection. Other operations
+The development-source Appearance extension is described below. Ordinary caption
+and Accuracy writes have revision protection. Other operations
 retain their existing guards; this is not a general collaboration or automatic
 merge system.
 
 ## Implementation and verification
+
+### Field-specific copies and pending saves (source-only)
+
+New caption/Accuracy records use version 3 under the existing browser journal
+prefix, with a compact version 4 fallback for caption records that exceed the
+ordinary representation's storage bound. Each included field requires its own saved comparison basis; omitted
+fields have no comparison or payload. A compatible Accuracy-only draft can restore
+after unrelated saved caption changes, and a caption-only draft can restore after
+unrelated saved Accuracy changes. The fresh canonical project supplies those
+unrelated fields, and subsequent normal saves preserve them. Mixed records guard
+every included field, including Appearance. Version 1/2 records remain readable
+with their original conservative comparisons; appearance-only records stay version 2.
+
+### Compact large-caption copies (source-only)
+
+The compact format stores the same exact saved-caption comparison in tuples and
+references unchanged editable rows from that saved representation. Changed or new
+rows retain their exact editable values; ordering and deletions remain explicit.
+Before compatibility checking or restoration, the record expands to the existing
+field-specific draft. Saved approval, confidence and word evidence still serve
+only comparison: restored evidence comes from the freshly read canonical project.
+The format preserves text, timing, locks, word metadata and media-alignment
+comparisons without replacing them with a hash.
+
+Capture remains synchronous while a field owns focus. The 1 MiB per-record bound,
+aggregate admission budget, expiry and exact key/raw ownership remain in effect.
+Reading version 1–3 records remains supported. Compact records remain unencrypted browser data. Long wording,
+large word tracks or other retained copies can still exceed the bounds, so caption
+count alone does not guarantee a recovery copy. A failed write keeps the previous
+valid copy and the active editor; **Download edits** captures the current draft for
+manual recovery. Completing composition with unchanged text creates no new edit
+and preserves that caption's approval.
+
+Reverting caption text to its old saved value while an intermediate write is
+pending still needs protection. Studio captures that desired final text from
+queue admission until the save settles. If a submitted write's acknowledgement
+is lost or fails, its comparison copy remains protected until an acknowledged save
+establishes the result. After restart, a newer canonical value can require
+Download draft for comparison; it does not grant the earlier draft fresh timing
+evidence. An ordinary successful save clears only that page's exact settled copy,
+preserving other tabs' records.
+
+When multiple copies are available, expand **Preview draft** and choose the native
+**Recovery draft** selector. Its options name capture time and included field
+categories, without private draft text. Browsing never discards another copy.
+Restore, Download and Discard apply to the selected exact record. The selector
+remains usable while a check is pending; choosing another copy cancels the old
+check, retains selector focus and updates its status. Newer typing, navigation or
+cross-tab removal/replacement still supersedes the delayed check.
+
+### Appearance save protection (source-only)
+
+Current development source also includes pending or failed Appearance changes in
+header Save, navigation checks, update safety and browser-close protection, even
+after the Appearance tool closes. Save or Retry submits the latest look; a late
+acknowledgement cannot mark a newer edit saved. Download edits includes an optional
+`appearance` reference for manual comparison. It remains a recovery JSON file,
+not a caption-data import or a complete project backup.
+
+Appearance changes enter the same bounded browser journal synchronously, including
+the debounce window. Appearance-only copies use version 2; new copies also containing
+captions or Accuracy use the field-specific version 3 contract, with the compact
+version 4 fallback when a caption-bearing copy needs it. Existing version 1/2 records retain their
+original checks. An appearance-only record stores the complete
+normalized look and its saved-look comparison basis; it omits caption/Accuracy
+payloads and their text comparisons. New mixed records guard each included field.
+The same origin, retention, quota and explicit-discard rules
+apply, and unavailable storage keeps the warning and Download fallback.
+
+Reloading or reopening shows the saved project first. **Restore draft** rechecks the
+exact stored record, current media and saved appearance before adopting the look
+and submitting it through the normal guarded save lane. The controls and preview
+update together even when Appearance was already open. The media element, playback
+position, current caption state and newer keyboard/pointer interactions are retained.
+Delayed checks cannot restore a record discarded or rewritten by another tab.
+**Cancel check** releases a stalled restore check without changing the draft or
+saved project. Navigation cancels the old check, so it cannot block recovery in
+the next project. A delayed cancelled response cannot take over newer controls.
+
+If the saved look already equals the draft, Studio identifies it as already saved
+without another write. The comparison copy remains available for Download/Discard:
+a fresh read alone cannot prove an older in-flight write has drained. If another
+saved look or source has replaced its basis, Restore is unavailable. Caption/context
+changes alone do not block an appearance-only draft. A mixed record skips an already
+saved appearance while retaining its other field checks.
+
+Each appearance PUT includes the adopted saved look and exact media identity. The
+server compares them inside its project write transaction and preserves unrelated
+caption/Accuracy changes. A lost acknowledgement can confirm an identical committed
+look without rewriting it or advancing its revision. A conflict retains the newest
+draft, stops queued retries and offers Download edits / Reload saved project.
+Only acknowledged writes in that page's appearance lane advance a queued edit's
+basis. Export preparation also checks its reviewed saved look and never overwrites
+appearance. A read failure when reopening Appearance has a separate GET-only retry.
+
+`tests/browser/appearance-save-journey.spec.mts` covers failed and delayed saves,
+tool closure, Home/reopening, export readiness, downloaded edits and read recovery.
+`tests/browser/appearance-session-recovery.spec.mts` and
+`tests/appearance-save-recovery-api.test.mts` cover reload/reopen recovery, exact
+record ownership, saved-look comparison and the real HTTP persistence boundary.
+These source changes do not establish availability in an additional public release.
+
+### Export interruption continuity (source-only)
+
+Optional Export choices use a separate browser record, bound to the project and
+source filename/size. It contains output settings, preset IDs, handoff choices and
+disclosure state, with no caption/Accuracy text, appearance or media bytes. Up to
+20 valid records are retained for seven days, at most 4 KiB of serialized UTF-8
+value each. Reading a record does not start an output operation. Storage failure
+keeps choices usable in the open editor; a later visit may use defaults or Last
+used. This does not replace private draft recovery or the creator profile.
+
+The export job also persists an exact publication receipt before renaming its
+verified partial MP4. A failed receipt write prevents final publication. Startup
+shows a nonresumable **Checking output** state while verifying the exact output's size and
+SHA-256 in the background. Matching bytes recover the same completed job/file;
+missing output permits deliberate same-ID Resume under the existing media/snapshot
+guards. Changed, unreadable or unverified output shows **Completion uncertain**
+with export-folder guidance, without automatic rendering
+or a guessed result. A completed video remains downloadable if only saving its
+Activity completion failed. Resume cannot admit an active same-project sibling of
+the same kind. See PRODUCT.md and PRIVACY.md for the related behavior/data boundary;
+these source contracts are not new release evidence.
+
+### Existing recovery implementation
 
 | Source | Responsibility |
 | --- | --- |
@@ -143,6 +276,9 @@ merge system.
 save-revision comparison, and the synthetic HTTP boundary.
 `tests/browser/unfinished-edit-recovery.spec.mts` and
 `tests/browser/stale-save-conflicts.spec.mts` cover the editor workflow.
+`tests/browser/caption-session-continuity.spec.mts` covers pending baseline reverts,
+lost acknowledgements, selectable copies, field-specific recovery, exact ownership
+and newer typing through desktop/mobile journeys.
 Relevant verification includes focused/IME input,
 delayed acknowledgements, save failure/retry, mixed caption and Accuracy saves,
 navigation, storage failure, conflicts, and fresh timing provenance. The task's

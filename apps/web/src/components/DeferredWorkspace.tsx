@@ -13,13 +13,13 @@ function WorkspaceLoading({ name, shape }: WorkspacePresentation) {
   </div>;
 }
 
-class WorkspaceError extends Component<{ children: ReactNode; name: string; onRetry(): void }, { failed: boolean }> {
+class WorkspaceError extends Component<{ children: ReactNode; name: string; onRetry(trigger: HTMLButtonElement): void }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
     if (this.state.failed) return <div className="workspace-load-error" role="alert" aria-label={`${this.props.name} could not load`}>
       <p>This tool could not load. Your captions remain available.</p>
-      <button onClick={this.props.onRetry}>Retry loading tool</button>
+      <button type="button" onClick={(event) => this.props.onRetry(event.currentTarget)}>Retry loading tool</button>
     </div>;
     return this.props.children;
   }
@@ -35,7 +35,14 @@ export function deferWorkspace<C extends ComponentType<any>>(load: () => Promise
     // lazy preserves C's props. Normalize its exotic JSX type only at this
     // boundary; callers still require the exact ComponentProps<C> contract.
     const View = attempt.View as ComponentType<ComponentProps<C>>;
-    const retry = () => {
+    const retry = (trigger: HTMLButtonElement) => {
+      // The retry button disappears with its failed boundary. Keep keyboard
+      // focus on the persistent tool shell before starting the fresh import.
+      if (document.activeElement === trigger) {
+        const close = trigger.closest('.workspace-inspector')?.querySelector<HTMLButtonElement>('[data-workspace-close]');
+        close?.focus({ preventScroll: true });
+        close?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      }
       const nextView = lazy(recover);
       currentView = nextView;
       setAttempt(({ id }) => ({ id: id + 1, View: nextView }));

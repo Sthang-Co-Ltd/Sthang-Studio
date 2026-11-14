@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { parseCaptionPreviewInput } from './caption-preview.js';
 import { prepareCaptionFonts, requireCaptionFont } from './caption-renderer.js';
 import { CaptionOverflowError, validateCaptionOverflow } from './caption-overflow.js';
+import { MAX_CAPTION_OVERFLOW_TOTAL_CHARACTERS } from './caption-overflow-batches.js';
 
 export class CaptionLayoutCheckError extends Error {
   constructor(message: string, readonly status: 400 | 429 = 400) { super(message); }
@@ -31,7 +32,7 @@ export function parseCaptionLayoutCheckInput(value: unknown): CaptionLayoutCheck
     }
     ids.add(caption.id);
     characters += caption.text.length;
-    if (characters > 200_000) throw new CaptionLayoutCheckError('This caption list is too large to check at once.');
+    if (characters > MAX_CAPTION_OVERFLOW_TOTAL_CHARACTERS) throw new CaptionLayoutCheckError('This caption list is too large to check safely.');
     if (caption.wordTiming !== undefined) {
       const timing = caption.wordTiming;
       if (!timing || typeof timing.text !== 'string' || timing.text.length > 4096
