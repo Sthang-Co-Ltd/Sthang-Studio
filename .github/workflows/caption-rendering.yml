@@ -107,17 +107,45 @@ jobs:
           path: ${{ runner.temp }}/native-preview-diagnostics/*.json
           retention-days: 5
           if-no-files-found: error
+  browser:
+    name: Browser behavior (Ubuntu shard ${{ matrix.shard }}/4)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked development dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Install Linux native caption prerequisites
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
       - name: Install isolated browser runtime
-        if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
+      # Each launcher owns its listeners and vault; workers remain one per shard.
+      # Playwright stops first so it can finish its report before the step/job cap.
       - name: Real app interaction and geometry tests
-        if: runner.os == 'Linux'
-        run: npm run test:browser
+        timeout-minutes: 30
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/test-results/browser-results.json
+          STHANG_BROWSER_EVIDENCE_ROOT: ${{ runner.temp }}/caption-browser-evidence
+        run: npm run test:browser -- --shard=${{ matrix.shard }}/4 --reporter=list,json --global-timeout=1500000
       - name: Retain synthetic browser evidence
-        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        if: ${{ always() }}
+        timeout-minutes: 5
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: caption-browser-failures
-          path: test-results/
+          name: caption-browser-shard-${{ matrix.shard }}-of-4-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            ${{ runner.temp }}/caption-browser-evidence/**/outcomes.json
           retention-days: 5
           if-no-files-found: ignore
