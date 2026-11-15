@@ -22,6 +22,22 @@ interface Entry {
   abort: AbortController;
   done: Promise<void>;
 }
+interface PreviewPublication {
+  signature: string;
+  filename?: string; // The original signature.mp4 publication has no filename field.
+  size: number;
+  videoCodec: string;
+}
+interface PreviewHit {
+  filename: string;
+  size: number;
+  codec: string;
+}
+interface PreviewUse {
+  until: number;
+  readers: number;
+  aborters: Set<() => void>;
+}
 const entries = new Map<string, Entry>();
 const invalidating = new Set<string>();
 const cacheRoot = path.join(config.cacheDir, 'media-previews');
@@ -33,6 +49,51 @@ const INPUT_FORMATS = 'mov,matroska,webm,avi,mpeg,mpegts,flv,ogg,asf';
 let running = 0;
 let probing = 0;
 const inspections = new Map<string, Promise<Probe>>();
+// Each URL refers to immutable bytes. A playing older generation can keep its
+// own lease after a newer copy is published; requests pin their exact file.
+const activeUses = new Map<string, PreviewUse>();
+const evicting = new Set<string>();
+const evictingFiles = new Set<string>();
+const LEASE_MS = 120_000;
+const fileKey = (id: string, filename: string) => `${id}/${filename}`;
+const sidecarName = (filename: string) => `${filename}.json`;
+function validPreviewFilename(signature: string, filename: string) {
+  return filename === `${signature}.mp4` || new RegExp(`^${signature}\\.[0-9a-f]{32}\\.mp4$`).test(filename);
+}
+function touchPreview(id: string, filename: string) {
+  for (const [key, use] of activeUses) if (!use.readers && use.until <= Date.now()) activeUses.delete(key);
+  const key = fileKey(id, filename);
+  const use = activeUses.get(key) || { until: 0, readers: 0, aborters: new Set<() => void>() };
+  use.until = Date.now() + LEASE_MS;
+  activeUses.set(key, use);
+  return use;
+}
+function previewInUse(id: string, filename: string) {
+  const use = activeUses.get(fileKey(id, filename));
+  return Boolean(use && (use.readers || use.until > Date.now()));
+}
+function projectPreviewInUse(id: string) {
+  for (const [key, use] of activeUses) {
+    if (key.startsWith(`${id}/`) && (use.readers || use.until > Date.now())) return true;
+  }
+  return false;
+}
+function activeReaders(id: string) {
+  let count = 0;
+  for (const [key, use] of activeUses) if (key.startsWith(`${id}/`)) count += use.readers;
+  return count;
+}
+async function drainPreviewReaders(id: string) {
+  for (const [key, use] of activeUses) {
+    if (key.startsWith(`${id}/`)) {
+      for (const abort of use.aborters) { try { abort(); } catch { /* Connection may already be closed. */ } }
+    }
+  }
+  const deadline = performance.now() + 3_000;
+  while (activeReaders(id) && performance.now() < deadline) await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  if (activeReaders(id)) throw new MediaPreviewError('Playback is still closing. Try the media change again.', 409);
+}
+
 
 export class MediaPreviewError extends Error {
   constructor(message: string, readonly httpStatus = 400) { super(message); }
@@ -127,58 +188,169 @@ function inspect(source: string, signature: string) {
   return pending;
 }
 
-async function cached(project: ProjectMedia, signature: string) {
-  const dir = projectDirectory(project.id);
-  const target = path.join(dir, `${signature}.mp4`);
+async function readPointer(dir: string): Promise<PreviewPublication | null> {
   try {
-    const meta = JSON.parse(await fs.readFile(path.join(dir, 'ready.json'), 'utf8'));
-    const file = await fs.lstat(target);
-    if (meta.signature !== signature || !file.isFile() || file.isSymbolicLink() || file.size !== meta.size || file.size === 0 || file.size > MAX_BYTES) return null;
-    return { target, codec: String(meta.videoCodec || '') };
+    const meta: unknown = JSON.parse(await fs.readFile(path.join(dir, 'ready.json'), 'utf8'));
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+    const value = meta as PreviewPublication;
+    return typeof value.signature === 'string' && /^[a-f0-9]{64}$/.test(value.signature) ? value : null;
   } catch { return null; }
 }
 
-function ready(project: ProjectMedia, signature: string, videoCodec: string): MediaPreviewStatus {
-  return { source: project.media.filename, state: 'ready', videoCodec, progress: 100, url: `/api/media-preview/${encodeURIComponent(project.id)}/file/${signature}.mp4` };
+function publicationFilename(meta: PreviewPublication) {
+  return meta.filename === undefined ? `${meta.signature}.mp4` : meta.filename;
+}
+
+async function validatedPreview(dir: string, signature: string, meta: PreviewPublication): Promise<PreviewHit | null> {
+  const filename = publicationFilename(meta);
+  if (meta.signature !== signature || !validPreviewFilename(signature, filename)
+    || !Number.isFinite(meta.size) || meta.size <= 0 || meta.size > MAX_BYTES) return null;
+  try {
+    const file = await fs.lstat(path.join(dir, filename));
+    if (!file.isFile() || file.isSymbolicLink() || file.size !== meta.size) return null;
+    return { filename, size: file.size, codec: String(meta.videoCodec || '') };
+  } catch { return null; }
+}
+
+async function cached(project: ProjectMedia, signature: string): Promise<PreviewHit | null> {
+  const dir = projectDirectory(project.id);
+  const pointer = await readPointer(dir);
+  if (!pointer || pointer.signature !== signature
+    || !validPreviewFilename(signature, publicationFilename(pointer))) return null;
+  let release: ((discard?: boolean) => void) | undefined;
+  try { release = retainMediaPreview(project.id, publicationFilename(pointer), undefined, false); }
+  catch { return null; }
+  let hit: PreviewHit | null = null;
+  try {
+    hit = await validatedPreview(dir, signature, pointer);
+    if (hit) touchPreview(project.id, hit.filename);
+    return hit;
+  } finally { release(!hit); }
+}
+
+async function retiredCopy(dir: string, signature: string, filename: string): Promise<PreviewHit | null> {
+  try {
+    const meta: unknown = JSON.parse(await fs.readFile(path.join(dir, sidecarName(filename)), 'utf8'));
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)
+      || (meta as PreviewPublication).filename !== filename) return null;
+    return validatedPreview(dir, signature, meta as PreviewPublication);
+  } catch { return null; }
+}
+
+async function writePublicationFile(dir: string, filename: string, publication: PreviewPublication) {
+  const temporary = path.join(dir, `${filename}.${crypto.randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(temporary, JSON.stringify(publication));
+    await fs.rename(temporary, path.join(dir, filename));
+  } finally { await fs.rm(temporary, { force: true }).catch(() => {}); }
+}
+
+function ready(project: ProjectMedia, hit: PreviewHit): MediaPreviewStatus {
+  return { source: project.media.filename, state: 'ready', videoCodec: hit.codec, progress: 100,
+    url: `/api/media-preview/${encodeURIComponent(project.id)}/file/${hit.filename}` };
 }
 
 export async function mediaPreviewStatus(project: ProjectMedia): Promise<MediaPreviewStatus> {
+  if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
   const { signature, source } = await sourceIdentity(project);
+  if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
   const entry = entries.get(project.id);
-  if (entry?.signature === signature && entry.status.state !== 'ready') return { ...entry.status };
+  if (entry?.signature === signature && entry.status.state === 'processing') return { ...entry.status };
   const hit = await cached(project, signature);
-  if (hit) return ready(project, signature, hit.codec);
+  if (hit && !evicting.has(project.id) && !evictingFiles.has(fileKey(project.id, hit.filename))) {
+    touchPreview(project.id, hit.filename);
+    return { ...ready(project, hit), ...(entry?.signature === signature && entry.status.state === 'failed'
+      ? { message: 'The new playback copy could not be prepared. The previous copy was kept. Try Prepare playback again.' } : {}) };
+  }
+  if (entry?.signature === signature && entry.status.state !== 'ready') return { ...entry.status };
   const info = await inspect(source, signature);
   return { source: project.media.filename, state: 'original', videoCodec: info.videoCodec, progress: 0 };
 }
 
 async function evictCache(keep: string) {
   const directories = await fs.readdir(cacheRoot, { withFileTypes: true });
-  const candidates: Array<{ dir: string; size: number; time: number }> = [];
+  const candidates: Array<{ id: string; dir: string; size: number; time: number }> = [];
+  const retired: Array<{ id: string; dir: string; filename: string; size: number; time: number }> = [];
   for (const directory of directories) {
-    if (!directory.isDirectory() || directory.name === keep || entries.get(directory.name)?.status.state === 'processing') continue;
+    if (!directory.isDirectory()) continue;
     const dir = projectDirectory(directory.name);
     const files = await fs.readdir(dir, { withFileTypes: true });
     let size = 0; let time = 0;
-    for (const file of files) if (file.isFile()) { const stat = await fs.stat(path.join(dir, file.name)); size += stat.size; time = Math.max(time, stat.mtimeMs); }
-    candidates.push({ dir, size, time });
+    const sizes = new Map<string, { size: number; time: number }>();
+    for (const file of files) if (file.isFile()) {
+      const stat = await fs.stat(path.join(dir, file.name));
+      size += stat.size; time = Math.max(time, stat.mtimeMs);
+      sizes.set(file.name, { size: stat.size, time: stat.mtimeMs });
+    }
+    const pointer = await readPointer(dir);
+    const current = pointer && validPreviewFilename(pointer.signature, publicationFilename(pointer))
+      ? publicationFilename(pointer) : null;
+    for (const [filename, info] of sizes) {
+      if (!/^[a-f0-9]{64}(?:\.[a-f0-9]{32})?\.mp4$/.test(filename) || filename === current) continue;
+      const sidecar = sizes.get(sidecarName(filename));
+      retired.push({ id: directory.name, dir, filename, size: info.size + (sidecar?.size || 0), time: info.time });
+    }
+    candidates.push({ id: directory.name, dir, size, time });
   }
   let count = candidates.length;
   let total = candidates.reduce((sum, candidate) => sum + candidate.size, 0);
-  // Reserve the full per-preview maximum before launching, leaving no orphaned global copies.
+  // Old generations are charged to the same 2 GiB bound as the current copy.
+  // Reclaim an expired one without evicting an otherwise active project.
+  for (const file of retired.sort((a, b) => a.time - b.time)) {
+    if (total <= MAX_CACHE_BYTES - MAX_BYTES) break;
+    const key = fileKey(file.id, file.filename);
+    if (entries.get(file.id)?.status.state === 'processing' && file.id !== keep) continue;
+    if (evicting.has(file.id) || evictingFiles.has(key) || previewInUse(file.id, file.filename)) continue;
+    evictingFiles.add(key);
+    try {
+      await fs.rm(path.join(file.dir, file.filename), { force: true });
+      await fs.rm(path.join(file.dir, sidecarName(file.filename)), { force: true });
+      total -= file.size;
+      const owner = candidates.find((candidate) => candidate.id === file.id);
+      if (owner) owner.size -= file.size;
+    } finally { evictingFiles.delete(key); }
+  }
+  // Include protected files in the budget, plus one maximum-sized staging copy.
   for (const candidate of candidates.sort((a, b) => a.time - b.time)) {
-    if (total <= MAX_CACHE_BYTES - MAX_BYTES && count <= 63) break;
-    await fs.rm(candidate.dir, { recursive: true, force: true }); total -= candidate.size; count--;
+    if (total <= MAX_CACHE_BYTES - MAX_BYTES && count <= 64) break;
+    if (candidate.id === keep || entries.get(candidate.id)?.status.state === 'processing' || projectPreviewInUse(candidate.id)) continue;
+    evicting.add(candidate.id);
+    try { await fs.rm(candidate.dir, { recursive: true, force: true }); total -= candidate.size; count--; }
+    finally { evicting.delete(candidate.id); }
+  }
+  if (total > MAX_CACHE_BYTES - MAX_BYTES || count > 64) throw new MediaPreviewError('Playback storage is in use. Close another project and try again shortly.', 409);
+}
+
+async function clearAbandonedStages(dir: string, id: string, signature: string, current: PreviewHit | null) {
+  const preserved = new Set(current ? ['ready.json', current.filename, sidecarName(current.filename)] : []);
+  const files = await fs.readdir(dir, { withFileTypes: true });
+  for (const file of files) {
+    if (!file.isFile() || !/^[a-f0-9]{64}(?:\.[a-f0-9]{32})?\.mp4$/.test(file.name)) continue;
+    if (previewInUse(id, file.name)
+      || (file.name.startsWith(`${signature}.`) && await retiredCopy(dir, signature, file.name))) {
+      preserved.add(file.name);
+      preserved.add(sidecarName(file.name));
+    }
+  }
+  for (const file of files) {
+    if (preserved.has(file.name)) continue;
+    // No preview producer uses subdirectories; abandoned nested data counts
+    // against the same local cache rather than surviving cleanup forever.
+    await fs.rm(path.join(dir, file.name), { recursive: file.isDirectory(), force: true });
   }
 }
 
 export async function startMediaPreview(project: ProjectMedia, options: { force?: boolean } = {}): Promise<MediaPreviewStatus> {
+  if (evicting.has(project.id)) throw new MediaPreviewError('Playback storage is being refreshed. Try again shortly.', 409);
   if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
   const { source, signature } = await sourceIdentity(project);
   const existing = entries.get(project.id);
   if (existing?.signature === signature && existing.status.state === 'processing') return { ...existing.status };
   const hit = await cached(project, signature);
-  if (hit && !options.force) return ready(project, signature, hit.codec);
+  if (hit && !options.force && !evicting.has(project.id) && !evictingFiles.has(fileKey(project.id, hit.filename))) {
+    touchPreview(project.id, hit.filename); return ready(project, hit);
+  }
+  if (evicting.has(project.id)) throw new MediaPreviewError('Playback storage is being refreshed. Try again shortly.', 409);
   if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
   const concurrent = entries.get(project.id);
   if (concurrent?.signature === signature && concurrent.status.state === 'processing') return { ...concurrent.status };
@@ -190,11 +362,16 @@ export async function startMediaPreview(project: ProjectMedia, options: { force?
   entries.set(project.id, entry);
   entry.done = jobAdmission.run(async () => {
     const dir = await safeDirectory(project.id);
-    const partial = path.join(dir, `${signature}.${crypto.randomUUID()}.part.mp4`);
-    const target = path.join(dir, `${signature}.mp4`);
+    const filename = `${signature}.${crypto.randomUUID().replace(/-/g, '')}.mp4`;
+    const partial = path.join(dir, `${filename}.part.mp4`);
+    const target = path.join(dir, filename);
+    const metadata = path.join(dir, `ready.${crypto.randomUUID()}.tmp`);
+    let committed = false;
+    let outputCreated = false;
     try {
-      await fs.rm(dir, { recursive: true, force: true });
-      await safeDirectory(project.id);
+      // Both previously published and still leased generations keep their
+      // immutable filenames throughout the rebuild.
+      await clearAbandonedStages(dir, project.id, signature, hit);
       await evictCache(project.id);
       const info = await probe(source, abort.signal);
       entry.status.videoCodec = info.videoCodec;
@@ -212,16 +389,39 @@ export async function startMediaPreview(project: ProjectMedia, options: { force?
       const stat = await fs.stat(partial);
       if (output.videoCodec !== 'h264' || output.audio !== info.audio || Math.abs(output.duration - info.duration) > 0.25 || stat.size >= MAX_BYTES) throw new MediaPreviewError('The playback copy did not preserve the complete media timeline.');
       if (abort.signal.aborted || (await sourceIdentity(project)).signature !== signature || invalidating.has(project.id)) throw new MediaPreviewError('The source media changed. Prepare playback again.');
+      // A unique output cannot replace a file held open by another Windows
+      // reader or change bytes returned by a later Range on the old URL.
       await fs.rename(partial, target);
-      const metadata = path.join(dir, `ready.${crypto.randomUUID()}.tmp`);
-      await fs.writeFile(metadata, JSON.stringify({ signature, size: stat.size, videoCodec: info.videoCodec }));
+      outputCreated = true;
+      if (hit && !await retiredCopy(dir, signature, hit.filename)) {
+        await writePublicationFile(dir, sidecarName(hit.filename), {
+          signature, filename: hit.filename, size: hit.size, videoCodec: hit.codec,
+        });
+      }
+      await writePublicationFile(dir, sidecarName(filename), {
+        signature, filename, size: stat.size, videoCodec: info.videoCodec,
+      });
+      await fs.writeFile(metadata, JSON.stringify({ signature, filename, size: stat.size, videoCodec: info.videoCodec }));
+      const latestSource = await sourceIdentity(project);
+      if (abort.signal.aborted || invalidating.has(project.id) || latestSource.signature !== signature) {
+        throw new MediaPreviewError('Preview preparation cancelled.');
+      }
+      // The pointer rename is the commit. A cancellation after it cannot
+      // roll back a published copy or strand previously advertised URLs.
       await fs.rename(metadata, path.join(dir, 'ready.json'));
-      // Cancellation may arrive during either publication write, not just encoding.
-      if (abort.signal.aborted || invalidating.has(project.id)) throw new MediaPreviewError('Preview preparation cancelled.');
-      entry.status = ready(project, signature, info.videoCodec);
+      committed = true;
+      touchPreview(project.id, filename);
+      entry.status = ready(project, { filename, codec: info.videoCodec, size: stat.size });
     } finally {
       await fs.rm(partial, { force: true }).catch(() => {});
-      if (abort.signal.aborted) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(metadata, { force: true }).catch(() => {});
+      if (!committed && outputCreated) {
+        await fs.rm(target, { force: true }).catch(() => {});
+        await fs.rm(path.join(dir, sidecarName(filename)), { force: true }).catch(() => {});
+      }
+      if (abort.signal.aborted && !hit && !committed && !projectPreviewInUse(project.id)) {
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
     }
   }).catch((error: unknown) => {
     entry.status = { ...entry.status, state: abort.signal.aborted ? 'cancelled' : 'failed', message: error instanceof MediaPreviewError ? error.message : 'Playback preparation failed. Try again after any update finishes.' };
@@ -233,10 +433,19 @@ export async function startMediaPreview(project: ProjectMedia, options: { force?
   return { ...entry.status };
 }
 
+/** Stops only an active preparation. Safe before project deletion even when
+ * the original source is missing: no source probe or cache path access. */
+export async function cancelMediaPreviewPreparation(projectId: string): Promise<void> {
+  const entry = entries.get(projectId);
+  if (entry?.status.state !== 'processing') return;
+  entry.abort.abort();
+  await entry.done;
+}
+
 export async function cancelMediaPreview(project: ProjectMedia) {
   const entry = entries.get(project.id);
   if (entry?.status.source === project.media.filename && entry.status.state === 'processing') {
-    entry.abort.abort(); await entry.done;
+    await cancelMediaPreviewPreparation(project.id);
   }
   return entry?.status.source === project.media.filename ? { ...entry.status } : await mediaPreviewStatus(project);
 }
@@ -246,14 +455,69 @@ export async function invalidateMediaPreview(projectId: string) {
   try {
     const entry = entries.get(projectId);
     if (entry) { entry.abort.abort(); await entry.done; entries.delete(projectId); }
-    await fs.rm(projectDirectory(projectId), { recursive: true, force: true });
+    // Windows cannot reliably unlink an MP4 while sendFile still owns its
+    // handle. Media replacement/deletion deliberately ends those streams.
+    await drainPreviewReaders(projectId);
+    for (let attempt = 0; ; attempt++) {
+      try { await fs.rm(projectDirectory(projectId), { recursive: true, force: true }); break; }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (attempt >= 3 || !['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(code || '')) throw error;
+        await new Promise<void>((resolve) => setTimeout(resolve, 75 * (attempt + 1)));
+      }
+    }
+    for (const key of activeUses.keys()) if (key.startsWith(`${projectId}/`)) activeUses.delete(key);
   } finally { invalidating.delete(projectId); }
 }
 
-export async function mediaPreviewFile(project: ProjectMedia, filename: string) {
+/** Acquire before awaiting disk metadata, so eviction cannot win between
+ * validating a copy and opening its HTTP file stream. */
+export async function acquireMediaPreviewFile(project: ProjectMedia, filename: string, onInvalidate?: () => void) {
   const { signature } = await sourceIdentity(project);
-  if (filename !== `${signature}.mp4`) throw new MediaPreviewError('Playback copy expired.', 404);
-  const hit = await cached(project, signature);
-  if (!hit) throw new MediaPreviewError('Playback copy is not ready.', 404);
-  return { dir: projectDirectory(project.id), filename };
+  if (!validPreviewFilename(signature, filename)) throw new MediaPreviewError('Playback copy expired.', 404);
+  const release = retainMediaPreview(project.id, filename, onInvalidate, false);
+  try {
+    const dir = projectDirectory(project.id);
+    // A Range/HEAD for retired generation A must not renew the latest B's
+    // lease. Resolve the requested generation under its own already held pin.
+    const pointer = await readPointer(dir);
+    const file = pointer?.signature === signature && publicationFilename(pointer) === filename
+      ? await validatedPreview(dir, signature, pointer)
+      : await retiredCopy(dir, signature, filename);
+    if (!file || evicting.has(project.id) || evictingFiles.has(fileKey(project.id, filename))
+      || invalidating.has(project.id)) throw new MediaPreviewError('Playback copy is not ready.', 404);
+    // A failed lookup must not extend or erase another paused player's lease.
+    touchPreview(project.id, filename);
+    return { dir, filename, release: () => release() };
+  } catch (error) { release(true); throw error; }
+}
+
+export async function mediaPreviewFile(project: ProjectMedia, filename: string) {
+  const file = await acquireMediaPreviewFile(project, filename);
+  file.release();
+  return { dir: file.dir, filename: file.filename };
+}
+
+/** The route holds this exact generation until HTTP finish/close/error. */
+export function retainMediaPreview(projectId: string, filename: string, onInvalidate?: () => void, renew = true) {
+  projectDirectory(projectId);
+  if (!/^[a-f0-9]{64}(?:\.[a-f0-9]{32})?\.mp4$/.test(filename) || evicting.has(projectId)
+    || evictingFiles.has(fileKey(projectId, filename)) || invalidating.has(projectId)) {
+    throw new MediaPreviewError('Playback copy expired.', 404);
+  }
+  const key = fileKey(projectId, filename);
+  const existing = activeUses.get(key);
+  const use = existing || { until: 0, readers: 0, aborters: new Set<() => void>() };
+  activeUses.set(key, use);
+  use.readers++;
+  if (renew) touchPreview(projectId, filename);
+  if (onInvalidate) use.aborters.add(onInvalidate);
+  let released = false;
+  return (discard = false) => {
+    if (!released) {
+      released = true; use.readers--;
+      if (onInvalidate) use.aborters.delete(onInvalidate);
+      if (discard && !existing && !use.readers && activeUses.get(key) === use) activeUses.delete(key);
+    }
+  };
 }

@@ -42,7 +42,9 @@ test.beforeEach(async ({ page }) => {
 
 const field = (page: Page, index: number) => page.getByRole('textbox', { name: `Caption ${index + 1} text`, exact: true });
 const recoveryNotice = (page: Page) => page.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
-const saveFailure = (page: Page) => page.getByRole('alert').filter({ hasText: `Couldn't save changes` });
+// Keep the accessibility-role assertion, but avoid scanning all 5,000 caption
+// rows for a notice that is owned by the small, persistent toast stack.
+const saveFailure = (page: Page) => page.locator('.toast-stack').getByRole('alert').filter({ hasText: `Couldn't save changes` });
 
 async function recoveryRecords(page: Page) {
   return page.evaluate((prefix) => Object.keys(localStorage)
@@ -196,10 +198,14 @@ test('5,000 rows retain distant Find, menu and timing changes through failed sav
   await openProject(page);
   await expect(page.locator('.caption-row')).toHaveCount(COUNT);
 
+  const deniedSave = page.waitForResponse((response) => response.request().method() === 'PUT'
+    && response.url().includes('/api/projects/landscape/captions') && response.status() === 503);
   const editedFirst = 'Keep my Khmer correction កម្ពុជា';
   await field(page, 0).fill(editedFirst);
   await field(page, 1).focus(); // Text blur submits a save; the fixture refuses it.
+  expect((await deniedSave).status()).toBe(503);
   await expect(saveFailure(page)).toBeVisible();
+  await expect(saveFailure(page)).toContainText('Your edits are still here.');
   expect(failedRequests).toBeGreaterThan(0);
   await expect(field(page, 1)).toBeFocused();
   await expect(page.locator('.workspace')).toHaveClass(/has-save-failure/);

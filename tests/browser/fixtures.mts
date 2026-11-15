@@ -47,10 +47,13 @@ let scratch: string;
 let media: Buffer;
 let nativeModules: { renderCaptionPreview: any; parseCaptionPreviewInput: any };
 let mockServer: http.Server | null = null;
+let playbackHandler: ((req: http.IncomingMessage, res: http.ServerResponse) => void) | null = null;
+export function setPlaybackFixtureHandler(handler: typeof playbackHandler) { playbackHandler = handler; }
 const harness = requireHarnessConfig();
 const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 
 export async function prepareFixtures() {
+  const setupStartedAt = performance.now();
   scratch = await prepareOwnedStateRoot(harness, 'mock-state-');
   process.env.STHANG_STUDIO_STATE_ROOT = scratch;
   process.env.STHANG_STUDIO_ENV_FILE = path.join(scratch, 'absent.env');
@@ -71,6 +74,7 @@ export async function prepareFixtures() {
     };
   }
   mockServer = http.createServer(guardNamespacedRequest((req, res) => {
+    if (playbackHandler && (req.url?.startsWith('/api/media-preview/') || req.url?.startsWith('/media/landscape.mp4'))) { playbackHandler(req, res); return; }
     if (req.url === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'X-Sthang-Studio-Activation': harness.marker });
       res.end(JSON.stringify({ ok: true }));
@@ -133,13 +137,53 @@ export async function prepareFixtures() {
     mockServer!.on('error', reject);
     mockServer!.listen({ port: harness.apiPort, host: '127.0.0.1', exclusive: true }, () => resolve());
   });
-  for (const url of [`${harness.apiOrigin}${addTestNamespace('/api/health', harness)}`, safeFrontendUrl(`${harness.webOrigin}/api/health`, harness), safeFrontendUrl(`${harness.webOrigin}/studio-web-identity.json`, harness)]) {
-    const address = mockServer.address();
-    if (!address || typeof address === 'string' || address.port !== harness.apiPort || address.address !== '127.0.0.1') throw new Error('Owned synthetic listener is not ready.');
-    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(1000) });
-    if (!mockServer.listening || !response.ok || response.headers.get('X-Sthang-Studio-Activation') !== harness.marker) throw new Error('Synthetic API/frontend ownership probe failed.');
-    const body = await response.json();
-    if (url.endsWith('/studio-web-identity.json') ? body.service !== 'sthang-studio-web' || body.schemaVersion !== 1 || !/^[a-f0-9]{64}$/.test(body.buildId) : body.ok !== true) throw new Error('Synthetic ownership health payload is invalid.');
+  const setupBeforeProbesMs = Math.round(performance.now() - setupStartedAt);
+  const measureReadiness = process.env.STHANG_PREVIEW_RELIABILITY_FIXTURE_DIAGNOSTICS === '1';
+  // Construct and validate every namespaced URL before sending the first request.
+  const probes = [
+    { label: 'direct-api', url: `${harness.apiOrigin}${addTestNamespace('/api/health', harness)}` },
+    { label: 'proxied-api', url: safeFrontendUrl(`${harness.webOrigin}/api/health`, harness) },
+    { label: 'frontend-identity', url: safeFrontendUrl(`${harness.webOrigin}/studio-web-identity.json`, harness) },
+  ] as const;
+  for (const probe of probes) {
+    const startedAt = performance.now();
+    let phase = 'listener';
+    let status: number | null = null;
+    let activationMatch: boolean | null = null;
+    let signal: AbortSignal | undefined;
+    const report = (outcome: 'success' | 'failure') => {
+      if (outcome === 'success' && !measureReadiness) return;
+      // Report only timing and identity-match booleans, never paths or markers.
+      try {
+        const address = mockServer?.address();
+        const line = JSON.stringify({
+          event: 'preview-reliability-fixture-readiness', outcome, probe: probe.label, phase,
+          elapsedMs: Math.round(performance.now() - startedAt), setupBeforeProbesMs,
+          listenerOwned: Boolean(address && typeof address !== 'string'
+            && address.port === harness.apiPort && address.address === '127.0.0.1'),
+          listenerAlive: Boolean(mockServer?.listening), activationMatch, status,
+          signalAborted: signal?.aborted ?? false,
+        });
+        if (outcome === 'failure') console.error(line); else console.log(line);
+      } catch { /* Diagnostics must not replace the original readiness result. */ }
+    };
+    try {
+      const address = mockServer.address();
+      if (!address || typeof address === 'string' || address.port !== harness.apiPort || address.address !== '127.0.0.1') throw new Error('Owned synthetic listener is not ready.');
+      phase = 'headers';
+      signal = AbortSignal.timeout(1000);
+      const response = await fetch(probe.url, { redirect: 'error', signal });
+      status = response.status;
+      activationMatch = response.headers.get('X-Sthang-Studio-Activation') === harness.marker;
+      phase = 'identity';
+      if (!mockServer.listening || !response.ok || !activationMatch) throw new Error('Synthetic API/frontend ownership probe failed.');
+      phase = 'body';
+      const body = await response.json();
+      phase = 'payload';
+      if (probe.url.endsWith('/studio-web-identity.json') ? body.service !== 'sthang-studio-web' || body.schemaVersion !== 1 || !/^[a-f0-9]{64}$/.test(body.buildId) : body.ok !== true) throw new Error('Synthetic ownership health payload is invalid.');
+      phase = 'complete';
+      report('success');
+    } catch (error) { report('failure'); throw error; }
   }
 }
 export function fixtureMedia() { return Buffer.from(media); }
@@ -148,6 +192,7 @@ export function fixtureExportUrl(): string {
   return ownedNativeExportUrl(mockServer, scratch, harness);
 }
 export async function cleanFixtures() {
+  playbackHandler = null;
   const { disposePersistentCaptionPreviews } = await import('../../apps/server/src/services/persistent-caption-preview.js');
   await disposePersistentCaptionPreviews();
   if (mockServer) {

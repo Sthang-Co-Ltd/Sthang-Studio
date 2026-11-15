@@ -67,8 +67,9 @@
     "test:timing-dependencies": "node scripts/test-timing-cache.mjs --all",
     "diagnose:gemini-abort": "node --expose-gc --import tsx --test tests/diagnostics/gemini-sdk-abort-known-limitation.mts",
     "diagnose:node-abort": "node --expose-gc tests/diagnostics/request-clone-abort-known-limitation.mjs",
-    "test:media-preview": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-preview.test.mts",
-    "test:media-replacement": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-compatibility.test.mts tests/preserve-media-server.test.mts tests/replace-media-dialog.test.mts tests/accuracy-context-draft.test.ts tests/media-audio-override.test.mts tests/media-audio-override-recovery.test.mts tests/media-audio-override-timing.test.mts tests/media-audio-override-export.test.mts"
+    "test:media-preview": "npm run build --workspace @kcs/shared && node --import tsx --test --test-concurrency=1 tests/media-preview.test.mts tests/media-playback-recovery.test.ts tests/media-preview-client.test.ts",
+    "test:media-replacement": "npm run build --workspace @kcs/shared && node --import tsx --test tests/media-compatibility.test.mts tests/preserve-media-server.test.mts tests/replace-media-dialog.test.mts tests/accuracy-context-draft.test.ts tests/media-audio-override.test.mts tests/media-audio-override-recovery.test.mts tests/media-audio-override-timing.test.mts tests/media-audio-override-export.test.mts",
+    "benchmark:media-preview": "npm run build --workspace @kcs/shared && node --import tsx scripts/benchmark-media-preview.mts"
   },
   "allowScripts": {
     "@google/genai": true,

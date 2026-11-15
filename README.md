@@ -188,6 +188,19 @@ is for playback only. Copies are limited to 720p, two-hour inputs, 15 minutes of
 preparation and 512 MiB per copy, with one encoder and a bounded 2 GiB local cache.
 An evicted copy can be rebuilt; replacing or deleting media removes its copy.
 
+Source-only hardening adds bounded preparation requests, **Check progress** after
+repeated status failures, and **Retry playback** when a first video frame does not
+appear or playback stops advancing. When the browser can report presented video
+frames, an original that displays a picture takes precedence over negative HEVC
+capability hints; a blank original gets five visible seconds before automatic
+preparation. Actual decoder failures still start recovery immediately.
+Retry restarts the player immediately and
+checks the selected compatible copy; a confirmed missing copy can be rebuilt
+while keeping the editing session. Open copies receive a short renewable local
+cache lease and remain readable during a rebuild; space limits still apply.
+These changes have not been released.
+See [preview reliability evidence and limitations](docs/PREVIEW-RELIABILITY-20261115.md).
+
 The update preparation closes update/job-start races, requires working Khmer
 timing for updater preparation, and checks bounded API and frontend build/launch
 identity before accepting activation. The manual installer delivers stable-broker

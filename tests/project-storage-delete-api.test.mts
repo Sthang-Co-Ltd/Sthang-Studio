@@ -35,9 +35,9 @@ async function seed(name: string, partial: boolean) {
   return { state, directory, media, history, cache, legacy };
 }
 
-function probe(state: string, before = '') {
+function probe(state: string, before = '', exercise = "const response = await fetch(url, { method: 'DELETE' });") {
   const script = `
-    import fs from 'node:fs/promises'; import path from 'node:path'; import express from 'express'; import { once } from 'node:events';
+    import fs from 'node:fs/promises'; import path from 'node:path'; import express from 'express'; import { once } from 'node:events'; import assert from 'node:assert/strict';
     const { store } = await import('./apps/server/src/services/store.ts');
     const { config } = await import('./apps/server/src/config.ts');
     await store.list(); ${before}
@@ -45,7 +45,8 @@ function probe(state: string, before = '') {
     const app = express(); app.use('/projects', projects); app.use((error, req, res, next) => res.status(500).json({ error: 'Synthetic persistence failure' }));
     const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
     try {
-      const response = await fetch('http://127.0.0.1:' + server.address().port + '/projects/good', { method: 'DELETE' });
+      const url = 'http://127.0.0.1:' + server.address().port + '/projects/good';
+      ${exercise}
       const result = { status: response.status, body: await response.text(), ids: (await store.list()).map(p => p.id) };
       console.log('RESULT:' + JSON.stringify(result));
     } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
@@ -121,3 +122,97 @@ test('healthy API deletion still removes its project and owned media/history/cac
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(files.directory, 'order.json'), 'utf8')), []);
   assert.equal(await fs.readFile(path.join(files.directory, 'unrelated.json'), 'utf8'), '{unreadable unrelated project');
 });
+
+// Admit a real preview entry, but hold its worker before it can invoke FFmpeg.
+// Deletion must abort and await this worker before touching durable source data.
+const heldPreview = `
+  const previewService = await import('./apps/server/src/services/media-preview.ts');
+  const { jobAdmission } = await import('./apps/server/src/services/job-admission.ts');
+  const sourceRecord = await store.get('good');
+  const originalRun = jobAdmission.run;
+  const OriginalAbortController = globalThis.AbortController;
+  let previewAbort, releaseWorker, holdNext = true, drained = false;
+  const workerBarrier = new Promise(resolve => { releaseWorker = resolve; });
+  jobAdmission.run = function(operation) {
+    if (!holdNext) return originalRun.call(this, operation);
+    holdNext = false;
+    return originalRun.call(this, async () => {
+      try { await workerBarrier; return await operation(); }
+      finally { drained = true; }
+    });
+  };
+  globalThis.AbortController = class extends OriginalAbortController {
+    constructor() { super(); previewAbort = this; }
+  };
+  try { assert.equal((await previewService.startMediaPreview(sourceRecord)).state, 'processing'); }
+  finally { globalThis.AbortController = OriginalAbortController; }
+  assert.ok(previewAbort);
+  const aborted = new Promise(resolve => previewAbort.signal.addEventListener('abort', resolve, { once: true }));
+  const recordFile = path.join(path.dirname(config.dataFile), 'projects', 'good.json');
+  const sourceFile = path.join(config.uploadDir, sourceRecord.media.filename);
+  const originalRm = fs.rm;
+  const destructive = [];
+  fs.rm = async (...args) => {
+    if ([recordFile, sourceFile].includes(String(args[0]))) destructive.push({ target: String(args[0]), drained });
+    return originalRm(...args);
+  };
+  const releaseFixture = async () => {
+    releaseWorker();
+    try { await previewService.cancelMediaPreviewPreparation('good'); }
+    finally { jobAdmission.run = originalRun; fs.rm = originalRm; }
+  };
+`;
+
+test('API deletion aborts and drains preview preparation before removing its record or source', async () => {
+  const files = await seed('preview-drain', false);
+  const result = probe(files.state, heldPreview, `
+    let response;
+    const deleting = fetch(url, { method: 'DELETE' });
+    try {
+      await aborted;
+      assert.deepEqual(await store.get('good'), sourceRecord);
+      assert.equal(await fs.readFile(sourceFile, 'utf8'), 'synthetic retained bytes');
+      assert.deepEqual(destructive, []);
+      let settled = false; void deleting.then(() => { settled = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false, 'deletion must await the aborted worker releasing its source');
+      releaseWorker(); response = await deleting;
+      assert.equal(response.status, 204);
+      assert.deepEqual(destructive.map(item => item.target), [recordFile, sourceFile]);
+      assert.ok(destructive.every(item => item.drained));
+    } finally { await releaseFixture(); }
+  `);
+  assert.equal(result.status, 204); assert.deepEqual(result.ids, []);
+  for (const file of [files.media, files.history, files.cache, path.join(files.directory, 'good.json')]) await assert.rejects(fs.stat(file), { code: 'ENOENT' });
+});
+
+test('preview cancellation failure leaves the project, source, history and cache intact', async () => {
+  const files = await seed('preview-drain-failure', false);
+  const result = probe(files.state, heldPreview, `
+    let response;
+    const originalAbort = previewAbort.abort.bind(previewAbort);
+    previewAbort.abort = () => { throw new Error('Synthetic preview cancellation failure'); };
+    try {
+      response = await fetch(url, { method: 'DELETE' });
+      assert.equal(response.status, 500);
+      assert.deepEqual(await store.get('good'), sourceRecord);
+      assert.deepEqual(destructive, []);
+      assert.equal(await fs.readFile(sourceFile, 'utf8'), 'synthetic retained bytes');
+    } finally { previewAbort.abort = originalAbort; await releaseFixture(); }
+  `);
+  assert.equal(result.status, 500); assert.deepEqual(result.ids, ['good']);
+  for (const file of [files.media, files.history, files.cache]) assert.equal(await fs.readFile(file, 'utf8'), 'synthetic retained bytes');
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(files.directory, 'good.json'), 'utf8')), project);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(files.directory, 'order.json'), 'utf8')), ['good']);
+});
+
+for (const condition of ['missing', 'corrupt-video']) {
+  test(`deleting ${condition} media without an active preview never requires a successful probe`, async () => {
+    const files = await seed(`no-preview-${condition}`, false);
+    if (condition === 'missing') await fs.rm(files.media);
+    else await fs.writeFile(path.join(files.directory, 'good.json'), JSON.stringify({ ...project, media: { ...project.media, mimeType: 'video/mp4' } }));
+    const result = probe(files.state, `config.ffprobePath = path.join(config.workingDir, 'must-not-probe');`);
+    assert.equal(result.status, 204); assert.deepEqual(result.ids, []);
+    for (const file of [files.media, files.history, files.cache, path.join(files.directory, 'good.json')]) await assert.rejects(fs.stat(file), { code: 'ENOENT' });
+  });
+}

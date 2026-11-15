@@ -11,6 +11,7 @@ import { createProjectFromUpload, ProjectCreationError } from '../services/proje
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
+import { cancelMediaPreviewPreparation } from '../services/media-preview.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
 import { recordExportEvidence } from '../services/export-evidence.js';
@@ -729,6 +730,10 @@ router.delete('/:id', async (req, res) => {
     await jobAdmission.changeProjectMedia(req.params.id, () => jobStore.hasActiveForProject(req.params.id), async () => {
       const project = await store.get(req.params.id);
       if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+      // Preview preparation holds the source outside per-project job admission.
+      // Drain that reader before deleting either the saved record or its media;
+      // a failed cancellation must leave both available for a later retry.
+      await cancelMediaPreviewPreparation(project.id);
       await store.remove(req.params.id);
       await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true });
       await invalidateProjectCache(project.id);

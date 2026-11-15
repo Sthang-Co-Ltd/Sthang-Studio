@@ -801,12 +801,17 @@ test('retired-media appearance saves and video exports cannot change the preserv
   assert.equal(response.status, 200, await response.clone().text());
   const replacement = await response.json() as CaptionProject;
   let enqueues = 0;
-  const mock = t.mock.method(jobStore, 'create', async () => { enqueues++; throw new Error('Export must not be enqueued'); });
+  const mock = t.mock.method(jobStore, 'createWithDisposition', async () => { enqueues++; throw new Error('Export must not be enqueued'); });
   const base = baseUrl.replace('/api/projects', '/api/video-export');
   try {
     for (const [suffix, method] of [['appearance', 'PUT'], ['jobs', 'POST']] as const) {
-      const stale = await fetch(`${base}/${project.id}/${suffix}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedMedia: project.media, appearance: { ...DEFAULT_CAPTION_APPEARANCE, textColor: '#FF0000' }, settings: {} }) });
+      const stale = await fetch(`${base}/${project.id}/${suffix}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        expectedMedia: project.media,
+        ...(suffix === 'appearance' ? { expectedAppearance: project.captionAppearance } : {}),
+        appearance: { ...DEFAULT_CAPTION_APPEARANCE, textColor: '#FF0000' }, settings: {},
+      }) });
       assert.equal(stale.status, 409, await stale.clone().text());
+      assert.match((await stale.json() as { error: string }).error, suffix === 'appearance' ? /older media version/i : /source changed while preparing export/i);
       const unbound = await fetch(`${base}/${project.id}/${suffix}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appearance: DEFAULT_CAPTION_APPEARANCE, settings: {} }) });
       assert.equal(unbound.status, 428, await unbound.clone().text());
     }
