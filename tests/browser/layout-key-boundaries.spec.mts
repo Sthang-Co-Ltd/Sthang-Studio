@@ -152,7 +152,12 @@ test('divider keys', async ({ page }) => {
 
 test('header Escape', async ({ page }) => {
   await setup(page);
-  const grip = header(page); const before = await saved(page); const original = await widths(page);
+  const grip = header(page);
+  // Settle the fixture's intentional blur-save failure before freezing drag geometry.
+  await grip.focus();
+  await expect(page.getByRole('button', { name: 'Retry save', exact: true })).toBeVisible();
+  await expect.poll(() => page.locator('.toast-stack').evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
+  const before = await saved(page); const original = await widths(page);
   const source = (await grip.boundingBox())!; const target = (await page.locator('.workspace-inspector').boundingBox())!;
   try {
     await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);

@@ -38,11 +38,18 @@ test('a nearby caption edge has a clear hover affordance, keeps drag delta, and 
   await page.mouse.down();
   await page.mouse.move(x + offset + movement, y, { steps: 5 });
   await expect.poll(async () => Number((await start.inputValue()).split(':').at(-1))).toBeGreaterThan(.24);
+  // Shift disables snapping during this drag; its modified Escape must stay ignored.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.waveform-canvas-wrap')).toHaveClass(/dragging/);
+  await expect.poll(async () => Number((await start.inputValue()).split(':').at(-1))).toBeGreaterThan(.24);
+  expect(state.projects[0].captions[0].startMs).toBe(200);
+  await page.keyboard.up('Shift');
   await page.keyboard.press('Escape');
   await page.mouse.up();
   await expect(start).toHaveValue('00:00.200');
   expect(state.projects[0].captions[0].startMs).toBe(200);
   await page.mouse.move(x + offset, y);
+  await page.keyboard.down('Shift');
   await page.mouse.down();
   await page.mouse.move(x + offset + movement, y, { steps: 5 });
   await page.mouse.up();

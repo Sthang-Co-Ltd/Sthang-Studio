@@ -28,8 +28,15 @@ export function createCaptionSaveCoalescer<Result>() {
       // Reserve before start: callers share the write tracking, recovery capture
       // and queue admission as well as the eventual transport operation.
       pending.add(entry);
-      void promise.then(() => { pending.delete(entry); }, () => { pending.delete(entry); });
-      try { resolve(start()); } catch (error) { reject(error); }
+      try {
+        // A caller may resume from its mutation-queue barrier before this shared
+        // promise settles. Retire the operation before publishing its result so
+        // that caller's deliberate retry cannot join an already finished write.
+        void start().then(
+          (value) => { pending.delete(entry); resolve(value); },
+          (error) => { pending.delete(entry); reject(error); },
+        );
+      } catch (error) { pending.delete(entry); reject(error); }
       return promise;
     },
   };

@@ -712,19 +712,27 @@ test('clean then dirty queued saves cannot mark a later unsaved edit as saved', 
     await page.keyboard.press('Control+s');
     expect(saveBodies).toHaveLength(0);
 
-    // Unified Save waits for the earlier mutation before capturing its payload.
-    // S2 requests a save; input accepted before dispatch belongs to that save.
+    // S2 waits for History. New input during that wait withdraws its permission
+    // to save, keeping the newer draft for a deliberate retry.
     await field.fill('FIRST NEW EDIT');
     await page.keyboard.press('Control+s');
     expect(saveBodies).toHaveLength(0);
-
-    // This newer input arrives while Save is still waiting for History.
     await field.fill('LATEST USER EDIT');
     await expect(page.locator('.project-title')).toContainText('autosave pending');
 
     const restoreResponse = page.waitForResponse((response) => response.url().endsWith('/api/projects/disk-history-mixed-saves/history/history-mixed-saves/restore'));
     releaseRestore();
     expect((await restoreResponse).status()).toBe(200);
+    // The completed Save and its notice are the cancellation barrier. A zero
+    // count before those continuations settle would not prove no write was queued.
+    await expect(page.locator('.save-action')).not.toHaveAttribute('aria-busy');
+    await expect(page.locator('.toast.notice').filter({ hasText: 'Newer changes arrived while saving. Your project is still open; save again when you are ready.' })).toBeVisible();
+    expect(saveBodies).toHaveLength(0);
+    await expect(field).toHaveValue('LATEST USER EDIT');
+    await expect(page.locator('.project-title')).toContainText('autosave pending');
+    expect((JSON.parse(await fs.readFile(mixedSaveProjectFile, 'utf8')) as CaptionProject).captions[0].text).toBe('MIXED HISTORY SNAPSHOT');
+
+    await page.keyboard.press('Control+s');
     await expect.poll(() => firstSaveStarted).toBe(true);
     expect(saveBodies).toHaveLength(1);
     expect(saveBodies[0].captions[0].text).toBe('LATEST USER EDIT');
@@ -987,12 +995,12 @@ for (const groupingCase of groupingCases) {
       await expect(page.locator('video')).toHaveAttribute('src', original.media.url);
       await expect(field).toHaveValue(expectedText);
       await expect(page.locator('.save-action')).toBeDisabled();
-      // Blur saves the edited field; Save and regroup has already queued its
-      // explicit prerequisite before either acknowledgement is released.
-      expect(saveBodies).toHaveLength(2);
-      expect(saveBodies.map((body) => body.source)).toEqual(['text-edit', 'manual-save']);
-      expect(saveBodies[1]).toEqual({ ...saveBodies[0], source: 'manual-save', expectedUpdatedAt: firstAcknowledgement.updatedAt });
-      expect(saveBodies[1].captions.map((caption: { text: string }) => caption.text)).toEqual([corrected]);
+      // Blur and Save and regroup share the same pending, correction-recording
+      // snapshot. The prerequisite does not replay that already successful write.
+      expect(saveBodies).toHaveLength(1);
+      expect(saveBodies[0]).toMatchObject({ source: 'text-edit', recordCorrections: true });
+      expect(saveBodies[0].captions.map((caption: { text: string }) => caption.text)).toEqual([corrected]);
+      expect(firstAcknowledgement.captions.map((caption) => caption.text)).toEqual([corrected]);
       expect(regroupBodies).toHaveLength(scenario.leave === 'save' ? 0 : 1);
       expect((await readDisk()).captions[0].text).toBe(expectedText);
       await testInfo.attach('regrouping-reopened.png', { body: await page.screenshot(), contentType: 'image/png' });

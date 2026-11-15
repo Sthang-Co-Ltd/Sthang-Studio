@@ -66,6 +66,35 @@ test('failed and uncertain writes settle every joiner and permit a new deliberat
   assert.equal(admissions, 4);
 });
 
+for (const outcome of ['unconfirmed', 'rejected'] as const) {
+  test(`an explicit retry after the mutation queue drains does not reuse its ${outcome} write`, async () => {
+    const writes = createCaptionSaveCoalescer<string | null>(); const owner = identity();
+    const gate = deferred<string | null>(); const failure = new Error('Unconfirmed transport');
+    let mutationQueue: Promise<unknown> = Promise.resolve(); let admissions = 0;
+    const first = writes.run(owner, () => {
+      admissions++;
+      const task = mutationQueue.then(() => gate.promise);
+      // App publishes this barrier before returning the caption task to the
+      // coalescer. A manual Save may resume from it before outer promise adoption.
+      mutationQueue = task.then(() => undefined, () => undefined);
+      return task;
+    });
+    assert.equal(writes.run(owner, async () => 'unexpected duplicate'), first);
+    const firstSettled = outcome === 'rejected' ? assert.rejects(first, failure)
+      : first.then((result) => { assert.equal(result, null); });
+    const manualSave = (async () => {
+      await mutationQueue;
+      const retry = writes.run(owner, async () => { admissions++; return 'confirmed retry'; });
+      assert.notEqual(retry, first, 'a settled write cannot cover this deliberate retry');
+      return retry;
+    })();
+    if (outcome === 'rejected') gate.reject(failure); else gate.resolve(null);
+    const [, result] = await Promise.all([firstSettled, manualSave]);
+    assert.equal(result, 'confirmed retry');
+    assert.equal(admissions, 2);
+  });
+}
+
 test('settling an older version cannot remove a newer pending write owner', async () => {
   const writes = createCaptionSaveCoalescer<string>(); const owner = identity(); const old = deferred<string>(); const fresh = deferred<string>();
   const first = writes.run(owner, () => old.promise);

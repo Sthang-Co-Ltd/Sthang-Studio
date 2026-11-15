@@ -511,7 +511,7 @@ export default function App() {
       || (document.activeElement !== request.previous && document.activeElement !== document.body)) return;
     const inspector = document.querySelector<HTMLElement>('.workspace-inspector:not([hidden])');
     const target = request.tool === 'accuracy'
-      ? inspector?.querySelector<HTMLElement>('#accuracy-context-description') : inspector;
+      ? inspector?.querySelector<HTMLElement>('#accuracy-context-description') : inspector?.querySelector<HTMLElement>('.inspector-heading');
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
   }, [showGuide, workspaceTool, viewTicket, proposal]);

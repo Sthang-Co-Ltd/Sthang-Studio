@@ -89,7 +89,10 @@ test('the file input clears before submission so the same file can retry after a
   await expect.poll(() => uploads).toBe(1);
   expect(await input(page).inputValue()).toBe('');
   await expect(dropzone(page)).toBeEnabled();
-  await expect(page.locator('.toast.error')).toContainText('Synthetic upload failed');
+  const failure = page.getByRole('region', { name: 'Upload was not applied', exact: true });
+  await expect(failure.getByRole('alert')).toContainText('Synthetic upload failed');
+  await expect(failure.getByRole('button', { name: 'Retry this upload', exact: true })).toBeEnabled();
+  await expect(page.locator('.toast.error')).toHaveCount(0);
   await input(page).setInputFiles(video());
   await expect.poll(() => uploads).toBe(2);
   expect(await input(page).inputValue()).toBe('');

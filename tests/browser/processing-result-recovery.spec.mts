@@ -26,9 +26,14 @@ for (const width of [1440, 390]) test(`completed processing with a failed result
   await field.focus(); await field.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(0, 2));
   let failRead = true; let phase: 'automatic' | 'activity' | 'open' = 'automatic';
   const reads = { automatic: 0, activity: 0, open: 0 };
+  const appearanceReads = { automatic: 0, activity: 0, open: 0 };
   await page.route('**/api/projects/landscape', async (route) => {
     reads[phase]++;
     return failRead ? route.fulfill({ status: 503, json: { error: 'Synthetic completed-result read failure' } }) : route.fulfill({ json: state.projects[0] });
+  });
+  await page.route('**/api/projects/landscape/appearance', (route) => {
+    appearanceReads[phase]++;
+    return route.fallback();
   });
   state.projects[0].captions[0].text = 'Completed generated wording ខ្មែរ';
   state.projects[0].updatedAt = '2026-01-01T00:00:02.000Z';
@@ -43,21 +48,27 @@ for (const width of [1440, 390]) test(`completed processing with a failed result
   expect(reads.automatic).toBe(1);
   await page.screenshot({ path: info.outputPath(`completed-result-recovery-${width}.png`), animations: 'disabled' });
   phase = 'activity';
-  const appearanceRead = page.waitForResponse((response) => response.url().endsWith('/api/projects/landscape'));
+  const appearanceRead = page.waitForResponse((response) => response.request().method() === 'GET' && response.url().endsWith('/api/projects/landscape/appearance'));
   await recovery.getByRole('button', { name: 'Open Activity', exact: true }).focus();
   await recovery.getByRole('button', { name: 'Open Activity', exact: true }).press('Enter');
   const activity = page.getByRole('dialog', { name: 'Activity', exact: true });
   await expect(activity).toBeVisible();
   await (await appearanceRead).finished();
+  expect(reads.activity).toBe(0);
+  expect(appearanceReads.activity).toBe(1);
   phase = 'open';
   failRead = false;
+  const resultRead = page.waitForResponse((response) => response.request().method() === 'GET' && response.url().endsWith('/api/projects/landscape'));
+  const refreshedAppearanceRead = page.waitForResponse((response) => response.request().method() === 'GET' && response.url().endsWith('/api/projects/landscape/appearance'));
   await activity.getByRole('button', { name: 'Open result', exact: true }).click();
+  await Promise.all([resultRead, refreshedAppearanceRead].map(async (response) => (await response).finished()));
   await expect(field).toHaveValue('Completed generated wording ខ្មែរ');
   await expect(activity).toHaveCount(0);
   expect(reads.automatic).toBe(1);
-  // Explicit result loading and Activity's saved-appearance verification each
-  // read once when navigation advances the project ticket.
-  expect(reads.open).toBe(2);
+  // Explicit result loading reads the project once. Activity verifies only its
+  // saved appearance when navigation advances the project ticket.
+  expect(reads.open).toBe(1);
+  expect(appearanceReads.open).toBe(1);
   expect(state.requests.filter((request) => request.method === 'POST' && /jobs|transcribe|regenerate/.test(request.path))).toEqual([]);
   expect(state.projects[0].media).toEqual(oldMedia);
   expect(state.projects[0].captionAppearance).toEqual(oldAppearance);

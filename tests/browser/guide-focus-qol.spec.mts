@@ -122,7 +122,7 @@ for (const width of [1440, 390]) {
       (window as any).__guideReveals = [];
       const reveal = Element.prototype.scrollIntoView;
       Element.prototype.scrollIntoView = function (options?: boolean | ScrollIntoViewOptions) {
-        if (this.matches('#accuracy-context-description,.workspace-inspector')) (window as any).__guideReveals.push(options);
+        if (this.matches('#accuracy-context-description,.inspector-heading')) (window as any).__guideReveals.push(options);
         reveal.call(this, options);
       };
     });
@@ -133,16 +133,26 @@ for (const width of [1440, 390]) {
     ]) {
       await openGuide(page);
       await page.evaluate(() => { (window as any).__guideReveals = []; });
-      await guide(page).getByRole('button', { name: destination.action }).click();
+      const action = guide(page).getByRole('button', { name: destination.action });
+      if (destination.name === 'Review') { await action.focus(); await action.press('Enter'); }
+      else await action.click();
       await expect(guide(page)).toHaveCount(0);
       const workspace = page.getByRole('complementary', { name: `${destination.name} workspace`, exact: true });
       await expect(workspace).toBeVisible();
       if (destination.field) await expect(page.getByLabel('What is this clip about?', { exact: true })).toBeFocused();
-      else await expect(workspace).toBeFocused();
+      else await expect(workspace.getByRole('group', { name: `${destination.name} workspace`, exact: true })).toBeFocused();
       await expect.poll(() => page.evaluate(() => (window as any).__guideReveals.length)).toBeGreaterThan(0);
       expect(await page.evaluate(() => (window as any).__guideReveals.every((options: ScrollIntoViewOptions) => options.behavior === 'instant' && options.block === 'nearest' && options.inline === 'nearest'))).toBe(true);
       await expectEditorEvidence(page, draft);
       if (destination.field) await page.screenshot({ path: info.outputPath(`guide-focus-accuracy-${width}.png`) });
+      if (!destination.field) {
+        if (destination.name === 'Review') {
+          expect(await workspace.locator('.inspector-heading').evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+          await page.screenshot({ path: info.outputPath(`guide-focus-review-${width}.png`) });
+        }
+        await page.keyboard.press('Tab');
+        await expect(workspace.locator('.inspector-heading button').first()).toBeFocused();
+      }
     }
   });
 }

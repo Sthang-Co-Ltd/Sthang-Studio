@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { api } from '../api';
+import { reconcileProfileAcknowledgement } from '../profile-state';
 
 interface ContributorSettingsProps {
   profile: AppProfile;
@@ -49,7 +50,8 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
   profileOwner.current = profile;
   const currentProfile = useRef(liveProfile);
   currentProfile.current = liveProfile;
-  const acknowledgedProfile = useRef<AppProfile | null>(null);
+  const acknowledgedParents = useRef<AppProfile[]>([]);
+  const retryReadsProfile = useRef(true);
   const readRequest = useRef<symbol | null>(null);
   const mutationRequest = useRef<symbol | null>(null);
 
@@ -58,6 +60,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     const token = Symbol('privacy status read');
     const owner = profileOwner.current;
     readRequest.current = token;
+    retryReadsProfile.current = readProfile;
     setReading(true);
     setReadError('');
     const owns = () => mounted.current && readRequest.current === token && profileOwner.current === owner && !mutationRequest.current;
@@ -92,15 +95,19 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     return () => { mounted.current = false; readRequest.current = null; mutationRequest.current = null; };
   }, []);
   useEffect(() => {
+    const acknowledgements = acknowledgedParents.current;
+    acknowledgedParents.current = [];
     readRequest.current = null;
-    if (!mutationRequest.current) void refresh(profile !== acknowledgedProfile.current);
+    // Only this choice's reconciled parent acknowledgement can reuse its fresh
+    // receipt. Other parent changes may still contain older privacy preferences.
+    if (!mutationRequest.current) void refresh(!acknowledgements.some((acknowledged) => JSON.stringify(profile) === JSON.stringify(acknowledged)));
     else setReading(false);
     // A retry may have replaced the opening read. Release the whole old owner.
     return () => { readRequest.current = null; };
   }, [profile]);
 
-  const acceptChoice = (owner: AppProfile, key: PrivacyChoice, consent: ConsentState, receipt?: AppProfile) => {
-    if (profileOwner.current !== owner && profileOwner.current !== receipt) return;
+  const acceptChoice = (basis: AppProfile, key: PrivacyChoice, consent: ConsentState) => {
+    if (currentProfile.current.preferences[key] !== basis.preferences[key]) return;
     // A receipt acknowledges this choice only; keep unrelated newer preferences.
     const next = { ...currentProfile.current, preferences: { ...currentProfile.current.preferences, [key]: consent } };
     currentProfile.current = next;
@@ -111,7 +118,10 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     if (mutationRequest.current || busy) return;
     const token = Symbol('privacy choice save');
     const owner = profileOwner.current;
+    const basis = currentProfile.current;
+    const patch = { preferences: { ...basis.preferences, [key]: consent } };
     mutationRequest.current = token;
+    acknowledgedParents.current = [];
     readRequest.current = null;
     setReading(false);
     setWorking(key);
@@ -119,11 +129,16 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     setError('');
     const owns = () => mounted.current && mutationRequest.current === token;
     try {
-      const saved = await onSave({ preferences: { ...currentProfile.current.preferences, [key]: consent } });
+      const saved = await onSave(patch);
       if (!owns()) return;
       if (!saved || saved.preferences[key] !== consent) throw new Error('Privacy choice was not acknowledged.');
-      acknowledgedProfile.current = saved;
-      acceptChoice(owner, key, consent, saved);
+      const parent = profileOwner.current;
+      const acknowledgements = [saved, reconcileProfileAcknowledgement(parent, owner, saved, patch)];
+      // The parent may already have committed its acknowledgement before this
+      // continuation. Otherwise recognize its next transition by reconciled data,
+      // not by identity with the raw receipt returned by onSave.
+      acknowledgedParents.current = parent !== owner && acknowledgements.some((acknowledged) => JSON.stringify(parent) === JSON.stringify(acknowledged)) ? [] : acknowledgements;
+      acceptChoice(basis, key, consent);
       setMessage(`${key === 'analyticsConsent' ? 'Product analytics' : 'Khmer Caption Contributor'} choice saved: ${consent === 'granted' ? 'on' : 'off'}.`);
     } catch {
       if (owns()) setError('Could not confirm your privacy choice was saved. Try that choice again.');
@@ -140,8 +155,9 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     if (mutationRequest.current || busy) return;
     if (!window.confirm('Stop contributing and request deletion of contribution data already sent to Sthang? Local caption projects are not deleted.')) return;
     const token = Symbol('contribution withdrawal');
-    const owner = profileOwner.current;
+    const basis = currentProfile.current;
     mutationRequest.current = token;
+    acknowledgedParents.current = [];
     readRequest.current = null;
     setReading(false);
     setWorking('withdraw');
@@ -152,7 +168,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       const nextStatus = await api.withdrawContributions();
       if (!owns()) return;
       setStatus(nextStatus);
-      acceptChoice(owner, 'khmerContributionConsent', nextStatus.consent);
+      acceptChoice(basis, 'khmerContributionConsent', nextStatus.consent);
     } catch (reason) {
       if (owns()) setError(reason instanceof Error ? reason.message : 'Could not request contribution deletion.');
     } finally {
@@ -213,7 +229,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
               : readError || (working ? 'Contribution status will refresh after this action.' : 'Contribution status refreshed.')}{readError && status ? ' The last loaded progress is shown.' : ''}</p>
             {hasReadFailure && <div className="privacy-choice-row"><button className="privacy-choice-button privacy-choice-secondary"
               aria-disabled={reading || disabled || undefined} aria-busy={reading || undefined}
-              onClick={() => { if (!disabled) void refresh(); }}>
+              onClick={() => { if (!disabled) void refresh(retryReadsProfile.current); }}>
               {reading ? 'Checking status…' : readError ? 'Retry status' : 'Refresh status'}
             </button></div>}
           </div>}

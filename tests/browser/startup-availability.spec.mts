@@ -35,7 +35,9 @@ for (const width of [1440, 390]) test('Home distinguishes unavailable preference
     if (route.request().method() !== 'POST') return route.fallback();
     uploads++;
     await upload.promise;
-    return route.fulfill({ status: 503, json: { error: 'Synthetic upload failure' } });
+    // This fixture proves that no project was created. A bare 503 instead leaves
+    // the upload result uncertain and intentionally blocks another file selection.
+    return route.fulfill({ status: 503, json: { error: 'Synthetic upload failure', code: 'PROJECT_CREATE_NOT_APPLIED' } });
   });
   try {
     await page.goto('/');
@@ -73,7 +75,9 @@ for (const width of [1440, 390]) test('Home distinguishes unavailable preference
     await expect(zone).toBeDisabled();
     upload.release();
     await expect(zone).toBeEnabled();
+    await expect(zone).not.toHaveAttribute('aria-busy', 'true');
     await expect(zone.locator('strong')).toHaveText('Choose a video or audio file');
+    await expect(page.getByRole('region', { name: 'Upload was not applied', exact: true }).getByRole('alert')).toContainText('Synthetic upload failure');
     expect(uploads).toBe(1);
   } finally { initial.release(); upload.release(); }
 });

@@ -235,21 +235,34 @@ test('old proposal image and loop do not follow a switch to another video', asyn
 test('a delayed Activity proposal response cannot replace newer navigation', async ({ page }) => {
   state.jobs = [completedJob()];
   let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
+  let settle!: () => void; const settled = new Promise<void>(resolve => { settle = resolve; });
+  let proposalRequest: import('@playwright/test').Request | undefined;
   let requested = false;
-  await page.route('**/regeneration-proposals/proposal-old', async route => { requested = true; await pending; await route.fulfill({ json: preview() }); });
-  await openProject(page); const dialog = await activity(page);
-  await dialog.getByRole('button', { name: 'Open result', exact: true }).click();
-  await expect.poll(() => requested).toBe(true);
-  await dialog.getByRole('button', { name: 'Close Activity', exact: true }).click();
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
-  await page.getByRole('button', { name: /Audit second/ }).click();
-  const response = page.waitForResponse(r => r.url().endsWith('/regeneration-proposals/proposal-old'));
-  release(); await (await response).finished();
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  // Allow the response handler and React commit; assert the current project, not just absence of a toast.
-  await expect(page.locator('.project-title strong')).toHaveText('Audit second');
-  await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
-  await expect(page.locator('.preview-version-badge')).toHaveCount(0);
+  await page.route('**/regeneration-proposals/proposal-old', async route => {
+    const request = route.request(); proposalRequest = request; requested = true;
+    try { await pending; await route.fulfill({ json: preview() }); }
+    catch (reason) { if (!page.isClosed() && request.failure()?.errorText !== 'net::ERR_ABORTED') throw reason; }
+    finally { settle(); }
+  });
+  try {
+    await openProject(page); const dialog = await activity(page);
+    await dialog.getByRole('button', { name: 'Open result', exact: true }).click();
+    await expect.poll(() => requested).toBe(true);
+    const cancelled = page.waitForEvent('requestfailed', { predicate: request => request === proposalRequest });
+    await dialog.getByRole('button', { name: 'Close Activity', exact: true }).click();
+    const aborted = await cancelled;
+    expect(aborted.failure()?.errorText).toBe('net::ERR_ABORTED');
+    expect(await aborted.response()).toBeNull();
+    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: /Audit second/ }).click();
+    // An aborted read has no browser response. Drain its delayed route handler
+    // before checking that its attempted delivery cannot replace newer navigation.
+    release(); await settled;
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.locator('.project-title strong')).toHaveText('Audit second');
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
+    await expect(page.locator('.preview-version-badge')).toHaveCount(0);
+  } finally { release(); }
 });
 
 test('caption save retains the same video element and position', async ({ page }) => {
@@ -1218,7 +1231,18 @@ test('a delayed History refresh cannot replace a newer refresh in the same proje
     await expect(dialog.locator('.history-list article strong')).toHaveText(['Initial checkpoint']);
     await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect.poll(() => reads).toBe(2);
-    await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+    const refresh = dialog.getByRole('button', { name: 'Refresh', exact: true });
+    await expect(refresh).toBeDisabled();
+    // aria-disabled retains focus; native keyboard activation must still obey
+    // the duplicate guard while this visit owns its pending refresh.
+    await refresh.press('Enter');
+    await expect(refresh).toBeFocused();
+    expect(reads).toBe(2);
+    // Reopening is a newer deliberate read in the same project. Its result must
+    // remain authoritative when the previous visit's held refresh is delivered.
+    await dialog.getByRole('button', { name: 'Close history', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await history(page);
     await expect(dialog.locator('.history-list article strong')).toHaveText(['Latest refresh checkpoint']);
     expect(reads).toBe(3);
 

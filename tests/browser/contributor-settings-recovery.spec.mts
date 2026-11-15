@@ -205,9 +205,15 @@ test('an acknowledged choice remains saved when its status refresh fails and Ret
   await openPrivacy(page);
   await expect(verified(page)).toHaveText('4');
   let fail = true;
-  await page.route('**/api/contribution/status', (route) => fail
-    ? route.fulfill({ status: 503, json: { error: 'Synthetic post-save status failure' } })
-    : route.fulfill({ json: structuredClone(progress) }));
+  let retryGate: ReturnType<typeof deferred> | null = null;
+  await page.route('**/api/contribution/status', async (route) => {
+    const gate = retryGate;
+    if (gate) await gate.promise;
+    return fail
+      ? route.fulfill({ status: 503, json: { error: 'Synthetic post-save status failure' } })
+      : route.fulfill({ json: structuredClone(progress) });
+  });
+  const beforeSave = requests.length;
   await contributorOn(page).click();
   await expect(privacy(page).getByText('Khmer Caption Contributor choice saved: on.', { exact: true })).toBeVisible();
   await expect(contributorOn(page)).toHaveAttribute('aria-pressed', 'true');
@@ -215,10 +221,29 @@ test('an acknowledged choice remains saved when its status refresh fails and Ret
   await expect(privacy(page).getByRole('alert')).toContainText('The last loaded progress is shown.');
   await expect(verified(page)).toHaveText('4');
   await expect(privacy(page).getByText('Could not confirm your privacy choice was saved. Try that choice again.', { exact: true })).toHaveCount(0);
+  await nextPaint(page);
+  expect(requests.slice(beforeSave).filter((request) => request.path === '/api/profile' && request.method === 'GET')).toEqual([]);
   const retry = privacy(page).getByRole('button', { name: 'Retry status', exact: true });
   await retry.focus();
   await page.screenshot({ path: info.outputPath('privacy-saved-status-unavailable-390.png'), animations: 'disabled' });
   const before = requests.length;
+  const gate = deferred();
+  retryGate = gate;
+  try {
+    await retry.press('Enter');
+    const checking = privacy(page).getByRole('button', { name: 'Checking status…', exact: true });
+    await expect(checking).toBeFocused();
+    await expect(checking).toHaveAttribute('aria-disabled', 'true');
+    await checking.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+    await expect.poll(() => requests.slice(before).filter((request) => request.path === '/api/contribution/status').length).toBe(1);
+    expect(requests.slice(before).filter((request) => request.path === '/api/profile')).toEqual([]);
+    expect(mutations()).toHaveLength(1);
+    gate.release();
+    await expect(retry).toBeFocused();
+    await expect(privacy(page).getByRole('alert')).toContainText('Contribution status could not be refreshed.');
+    await expect(contributorOn(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(privacy(page).getByText('Khmer Caption Contributor choice saved: on.', { exact: true })).toBeVisible();
+  } finally { gate.release(); retryGate = null; }
   fail = false; progress = { ...progress, verified: 6 };
   await retry.press('Enter');
   await expect(verified(page)).toHaveText('6');
@@ -227,7 +252,69 @@ test('an acknowledged choice remains saved when its status refresh fails and Ret
   await expect(privacy(page).getByText('Khmer Caption Contributor choice saved: on.', { exact: true })).toBeVisible();
   expect(mutations()).toHaveLength(1);
   expect(requests.slice(before).every((request) => request.method === 'GET')).toBe(true);
+  expect(requests.slice(before).filter((request) => request.path === '/api/profile')).toEqual([]);
+  expect(requests.slice(before).filter((request) => request.path === '/api/contribution/status')).toHaveLength(2);
   expect(requests.some((request) => request.path === '/api/contribution/sync' || request.path === '/api/contribution/withdraw')).toBe(false);
+});
+
+test('an unrelated parent acknowledgement cannot revive contribution after withdrawal', async ({ page }) => {
+  state.profile.preferences.khmerContributionConsent = 'granted';
+  progress = { ...progress, consent: 'granted' };
+  const gate = deferred();
+  let preferenceStarted = false;
+  await page.route('**/api/profile', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    const patch = route.request().postDataJSON() as Partial<AppProfile>;
+    if (patch.preferences?.waveformZoom !== 1 || Object.keys(patch.preferences).length !== 1) return route.fallback();
+    acknowledge(patch);
+    preferenceStarted = true;
+    await gate.promise;
+    // The receipt includes the current withdrawn consent, but this parent's
+    // preference-only acknowledgement owns waveformZoom, not privacy fields.
+    return route.fulfill({ json: structuredClone(state.profile) });
+  });
+  await page.route('**/api/contribution/withdraw', (route) => {
+    acknowledge({ preferences: { ...state.profile.preferences, khmerContributionConsent: 'declined' } });
+    progress = { ...progress, withdrawalPending: true };
+    return route.fulfill({ json: structuredClone(progress) });
+  });
+  try {
+    await openProject(page);
+    await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
+    await expect(page.locator('.fine-timing')).toBeVisible();
+    await expect(page.locator('.waveform-loading')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Full clip', exact: true }).click();
+    await expect.poll(() => preferenceStarted).toBe(true);
+    await page.getByLabel('Open project tools', { exact: true }).click();
+    await page.getByRole('menuitem', { name: /^Settings/ }).click();
+    await choosePrivacy(page);
+    await expect(contributorOn(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(verified(page)).toHaveText('4');
+
+    const withdrawalRefresh = page.waitForResponse((response) => response.request().method() === 'GET' && response.url().endsWith('/api/profile'));
+    page.once('dialog', (dialog) => dialog.accept());
+    await privacy(page).getByRole('button', { name: 'Request deletion', exact: true }).click();
+    await (await withdrawalRefresh).finished();
+    const privateChoice = privacy(page).getByRole('button', { name: 'Keep my work private', exact: true });
+    await expect(privateChoice).toHaveAttribute('aria-pressed', 'true');
+    await expect(privacy(page).getByText('Refreshing contribution status…', { exact: true })).toHaveCount(0);
+
+    // This unrelated parent transition must still refresh the profile. Merely
+    // reading status would keep the parent's older granted consent selected.
+    const parentRefresh = page.waitForResponse((response) => response.request().method() === 'GET' && response.url().endsWith('/api/profile'));
+    gate.release();
+    await (await parentRefresh).finished();
+    await expect(privateChoice).toHaveAttribute('aria-pressed', 'true');
+    await expect(contributorOn(page)).toHaveAttribute('aria-pressed', 'false');
+    await analyticsOn(page).click();
+    await expect(privacy(page).getByText('Product analytics choice saved: on.', { exact: true })).toBeVisible();
+    const profileWrites = mutations().filter((request) => request.path === '/api/profile');
+    expect(profileWrites).toHaveLength(2);
+    expect(profileWrites[0].body?.preferences).toEqual({ waveformZoom: 1 });
+    expect(profileWrites[1].body?.preferences).toMatchObject({ waveformZoom: 1, khmerContributionConsent: 'declined', analyticsConsent: 'granted' });
+    expect(mutations().filter((request) => request.path === '/api/contribution/withdraw')).toHaveLength(1);
+    expect(state.profile.preferences.khmerContributionConsent).toBe('declined');
+  } finally { gate.release(); }
 });
 
 test('a read from a closed privacy panel cannot change its reopened state or newer keyboard focus', async ({ page }) => {
@@ -274,12 +361,16 @@ test('the existing privacy introduction returns an acknowledged choice through t
   const review = page.getByRole('dialog', { name: 'Privacy choices', exact: true });
   await expect(review).toBeVisible();
   await expect(privacy(page)).toBeVisible();
+  await expect(verified(page)).toHaveText('0');
   expect(state.profile.preferences.analyticsConsent).toBe('unset');
   expect(state.profile.preferences.khmerContributionConsent).toBe('unset');
+  const beforeChoice = requests.length;
   await analyticsOn(page).click();
   await expect(privacy(page).getByText('Product analytics choice saved: on.', { exact: true })).toBeVisible();
   await expect(analyticsOn(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(privacy(page).getByRole('alert')).toHaveCount(0);
+  await nextPaint(page);
+  expect(requests.slice(beforeChoice).filter((request) => request.path === '/api/profile' && request.method === 'GET')).toEqual([]);
   expect(state.profile.preferences.analyticsConsent).toBe('granted');
   expect(state.profile.preferences.khmerContributionConsent).toBe('unset');
   expect(mutations()).toHaveLength(2);

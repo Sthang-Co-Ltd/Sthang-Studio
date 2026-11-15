@@ -68,6 +68,11 @@ test('full names are readable on Home and inspectable without saving, remounting
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByLabel('Caption 1 text', { exact: true }).fill('Unfinished កម្ពុជា');
+  // Settle the deliberately failed blur save before measuring the disclosure.
+  // Its persistent recovery footer is part of the unchanged editor baseline.
+  await details(page).focus();
+  await expect(page.getByRole('button', { name: 'Retry save', exact: true })).toBeVisible();
+  await expect.poll(() => page.locator('.toast-stack').evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
   await page.evaluate(() => { (window as any).__clarityNodes = [document.querySelector('video'), document.querySelector('.caption-panel')]; });
   const mediaBox = await page.locator('.media-stage').boundingBox();
   await details(page).hover();

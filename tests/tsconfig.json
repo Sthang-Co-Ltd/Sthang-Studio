@@ -86,6 +86,7 @@
     "project-storage-api.test.mts",
     "playback-grouping.test.mts",
     "caption-selection-acknowledgement.test.ts",
+    "caption-save-coalescing.test.ts",
     "playback-grouping-server.test.mts",
     "local-timing-privacy.test.mts",
     "gemini-sdk-transport.test.mts",
