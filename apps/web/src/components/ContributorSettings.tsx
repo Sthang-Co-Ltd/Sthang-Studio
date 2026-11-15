@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AppProfile, ConsentState, ContributionStatus } from '@kcs/shared';
 import {
   BarChart3,
@@ -11,13 +11,16 @@ import {
   Trash2,
 } from 'lucide-react';
 import { api } from '../api';
+import { reconcileProfileAcknowledgement } from '../profile-state';
 
 interface ContributorSettingsProps {
   profile: AppProfile;
   busy: boolean;
   showIntro?: boolean;
-  onSave(patch: Partial<AppProfile>): void | Promise<void>;
+  onSave(patch: Partial<AppProfile>): Promise<AppProfile | null>;
 }
+
+type PrivacyChoice = 'analyticsConsent' | 'khmerContributionConsent';
 
 function consentPresentation(consent: ConsentState) {
   if (consent === 'granted') return { label: 'On', tone: 'on' } as const;
@@ -32,46 +35,148 @@ function durationLabel(ms: number) {
 }
 
 export function ContributorSettings({ profile, busy, showIntro = true, onSave }: ContributorSettingsProps) {
-  const [liveProfile, setLiveProfile] = useState(profile);
+  const [profileSnapshot, setProfileSnapshot] = useState({ owner: profile, value: profile });
+  // A newer parent profile takes precedence immediately, including before effects run.
+  const liveProfile = profileSnapshot.owner === profile ? profileSnapshot.value : profile;
   const [status, setStatus] = useState<ContributionStatus | null>(null);
-  const [working, setWorking] = useState(false);
+  const [working, setWorking] = useState<PrivacyChoice | 'withdraw' | ''>('');
+  const [reading, setReading] = useState(true);
+  const [readError, setReadError] = useState('');
+  const [hasReadFailure, setHasReadFailure] = useState(false);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const mounted = useRef(true);
+  const profileOwner = useRef(profile);
+  profileOwner.current = profile;
+  const currentProfile = useRef(liveProfile);
+  currentProfile.current = liveProfile;
+  const acknowledgedParents = useRef<AppProfile[]>([]);
+  const retryReadsProfile = useRef(true);
+  const readRequest = useRef<symbol | null>(null);
+  const mutationRequest = useRef<symbol | null>(null);
 
-  const refresh = async () => {
-    const [nextProfile, nextStatus] = await Promise.all([api.profile(), api.contributionStatus()]);
-    setLiveProfile(nextProfile);
-    setStatus(nextStatus);
+  const refresh = async (readProfile = true) => {
+    if (!mounted.current || readRequest.current || mutationRequest.current) return;
+    const token = Symbol('privacy status read');
+    const owner = profileOwner.current;
+    readRequest.current = token;
+    retryReadsProfile.current = readProfile;
+    setReading(true);
+    setReadError('');
+    const owns = () => mounted.current && readRequest.current === token && profileOwner.current === owner && !mutationRequest.current;
+    try {
+      const [nextProfile, nextStatus] = await Promise.all([
+        readProfile ? api.profile() : Promise.resolve(null),
+        api.contributionStatus(),
+      ]);
+      if (!owns()) return;
+      if (nextProfile) {
+        currentProfile.current = nextProfile;
+        setProfileSnapshot({ owner, value: nextProfile });
+      }
+      setStatus(nextStatus);
+    } catch {
+      if (owns()) {
+        setReadError(readProfile
+          ? 'Privacy choices and contribution status could not be refreshed. The last loaded choices are shown.'
+          : 'Contribution status could not be refreshed. Your privacy choices are kept.');
+        setHasReadFailure(true);
+      }
+    } finally {
+      if (readRequest.current === token) {
+        readRequest.current = null;
+        if (mounted.current && profileOwner.current === owner) setReading(false);
+      }
+    }
   };
 
   useEffect(() => {
-    setLiveProfile(profile);
-    void refresh().catch(() => {});
-  }, [profile.updatedAt]);
+    mounted.current = true;
+    return () => { mounted.current = false; readRequest.current = null; mutationRequest.current = null; };
+  }, []);
+  useEffect(() => {
+    const acknowledgements = acknowledgedParents.current;
+    acknowledgedParents.current = [];
+    readRequest.current = null;
+    // Only this choice's reconciled parent acknowledgement can reuse its fresh
+    // receipt. Other parent changes may still contain older privacy preferences.
+    if (!mutationRequest.current) void refresh(!acknowledgements.some((acknowledged) => JSON.stringify(profile) === JSON.stringify(acknowledged)));
+    else setReading(false);
+    // A retry may have replaced the opening read. Release the whole old owner.
+    return () => { readRequest.current = null; };
+  }, [profile]);
 
-  const savePrivacy = async (key: 'analyticsConsent' | 'khmerContributionConsent', consent: ConsentState) => {
-    setWorking(true);
+  const acceptChoice = (basis: AppProfile, key: PrivacyChoice, consent: ConsentState) => {
+    if (currentProfile.current.preferences[key] !== basis.preferences[key]) return;
+    // A receipt acknowledges this choice only; keep unrelated newer preferences.
+    const next = { ...currentProfile.current, preferences: { ...currentProfile.current.preferences, [key]: consent } };
+    currentProfile.current = next;
+    setProfileSnapshot({ owner: profileOwner.current, value: next });
+  };
+
+  const savePrivacy = async (key: PrivacyChoice, consent: ConsentState) => {
+    if (mutationRequest.current || busy) return;
+    const token = Symbol('privacy choice save');
+    const owner = profileOwner.current;
+    const basis = currentProfile.current;
+    const patch = { preferences: { ...basis.preferences, [key]: consent } };
+    mutationRequest.current = token;
+    acknowledgedParents.current = [];
+    readRequest.current = null;
+    setReading(false);
+    setWorking(key);
+    setMessage('');
     setError('');
+    const owns = () => mounted.current && mutationRequest.current === token;
     try {
-      await onSave({ preferences: { ...liveProfile.preferences, [key]: consent } });
-      await refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save your privacy preference.');
+      const saved = await onSave(patch);
+      if (!owns()) return;
+      if (!saved || saved.preferences[key] !== consent) throw new Error('Privacy choice was not acknowledged.');
+      const parent = profileOwner.current;
+      const acknowledgements = [saved, reconcileProfileAcknowledgement(parent, owner, saved, patch)];
+      // The parent may already have committed its acknowledgement before this
+      // continuation. Otherwise recognize its next transition by reconciled data,
+      // not by identity with the raw receipt returned by onSave.
+      acknowledgedParents.current = parent !== owner && acknowledgements.some((acknowledged) => JSON.stringify(parent) === JSON.stringify(acknowledged)) ? [] : acknowledgements;
+      acceptChoice(basis, key, consent);
+      setMessage(`${key === 'analyticsConsent' ? 'Product analytics' : 'Khmer Caption Contributor'} choice saved: ${consent === 'granted' ? 'on' : 'off'}.`);
+    } catch {
+      if (owns()) setError('Could not confirm your privacy choice was saved. Try that choice again.');
     } finally {
-      setWorking(false);
+      if (owns()) {
+        mutationRequest.current = null;
+        setWorking('');
+        void refresh(false);
+      }
     }
   };
 
   const withdraw = async () => {
+    if (mutationRequest.current || busy) return;
     if (!window.confirm('Stop contributing and request deletion of contribution data already sent to Sthang? Local caption projects are not deleted.')) return;
-    setWorking(true);
+    const token = Symbol('contribution withdrawal');
+    const basis = currentProfile.current;
+    mutationRequest.current = token;
+    acknowledgedParents.current = [];
+    readRequest.current = null;
+    setReading(false);
+    setWorking('withdraw');
+    setMessage('');
     setError('');
+    const owns = () => mounted.current && mutationRequest.current === token;
     try {
-      setStatus(await api.withdrawContributions());
-      setLiveProfile(await api.profile());
+      const nextStatus = await api.withdrawContributions();
+      if (!owns()) return;
+      setStatus(nextStatus);
+      acceptChoice(basis, 'khmerContributionConsent', nextStatus.consent);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not request contribution deletion.');
+      if (owns()) setError(reason instanceof Error ? reason.message : 'Could not request contribution deletion.');
     } finally {
-      setWorking(false);
+      if (owns()) {
+        mutationRequest.current = null;
+        setWorking('');
+        void refresh();
+      }
     }
   };
 
@@ -79,7 +184,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
   const analyticsConsent = liveProfile.preferences.analyticsConsent || 'unset';
   const contributionState = consentPresentation(contributionConsent);
   const analyticsState = consentPresentation(analyticsConsent);
-  const disabled = busy || working;
+  const disabled = busy || Boolean(working);
 
   return <div className="privacy-settings">
     {showIntro && <div className="privacy-intro">
@@ -116,6 +221,17 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
             <div><span className="privacy-stat-icon"><AudioLines size={17}/></span><b>{durationLabel(status.verifiedAudioMs)}</b><span>Verified Khmer speech</span></div>
             <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.submitted}</b><span>Awaiting verification</span></div>
             <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.queued}</b><span>Queued locally</span></div>
+          </div>}
+
+          {(reading || readError || hasReadFailure) && <div className={`privacy-note${readError ? ' warning' : ''}`}>
+            <p className="privacy-description" role={readError ? 'alert' : 'status'}>{reading
+              ? (status ? 'Refreshing contribution status…' : 'Loading contribution status…')
+              : readError || (working ? 'Contribution status will refresh after this action.' : 'Contribution status refreshed.')}{readError && status ? ' The last loaded progress is shown.' : ''}</p>
+            {hasReadFailure && <div className="privacy-choice-row"><button className="privacy-choice-button privacy-choice-secondary"
+              aria-disabled={reading || disabled || undefined} aria-busy={reading || undefined}
+              onClick={() => { if (!disabled) void refresh(retryReadsProfile.current); }}>
+              {reading ? 'Checking status…' : readError ? 'Retry status' : 'Refresh status'}
+            </button></div>}
           </div>}
 
           {status && !status.endpointConfigured && <div className="privacy-note">Contribution hosting is not configured in this build, so the program cannot upload correction audio even if you join.</div>}
@@ -195,6 +311,8 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     </section>
 
     <div className="privacy-control-note"><ShieldCheck size={16}/><span>Both choices are saved separately on this computer. Neither limits Studio's caption features.</span></div>
-    {error && <div className="privacy-note warning" role="alert">{error}</div>}
+    {working && <p className="privacy-description" role="status">{working === 'withdraw' ? 'Requesting contribution deletion…' : 'Saving your privacy choice…'}</p>}
+    {message && <p className="privacy-description" role="status">{message}</p>}
+    {error && <div className="privacy-note warning"><p className="privacy-description" role="alert">{error}</p></div>}
   </div>;
 }

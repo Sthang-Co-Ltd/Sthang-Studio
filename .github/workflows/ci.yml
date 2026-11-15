@@ -42,6 +42,9 @@ jobs:
       - name: Install locked Node dependencies
         run: npm ci --include=dev --no-audit --no-fund
 
+      - name: Caption save coordination tests
+        run: node --import tsx --test tests/caption-save-coalescing.test.ts tests/caption-selection-acknowledgement.test.ts tests/accuracy-context-draft.test.ts
+
       - name: Contribution privacy tests
         run: npm run test:contribution
 

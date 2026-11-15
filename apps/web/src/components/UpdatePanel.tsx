@@ -87,6 +87,16 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
   const offer = status?.status === 'available' ? status.offer : null;
   const unsafe = unsafeReasons.length > 0;
   const lastFailure = status?.lastFailure;
+  const checkAgain = (trigger: HTMLButtonElement) => {
+    if (operation.current) return;
+    if (document.activeElement === trigger) {
+      // The manual action may disappear or become disabled during the check.
+      // Move focus now; completion must not take it from a newer interaction.
+      dialog.current?.focus({ preventScroll: true });
+      dialog.current?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+    }
+    void check({ announce: true, surfaceError: true });
+  };
 
   const downloadUpdate = async () => {
     if (!offer || unsafe || operation.current) return;
@@ -141,13 +151,13 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
           <div className="update-notes"><strong>What changed</strong><pre>{offer.releaseNotes}</pre></div>
           {unsafe && <div className="update-safety"><strong>Finish current work before updating</strong><span>{unsafeReasons.join(' ')}</span></div>}
           <div className="update-actions">
-            <button onClick={() => void check({ announce: true, surfaceError: true })} disabled={!!working}><RefreshCw size={15}/>Check again</button>
+            <button onClick={(event) => checkAgain(event.currentTarget)} disabled={!!working}><RefreshCw size={15}/>Check again</button>
             {!offer.downloaded
               ? <button className="primary" onClick={() => void downloadUpdate()} disabled={!!working || unsafe}>{working === 'download' ? <LoaderCircle className="spin" size={15}/> : <Download size={15}/>}Download &amp; verify</button>
               : <button className="primary" onClick={() => void installUpdate()} disabled={!!working || unsafe}>{working === 'install' ? <LoaderCircle className="spin" size={15}/> : <ShieldCheck size={15}/>}Install &amp; restart</button>}
           </div>
         </>}
-        {!working && !offer && <div className="update-actions"><button onClick={() => void check({ announce: true, surfaceError: true })}><RefreshCw size={15}/>Check again</button></div>}
+        {!working && (!offer || Boolean(checkError)) && <div className="update-actions"><button onClick={(event) => checkAgain(event.currentTarget)}><RefreshCw size={15}/>Check again</button></div>}
       </div>
       <footer>Studio verifies staged updates before activation. GitHub Releases provides a manual recovery download.</footer>
     </section>

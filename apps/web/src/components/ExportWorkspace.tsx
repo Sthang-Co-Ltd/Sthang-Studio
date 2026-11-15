@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import {
   normalizeCaptionAppearance, normalizeVideoExportSettings, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
   type AppProfile,
@@ -40,6 +40,7 @@ interface Props {
   onExportCaptions(format: CaptionFileFormat): Promise<boolean>;
   onImportCaptionData(file: File): Promise<void>;
   captionImportPreview?: CaptionRestoreReviewState;
+  importBlockedReason: string;
   onApplyCaptionImport(): void;
   onCancelCaptionImport(): void;
   onEditAppearance(): void;
@@ -48,12 +49,14 @@ interface Props {
   onStartVideoExport(settings: VideoExportSettings, appearance: CaptionAppearance, isCurrent: () => boolean): Promise<ProcessingJob | null>;
   onConfirm(options: StudioConfirmOptions): Promise<boolean>;
   session: ExportWorkspaceSession;
-  onSessionChange: Dispatch<SetStateAction<ExportWorkspaceSession>>;
+  onSessionChange(update: SetStateAction<ExportWorkspaceSession>, remember?: boolean): void;
+  sessionStorageError?: string;
   onRepair(target: ExportRepairTarget): void;
   reviewIssues: ReviewIssue[];
   unsaved: boolean;
   saveBlocked: boolean;
   fontRevision: number;
+  profileImportRevision?: number;
 }
 
 const qualityCopy: Record<VideoQualityPreset, string> = {
@@ -90,16 +93,63 @@ function elapsedLabel(job: ProcessingJob) {
   return `${seconds}s elapsed`;
 }
 
-export function ExportWorkspace({ project, appearanceReconciliation, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview,
+export function ExportWorkspace({ project, appearanceReconciliation, busy, activeExportJob, onExportCaptions, onImportCaptionData, captionImportPreview, importBlockedReason,
   onApplyCaptionImport, onCancelCaptionImport, onEditAppearance, onEditWordTiming, onStartVideoExport, onPreviewResolution,
-  onConfirm, session, onSessionChange, onRepair, reviewIssues, unsaved, saveBlocked, fontRevision }: Props) {
+  onConfirm, session, onSessionChange, sessionStorageError = '', onRepair, reviewIssues, unsaved, saveBlocked, fontRevision, profileImportRevision = 0 }: Props) {
   const videoProject = isVideoProject(project);
+  const captionOutput = useRef<HTMLButtonElement>(null);
+  const checksHeading = useRef<HTMLHeadingElement>(null);
+  const managePresets = useRef<HTMLElement>(null);
+  const importFocus = useRef<{ owner: HTMLButtonElement; release(): void } | null>(null);
+  const releaseImportFocus = useCallback(() => {
+    const pending = importFocus.current;
+    importFocus.current = null;
+    pending?.release();
+  }, []);
+  useEffect(() => releaseImportFocus, [releaseImportFocus]);
+  useEffect(() => { if (!busy && !captionImportPreview) releaseImportFocus(); }, [busy, captionImportPreview, releaseImportFocus]);
+  const importCaptionData = (file: File, trigger: HTMLInputElement) => {
+    releaseImportFocus();
+    const owner = captionOutput.current;
+    if (trigger.isConnected && owner?.isConnected && !document.querySelector('[aria-modal="true"]')) {
+      // The file choice owns this immediate handoff. Preview arrival may use it
+      // only until a newer interaction takes over the persistent editor.
+      owner.focus({ preventScroll: true });
+      owner.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      if (document.activeElement === owner) {
+        const relinquish = () => releaseImportFocus();
+        const onFocus = (event: FocusEvent) => { if (event.target !== owner) relinquish(); };
+        importFocus.current = { owner, release: () => {
+          document.removeEventListener('focusin', onFocus);
+          document.removeEventListener('pointerdown', relinquish, true);
+          document.removeEventListener('keydown', relinquish, true);
+          window.removeEventListener('blur', relinquish);
+        } };
+        document.addEventListener('focusin', onFocus);
+        document.addEventListener('pointerdown', relinquish, true);
+        document.addEventListener('keydown', relinquish, true);
+        window.addEventListener('blur', relinquish);
+      }
+    }
+    return onImportCaptionData(file);
+  };
+  const focusImportPreview = useCallback((heading: HTMLHeadingElement) => {
+    const pending = importFocus.current;
+    releaseImportFocus();
+    if (!pending || document.activeElement !== pending.owner || document.querySelector('[aria-modal="true"]')) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+  }, [releaseImportFocus]);
   const { outputMode, settings, advancedOpen } = session;
-  const setOutputMode = (mode: ExportWorkspaceSession['outputMode']) => onSessionChange((current) => ({ ...current, outputMode: mode }));
-  const setSettings: Dispatch<SetStateAction<VideoExportSettings>> = (value) => {
+  const showingCaptionImport = outputMode === 'captions' && Boolean(captionImportPreview);
+  const setOutputMode = (mode: ExportWorkspaceSession['outputMode']) => {
+    releaseImportFocus();
+    onSessionChange((current) => ({ ...current, outputMode: mode }));
+  };
+  const setSettings = (value: SetStateAction<VideoExportSettings>, remember = true) => {
     setPresetNotice('');
     onSessionChange((current) => ({ ...current, settingsHydrated: true, selectedPresetId: '',
-      settings: typeof value === 'function' ? value(current.settings) : value }));
+      settings: typeof value === 'function' ? value(current.settings) : value }), remember);
   };
   const setAdvancedOpen = (open: boolean) => onSessionChange((current) => ({ ...current, advancedOpen: open }));
   const [presets, setPresets] = useState<VideoExportPreset[]>([]);
@@ -116,6 +166,10 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const [presetNotice, setPresetNotice] = useState('');
   const [lastUsedError, setLastUsedError] = useState('');
   const acceptedExportInVisit = useRef(false);
+  const importRevision = useRef(profileImportRevision);
+  importRevision.current = profileImportRevision;
+  const loadedImportRevision = useRef(profileImportRevision);
+  const mounted = useRef(true);
   const currentSettings = useRef(settings);
   currentSettings.current = settings;
   const [capabilities, setCapabilities] = useState<VideoExportCapabilities | null>(null);
@@ -131,14 +185,28 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const appearanceSaveBlocked = appearanceError !== null;
   const [startingExport, setStartingExport] = useState(false);
   const loadingAppearance = appearanceState.status === 'pending';
-  const [capabilityRevision, setCapabilityRevision] = useState(0);
-  const [layoutCheck, setLayoutCheck] = useState<{ key: string; result?: CaptionLayoutCheckResult; error?: string } | null>(null);
+  // Diagnostics belong to this in-memory export visit, including repair trips.
+  // The session storage writer deliberately picks output preferences only.
+  const capabilityRevision = session.layoutCapabilityRevision || 0;
+  const layoutCheck = session.layoutCheck || null;
+  const setLayoutCheck = (value: { key: string; result?: CaptionLayoutCheckResult; error?: string } | null) =>
+    onSessionChange((current) => ({ ...current, layoutCheck: value }), false);
   const [checkingLayoutKey, setCheckingLayoutKey] = useState<string | null>(null);
   const layoutRequest = useRef<AbortController | null>(null);
   const startRequest = useRef(0);
   const presetLifecycle = useRef(0);
-  useEffect(() => () => { startRequest.current += 1; presetLifecycle.current += 1; }, []);
-  useEffect(() => { document.getElementById('export-checks-heading')?.focus({ preventScroll: true }); }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; startRequest.current += 1; presetLifecycle.current += 1; };
+  }, []);
+  useEffect(() => {
+    const active = document.activeElement;
+    // Opening Export may finish after a tool retry or a newer editor action.
+    // Keep those targets; only the original launcher or a removed trigger yields.
+    if (document.querySelector('[aria-modal="true"]')
+      || (active && active !== document.body && !active.matches('[data-workspace-trigger="export"]'))) return;
+    document.getElementById('export-checks-heading')?.focus({ preventScroll: true });
+  }, []);
 
   const capabilityRequest = useRef(0);
   useEffect(() => { onPreviewResolution(outputMode === 'video' ? settings.resolution : 'source'); }, [outputMode, settings.resolution, onPreviewResolution]);
@@ -146,11 +214,20 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
   useEffect(() => {
     if (!videoProject) { setLoadingProfile(false); return; }
+    const imported = loadedImportRevision.current !== profileImportRevision;
+    loadedImportRevision.current = profileImportRevision;
+    if (imported) {
+      presetLifecycle.current += 1;
+      acceptedExportInVisit.current = false;
+      setPresetError(''); setPresetNotice(''); setLastUsedError('');
+      onSessionChange((current) => ({ ...current, settingsHydrated: true }), false);
+    }
     let active = true;
+    const owns = () => active && importRevision.current === profileImportRevision;
     setLoadingProfile(true);
     setProfileLoadError('');
     void api.profile().then((profile) => {
-      if (!active) return;
+      if (!owns()) return;
       const loadedPresets = profile.videoExportPresets || [];
       const lastUsed = profile.lastVideoExportSettings ? normalizeVideoExportSettings(profile.lastVideoExportSettings) : null;
       setPresets(loadedPresets);
@@ -159,22 +236,25 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
       onSessionChange((current) => {
         const managedPresetId = loadedPresets.some((preset) => preset.id === current.managedPresetId)
           ? current.managedPresetId : '';
-        if (current.settingsHydrated) {
+        if (imported || current.settingsHydrated) {
           const selected = current.selectedPresetId;
-          if (selected && selected !== LAST_USED_PRESET_ID && !loadedPresets.some((preset) => preset.id === selected)) {
-            return { ...current, selectedPresetId: '', managedPresetId };
-          }
-          if (selected === LAST_USED_PRESET_ID && !lastUsed && !acceptedExportInVisit.current) return { ...current, selectedPresetId: '', managedPresetId };
-          return current.managedPresetId === managedPresetId ? current : { ...current, managedPresetId };
+          const selectedPreset = loadedPresets.find((preset) => preset.id === selected);
+          const selectedSettings = selected === LAST_USED_PRESET_ID ? lastUsed : selectedPreset?.settings;
+          const selectionMissing = selected === LAST_USED_PRESET_ID
+            ? !lastUsed && !acceptedExportInVisit.current : Boolean(selected && !selectedPreset);
+          const selectionChanged = selectedSettings && !(selected === LAST_USED_PRESET_ID && acceptedExportInVisit.current)
+            && JSON.stringify(normalizeVideoExportSettings(selectedSettings)) !== JSON.stringify(normalizeVideoExportSettings(current.settings));
+          return { ...current, settingsHydrated: true, managedPresetId,
+            selectedPresetId: selectionMissing || selectionChanged ? '' : selected };
         }
         return { ...current, settings: lastUsed || current.settings, settingsHydrated: true,
           selectedPresetId: lastUsed ? LAST_USED_PRESET_ID : '', managedPresetId };
-      });
+      }, false);
     }).catch(() => {
-      if (active) setProfileLoadError('Could not load saved video presets. Your current export settings are kept.');
-    }).finally(() => { if (active) setLoadingProfile(false); });
+      if (owns()) setProfileLoadError('Could not load saved video presets. Your current export settings are kept.');
+    }).finally(() => { if (owns()) setLoadingProfile(false); });
     return () => { active = false; };
-  }, [project.id, project.media.filename, project.media.size, profileReload]);
+  }, [project.id, project.media.filename, project.media.size, profileReload, profileImportRevision]);
 
   const loadCapabilities = async (refresh = false) => {
     if (!videoProject) {
@@ -186,7 +266,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     const request = ++capabilityRequest.current;
     setLoadingCapabilities(true);
     setCapabilityError('');
-    if (refresh) setCapabilityRevision((current) => current + 1);
+    if (refresh) onSessionChange((current) => ({ ...current, layoutCapabilityRevision: (current.layoutCapabilityRevision || 0) + 1 }), false);
     try { const result = await api.videoExportCapabilities(project.id, refresh); if (request === capabilityRequest.current) setCapabilities(result); }
     catch (error) { if (request === capabilityRequest.current) { setCapabilities(null); setCapabilityError(error instanceof Error ? error.message : 'Could not inspect video export support'); } }
     finally { if (request === capabilityRequest.current) setLoadingCapabilities(false); }
@@ -196,20 +276,22 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     setCapabilities(null);
     setCapabilityError('');
     setActionError('');
-    void loadCapabilities(fontRevision > 0);
+    // Font mutations already invalidate server prerequisites. A revision signals
+    // a new read, not a permanent instruction to rerun every machine probe.
+    void loadCapabilities();
   }, [project.id, project.media.filename, project.media.size, fontRevision]);
 
   useEffect(() => {
     if (!capabilities?.supported || !session.settingsHydrated) return;
     const codecAvailable = capabilities.encoders.some((encoder) => encoder.codec === settings.codec && encoder.available);
     if (!codecAvailable && settings.codec === 'hevc') {
-      setSettings((current) => ({ ...current, codec: 'h264', encoder: 'auto' }));
+      setSettings((current) => ({ ...current, codec: 'h264', encoder: 'auto' }), false);
       setPresetNotice('HEVC is unavailable on this PC. The current video settings now use H.264 and Auto encoder; your saved preset is unchanged.');
       return;
     }
     if (settings.encoder !== 'auto' && !capabilities.encoders.some((encoder) => encoder.codec === settings.codec && encoder.id === settings.encoder && encoder.available)) {
       const unavailable = settings.encoder.toUpperCase();
-      setSettings((current) => ({ ...current, encoder: 'auto' }));
+      setSettings((current) => ({ ...current, encoder: 'auto' }), false);
       setPresetNotice(`${unavailable} encoding is unavailable for this codec on this PC. The current video settings now use Auto encoder; your saved preset is unchanged.`);
     }
   }, [capabilities, settings.codec, settings.encoder, session.settingsHydrated]);
@@ -246,7 +328,9 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
         : currentLayout?.result?.status === 'passed' ? 'passed'
           : layoutCheck ? 'stale' : 'unchecked';
   const layoutMessage = currentLayout?.error || (currentLayout?.result?.status === 'unavailable'
-    ? currentLayout.result.issues.map((issue) => issue.message).join(' ') : undefined);
+    ? currentLayout.result.issues.map((issue) => issue.message).join(' ')
+    : layoutState === 'stale' && layoutCheck?.result?.status === 'blocked'
+      ? 'Previous layout findings remain below for inspection. Recheck to verify the current captions, appearance and resolution.' : undefined);
 
   // Match the handoff serializer's persisted duration authority. The editor's
   // actual playback-duration QA remains separate advisory evidence.
@@ -256,23 +340,33 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const invalidCaptionFiles = useMemo(() => buildExportCaptionIssues({ captions: project.captions, reviewIssues: [], format: 'srt',
     appearance, durationMs: fileDurationMs }).some((issue) => issue.severity === 'blocker'), [project.captions, appearance, fileDurationMs]);
   const checkIssues = useMemo(() => {
-    const native: ExportCheckIssue[] = checksAppearance && currentLayout?.result?.status === 'blocked'
-      ? currentLayout.result.issues.map((issue, index) => ({ id: `layout:${index}:${issue.captionIds.join(':')}`, severity: 'blocker',
-        title: issue.captionIds.length > 1 ? 'Overlapping captions extend outside the frame' : 'Caption layout needs attention',
-        reasons: [issue.message], remedy: 'Inspect this caption in Appearance. Reduce Size, increase Max width, or adjust its position, then return and check again.',
-        captionIds: issue.captionIds, repair: 'appearance' })) : [];
+    const stale = layoutCheck?.key !== layoutKey;
+    const existingIds = new Set(project.captions.map((caption) => caption.id));
+    const native: ExportCheckIssue[] = checksAppearance && layoutCheck?.result?.status === 'blocked'
+      ? layoutCheck.result.issues.flatMap((issue, index) => {
+        const captionIds = issue.captionIds.filter((id) => existingIds.has(id));
+        if (issue.captionIds.length && !captionIds.length) return [];
+        return [{ id: `layout:${stale ? 'previous:' : ''}${index}:${captionIds.join(':')}`, severity: stale ? 'advisory' as const : 'blocker' as const,
+          title: stale ? 'Previous layout finding · recheck needed'
+            : captionIds.length > 1 ? 'Overlapping captions extend outside the frame' : 'Caption layout needs attention',
+          reasons: [issue.message, ...(stale ? ['This finding is from a previous snapshot; the current layout has not been verified.'] : [])],
+          remedy: 'Inspect this caption in Appearance. Reduce Size, increase Max width, or adjust its position, then return and check again.',
+          captionIds, repair: 'appearance' as const }];
+      }) : [];
     if (checksAppearance && appearanceFontUnavailable) native.unshift({ id: 'font', severity: 'blocker', title: 'Saved font selection is unavailable',
       reasons: [`${appearance.fontFamily}${appearance.bold ? ' Bold' : ''} is not available for this output.`],
       remedy: 'Choose an available Khmer font or weight in Appearance. Studio will keep your selection until you change it.', captionIds: [], repair: 'appearance' });
     return [...native, ...captionIssues];
-  }, [checksAppearance, currentLayout, appearanceFontUnavailable, appearance, captionIssues]);
+  }, [checksAppearance, layoutCheck, layoutKey, project.captions, appearanceFontUnavailable, appearance, captionIssues]);
   const nativeLayoutBlocked = checksAppearance && currentLayout?.result?.status === 'blocked';
+  const waitingForVideoSettings = loadingProfile && !session.settingsHydrated;
   const exportBlocked = Boolean(!videoProject || !capabilities?.supported || loadingCapabilities || loadingAppearance
-    || appearanceSaveBlocked || appearanceFontUnavailable || nativeLayoutBlocked || saveBlocked
+    || waitingForVideoSettings || appearanceSaveBlocked || appearanceFontUnavailable || nativeLayoutBlocked || saveBlocked
     || activeExportJob || busy || startingExport || checkingLayoutKey || !project.captions.some((caption) => caption.text.trim()));
 
   const checkLayout = async () => {
-    if (layoutRequest.current || !videoProject || loadingAppearance || startingExport || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable) return;
+    if (layoutRequest.current || !videoProject || loadingAppearance || startingExport || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable
+      || (outputMode === 'video' && waitingForVideoSettings)) return;
     const key = layoutKey;
     const controller = new AbortController();
     layoutRequest.current = controller;
@@ -295,7 +389,13 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     setCheckingLayoutKey(null);
     setLayoutCheck({ key: layoutKey, error: 'Layout check cancelled. Run it again when you are ready.' });
   };
-  const retryAppearanceLoad = () => {
+  const retryAppearanceLoad = (trigger: HTMLButtonElement, focusTarget: HTMLElement | null) => {
+    // Loading removes Retry. Transfer only its own focus before refresh; the
+    // separate Appearance navigation and later user focus keep their owners.
+    if (document.activeElement === trigger) {
+      focusTarget?.focus({ preventScroll: true });
+      focusTarget?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+    }
     layoutRequest.current?.abort();
     layoutRequest.current = null;
     setCheckingLayoutKey(null);
@@ -309,6 +409,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     const context = startContext;
     const active = () => startRequest.current === request && currentStartContext.current === context;
     const requestedSettings = normalizeVideoExportSettings(settings);
+    const submittedImportRevision = importRevision.current;
     onSessionChange((current) => current.settingsHydrated ? current : { ...current, settingsHydrated: true });
     setStartingExport(true);
     setActionError('');
@@ -321,7 +422,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
         return;
       }
       const job = await onStartVideoExport(requestedSettings, latestAppearance, active);
-      if (job) {
+      if (job && importRevision.current === submittedImportRevision) {
         setLastUsedError('');
         // The job admission response confirms whether the server durably saved last-used settings.
         if (job.lastUsedSettingsSaved === true) {
@@ -357,6 +458,8 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     if (!name || presetMutation.current || loadingProfile || profileLoadError) return;
     presetMutation.current = true;
     const ownership = presetLifecycle.current;
+    const submittedImportRevision = importRevision.current;
+    const owns = () => presetLifecycle.current === ownership && importRevision.current === submittedImportRevision;
     const nameRevision = presetNameRevision.current;
     const snapshot = normalizeVideoExportSettings(currentSettings.current);
     const snapshotKey = JSON.stringify(snapshot);
@@ -367,7 +470,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     setPresetNotice('');
     try {
       const updated = await api.saveVideoExportPreset(name, snapshot);
-      if (presetLifecycle.current !== ownership) return;
+      if (!owns()) return;
       const entries = updated.videoExportPresets || [];
       const saved = entries.find((preset) => preset.name.toLocaleLowerCase('en') === name.toLocaleLowerCase('en'));
       setPresets(entries);
@@ -377,16 +480,16 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
         managedPresetId: saved.id, settingsHydrated: true,
         selectedPresetId: JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey
           ? saved.id : current.selectedPresetId,
-      }));
+      }), false);
       if (currentForm) {
         setPresetName('');
         setPresetNotice(`${previous ? 'Updated' : 'Saved'} video preset “${saved.name}”.`);
       }
     } catch (error) {
-      if (presetLifecycle.current === ownership) setPresetError(error instanceof Error ? error.message : 'Could not save video preset.');
+      if (owns()) setPresetError(error instanceof Error ? error.message : 'Could not save video preset.');
     } finally {
       presetMutation.current = false;
-      if (presetLifecycle.current === ownership) { setSavingPreset(false); setPresetSaveAction(null); }
+      if (mounted.current) { setSavingPreset(false); setPresetSaveAction(null); }
     }
   };
 
@@ -396,31 +499,37 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     const target = presets.find((preset) => preset.id === selectedId);
     if (!target) return;
     const ownership = presetLifecycle.current;
+    const submittedImportRevision = importRevision.current;
+    const owns = () => presetLifecycle.current === ownership && importRevision.current === submittedImportRevision;
     const confirmed = await onConfirm({
       title: `Delete “${target.name}”?`,
       message: 'This removes the saved video preset from your profile. Your current video settings stay as they are.',
       confirmLabel: 'Delete preset',
       tone: 'warning',
     });
-    if (!confirmed || presetLifecycle.current !== ownership || presetMutation.current) return;
+    if (!confirmed || !owns() || presetMutation.current) return;
+    // The confirmed action disables, then removes, its modal return target.
+    // Hand focus to a persistent control before waiting for the deletion.
+    managePresets.current?.focus({ preventScroll: true });
+    managePresets.current?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
     presetMutation.current = true;
     setSavingPreset(true);
     setPresetError('');
     setPresetNotice('');
     try {
       const updated = await api.deleteVideoExportPreset(target.id);
-      if (presetLifecycle.current !== ownership) return;
+      if (!owns()) return;
       setPresets(updated.videoExportPresets || []);
       onSessionChange((current) => ({ ...current, settingsHydrated: true,
         selectedPresetId: current.selectedPresetId === target.id ? '' : current.selectedPresetId,
         managedPresetId: current.managedPresetId === target.id ? '' : current.managedPresetId,
-      }));
+      }), false);
       setPresetNotice(`Deleted video preset “${target.name}”. Current settings are unchanged.`);
     } catch (error) {
-      if (presetLifecycle.current === ownership) setPresetError(error instanceof Error ? error.message : 'Could not delete video preset.');
+      if (owns()) setPresetError(error instanceof Error ? error.message : 'Could not delete video preset.');
     } finally {
       presetMutation.current = false;
-      if (presetLifecycle.current === ownership) setSavingPreset(false);
+      if (mounted.current) setSavingPreset(false);
     }
   };
 
@@ -438,12 +547,13 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
       <button aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
-      <button aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT</small></button>
+      <button ref={captionOutput} aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT</small></button>
     </div>
 
+    {sessionStorageError && <p className="export-mode-help" role="status">{sessionStorageError}</p>}
     {!videoProject && <p className="export-mode-help">Audio projects can export editable caption files. Captioned video requires a video source.</p>}
 
-    {!captionImportPreview && <ExportChecksPanel captions={project.captions} issues={checkIssues} onRepair={onRepair}
+    {!showingCaptionImport && <ExportChecksPanel captions={project.captions} issues={checkIssues} onRepair={onRepair} headingRef={checksHeading}
       supportAction={videoProject && outputMode === 'video' ? <button className="export-support-recheck" onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} aria-label="Recheck video export support" title="Recheck video export support"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck support</button> : undefined}
       unsaved={unsaved} saveBlocked={saveBlocked}
       appearancePending={checksAppearance && loadingAppearance}
@@ -454,14 +564,24 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
             ? 'The source changed while loading caption appearance. Reopen the project if a retry still cannot verify the current source.'
             : 'Could not load the latest saved caption appearance. Retry before exporting with styling.',
         actionLabel: appearanceError === 'save' ? 'Retry in Appearance' : 'Retry appearance load',
-        onRecover: appearanceError === 'save' ? onEditAppearance : retryAppearanceLoad,
+        onRecover: appearanceError === 'save' ? onEditAppearance : (trigger) => retryAppearanceLoad(trigger, checksHeading.current),
       } : undefined}
       {...(videoProject && checksAppearance ? { layoutState, layoutMessage, onCheckLayout: () => void checkLayout(), onCancelLayout: cancelLayoutCheck,
-        layoutDisabled: loadingCapabilities || loadingAppearance || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable || busy || startingExport } : {})}/>}
+        layoutDisabled: loadingCapabilities || loadingAppearance || !capabilities?.subtitlesFilter || appearanceSaveBlocked || appearanceFontUnavailable || busy || startingExport
+          || (outputMode === 'video' && waitingForVideoSettings) } : {})}/>}
 
     {outputMode === 'captions' && (captionImportPreview
-      ? <CaptionRestoreReview review={captionImportPreview} busy={busy} onApply={onApplyCaptionImport} onCancel={onCancelCaptionImport}/>
-      : <CaptionHandoffPanel project={project} busy={busy} onExport={onExportCaptions} onImport={onImportCaptionData}
+      ? <CaptionRestoreReview review={captionImportPreview} busy={busy} importBlockedReason={importBlockedReason} onReady={focusImportPreview}
+          onApply={() => {
+            // Hand off before the preview becomes busy or disappears. A later
+            // response must never move focus away from newer editing/navigation.
+            captionOutput.current?.focus({ preventScroll: true });
+            onApplyCaptionImport();
+          }} onCancel={() => {
+            captionOutput.current?.focus({ preventScroll: true });
+            onCancelCaptionImport();
+          }}/>
+      : <CaptionHandoffPanel project={project} busy={busy} onExport={onExportCaptions} downloadFocusTarget={captionOutput} onImport={importCaptionData}
           session={session.handoff} onSessionChange={(handoff) => onSessionChange((current) => ({ ...current, handoff }))}
           saveBlocked={saveBlocked} invalidCaptions={invalidCaptionFiles}
           selectedFormatBlocked={captionIssues.some((issue) => issue.severity === 'blocker')}
@@ -490,7 +610,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
               </select>
             </label>
             <details className="export-preset-tools">
-              <summary>Manage presets</summary>
+              <summary ref={managePresets}>Manage presets</summary>
               <div className="export-preset-tools-body">
                 {presets.length > 0 && <label className="export-preset-manage" htmlFor="video-export-manage-preset-select">
                   <span>Saved preset to manage</span>
@@ -511,7 +631,12 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
             </details>
           </div>
           {loadingProfile && <div className="export-preset-status" role="status"><LoaderCircle className="spin" size={14}/>Loading saved video settings…</div>}
-          {profileLoadError && <div className="export-preset-warning export-preset-load-error"><span role="alert">{profileLoadError}</span><button type="button" disabled={loadingProfile} onClick={() => setProfileReload((value) => value + 1)}>Retry saved presets</button></div>}
+          {profileLoadError && <div className="export-preset-warning export-preset-load-error"><span role="alert">{profileLoadError}</span><button type="button" disabled={loadingProfile} onClick={() => {
+            if (loadingProfile) return;
+            managePresets.current?.focus({ preventScroll: true });
+            managePresets.current?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+            setProfileReload((value) => value + 1);
+          }}>Retry saved presets</button></div>}
           {presetError && <div className="export-preset-warning" role="alert"><TriangleAlert size={15}/>{presetError}</div>}
           {presetNotice && <div className="export-preset-status" role="status">{presetNotice}</div>}
 

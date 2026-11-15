@@ -240,6 +240,10 @@ in a revision-guarded, history-backed project write. Cancel before the write
 discards prepared timings. **Undo timing changes** restores the previous tracks
 through the same guard. The pass uses the existing local audio and makes no
 cloud transcription request.
+In source builds, explicitly activating Sync, Cancel or Undo hands keyboard focus
+to the persistent **Word highlighting** summary before its button changes.
+This also keeps focus usable when Undo collapses the disclosure with highlights off.
+Background completion never moves focus away from newer editing.
 
 Source-only Khmer alignment refinement preserves each directly forced-aligned
 KFA acoustic word interval until the final wording is reconciled. Differences
@@ -332,6 +336,23 @@ Persisted choices live in the
 installation's local creator profile, alongside other user presets, and do not
 change the immutable settings snapshot of a render already in progress.
 
+Development source also optionally remembers the current Export choices for each
+project and matching source in this browser: output type, video settings, preset
+identifiers, handoff destination/format and disclosure state. These choices take
+precedence over Last used when reopening that source. They survive closing Export,
+repairing a caption and reloading, without starting a render, download or import.
+The browser keeps up to 20 valid records for seven days, with a 4 KiB serialized
+record limit. This metadata includes source identity, not caption/context text or
+media bytes. Storage failure leaves the current choices usable in the open editor;
+later reopening may fall back to defaults or Last used. Source replacement cannot
+reuse choices bound to the old source.
+
+Without remembered project choices, this source version waits for the initial
+Last used read before video render and layout checks. Selecting settings makes them
+usable immediately and protects them from the late read. A failed read explains
+that the displayed settings are kept and offers Retry saved presets; caption-file
+checks do not depend on remembered video settings.
+
 For captioned-video export:
 
 - Export focuses on output decisions. It shows a compact summary of the saved
@@ -352,7 +373,10 @@ For captioned-video export:
   final file atomically.
 - Before a render starts, Studio re-reads the saved project appearance and uses an
   immutable snapshot of captions, appearance, export settings and source-media
-  identity. Later caption or appearance edits do not mutate a running export.
+  identity. Admission compares the reviewed caption content inside that saved
+  snapshot transaction; newer saved wording, timing or word-highlight content
+  requires another review instead of silently rendering unreviewed captions.
+  Later caption or appearance edits do not mutate a running export.
 - Video rendering has its own processing lane so a long 4K render does not block
   caption generation or regeneration. Media replacement/deletion remains blocked
   while an export uses that source.
@@ -373,6 +397,18 @@ For captioned-video export:
   Khmer-English regression sample must confirm correct shaping in the actual MP4,
   and one-line/multi-line samples must confirm preview/export layout parity.
 
+Development source records an exact job-owned publication receipt before the
+verified partial video is renamed into its final file. A receipt-write failure
+prevents publication. After restart, Studio checks that exact output's size and
+SHA-256 in the background while Activity remains available; it does not restart
+the render. Matching bytes recover the same job and file as completed. A missing
+file permits an explicit same-job Resume; an unreadable, changed or unverified
+output remains uncertain and directs the creator to the export folder before a
+new render. Resume also refuses another active export of the same kind for that
+project. If the file completed but Activity could not save its completion, keep
+the verified Download video result and disclose the persistence failure instead
+of presenting failed work that invites a duplicate render.
+
 ## Export checks and repair (source-only)
 
 Export shows caption-specific issues with reasons, remedies and a direct editing
@@ -383,8 +419,10 @@ font or layout problem must not disable a valid plain caption-file handoff.
 
 Go to caption selects and reveals the exact caption while keeping the source
 playable. A visible Back to export action retains the chosen output and temporary
-settings during repair. Reset that session on project/media changes; never let an
-older repair target or pending request navigate a different project.
+settings during repair. Reset repair targets and pending actions on project/media
+changes; retain current choices for the same media and recall optional stored
+choices only for a matching source. Never let an older repair target or pending
+request navigate a different project.
 
 Full native layout checks are explicit and local. They check the current draft,
 appearance and output resolution with the existing native bounds authority,
@@ -392,7 +430,21 @@ including overlap groups. Do not run whole-project native checks on each edit.
 Invalidate results on caption/word/timing, appearance, resolution, media and font
 changes; cancellation, incomplete measurement and stale responses cannot establish
 fit. Rendering retains its mandatory snapshot validation and save/conflict guards.
+The current visit retains the last layout findings through repair-tool round trips.
+Unchanged input keeps its exact result; changed input marks the previous findings
+as advisory until an explicit recheck. These diagnostics stay in page memory and
+are excluded from remembered output choices. Ordinary tool returns reuse valid
+local support/font prerequisites; Recheck support remains an explicit fresh check.
 No release availability, new persistence category or cloud transfer is implied.
+
+Large drafts may use several bounded native inspection documents. Preserve each
+complete temporal overlap group on the renderer's 10 ms clock, original source
+order, IDs, word timing and motion relationships. Every document must complete
+before the whole draft can pass. Keep one aggregate work budget and deadline;
+oversized overlap groups, incomplete measurement or cancellation still block
+styled output. Final rendering receives the complete original snapshot. This
+source capability is content-dependent and does not guarantee an arbitrary
+caption count or establish a new public release.
 
 ## Unfinished-edit protection (source-only)
 
@@ -401,6 +453,16 @@ and while a save is pending or failed. Leaving a project waits for pending write
 then saves both caption and context edits. Closing/reloading warns only while
 unfinished work or a protected media operation remains. Preserve exact Khmer
 composition input without forcing it into a save.
+
+Typing back to the earlier saved caption wording while an intermediate save is
+pending is still an unfinished intent. Keep that final wording in recovery until
+an acknowledgement establishes the saved result. A submitted save with an
+unconfirmed response retains this protection; a newer canonical result may
+require download/comparison rather than granting the draft new timing authority.
+
+An unchanged save acknowledgement can retain the existing editor rows when all
+normalized caption data matches exactly. Canonical changes still reach the editor;
+newer typing keeps its own save ordering and unfinished-edit protection.
 
 Failed saves remain visible with Retry and an explicit download of current edits.
 Caption and Accuracy saves must compare their acknowledged fields with the saved
@@ -414,11 +476,30 @@ Accepting a whole-caption mutation with a previously unfinished conflicting
 draft requires manual comparison before that draft may save over the accepted
 result. Do not silently roll back accepted regeneration captions.
 A bounded browser copy supports deliberate recovery after interruption. Reopening
-shows the saved project first; restoring rechecks its captions, context and exact
-media, and changed saved evidence requires manual comparison. Changed recovered
-captions are unapproved. Browser recovery cannot supply approval, correction
+shows the saved project first; restoring rechecks exact media and the saved fields
+the record contains. Field-specific caption/Accuracy records, including the compact
+version 4 fallback for large caption copies, compare only those
+included fields: Accuracy-only copies omit caption text/evidence, and caption-only
+copies omit Accuracy text. Mixed copies guard every included field. Existing
+version 1/2 records keep their conservative checks; appearance-only copies remain
+version 2. Changed relevant saved evidence requires manual comparison. Changed
+recovered captions are unapproved. Browser recovery cannot supply approval, correction
 memory, Contributor evidence, or trusted word timing. Scope, retention and
 limitations belong in [unfinished-edit recovery](docs/UNFINISHED-EDIT-RECOVERY.md).
+
+Compact copies preserve exact baseline and editable values within the existing
+storage and retention bounds; they do not defer accepted-input capture. Long text
+or word evidence can still exceed the byte limit. When browser recovery cannot
+keep the current copy, offer Download edits immediately and keep the active editor
+usable. Completing composition with unchanged text preserves approval and creates
+no additional edit.
+
+When several copies exist, Preview draft offers a labeled Recovery draft selector.
+Choose a compatible older copy without discarding a newer one. Changing the
+selection cancels its predecessor's pending check and keeps keyboard focus on the
+selector; Restore, Download and Discard apply only to the selected exact copy.
+While restoration is temporarily unavailable, identify the actual pending task,
+action, text entry, or unsaved work so the user knows what must finish first.
 
 ## Project discovery and reopening (source-only)
 
@@ -432,7 +513,11 @@ save-conflict, and unfinished-draft recovery protections. A later project choice
 or a return to Home cancels ownership of an earlier pending read. The collection's
 search, ordering and page remain in the current tab while its editor is open.
 Listing/searching uses existing local metadata and does not load every caption
-body, start processing, or transfer searches to a provider. Reopening does not
+body, start processing, or transfer searches to a provider. Returning to Home or
+All projects, bringing that collection back to the foreground, and explicit
+Refresh projects update its metadata. A delayed refresh preserves newer locally
+published changes; a failed refresh keeps the last loaded collection and retry.
+It does not replace the active editor or its unfinished drafts. Reopening does not
 promise a restored playhead or automatic playback. These source changes do not
 establish public-download availability.
 
@@ -590,3 +675,255 @@ invalidate comparisons. Undoing content to its original state may match again.
 Activity retains a separate content fingerprint for each new completed video job.
 Missing/legacy, invalid or unreadable evidence is unknown. File preparation is not
 proof of disk download, and matching content is not renderer or release validation.
+
+## Review and editing refinements (source-only)
+
+Repeated Review decisions keep the caption list stable while the next target
+remains comfortably visible. Removing an approved row from a filtered queue
+preserves the next surviving row's position where the scroll range permits it.
+Scripted navigation honors reduced motion and preserves explicit playback-follow
+and manual browsing behavior.
+Review shortcuts honor the same first/last queue boundaries as Previous and Skip;
+an unavailable move does not seek or restart the current caption. Resuming Follow
+reveals the playing caption without changing the selected caption or taking over
+playback. **Current** remains the deliberate action for selecting the playhead cue.
+
+Activity gives immediate, per-job feedback for Cancel and Resume. A pending
+request remains guarded across closing and reopening Activity; confirmed job
+states and completion still come from the server. Failed requests can be retried,
+and delayed responses cannot undo newer job evidence.
+Loading or failed Activity reads never appear as an empty history. A failed
+refresh keeps the last loaded jobs visible and offers Retry activity. Manual
+refresh gives immediate feedback without disrupting job actions or open Details.
+
+Fine Timing provides larger pointer-aware boundary targets and visible hover
+intent. Pane dividers and caption-row actions are easier to acquire while retaining
+the existing editing layout, locks, neighbor protection, Undo and timing accuracy.
+If a delayed restore changes the timing context during a drag, retire the preview
+and keep the newer timings; the creator can drag again. Equivalent saved values
+and unrelated caption wording preserve the gesture.
+Timestamp fields accept pasted whitespace, Khmer digits and complete SRT-style
+comma timecodes through the same strict range checks as canonical timestamps.
+Caption menus retain usable touch targets and keep the focused action visible
+as the caption viewport scrolls or changes size. Deferred-tool recovery remains
+available from Windows source folders containing spaces, without reloading the
+editor or discarding its draft. Explicit Retry keeps keyboard focus on the
+persistent Close tool control while loading, including below the mobile preview.
+
+Home explains when preferences or another task prevent importing, and shows
+Uploading only for an actual media import. Settings opens its existing sheet
+while startup data loads, offers Retry settings after failure, and keeps the
+same dialog through recovery. Applying a topic pack requires an open project.
+Deleting a topic pack guards repeated submission, reports the named saved result
+or retryable failure, and keeps a visible keyboard target and other form drafts.
+Update recheck failures retain Check again and hide stale download/install actions.
+Optional startup-notice dismissal still closes after a failed local marker attempt;
+closing does not select or change either privacy choice.
+
+Find & Correct selects its prefilled query once on opening and identifies invalid
+regular expressions on the editable Find field. Project History guards duplicate
+refresh requests while preserving the visible entries and keyboard focus.
+Accuracy's Save globally confirms the submitted glossary against the saved result.
+Partial saves explain how to retry, preserve the full draft, and never claim every
+term was saved. Delayed saves preserve newer Accuracy edits, acknowledged global
+glossary changes and unrelated settings.
+Accuracy actions remain fully visible in narrow panels and usable on touch screens.
+Export-content comparison failures show unknown freshness with a local retry;
+one failed format does not discard successful comparisons for other formats.
+
+Quick guide takes keyboard focus when opened and returns it to its launcher when
+closed from the guide. It remains nonmodal so the media and editor stay usable.
+Its Accuracy, Review and Export actions move focus to the selected workspace
+without delayed scrolling or interrupting a newer editing choice.
+Moving keyboard focus into the guide also clears the old launcher hint, so a
+stuck tooltip cannot consume the guide's Escape action.
+
+Caption-data import explains when active caption processing prevents replacement
+while retaining the inline preview and Keep current captions action. Choosing
+Keep or Replace moves focus to the persistent caption-output control before the
+preview changes; a delayed import response never takes focus from a newer task.
+An arriving preview also yields to newer focus or an output-mode change. A retained
+caption-import preview never hides captioned-video checks while that mode is active.
+
+Appearance offers separate in-place retries for font discovery and saved-preset
+reads. Retrying preserves current appearance and form drafts, and late reads
+cannot undo successful font or preset changes. A failed font check is distinct
+from a confirmed unavailable font. Modified keys in font search retain their
+normal editing behavior; plain arrows browse and plain Enter confirms a result.
+An imported font becomes available without overwriting a newer font, preset or
+appearance-history choice made while the file was being added.
+
+Retrying the project collection preserves newer Search, Sort or Settings focus.
+Saved-project storage checks announce their completion and failures in Settings
+while retaining clearly labeled last-loaded evidence after a failed recheck.
+System check similarly distinguishes running, completed and failed checks, keeps
+old reports explicitly labeled, and offers an in-place retry. Changed AI settings
+invalidate reports and prevent an earlier pending check from becoming current.
+
+Explicit word-timing decisions keep keyboard focus in the task: Cancel sync and
+preview decisions return to a stable timing control, while manual creation and
+confirmation retain the selected word. Late sync responses never move focus.
+
+Comparison wording and Accuracy hints remain editable while another take runs.
+If those fields or the open comparison change after submission, the completed
+take stays available in Activity without replacing the current comparison.
+The same protection covers edits made while the completed proposal is loading.
+An unchanged submitted comparison can still open its completed refinement
+automatically. Empty proposed wording cannot accept text or the full proposal;
+Keep current and timing-only decisions retain their existing meaning.
+Current/Proposed controls and the matching Preview actions expose the selected
+comparison version to assistive technology as well as visually.
+On narrow screens, comparison mode removes the empty toolbar band above the
+preview so that space remains available for the video and editable proposal.
+On narrow layouts, focusing an inspector text area accounts for the sticky video
+preview so the wording being edited stays visible. Comparison card headings stay
+below the preview layer to keep playback controls accessible while scrolling.
+
+Saving a grouping preset shows its own pending state and submits one captured
+mode/character target. The success message identifies those saved choices while
+preserving newer choices in the controls. Failure keeps those choices retryable;
+saving a preset does not apply grouping to captions.
+
+Correction Inbox decisions retain keyboard position through pending, success and
+failure. A resolved Pending item advances to a surviving correction, or the
+Pending filter when none remain; History keeps the resolved card available.
+Export preset retries and confirmed deletions move focus to the persistent
+Manage presets control before their temporary actions disappear. Later responses
+preserve newer focus and form edits.
+
+Editor shortcuts match their documented modifier combinations and ignore input
+composition. A held approval key performs one Review decision; deliberate
+navigation and timing nudges retain their existing key-repeat behavior.
+Native video and audio controls retain their own playback, volume and dismissal
+keys. Caption navigation and timing Undo do not run while the player owns focus;
+explicit Save and Find shortcuts remain available.
+Project details, menus and modal dialogs also honor the exact shortcut boundary,
+including legacy composition and independent AltGraph. IME Escape stays in the
+active dialog's composing field; plain Escape and forward/reverse Tab keep their
+existing dismissal and navigation behavior.
+Caption menus keep their focused action clear of active notifications, including
+persistent save-recovery warnings.
+
+Panel order handles accept bare Left/Right and Home/End. Dividers additionally
+accept Shift+Left/Right for larger steps. Composing, unrelated modified and
+already-handled keys leave the layout unchanged; plain Escape cancels an active
+gesture while foreground dialogs retain their own keyboard handling.
+
+Header Save retains current focus while saving and after showing Saved. Pending
+or otherwise unavailable Save remains guarded and is skipped by normal Tab
+navigation. Completion preserves newer editing focus and saved-state feedback
+still belongs to the submitted edit.
+
+Retry appearance load moves focus from its own retry action to the persistent
+Check before export heading before loading. Appearance comparison retry uses the
+Export history summary. Later results preserve newer focus; Appearance save
+recovery keeps its existing repair navigation.
+
+Explicit playback and caption-preview retries keep a visible keyboard target on
+the persistent media preview. Caption-file preparation keeps focus on Captions
+file before its download button disables. Later results preserve newer editing.
+If an audio-replacement check expires, a focused acceptance checkbox hands off to
+Cancel; changed focus remains untouched and expired acceptance stays unusable.
+
+These changes refine existing local workflows. They do not establish availability
+in a public release.
+
+Explicit project opening moves keyboard focus to Project details when the
+initiating control still owns the navigation. Failed opening returns to that
+control; Back to Home continues at upload. Newer focus, dialogs and the first-use
+guide take priority over a delayed handoff.
+
+Profile responses update only the fields they still own. Review and waveform
+preferences send the changed keys, so independent choices survive delayed
+responses. Profile import keeps newer raw Accuracy drafts, while imported defaults
+remain available through the profile. Reopened Settings shows newer acknowledged
+glossary choices rather than an earlier save's snapshot.
+
+Profile import checks the required sections of a Studio profile file before
+replacing saved settings. Incomplete or mistyped sections leave the current profile,
+privacy choices and form drafts intact. Older exports may omit newer optional
+appearance and video-output fields; existing normalization still applies.
+
+A successful import refreshes saved presets in an already open Export or Appearance
+workspace. Imported choices become available without changing the current output
+settings or project appearance, discarding a typed preset name, or moving focus.
+
+Appearance save Retry keeps focus on its persistent save status. Confirmed font
+removal continues at Khmer font, and appearance-preset deletion at Saved presets.
+Cancel retains the initiating action; late completion preserves newer focus.
+
+Review approval Undo changes only captions that action approved and whose applied
+revision still matches. Later wording, timing, locks or removal remain authoritative;
+partial and fully stale Undo explain what was kept. Add caption fits a trailing cue
+inside known media duration, or explains that no room remains without changing the
+draft.
+Adding a caption continues at its new text only while that action still owns the
+interaction. Newer focus and selection take priority. Starting Sync words keeps a
+visible keyboard position in the word controls while the request runs, so Cancel
+remains reachable; later completion preserves newer editing focus.
+
+Upload recovery distinguishes a proven unsaved attempt from an unconfirmed result.
+Retry this upload retains the selected file and exact attempt; a lost response can
+be checked and its saved project opened deliberately without creating a duplicate.
+Studio retains a published project and its source when only the Recent order fails
+to save. Starting another upload is an explicit choice while the earlier outcome
+is uncertain. A bounded local reminder now survives reload and reopening Studio at
+the same browser address for up to seven days. It contains the attempt ID and file
+details, not media bytes. Check for a saved result and Open are explicit; if a file
+is still needed, choose the original file and explicitly Retry the same attempt.
+Starting another upload keeps earlier reminders. Forget removes only that reminder;
+it does not delete a saved project. Storage failure explains the page-only fallback.
+An exact saved-upload receipt becomes usable independently of the Recent-project
+refresh. A rejected oversized or malformed transfer explains how to choose a valid
+file; it cannot erase uncertainty about an earlier transfer with the same attempt.
+
+Appearance changes participate in header Save, leaving a project and browser-close
+protection, including changes still awaiting autosave or made before closing the
+tool. Failed writes remain retryable and an older acknowledgement cannot mark a
+newer look saved. Download edits includes the current unsaved appearance for manual
+comparison. Appearance also participates in the bounded unfinished-edit recovery
+copy. Reopening shows the saved project first; Restore checks the saved look and
+source again before submitting the recovered appearance through normal save guards.
+An appearance-only copy contains no caption or Accuracy text. An already saved look
+is identified without another write, while a different saved look requires manual
+comparison. Restoring into an open Appearance workspace updates its controls and
+preview together and retains the media position. Newer interaction retains ownership.
+Reopening Appearance retains the latest local look while checking the saved version.
+A failed read offers Retry saved appearance without submitting an appearance write.
+Video export consumes the reviewed saved look without rewriting it. A newer saved
+look discovered during preparation requires reopening Export to review it.
+
+Failed or interrupted background processing names its project in a nonmodal notice.
+Open Activity is deliberate and returns keyboard focus to a persistent control on
+close. A completed job whose result cannot be read stays completed; Open result
+retries loading without requesting generation again. Background completion keeps
+newer captions, Accuracy edits and deliberate Activity visits authoritative.
+Open result shows pending feedback and ignores repeated activation. Closing
+Activity cancels that open intent, including a pending comparison read, so a late
+response cannot replace the editor or start playback after dismissal. Slow Activity
+refreshes share their current read; a job action still requires a fresh result.
+Transcription publication also preserves newer saved Accuracy context and current
+project choices while keeping the generated evidence tied to its submitted inputs.
+Home and All projects retain Activity when job history exists, so completed video
+downloads and failed-job recovery stay reachable after dismissing a notice. Its
+badge counts active jobs only and disappears when none remain.
+Unreadable saved Activity is a retryable load error, never an empty history. Studio
+preserves the file and refuses new job-file mutations until it can read it safely.
+An explicit Retry can recover the existing history after storage is repaired.
+New and resumed jobs are admitted only after their queued state is durably saved;
+failed writes retain the previous state and permit a deliberate retry without a
+phantom queued job. Restarted running jobs remain explicitly resumable unless an
+export publication receipt first requires checking its existing result.
+If saving the start of an admitted job fails, Activity explains that no processing
+started and offers Resume for the same job. Another already queued project can
+still proceed. Progress arriving after cancellation cannot replace its feedback,
+and live Activity receives stop/terminal state even when its disk write fails.
+
+Explicit caption text editing is ready immediately, including Khmer composition,
+without a delayed selection that can replace newer typing or focus. A manual player
+seek leaves a Fine Timing audition or loop at the user's new position and speed;
+the retired audition cannot pause later playback. Native pause or seeking also
+releases Review and regeneration-comparison loop ownership without changing the
+saved loop preference or selected caption. Only a deliberate replay/Review action
+arms a new pass. Internal loop seeks still work.
+These connected workflow refinements describe development source, not a new release.

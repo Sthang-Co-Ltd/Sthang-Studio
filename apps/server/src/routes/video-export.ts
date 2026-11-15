@@ -20,6 +20,7 @@ import { jobStore } from '../services/job-store.js';
 import { profileStore } from '../services/profile-store.js';
 import { createVideoExportCaptionSnapshot, invalidateVideoExportCapabilityCache, probeVideoExportCapabilities } from '../services/video-export.js';
 import { createCaptionLayoutCheckHandler } from './export-preflight.js';
+import { exportFingerprint } from '../services/export-evidence.js';
 
 const router = Router();
 const fontUpload = multer({
@@ -148,17 +149,29 @@ export async function acceptedVideoExportResponse(job: ProcessingJob, settings: 
 router.put('/:projectId/appearance', async (req, res) => {
   const expected = expectedMedia(req.body);
   if (!expected) return res.status(428).json({ error: 'Appearance save requires the media version it was edited against.' });
+  const rawBasis = req.body?.expectedAppearance;
+  if (!rawBasis || typeof rawBasis !== 'object' || Array.isArray(rawBasis)) {
+    return res.status(428).json({ error: 'Appearance save requires the saved look it was edited against.', code: 'APPEARANCE_BASIS_REQUIRED' });
+  }
+  const basis = normalizeCaptionAppearance(rawBasis);
+  const appearance = normalizeCaptionAppearance(req.body?.appearance);
   try {
     const result = await store.withProjectWrite(req.params.projectId, async (current, persist) => {
       if (!current) return { status: 'missing' as const };
       if (current.media.filename !== expected.filename || current.media.size !== expected.size) return { status: 'stale' as const };
+      const currentLook = JSON.stringify(normalizeCaptionAppearance(current.captionAppearance));
+      // A response can be lost after persistence. Confirm the identical result
+      // without rewriting it or advancing the project revision a second time.
+      if (currentLook === JSON.stringify(appearance)) return { status: 'saved' as const, project: current };
+      if (currentLook !== JSON.stringify(basis)) return { status: 'conflict' as const };
       return { status: 'saved' as const, project: await persist({ ...current,
-        captionAppearance: normalizeCaptionAppearance(req.body?.appearance),
+        captionAppearance: appearance,
         updatedAt: new Date(Math.max(Date.now(), (Date.parse(current.updatedAt) || 0) + 1)).toISOString(),
       }, { restoreAppearance: true }) };
     });
     if (result.status === 'missing') return res.status(404).json({ error: 'Project not found' });
     if (result.status === 'stale') return res.status(409).json({ error: 'These appearance changes belong to an older media version. Reload the project before saving.' });
+    if (result.status === 'conflict') return res.status(409).json({ error: 'The saved appearance changed. Download your edits, then reload the saved project to compare.', code: 'APPEARANCE_REVISION_CHANGED' });
     res.json(result.project);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Could not save caption appearance' });
@@ -168,11 +181,15 @@ router.put('/:projectId/appearance', async (req, res) => {
 router.post('/:projectId/jobs', async (req, res) => {
   const expected = expectedMedia(req.body);
   if (!expected) return res.status(428).json({ error: 'Video export requires the media version it was prepared against.' });
+  const expectedContentFingerprint = req.body?.expectedContentFingerprint;
   try {
     await jobAdmission.runForProject(req.params.projectId, async () => {
     const project = await store.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (project.media.filename !== expected.filename || project.media.size !== expected.size) return res.status(409).json({ error: 'The source changed while preparing export. Open Export again.' });
+    if (typeof expectedContentFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(expectedContentFingerprint)) {
+      return res.status(428).json({ error: 'Video export requires the caption content it was reviewed against. Open Export and try again.', code: 'VIDEO_CONTENT_BASIS_REQUIRED' });
+    }
     if (!isVideoProject(project)) return res.status(409).json({ error: 'Captioned-video export requires a video project. Audio-only projects can still export SRT.' });
     if (!project.captions.length) return res.status(400).json({ error: 'Generate or add captions before exporting a captioned video.' });
     const existing = (await jobStore.list(project.id)).find((job) => job.type === 'export-video' && ['queued', 'running'].includes(job.status));
@@ -182,9 +199,20 @@ router.post('/:projectId/jobs', async (req, res) => {
     const capabilities = await probeVideoExportCapabilities(project);
     if (!capabilities.supported) return res.status(409).json({ error: capabilities.blockingReason || 'Captioned-video export is unavailable on this PC.' });
     requireCaptionFont(capabilities.fonts, appearance);
-    const saved = await store.setCaptionAppearance(project.id, appearance);
-    if (!saved) return res.status(404).json({ error: 'Project not found' });
-    if (saved.media.filename !== project.media.filename || saved.media.size !== project.media.size) return res.status(409).json({ error: 'The source changed while preparing export. Open Export again.' });
+    // Export consumes a reviewed saved look. A delayed capability probe must
+    // never turn an old export request into an appearance overwrite.
+    const snapshot = await store.withProjectWrite(project.id, async (current) => {
+      if (!current) return { status: 'missing' as const };
+      if (current.media.filename !== expected.filename || current.media.size !== expected.size) return { status: 'source' as const };
+      if (JSON.stringify(normalizeCaptionAppearance(current.captionAppearance)) !== JSON.stringify(appearance)) return { status: 'appearance' as const };
+      if (exportFingerprint(current, 'video') !== expectedContentFingerprint) return { status: 'captions' as const };
+      return { status: 'ready' as const, project: current };
+    });
+    if (snapshot.status === 'missing') return res.status(404).json({ error: 'Project not found' });
+    if (snapshot.status === 'source') return res.status(409).json({ error: 'The source changed while preparing export. Open Export again.' });
+    if (snapshot.status === 'appearance') return res.status(409).json({ error: 'The saved appearance changed while preparing export. Open Export again to review the current look.', code: 'APPEARANCE_REVISION_CHANGED' });
+    if (snapshot.status === 'captions') return res.status(409).json({ error: 'The saved captions changed after this export was reviewed. Reopen the project to compare them before rendering.', code: 'VIDEO_CONTENT_REVISION_CHANGED' });
+    const saved = snapshot.project;
     const creation = await jobStore.createWithDisposition('export-video', project.id, {
       exportSettings: settings,
       exportAppearance: appearance,

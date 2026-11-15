@@ -1,9 +1,10 @@
 .workspace.refined-workspace{height:100dvh;min-height:0;overflow:hidden}
 .workspace.refined-workspace>header,.workspace.refined-workspace>.media-alignment-notice{flex:none}
-/* Comparison decisions and persistent save recovery must remain usable together. */
-.workspace.refined-workspace:has(.regeneration-dock)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
-.workspace.refined-workspace:has(.regeneration-dock)>.toast-stack:empty{display:none}
-.workspace.refined-workspace:has(.regeneration-dock)>.toast-stack>*{flex-shrink:0}
+/* Persistent save errors and comparison decisions must leave work controls reachable. */
+.workspace.refined-workspace:is(.has-caption-proposal,.has-save-failure)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
+.workspace.refined-workspace:is(.has-caption-proposal,.has-save-failure)>.toast-stack:empty{display:none}
+.workspace.refined-workspace:is(.has-caption-proposal,.has-save-failure)>.toast-stack>*{flex-shrink:0}
+.toast-stack .recovery-storage-error>.toast-action{min-height:36px;height:auto}
 .editor-workbench{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .editor-toolbar{flex:none;min-height:54px;display:flex;align-items:center;gap:16px;padding:8px 12px;border-bottom:1px solid var(--line);background:#0c0f12}
 .editor-toolbar .workspace-tool-strip{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;min-width:0;flex:1}
@@ -11,19 +12,28 @@
 .editor-reset-layout,.inspector-heading button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;border:1px solid #303740;border-radius:8px;background:#13181d;color:#bdc6cf;font-size:12px;padding:7px 10px;cursor:pointer}
 .editor-reset-layout:hover,.inspector-heading button:hover{background:#1b2229;color:#f5f5f5}
 .editor-reset-layout:focus-visible,.inspector-heading button:focus-visible,.editor-divider:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.inspector-heading:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .editor-workbench .refined-editor{min-height:0;min-width:0;flex:1;margin:12px;display:grid;grid-template-columns:var(--editor-columns);grid-template-rows:minmax(0,1fr);overflow:hidden;reading-flow:source-order}
 .refined-editor> .stage-column{grid-column:var(--editor-preview-column);order:var(--editor-preview-order);reading-order:var(--editor-preview-order);grid-row:1/-1;display:flex;flex-direction:column;padding:0;overflow:hidden;min-height:0;min-width:0;border:1px solid #2d343d;border-radius:12px;background:#090c0f}
 .editor-preview-label{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;font-size:13px;color:#dce1e7}
 .editor-preview-label strong{font-weight:600}.editor-preview-label span{font-size:12px;color:#929da8}
 .refined-editor .stage-column .media-stage{flex:1;min-height:0;max-height:none;height:auto;border:0;border-radius:0;background:#000}
-.editor-divider{position:relative;grid-row:1/-1;cursor:col-resize;touch-action:none;outline-offset:-2px;min-width:8px}
+.editor-divider{position:relative;z-index:2;grid-row:1/-1;cursor:col-resize;touch-action:none;outline-offset:-2px;min-width:8px}
+/* Increase the grab band to 16px while the grid track stays 8px wide. */
+.editor-divider::before{content:'';position:absolute;inset:0 -4px;cursor:col-resize}
 .editor-divider span{position:absolute;top:50%;left:3px;transform:translateY(-50%);width:2px;height:32px;border-radius:2px;background:#3e4852}
 .editor-divider:hover span,.editor-divider:focus-visible span{background:var(--accent)}
 .refined-editor>.caption-panel{grid-column:var(--editor-captions-column);order:var(--editor-captions-order);reading-order:var(--editor-captions-order);grid-row:1;min-width:0;min-height:0;border:1px solid #2d343d;border-radius:12px;overflow:hidden}
 .refined-editor .panel-head{display:flex;flex-wrap:wrap;gap:8px;min-height:68px;flex:none;padding:10px 12px}
 .refined-editor .panel-head-copy{min-width:0}.refined-editor .panel-tools{margin-left:auto}
 .refined-editor .caption-list{padding:4px 8px;overscroll-behavior:contain}
-.refined-editor .caption-row{border-radius:0;border:0;border-bottom:1px solid #232b32;padding:10px 4px;min-height:76px;box-shadow:none;grid-template-columns:20px 22px 86px minmax(0,1fr) 62px;gap:6px}
+.refined-editor .caption-row{border-radius:0;border:0;border-bottom:1px solid #232b32;padding:10px 4px;min-height:76px;box-shadow:none;grid-template-columns:20px 22px 86px minmax(0,1fr) 80px;gap:6px}
+.refined-editor .row-actions{width:80px}
+.refined-editor .row-actions>button{width:36px;height:36px}
+.refined-editor .caption-action-menu{top:42px}
+.refined-editor .caption-action-menu.menu-up{top:auto;bottom:42px}
+.refined-editor .caption-action-menu{overscroll-behavior:contain}
+.refined-editor .caption-action-menu>button{height:auto}
 .refined-editor .caption-row.approved{background:#0e1511}
 .refined-editor .caption-row.selected-range,.refined-editor .caption-row.active{background:#1a2314;box-shadow:inset 0 0 0 1px #849a45;border-radius:6px}
 .refined-editor .caption-row textarea{font-size:15px;line-height:1.7}
@@ -43,6 +53,8 @@
 .inspector-content .advanced-review-tools>summary{width:auto}
 .inspector-content .shortcut-strip{white-space:normal;line-height:1.6}
 .inspector-content .accuracy-actions,.inspector-content .accuracy-help,.inspector-content .preset-actions{flex-wrap:wrap;min-width:0}
+.inspector-content .accuracy-actions{width:100%}
+.inspector-content .accuracy-actions button{min-height:36px}
 .inspector-content .mode-grid,.inspector-content .timing-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 .inspector-content .transcribe-card{margin:0;padding:12px;grid-template-columns:auto minmax(0,1fr)}
 .inspector-content .transcribe-card>button{grid-column:1/-1}
@@ -98,6 +110,7 @@
 .inspector-content .appearance-replay-section{display:flex;flex-direction:column;gap:8px;padding-top:8px}
 .inspector-content .appearance-replay-target b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .inspector-content .regen-comparison{grid-template-columns:minmax(0,1fr)}
+.inspector-content .regen-comparison header{z-index:auto}
 .inspector-content .export-summary-line,.inspector-content .export-mode-switch,.inspector-content .regen-refine-actions,.inspector-content .regen-apply-actions,.inspector-content .regen-playback-bar{flex-wrap:wrap}
 @media(min-width:1200px){
   @container(min-width:340px){
@@ -109,6 +122,17 @@
 .inspector-content .export-choice-grid,.inspector-content .video-settings-grid{grid-template-columns:minmax(0,1fr)}
 .inspector-content :is(input,textarea,select){max-width:100%}
 @media(max-width:1199px){
+  .toast-stack .recovery-storage-error>.toast-action{min-height:44px}
+  /* Persistent recovery cannot cover the only editable area below a sticky
+     preview. Reuse the comparison footer while keeping both surfaces mounted. */
+  .workspace.refined-workspace.has-persistent-recovery>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
+  .workspace.refined-workspace.has-persistent-recovery>.toast-stack>*{flex-shrink:0}
+  .workspace.refined-workspace.has-persistent-recovery .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
+  .workspace.refined-workspace.has-persistent-recovery :is(.inspector-content :is(button,input,textarea,select,summary,canvas),[data-workspace-close]){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
+  /* Native keyboard focus must account for evidence that covers the outer
+     scrollport, without adding that padding inside the nested caption list. */
+  .editor-workbench.caption-list-focused{scroll-padding-top:calc(clamp(240px,45dvh,440px) + 110px)}
+  .workspace.refined-workspace:is(.has-persistent-recovery,.has-caption-proposal.has-toasts) .editor-workbench.caption-list-focused{scroll-padding-top:calc(clamp(120px,24dvh,240px) + 112px)}
   .editor-workbench{overflow:auto}
   .editor-workbench .refined-editor,.editor-workbench .refined-editor.inspector-open,.editor-workbench .refined-editor.timing-layout.inspector-open{display:flex;flex-direction:column;overflow:visible;flex:none;gap:12px;min-height:0;reading-flow:normal}
   .refined-editor>.stage-column,.refined-editor>.caption-panel,.refined-editor>.workspace-inspector{order:0}
@@ -121,20 +145,28 @@
   .inspector-content .timing-header{position:static}
   .inspector-content .timing-waveform-surface{margin-block:12px}
   /* Include the sticky preview label, toolbar and a small gap above controls. */
-  .inspector-content :is(button,input,select,summary,canvas){scroll-margin-top:calc(clamp(240px,45dvh,440px) + 110px)}
-  .refined-workspace:has(.regeneration-dock):has(>.toast-stack:not(:empty)) .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
-  .refined-workspace:has(.regeneration-dock):has(>.toast-stack:not(:empty)) .inspector-content :is(button,input,select,summary,canvas){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
+  .editor-workbench .inspector-content :is(button,input,textarea,select,summary,canvas,.word-timing-panel,.appearance-save-state),.editor-workbench .inspector-content .export-checks h3,.editor-workbench .inspector-content .caption-restore-review h3,.editor-workbench [data-workspace-close]{scroll-margin-top:calc(clamp(240px,45dvh,440px) + 110px)}
+  .refined-workspace.has-caption-proposal.has-toasts .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
+  .refined-workspace.has-caption-proposal.has-toasts :is(.inspector-content :is(button,input,textarea,select,summary,canvas),[data-workspace-close]){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
+  /* A pointer action can reveal an inspector target before focus leaves Captions.
+     Its margin must not add the same sticky exclusion to the outer padding. */
+  .workspace.refined-workspace .editor-workbench.caption-list-focused :is(.inspector-content :is(button,input,textarea,select,summary,canvas,.word-timing-panel,.appearance-save-state),.inspector-content .export-checks h3,.inspector-content .caption-restore-review h3,[data-workspace-close]){scroll-margin-top:0}
   .editor-toolbar{align-items:flex-start;min-height:60px;position:sticky;top:0;z-index:8}
-  .editor-toolbar:has(.workspace-tool-strip:empty){display:none}
-  .editor-toolbar:has(.workspace-tool-strip:empty)+.refined-editor>.stage-column{top:0}
+  .editor-toolbar.editor-toolbar-empty,.editor-toolbar:has(.workspace-tool-strip:empty){display:none}
+  .editor-toolbar.editor-toolbar-empty+.refined-editor>.stage-column,.editor-toolbar:has(.workspace-tool-strip:empty)+.refined-editor>.stage-column{top:0}
   .editor-toolbar .workspace-tool-strip{overflow-x:auto}
   .editor-toolbar .workspace-tool-strip nav{flex-wrap:nowrap;width:max-content}
 }
 @media(max-width:620px){
-  .editor-toolbar .workspace-tool-strip nav button,.inspector-heading button{min-height:44px}
+  .editor-toolbar .workspace-tool-strip nav button,.inspector-heading button,.inspector-content .accuracy-actions button{min-height:44px}
   .inspector-content .review-card{padding:4px}
   .editor-workbench .refined-editor{margin:8px}
-  .refined-editor .caption-row{grid-template-columns:20px 24px minmax(86px,1fr) 62px;gap:6px}
+  .refined-editor .caption-row{grid-template-columns:20px 24px minmax(86px,1fr) 96px;gap:6px}
+  .refined-editor .row-actions{width:96px}
+  .refined-editor .row-actions>button{width:44px;height:44px}
+  .refined-editor .caption-action-menu{top:50px}
+  .refined-editor .caption-action-menu.menu-up{top:auto;bottom:50px}
+  .refined-editor .caption-action-menu>button{min-height:44px}
   .refined-editor .caption-row .caption-text-cell{grid-column:1/-1;grid-row:2}
   .refined-editor .caption-row textarea{font-size:14px}
   .inspector-content .appearance-look-grid{grid-template-columns:repeat(2,minmax(0,1fr))}

@@ -288,6 +288,7 @@ test('a suggested shared caption repair previews, applies, and undoes both capti
   await page.screenshot({ path: testInfo.outputPath('suggested-caption-timing-mobile.png'), animations: 'disabled' });
   await apply.click();
   await expect(proposal).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Sync words', exact: true })).toBeFocused();
   await expect.poll(() => project().captions.map((cue) => [cue.startMs, cue.endMs, cue.approved])).toEqual([
     [200, 2450, false], [2450, 3600, false],
   ]);

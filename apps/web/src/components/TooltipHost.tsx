@@ -28,8 +28,8 @@ export function TooltipHost() {
       active.current = null; setHint(null); setPosition(null);
     };
     const show = (target: HTMLElement | null, immediate = false) => {
-      window.clearTimeout(hideTimer);
       if (!target || dismissed === target || !available(target)) return;
+      window.clearTimeout(hideTimer);
       if (active.current?.target === target || pending === target && !immediate) return;
       window.clearTimeout(showTimer); pending = target;
       showTimer = window.setTimeout(() => {

@@ -18,7 +18,7 @@ export interface AppearanceReconciliation {
 export async function reconcileCaptionAppearance(project: CaptionProject, options: {
   flush?: () => Promise<boolean>;
   wait?: typeof waitForCaptionAppearanceSaves;
-  load?: typeof api.get;
+  load?: typeof api.getAppearance;
 } = {}): Promise<ReconciledAppearance> {
   const expected = projectMediaKey(project);
   const projectId = project.id;
@@ -26,7 +26,7 @@ export async function reconcileCaptionAppearance(project: CaptionProject, option
   try {
     if (options.flush && !await options.flush()) return { status: 'error', error: 'save' };
     if (!await (options.wait || waitForCaptionAppearanceSaves)(projectId, media)) return { status: 'error', error: 'save' };
-    const fresh = await (options.load || api.get)(projectId);
+    const fresh = await (options.load || api.getAppearance)(projectId);
     if (projectMediaKey(fresh) !== expected) return { status: 'error', error: 'source' };
     return { status: 'ready', appearance: normalizeCaptionAppearance(fresh.captionAppearance) };
   } catch { return { status: 'error', error: 'load' }; }

@@ -1,28 +1,24 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
 import { useSurfacePresence } from '../use-surface-presence';
 import { useMenuKeyboard } from '../use-menu-keyboard';
 import { reconcileCaptionWordTiming, resolveCaptionWordTiming } from '@kcs/shared';
 import {
-  AudioLines,
-  Check,
-  CheckCircle2,
-  CircleAlert,
   Clock3,
   Combine,
   LocateFixed,
   LockKeyhole,
-  MoreHorizontal,
   Pause,
-  PencilLine,
   Play,
   Plus,
   Scissors,
@@ -30,21 +26,11 @@ import {
 } from 'lucide-react';
 import type { ReviewIssue } from '../review';
 import { MIN_CAPTION_MS } from '../timing-edit';
-import { TimestampInput } from './TimestampInput';
 import { PanelHeaderGrip } from './PanelHeaderGrip';
-import { captionNeighborLimitMap, planCaptionTimingEdit } from '../caption-timing-transaction';
+import { CaptionRow, type CaptionRowEvent } from './CaptionRow';
+import { prepareCaptionTiming, planCaptionTimingEdit } from '../caption-timing-transaction';
 import { splitCaptionForEditing, mergeCaptionsForEditing } from '../caption-word-structure';
-
-const qualityIcon = (caption: CaptionSegment) => caption.timingSource === 'manual'
-  ? <PencilLine size={12}/>
-  : caption.timingQuality === 'high' ? <Check size={12}/> : caption.timingQuality === 'medium' ? <AudioLines size={12}/> : <CircleAlert size={12}/>;
-const qualityTitle = (caption: CaptionSegment) => caption.timingSource === 'manual'
-  ? 'Timing manually edited'
-  : caption.timingQuality === 'high'
-    ? 'Timing looks precise'
-    : caption.timingQuality === 'medium'
-      ? 'Listen to check timing'
-      : 'Timing needs review';
+import { planReviewScroll, survivingReviewAnchorShift, type ReviewViewportAnchor } from './review-scroll-policy';
 
 export interface CaptionEditorHandle {
   focusCaption(id: string): void;
@@ -73,6 +59,11 @@ interface CaptionEditorProps {
   onReviewComplete?(): void;
   onEditingChange?(editing: boolean): void;
 }
+
+type CaptionMenuAction = 'words' | 'textLock' | 'timingLock' | 'earlier' | 'later' | 'split' | 'merge' | 'remove';
+type CaptionEditorAction = CaptionRowEvent
+  | { type: 'menuAction'; action: CaptionMenuAction }
+  | { type: 'menuKey'; event: ReactKeyboardEvent<HTMLElement> };
 
 interface PendingViewportRestore {
   anchorId: string | null;
@@ -105,18 +96,30 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   const focusText = useRef<Record<string, string>>({});
   const focusTimingBasis = useRef<Record<string, CaptionSegment>>({});
   const pointerActionFocus = useRef<HTMLButtonElement | null>(null);
+  const pendingAddFocus = useRef<{ id: string; from: HTMLButtonElement } | null>(null);
   const pendingViewportRestore = useRef<PendingViewportRestore | null>(null);
+  const reviewViewport = useRef<{ visibleCount: number; anchors: ReviewViewportAnchor[] } | null>(null);
+  const pendingReviewReveal = useRef<string | null>(null);
+  const pendingReviewActionFocus = useRef<string | null>(null);
   const autoScrollingUntil = useRef(0);
   const [followPlayback, setFollowPlayback] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const actionMenu = useRef<HTMLDivElement | null>(null);
   const menuActionTrigger = useRef<HTMLButtonElement | null>(null);
+  const menuOpeningVisit = useRef<string | null>(null);
   const menuPresence = useSurfacePresence(openMenuId, actionMenu, 'menu');
   const menuKeyboard = useMenuKeyboard(openMenuId, actionMenu, () => openMenuId ? rows.current[openMenuId]?.querySelector<HTMLButtonElement>('.row-more') : null, () => setOpenMenuId(null));
   const [menuPlacement, setMenuPlacement] = useState({ up: false, height: 400 });
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const mediaLimit = durationMs && Number.isFinite(durationMs) ? durationMs : Number.MAX_SAFE_INTEGER;
-  const neighborLimits = useMemo(() => captionNeighborLimitMap(captions, mediaLimit), [captions, mediaLimit]);
+  const preparedTiming = useMemo(() => prepareCaptionTiming(captions, mediaLimit), [captions, mediaLimit]);
+  const neighborLimits = preparedTiming.limits;
+  const liveRowAction = useRef<(id: string, event: CaptionEditorAction) => boolean | void>(() => {});
+  const dispatchRowAction = useCallback((id: string, event: CaptionEditorAction) => liveRowAction.current(id, event), []);
+  const registerRow = useCallback((id: string, element: HTMLDivElement | null) => { rows.current[id] = element; }, []);
+  const registerText = useCallback((id: string, element: HTMLTextAreaElement | null) => { textareas.current[id] = element; }, []);
+  // Run before the viewport/focus layout effects, which can synchronously focus a row.
+  useLayoutEffect(() => { liveRowAction.current = committedRowAction; });
   const wordsNeedingReview = useMemo(() => new Set(highlightEnabled ? captions.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready').map((caption) => caption.id) : []), [captions, highlightEnabled]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const visible = useMemo(
@@ -174,24 +177,106 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
 
   useEffect(() => setOpenMenuId(null), [reviewMode, captions.length]);
   useLayoutEffect(() => {
-    if (!openMenuId) return;
+    if (!openMenuId) { menuOpeningVisit.current = null; return; }
+    const menu = actionMenu.current;
+    const button = rows.current[openMenuId]?.querySelector<HTMLButtonElement>('.row-more');
+    const container = list.current;
+    if (!menu || !button || !container) return;
+    const workbench = container.closest<HTMLElement>('.editor-workbench');
+    const toastStack = container.closest('.workspace')?.querySelector<HTMLElement>(':scope > .toast-stack');
+    const overlays = [container.parentElement?.querySelector<HTMLElement>('.panel-head'), workbench?.querySelector<HTMLElement>('.editor-toolbar'), workbench?.querySelector<HTMLElement>('.stage-column')].filter((node): node is HTMLElement => Boolean(node));
+    let opening = menuOpeningVisit.current !== openMenuId;
+    menuOpeningVisit.current = openMenuId;
     const position = () => {
-      const menu = actionMenu.current;
-      const button = rows.current[openMenuId]?.querySelector('.row-more');
-      const container = list.current;
-      if (!menu || !button || !container) return;
+      const allowOpeningReveal = opening;
+      opening = false;
       const buttonBox = button.getBoundingClientRect();
       const listBox = container.getBoundingClientRect();
-      const above = Math.max(0, buttonBox.top - Math.max(0, listBox.top) - 8);
-      const below = Math.max(0, Math.min(window.innerHeight, listBox.bottom) - buttonBox.bottom - 8);
+      const workbenchBox = workbench?.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      let evidenceBottom = Math.max(workbenchBox?.top ?? 0, viewport?.offsetTop ?? 0);
+      let top = Math.max(listBox.top, evidenceBottom);
+      let bottom = Math.min(listBox.bottom, workbenchBox?.bottom ?? window.innerHeight, viewport ? viewport.offsetTop + viewport.height : window.innerHeight);
+      // On narrow screens the sticky evidence and headers cover part of the
+      // caption pane. Their pixels are not available to this inline menu.
+      for (const overlay of overlays) {
+        if (getComputedStyle(overlay).position !== 'sticky') continue;
+        const bounds = overlay.getBoundingClientRect();
+        if (bounds.left < listBox.right && bounds.right > listBox.left && bounds.top <= buttonBox.top) {
+          top = Math.max(top, bounds.bottom);
+          // The caption header moves with its enclosing scrollport; the
+          // persistent preview and toolbar bound a deliberate opening reveal.
+          if (!container.parentElement?.contains(overlay)) evidenceBottom = Math.max(evidenceBottom, bounds.bottom);
+        }
+      }
+      if (toastStack && getComputedStyle(toastStack).position === 'fixed') {
+        const bounds = toastStack.getBoundingClientRect();
+        const popup = menu.getBoundingClientRect();
+        // Persistent save recovery remains reachable beside the menu. Its
+        // occupied pixels are unavailable when it overlaps the popup's column.
+        if (bounds.height > 0 && bounds.left < popup.right && bounds.right > popup.left) bottom = Math.min(bottom, bounds.top - 8);
+      }
+      const above = Math.max(0, buttonBox.top - top - 8);
+      const below = Math.max(0, bottom - buttonBox.bottom - 8);
       const up = below < menu.scrollHeight && above > below;
-      const height = Math.max(40, Math.floor(up ? above : below));
+      const height = Math.floor(up ? above : below);
+      const first = menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
+      const style = getComputedStyle(menu);
+      const minimumHeight = (first?.offsetHeight ?? 44) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + menu.offsetHeight - menu.clientHeight;
+      if (allowOpeningReveal && height < minimumHeight && workbench && bottom < listBox.bottom - 1 && buttonBox.top >= top - 1 && buttonBox.bottom <= bottom + 1) {
+        // A visible first row may start near the phone's lower edge. Reveal
+        // exactly one complete action once, without moving the sticky evidence.
+        const shift = Math.ceil(minimumHeight - below) + 1;
+        const available = Math.min(buttonBox.top - evidenceBottom - 8, workbench.scrollHeight - workbench.clientHeight - workbench.scrollTop);
+        if (shift > 0 && shift <= available) {
+          workbench.scrollTop += shift;
+          position();
+          return;
+        }
+      }
+      if (buttonBox.top < top - 1 || buttonBox.bottom > bottom + 1 || height < minimumHeight) {
+        // Do not strand keyboard focus inside a clipped or sub-action-height
+        // popup after scrolling. The connected trigger remains the way back.
+        if (menu.contains(document.activeElement) && button.isConnected) button.focus({ preventScroll: true });
+        setOpenMenuId(null);
+        return;
+      }
       setMenuPlacement((current) => current.up === up && current.height === height ? current : { up, height });
     };
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      // Scrolling the popup is deliberate navigation, not a placement change.
+      if (target === document || target instanceof Element && target.contains(button)) position();
+    };
     position();
+    const observer = new ResizeObserver(position);
+    for (const node of [container, button, menu, workbench, toastStack, ...overlays]) if (node) observer.observe(node);
+    document.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', position);
-    return () => window.removeEventListener('resize', position);
-  }, [openMenuId, visible.length]);
+    window.visualViewport?.addEventListener('resize', position);
+    window.visualViewport?.addEventListener('scroll', position);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', position);
+      window.visualViewport?.removeEventListener('resize', position);
+      window.visualViewport?.removeEventListener('scroll', position);
+    };
+  }, [openMenuId, visible, selectedIds]);
+  useLayoutEffect(() => {
+    if (!openMenuId) return;
+    const menu = actionMenu.current;
+    const item = document.activeElement;
+    if (!menu || !(item instanceof HTMLElement) || !menu.contains(item)) return;
+    // Opening at the last action happens before placement. Keep that action
+    // visible after the popup receives its final available height.
+    const bounds = menu.getBoundingClientRect();
+    const target = item.getBoundingClientRect();
+    const top = bounds.top + menu.clientTop;
+    const bottom = top + menu.clientHeight;
+    if (target.top < top) menu.scrollTop -= top - target.top;
+    else if (target.bottom > bottom) menu.scrollTop += target.bottom - bottom;
+  }, [openMenuId, menuPlacement]);
   useEffect(() => {
     if (!openMenuId) return;
     const close = (event: PointerEvent) => {
@@ -199,7 +284,8 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       if (!target?.closest(`[data-caption-menu="${openMenuId}"]`)) setOpenMenuId(null);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && !document.querySelector('[aria-modal="true"]')) {
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229 && !event.getModifierState('AltGraph')
+        && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !document.querySelector('[aria-modal="true"]')) {
         event.preventDefault();
         rows.current[openMenuId]?.querySelector<HTMLButtonElement>('.row-more')?.focus({ preventScroll: true });
         setOpenMenuId(null);
@@ -232,13 +318,26 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (!container || !row) return;
     const containerRect = container.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reviewMode) {
+      const planned = planReviewScroll({
+        viewportTop: containerRect.top, viewportBottom: containerRect.bottom,
+        rowTop: rowRect.top, rowBottom: rowRect.bottom, scrollTop: container.scrollTop,
+        requestedBehavior: behavior, reducedMotion,
+      });
+      if (!planned) return;
+      autoScrollingUntil.current = performance.now() + (planned.behavior === 'smooth' ? 1200 : 180);
+      container.scrollTo(planned);
+      return;
+    }
     const trackingTop = containerRect.top + Math.max(54, containerRect.height * 0.22);
     const trackingBottom = containerRect.bottom - Math.max(64, containerRect.height * 0.22);
     const insideTrackingBand = rowRect.top >= trackingTop && rowRect.bottom <= trackingBottom;
     if (!forceCenter && insideTrackingBand) return;
     const top = container.scrollTop + rowRect.top - containerRect.top - container.clientHeight * 0.43 + rowRect.height / 2;
-    autoScrollingUntil.current = performance.now() + (behavior === 'smooth' ? 1200 : 180);
-    container.scrollTo({ top: Math.max(0, top), behavior });
+    const actualBehavior = reducedMotion && behavior === 'smooth' ? 'instant' : behavior;
+    autoScrollingUntil.current = performance.now() + (actualBehavior === 'smooth' ? 1200 : 180);
+    container.scrollTo({ top: Math.max(0, top), behavior: actualBehavior });
   };
 
   const jumpToPlayhead = () => {
@@ -250,14 +349,16 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
 
   useImperativeHandle(ref, () => ({
     focusCaption(id: string) {
+      const caption = captions.find((item) => item.id === id);
+      const field = textareas.current[id];
+      if (!selectedIds.includes(id) || !caption || caption.textLocked || !field?.isConnected || field.readOnly
+        || !field.getClientRects().length || document.querySelector('[aria-modal="true"]')) return;
       setFollowPlayback(false);
       reveal(id, 'smooth', true);
-      window.setTimeout(() => {
-        if (!captions.find((caption) => caption.id === id)?.textLocked) {
-          textareas.current[id]?.focus();
-          textareas.current[id]?.select();
-        }
-      }, 180);
+      // Editing is ready before the initiating action returns. Select once now;
+      // later typing, caret movement or another destination must never be reset.
+      field.focus();
+      field.select();
     },
     revealCaption(id: string) { reveal(id, 'smooth', true); },
     jumpToPlayhead,
@@ -268,18 +369,79 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     reveal(active, 'smooth', false);
   }, [active, followPlayback]);
 
+  const snapshotReviewViewport = () => {
+    const container = list.current;
+    if (!container || !reviewMode) { reviewViewport.current = null; return; }
+    const bounds = container.getBoundingClientRect();
+    const children = container.children;
+    let low = 0;
+    let high = children.length;
+    // Rows are in flow order. Search only the viewport, even on long caption projects.
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      const child = children.item(mid) as HTMLElement;
+      if (child.getBoundingClientRect().bottom <= bounds.top) low = mid + 1;
+      else high = mid;
+    }
+    const anchors: ReviewViewportAnchor[] = [];
+    for (let index = low; index < children.length; index++) {
+      const child = children.item(index) as HTMLElement;
+      const rect = child.getBoundingClientRect();
+      if (rect.top >= bounds.bottom) break;
+      const id = child.getAttribute('data-caption-id');
+      if (id) anchors.push({ id, offset: rect.top - bounds.top });
+    }
+    reviewViewport.current = { visibleCount: visible.length, anchors };
+  };
+
   useLayoutEffect(() => {
     const pending = pendingViewportRestore.current;
     const container = list.current;
-    if (!pending || !container) return;
-    const row = pending.anchorId ? rows.current[pending.anchorId] : null;
-    autoScrollingUntil.current = performance.now() + 180;
-    if (row) {
-      const currentOffset = row.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      container.scrollTop += currentOffset - pending.anchorOffset;
-    } else container.scrollTop = pending.fallbackScrollTop;
-    pendingViewportRestore.current = null;
-  }, [captions, reviewMode]);
+    if (!container) return;
+    if (pending) {
+      const row = pending.anchorId ? rows.current[pending.anchorId] : null;
+      autoScrollingUntil.current = performance.now() + 180;
+      if (row) {
+        const currentOffset = row.getBoundingClientRect().top - container.getBoundingClientRect().top;
+        container.scrollTop += currentOffset - pending.anchorOffset;
+      } else container.scrollTop = pending.fallbackScrollTop;
+      pendingViewportRestore.current = null;
+    } else if (reviewMode && reviewViewport.current && visible.length < reviewViewport.current.visibleCount) {
+      // Approvals remove rows from the Review queue. Anchor a surviving row before
+      // the next reveal so repeated decisions don't push the whole list around.
+      const bounds = container.getBoundingClientRect();
+      const shift = survivingReviewAnchorShift(reviewViewport.current.anchors, (id) => {
+        const row = rows.current[id];
+        return row ? row.getBoundingClientRect().top - bounds.top : null;
+      }, selectedIds[0]);
+      if (shift !== null && Math.abs(shift) >= 0.5) {
+        autoScrollingUntil.current = performance.now() + 180;
+        container.scrollTop = Math.max(0, container.scrollTop + shift);
+      }
+    }
+    const revealId = pendingReviewReveal.current;
+    pendingReviewReveal.current = null;
+    if (revealId) reveal(revealId, 'smooth', false);
+    const nextFocus = pendingReviewActionFocus.current;
+    pendingReviewActionFocus.current = null;
+    if (nextFocus && (document.activeElement === document.body || !document.activeElement?.isConnected)) {
+      rows.current[nextFocus]?.querySelector<HTMLButtonElement>('.row-approve')?.focus({ preventScroll: true });
+    }
+    snapshotReviewViewport();
+    const added = pendingAddFocus.current;
+    pendingAddFocus.current = null;
+    const activeFocus = document.activeElement;
+    const addedText = added ? textareas.current[added.id] : null;
+    if (added && selectedIds.length === 1 && selectedIds[0] === added.id
+      && (activeFocus === added.from || activeFocus === document.body)
+      && !document.querySelector('[aria-modal="true"]')
+      && addedText?.isConnected && addedText.getClientRects().length) {
+      // The initiating Add action owns this one commit, never a later timer.
+      // Newer caption or player focus and selection keep their own destination.
+      reveal(added.id, 'smooth', true);
+      addedText.focus();
+    }
+  }, [captions, reviewMode, visible, selectedIds]);
 
   const pauseFollowForBrowsing = () => setFollowPlayback((current) => current ? false : current);
   const preserveViewport = (beforeAnchorId: string | null, afterAnchorId: string | null, mutate: () => void) => {
@@ -301,29 +463,31 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (reviewMode && approving) {
       const visibleIndex = visible.findIndex((item) => item.id === caption.id);
       nextVisible = visible[visibleIndex + 1] || visible[visibleIndex - 1];
+      if (nextVisible) {
+        pendingReviewReveal.current = nextVisible.id;
+        if (rows.current[caption.id]?.contains(document.activeElement)) pendingReviewActionFocus.current = nextVisible.id;
+      }
     }
     onChange(
       captions.map((item, itemIndex) => itemIndex === index ? { ...item, approved: approving } : item),
       nextVisible?.id,
       'metadata',
     );
-    if (nextVisible) {
-      onSeek(nextVisible.startMs);
-      window.setTimeout(() => reveal(nextVisible!.id, 'smooth', true), 40);
-    } else if (reviewMode && approving) onReviewComplete?.();
+    if (nextVisible) onSeek(nextVisible.startMs);
+    else if (reviewMode && approving) onReviewComplete?.();
   };
   const patchTime = (index: number, value: Partial<CaptionSegment>) => {
     const caption = captions[index];
     if (!caption || caption.timingLocked) return false;
     const edge = value.startMs !== undefined ? 'start' : 'end';
-    const result = planCaptionTimingEdit(captions, caption.id, edge, value.startMs ?? value.endMs!, mediaLimit);
+    const result = planCaptionTimingEdit(captions, caption.id, edge, value.startMs ?? value.endMs!, mediaLimit, {}, preparedTiming);
     if (result.limited) onNotice?.(result.limited);
     if (!result.after.length) return false;
     onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
     return true;
   };
   const patchText = (caption: CaptionSegment, text: string) => {
-    if (caption.textLocked) return;
+    if (caption.textLocked || caption.text === text) return;
     // Reconcile against the stable focus snapshot, not transient IME/composition
     // text, so an unfinished Khmer cluster cannot erase good surrounding timings.
     const basis = focusTimingBasis.current[caption.id] || caption;
@@ -370,33 +534,138 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     setFollowPlayback(false);
     const caption = captions[index];
     if (!caption || caption.timingLocked) return;
-    const result = planCaptionTimingEdit(captions, caption.id, 'move', delta, mediaLimit);
+    const result = planCaptionTimingEdit(captions, caption.id, 'move', delta, mediaLimit, {}, preparedTiming);
     if (result.limited) onNotice?.(result.limited);
     if (result.after.length) onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
   };
 
-  const add = () => {
+  const add = (trigger: HTMLButtonElement) => {
     const last = captions.at(-1);
+    const startMs = last?.endMs || 0;
+    const knownDuration = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0 ? Math.floor(durationMs) : null;
+    const endMs = knownDuration === null ? startMs + 1500 : Math.min(startMs + 1500, knownDuration);
+    if (endMs - startMs < MIN_CAPTION_MS) {
+      onNotice?.('There is no room for another caption at the end. Shorten the last caption or split an existing caption.');
+      return;
+    }
     const id = crypto.randomUUID();
     const next = [...captions, {
       id,
-      startMs: last?.endMs || 0,
-      endMs: (last?.endMs || 0) + 1500,
+      startMs,
+      endMs,
       text: '',
       timingSource: 'manual' as const,
       timingQuality: 'medium' as const,
       approved: false,
     }];
     setFollowPlayback(false);
+    pendingAddFocus.current = { id, from: trigger };
     onChange(next, id, 'structure');
-    window.setTimeout(() => { reveal(id, 'smooth', true); textareas.current[id]?.focus(); }, 80);
   };
 
-  const toggleFollow = () => setFollowPlayback((current) => {
-    const next = !current;
-    if (next) window.setTimeout(jumpToPlayhead, 0);
-    return next;
-  });
+  const toggleFollow = () => {
+    const next = !followPlayback;
+    setFollowPlayback(next);
+    if (next) {
+      const target = closestVisibleToPlayhead();
+      if (target) reveal(target.id, 'smooth', true);
+    }
+  };
+
+
+  // Publish handlers only after a successful commit. Memoized rows dispatch through
+  // this stable entry point and always use the latest accepted callbacks and draft.
+  const committedRowAction = (id: string, event: CaptionEditorAction): boolean | void => {
+      const index = captionIndexMap.get(id);
+      const caption = index === undefined ? undefined : captions[index];
+      if (!caption) return false;
+      switch (event.type) {
+        case 'focus':
+          if (pointerActionFocus.current === event.target) { pointerActionFocus.current = null; return; }
+          onSelect(id, false); return;
+        case 'click': onSelect(id, event.extend); onSeek(caption.startMs); return;
+        case 'timeFocus': setFollowPlayback(false); return;
+        case 'editing': onEditingChange?.(event.editing); return;
+        case 'timeCommit': {
+          const accepted = patchTime(index!, { [event.edge === 'start' ? 'startMs' : 'endMs']: event.value });
+          if (accepted) onEditCommit?.();
+          return accepted;
+        }
+        case 'textFocus':
+          focusText.current[id] = caption.text;
+          focusTimingBasis.current[id] = caption;
+          setFollowPlayback(false); onEditingChange?.(true); return;
+        case 'textChange': patchText(caption, event.text); return;
+        case 'textBlur':
+          onEditingChange?.(false);
+          if ((focusText.current[id] ?? caption.text) !== event.text) { onTextCommit(); onEditCommit?.(); }
+          delete focusTimingBasis.current[id]; return;
+        case 'wordTiming': onWordTiming?.(id); return;
+        case 'pointerAction': pointerActionFocus.current = event.button; return;
+        case 'actionSelect': onSelect(id, false); return;
+        case 'approve': toggleApproval(index!, caption); return;
+        case 'openMenu': menuKeyboard.openAt(event.position, id); setOpenMenuId(id); return;
+        case 'menuKey': menuKeyboard.onKeyDown(event.event); return;
+        case 'menuAction':
+          if (event.action === 'words') { setOpenMenuId(null); onWordTiming?.(id); return; }
+          if (event.action === 'textLock') patch(index!, { textLocked: !caption.textLocked }, 'metadata');
+          else if (event.action === 'timingLock') patch(index!, { timingLocked: !caption.timingLocked }, 'metadata');
+          else if (event.action === 'earlier') nudge(index!, -100);
+          else if (event.action === 'later') nudge(index!, 100);
+          else if (event.action === 'split') split(index!);
+          else if (event.action === 'merge') merge(index!);
+          else if (event.action === 'remove') remove(index!);
+          setOpenMenuId(null); return;
+        case 'toggleMenu':
+          if (openMenuId === id) event.trigger.focus({ preventScroll: true });
+          else menuKeyboard.openAt('first', id);
+          setOpenMenuId((current) => current === id ? null : id); return;
+      }
+  };
+
+  const hasWordTiming = Boolean(onWordTiming);
+  // Row objects are unchanged between clock ticks inside one cue. Reuse the
+  // complete element list too; live menu/field actions dispatch after commit.
+  const renderedRows = useMemo(() => {
+    if (typeof window !== 'undefined' && import.meta.env?.DEV) {
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onCaptionListBuild?: (count: number) => void } }).__STHANG_TEST_HOOKS__?.onCaptionListBuild?.(visible.length);
+    }
+    return visible.map((caption) => {
+        const index = captionIndexMap.get(caption.id) ?? -1;
+        const issue = issueMap.get(caption.id);
+        const destructiveLocked = caption.textLocked || caption.timingLocked;
+        const nextLocked = captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked;
+        const mergeHint = destructiveLocked && nextLocked ? 'Unlock both captions first' : destructiveLocked ? 'Unlock this caption first' : nextLocked ? 'Unlock the next caption first' : '';
+        return <CaptionRow key={caption.id} caption={caption} index={index}
+          active={active === caption.id} selected={selected.has(caption.id)} reviewMode={reviewMode}
+          lower={neighborLimits.get(caption.id)?.lower ?? 0} upper={neighborLimits.get(caption.id)?.upper ?? durationMs}
+          wordNeedsReview={wordsNeedingReview.has(caption.id)}
+          issueSeverity={issue?.severity} issueCount={issue?.reasons.length ?? 0}
+          firstReason={issue?.reasons[0]} secondReason={issue?.reasons[1]} thirdReason={issue?.reasons[2]}
+          menuOpen={openMenuId === caption.id} registerRow={registerRow} registerText={registerText} dispatch={dispatchRowAction}
+          menu={menuPresence.present && menuPresence.value === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" aria-label={`Caption ${index + 1} actions`} onKeyDown={(event) => dispatchRowAction(caption.id, { type: 'menuKey', event })}
+              onClickCapture={(event) => {
+                if (!(event.target as Element).closest('button:not(:disabled)')) return;
+                menuActionTrigger.current = rows.current[caption.id]?.querySelector<HTMLButtonElement>('.row-more') || null;
+                menuActionTrigger.current?.focus({ preventScroll: true });
+              }}
+              data-motion-state={menuPresence.open ? 'open' : 'closed'} inert={!menuPresence.open} aria-hidden={!menuPresence.open || undefined} style={{ maxHeight: menuPlacement.height, overflowY: 'auto' }}>
+              {hasWordTiming && <button role="menuitem" onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'words' }); }}><Clock3 size={14}/><span>Edit word timing</span></button>}
+              <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'textLock' }); }}><LockKeyhole size={14}/><span>{caption.textLocked ? 'Unlock text' : 'Lock text'}</span></button>
+              <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'timingLock' }); }}><Clock3 size={14}/><span>{caption.timingLocked ? 'Unlock timing' : 'Lock timing'}</span></button>
+              <div className="caption-menu-divider"/>
+              <button role="menuitem" data-menu-label="Move earlier" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'earlier' }); }}><span className="menu-micro">−100 ms</span><span className="caption-action-copy">Move earlier{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
+              <button role="menuitem" data-menu-label="Move later" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'later' }); }}><span className="menu-micro">+100 ms</span><span className="caption-action-copy">Move later{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
+              <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'split' }); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
+              {index < captions.length - 1 && <button role="menuitem" data-menu-label="Merge with next" disabled={destructiveLocked || nextLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'merge' }); }}><Combine size={14}/><span className="caption-action-copy">Merge with next{mergeHint && <small>{mergeHint}</small>}</span></button>}
+              <div className="caption-menu-divider"/>
+              <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'remove' }); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
+            </div>}
+        />;
+      });
+  }, [captions, visible, captionIndexMap, issueMap, active, selected, reviewMode, neighborLimits, durationMs, wordsNeedingReview,
+    openMenuId, menuPresence.present, menuPresence.value, menuPresence.open, menuPlacement.up, menuPlacement.height,
+    hasWordTiming, registerRow, registerText, dispatchRowAction]);
 
   return <div className="caption-panel">
     <div className="panel-head">
@@ -407,7 +676,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       <div className="panel-tools">
         <button className="panel-tool" data-tooltip="Jump to the caption at the playhead" data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
         <button className={`panel-tool ${followPlayback ? 'following' : ''}`} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>{followPlayback ? 'Following' : 'Follow'}</span></button>
-        <button className="icon-btn" aria-label="Add caption" data-tooltip="Add a caption" onClick={add}><Plus size={17}/></button>
+        <button className="icon-btn" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={17}/></button>
       </div>
     </div>
     <div
@@ -415,152 +684,10 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       className="caption-list"
       onWheelCapture={pauseFollowForBrowsing}
       onTouchMove={pauseFollowForBrowsing}
-      onScroll={() => { if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
+      onScroll={() => { snapshotReviewViewport(); if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
       {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'No captions yet. Add one to start.'}</div>}
-      {visible.map((caption) => {
-        const index = captionIndexMap.get(caption.id) ?? -1;
-        const issue = issueMap.get(caption.id);
-        const destructiveLocked = caption.textLocked || caption.timingLocked;
-        const nextLocked = captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked;
-        const mergeHint = destructiveLocked && nextLocked ? 'Unlock both captions first' : destructiveLocked ? 'Unlock this caption first' : nextLocked ? 'Unlock the next caption first' : '';
-        return <div
-          ref={(element: HTMLDivElement | null) => { rows.current[caption.id] = element; }}
-          data-caption-id={caption.id}
-          className={`caption-row ${active === caption.id ? 'active' : ''} ${selected.has(caption.id) ? 'selected-range' : ''} ${caption.approved ? 'approved' : ''} ${destructiveLocked ? 'locked' : ''}`}
-          key={caption.id}
-          onFocusCapture={(event) => {
-            // Selecting can collapse an earlier row's risk details. Allow native
-            // blur/save and focus, but do not move a pressed action before click.
-            if (pointerActionFocus.current === event.nativeEvent.target) {
-              pointerActionFocus.current = null;
-              return;
-            }
-            onSelect(caption.id, false);
-          }}
-          onClick={(event) => { onSelect(caption.id, event.shiftKey); onSeek(caption.startMs); }}
-        >
-          <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} role="img" aria-label={qualityTitle(caption)} title={qualityTitle(caption)}>{qualityIcon(caption)}</span>
-          <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
-          <div className="time-stack">
-            <TimestampInput
-              valueMs={caption.startMs}
-              label={`Caption ${index + 1} start time`}
-              minMs={neighborLimits.get(caption.id)?.lower ?? 0}
-              maxMs={caption.endMs - MIN_CAPTION_MS}
-              disabled={caption.timingLocked}
-              onFocus={() => setFollowPlayback(false)}
-              onEditingChange={onEditingChange}
-              onCommit={(startMs) => { const accepted = patchTime(index, { startMs }); if (accepted) onEditCommit?.(); return accepted; }}
-            />
-            <TimestampInput
-              valueMs={caption.endMs}
-              label={`Caption ${index + 1} end time`}
-              minMs={caption.startMs + MIN_CAPTION_MS}
-              maxMs={neighborLimits.get(caption.id)?.upper ?? durationMs}
-              disabled={caption.timingLocked}
-              onFocus={() => setFollowPlayback(false)}
-              onEditingChange={onEditingChange}
-              onCommit={(endMs) => { const accepted = patchTime(index, { endMs }); if (accepted) onEditCommit?.(); return accepted; }}
-            />
-          </div>
-          <div className="caption-text-cell">
-            <textarea
-              ref={(element: HTMLTextAreaElement | null) => { textareas.current[caption.id] = element; }}
-              value={caption.text}
-              aria-label={`Caption ${index + 1} text`}
-              rows={2}
-              readOnly={caption.textLocked}
-              spellCheck={false}
-              onClick={(event) => event.stopPropagation()}
-              onFocus={() => {
-                focusText.current[caption.id] = caption.text;
-                focusTimingBasis.current[caption.id] = caption;
-                setFollowPlayback(false);
-                onEditingChange?.(true);
-              }}
-              onChange={(event) => patchText(caption, event.target.value)}
-              onCompositionEnd={(event) => patchText(caption, event.currentTarget.value)}
-              onBlur={(event) => {
-                onEditingChange?.(false);
-                if ((focusText.current[caption.id] ?? caption.text) !== event.target.value) { onTextCommit(); onEditCommit?.(); }
-                delete focusTimingBasis.current[caption.id];
-              }}
-            />
-            <div className="caption-state-line">
-              {caption.approved && <span className="state-approved"><CheckCircle2 size={11}/>Approved</span>}
-              {caption.textLocked && <span><LockKeyhole size={10}/>Text locked</span>}
-              {caption.timingLocked && <span><Clock3 size={10}/>Timing locked</span>}
-              {wordsNeedingReview.has(caption.id) && selected.has(caption.id) && <button type="button" onClick={(event) => { event.stopPropagation(); onWordTiming?.(caption.id); }}>Review word timing</button>}
-            </div>
-            {issue && <div className={`risk-reasons risk-${issue.severity} ${selected.has(caption.id) ? 'expanded' : ''}`}>
-              <span>{selected.has(caption.id) ? issue.reasons[0] : `Review suggested · ${issue.reasons.length}`}</span>
-              {selected.has(caption.id) && issue.reasons.slice(1, 3).map((reason) => <span key={reason}>{reason}</span>)}
-            </div>}
-          </div>
-          <div
-            className="row-actions"
-            data-caption-menu={caption.id}
-            onPointerDownCapture={(event) => {
-              const button = (event.target as Element).closest('button');
-              pointerActionFocus.current = event.isPrimary && event.button === 0 && button && !button.disabled ? button : null;
-            }}
-            onMouseDownCapture={(event) => {
-              // Touch compatibility events may follow pointerup in a later task.
-              // Defer selection through their focus too; activate only on click.
-              const button = (event.target as Element).closest('button');
-              pointerActionFocus.current = event.button === 0 && button && !button.disabled ? button : null;
-            }}
-            onClickCapture={(event) => {
-              const button = (event.target as Element).closest('button');
-              if (button && !button.disabled) onSelect(caption.id, false);
-            }}
-          >
-            <button
-              className={`row-approve ${caption.approved ? 'state-on' : ''}`}
-              aria-label={caption.approved ? 'Mark caption as needing review' : reviewMode ? 'Approve caption and move to the next review item' : 'Approve caption'}
-              aria-pressed={Boolean(caption.approved)}
-              onClick={(event) => { event.stopPropagation(); toggleApproval(index, caption); }}
-              data-tooltip={caption.approved ? 'Mark this caption for review again' : reviewMode ? 'Approve and move to the next flagged caption' : 'Approve this caption'}
-            ><CheckCircle2 size={15}/></button>
-            <button
-              className={`row-more ${openMenuId === caption.id ? 'state-on' : ''}`}
-              aria-label={`More actions for caption ${index + 1}`}
-              aria-haspopup="menu"
-              aria-expanded={openMenuId === caption.id}
-              onKeyDown={(event) => {
-                if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
-                  event.preventDefault(); event.stopPropagation(); menuKeyboard.openAt(event.key === 'ArrowUp' ? 'last' : 'first', caption.id); setOpenMenuId(caption.id);
-                }
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (openMenuId === caption.id) event.currentTarget.focus({ preventScroll: true }); else menuKeyboard.openAt('first', caption.id);
-                setOpenMenuId((current) => current === caption.id ? null : caption.id);
-              }}
-              data-tooltip="More caption actions"
-            ><MoreHorizontal size={16}/></button>
-            {menuPresence.present && menuPresence.value === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" aria-label={`Caption ${index + 1} actions`} onKeyDown={menuKeyboard.onKeyDown}
-              onClickCapture={(event) => {
-                if (!(event.target as Element).closest('button:not(:disabled)')) return;
-                menuActionTrigger.current = rows.current[caption.id]?.querySelector<HTMLButtonElement>('.row-more') || null;
-                menuActionTrigger.current?.focus({ preventScroll: true });
-              }}
-              data-motion-state={menuPresence.open ? 'open' : 'closed'} inert={!menuPresence.open} aria-hidden={!menuPresence.open || undefined} style={{ maxHeight: menuPlacement.height, overflowY: 'auto' }}>
-              {onWordTiming && <button role="menuitem" onClick={(event) => { event.stopPropagation(); setOpenMenuId(null); onWordTiming(caption.id); }}><Clock3 size={14}/><span>Edit word timing</span></button>}
-              <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { textLocked: !caption.textLocked }, 'metadata'); setOpenMenuId(null); }}><LockKeyhole size={14}/><span>{caption.textLocked ? 'Unlock text' : 'Lock text'}</span></button>
-              <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); patch(index, { timingLocked: !caption.timingLocked }, 'metadata'); setOpenMenuId(null); }}><Clock3 size={14}/><span>{caption.timingLocked ? 'Unlock timing' : 'Lock timing'}</span></button>
-              <div className="caption-menu-divider"/>
-              <button role="menuitem" data-menu-label="Move earlier" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, -100); setOpenMenuId(null); }}><span className="menu-micro">−100 ms</span><span className="caption-action-copy">Move earlier{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
-              <button role="menuitem" data-menu-label="Move later" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); nudge(index, 100); setOpenMenuId(null); }}><span className="menu-micro">+100 ms</span><span className="caption-action-copy">Move later{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
-              <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); split(index); setOpenMenuId(null); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
-              {index < captions.length - 1 && <button role="menuitem" data-menu-label="Merge with next" disabled={destructiveLocked || nextLocked} onClick={(event) => { event.stopPropagation(); merge(index); setOpenMenuId(null); }}><Combine size={14}/><span className="caption-action-copy">Merge with next{mergeHint && <small>{mergeHint}</small>}</span></button>}
-              <div className="caption-menu-divider"/>
-              <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); remove(index); setOpenMenuId(null); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
-            </div>}
-          </div>
-        </div>;
-      })}
+      {renderedRows}
     </div>
   </div>;
 });

@@ -98,7 +98,10 @@ export function workspaceRetryPlugin(sourceRoot) {
           if (modules.has(url)) return;
           if (modules.size > 600) throw new Error('Workspace module graph exceeded its bound.');
           modules.set(url, { code: '', imports: [] });
-          const transformed = await server.transformRequest(url);
+          // Match Vite's HTTP transform middleware: URL canonicalization encodes
+          // filesystem spaces, but transformRequest expects one decoded pass.
+          // Keep the encoded URL as the graph key and for browser retry imports.
+          const transformed = await server.transformRequest(decodeURI(url));
           if (!transformed) throw new Error('Workspace module is unavailable.');
           const imports = staticImports(transformed.code).map((node) => {
             const resolved = new URL(node.value, `${origin}${url}`);

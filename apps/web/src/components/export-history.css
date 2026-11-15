@@ -10,4 +10,9 @@
 .export-history-toolbar button[aria-disabled=true]{opacity:.55;cursor:wait}
 .export-history .export-history-error{color:var(--warning,#e6c97b);overflow-wrap:anywhere}
 .export-job-freshness{display:block;margin-block:8px;color:var(--text);line-height:1.6;font-size:12px}
-@media(max-width:620px){.export-history summary,.export-history button{min-height:44px}}
+.export-comparison-recovery{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-block:8px}
+.export-comparison-recovery p{flex:1 1 220px;margin:0}
+.export-comparison-recovery button[aria-disabled=true],.export-comparison-retry[aria-disabled=true]{opacity:.55;cursor:wait}
+.export-comparison-retry{min-height:36px;border:1px solid #343c45;border-radius:8px;padding:6px 10px;background:#171b20;color:#d4dae0;font-size:13px;cursor:pointer}
+.export-comparison-retry:focus-visible,.export-job-freshness:focus-visible,.export-history summary:focus-visible,.export-comparison-recovery button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:620px){.export-history summary,.export-history button,.export-comparison-retry{min-height:44px}}

@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, type KeyboardEvent } from 'react';
 import type { CaptionProject } from '@kcs/shared';
 import {
   BookOpenCheck,
@@ -67,6 +68,32 @@ export function NewUserGuide({
   onContext,
   onExport,
 }: GuideProps) {
+  const guide = useRef<HTMLElement | null>(null);
+  const closeButton = useRef<HTMLButtonElement | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const foregroundSurface = () => Boolean(document.querySelector('[aria-modal="true"]')) || Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]')).some((node) => node.getClientRects().length && !node.closest('[inert],[hidden],[aria-hidden="true"]'));
+  useLayoutEffect(() => {
+    if (!open) { opener.current = null; return; }
+    const active = document.activeElement;
+    opener.current = active instanceof HTMLElement && active !== document.body && !guide.current?.contains(active) ? active : null;
+    // The guide is nonmodal. A foreground surface or a newer edit keeps focus.
+    if (!foregroundSurface() && !(active instanceof HTMLElement && active.closest('input,textarea,select,[contenteditable="true"]'))) closeButton.current?.focus({ preventScroll: true });
+  }, [open]);
+  const restoreOpener = () => {
+    const target = opener.current;
+    if (guide.current?.contains(document.activeElement) && target?.isConnected && target.getClientRects().length && !target.matches(':disabled') && !target.closest('[inert],[hidden],[aria-hidden="true"]')) target.focus({ preventScroll: true });
+  };
+  const close = () => { restoreOpener(); onClose(); };
+  const handoff = (action: () => void) => {
+    // Settings captures its return target when it opens. Restore the connected
+    // guide opener first; no closing cleanup can later steal destination focus.
+    restoreOpener();
+    action();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.getModifierState('AltGraph') || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || foregroundSurface()) return;
+    event.preventDefault(); event.stopPropagation(); close();
+  };
   if (!open) return null;
   const hasCaptions = Boolean(project?.captions.length);
   const mac = navigator.platform.toLowerCase().includes('mac');
@@ -77,18 +104,18 @@ export function NewUserGuide({
     [`${mac ? 'Option' : 'Alt'}+Left / Right`, 'Nudge selected captions by 50 ms'],
   ];
   const reviewShortcuts = [['Enter or A', 'Approve & next'], ['S', 'Skip without approving'], ['Up / Down', 'Previous / next flagged caption']];
-  return <aside className="new-user-guide" aria-label="Sthang Studio guide">
-    <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong></span></div><button onClick={onClose} aria-label="Close guide"><X size={16}/></button></header>
+  return <aside ref={guide} className="new-user-guide" aria-label="Sthang Studio guide" onKeyDown={onKeyDown}>
+    <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong></span></div><button ref={closeButton} onClick={close} aria-label="Close guide"><X size={16}/></button></header>
 
     {!project ? <div className="guide-empty"><FileUp size={28}/><strong>Create a project first</strong><span>Upload a video or audio file from Home to begin.</span></div> : <div className="guide-content">
       <section className="guide-workflow">
         <h3>Caption workflow</h3>
-        <button className={llmConfigured ? 'done' : 'next'} onClick={onConnect}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected' : 'Required to generate caption text.'}</small></span></button>
-        <button className={timingConfigured ? 'done' : 'next'} onClick={onOpenDoctor}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>Khmer timing</b><small>{timingConfigured ? 'Timing ready' : 'Open System check for setup.'}</small></span><ChevronRight size={14}/></button>
-        <button onClick={onContext}><i>3</i><span><b>Add accuracy context <em>optional</em></b><small>Preserve names, brands, versions, and Khmer-English terms.</small></span><ChevronRight size={14}/></button>
-        <button className={!hasCaptions ? 'next' : 'done'} onClick={onGenerate} disabled={!llmConfigured || !timingConfigured}><i>{hasCaptions ? <Check size={14}/> : 4}</i><span><b>{hasCaptions ? 'Captions generated' : 'Generate captions'}</b><small>Creates text and timing from the audio.</small></span><ChevronRight size={14}/></button>
-        <button className={hasCaptions && issueCount ? 'next' : hasCaptions ? 'done' : ''} onClick={onReview} disabled={!hasCaptions}><i>{hasCaptions && !issueCount ? <Check size={14}/> : 5}</i><span><b>Review flagged captions</b><small>{hasCaptions ? `${issueCount} to check.` : 'Available after generation.'}</small></span><ChevronRight size={14}/></button>
-        <button onClick={onExport} disabled={!hasCaptions}><i>6</i><span><b>Export</b><small>SRT for CapCut Desktop or a captioned video.</small></span><Download size={14}/></button>
+        <button className={llmConfigured ? 'done' : 'next'} onClick={() => handoff(onConnect)}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected' : 'Required to generate caption text.'}</small></span></button>
+        <button className={timingConfigured ? 'done' : 'next'} onClick={() => handoff(onOpenDoctor)}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>Khmer timing</b><small>{timingConfigured ? 'Timing ready' : 'Open System check for setup.'}</small></span><ChevronRight size={14}/></button>
+        <button onClick={() => handoff(onContext)}><i>3</i><span><b>Add accuracy context <em>optional</em></b><small>Preserve names, brands, versions, and Khmer-English terms.</small></span><ChevronRight size={14}/></button>
+        <button className={!hasCaptions ? 'next' : 'done'} onClick={() => handoff(onGenerate)} disabled={!llmConfigured || !timingConfigured}><i>{hasCaptions ? <Check size={14}/> : 4}</i><span><b>{hasCaptions ? 'Captions generated' : 'Generate captions'}</b><small>Creates text and timing from the audio.</small></span><ChevronRight size={14}/></button>
+        <button className={hasCaptions && issueCount ? 'next' : hasCaptions ? 'done' : ''} onClick={() => handoff(onReview)} disabled={!hasCaptions}><i>{hasCaptions && !issueCount ? <Check size={14}/> : 5}</i><span><b>Review flagged captions</b><small>{hasCaptions ? `${issueCount} to check.` : 'Available after generation.'}</small></span><ChevronRight size={14}/></button>
+        <button onClick={() => handoff(onExport)} disabled={!hasCaptions}><i>6</i><span><b>Export</b><small>SRT for CapCut Desktop or a captioned video.</small></span><Download size={14}/></button>
       </section>
 
       <details className="guide-shortcuts">

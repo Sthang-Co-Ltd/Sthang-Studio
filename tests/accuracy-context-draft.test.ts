@@ -255,7 +255,7 @@ test('App routes both caption-save branches and same-media publications through 
   assert.match(app, /const retainAccuracyContext = .*accuracyDraft\.current\.retainProject\(next\)/);
   assert.match(app, /const applyProject[\s\S]*?next = retainAccuracyContext\(next\)/);
   assert.match(app, /const publishSameMediaMutation[\s\S]*?next = retainAccuracyContext\(next\)/);
-  assert.match(app, /if \(unchanged\) applyProject\(result\.project, true, \{ preserveSelection: true \}\);[\s\S]*?const acknowledged = retainAccuracyContext\(result\.project\)/);
+  assert.match(app, /if \(unchanged\) applyProject\(result\.project, true, \{[^}]*\bpreserveSelection: true\b[^}]*\}\);\s*else \{\s*const acknowledged = retainAccuracyContext\(result\.project\)/);
   assert.match(app, /const saveContext = async[\s\S]*?await queueSameMediaMutation\(ticket/);
   const basis = app.slice(app.indexOf('const mediaMutationBasis'), app.indexOf('const captureReplacementEdits'));
   const drained = basis.indexOf('await saveQueue.current');

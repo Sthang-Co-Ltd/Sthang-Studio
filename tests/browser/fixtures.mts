@@ -1,5 +1,6 @@
 import { expect, type Page, type Request } from '@playwright/test';
-import { DEFAULT_CAPTION_APPEARANCE, summarizeProject, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities, type VideoExportFontCapability } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, normalizeCaptionAppearance, summarizeProject, exportContentBasis, type AppProfile, type CaptionProject, type ProcessingJob, type VideoExportCapabilities, type VideoExportFontCapability } from '@kcs/shared';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -422,12 +423,24 @@ export async function installFixture(page: Page): Promise<FixtureState> {
         page.off('close', close);
       }
     }
+    if (current && url.pathname === `/api/projects/${id}/appearance` && method === 'GET') {
+      return json({ id: current.id, media: current.media, captionAppearance: current.captionAppearance });
+    }
     if (current && url.pathname.endsWith('/appearance')) {
       if (state.appearanceFailure) return json({ error: 'Synthetic save failure' }, 500);
+      if (!body.expectedMedia || body.expectedMedia.filename !== current.media.filename || body.expectedMedia.size !== current.media.size) return json({ error: 'The source changed.' }, 409);
+      if (!body.expectedAppearance) return json({ error: 'Saved appearance basis required', code: 'APPEARANCE_BASIS_REQUIRED' }, 428);
+      const saved = JSON.stringify(normalizeCaptionAppearance(current.captionAppearance));
+      if (saved === JSON.stringify(normalizeCaptionAppearance(body.appearance))) return json(current);
+      if (saved !== JSON.stringify(normalizeCaptionAppearance(body.expectedAppearance))) return json({ error: 'The saved appearance changed.', code: 'APPEARANCE_REVISION_CHANGED' }, 409);
       current.captionAppearance = body.appearance; return json(current);
     }
     if (current && url.pathname.endsWith('/captions')) { current.captions = body.captions; return json({ project: current, correctionsCreated: 0 }); }
     if (current && url.pathname.endsWith('/jobs') && method === 'POST') {
+      if (!body.expectedMedia || body.expectedMedia.filename !== current.media.filename || body.expectedMedia.size !== current.media.size) return json({ error: 'The source changed.' }, 409);
+      if (JSON.stringify(normalizeCaptionAppearance(body.appearance)) !== JSON.stringify(normalizeCaptionAppearance(current.captionAppearance))) return json({ error: 'The saved appearance changed while preparing export.', code: 'APPEARANCE_REVISION_CHANGED' }, 409);
+      if (typeof body.expectedContentFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(body.expectedContentFingerprint)) return json({ error: 'Reviewed export content is required.', code: 'VIDEO_CONTENT_BASIS_REQUIRED' }, 428);
+      if (createHash('sha256').update(exportContentBasis(current, 'video')).digest('hex') !== body.expectedContentFingerprint) return json({ error: 'The saved captions changed while preparing export. Reopen the project to review them.', code: 'VIDEO_CONTENT_REVISION_CHANGED' }, 409);
       const job: ProcessingJob = { id: 'export-job', type: 'export-video', projectId: current.id, projectTitle: current.title, status: 'queued', stage: 'queued', progress: 0, message: 'Queued', createdAt: now, updatedAt: now, canResume: false };
       state.jobs.push(job);
       // Match the production admission contract: the accepted job commits

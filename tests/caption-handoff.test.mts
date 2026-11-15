@@ -140,6 +140,7 @@ test('export findings match the shared handoff guard for malformed saved word ev
 
 let activeService: CaptionHandoffService = makeHarness(projectFixture()).service;
 const proxyService: CaptionHandoffService = {
+  requireProject: (...args) => activeService.requireProject(...args),
   summary: (...args) => activeService.summary(...args),
   export: (...args) => activeService.export(...args),
   restorePreview: (...args) => activeService.restorePreview(...args),
@@ -254,6 +255,23 @@ test('export receipts survive a reload while corrupt receipt storage cannot bloc
   const unavailable = await fetch(`${baseUrl}/${project.id}/export-history`);
   assert.equal(unavailable.status, 503); assert.equal(JSON.stringify(await unavailable.json()).includes(root), false);
   assert.equal(harness.counts().persists, 0);
+});
+
+test('history reads a large project identity without preparing portable caption content', async () => {
+  const project = projectFixture('large-history', Array.from({ length: 500 }, (_, index) =>
+    cue(`cue-${index}`, `Caption ${index}`, index * 1000, index * 1000 + 900, true)));
+  const harness = makeHarness(project); let summaryReads = 0;
+  activeService = { ...harness.service, summary: async () => { summaryReads++; throw new Error('Portable serialization must not run for history'); } };
+  const response = await fetch(`${baseUrl}/${project.id}/export-history`);
+  assert.equal(response.status, 200); assert.deepEqual(await response.json(), []);
+  assert.match(response.headers.get('cache-control') || '', /no-store/);
+  assert.equal(summaryReads, 0);
+  assert.deepEqual(harness.counts(), { checkpoints: 0, persists: 0, geometry: 0, mediaDuration: 0 });
+  const missing = await fetch(`${baseUrl}/missing-history-project/export-history`);
+  assert.equal(missing.status, 503, 'missing projects cannot expose orphaned history');
+  activeService = { ...harness.service, requireProject: async () => { throw new Error(`Unreadable project at ${root}`); } };
+  const unreadable = await fetch(`${baseUrl}/${project.id}/export-history`);
+  assert.equal(unreadable.status, 503); assert.equal(JSON.stringify(await unreadable.json()).includes(root), false);
 });
 
 test('persisted transcript audio duration participates in handoff revision and fences an old export', async () => {

@@ -4,10 +4,19 @@
 .copy-report-recovery textarea{box-sizing:border-box;width:100%;min-width:0;min-height:110px;max-width:100%;resize:vertical;border:1px solid #424a56;border-radius:8px;padding:9px;background:#101419;color:#dfe5ec;font:13px/1.65 'Noto Sans Khmer','Plus Jakarta Sans',sans-serif}
 .profile-form-feedback{margin:8px 0;font-size:12px;line-height:1.6;overflow-wrap:anywhere;color:#b8ce86}
 .profile-form-feedback[role=alert]{color:#e6c97b}
+.accuracy-actions button[aria-disabled=true],.doctor-intro button[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.accuracy-actions button[aria-busy=true],.doctor-intro button[aria-busy=true]{cursor:progress}
+.profile-body .topic-packs-heading{scroll-margin-block:12px;border-radius:3px}
+.profile-body .topic-packs-heading:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 .profile-import-feedback{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .profile-import-feedback>span{flex:1 1 220px}
 .profile-import-feedback button{min-height:36px;border:1px solid #424a56;border-radius:8px;background:#171b21;color:#e5e8ec;padding:6px 10px;font:inherit;cursor:pointer}
+.settings-availability{padding:24px 16px;overflow:auto}
+.settings-availability button{min-height:36px;margin-top:5px;border:1px solid #424a56;border-radius:8px;background:#171b21;color:#e5e8ec;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer}
+.settings-availability button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .doctor-summary .copy-report-control{flex:none;max-width:100%}
 .doctor-summary .copy-report-control:has(.copy-report-recovery){flex:1 1 100%}
 .correction-actions .copy-report-control:has(.copy-report-recovery){flex:1 1 100%}
-@media(max-width:620px){.profile-import-feedback button{min-height:44px}.copy-report-control{max-width:100%}}
+.caption-appearance-workspace .appearance-save-state:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.caption-appearance-workspace .appearance-save-state button{min-height:36px}
+@media(max-width:620px){.profile-import-feedback button,.settings-availability button,.caption-appearance-workspace .appearance-save-state button{min-height:44px}.copy-report-control{max-width:100%}}

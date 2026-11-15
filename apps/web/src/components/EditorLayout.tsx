@@ -2,6 +2,7 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSP
 import { RotateCcw, X } from 'lucide-react';
 import { PanelArrangement } from './PanelArrangement';
 import { PanelHeaderDragContext, PanelHeaderGrip, usePanelHeaderDrag } from './PanelHeaderGrip';
+import { isFocusPreservingCaptionViewport, revealFocusedCaptionField } from '../caption-field-viewport';
 import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_CHANGE, EDITOR_LAYOUT_KEY, LEGACY_EDITOR_LAYOUT_KEY, PANE_LABELS, editorGeometry, editorResizeBounds, parseEditorLayout, resizeEditorBoundary, visibleEditorPanes, type EditorLayoutPreference, type EditorPane } from '../editor-layout-state';
 import './editor-layout.css';
 
@@ -25,6 +26,10 @@ interface ResizeGesture {
 
 /** Content never changes parent or DOM position. Grid and reading flow own the arrangement. */
 export function EditorLayout({ preview, toolbar, captions, children, tool, title, open, onClose, getCloseFocusTarget }: Props) {
+  const workbench = useRef<HTMLDivElement | null>(null);
+  const [captionListFocused, setCaptionListFocused] = useState(false);
+  const captionFocus = useRef(false);
+  const nativeFocusReveal = useRef<{ frame: number; field: HTMLElement; list: HTMLElement; owner: HTMLElement } | null>(null);
   const grid = useRef<HTMLElement | null>(null);
   const [width, setWidth] = useState(window.innerWidth - 24);
   const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1200px)').matches);
@@ -40,6 +45,45 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   const arranging = useRef<'popover' | 'header' | null>(null);
   const [feedback, setFeedback] = useState<{ source: EditorPane | null; target: EditorPane | null }>({ source: null, target: null });
   const geometryKey = `${width}:${wide}:${open}:${tool}`;
+
+  function trackCaptionFocus(target: EventTarget | null) {
+    const next = target instanceof Element && Boolean(target.closest('.caption-list')) && Boolean(workbench.current?.contains(target));
+    if (next === captionFocus.current) return;
+    captionFocus.current = next;
+    setCaptionListFocused(next);
+  }
+  function cancelNativeFocusReveal() {
+    if (nativeFocusReveal.current) cancelAnimationFrame(nativeFocusReveal.current.frame);
+    nativeFocusReveal.current = null;
+  }
+  function finishNativeCaptionFocus(target: EventTarget | null) {
+    cancelNativeFocusReveal();
+    if (!window.matchMedia('(max-width: 1199px)').matches
+      || !(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement && !['checkbox', 'range'].includes(target.type))) return;
+    if (isFocusPreservingCaptionViewport(target)) return;
+    const list = target.closest<HTMLElement>('.caption-list');
+    const owner = workbench.current;
+    if (!list || !owner || !owner.contains(target)) return;
+    // Native focus can scroll before its padding class is committed. Complete
+    // that one reveal after layout; later manual browsing schedules no frame.
+    const queued = { frame: 0, field: target, list, owner };
+    queued.frame = requestAnimationFrame(() => {
+      if (nativeFocusReveal.current !== queued) return;
+      nativeFocusReveal.current = null;
+      const rect = queued.field.getBoundingClientRect();
+      const port = queued.owner.getBoundingClientRect();
+      const top = port.top + queued.owner.clientTop;
+      // Respect a return-focus caller that kept a manually browsed field
+      // completely outside the outer viewport with preventScroll.
+      if (rect.bottom <= top || rect.top >= top + queued.owner.clientHeight) return;
+      revealFocusedCaptionField(queued.field, queued.list, queued.owner);
+    });
+    nativeFocusReveal.current = queued;
+  }
+  useLayoutEffect(() => () => cancelNativeFocusReveal(), []);
+  // A focused row can disappear without a blur event during Review. Checking
+  // the active element is bounded by its ancestry, regardless of list length.
+  useLayoutEffect(() => { trackCaptionFocus(document.activeElement); });
 
   function update(next: EditorLayoutPreference, save = false) { current.current = next; setPreference(next); if (save) persist(next); }
   function finishResize(commit: boolean) {
@@ -66,7 +110,11 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
     const query = window.matchMedia('(min-width: 1200px)');
     const change = () => { notifyGeometry(); setWide(query.matches); };
     query.addEventListener('change', change);
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && resize.current) { event.preventDefault(); finishRef.current(false); } };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !resize.current || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
+        || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault(); event.stopPropagation(); finishRef.current(false);
+    };
     const blur = () => finishRef.current(false);
     window.addEventListener('keydown', escape, true); window.addEventListener('blur', blur);
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure); query.removeEventListener('change', change); window.removeEventListener('keydown', escape, true); window.removeEventListener('blur', blur); const gesture = resize.current; resize.current = null; if (gesture?.handle.hasPointerCapture(gesture.pointer)) gesture.handle.releasePointerCapture(gesture.pointer); };
@@ -124,15 +172,19 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
       onPointerCancel={(event) => { if (resize.current?.pointer === event.pointerId) finishResize(false); }}
       onLostPointerCapture={(event) => { if (resize.current?.pointer === event.pointerId) finishResize(false); }}
       onKeyDown={(event) => {
-        if (!right || resize.current || arranging.current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey) return;
+        if (!right || resize.current || arranging.current || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
+          || event.altKey || event.ctrlKey || event.metaKey || document.querySelector('[aria-modal="true"]') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)
+          || event.shiftKey && !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
         event.preventDefault(); notifyGeometry();
         const delta = event.key === 'Home' ? bounds.minimum : event.key === 'End' ? bounds.maximum : (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 48 : 16);
         update(resizeEditorBoundary(current.current, geometry, open, left, right, delta), true);
       }}><span/></div>;
   }
 
-  return <div className="editor-workbench">
-    <div className="editor-toolbar">{toolbar}<div className="editor-layout-controls" data-editor-layout-control>
+  return <div ref={workbench} className={`editor-workbench ${captionListFocused ? 'caption-list-focused' : ''}`}
+    onFocusCapture={(event) => { trackCaptionFocus(event.target); finishNativeCaptionFocus(event.target); }}
+    onBlurCapture={(event) => { cancelNativeFocusReveal(); trackCaptionFocus(event.relatedTarget); }}>
+    <div className={`editor-toolbar${toolbar ? '' : ' editor-toolbar-empty'}`}>{toolbar}<div className="editor-layout-controls" data-editor-layout-control>
       <PanelArrangement order={order} open={open} supported={supported} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing}
         onChange={arrange} onBegin={() => beginReorder('popover')}
         onEnd={() => endReorder('popover')} onFeedback={(source, target) => setFeedback({ source, target })}/>
@@ -149,7 +201,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         {captions}
         {divider(1)}
         <aside className="workspace-inspector" hidden={!open} aria-label={`${title} workspace`}>
-          <div className="inspector-heading"><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" onClick={() => {
+          <div className="inspector-heading" tabIndex={-1} role="group" aria-label={`${title} workspace`}><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" data-workspace-close onClick={() => {
             const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.editor-toolbar button[aria-pressed="true"]')
               || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]') || null;
             onClose();

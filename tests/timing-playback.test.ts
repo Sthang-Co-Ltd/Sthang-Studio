@@ -37,7 +37,7 @@ class FakeMedia {
     this.listeners.get(type)?.delete(listener as Listener);
   }
 
-  emit(type: 'pause' | 'ended') {
+  emit(type: 'pause' | 'ended' | 'seeking' | 'seeked') {
     for (const listener of [...(this.listeners.get(type) || [])]) listener();
   }
 
@@ -359,17 +359,20 @@ test('pending initial and internal loop seeks keep the timing session active unt
     const dispose = playTimingRange(asMedia(media), { startMs: 500, endMs: 2000, loop: true },
       () => assert.fail('internal seeks should not report an error'), () => { finished += 1; });
     media.seeking = true;
+    media.emit('seeking');
     assert.equal(raf.runOneFrame(), true);
     assert.equal(media.currentTime, 0.5);
     assert.equal(media.playCalls, 1);
     assert.equal(finished, 0);
 
     media.seeking = false;
+    media.emit('seeked');
     media.currentTime = 2;
     assert.equal(raf.runOneFrame(), true);
     assert.equal(media.currentTime, 0.5);
     assert.equal(media.playCalls, 2);
     media.seeking = true;
+    media.emit('seeking');
     assert.equal(raf.runOneFrame(), true);
     assert.equal(media.currentTime, 0.5);
     assert.equal(media.playCalls, 2);
@@ -378,6 +381,7 @@ test('pending initial and internal loop seeks keep the timing session active unt
     assert.equal(raf.pending(), 1);
 
     media.seeking = false;
+    media.emit('seeked');
     media.currentTime = 1;
     assert.equal(raf.runOneFrame(), true);
     dispose();
@@ -407,5 +411,82 @@ test('explicit cancellation still retires a timing session during a pending seek
     assert.equal(raf.pending(), 0);
     dispose();
     assert.equal(media.pauseCalls, 1);
+  } finally { raf.restore(); }
+});
+
+for (const loop of [false, true]) test(`a native manual seek releases audition ownership without a caller-side disposer (loop=${loop})`, async () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let finished = 0;
+    const dispose = playTimingRange(asMedia(media), { startMs: 1000, endMs: 2000, loop },
+      () => assert.fail('manual seeking must not report an error'), () => { finished += 1; });
+    media.seeking = true; media.emit('seeking');
+    media.seeking = false; media.emit('seeked');
+    assert.equal(finished, 0, 'the controller retains its initial seek');
+
+    media.currentTime = 6;
+    media.seeking = true;
+    assert.equal(raf.runOneFrame(), true);
+    assert.equal(media.currentTime, 6, 'a pending user seek is never clamped');
+    media.emit('seeking');
+    assert.equal(finished, 1);
+    assert.equal(media.currentTime, 6);
+    assert.equal(media.paused, false);
+    assert.equal(media.pauseCalls, 0);
+    assert.equal(media.playCalls, 1);
+    assert.equal(raf.pending(), 0);
+    for (const type of ['pause', 'ended', 'seeking', 'seeked']) assert.equal(media.listenerCount(type), 0);
+    media.seeking = false; media.emit('seeked');
+    media.currentTime = 6.5;
+    dispose();
+    assert.equal(media.currentTime, 6.5);
+    assert.equal(media.paused, false, 'a retired disposer cannot pause newer playback');
+    assert.equal(finished, 1);
+    await settlePromises();
+  } finally { raf.restore(); }
+});
+
+test('a manual seek to the same start after the owned seek settles still releases a loop', () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let finished = 0;
+    const dispose = playTimingRange(asMedia(media), { startMs: 500, endMs: 2000, loop: true },
+      () => assert.fail('manual seeking must not report an error'), () => { finished += 1; });
+    media.seeking = true; media.emit('seeking');
+    media.seeking = false; media.emit('seeked');
+    media.currentTime = 1;
+    media.currentTime = 0.5;
+    media.seeking = true; media.emit('seeking');
+    assert.equal(finished, 1);
+    assert.equal(media.pauseCalls, 0);
+    assert.equal(raf.pending(), 0);
+    dispose();
+    assert.equal(media.pauseCalls, 0);
+  } finally { raf.restore(); }
+});
+
+test('a play rejection after a manual seek cannot pause the user or report a stale playback failure', async () => {
+  const raf = installAnimationFrame();
+  try {
+    const media = new FakeMedia();
+    let rejectPlay!: (reason: Error) => void;
+    media.playResult = () => new Promise<void>((_resolve, reject) => { rejectPlay = reject; });
+    let errors = 0;
+    let finished = 0;
+    const dispose = playTimingRange(asMedia(media), { startMs: 1000, endMs: 2000, loop: false },
+      () => { errors += 1; }, () => { finished += 1; });
+    media.currentTime = 6;
+    media.seeking = true; media.emit('seeking');
+    rejectPlay(new Error('stale play result'));
+    await settlePromises();
+    assert.equal(errors, 0);
+    assert.equal(finished, 1);
+    assert.equal(media.pauseCalls, 0);
+    assert.equal(media.currentTime, 6);
+    assert.equal(raf.pending(), 0);
+    dispose();
+    assert.equal(media.pauseCalls, 0);
   } finally { raf.restore(); }
 });

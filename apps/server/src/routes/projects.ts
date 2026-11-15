@@ -7,6 +7,7 @@ import { reconcileCaptionWordTiming, resolveCaptionWordTiming, type CaptionProje
 import { config } from '../config.js';
 import { ProjectDeletionBlockedError, store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
+import { createProjectFromUpload, ProjectCreationError } from '../services/project-creation.js';
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
@@ -63,6 +64,62 @@ const upload = multer({
   dest: config.uploadDir,
   limits: { fileSize: config.maxUploadMb * 1024 * 1024 },
 });
+const incomingCreationFiles = new WeakMap<Parameters<RequestHandler>[0], Express.Multer.File[]>();
+const projectUpload = multer({
+  dest: config.uploadDir,
+  limits: { fileSize: config.maxUploadMb * 1024 * 1024 },
+  fileFilter(req, file, accept) {
+    // Retain only the storage-owned objects for this request. Disk storage adds
+    // path later; a stream error may leave it outside Multer's completed list.
+    incomingCreationFiles.get(req)?.push(file);
+    accept(null, true);
+  },
+});
+/** Only this transfer's known input rejections prove that creation was not
+ * entered. They cannot settle an earlier unconfirmed request with the same ID. */
+const receiveProjectUpload: RequestHandler = (req, res, next) => {
+  incomingCreationFiles.set(req, []);
+  projectUpload.single('media')(req, res, async (error: unknown) => {
+    const incoming = incomingCreationFiles.get(req) || [];
+    incomingCreationFiles.delete(req);
+    if (error || req.aborted || res.destroyed || res.writableEnded) {
+      // Multer drains and cleans ordinary rejection/abort paths first. Also
+      // remove a failed storage stream's owned partial, never published media.
+      await Promise.all(incoming.map(async (file) => {
+        if (typeof file.path === 'string' && path.dirname(file.path) === config.uploadDir) {
+          await fs.rm(file.path, { force: true }).catch(() => {});
+        }
+      }));
+    }
+    // A disconnected request must not enter creation or manufacture a receipt.
+    if (req.aborted || res.destroyed || res.writableEnded) return;
+    if (!error) { next(); return; }
+    if (error instanceof multer.MulterError) {
+      let message = '';
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        const maximum = config.maxUploadMb >= 1
+          ? `${config.maxUploadMb.toLocaleString('en-US')} MB`
+          : `${Math.floor(config.maxUploadMb * 1024 * 1024).toLocaleString('en-US')} bytes`;
+        message = `This file is too large to import. Choose a video or audio file up to ${maximum}.`;
+      } else if (error.code === 'LIMIT_FILE_COUNT' || error.code === 'LIMIT_UNEXPECTED_FILE') {
+        message = 'Choose one video or audio file at a time, then start another upload.';
+      } else if (['LIMIT_FIELD_KEY', 'LIMIT_FIELD_VALUE', 'LIMIT_FIELD_COUNT', 'LIMIT_PART_COUNT',
+        'MISSING_FIELD_NAME', 'INVALID_FIELD_NAME', 'LIMIT_FIELD_NESTING', 'LIMIT_FIELD_ARRAY_INDEX'].includes(error.code)) {
+        message = 'The upload details could not be read. Choose the file again and start another upload.';
+      }
+      if (message) {
+        res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+          error: message, code: 'PROJECT_CREATE_NOT_APPLIED', outcome: 'not-created', retryable: false,
+        });
+        return;
+      }
+    }
+    // Parser, storage and transport failures are not creation receipts. Keep their
+    // outcome conservative, without exposing parser input or filesystem details.
+    res.status(500).json({ error: 'Studio could not confirm whether this upload was saved. Check the saved result before trying again.',
+      code: 'PROJECT_CREATE_UNCONFIRMED', outcome: 'unknown' });
+  });
+};
 const router = Router();
 
 /** Hold admission through response preparation and persisted compatibility results. */
@@ -109,38 +166,23 @@ router.get('/:id', async (req, res) => {
   res.json(item);
 });
 
-router.post('/', upload.single('media'), async (req, res) => {
+router.get('/:id/appearance', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const item = await store.getAppearance(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Project not found' });
+  res.json(item);
+});
+
+router.post('/', receiveProjectUpload, async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'Choose a video or audio file.' });
-    const id = nanoid(10);
-    const ext = path.extname(req.file.originalname);
-    const filename = `${id}${ext}`;
-    await fs.rename(req.file.path, path.join(config.uploadDir, filename));
-    const now = new Date().toISOString();
-    const profile = await profileStore.get();
-    const project: CaptionProject = {
-      id,
-      title: String(req.body.title || path.basename(req.file.originalname, ext)),
-      createdAt: now,
-      updatedAt: now,
-      media: {
-        filename,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype || 'application/octet-stream',
-        size: req.file.size,
-        url: `/media/${encodeURIComponent(filename)}`,
-      },
-      transcriptionContext: { description: '', vocabulary: profile.defaultVocabulary },
-      transcript: null,
-      captions: [],
-      mode: profile.styles[0]?.mode || 'dynamic',
-      engineVersion: '0.7.10',
-    };
-    await store.upsert(project);
-    void captureAnalytics('project_created');
-    res.status(201).json(project);
+    if (!req.file) return res.status(400).json({ error: 'Choose a video or audio file.', code: 'PROJECT_CREATE_NOT_APPLIED' });
+    const result = await createProjectFromUpload(req.file, req.body || {});
+    if (!result.reused) void captureAnalytics('project_created');
+    res.status(result.reused ? 200 : 201).json({ ...result.project,
+      creation: { attemptId: result.project.id, reused: result.reused, orderSaved: result.orderSaved } });
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Upload failed' });
+    if (error instanceof ProjectCreationError) return res.status(error.httpStatus).json({ error: error.message, code: error.code, outcome: error.outcome });
+    res.status(500).json({ error: 'Studio could not confirm whether the upload was saved.', code: 'PROJECT_CREATE_UNCONFIRMED' });
   }
 });
 
@@ -329,20 +371,20 @@ export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRo
       return;
     }
     if (dependencies.hasActiveCaptionJobForProject(projectId)) {
-      res.status(409).json({ error: 'Finish or cancel the active caption processing job before syncing spoken-word timing.' });
+      res.status(409).json({ code: 'WORD_TIMING_PROJECT_BUSY', error: 'Finish or cancel the active caption processing job before syncing spoken-word timing.' });
       return;
     }
     try {
       res.json(await jobAdmission.runForProject(projectId, () =>
         dependencies.syncCaptionWords(projectId, caption, preparedFor, undefined, req.body?.suggestEdges === true)));
     } catch (error) {
-      if (error instanceof JobAdmissionError) { res.status(409).json({ error: error.message }); return; }
+      if (error instanceof JobAdmissionError) { res.status(409).json({ code: 'WORD_TIMING_PROJECT_BUSY', error: error.message }); return; }
       if (error instanceof CaptionWordTimingNotFoundError) { res.status(404).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingBusyError) { res.status(429).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingConflictError) { res.status(409).json({ error: error.message }); return; }
       if (error instanceof CaptionWordTimingInputError) { res.status(400).json({ error: error.message }); return; }
       console.error('[word timing] Local synchronization failed:', error);
-      res.status(400).json({ error: 'Could not sync these words locally. Check the caption text and its start/end times, then try again. Your current timing was kept.' });
+      res.status(503).json({ code: 'WORD_TIMING_UNAVAILABLE', error: 'Word timing is unavailable right now. Check local timing in Settings → System check, then sync remaining captions. Your current timing was kept.' });
     }
   };
 }

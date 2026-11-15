@@ -77,10 +77,10 @@ export function PrivacyUpgradeHost() {
     setError('');
     try {
       await saveResolution();
-      setOpen(false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save this notice');
+    } catch {
+      // Recording the optional notice must not prevent an explicit dismissal.
     } finally {
+      setOpen(false);
       setWorking(false);
     }
   };
@@ -101,6 +101,7 @@ export function PrivacyUpgradeHost() {
   const saveReviewPatch = async (patch: Partial<AppProfile>) => {
     const updated = await api.patchProfile(patch);
     setProfile(updated);
+    return updated;
   };
 
   // Root focus avoids visually preselecting either consent decision.

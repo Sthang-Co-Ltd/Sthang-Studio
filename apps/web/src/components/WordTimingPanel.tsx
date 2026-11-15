@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createUntimedCaptionWordTiming, editCaptionWord, preserveManualCaptionWords, repairSmallWordTimingBoundaries, resolveCaptionWordTiming, type CaptionEdgeRepair, type CaptionSegment, type CaptionWordTiming } from '@kcs/shared';
 import { LoaderCircle, Play, RefreshCw } from 'lucide-react';
 import { TimestampInput } from './TimestampInput';
@@ -44,6 +44,10 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
   const request = useRef<AbortController | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const syncButton = useRef<HTMLButtonElement>(null);
+  const selectedWordButton = useRef<HTMLButtonElement>(null);
+  const actionFocus = useRef<{ from: Element; target: 'sync' | 'word' } | null>(null);
   const currentCaption = useRef(caption);
   currentCaption.current = caption;
   const currentContext = useRef(captionContext);
@@ -82,6 +86,25 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   const maxStart = assigned ? limits.maxStart : draftEnd - MIN_WORD_MS;
   const minEnd = assigned ? limits.minEnd : draftStart + MIN_WORD_MS;
 
+  const retainActionFocus = (target: 'sync' | 'word') => {
+    const from = document.activeElement;
+    if (from && panel.current?.contains(from)) actionFocus.current = { from, target };
+  };
+  useLayoutEffect(() => {
+    const pending = actionFocus.current;
+    actionFocus.current = null;
+    if (!pending || document.querySelector('[aria-modal="true"]')) return;
+    const active = document.activeElement;
+    if (active && active !== pending.from && active !== document.body) return;
+    const preferred = pending.target === 'word' ? selectedWordButton.current : syncButton.current;
+    const target = preferred && !preferred.disabled ? preferred : panel.current;
+    if (!target?.isConnected || !target.getClientRects().length || target.closest('[hidden],[inert],[aria-hidden="true"]')) return;
+    // Only an explicit action requests this handoff. A later sync response never
+    // moves focus, and a newer focused control always keeps ownership.
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ behavior: 'instant', block: target === panel.current ? 'start' : 'nearest', inline: 'nearest' });
+  });
+
   useEffect(() => {
     if (selected && selectedWordId !== selected.id) onSelectWord(selected.id);
   }, [selected?.id, selectedWordId]);
@@ -102,6 +125,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   }, []);
 
   const sync = async () => {
+    retainActionFocus('sync');
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
@@ -148,8 +172,8 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
       if (request.current === controller) { request.current = null; setSyncing(false); }
     }
   };
-  const cancelSync = () => { request.current?.abort(); request.current = null; setSyncing(false); setMessage('Word sync canceled. Current timing was kept.'); };
-  const dismissCandidate = () => { if (candidate) onCandidatePreview(candidate.basis, null); setCandidate(null); onStopPreview(); };
+  const cancelSync = () => { retainActionFocus('sync'); request.current?.abort(); request.current = null; setSyncing(false); setMessage('Word sync canceled. Current timing was kept.'); };
+  const dismissCandidate = () => { retainActionFocus('sync'); if (candidate) onCandidatePreview(candidate.basis, null); setCandidate(null); onStopPreview(); };
   const applyRepair = () => {
     if (!repair) return;
     if (onApplyEdgeRepair(repair)) setMessage('Timing repair applied. Undo restores the earlier caption and word timings.');
@@ -199,7 +223,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
       return;
     }
     const after = editCaptionWord(caption, selected.id, { startMs: assigned ? selected.startMs! : draftStart, endMs: assigned ? selected.endMs! : draftEnd });
-    if (after !== caption && onChange(caption, after)) setMessage('Word timing confirmed.');
+    if (after !== caption && onChange(caption, after)) { retainActionFocus('word'); setMessage('Word timing confirmed.'); }
     else setMessage('Choose a positive interval inside this caption and between the neighboring words.');
   };
   const hearWord = () => {
@@ -207,11 +231,11 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
     onPreview({ startMs: Math.max(0, selected.startMs - 120), endMs: selected.endMs + 120, loop });
   };
 
-  return <div className="word-timing-panel" aria-label="Word timing controls">
+  return <div ref={panel} className="word-timing-panel" role="group" aria-label="Word timing controls" tabIndex={-1}>
     <div className="word-timing-head">
       <div><strong>{validCandidate && !repair ? 'Proposed word timing' : 'Words in this caption'}</strong>
         {resolution.state !== 'ready' && <p className="timing-hint">Word highlighting stays off until every word has usable timing.</p>}</div>
-      <button title="Align the current caption text to audio without changing the wording" disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
+      <button ref={syncButton} title="Align the current caption text to audio without changing the wording" disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
         {syncing ? <LoaderCircle size={15} className="spin"/> : <RefreshCw size={15}/>} {syncing ? 'Syncing…' : 'Sync words'}
       </button>
       {syncing && <button onClick={cancelSync}>Cancel sync</button>}
@@ -238,10 +262,10 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
     {message && <p className="timing-lock-status" role="status">{message}</p>}
     {!words.length ? <div className="word-timing-empty">
       <p>No editable word timings yet.</p>
-      <button disabled={locked} onClick={() => { const after = createUntimedCaptionWordTiming(caption); if (after !== caption) onChange(caption, after); }}>Set words manually</button>
+      <button disabled={locked} onClick={() => { const after = createUntimedCaptionWordTiming(caption); if (after !== caption && onChange(caption, after)) retainActionFocus('word'); }}>Set words manually</button>
     </div> : <>
       <div className="word-timing-chips" role="group" aria-label="Select a word to time">
-        {words.map((word, wordIndex) => <button key={word.id} aria-label={`Word ${wordIndex + 1}: ${preview.text.slice(word.startOffset, word.endOffset)}`} aria-pressed={word.id === selected?.id}
+        {words.map((word, wordIndex) => <button key={word.id} ref={word.id === selected?.id ? selectedWordButton : undefined} aria-label={`Word ${wordIndex + 1}: ${preview.text.slice(word.startOffset, word.endOffset)}`} aria-pressed={word.id === selected?.id}
           aria-description={wordsNeedingReview[wordIndex] ? 'Needs review' : undefined}
           className={`${word.id === selected?.id ? 'selected' : ''} ${wordsNeedingReview[wordIndex] ? 'word-needs-review' : ''}`}
           onClick={() => { onStopPreview(); onSelectWord(word.id); setMessage(''); }}>

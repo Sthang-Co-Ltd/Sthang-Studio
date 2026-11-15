@@ -23,6 +23,11 @@ export function GenerationOptions({ value = 'automatic', disabled, saving, expan
       <label htmlFor={id}>Caption model</label>
       <select id={id} value={choice} disabled={disabled || saving || pending !== null} aria-describedby={`${id}-help ${id}-status`} onChange={(event) => {
         const next = event.target.value as CaptionGenerationModel;
+        if (document.activeElement === event.currentTarget) {
+          const summary = disclosure.current?.querySelector('summary');
+          summary?.focus({ preventScroll: true });
+          summary?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        }
         setPending(next);
         void onChange(next).finally(() => setPending(null));
       }}>

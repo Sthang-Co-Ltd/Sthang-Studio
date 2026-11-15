@@ -73,7 +73,8 @@ export function WorkspaceToolsMenu({
       if (target && !details.current?.contains(target)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && openRef.current && !document.querySelector('[aria-modal="true"]')) {
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229 && !event.getModifierState('AltGraph')
+        && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && openRef.current && !document.querySelector('[aria-modal="true"]')) {
         event.preventDefault();
         setOpen(false);
         details.current?.querySelector('summary')?.focus();
@@ -96,7 +97,8 @@ export function WorkspaceToolsMenu({
   return <details ref={details} className="workspace-tools-menu" open={presence.present} data-menu-open={open}>
     <summary aria-label="Open project tools" aria-haspopup="menu" aria-controls={menuId} aria-expanded={open}
       onKeyDown={(event) => {
-        if (!event.altKey && !event.ctrlKey && !event.metaKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229 && !event.getModifierState('AltGraph')
+          && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
           event.preventDefault(); keyboard.openAt(event.key === 'ArrowUp' ? 'last' : 'first'); setOpen(true);
         }
       }}

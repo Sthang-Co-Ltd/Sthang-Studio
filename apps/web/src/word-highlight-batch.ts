@@ -10,6 +10,8 @@ export interface WordHighlightBatchProgress {
   currentCaptionId?: string;
 }
 
+export type WordHighlightBatchPause = 'busy' | 'connection' | 'unavailable' | 'project-changed' | 'edits';
+
 export interface WordHighlightBatchResult {
   ready: CaptionWordTimingCandidate[];
   needsReview: Array<{ id: string; reason: string }>;
@@ -17,6 +19,7 @@ export interface WordHighlightBatchResult {
   total: number;
   canceled: boolean;
   interruptedByBusy?: true;
+  pauseReason?: WordHighlightBatchPause;
 }
 
 export interface WordHighlightBatchApplyResult {
@@ -31,8 +34,16 @@ function isCancellation(error: unknown, signal: AbortSignal) {
   return signal.aborted || Boolean(error && typeof error === 'object' && 'name' in error && error.name === 'AbortError');
 }
 
-function isTimingBusy(error: unknown) {
-  return Boolean(error && typeof error === 'object' && 'status' in error && error.status === 429);
+function pauseForSyncFailure(error: unknown): WordHighlightBatchPause | undefined {
+  if (error instanceof TypeError) return 'connection';
+  if (error instanceof SyntaxError) return 'unavailable';
+  if (!error || typeof error !== 'object' || !('status' in error) || typeof error.status !== 'number') return 'unavailable';
+  if (error.status === 429) return 'busy';
+  if (error.status === 409 && 'code' in error && error.code === 'WORD_TIMING_PROJECT_BUSY') return 'busy';
+  if ([404, 409, 428].includes(error.status)) return 'project-changed';
+  // Explicit per-caption input failures remain exceptions to review. Other
+  // HTTP failures do not establish that every later caption has bad timing.
+  if (error.status !== 400) return 'unavailable';
 }
 
 function readyCandidateFor(caption: CaptionSegment, candidate: CaptionWordTimingCandidate) {
@@ -60,6 +71,7 @@ export async function prepareWordHighlightBatch(options: {
   let completed = 0;
   let canceled = options.signal.aborted;
   let interruptedByBusy = false;
+  let pauseReason: WordHighlightBatchPause | undefined;
 
   const progress = (currentCaptionId?: string) => options.onProgress?.({
     completed,
@@ -97,10 +109,13 @@ export async function prepareWordHighlightBatch(options: {
     } catch (error) {
       if (isCancellation(error, options.signal)) {
         canceled = true;
+        if (options.signal.reason === 'captions-changed') pauseReason = 'edits';
         break;
       }
-      if (isTimingBusy(error)) {
-        interruptedByBusy = true;
+      const pause = pauseForSyncFailure(error);
+      if (pause) {
+        pauseReason = pause;
+        interruptedByBusy = pause === 'busy';
         break;
       }
       needsReview.push({ id: caption.id, reason: 'Word timing could not be prepared.' });
@@ -109,6 +124,7 @@ export async function prepareWordHighlightBatch(options: {
     }
   }
 
+  if (canceled && options.signal.reason === 'captions-changed') pauseReason = 'edits';
   return {
     ready,
     needsReview,
@@ -116,6 +132,7 @@ export async function prepareWordHighlightBatch(options: {
     total: work.length,
     canceled,
     ...(interruptedByBusy ? { interruptedByBusy: true as const } : {}),
+    ...(pauseReason ? { pauseReason } : {}),
   };
 }
 

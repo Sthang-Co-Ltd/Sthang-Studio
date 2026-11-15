@@ -1,6 +1,5 @@
 const TARGET_FRAME_INTERVAL_MS = 1000 / 30;
 const MIN_TIME_DELTA_SECONDS = 0.0005;
-const CAPTION_MEDIA_SELECTOR = '.media-stage > video, .media-stage > audio';
 
 type VideoFrameMetadataLike = { mediaTime: number };
 type VideoFrameCallbackLike = (now: number, metadata: VideoFrameMetadataLike) => void;
@@ -145,29 +144,23 @@ export function attachPreciseMediaTimeUpdates(
   };
 }
 
-/** Keep the frame-rate clock scoped to the single media player in the caption stage. */
-export function installCaptionMediaClock(root: ParentNode = document) {
-  const attached = new Map<HTMLMediaElement, () => void>();
-
-  const reconcile = () => {
-    const current = new Set(Array.from(root.querySelectorAll<HTMLMediaElement>(CAPTION_MEDIA_SELECTOR)));
-    for (const element of current) {
-      if (!attached.has(element)) attached.set(element, attachPreciseMediaTimeUpdates(element));
-    }
-    for (const [element, cleanup] of attached) {
-      if (current.has(element)) continue;
-      cleanup();
-      attached.delete(element);
-    }
-  };
-
-  const observer = new MutationObserver(reconcile);
-  observer.observe(root as Node, { childList: true, subtree: true });
-  reconcile();
-
-  return () => {
-    observer.disconnect();
-    for (const cleanup of attached.values()) cleanup();
-    attached.clear();
+/** Bind the unchanged clock to one component-owned player, including ref cleanup
+ * and decoder replacement. Caption text mutations never inspect the document.
+ */
+export function createMediaClockBinding(scheduler: MediaClockScheduler = browserScheduler) {
+  let current: MediaClockTarget | null = null;
+  let cleanup: (() => void) | null = null;
+  let revision = 0;
+  return (target: MediaClockTarget | null) => {
+    if (target === current) return;
+    const visit = ++revision;
+    cleanup?.(); cleanup = null;
+    current = target;
+    if (!target) return;
+    const dispose = attachPreciseMediaTimeUpdates(target, scheduler);
+    // Initial synchronization dispatches an event. If its consumer synchronously
+    // replaces/unmounts the player, never revive that retired clock afterward.
+    if (current === target && revision === visit) cleanup = dispose;
+    else dispose();
   };
 }

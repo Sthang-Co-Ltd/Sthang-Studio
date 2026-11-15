@@ -6,11 +6,30 @@ export interface CaptionTimingTransaction {
   after: CaptionSegment[];
   guards?: CaptionSegment[];
   limited?: string;
+  /** Only held pointer gestures carry this admission basis; Undo keeps its existing policy. */
+  gestureBasis?: CaptionTimingGestureBasis;
 }
 
 export interface CaptionTimingOptions {
   allowOverlap?: boolean;
   sharedBoundary?: boolean;
+}
+
+export interface CaptionNeighborLimit {
+  lower: number;
+  upper: number;
+  previous: CaptionSegment | undefined;
+  next: CaptionSegment | undefined;
+}
+
+export interface CaptionTimingGestureBasis {
+  readonly captions: readonly CaptionSegment[];
+  readonly durationMs: number;
+}
+
+/** Explicitly owned by an immutable render/gesture basis; never cache mutable callers globally. */
+export interface PreparedCaptionTiming extends CaptionTimingGestureBasis {
+  readonly limits: ReadonlyMap<string, CaptionNeighborLimit>;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -25,7 +44,7 @@ export function captionNeighborLimits(captions: readonly CaptionSegment[], id: s
 export function captionNeighborLimitMap(captions: readonly CaptionSegment[], durationMs: number) {
   const ordered = [...captions].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
   let previousEnd = 0;
-  const limits = new Map<string, { lower: number; upper: number; previous: CaptionSegment | undefined; next: CaptionSegment | undefined }>();
+  const limits = new Map<string, CaptionNeighborLimit>();
   for (let index = 0; index < ordered.length; index++) {
     const caption = ordered[index];
     const next = ordered[index + 1];
@@ -37,6 +56,59 @@ export function captionNeighborLimitMap(captions: readonly CaptionSegment[], dur
     previousEnd = Math.max(previousEnd, caption.endMs);
   }
   return limits;
+}
+
+export function prepareCaptionTiming(captions: readonly CaptionSegment[], durationMs: number): PreparedCaptionTiming {
+  return { captions, durationMs, limits: captionNeighborLimitMap(captions, durationMs) };
+}
+
+/** A pointer preview owns its collision geometry, not later saved timing.
+ * Ignore unrelated wording/approval changes and same-value save clones. Preserve
+ * array order because it decides neighbor identity for equal-time captions.
+ * This comparison grants no zero-overlap requirement to existing overlaps.
+ */
+export function captionTimingBasisMatches(
+  current: readonly CaptionSegment[], basis: readonly CaptionSegment[], owners: readonly CaptionSegment[],
+): boolean {
+  if (current !== basis && (current.length !== basis.length || current.some((caption, index) => {
+    const before = basis[index];
+    return caption.id !== before.id || caption.startMs !== before.startMs || caption.endMs !== before.endMs
+      || Boolean(caption.timingLocked) !== Boolean(before.timingLocked);
+  }))) return false;
+  return owners.every((owner) => sameTimingRevision(current.find((caption) => caption.id === owner.id), owner));
+}
+
+/** Match each old [...outsiders, target] query, sorting outsiders only once.
+ * Equal-time outsiders precede the appended target, including exact interval ties.
+ * Prefix maxima retain the protection from an earlier enclosing caption.
+ */
+export function limitCaptionSelectionDelta(
+  captions: readonly CaptionSegment[], selectedIds: ReadonlySet<string>, delta: number, durationMs: number,
+): number {
+  const targets = captions.filter((caption) => selectedIds.has(caption.id));
+  if (!targets.length) return 0;
+  const outsiders = captions.filter((caption) => !selectedIds.has(caption.id))
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  const previousEnds = [0];
+  for (const caption of outsiders) previousEnds.push(Math.max(previousEnds[previousEnds.length - 1], caption.endMs));
+  let lower = -Math.min(...targets.map((caption) => caption.startMs));
+  let upper = durationMs - Math.max(...targets.map((caption) => caption.endMs));
+  for (const caption of targets) {
+    let low = 0;
+    let high = outsiders.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      const other = outsiders[middle];
+      const order = other.startMs - caption.startMs || other.endMs - caption.endMs;
+      if (order <= 0) low = middle + 1;
+      else high = middle;
+    }
+    const minimum = Math.max(0, Math.min(caption.startMs, previousEnds[low]));
+    const maximum = Math.min(durationMs, Math.max(caption.endMs, outsiders[low]?.startMs ?? durationMs));
+    lower = Math.max(lower, minimum - caption.startMs);
+    upper = Math.min(upper, maximum - caption.endMs);
+  }
+  return Math.max(lower, Math.min(delta, upper));
 }
 
 function overlap(a: CaptionSegment, b: CaptionSegment) {
@@ -59,12 +131,15 @@ export function planCaptionTimingEdit(
   value: number,
   durationMs: number,
   options: CaptionTimingOptions = {},
+  prepared?: PreparedCaptionTiming,
 ): CaptionTimingTransaction {
   const caption = captions.find((item) => item.id === id);
   const empty = (limited?: string): CaptionTimingTransaction => ({ before: [], after: [], limited });
   if (!caption || !Number.isFinite(value) || !Number.isFinite(durationMs) || durationMs < MIN_CAPTION_MS) return empty();
   if (caption.timingLocked) return empty('Unlock this caption’s timing before changing it.');
-  const limits = captionNeighborLimits(captions, id, durationMs);
+  const limits = prepared?.captions === captions && prepared.durationMs === durationMs
+    ? prepared.limits.get(id) || { lower: 0, upper: durationMs, previous: undefined, next: undefined }
+    : captionNeighborLimits(captions, id, durationMs);
   if (options.sharedBoundary && kind !== 'move') {
     const neighbour = kind === 'start' ? limits.previous : limits.next;
     if (!neighbour) return empty(`There is no ${kind === 'start' ? 'previous' : 'next'} caption to share this edge.`);

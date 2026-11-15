@@ -67,6 +67,28 @@ Archive entry/total limits, available disk space and final file preparation are
 still enforced during export; caption checks are not a guarantee that a file
 can be written on this PC.
 
+## Current development behavior (source-only)
+
+The current source retains exact layout findings through repair-tool round trips.
+Unchanged input can reuse its matching result. Editing any checked input marks
+the old findings as advisory until an explicit recheck; a partial or stale result
+never certifies the draft.
+
+Long drafts can be inspected in bounded native batches. The existing single
+document path remains in use for up to 200,000 text characters. Larger requests
+can use at most eight documents, each within that character limit, with a total
+limit of 1,600,000 characters. Complete connected overlap groups on the native
+10 ms clock stay together, preserving original cue order, IDs, word evidence,
+motion and decoration. The final ASS/video render still uses the full snapshot.
+
+The larger path retains finite limits: 10,000 captions, 4,096 characters per cue,
+the simultaneous-text guard, an aggregate 8,192 measured paint states and one
+120-second deadline. Native canvas/font limits also apply. Caption count alone
+does not establish that a project can be checked. An indivisible group, excessive
+work, incomplete output or cancellation fails safely; no completed subset is
+reported as a whole-project fit. These source changes do not establish availability
+in a released package or add a hosted data transfer.
+
 ## Source evidence
 
 - `apps/web/src/export-checks.ts` reuses QA and word-readiness rules.
@@ -77,6 +99,8 @@ can be written on this PC.
   bounded local checks without mutating a project or creating an export job.
 - `apps/server/src/services/caption-overflow.ts` retains the native measurement
   authority and adds caption attribution to rejected native states.
+- `apps/server/src/services/caption-overflow-batches.ts` plans bounded documents
+  without splitting connected overlap groups.
 
 See [validation](EXPORT-CAPTION-REPAIR-VALIDATION.md) for checks and the reproduced
 baseline font limitation, and [public-impact intake](EXPORT-CAPTION-REPAIR-PUBLIC-IMPACT.md)

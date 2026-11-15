@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
-import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
+import { DEFAULT_CAPTION_APPEARANCE, PRIVACY_UPGRADE_NOTICE_VERSION, isProfileImport, normalizeCaptionAppearance, normalizeVideoExportSettings } from '@kcs/shared';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -504,6 +504,7 @@ export const profileStore = {
   },
 
   async replace(value: unknown): Promise<AppProfile> {
+    if (!isProfileImport(value)) throw new Error('This file is not a readable Studio profile. Choose a JSON file created by Export profile.');
     const raw = structuredClone(value);
     return queueProfileMutation((current) => {
       const imported = normalizeProfile(raw);

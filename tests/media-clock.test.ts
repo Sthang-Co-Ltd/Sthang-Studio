@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   attachPreciseMediaTimeUpdates,
+  createMediaClockBinding,
   type MediaClockScheduler,
   type MediaClockTarget,
-} from '../apps/web/src/media-clock.ts';
+} from '../apps/web/src/media-clock.js';
 
 class FakeScheduler implements MediaClockScheduler {
   currentNow = 0;
@@ -186,4 +187,120 @@ test('a detached media element stops scheduling updates', () => {
   assert.deepEqual(updates, []);
   assert.equal(scheduler.pending, 0);
   cleanup();
+});
+
+test('component-owned clock binding is idempotent for the same player and releases it on null', () => {
+  const scheduler = new FakeScheduler();
+  const media = new FakeMedia();
+  media.paused = false;
+  const updates = collectUpdates(media);
+  const bind = createMediaClockBinding(scheduler);
+
+  bind(media);
+  assert.deepEqual(updates, [0]);
+  assert.equal(scheduler.pending, 1);
+
+  // React may render many times without changing the actual media element.
+  bind(media);
+  assert.deepEqual(updates, [0], 'the same ref must not install a second clock');
+  assert.equal(scheduler.pending, 1);
+  media.currentTime = 0.04;
+  scheduler.runFrame(40);
+  assert.deepEqual(updates, [0, 0.04]);
+
+  bind(null);
+  assert.equal(scheduler.pending, 0);
+  media.currentTime = 0.08;
+  media.emit('play');
+  scheduler.runFrame(80);
+  assert.deepEqual(updates, [0, 0.04], 'an unmounted player cannot publish another clock update');
+
+  bind(media);
+  assert.deepEqual(updates, [0, 0.04, 0.08], 'reattachment creates one fresh clock');
+  assert.equal(scheduler.pending, 1);
+  bind(null);
+  assert.equal(scheduler.pending, 0);
+});
+
+test('decoder replacement cancels video callbacks and ignores events on the retired player', () => {
+  const scheduler = new FakeScheduler();
+  const first = new FakeVideoMedia();
+  const second = new FakeVideoMedia();
+  first.paused = false;
+  second.paused = false;
+  const firstUpdates = collectUpdates(first);
+  const secondUpdates = collectUpdates(second);
+  const bind = createMediaClockBinding(scheduler);
+
+  bind(first);
+  assert.deepEqual(firstUpdates, [0]);
+  assert.equal(first.pendingVideoFrames, 1);
+
+  bind(second);
+  assert.equal(first.pendingVideoFrames, 0);
+  assert.deepEqual(secondUpdates, [0]);
+  assert.equal(second.pendingVideoFrames, 1);
+  first.currentTime = 0.05;
+  first.emit('play');
+  first.runVideoFrame(50, 0.05);
+  assert.deepEqual(firstUpdates, [0], 'old decoder events cannot reach the new editor');
+
+  second.currentTime = 0.05;
+  second.runVideoFrame(50, 0.05);
+  assert.deepEqual(secondUpdates, [0, 0.05]);
+  bind(null);
+  assert.equal(second.pendingVideoFrames, 0);
+  second.emit('play');
+  assert.deepEqual(secondUpdates, [0, 0.05]);
+});
+
+test('a replacement during the initial synchronous timeupdate cannot revive the old clock', () => {
+  const scheduler = new FakeScheduler();
+  const first = new FakeMedia();
+  const second = new FakeMedia();
+  first.paused = false;
+  second.paused = false;
+  const firstUpdates = collectUpdates(first);
+  const secondUpdates = collectUpdates(second);
+  const bind = createMediaClockBinding(scheduler);
+  let replaced = false;
+  first.addEventListener('timeupdate', () => {
+    if (replaced) return;
+    replaced = true;
+    bind(second);
+  });
+
+  bind(first);
+  assert.deepEqual(firstUpdates, [0]);
+  assert.deepEqual(secondUpdates, [0]);
+  assert.equal(scheduler.pending, 1, 'only the new clock keeps its animation frame');
+  first.currentTime = 0.04;
+  second.currentTime = 0.04;
+  scheduler.runFrame(40);
+  assert.deepEqual(firstUpdates, [0]);
+  assert.deepEqual(secondUpdates, [0, 0.04]);
+  bind(null);
+  assert.equal(scheduler.pending, 0);
+});
+
+test('an unmount during initial timeupdate leaves no queued frame or live listener', () => {
+  const scheduler = new FakeScheduler();
+  const media = new FakeMedia();
+  media.paused = false;
+  const updates = collectUpdates(media);
+  const bind = createMediaClockBinding(scheduler);
+  let unmounted = false;
+  media.addEventListener('timeupdate', () => {
+    if (unmounted) return;
+    unmounted = true;
+    bind(null);
+  });
+
+  bind(media);
+  assert.deepEqual(updates, [0]);
+  assert.equal(scheduler.pending, 0);
+  media.currentTime = 0.05;
+  media.emit('play');
+  scheduler.runFrame(50);
+  assert.deepEqual(updates, [0]);
 });

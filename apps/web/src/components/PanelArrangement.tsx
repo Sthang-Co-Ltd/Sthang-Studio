@@ -49,7 +49,9 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
   useEffect(() => { setAnnouncement(''); }, [order, open]);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && drag.current) { event.preventDefault(); event.stopPropagation(); finishRef.current(false); }
+      if (event.key !== 'Escape' || !drag.current || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
+        || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault(); event.stopPropagation(); finishRef.current(false);
     };
     window.addEventListener('keydown', escape, true);
     const blur = () => finishRef.current(false); window.addEventListener('blur', blur);
@@ -107,7 +109,8 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
         {panes.map((pane, index) => <div key={pane} className={`editor-arrange-panel ${ghost?.pane === pane ? 'is-lifted' : ''} ${target === pane ? 'is-drop-target' : ''}`} data-panel={pane}>
           <button type="button" className="editor-panel-grip" ref={(element) => { if (element) handles.current[pane] = element; else delete handles.current[pane]; }}
             aria-label={`Drag ${PANE_LABELS[pane]} panel to reorder`} aria-describedby={`${id}-help`} onKeyDown={(event) => {
-              if (drag.current || event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              if (drag.current || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
+                || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || document.querySelector('[aria-modal="true"]') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault(); event.stopPropagation();
               change(moveEditorPane(order, open, pane, event.key === 'Home' ? 0 : event.key === 'End' ? panes.length - 1 : index + (event.key === 'ArrowLeft' ? -1 : 1)), pane);
             }} onPointerDown={(event) => {

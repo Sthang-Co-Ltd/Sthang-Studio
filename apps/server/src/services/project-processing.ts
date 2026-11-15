@@ -98,6 +98,37 @@ function currentCacheInfo(project: CaptionProject, normalized: Awaited<ReturnTyp
   };
 }
 
+/** Publish generation-owned fields without reverting newer saved project choices. */
+export async function commitTranscriptionResult(
+  generated: CaptionProject,
+  expectedMedia: ExpectedMedia,
+  initialContext: CaptionProject['transcriptionContext'],
+) {
+  return store.withProjectWrite(generated.id, async (current, persist) => {
+    if (!current) throw new Error('Project not found');
+    if (!matchesMedia(current, expectedMedia)) {
+      throw new StaleProjectMediaError('The media changed while caption generation was running. The older result was not applied.');
+    }
+    if (current.captions.length || current.transcript) {
+      await historyStore.checkpoint(current, 'Before full regeneration', 'regeneration');
+    }
+    // A job may use a different request context. It can publish that context only
+    // while the saved form still matches its exact starting value, including an
+    // explicit empty description/glossary saved while generation was running.
+    const contextUnchanged = JSON.stringify(current.transcriptionContext) === JSON.stringify(initialContext);
+    return persist({
+      ...current,
+      ...(contextUnchanged ? { transcriptionContext: generated.transcriptionContext } : {}),
+      transcript: generated.transcript,
+      captions: generated.captions,
+      pipelineCache: generated.pipelineCache,
+      engineVersion: generated.engineVersion,
+      transcriptNeedsSync: generated.transcriptNeedsSync,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+}
+
 export async function transcribeProject(
   projectId: string,
   contextValue: unknown,
@@ -107,6 +138,7 @@ export async function transcribeProject(
   const project = await store.get(projectId);
   if (!project) throw new Error('Project not found');
   const expectedMedia = { filename: project.media.filename, size: project.media.size };
+  const initialContext = structuredClone(project.transcriptionContext);
   const previousCaptions = structuredClone(project.captions);
 
   await progress('audio', 8, 'Preparing normalized audio…');
@@ -194,16 +226,7 @@ export async function transcribeProject(
   project.engineVersion = '0.7.10';
   project.transcriptNeedsSync = false;
   project.updatedAt = new Date().toISOString();
-  const saved = await store.withProjectWrite(projectId, async (current, persist) => {
-    if (!current) throw new Error('Project not found');
-    if (!matchesMedia(current, expectedMedia)) {
-      throw new StaleProjectMediaError('The media changed while caption generation was running. The older result was not applied.');
-    }
-    if (current.captions.length || current.transcript) {
-      await historyStore.checkpoint(current, 'Before full regeneration', 'regeneration');
-    }
-    return persist({ ...project, generationModel: current.generationModel, media: current.media, createdAt: current.createdAt });
-  });
+  const saved = await commitTranscriptionResult(project, expectedMedia, initialContext);
   await progress('complete', 100, 'Captions are ready for review.');
   return saved;
 }

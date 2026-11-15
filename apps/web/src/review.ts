@@ -88,6 +88,31 @@ const hasLatin = (value: string) => /[A-Za-z]/.test(value);
 let graphemes: Intl.Segmenter | undefined;
 const graphemeLength = (value: string) => [...(graphemes ??= new Intl.Segmenter('km', { granularity: 'grapheme' })).segment(value)].length;
 
+interface CaptionTextMetrics {
+  text: string;
+  compactLength: number;
+  longestLine: number;
+  lineCount: number;
+}
+// Repeated local edits retain the other caption objects. Cache only their text
+// measurements, never QA decisions; timing, metadata and neighbors remain fresh.
+// Weak ownership releases private text with its caption, and the text comparison
+// also protects callers that deliberately mutate an existing object in place.
+const captionTextMetrics = new WeakMap<CaptionSegment, CaptionTextMetrics>();
+function textMetrics(caption: CaptionSegment): CaptionTextMetrics {
+  const known = captionTextMetrics.get(caption);
+  if (known?.text === caption.text) return known;
+  const lines = caption.text.split(/\r?\n/);
+  const metrics = {
+    text: caption.text,
+    compactLength: graphemeLength(caption.text.trim().replace(/\s+/g, '')),
+    longestLine: Math.max(0, ...lines.map((line) => graphemeLength(line))),
+    lineCount: lines.length,
+  };
+  captionTextMetrics.set(caption, metrics);
+  return metrics;
+}
+
 function vocabularyAliases(lines: string[]) {
   return lines.flatMap((line) => {
     const parts = line.split('|').map((x) => x.trim()).filter(Boolean);
@@ -122,9 +147,9 @@ export function analyzeCaptions(
     const text = caption.text.trim();
     const durationMs = caption.endMs - caption.startMs;
     const durationSeconds = Math.max(0.05, durationMs / 1000);
-    const cps = graphemeLength(text.replace(/\s+/g, '')) / durationSeconds;
-    const lines = caption.text.split(/\r?\n/);
-    const longestLine = Math.max(0, ...lines.map((line) => graphemeLength(line)));
+    const metrics = textMetrics(caption);
+    const cps = metrics.compactLength / durationSeconds;
+    const longestLine = metrics.longestLine;
 
     if (!text) addReason(issues, caption.id, 'error', 'Empty caption');
     if (caption.timingQuality === 'low' || caption.timingSource === 'interpolated') {
@@ -136,7 +161,7 @@ export function analyzeCaptions(
     if (durationMs > settings.maxDurationMs) addReason(issues, caption.id, 'warning', `Longer than ${(settings.maxDurationMs / 1000).toFixed(1)} seconds`);
     if (cps > settings.maxCps) addReason(issues, caption.id, 'warning', `Fast reading speed (${Math.round(cps)} chars/s; target ≤ ${settings.maxCps})`);
     if (longestLine > settings.maxCharsPerLine) addReason(issues, caption.id, 'warning', `Line is ${longestLine} characters; target ≤ ${settings.maxCharsPerLine}`);
-    if (lines.length > settings.maxLines) addReason(issues, caption.id, 'warning', `${lines.length} lines; target ≤ ${settings.maxLines}`);
+    if (metrics.lineCount > settings.maxLines) addReason(issues, caption.id, 'warning', `${metrics.lineCount} lines; target ≤ ${settings.maxLines}`);
     if (hasKhmer(text) && hasLatin(text) && !caption.approved) addReason(issues, caption.id, 'info', 'Khmer + English entity check');
     if (!caption.approved && /\b(?:GPT|AI|API|LLM|[A-Z]{2,}|[A-Za-z]+[- ]?\d|\d+(?:\.\d+)+)\b/.test(text)) {
       addReason(issues, caption.id, 'info', 'Name, acronym or version number');

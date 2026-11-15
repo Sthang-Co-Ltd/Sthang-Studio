@@ -22,6 +22,7 @@ const { profileStore } = await import('../apps/server/src/services/profile-store
 const { jobStore } = await import('../apps/server/src/services/job-store.js');
 const { jobAdmission, JobAdmissionError } = await import('../apps/server/src/services/job-admission.js');
 const { fontCapabilities } = await import('../apps/server/src/services/caption-renderer.js');
+const { exportFingerprint } = await import('../apps/server/src/services/export-evidence.js');
 const { cancelScheduledProjectPrewarm } = await import('../apps/server/src/services/prewarm.js');
 const { default: videoExportRouter } = await import('../apps/server/src/routes/video-export.js');
 
@@ -66,11 +67,15 @@ async function project(id: string): Promise<CaptionProject> {
   return (await store.get(id))!;
 }
 
-function post(id: string, exportSettings: VideoExportSettings, expectedMedia?: CaptionProject['media'], exportAppearance = appearance) {
+async function post(id: string, exportSettings: VideoExportSettings, expectedMedia?: CaptionProject['media'], exportAppearance = appearance, reviewedFingerprint?: string | null) {
+  const saved = await store.get(id);
+  const expectedContentFingerprint = reviewedFingerprint === null ? undefined : reviewedFingerprint
+    ?? (saved ? exportFingerprint({ ...saved, captionAppearance: exportAppearance }, 'video') : undefined);
   return fetch(`${baseUrl}/${id}/jobs`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       settings: exportSettings, appearance: exportAppearance,
+      expectedContentFingerprint,
       ...(expectedMedia ? { expectedMedia: { filename: expectedMedia.filename, size: expectedMedia.size } } : {}),
     }),
   });
@@ -119,15 +124,15 @@ test('overlapping HTTP exports create one job, reject the duplicate and retain n
   const duplicateEntered = deferred();
   const releaseFirst = deferred();
   const releaseDuplicate = deferred();
-  const originalSave = store.setCaptionAppearance;
-  let appearanceSaves = 0;
-  const appearanceSave = t.mock.method(store, 'setCaptionAppearance', async (...args: Parameters<typeof store.setCaptionAppearance>) => {
-    if (args[0] === firstProject.id) {
-      const order = ++appearanceSaves;
+  const originalCreate = jobStore.createWithDisposition;
+  let admissions = 0;
+  const admission = t.mock.method(jobStore, 'createWithDisposition', async (...args: Parameters<typeof jobStore.createWithDisposition>) => {
+    if (args[1] === firstProject.id) {
+      const order = ++admissions;
       if (order === 1) { firstEntered.resolve(); await releaseFirst.promise; }
       if (order === 2) { duplicateEntered.resolve(); await releaseDuplicate.promise; }
     }
-    return originalSave(...args);
+    return originalCreate.apply(jobStore, args);
   });
   const originalProfileSave = profileStore.setLastVideoExportSettings;
   const persistedSettings: unknown[] = [];
@@ -138,14 +143,13 @@ test('overlapping HTTP exports create one job, reject the duplicate and retain n
   const originalSettings = settings('recommended');
   const rejectedSettings = settings('smaller');
   const newerSettings = settings('high');
-  const rejectedAppearance = { ...appearance, textColor: '#EA384F' };
   let firstRequest: Promise<Response> | undefined;
   let duplicateRequest: Promise<Response> | undefined;
   const queuedIds = new Set<string>();
   try {
     firstRequest = post(firstProject.id, originalSettings, firstProject.media);
     await firstEntered.promise;
-    duplicateRequest = post(firstProject.id, rejectedSettings, firstProject.media, rejectedAppearance);
+    duplicateRequest = post(firstProject.id, rejectedSettings, firstProject.media);
     await duplicateEntered.promise; // Both already passed the route's initial jobStore.list.
 
     releaseFirst.resolve();
@@ -179,16 +183,17 @@ test('overlapping HTTP exports create one job, reject the duplicate and retain n
     const stored = diskJobs.find((job) => job.id === originalJob.id);
     assert.ok(stored);
     assert.deepEqual(stored.payload.exportSettings, originalSettings, 'accepted job payload is immutable');
-    assert.deepEqual(stored.payload.exportAppearance, appearance, 'rejected concurrent styling cannot alter the accepted job snapshot');
+    assert.deepEqual(stored.payload.exportAppearance, appearance, 'the accepted job keeps the reviewed saved appearance');
     assert.equal(stored.payload.exportCaptions?.length, 1);
-    assert.equal(appearanceSaves, 2, 'both requests crossed the previously vulnerable asynchronous window');
+    assert.equal(admissions, 2, 'both requests crossed the asynchronous preparation window before durable admission');
+    assert.deepEqual(await store.get(firstProject.id), firstProject, 'export preparation and duplicate rejection never rewrite project appearance or its revision');
     assert.equal((await jobStore.create('export-video', firstProject.id, {})).id, originalJob.id,
       'existing jobStore.create callers still receive their original duplicate job');
   } finally {
     releaseFirst.resolve();
     releaseDuplicate.resolve();
     await Promise.allSettled([firstRequest, duplicateRequest].filter((value): value is Promise<Response> => Boolean(value)));
-    appearanceSave.mock.restore();
+    admission.mock.restore();
     profileSave.mock.restore();
     for (const id of queuedIds) await jobStore.cancel(id).catch(() => {});
     await lane.stop();
@@ -230,4 +235,168 @@ test('rejected or cancelled export requests do not save settings; accepted job s
     if (acceptedJob) await jobStore.cancel(acceptedJob.id).catch(() => {});
     await lane.stop();
   }
+});
+
+test('delayed export preparation cannot overwrite a newer saved look or create an unreviewed export', { timeout: 60_000 }, async (t) => {
+  const candidate = await project('newer-appearance-during-export');
+  const entered = deferred(); const release = deferred();
+  const original = store.withProjectWrite;
+  const transaction = t.mock.method(store, 'withProjectWrite', async (...args: Parameters<typeof store.withProjectWrite>) => {
+    if (args[0] === candidate.id) { entered.resolve(); await release.promise; }
+    return original(...args);
+  });
+  const beforeProfile = await profileStore.get();
+  const pending = post(candidate.id, settings('high'), candidate.media);
+  try {
+    await entered.promise;
+    const newerLook = { ...appearance, textColor: '#EA384F', fontSize1080: 95 };
+    const newer = await store.setCaptionAppearance(candidate.id, newerLook);
+    assert.ok(newer);
+    const projectFile = path.join(path.dirname(config.dataFile), 'projects', `${candidate.id}.json`);
+    const bytes = await fs.readFile(projectFile, 'utf8');
+    release.resolve();
+    const response = await pending;
+    assert.equal(response.status, 409, await response.clone().text());
+    assert.equal((await response.json()).code, 'APPEARANCE_REVISION_CHANGED');
+    assert.deepEqual(await store.get(candidate.id), newer);
+    assert.equal(await fs.readFile(projectFile, 'utf8'), bytes);
+    assert.deepEqual(await jobStore.list(candidate.id), []);
+    assert.deepEqual((await profileStore.get()).lastVideoExportSettings, beforeProfile.lastVideoExportSettings);
+  } finally {
+    release.resolve();
+    await pending;
+    transaction.mock.restore();
+  }
+});
+
+test('video admission requires reviewed content and rejects stale captions without changing jobs or profile', { timeout: 60_000 }, async () => {
+  const candidate = await project('stale-reviewed-captions');
+  const beforeProfile = await profileStore.get();
+  const reviewed = exportFingerprint(candidate, 'video');
+  const missing = await post(candidate.id, settings('high'), candidate.media, appearance, null);
+  assert.equal(missing.status, 428);
+  assert.equal((await missing.json()).code, 'VIDEO_CONTENT_BASIS_REQUIRED');
+  const updated = { ...candidate, captions: candidate.captions.map((cue) => ({ ...cue, text: 'Saved in the other tab', startMs: 150 })) };
+  const savedUpdated = await store.upsert(updated);
+  cancelScheduledProjectPrewarm(candidate.id);
+  const stale = await post(candidate.id, settings('high'), candidate.media, appearance, reviewed);
+  assert.equal(stale.status, 409, await stale.clone().text());
+  assert.equal((await stale.json()).code, 'VIDEO_CONTENT_REVISION_CHANGED');
+  assert.deepEqual(await jobStore.list(candidate.id), []);
+  assert.deepEqual(await store.get(candidate.id), savedUpdated);
+  assert.deepEqual((await profileStore.get()).lastVideoExportSettings, beforeProfile.lastVideoExportSettings);
+});
+
+test('reviewed caption content is compared inside the final export snapshot transaction', { timeout: 60_000 }, async (t) => {
+  const candidate = await project('captions-during-export-probe');
+  const entered = deferred(); const release = deferred();
+  const original = store.withProjectWrite;
+  const transaction = t.mock.method(store, 'withProjectWrite', async (...args: Parameters<typeof store.withProjectWrite>) => {
+    if (args[0] === candidate.id) { entered.resolve(); await release.promise; }
+    return original(...args);
+  });
+  const beforeProfile = await profileStore.get();
+  const pending = post(candidate.id, settings('high'), candidate.media);
+  try {
+    await entered.promise;
+    const newer = { ...candidate, captions: candidate.captions.map((cue) => ({ ...cue, endMs: 900 })) };
+    const savedNewer = await store.upsert(newer);
+    cancelScheduledProjectPrewarm(candidate.id);
+    release.resolve();
+    const response = await pending;
+    assert.equal(response.status, 409, await response.clone().text());
+    assert.equal((await response.json()).code, 'VIDEO_CONTENT_REVISION_CHANGED');
+    assert.deepEqual(await store.get(candidate.id), savedNewer);
+    assert.deepEqual(await jobStore.list(candidate.id), []);
+    assert.deepEqual((await profileStore.get()).lastVideoExportSettings, beforeProfile.lastVideoExportSettings);
+  } finally { release.resolve(); await pending; transaction.mock.restore(); }
+});
+
+test('unrelated project metadata and review flags do not invalidate reviewed video content', { timeout: 60_000 }, async (t) => {
+  const lane = await holdExportLane(t, 'metadata-export-lane');
+  const candidate = await project('video-metadata-only-change');
+  const reviewed = exportFingerprint(candidate, 'video');
+  let accepted: ProcessingJob | undefined;
+  try {
+    const changed = { ...candidate, title: 'A newer project name', updatedAt: new Date().toISOString(),
+      captions: candidate.captions.map((cue) => ({ ...cue, approved: false, textLocked: true })) };
+    await store.upsert(changed); cancelScheduledProjectPrewarm(candidate.id);
+    const response = await post(candidate.id, settings('recommended'), candidate.media, appearance, reviewed);
+    assert.equal(response.status, 202, await response.clone().text());
+    accepted = await response.json() as ProcessingJob;
+    assert.equal(accepted.status, 'queued');
+    assert.equal(accepted.projectTitle, changed.title);
+  } finally {
+    if (accepted) await jobStore.cancel(accepted.id);
+    await lane.stop();
+  }
+});
+
+test('completed video keeps its verified result when saving Activity completion fails', { timeout: 60_000 }, async (t) => {
+  const candidate = await project('completed-result-write-failure');
+  const originalRename = fs.rename;
+  let completionWrites = 0;
+  const fault = t.mock.method(fs, 'rename', async (...args: Parameters<typeof fs.rename>) => {
+    if (String(args[1]) === config.jobsFile) {
+      const snapshot = JSON.parse(await fs.readFile(args[0], 'utf8'));
+      if (snapshot.some((job: ProcessingJob) => job.projectId === candidate.id && job.status === 'completed')) {
+        completionWrites++;
+        throw new Error('Synthetic completion storage failure');
+      }
+    }
+    return originalRename(...args);
+  });
+  try {
+    const accepted = await jobStore.createWithDisposition('export-video', candidate.id, {
+      exportSettings: settings('recommended'), exportAppearance: appearance, exportCaptions: candidate.captions,
+      exportMediaFilename: candidate.media.filename, exportMediaSize: candidate.media.size,
+    });
+    const deadline = Date.now() + 45_000;
+    while (jobStore.hasAnyActive() && Date.now() < deadline) await new Promise<void>((done) => setTimeout(done, 20));
+    assert.equal(jobStore.hasAnyActive(), false);
+    const completed = (await jobStore.get(accepted.job.id))!;
+    assert.equal(completionWrites, 1);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.canResume, false);
+    assert.match(completed.message, /Activity could not save this completion/);
+    assert.ok(completed.resultExport);
+    assert.equal((await fs.stat(path.join(config.exportDir, completed.resultExport.filename))).size, completed.resultExport.sizeBytes);
+    const durable = JSON.parse(await fs.readFile(config.jobsFile, 'utf8')).find((job: ProcessingJob) => job.id === accepted.job.id);
+    assert.equal(durable.status, 'running');
+    assert.equal(durable.payload.exportPublication.jobId, accepted.job.id);
+    assert.deepEqual(durable.payload.exportPublication.result, completed.resultExport);
+    await assert.rejects(jobStore.resume(accepted.job.id), /Only failed or interrupted/);
+  } finally { fault.mock.restore(); }
+});
+
+test('failed durable publication intent never publishes the verified video', { timeout: 60_000 }, async (t) => {
+  const candidate = await project('publication-intent-write-failure');
+  const filesBefore = await fs.readdir(config.exportDir).catch(() => [] as string[]);
+  const originalRename = fs.rename;
+  let intentWrites = 0;
+  const fault = t.mock.method(fs, 'rename', async (...args: Parameters<typeof fs.rename>) => {
+    if (String(args[1]) === config.jobsFile) {
+      const snapshot = JSON.parse(await fs.readFile(args[0], 'utf8'));
+      if (snapshot.some((job: any) => job.projectId === candidate.id && job.payload.exportPublication)) {
+        intentWrites++;
+        throw new Error('Synthetic publication intent storage failure');
+      }
+    }
+    return originalRename(...args);
+  });
+  try {
+    const accepted = await jobStore.createWithDisposition('export-video', candidate.id, {
+      exportSettings: settings('recommended'), exportAppearance: appearance, exportCaptions: candidate.captions,
+      exportMediaFilename: candidate.media.filename, exportMediaSize: candidate.media.size,
+    });
+    const deadline = Date.now() + 45_000;
+    while (jobStore.hasAnyActive() && Date.now() < deadline) await new Promise<void>((done) => setTimeout(done, 20));
+    assert.equal(jobStore.hasAnyActive(), false);
+    const failed = (await jobStore.get(accepted.job.id))!;
+    assert.equal(intentWrites, 1);
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.resultExport, undefined);
+    assert.equal(failed.canResume, true);
+    assert.deepEqual((await fs.readdir(config.exportDir)).filter((name) => name !== '.working'), filesBefore.filter((name) => name !== '.working'));
+  } finally { fault.mock.restore(); }
 });

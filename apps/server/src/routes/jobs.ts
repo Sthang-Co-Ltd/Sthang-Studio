@@ -1,6 +1,6 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { jobAdmission, JobAdmissionError } from '../services/job-admission.js';
-import { jobStore } from '../services/job-store.js';
+import { jobStore, JobHistoryUnavailableError, JobPersistenceError } from '../services/job-store.js';
 import { store } from '../services/store.js';
 import { isCaptionGenerationModel } from '../services/generation-settings.js';
 
@@ -26,7 +26,12 @@ async function createForMedia(type: Parameters<typeof jobStore.create>[0], proje
   });
 }
 function jobErrorStatus(error: unknown) {
-  return error instanceof JobAdmissionError ? 409 : error instanceof JobMediaPreconditionError ? error.httpStatus : 400;
+  return error instanceof JobHistoryUnavailableError || error instanceof JobPersistenceError ? 503
+    : error instanceof JobAdmissionError ? 409 : error instanceof JobMediaPreconditionError ? error.httpStatus : 400;
+}
+
+function unavailableHistory(res: Response, error: JobHistoryUnavailableError) {
+  return res.status(503).json({ error: error.message, code: 'JOB_HISTORY_UNAVAILABLE' });
 }
 
 function requestedGenerationModel(value: unknown) {
@@ -36,10 +41,17 @@ function requestedGenerationModel(value: unknown) {
 }
 
 router.get('/', async (req, res) => {
-  res.json(await jobStore.list(typeof req.query.projectId === 'string' ? req.query.projectId : undefined));
+  try { res.json(await jobStore.list(typeof req.query.projectId === 'string' ? req.query.projectId : undefined)); }
+  catch (error) {
+    if (error instanceof JobHistoryUnavailableError) return unavailableHistory(res, error);
+    throw error;
+  }
 });
 
 router.get('/events', (req, res) => {
+  // Do not establish an apparently healthy empty SSE cache after a failed load.
+  // The ordinary GET/Retry path can reload a repaired history before reconnect.
+  if (!jobStore.historyIsAvailable()) return unavailableHistory(res, new JobHistoryUnavailableError());
   res.status(200);
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -67,9 +79,14 @@ router.get('/events', (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
+  try {
   const job = await jobStore.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
   res.json(job);
+  } catch (error) {
+    if (error instanceof JobHistoryUnavailableError) return unavailableHistory(res, error);
+    throw error;
+  }
 });
 
 router.post('/transcribe', async (req, res) => {

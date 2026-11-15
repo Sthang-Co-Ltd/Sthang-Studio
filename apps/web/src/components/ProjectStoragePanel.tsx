@@ -6,12 +6,15 @@ export function ProjectStoragePanel({ status, checking, error, onRecheck }: {
   status: ProjectStorageStatus | null; checking: boolean; error: string; onRecheck?(): void;
 }) {
   const attention = storageNeedsAttention(status);
+  const counts = status ? `${status.loadedProjectCount} loaded in this session · ${status.readableProjectCount} readable project files at last check` : '';
   return <section className="project-storage-report" aria-label="Saved project storage">
     <strong>Saved projects</strong>
-    {checking && <p role="status">Checking saved project files…</p>}
-    {error && <p>{error} Try the check again.</p>}
+    <p role="status" aria-live="polite" aria-atomic="true">{checking ? 'Checking saved project files…'
+      : error ? `Storage check unavailable. ${status ? 'Last loaded results are shown.' : 'No recovery status is available yet.'}`
+        : status ? `Storage check complete. ${counts}` : 'Storage has not been checked. No recovery status is available yet.'}</p>
+    {error && <p role="alert">{error} Try the check again.</p>}
     {status ? <>
-      <p>{status.loadedProjectCount} loaded in this session · {status.readableProjectCount} readable project files at last check</p>
+      {(checking || error) && <p>{counts}</p>}
       <ul>
         {status.unreadableProjectCount > 0 && <li>{status.unreadableProjectCount} project file{status.unreadableProjectCount === 1 ? '' : 's'} could not be read. Those files were kept.</li>}
         {status.missingProjectCount > 0 && <li>{status.missingProjectCount} indexed or previously loaded project file{status.missingProjectCount === 1 ? ' is' : 's are'} missing. Back up any work still available in this session before stopping Studio.</li>}
@@ -25,7 +28,7 @@ export function ProjectStoragePanel({ status, checking, error, onRecheck }: {
       {status.restartRequired && <p>A recheck does not reload restored projects into this session. Restart Studio after recovery.</p>}
       {!attention && !checking && !error && <p>No project read errors were found at the last check. This does not verify backups or free disk space.</p>}
       <time dateTime={status.checkedAt}>Last checked {new Date(status.checkedAt).toLocaleString()}</time>
-    </> : !checking && !error && <p>Storage has not been checked. No recovery status is available yet.</p>}
+    </> : null}
     {onRecheck && <button type="button" disabled={checking} onClick={onRecheck}>Recheck saved projects</button>}
   </section>;
 }

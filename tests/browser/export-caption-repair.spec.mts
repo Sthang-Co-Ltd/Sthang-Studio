@@ -86,7 +86,7 @@ test('word-file blockers open the selected caption in Word timing while SRT stay
   await expect(page.getByRole('button', { name: 'Download WORD SRT', exact: true })).toBeDisabled();
 });
 
-test('native overlap results identify both captions, preserve plain SRT, and clear after appearance repair', async ({ page }) => {
+test('native overlap results identify both captions, preserve plain SRT, and become stale after appearance repair', async ({ page }) => {
   let body: any;
   await page.route('**/api/video-export/*/check-layout', async (route) => { body = route.request().postDataJSON(); await route.fulfill({ json: blocked }); });
   await openExport(page);
@@ -108,7 +108,8 @@ test('native overlap results identify both captions, preserve plain SRT, and cle
   await page.getByLabel(/^Size /).fill('58');
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-  await expect(checks(page)).toContainText('Full layout has not been checked');
+  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Previous layout finding · recheck needed');
   expect(state.jobs).toHaveLength(0);
 });
 
@@ -263,7 +264,7 @@ test('ASS explains failed appearance loads and retries without blocking SRT', as
     catch (error) { if (!page.isClosed() && route.request().failure()?.errorText !== 'net::ERR_ABORTED') throw error; }
     finally { settled.resolve(); }
   };
-  await page.route('**/api/projects/landscape', handler);
+  await page.route('**/api/projects/landscape/appearance', handler);
   try {
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await assMode(page);
@@ -293,7 +294,7 @@ test('ASS explains failed appearance loads and retries without blocking SRT', as
     await expect(checks(page).getByRole('button', { name: 'Check layout', exact: true })).toBeEnabled();
   } finally {
     finish.resolve();
-    await page.unroute('**/api/projects/landscape', handler);
+    await page.unroute('**/api/projects/landscape/appearance', handler);
     await Promise.all(completed);
   }
 });
@@ -304,7 +305,7 @@ test('ASS explains failed appearance saves and recovers the exact edited look', 
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   state.appearanceFailure = true;
   await page.getByLabel(/^Size /).fill('90');
-  await expect(page.getByText('Appearance could not be saved')).toBeVisible();
+  await expect(page.locator('.appearance-save-state').getByText('Appearance could not be saved', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await assMode(page);
   const failure = checks(page).getByRole('alert');
@@ -370,7 +371,7 @@ for (const reply of ['failure', 'old appearance'] as const) {
       catch (error) { if (!page.isClosed() && route.request().failure()?.errorText !== 'net::ERR_ABORTED') throw error; }
       finally { settled.resolve(); }
     };
-    await page.route('**/api/projects/landscape', handler);
+    await page.route('**/api/projects/landscape/appearance', handler);
     try {
       await page.getByRole('button', { name: 'Export', exact: true }).click();
       await entered.promise;
@@ -394,7 +395,7 @@ for (const reply of ['failure', 'old appearance'] as const) {
       expect(checkedSize).toBe(88);
     } finally {
       finish.resolve();
-      await page.unroute('**/api/projects/landscape', handler);
+      await page.unroute('**/api/projects/landscape/appearance', handler);
       await Promise.all(completed);
     }
   });
@@ -407,7 +408,7 @@ test('ASS rejects an appearance read for changed media until the current source 
   changed.captionAppearance!.fontSize1080 = 103;
   let current = false;
   const handler = (route: Route) => route.fulfill({ json: current ? state.projects[0] : changed });
-  await page.route('**/api/projects/landscape', handler);
+  await page.route('**/api/projects/landscape/appearance', handler);
   try {
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await assMode(page);
@@ -428,5 +429,5 @@ test('ASS rejects an appearance read for changed media until the current source 
     await expect(checks(page)).toContainText('Layout fits the checked frame');
     expect(checkedSize).toBe(state.projects[0].captionAppearance!.fontSize1080);
     expect(checkedSize).not.toBe(103);
-  } finally { await page.unroute('**/api/projects/landscape', handler); }
+  } finally { await page.unroute('**/api/projects/landscape/appearance', handler); }
 });

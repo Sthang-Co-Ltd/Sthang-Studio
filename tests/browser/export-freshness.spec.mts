@@ -212,7 +212,7 @@ test('appearance reconciliation preserves unsaved caption edits and plain-format
   let entered!: () => void; let release!: () => void;
   const started = new Promise<void>((resolve) => { entered = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  await page.route('**/api/projects/landscape', async (route) => {
+  await page.route('**/api/projects/landscape/appearance', async (route) => {
     const snapshot = structuredClone(state.projects[0]);
     entered(); await gate; await route.fulfill({ json: snapshot });
   });
@@ -232,7 +232,7 @@ test('failed appearance reads stay unknown and retry compares the actual edited 
   await openProject(page); await editAppearanceSize(page, 90);
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(90);
   let fail = true;
-  await page.route('**/api/projects/landscape', (route) => route.fulfill(fail
+  await page.route('**/api/projects/landscape/appearance', (route) => route.fulfill(fail
     ? { status: 503, json: { error: 'Synthetic saved appearance unavailable' } }
     : { json: state.projects[0] }));
   await page.getByRole('button', { name: 'Export', exact: true }).click();
@@ -252,7 +252,7 @@ test('a delayed appearance response cannot supply a different project or media c
   const started = new Promise<void>((resolve) => { entered = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const complete = new Promise<void>((resolve) => { finished = resolve; });
-  await page.route('**/api/projects/landscape', async (route) => {
+  await page.route('**/api/projects/landscape/appearance', async (route) => {
     const snapshot = structuredClone(state.projects[0]);
     entered(); await gate;
     await route.fulfill({ json: snapshot }).catch(() => {}); finished();
@@ -280,7 +280,7 @@ test('a same-project response for replaced media leaves styled freshness unknown
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(90);
   const replacement = structuredClone(state.projects[0]);
   replacement.media = { ...replacement.media, filename: 'replacement.mp4', size: replacement.media.size + 1 };
-  await page.route('**/api/projects/landscape', (route) => route.fulfill({ json: replacement }));
+  await page.route('**/api/projects/landscape/appearance', (route) => route.fulfill({ json: replacement }));
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   const history = page.locator('.export-history'); await history.locator('summary').click();
   await expect(history.getByText(/Freshness unknown/)).toHaveCount(1);

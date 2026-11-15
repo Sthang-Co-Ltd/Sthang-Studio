@@ -19,6 +19,14 @@ function safeMilliseconds(seconds: number, milliseconds = 0) {
   return Number.isSafeInteger(value) ? value : null;
 }
 
+/** Normalize only unambiguous user-entered notation before strict validation. */
+export function normalizeTimestampInput(value: string): string {
+  const normalized = value.trim().replace(/[\u17e0-\u17e9]/g, (digit) => String(digit.charCodeAt(0) - 0x17e0));
+  // Commas are accepted only in complete colon-delimited timecodes, never as
+  // an ambiguous decimal/thousands separator in a bare number.
+  return normalized.replace(/^(\d+:[0-5]\d(?::[0-5]\d)?),(\d{1,3})$/, '$1.$2');
+}
+
 /** Parse an intentional timestamp edit without coercing partial or malformed text. */
 export function parseTimestamp(value: string): number | null {
   let match = HOURS_TIMESTAMP.exec(value);

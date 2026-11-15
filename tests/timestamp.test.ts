@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatTimestamp, parseTimestamp, validateTimestamp } from '../apps/web/src/timestamp';
+import { formatTimestamp, normalizeTimestampInput, parseTimestamp, validateTimestamp } from '../apps/web/src/timestamp';
 
 test('timestamp parser accepts only complete supported forms and returns integer milliseconds', () => {
   assert.equal(parseTimestamp('2:03'), 123_000);
@@ -19,6 +19,33 @@ test('timestamp parser accepts only complete supported forms and returns integer
   for (const malformed of ['', '1:', '1:2', '1:02.', '1:02.3456', '1:60', '1:2:03', '1:02:60', '1:02:03.', '1:02:03.4567', '.5', '1.2345', '-1', ' 1:02.003 ']) {
     assert.equal(parseTimestamp(malformed), null, malformed);
   }
+});
+
+test('user timestamp notation normalizes complete pasted forms without weakening the strict parser', () => {
+  const cases: Array<[string, number]> = [
+    [' 01:02.003 ', 62_003],
+    ['\u00a000:00:12,500\u00a0', 12_500],
+    ['00:12,5', 12_500],
+    ['1:02:03,456', 3_723_456],
+    ['០០:១២.៥០០', 12_500],
+    [' ០០:០០:១២,៥០០ ', 12_500],
+    ['១២.៥', 12_500],
+  ];
+  for (const [input, expected] of cases) {
+    const normalized = normalizeTimestampInput(input);
+    assert.equal(parseTimestamp(normalized), expected, input);
+    assert.equal(normalizeTimestampInput(normalized), normalized, 'normalization is idempotent');
+    assert.equal(parseTimestamp(input), null, 'the internal parser still requires canonical notation');
+  }
+});
+
+test('user timestamp normalization preserves invalid drafts and validation boundaries', () => {
+  for (const input of ['1,234', '12,5', '1:2,3', '1:60,000', '1:02,', '1:02,3456', '1:02.3,4', '1 :02', '១:៦០', '12s', '-១', '.៥', '']) {
+    assert.equal(parseTimestamp(normalizeTimestampInput(input)), null, input);
+  }
+  assert.deepEqual(validateTimestamp(normalizeTimestampInput(' ០០:០២,០០១ '), { minMs: 1000, maxMs: 2000 }), {
+    ok: false, error: 'Latest 00:02.000.',
+  });
 });
 
 test('timestamp formatter emits millisecond precision and switches to hour form at one hour', () => {

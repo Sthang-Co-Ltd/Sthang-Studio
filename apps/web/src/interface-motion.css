@@ -18,6 +18,7 @@
 :is(.header-actions>button,.workspace-tool-strip nav button,.editor-toolbar nav button,.tools-menu-section>button,.caption-action-menu>button,.modal-head button,.history-toolbar button,.job-actions button,.update-actions button,.editor-arrange-trigger):not(:disabled):not([aria-disabled=true]):active,
 .workspace-tools-menu>summary:active{translate:0 1px}
 .header-actions .save-action{min-width:93px}
+.header-actions .save-action[aria-disabled=true]{cursor:not-allowed;opacity:.46}
 .header-actions .save-action .save-action-label{min-width:37px;text-align:left}
 .header-actions .save-action .sr-only{position:absolute;width:1px;height:1px;min-width:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .header-actions .save-action .save-action-icon{position:relative;display:block;flex:none;width:16px;height:16px;min-width:16px}
