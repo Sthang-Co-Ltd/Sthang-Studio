@@ -64,6 +64,10 @@ for (const failReceipt of [false, true]) test(`real video completion keeps immut
   assert.ok(completed.resultExport);
   assert.equal(completed.exportContentFingerprint, exportFingerprint(original, 'video'));
   assert.notEqual(completed.exportContentFingerprint, exportFingerprint((await store.get(id))!, 'video'));
+  // Completion is visible before its durable write. The rejected resume joins
+  // the mutation queue without changing the job, so the disk assertion waits
+  // for that write to settle rather than reading the previous snapshot.
+  await assert.rejects(jobStore.resume(queued.id), /Only failed or interrupted jobs/);
   const persisted = JSON.parse(await fs.readFile(config.jobsFile, 'utf8')) as ProcessingJob[];
   assert.equal(persisted.find((job) => job.id === queued.id)?.exportContentFingerprint, completed.exportContentFingerprint);
   if (!failReceipt) assert.equal((await readExportEvidence(id))[0].fingerprint, completed.exportContentFingerprint);
