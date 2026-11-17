@@ -8,6 +8,10 @@ diagnosis of the reported local playback incident. The original cloud investigat
 used generated video only. The later Windows investigation keeps source footage
 local and records only privacy-safe playback, timing and transport metadata.
 
+The [November 18 follow-up](PREVIEW-RELIABILITY-FOLLOWUP-20261118.md) records later
+save, browser-regression and transport checks. Historical failed checkpoints in
+this report are preserved.
+
 The original cloud patch is commit `433b5737d99095cb9b8eca87e64fa0d68bf37626`,
 78,600 bytes, SHA-256 `b6a22a9a3557e174536f002121764e092c9868191f7ce5e6e1c6c01b972835a9`.
 It was checked and applied to an isolated branch based on the same main commit.
