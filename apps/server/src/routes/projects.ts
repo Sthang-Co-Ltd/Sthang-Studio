@@ -11,6 +11,7 @@ import { createProjectFromUpload, ProjectCreationError } from '../services/proje
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
+import { MediaPreviewError, withMediaPreviewDrain } from '../services/media-preview.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
 import { recordExportEvidence } from '../services/export-evidence.js';
@@ -729,19 +730,25 @@ router.delete('/:id', async (req, res) => {
     await jobAdmission.changeProjectMedia(req.params.id, () => jobStore.hasActiveForProject(req.params.id), async () => {
       const project = await store.get(req.params.id);
       if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-      await store.remove(req.params.id);
-      await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true });
-      await invalidateProjectCache(project.id);
-      // Recovery media and snapshots are project-owned children of historyDir.
-      await clearRetiredMediaSources(project.id);
-      await historyStore.clear(project.id);
-      await proposalStore.removeProject(project.id);
-      await jobStore.removeProject(project.id);
-      await contributionStore.removeProject(project.id).catch(() => {});
+      // Drain preparation and preview metadata/file readers before durable
+      // deletion. Keep admission closed through cleanup, and preserve published
+      // caches if the drain or migration/persistence checks refuse deletion.
+      await withMediaPreviewDrain(project.id, async () => {
+        await store.remove(req.params.id);
+        await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true });
+        await invalidateProjectCache(project.id);
+        // Recovery media and snapshots are project-owned children of historyDir.
+        await clearRetiredMediaSources(project.id);
+        await historyStore.clear(project.id);
+        await proposalStore.removeProject(project.id);
+        await jobStore.removeProject(project.id);
+        await contributionStore.removeProject(project.id).catch(() => {});
+      });
       res.status(204).end();
     });
   } catch (error) {
     if (error instanceof ProjectDeletionBlockedError) return res.status(409).json({ error: error.message, code: error.code });
+    if (error instanceof MediaPreviewError) return res.status(error.httpStatus).json({ error: error.message });
     if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
     throw error;
   }

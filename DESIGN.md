@@ -1390,3 +1390,12 @@ not confirm download. Unknown history offers Retry without blocking output.
 Activity labels individual completed videos similarly; old jobs with no receipt
 remain downloadable and explicitly unknown. Offer Open project to compare when a
 different project is open, using the existing protected navigation path.
+
+
+### Source-only stalled playback recovery
+
+Keep stalled-player recovery within Media preview with the existing Retry playback
+and Prepare playback actions. Do not move focus on a background watchdog warning
+or natural recovery. Explicit recovery retains the existing media-region handoff.
+A stopped progress check offers Check progress and Cancel preparation. Neither
+checking status nor retrying the player reloads the project or discards drafts.

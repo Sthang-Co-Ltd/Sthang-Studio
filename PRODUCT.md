@@ -927,3 +927,31 @@ releases Review and regeneration-comparison loop ownership without changing the
 saved loop preference or selected caption. Only a deliberate replay/Review action
 arms a new pass. Internal loop seeks still work.
 These connected workflow refinements describe development source, not a new release.
+
+
+## Source-only playback recovery hardening
+
+Compatible-copy lookup briefly precedes opening source video, so a cached copy
+can open directly. If inspection takes longer than 1.5 seconds, original playback
+becomes available while inspection continues within its 25-second request bound.
+A failed lookup also releases original playback. Preparation requests and progress
+checks are bounded and remain retryable.
+For HEVC originals with negative browser capability hints, browsers with video
+frame callbacks get five visible seconds to present an actual original frame.
+A presented frame takes precedence over the hint and avoids automatic preparation;
+otherwise preparation starts once. A slower inspection also respects a frame
+already presented. Hidden-tab time does not consume this trial. Actual decoder
+errors still request a compatible copy immediately, and browsers without frame
+callbacks retain the immediate capability-hint fallback.
+A separate 20-second missing-first-frame check offers Retry playback,
+including when it is paused or only its audio clock advances. Once a frame has
+appeared, a 20-second stalled-progress check excludes ordinary paused, ended and
+background playback and allows sparse-frame video whose clock keeps advancing.
+Browsers without video frame callbacks use loaded data to establish readiness.
+Recovery preserves the editing session, position, speed, volume and mute state
+and does not automatically resume. Retry restarts the decoder immediately;
+an unavailable optional copy check does not block that restart. A confirmed
+missing compatible copy is looked up or rebuilt. Each published copy keeps an
+immutable URL; expiring leases and in-flight responses protect that exact copy
+during rebuilds within the existing disk bound.
+See [source evidence and platform limits](docs/PREVIEW-RELIABILITY-20261115.md).

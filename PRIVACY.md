@@ -68,7 +68,20 @@ Browser-compatible playback copies stay in the project-scoped local media-previe
 cache. Preparation is cancellable, creates no cloud transfer, and does not replace
 the source used for caption generation or video export. Media replacement/deletion
 invalidates the copy; bounded cache eviction can also remove and later rebuild it.
-This describes current source behavior, not proof of a released package.
+Current source refreshes the exact open compatible copy's local cache lease with
+a HEAD request every 30 seconds; it expires after two minutes without a refresh. This uses only the
+existing local preview API and makes no cloud request. Closed/sleeping tabs do
+not reserve storage indefinitely. Rebuilds publish a new local file while an
+open player keeps its previous copy. In-flight file responses retain their exact
+copy until the response closes; media replacement/deletion ends those responses
+before removing the project cache. Project deletion also waits for preparation
+and preview metadata reads before removing the saved record or original media,
+and blocks new preview access until deletion cleanup finishes. If this preview
+drain cannot finish, the project, original and previously completed playback copy
+remain available for retry; cancellation can still remove its own unfinished
+preparation files. The [deletion ordering evidence](docs/PREVIEW-DELETION-ORDERING-20261118.md)
+distinguishes that guarantee from later filesystem failures. This describes
+current source behavior, not proof of a released package.
 
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.

@@ -1,7 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
-import { continueOwnedRoute } from './owned-browser-routes.mjs';
+import { test as base, expect, type Page } from '@playwright/test';
+import { closeOwnedBrowserContext, continueOwnedRoute } from './owned-browser-routes.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, seek } from './fixtures.mjs';
 
+const test = base.extend({ context: async ({ context }, use) => {
+  try { await use(context); } finally { await closeOwnedBrowserContext(context); }
+} });
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
@@ -11,8 +14,50 @@ const preview = (state: 'original' | 'processing' | 'ready' | 'cancelled', sourc
   ...(state === 'ready' ? { url: playbackUrl } : {}),
 });
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>((r) => { resolve = r; }); return { promise, resolve }; };
+// Control presentation independently of metadata/currentTime, including a
+// callback already queued when a source/decoder is retired.
+async function controlPresentedFrames(page: Page) {
+  await page.addInitScript(() => {
+    type Entry = { element: HTMLVideoElement; callback: VideoFrameRequestCallback };
+    const pending = new Map<number, Entry>();
+    const retired: Entry[] = [];
+    let id = 0;
+    (window as any).__pendingPreviewFrames = (element: HTMLVideoElement) => [...pending.values()].filter((entry) => entry.element === element).length;
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function(callback) { pending.set(++id, { element: this, callback }); return id; };
+    HTMLVideoElement.prototype.cancelVideoFrameCallback = function(value) { const entry = pending.get(value); if (entry) retired.push(entry); pending.delete(value); };
+    (window as any).__presentPreviewFrame = (element: HTMLVideoElement, stale = false) => {
+      const entries = stale ? retired.filter((entry) => entry.element === element) : [...pending.entries()].filter(([, entry]) => entry.element === element).map(([key, entry]) => { pending.delete(key); return entry; });
+      const now = performance.now();
+      for (const entry of entries) entry.callback(now, { presentationTime: now, expectedDisplayTime: now, width: element.videoWidth, height: element.videoHeight,
+        mediaTime: element.currentTime, presentedFrames: 1, processingDuration: 0 } as VideoFrameCallbackMetadata);
+      return entries.length;
+    };
+  });
+}
+async function presentFrame(page: Page) {
+  const delivered = await page.locator('video').evaluate((element) => (window as any).__presentPreviewFrame(element));
+  expect(delivered).toBeGreaterThan(0);
+}
 async function manualPreparation(page: Page) {
   await page.addInitScript(() => { HTMLMediaElement.prototype.canPlayType = () => 'probably'; });
+}
+async function negativeHevcHints(page: Page) {
+  await page.addInitScript(() => {
+    const original = HTMLMediaElement.prototype.canPlayType;
+    HTMLMediaElement.prototype.canPlayType = function(type) { return /hvc1|hev1/.test(type) ? '' : original.call(this, type); };
+  });
+}
+async function openDirectTrial(page: Page, delayedStatus = false) {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /Audit landscape/ })).toBeVisible();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
+  const startupRequest = page.waitForRequest((request) => request.method() === 'GET' && request.url().includes('/api/media-preview/landscape'), { timeout: 8000 });
+  await page.getByRole('button', { name: /Audit landscape/ }).click();
+  await startupRequest; // The startup effect registers its fallback before fetching.
+  if (delayedStatus) await page.clock.runFor(1600);
+  await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
+  await seek(page, 500);
 }
 async function expectReady(page: Page, seconds: number) {
   await expect(page.locator('video')).toHaveAttribute('src', playbackUrl);
@@ -31,23 +76,134 @@ async function switchProject(page: Page) {
 test('HEVC fallback prepares once, keeps a seek made during preparation and leaves captions unchanged', async ({ page }) => {
   const state = await installFixture(page); let posts = 0; let polls = 0; let allowReady = false;
   const originalCaptions = structuredClone(state.projects[0].captions);
-  await page.addInitScript(() => { const original = HTMLMediaElement.prototype.canPlayType; HTMLMediaElement.prototype.canPlayType = function(type) { return /hvc1|hev1/.test(type) ? '' : original.call(this, type); }; });
+  await negativeHevcHints(page);
+  await page.clock.install(); await controlPresentedFrames(page);
   await page.route('**/api/media-preview/landscape*', async (route) => {
     if (route.request().method() === 'POST') { posts++; return route.fulfill({ status: 202, json: preview('processing') }); }
     polls++;
     return route.fulfill({ json: preview(allowReady ? 'ready' : posts ? 'processing' : 'original') });
   });
-  await openProject(page);
+  await openDirectTrial(page);
+  await page.clock.runFor(4000); expect(posts).toBe(0);
+  await page.clock.runFor(1000);
   await expect.poll(() => posts).toBe(1);
   await expect(page.getByRole('button', { name: 'Cancel preparation', exact: true })).toBeVisible();
   await seek(page, 1250);
   await page.locator('video').evaluate((video: HTMLVideoElement) => { video.playbackRate = 1.5; });
   allowReady = true;
+  await page.clock.runFor(1000);
+  await expect(page.locator('video')).toHaveAttribute('src', playbackUrl);
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(1);
+  await presentFrame(page);
   await expectReady(page, 1.25);
   expect(await page.locator('video').evaluate((video: HTMLVideoElement) => video.playbackRate)).toBe(1.5);
   expect(state.projects[0].media.url).toBe('/media/landscape.mp4');
   expect(state.projects[0].captions).toEqual(originalCaptions);
   expect(polls).toBeGreaterThan(1);
+});
+
+for (const statusOrder of ['before frame', 'after frame'] as const) test(`an original frame wins negative HEVC hints with status ${statusOrder}`, async ({ page }) => {
+  await installFixture(page);
+  await negativeHevcHints(page);
+  await page.clock.install(); await controlPresentedFrames(page);
+  let posts = 0;
+  const releaseStatus = deferred();
+  if (statusOrder === 'before frame') releaseStatus.resolve();
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (route.request().method() === 'POST') posts++;
+    await releaseStatus.promise;
+    return route.fulfill({ json: preview(posts ? 'processing' : 'original') }).catch(() => {});
+  });
+  try {
+    await openDirectTrial(page, statusOrder === 'after frame');
+    const original = await page.locator('video').elementHandle();
+    await page.getByLabel('Caption 1 text', { exact: true }).fill('Keep the direct-playback draft');
+    await seek(page, 1250);
+    await page.locator('video').evaluate((element: HTMLVideoElement) => { element.playbackRate = 1.5; element.volume = .37; element.muted = true; });
+    if (statusOrder === 'before frame') await page.clock.runFor(2000);
+    expect(posts).toBe(0);
+    await presentFrame(page);
+    releaseStatus.resolve();
+    await expect(page.getByRole('button', { name: 'Prepare playback', exact: true })).toBeEnabled();
+    await page.clock.runFor(7000);
+    expect(posts).toBe(0);
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+    expect(await page.locator('video').evaluate((element: HTMLVideoElement) => ({ time: element.currentTime, paused: element.paused,
+      rate: element.playbackRate, volume: element.volume, muted: element.muted }))).toEqual({ time: 1.25, paused: true, rate: 1.5, volume: .37, muted: true });
+    await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue('Keep the direct-playback draft');
+    await expect(page.getByRole('button', { name: 'Cancel preparation', exact: true })).toHaveCount(0);
+  } finally { releaseStatus.resolve(); }
+});
+
+test('an advancing audio clock still starts one HEVC preparation after five visible seconds without a picture', async ({ page }) => {
+  await installFixture(page); await negativeHevcHints(page);
+  await page.clock.install(); await controlPresentedFrames(page);
+  let posts = 0;
+  await page.route('**/api/media-preview/landscape*', (route) => {
+    if (route.request().method() === 'POST') posts++;
+    return route.fulfill({ json: preview(posts ? 'processing' : 'original') });
+  });
+  await openDirectTrial(page);
+  await page.locator('video').evaluate((element: HTMLVideoElement) => {
+    Object.defineProperties(element, { readyState: { configurable: true, value: 4 }, paused: { configurable: true, value: false },
+      videoWidth: { configurable: true, value: 0 }, videoHeight: { configurable: true, value: 0 }, currentTime: { configurable: true, writable: true, value: .5 } });
+    element.dispatchEvent(new Event('play'));
+  });
+  for (let second = 1; second <= 4; second++) {
+    await page.locator('video').evaluate((element: HTMLVideoElement, value) => {
+      element.currentTime = value; element.dispatchEvent(new Event('timeupdate'));
+    }, .5 + second / 5);
+    await page.clock.runFor(1000); expect(posts).toBe(0);
+  }
+  await page.clock.runFor(1000);
+  await expect.poll(() => posts).toBe(1);
+  await expect(page.getByRole('button', { name: 'Cancel preparation', exact: true })).toBeVisible();
+  await page.clock.runFor(6000); expect(posts).toBe(1);
+});
+
+for (const supersedingAction of ['cancel', 'retry', 'navigate'] as const) test(`an armed original trial cannot prepare after ${supersedingAction}`, async ({ page }) => {
+  await installFixture(page); await negativeHevcHints(page);
+  await page.clock.install(); await controlPresentedFrames(page);
+  let posts = 0, cancelled = false;
+  await page.route('**/api/media-preview/landscape*', (route) => {
+    if (route.request().method() === 'POST') posts++;
+    if (route.request().method() === 'DELETE') cancelled = true;
+    return route.fulfill({ json: preview(cancelled ? 'cancelled' : posts ? 'processing' : 'original') });
+  });
+  await openDirectTrial(page);
+  await expect(page.getByRole('button', { name: 'Prepare playback', exact: true })).toBeEnabled();
+  const original = await page.locator('video').elementHandle();
+  if (supersedingAction === 'cancel') {
+    await page.getByRole('button', { name: 'Prepare playback', exact: true }).click();
+    await expect.poll(() => posts).toBe(1);
+    await page.getByRole('button', { name: 'Cancel preparation', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Prepare playback', exact: true })).toBeEnabled();
+  } else if (supersedingAction === 'retry') {
+    await original!.evaluate((element) => { Object.defineProperty(element, 'error', { configurable: true, value: { code: 2 } }); element.dispatchEvent(new Event('error')); });
+    await page.getByRole('button', { name: 'Retry playback', exact: true }).click();
+    await expect.poll(() => original!.evaluate((element) => element.isConnected)).toBe(false);
+  } else await switchProject(page);
+  await page.clock.runFor(7000);
+  expect(posts).toBe(supersedingAction === 'cancel' ? 1 : 0);
+  await expect(page.locator('video')).toHaveAttribute('src', supersedingAction === 'navigate' ? '/media/second.mp4' : '/media/landscape.mp4');
+  await expect(page.getByRole('button', { name: 'Cancel preparation', exact: true })).toHaveCount(0);
+});
+
+test('a browser without video-frame callbacks retains immediate HEVC hint fallback', async ({ page }) => {
+  await installFixture(page); await negativeHevcHints(page);
+  await page.addInitScript(() => { Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', { configurable: true, value: undefined }); });
+  let posts = 0;
+  await page.route('**/api/media-preview/landscape*', (route) => {
+    if (route.request().method() === 'POST') posts++;
+    return route.fulfill({ json: preview(posts ? 'ready' : 'original') });
+  });
+  await page.clock.install();
+  await page.goto('/');
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
+  await page.getByRole('button', { name: /Audit landscape/ }).click();
+  await expect.poll(() => posts).toBe(1);
+  await expectReady(page, 0);
 });
 
 test('failed cancellation keeps polling, clears the old error and recovers to ready', async ({ page }) => {
@@ -74,6 +230,58 @@ test('failed cancellation keeps polling, clears the old error and recovers to re
     resumePolling.resolve();
     await expectReady(page, 0.75);
   } finally { resumePolling.resolve(); }
+});
+
+for (const outcome of ['failure', 'ready'] as const) test(`a late cancellation ${outcome} preserves an already recovered player`, async ({ page }) => {
+  await installFixture(page);
+  await manualPreparation(page);
+  await controlPresentedFrames(page);
+  let started = false;
+  let deleting = false;
+  const releaseDelete = deferred();
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    const method = route.request().method();
+    if (method === 'DELETE') {
+      deleting = true;
+      await releaseDelete.promise;
+      return outcome === 'failure'
+        ? route.fulfill({ status: 503, json: { error: 'Synthetic late cancellation failure' } })
+        : route.fulfill({ json: preview('ready') });
+    }
+    if (method === 'POST') started = true;
+    return route.fulfill({ json: preview(deleting ? 'ready' : started ? 'processing' : 'original') });
+  });
+  try {
+    await openProject(page);
+    await seek(page, 750);
+    await page.getByRole('button', { name: 'Prepare playback', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel preparation', exact: true }).click();
+    await expect.poll(() => deleting).toBe(true);
+    await expect(page.locator('video')).toHaveAttribute('src', playbackUrl);
+    await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(1);
+    await presentFrame(page);
+    await expectReady(page, 0.75);
+    await page.locator('video').evaluate(async (video: HTMLVideoElement) => {
+      (video as any).__recoveredCancelTarget = true;
+      video.currentTime = 0.5; video.playbackRate = 0.5; video.volume = 0.35; video.muted = true;
+      await video.play();
+    });
+    const response = page.waitForResponse((response) => response.request().method() === 'DELETE' && response.url().includes('/api/media-preview/landscape'));
+    releaseDelete.resolve();
+    await (await response).finished();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.locator('.source-media-status')).toHaveCount(0);
+    const player = await page.locator('video').evaluate((video: HTMLVideoElement) => ({
+      sameElement: Boolean((video as any).__recoveredCancelTarget), paused: video.paused,
+      time: video.currentTime, rate: video.playbackRate, volume: video.volume, muted: video.muted,
+    }));
+    expect(player.sameElement).toBe(true);
+    expect(player.paused).toBe(false);
+    expect(player.time).toBeGreaterThanOrEqual(0.5);
+    expect(player.rate).toBe(0.5);
+    expect(player.volume).toBeCloseTo(0.35, 2);
+    expect(player.muted).toBe(true);
+  } finally { releaseDelete.resolve(); }
 });
 
 test('successful cancel and repeated clicks preserve a newer seek on the next preparation', async ({ page }) => {
@@ -221,22 +429,28 @@ test('repeated Retry before metadata keeps the original recovery position', asyn
   } finally { release.resolve(); }
 });
 
-test('an immediate compatible-copy reply retires the original failed decoder', async ({ page }) => {
+for (const code of [3, 4]) for (const presentedBeforeError of [false, true]) test(`decoder error ${code} immediately prepares after original presentation=${presentedBeforeError}`, async ({ page }) => {
   await installFixture(page); let posts = 0;
   await manualPreparation(page);
+  await controlPresentedFrames(page);
+  await page.clock.install();
   await page.route('**/api/media-preview/landscape*', (route) => {
     if (route.request().method() === 'POST') { posts++; return route.fulfill({ json: preview('ready') }); }
     return route.fulfill({ json: preview('original') });
   });
-  await openProject(page); await seek(page, 1250);
+  await openDirectTrial(page); await seek(page, 1250);
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.seeking)).toBe(false);
+  if (presentedBeforeError) await presentFrame(page);
   const old = await page.locator('video').elementHandle();
-  await old!.evaluate((video) => {
+  await old!.evaluate((video, errorCode) => {
     video.dispatchEvent(new Event('timeupdate'));
-    Object.defineProperty(video, 'error', { configurable: true, value: { code: 3 } });
+    Object.defineProperty(video, 'error', { configurable: true, value: { code: errorCode } });
     video.dispatchEvent(new Event('error'));
-  });
+  }, code);
   await expect.poll(() => posts).toBe(1);
+  await expect(page.locator('video')).toHaveAttribute('src', playbackUrl);
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(1);
+  await presentFrame(page);
   await expectReady(page, 1.25);
   expect(await old!.evaluate((video) => video.isConnected)).toBe(false);
 });
@@ -289,10 +503,10 @@ test('a cancel that finds completed playback keeps it ready despite an older in-
 });
 
 test('a delayed preparation reply cannot replace playback after in-app project navigation', async ({ page }) => {
-  await installFixture(page); const postStarted = deferred(); const releasePost = deferred();
+  await installFixture(page); const postStarted = deferred(); const releasePost = deferred(); const postSettled = deferred();
   await manualPreparation(page);
   await page.route('**/api/media-preview/landscape*', async (route) => {
-    if (route.request().method() === 'POST') { postStarted.resolve(); await releasePost.promise; return route.fulfill({ json: preview('ready') }); }
+    if (route.request().method() === 'POST') { postStarted.resolve(); await releasePost.promise; return route.fulfill({ json: preview('ready') }).catch(() => {}).finally(postSettled.resolve); }
     return route.fulfill({ json: preview('original') });
   });
   try {
@@ -301,9 +515,8 @@ test('a delayed preparation reply cannot replace playback after in-app project n
     await postStarted.promise;
     await switchProject(page);
     await seek(page, 1500);
-    const response = page.waitForResponse((value) => value.url().includes('/api/media-preview/landscape') && value.request().method() === 'POST');
     releasePost.resolve();
-    await (await response).finished();
+    await postSettled.promise;
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
     await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeCloseTo(1.5, 2);
@@ -326,4 +539,342 @@ test('stale-source response cannot swap playback and a valid retry clears its er
   await seek(page, 1500);
   await page.getByRole('button', { name: 'Prepare playback', exact: true }).click();
   await expectReady(page, 1.5);
+});
+
+test('warm compatible startup makes no original media request, including StrictMode cleanup', async ({ page }) => {
+  await installFixture(page); let originals = 0;
+  await page.clock.install();
+  await page.route('**/media/landscape.mp4', async (route) => { originals++; await continueOwnedRoute(route); });
+  await page.route('**/api/media-preview/landscape*', (route) => route.fulfill({ json: preview('ready') }));
+  await openProject(page); await expectReady(page, 0.5);
+  await page.clock.runFor(1600);
+  await expectReady(page, 0.5);
+  expect(originals).toBe(0);
+});
+
+for (const delayedState of ['original', 'ready'] as const) test(`slow initial ${delayedState} status completes after direct playback becomes available`, async ({ page }) => {
+  await installFixture(page);
+  let posts = 0;
+  const releaseStatus = deferred();
+  await negativeHevcHints(page);
+  await page.clock.install();
+  if (delayedState === 'original') await controlPresentedFrames(page);
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (route.request().method() === 'POST') {
+      posts++;
+      return route.fulfill({ json: preview('ready') });
+    }
+    await releaseStatus.promise;
+    return route.fulfill({ json: preview(delayedState) }).catch(() => {});
+  });
+  try {
+    // The held inspection must not prevent the 1.5-second direct-playback fallback.
+    await openDirectTrial(page, true);
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+    expect(posts).toBe(0);
+    await seek(page, 1750);
+    await page.locator('video').evaluate((element: HTMLVideoElement) => {
+      element.playbackRate = 1.5; element.volume = 0.37; element.muted = true;
+    });
+    releaseStatus.resolve();
+    if (delayedState === 'original') {
+      await expect(page.getByRole('button', { name: 'Prepare playback', exact: true })).toBeEnabled();
+      await page.clock.runFor(6000);
+      await expect(page.locator('video')).toHaveAttribute('src', playbackUrl);
+      await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(1);
+      await presentFrame(page);
+    }
+    await expectReady(page, 1.75);
+    expect(posts).toBe(delayedState === 'original' ? 1 : 0);
+    expect(await page.locator('video').evaluate((element: HTMLVideoElement) => ({
+      rate: element.playbackRate, volume: element.volume, muted: element.muted,
+    }))).toEqual({ rate: 1.5, volume: 0.37, muted: true });
+  } finally { releaseStatus.resolve(); }
+});
+
+test('a slow initial status cannot change playback after project navigation', async ({ page }) => {
+  await installFixture(page);
+  let requests = 0, settled = 0, posts = 0;
+  const releaseStatus = deferred();
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (route.request().method() === 'POST') posts++;
+    requests++;
+    await releaseStatus.promise;
+    return route.fulfill({ json: preview('ready') }).catch(() => {}).finally(() => { settled++; });
+  });
+  try {
+    await openProject(page);
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
+    expect(requests).toBeGreaterThan(0);
+    await switchProject(page);
+    await seek(page, 1500);
+    releaseStatus.resolve();
+    await expect.poll(() => settled).toBe(requests);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
+    await expect.poll(() => page.locator('video').evaluate((element: HTMLVideoElement) => element.currentTime)).toBeCloseTo(1.5, 2);
+    await expect(page.locator('.source-media-status')).toHaveCount(0);
+    expect(posts).toBe(0);
+  } finally { releaseStatus.resolve(); }
+});
+
+test('Retry checks and rebuilds an evicted compatible copy without losing the draft or position', async ({ page }) => {
+  const state = await installFixture(page); let evicted = false, rebuilding = false, posts = 0, heads = 0;
+  const beforeCaptions = structuredClone(state.projects[0].captions);
+  const draftText = 'Draft survives evicted playback';
+  let saveHeld = false;
+  const releaseSave = deferred(), saveSettled = deferred();
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    if (['PUT', 'PATCH', 'POST'].includes(request.method()) && request.postData()?.includes(draftText)) {
+      saveHeld = true; await releaseSave.promise;
+      return route.fallback().catch(() => {}).finally(saveSettled.resolve);
+    }
+    return route.fallback();
+  });
+  await page.route('**/media/landscape.mp4?compatible=1', async (route) => {
+    if (route.request().method() === 'HEAD') { heads++; return route.fulfill({ status: evicted ? 404 : 200 }); }
+    if (evicted) return route.fulfill({ status: 404 });
+    return continueOwnedRoute(route);
+  });
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (route.request().method() === 'POST') { posts++; rebuilding = true; return route.fulfill({ json: preview('processing') }); }
+    if (rebuilding) evicted = false;
+    return route.fulfill({ json: preview(evicted ? 'original' : 'ready') });
+  });
+  try {
+    await openProject(page); await expectReady(page, 0.5);
+    await seek(page, 1_250);
+    await page.locator('.caption-row textarea').first().fill(draftText);
+    // Blur commits the edit; the held request keeps its newer draft unsaved.
+    await page.getByRole('textbox', { name: 'Caption 2 text', exact: true }).focus();
+    await expect.poll(() => saveHeld).toBe(true);
+    evicted = true;
+    await page.locator('video').dispatchEvent('error');
+    await page.getByRole('button', { name: 'Retry playback', exact: true }).click();
+    await expectReady(page, 1.25); expect(posts).toBe(1); expect(heads).toBe(1);
+    await expect(page.locator('.caption-row textarea').first()).toHaveValue(draftText);
+    expect(state.projects[0].captions).toEqual(beforeCaptions);
+    releaseSave.resolve(); await saveSettled.promise;
+  } finally { releaseSave.resolve(); }
+});
+
+test('repeated poll failure stops and explicit Check progress resumes without another encoder request', async ({ page }) => {
+  await installFixture(page); await manualPreparation(page); let posts = 0, failures = 0, healthy = false;
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (route.request().method() === 'POST') { posts++; return route.fulfill({ json: preview('processing') }); }
+    if (posts && !healthy) { failures++; return route.fulfill({ status: 503, json: { error: 'Synthetic outage' } }); }
+    return route.fulfill({ json: preview(healthy ? 'ready' : 'original') });
+  });
+  await openProject(page); await page.getByRole('button', { name: 'Prepare playback', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Check progress', exact: true })).toBeVisible();
+  expect(failures).toBe(3); healthy = true;
+  await page.getByRole('button', { name: 'Check progress', exact: true }).click();
+  await expectReady(page, 0.5); expect(posts).toBe(1);
+});
+
+test('a silent stall offers recovery and clears when the native clock resumes', async ({ page }) => {
+  await installFixture(page); await manualPreparation(page);
+  await page.route('**/api/media-preview/landscape*', (route) => route.fulfill({ json: { ...preview('original'), videoCodec: 'h264' } }));
+  await page.clock.install();
+  await controlPresentedFrames(page);
+  await openProject(page); await seek(page, 1250);
+  await presentFrame(page);
+  await page.locator('video').evaluate((video: HTMLVideoElement) => {
+    Object.defineProperty(video, 'paused', { configurable: true, value: false });
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 1.25 });
+    video.dispatchEvent(new Event('play'));
+  });
+  await page.clock.runFor(21_000);
+  await expect(page.locator('.source-media-status')).toContainText('stopped making progress');
+  await expect(page.getByRole('button', { name: 'Retry playback', exact: true })).toBeVisible();
+  await page.locator('video').evaluate((video: HTMLVideoElement) => {
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 1.5 });
+  });
+  await page.clock.runFor(1000);
+  await expect(page.locator('.source-media-status')).toHaveCount(0);
+});
+
+test('failed forced rebuild reports the failure and keeps another preparation available', async ({ page }) => {
+  await installFixture(page); let posts = 0;
+  await page.route('**/api/media-preview/landscape*', (route) => {
+    if (route.request().method() === 'POST') posts++;
+    return route.fulfill({ json: { ...preview('ready'), ...(posts ? { message: 'The new playback copy could not be prepared. The previous copy was kept. Try Prepare playback again.' } : {}) } });
+  });
+  await openProject(page); await expectReady(page, .5);
+  await page.locator('video').dispatchEvent('error');
+  await page.getByRole('button', { name: 'Prepare playback', exact: true }).click();
+  await expect(page.locator('.source-media-status')).toContainText('new playback copy could not be prepared');
+  await expect(page.getByRole('button', { name: 'Prepare playback', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Prepare playback', exact: true }).click();
+  await expect.poll(() => posts).toBe(2);
+});
+
+test('paused video recovery stays pending after metadata until an owned presented frame arrives', async ({ page }) => {
+  await installFixture(page);
+  await page.route('**/api/media-preview/landscape*', (route) => route.fulfill({ json: preview('ready') }));
+  await page.clock.install(); await controlPresentedFrames(page);
+  await openProject(page); await presentFrame(page); await expectReady(page, .5);
+  await seek(page, 1250); await presentFrame(page);
+  const old = await page.locator('video').elementHandle();
+  await page.locator('video').dispatchEvent('error');
+  await page.getByRole('button', { name: 'Retry playback', exact: true }).click();
+  await expect.poll(() => old!.evaluate((element) => element.isConnected)).toBe(false);
+  await expect.poll(() => page.locator('video').evaluate((element: HTMLVideoElement) => element.readyState)).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => page.locator('video').evaluate((element: HTMLVideoElement) => element.currentTime)).toBeCloseTo(1.25, 2);
+  await expect(page.locator('.source-media-status')).toContainText('Restarting playback');
+  expect(await page.locator('video').evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
+  // A keyed StrictMode ref replay must leave the paused replacement subscribed
+  // for its first frame; the media clock does not request frames while paused.
+  expect(await page.locator('video').evaluate((element) => (window as any).__pendingPreviewFrames(element))).toBeGreaterThan(0);
+  await page.clock.runFor(21_000);
+  await expect(page.locator('.source-media-status')).toContainText('stopped making progress');
+  await page.locator('video').evaluate((element: HTMLVideoElement) => {
+    Object.defineProperty(element, 'currentTime', { configurable: true, value: 1.5 });
+    element.dispatchEvent(new Event('timeupdate')); element.dispatchEvent(new Event('loadedmetadata'));
+  });
+  await page.clock.runFor(1000);
+  await expect(page.locator('.source-media-status')).toContainText('stopped making progress');
+  await old!.evaluate((element) => { (window as any).__presentPreviewFrame(element, true); element.dispatchEvent(new Event('loadeddata')); });
+  await expect(page.locator('.source-media-status')).toContainText('stopped making progress');
+  await presentFrame(page); await expectReady(page, 1.5);
+});
+
+test('an advancing original-video audio clock cannot hide the absence of a first picture', async ({ page }) => {
+  await installFixture(page); await manualPreparation(page);
+  let posts = 0;
+  await page.route('**/api/media-preview/landscape*', (route) => {
+    if (route.request().method() === 'POST') posts++;
+    return route.fulfill({ json: preview('original') });
+  });
+  await page.clock.install(); await controlPresentedFrames(page);
+  await openProject(page);
+  await page.locator('video').evaluate((element: HTMLVideoElement) => {
+    Object.defineProperties(element, {
+      readyState: { configurable: true, value: 4 }, paused: { configurable: true, value: false },
+      videoWidth: { configurable: true, value: 0 }, videoHeight: { configurable: true, value: 0 },
+      currentTime: { configurable: true, writable: true, value: .5 }, duration: { configurable: true, value: 180 },
+    });
+    element.dispatchEvent(new Event('play'));
+  });
+  for (let second = 1; second <= 21; second++) {
+    await page.locator('video').evaluate((element: HTMLVideoElement, value) => { element.currentTime = value; }, .5 + second);
+    await page.clock.runFor(1000);
+  }
+  expect(await page.locator('video').evaluate((element: HTMLVideoElement) => ({ ready: element.readyState, width: element.videoWidth, height: element.videoHeight, time: element.currentTime, error: element.error?.code ?? null })))
+    .toEqual({ ready: 4, width: 0, height: 0, time: 21.5, error: null });
+  await expect(page.locator('.source-media-status')).toContainText('stopped making progress');
+  await expect(page.getByRole('button', { name: 'Retry playback', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Prepare playback', exact: true })).toBeEnabled();
+  expect(posts).toBe(0);
+});
+
+test('a paused compatible player renews only its exact URL even when a newer copy exists', async ({ page }) => {
+  await installFixture(page);
+  let statusReads = 0, latest = playbackUrl;
+  const heads: string[] = [];
+  await page.route('**/api/media-preview/landscape*', (route) => { statusReads++; return route.fulfill({ json: { ...preview('ready'), url: latest } }); });
+  await page.route('**/media/landscape.mp4?compatible=1', (route) => {
+    if (route.request().method() === 'HEAD') { heads.push(new URL(route.request().url()).pathname + new URL(route.request().url()).search); return route.fulfill({ status: 200 }); }
+    return continueOwnedRoute(route);
+  });
+  await page.clock.install(); await controlPresentedFrames(page);
+  await openProject(page); await presentFrame(page); await expectReady(page, .5);
+  const before = statusReads; latest = '/media/landscape.mp4?compatible=2';
+  await page.clock.runFor(31_000);
+  await expect.poll(() => heads.length).toBe(1);
+  expect(heads).toEqual([playbackUrl]); expect(statusReads).toBe(before);
+  await expectReady(page, .5);
+  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.clock.runFor(31_000);
+  expect(heads).toEqual([playbackUrl]);
+});
+
+test('Retry promptly replaces a poisoned decoder while optional cache checks are unavailable', async ({ page }) => {
+  await installFixture(page);
+  let unavailable = false, statusReads = 0, posts = 0;
+  const headStarted = deferred(), releaseHead = deferred(), headSettled = deferred();
+  await page.route('**/api/media-preview/landscape*', (route) => {
+    if (route.request().method() === 'POST') posts++;
+    statusReads++;
+    return unavailable ? route.fulfill({ status: 503, json: { error: 'Synthetic status outage' } }) : route.fulfill({ json: preview('ready') });
+  });
+  await page.route('**/media/landscape.mp4?compatible=1', async (route) => {
+    if (route.request().method() !== 'HEAD') return continueOwnedRoute(route);
+    headStarted.resolve(); await releaseHead.promise;
+    return route.fulfill({ status: 503 }).catch(() => {}).finally(headSettled.resolve);
+  });
+  try {
+    await openProject(page); await expectReady(page, .5); await seek(page, 1250);
+    const before = statusReads; unavailable = true;
+    const old = await page.locator('video').elementHandle();
+    await old!.evaluate((element) => {
+      const video = element as HTMLVideoElement;
+      video.dispatchEvent(new Event('timeupdate'));
+      Object.defineProperty(video, 'error', { configurable: true, value: { code: 3 } });
+      video.load = () => { queueMicrotask(() => video.dispatchEvent(new Event('error'))); };
+      video.dispatchEvent(new Event('error'));
+    });
+    await page.getByRole('button', { name: 'Retry playback', exact: true }).click();
+    await headStarted.promise;
+    await expect.poll(() => old!.evaluate((element) => element.isConnected)).toBe(false);
+    await expectReady(page, 1.25);
+    const recovered = await page.locator('video').elementHandle();
+    expect(statusReads).toBe(before); expect(posts).toBe(0);
+    releaseHead.resolve(); await headSettled.promise;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(await recovered!.evaluate((element) => element.isConnected)).toBe(true);
+    await expectReady(page, 1.25);
+  } finally { releaseHead.resolve(); }
+});
+
+test('a late same-copy status reply keeps the decoder and playback settings already recovered by Retry', async ({ page }) => {
+  await installFixture(page);
+  let lookup = false, posts = 0;
+  const statusStarted = deferred(), releaseStatus = deferred(), statusSettled = deferred();
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (route.request().method() === 'POST') posts++;
+    if (lookup) { statusStarted.resolve(); await releaseStatus.promise; }
+    return route.fulfill({ json: preview('ready') }).catch(() => {}).finally(() => { if (lookup) statusSettled.resolve(); });
+  });
+  await page.route('**/media/landscape.mp4?compatible=1', (route) => route.request().method() === 'HEAD' ? route.fulfill({ status: 404 }) : continueOwnedRoute(route));
+  try {
+    await openProject(page); await expectReady(page, .5); await seek(page, 1250);
+    lookup = true;
+    await page.locator('video').dispatchEvent('error');
+    await page.getByRole('button', { name: 'Retry playback', exact: true }).click();
+    await statusStarted.promise;
+    await expectReady(page, 1.25);
+    const recovered = await page.locator('video').elementHandle();
+    await page.locator('video').evaluate(async (element: HTMLVideoElement) => { element.playbackRate = .75; element.volume = .2; element.muted = true; await element.play(); });
+    releaseStatus.resolve(); await statusSettled.promise;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(await recovered!.evaluate((element) => element.isConnected)).toBe(true);
+    expect(await page.locator('video').evaluate((element: HTMLVideoElement) => ({ rate: element.playbackRate, volume: element.volume, muted: element.muted, paused: element.paused }))).toEqual({ rate: .75, volume: .2, muted: true, paused: false });
+    expect(posts).toBe(0);
+  } finally { releaseStatus.resolve(); }
+});
+
+test('a late missing-copy lookup cannot change playback after project navigation', async ({ page }) => {
+  await installFixture(page);
+  let lookup = false;
+  const statusStarted = deferred(), releaseStatus = deferred(), statusSettled = deferred();
+  await page.route('**/api/media-preview/landscape*', async (route) => {
+    if (lookup) { statusStarted.resolve(); await releaseStatus.promise; }
+    return route.fulfill({ json: preview('ready') }).catch(() => {}).finally(() => { if (lookup) statusSettled.resolve(); });
+  });
+  await page.route('**/media/landscape.mp4?compatible=1', (route) => route.request().method() === 'HEAD' ? route.fulfill({ status: 404 }) : continueOwnedRoute(route));
+  try {
+    await openProject(page); await expectReady(page, .5);
+    lookup = true;
+    await page.locator('video').dispatchEvent('error');
+    await page.getByRole('button', { name: 'Retry playback', exact: true }).click();
+    await statusStarted.promise;
+    await switchProject(page); await seek(page, 1500);
+    releaseStatus.resolve(); await statusSettled.promise;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
+    await expect.poll(() => page.locator('video').evaluate((element: HTMLVideoElement) => element.currentTime)).toBeCloseTo(1.5, 2);
+    await expect(page.locator('.source-media-status')).toHaveCount(0);
+  } finally { releaseStatus.resolve(); }
 });

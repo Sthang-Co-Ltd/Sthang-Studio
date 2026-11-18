@@ -35,11 +35,10 @@ async function selectedIds(page: Page) {
 }
 async function saveCurrent(page: Page) {
   const save = page.locator('.save-action');
+  // A blur save can finish between checking enabled and clicking. The real
+  // command joins a pending save and is harmless when the draft is already saved.
+  await page.keyboard.press('Control+s');
   await expect(save).not.toHaveAttribute('aria-busy', 'true');
-  if (await save.isEnabled()) {
-    await save.click();
-    await expect(save).not.toHaveAttribute('aria-busy', 'true');
-  }
   await expect(save.locator('.save-action-label')).toHaveText('Saved');
   await expect(save).toBeDisabled();
 }

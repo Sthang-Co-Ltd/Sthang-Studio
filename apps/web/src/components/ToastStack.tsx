@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { Children, isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useSurfacePresence } from '../use-surface-presence';
 import { focusPreservingCaptionViewport } from '../caption-field-viewport';
 
@@ -22,6 +22,7 @@ function ToastSlot({ open, children, onExited, restoreFocus }: { open: boolean; 
 export function ToastStack({ children, onLayoutChange }: { children: ReactNode; onLayoutChange?: (state: ToastLayoutState) => void }) {
   const root = useRef<HTMLDivElement | null>(null);
   const returnTo = useRef<HTMLElement | null>(null);
+  const reportedLayout = useRef<string | null>(null);
   const current = useMemo(() => Children.toArray(children).filter(isValidElement), [children]);
   const latest = useRef(current); latest.current = current;
   const [previous, setPrevious] = useState(current);
@@ -39,26 +40,31 @@ export function ToastStack({ children, onLayoutChange }: { children: ReactNode; 
       focusPreservingCaptionViewport(target);
     }
   });
+  const reportLayout = useCallback(() => {
+    const element = root.current;
+    if (!element || !onLayoutChange) return;
+    // Observe only the small notice stack, including retained exit animations.
+    // Ancestor :has() rules made every caption edit restyle the entire editor.
+    const hasSaveFailure = Boolean(element.querySelector('.save-failure'));
+    const next = { hasContent: element.childElementCount > 0, hasSaveFailure,
+      hasPersistentRecovery: hasSaveFailure || Boolean(element.querySelector('.unfinished-recovery,.recovery-storage-error')) };
+    const signature = `${next.hasContent}:${next.hasPersistentRecovery}:${next.hasSaveFailure}`;
+    if (signature === reportedLayout.current) return;
+    reportedLayout.current = signature;
+    onLayoutChange(next);
+  }, [onLayoutChange]);
+  // Publish committed content before a menu ResizeObserver can see a temporary
+  // fixed overlay. App still captures caption visibility before changing layout.
+  useLayoutEffect(() => { reportLayout(); });
   useLayoutEffect(() => {
     const element = root.current;
     if (!element || !onLayoutChange) return;
-    let previous = '';
-    // Observe only the small notice stack, including retained exit animations.
-    // Ancestor :has() rules made every caption edit restyle the entire editor.
-    const report = () => {
-      const hasSaveFailure = Boolean(element.querySelector('.save-failure'));
-      const next = { hasContent: element.childElementCount > 0, hasSaveFailure,
-        hasPersistentRecovery: hasSaveFailure || Boolean(element.querySelector('.unfinished-recovery,.recovery-storage-error')) };
-      const signature = `${next.hasContent}:${next.hasPersistentRecovery}:${next.hasSaveFailure}`;
-      if (signature === previous) return;
-      previous = signature;
-      onLayoutChange(next);
-    };
-    report();
-    const observer = new MutationObserver(report);
+    reportLayout();
+    // Presence animations can remove content in a child-only commit.
+    const observer = new MutationObserver(reportLayout);
     observer.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-    return () => { observer.disconnect(); onLayoutChange(emptyLayout); };
-  }, [onLayoutChange]);
+    return () => { observer.disconnect(); reportedLayout.current = null; onLayoutChange(emptyLayout); };
+  }, [onLayoutChange, reportLayout]);
   useEffect(() => {
     const remember = () => {
       const target = document.activeElement;

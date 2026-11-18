@@ -115,11 +115,18 @@ test('manual preparation and cancellation hand off now and preserve newer field 
 });
 
 test('automatic compatible playback preparation never moves focus from a current caption field', async ({ page }) => {
-  const opening = deferred(); let posts = 0;
+  const opening = deferred(); const originalMedia = deferred(); let posts = 0; let originalReads = 0;
   const original = JSON.stringify(state.projects);
   await page.addInitScript(() => {
     const canPlay = HTMLMediaElement.prototype.canPlayType;
     HTMLMediaElement.prototype.canPlayType = function (type) { return /hvc1|hev1/.test(type) ? '' : canPlay.call(this, type); };
+  });
+  // The H.264 fixture can display despite negative HEVC hints. Hold its bytes so
+  // the native frame-callback path really has no original picture to present.
+  await page.route('**/media/landscape.mp4', async (route) => {
+    originalReads++; await originalMedia.promise;
+    try { await continueOwnedRoute(route); }
+    catch (error) { if (!page.isClosed() && !route.request().failure()) throw error; }
   });
   await page.route('**/api/media-preview/landscape*', async (route) => {
     if (route.request().method() === 'POST') { posts++; return route.fulfill({ json: status('processing') }); }
@@ -127,13 +134,23 @@ test('automatic compatible playback preparation never moves focus from a current
     return route.fulfill({ json: status(posts ? 'processing' : 'original') });
   });
   try {
-    await openProject(page); await rememberEvidence(page);
+    // openProject waits for metadata, which this deliberately held source lacks.
+    await page.goto('/');
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    await expect(page.locator('.media-stage video')).toBeVisible();
+    await expect.poll(() => originalReads).toBeGreaterThan(0);
+    expect(await page.locator('video').evaluate((video: HTMLVideoElement) => ({
+      frameCallbacks: typeof video.requestVideoFrameCallback === 'function',
+      readyState: video.readyState, errorCode: video.error?.code ?? null,
+    }))).toEqual({ frameCallbacks: true, readyState: 0, errorCode: null });
+    await rememberEvidence(page);
     const caption = page.getByLabel('Caption 1 text', { exact: true });
     await caption.fill('Draft before automatic preparation កម្ពុជា');
+    await expect(caption).toBeFocused();
     opening.release();
     await expect.poll(() => posts).toBe(1);
     await expect(action(page, 'Cancel preparation')).toBeVisible();
     await expect(caption).toBeFocused(); await expect(caption).toHaveValue('Draft before automatic preparation កម្ពុជា');
     await unchanged(page, original);
-  } finally { opening.release(); }
+  } finally { opening.release(); originalMedia.release(); }
 });
