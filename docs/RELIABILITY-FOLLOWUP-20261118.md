@@ -11,7 +11,7 @@ network capture is included here.
 | 1. Restore draft failure on `main` | **Fixed** (product geometry defect; regressions added; a related silent refusal and a narrow-toast reachability defect also fixed) |
 | 2. Noto Sans Khmer Size 120 nonbreaking-space test | **Test contract corrected**; production unchanged; legacy-font false refusal documented |
 | 3. Original-video `ERR_INVALID_HTTP_RESPONSE` | **Not reproduced**: neither synthetic media nor the owner-approved real footage reproduced it under the historical conditions; cause unknown |
-| 4. 5,000-caption opening and scrolling | **Not shipped**; bottleneck attributed; corrected containment is correct for users but fails the traced CI gate, so eager rendering is retained |
+| 4. 5,000-caption opening and scrolling | **Closed as a known limitation**; bottleneck attributed; the corrected containment prototype fails the traced CI gate and its timing gates were never measured, so eager rendering is retained (Root and Astra agree) |
 | 5. Intermittent Windows renderer timeout and Vite `ECONNRESET` | Renderer **not reproduced** (5 local runs); Vite reset **cause not established** (trace analysis only); neither cause established |
 | 6. Historical prepared-copy decode incident | **Blocked** on the exact artifact |
 
@@ -325,17 +325,27 @@ Results:
 - **Not run:** the matched timing pairs, the size sweep and the full
   accessibility gates, because the spike stopped at the failed gate.
 
-**Status: not shipped. Eager rendering is retained,** by the agreed rule that a
-failed original gate keeps current behaviour. The containment approach looks
-correct for users. Shipping it would need three things, which belong to a
-separate, deliberate change rather than this reliability fix:
-- a decision to reduce trace snapshot collection for the 5,000-row browser tests,
-  which trades away failure-trace evidence;
-- a per-structure height implementation;
-- the full timing and accessibility gates.
+**Status: closed as a known limitation. Eager rendering is retained,** by the
+agreed rule that a failed original gate keeps current behaviour. Root and
+GPT-6.2 Astra agreed on this closeout after reviewing evidence C, C2b, F and G:
+- Neither prototype showed that an editor can start work sooner and scroll
+  reliably through a save.
+- The corrected prototype's opening, first-edit, scroll and save timings were
+  never measured.
+- Its full-scroll drift and keyboard traversal across skipped rows are
+  unverified.
 
-Without them, the opening cost stays attributed but unchanged: about 1.7 s at 1×
-and 9.3 s at 4×.
+CI's trace policy stays unchanged. Removing snapshots would keep the assertions
+but drop failure evidence and change the conditions of the agreed gate. Any such
+change needs its own decision, applied to both arms.
+
+A future attempt would need all of the following:
+- that trace-policy decision;
+- a per-structure height implementation;
+- the full matched timing and accessibility gates.
+
+Until then, the opening cost stays attributed but unchanged: about 1.7 s at 1×
+and 9.3 s at 4× on this synthetic fixture.
 
 ## 5. Intermittent test failures
 
