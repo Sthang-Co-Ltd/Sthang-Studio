@@ -121,7 +121,7 @@ test('ordinary 4K portrait captions fit with axis-specific native guards', async
         const sha256 = createHash('sha256').update(await fs.readFile(path.join(staged, regular.name))).digest('hex');
         if (sha256 === LEGACY_NOTO_SANS_KHMER_REGULAR_SHA256) {
           // The missing NBSP mapping makes the conservative allocation exceed the pixel cap.
-          // See reliability report item 2 and its native-measurements.json evidence.
+          // Ink fits in a separate padded render; see docs/RELIABILITY-FOLLOWUP-20261118.md (item 2).
           await assert.rejects(validateCaptionOverflow(input), (error) => error instanceof CaptionOverflowError && error.kind === 'unverifiable');
           return;
         }
