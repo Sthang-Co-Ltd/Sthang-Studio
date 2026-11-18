@@ -11,7 +11,7 @@ network capture is included here.
 | 1. Restore draft failure on `main` | **Fixed** (product geometry defect; regressions added; a related silent refusal and a narrow-toast reachability defect also fixed) |
 | 2. Noto Sans Khmer Size 120 nonbreaking-space test | **Test contract corrected**; production unchanged; legacy-font false refusal documented |
 | 3. Original-video `ERR_INVALID_HTTP_RESPONSE` | **Not reproduced**: neither synthetic media nor the owner-approved real footage reproduced it under the historical conditions; cause unknown |
-| 4. 5,000-caption opening and scrolling | **Still under investigation**; bottleneck attributed, two candidates measured and rejected |
+| 4. 5,000-caption opening and scrolling | **Not shipped**; bottleneck attributed; corrected containment is correct for users but fails the traced CI gate, so eager rendering is retained |
 | 5. Intermittent Windows renderer timeout and Vite `ECONNRESET` | Renderer **not reproduced** (5 local runs); Vite reset **cause not established** (trace analysis only); neither cause established |
 | 6. Historical prepared-copy decode incident | **Blocked** on the exact artifact |
 
@@ -298,13 +298,44 @@ the separate React render and commit totals were **not distinguished**.
    This breaks the caption-list viewport-stability invariant, so it cannot ship
    in this form.
 
-**Status: still under investigation.** The opening cost is attributed to style
-and layout of the fully mounted list. Containment shows the potential saving is
-large: about 5.4 s at 4×. Capturing it without moving the edited row, breaking
-menus or delaying focus needs an interaction design, such as exact retained row
-heights or windowed rendering with stable geometry. That should be agreed
-separately, not added to this reliability fix. No product change is made for this
-item.
+**Owner-approved follow-up spike.** The C2b row jump had a simple cause. The
+reserved size was the rows' border-box height (132.6875 px) used as their
+*content* size, so each row grew by its 21 px of padding and border when it
+rendered: 20 rows × 21 px = 420 px. A corrected prototype was measured but not
+committed. It worked as follows:
+- It reserves the measured content-box size of the common collapsed row, about
+  111.7 px at 1440 px.
+- It applies only to projects with at least 1,500 captions, and only to rows whose
+  structure matches that measurement.
+- A row stays rendered once it has come within two list heights of the viewport
+  or has been interacted with.
+- Rows with a menu open, focused, active or selected rows, and rows above the
+  field being typed in are exempt.
+
+Results:
+- **Geometry.** Forcing 20 skipped rows to render during Khmer composition moved
+  the edited row 0 px at 1440 and 390 px. The first-viewport screenshots were
+  byte-identical, and all seven row-menu cases passed.
+- **Correctness, tracing off.** The 5,000-caption recovery journey passed in
+  24.6 s (eager: 28.0 s). Reopen, Restore and both reloads kept the exact values.
+- **CI gate, tracing on.** With CI's `retain-on-failure` tracing, Playwright's DOM
+  snapshot collection took 89.1 s on the candidate against 34.9 s on eager. The
+  test ran out of its unchanged 120 s budget before the assertion; the page
+  already showed the correct value. 28 of the 29 gate cases passed.
+- **Not run:** the matched timing pairs, the size sweep and the full
+  accessibility gates, because the spike stopped at the failed gate.
+
+**Status: not shipped. Eager rendering is retained,** by the agreed rule that a
+failed original gate keeps current behaviour. The containment approach looks
+correct for users. Shipping it would need three things, which belong to a
+separate, deliberate change rather than this reliability fix:
+- a decision to reduce trace snapshot collection for the 5,000-row browser tests,
+  which trades away failure-trace evidence;
+- a per-structure height implementation;
+- the full timing and accessibility gates.
+
+Without them, the opening cost stays attributed but unchanged: about 1.7 s at 1×
+and 9.3 s at 4×.
 
 ## 5. Intermittent test failures
 
