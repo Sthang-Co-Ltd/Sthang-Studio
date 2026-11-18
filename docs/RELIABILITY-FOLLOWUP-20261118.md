@@ -10,7 +10,7 @@ network capture is included here.
 | --- | --- |
 | 1. Restore draft failure on `main` | **Fixed** (product geometry defect; regressions added; a related silent refusal and a narrow-toast reachability defect also fixed) |
 | 2. Noto Sans Khmer Size 120 nonbreaking-space test | **Test contract corrected**; production unchanged; legacy-font false refusal documented |
-| 3. Original-video `ERR_INVALID_HTTP_RESPONSE` | **Still under investigation**; not reproduced with synthetic media |
+| 3. Original-video `ERR_INVALID_HTTP_RESPONSE` | **Not reproduced**: neither synthetic media nor the owner-approved real footage reproduced it under the historical conditions; cause unknown |
 | 4. 5,000-caption opening and scrolling | **Still under investigation**; bottleneck attributed, two candidates measured and rejected |
 | 5. Intermittent Windows renderer timeout and Vite `ECONNRESET` | Renderer **not reproduced** (5 local runs); Vite reset **cause not established** (trace analysis only); neither cause established |
 | 6. Historical prepared-copy decode incident | **Blocked** on the exact artifact |
@@ -212,12 +212,33 @@ cache headers alone did not trigger it in these runs.
 5. Require both a uniquely joined server-side fault and a single-variable causal
    control before any serving change.
 
-Moving forward needs a decision from the owner. Either a container-structure-only
-description of the original footage is approved (box layout and sample
-interleaving, no media content), so a structurally matched synthetic file can be
-built, or a supervised joined capture with that footage is authorized. An
-independent kernel-level loopback capture needs separate authorization for
-administrator, machine-wide capture.
+**Owner-approved real-footage controls.** The local source videos were played,
+unmodified, through the same harness and headed Chrome 157.0.8103.79 build. There
+are three distinct files; a fourth is byte-identical to one of them. Each file was
+served as a disposable, hash-verified copy that was deleted afterwards. Only
+counts and container structure were recorded, with no capture.
+
+| Condition | Runs | Original GETs per run | Invalid responses |
+| --- | --- | --- | --- |
+| `Cache-Control: private, no-store` | 6 | 183–201 | 0 |
+| Default `public, max-age=0` | 3 | 164–188 | 0 |
+
+- All nine runs completed 40 seconds of playback and all 27 paused seeks, with
+  zero preparation requests.
+- All of them reached the historical heavy-range regime, mostly canceled ranges.
+- The source hashes were unchanged afterwards.
+- A structure-matched synthetic replica was generated, but its run stopped at
+  page navigation before playback. With no source failure left to match, it was
+  not pursued.
+
+**Status: not reproduced.** The warning no longer occurs under the historical
+conditions on this machine: the same browser build, the same cache header and the
+same request regime. It is not known whether the historical footage was one of
+these files. The earlier cause, possibly an environmental condition at that time,
+remains unknown. No serving change is made, because there is no reproducible
+fault. The diagnostic design above stays ready if the warning recurs. A
+kernel-level loopback capture would still need separate administrator
+authorization.
 
 ## 4. Large-project responsiveness
 
@@ -341,9 +362,15 @@ The incident needs the exact 3,789,112-byte prepared copy with SHA-256
 re-scan of 39 existing roots, the Studio checkout and its registered git
 worktrees, found no file of that exact size. Dependency, `.git` and
 virtual-environment folders were pruned. Six further registered worktree paths
-no longer exist and could not be scanned. The previously
-approved private upload folder was not searched again without authorization.
-**Blocked.** Another file is not a valid substitute, and no fix is claimed.
+no longer exist and could not be scanned. With the owner's authorization, two
+more places were checked, read-only:
+- the session's upload (attachments) folder: 21 files, no videos, no size match;
+- Studio's installed data folder: 4 folders and 7 files, no size match. Studio's
+  working data on this machine lives in the dev checkout, which was already
+  scanned.
+
+**Blocked.** The artifact is not present in any approved location on this
+machine. Another file is not a valid substitute, and no fix is claimed.
 
 ## Out-of-scope observation
 
