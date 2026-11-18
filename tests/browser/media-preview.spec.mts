@@ -1,7 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
-import { continueOwnedRoute } from './owned-browser-routes.mjs';
+import { test as base, expect, type Page } from '@playwright/test';
+import { closeOwnedBrowserContext, continueOwnedRoute } from './owned-browser-routes.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, seek } from './fixtures.mjs';
 
+const test = base.extend({ context: async ({ context }, use) => {
+  try { await use(context); } finally { await closeOwnedBrowserContext(context); }
+} });
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
