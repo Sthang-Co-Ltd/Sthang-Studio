@@ -194,8 +194,8 @@ remains, choose **Restore draft** again to restore it. If you have already moved
 focus elsewhere, it stays there. Otherwise, focus moves to the remaining
 **Restore draft** action. If the recovery offer closes, focus returns to the
 control you were using before the offer, or to **Project details** if that control
-is unavailable. In browsers where a mouse click leaves the Restore button
-unfocused, focus stays where it was. The recovery actions stay in place when
+is unavailable. If a click leaves focus on the page itself rather than on the
+Restore button, as some browsers do, focus stays there. The recovery actions stay in place when
 they receive focus as the offer opens.
 
 ### Appearance save protection (source-only)

@@ -42,12 +42,12 @@ draft within eight seconds. The original caption stayed visible.
   moved the button 137 px down before release, so the click landed on the
   surrounding section. The restore handler never ran, and the offered recovery
   copy was still present.
-- 150 instrumented natural repetitions (110 under CPU contention) all passed.
-  Each one listed the old page's final recovery copy, found it present at the
-  click, and entered the canonical read. Recovery-copy churn across the reload
-  was not observed. Both retained failures and the held control show the geometry
-  mechanism instead. The two uninstrumented failures cannot themselves exclude
-  churn.
+- 150 instrumented natural repetitions all passed and entered the canonical
+  read. In the 110 runs under CPU contention, each listed the old page's final
+  recovery copy and found it present at the click. Recovery-copy churn across
+  the reload was not observed. The two uninstrumented failures are consistent
+  with the geometry mechanism isolated by the held control, but cannot
+  themselves exclude churn.
 
 The defect is in the product. Any programmatic or focus-driven scroll of a
 still-clipped toast could move its action between press and release. The test's
@@ -78,7 +78,8 @@ precondition was correct and the test is unchanged.
   390 px, a captioned-video completion toast with a long filename pushed its
   **Dismiss notice** button off the visible toast (x ≈ 944 px against a toast
   spanning 16–374 px), where it could not be clicked. This was already the case
-  on `main`. Every action now stays inside the toast and is clickable.
+  on `main`. With the change, the Dismiss button is inside the toast and was
+  clicked successfully in the regression test.
 
 ### Verification
 
@@ -96,9 +97,10 @@ zero retries, on the final branch:
   - A same-key rewritten copy needs a second deliberate activation to restore the
     replacement.
   - All refusals perform zero restore reads and zero project writes.
-- **Narrow toast.** At 390 px, the long-filename toast wraps to four lines and its
-  Dismiss button can be clicked; on the previous CSS the button could not be
-  clicked.
+- **Narrow toast.** At 390 px, the long filename wraps to four lines (the whole
+  message to five) and its Dismiss button can be clicked; on the previous CSS the
+  button could not be clicked. Wrapping of long Khmer runs was not separately
+  tested.
 - **Recurrence.** The original `stale-save-conflicts.spec.mts:451` case passed
   40 of 40 repetitions on the final branch, against 39 of 40 on `main`. This
   supports the fix but does not prove it; the held controls establish the
@@ -114,10 +116,12 @@ zero retries, on the final branch:
 
 ## 2. Noto Sans Khmer Size 120 with a nonbreaking space
 
-The subcase `Noto Sans Khmer Size 120: hello world` of
+The subcase `Noto Sans Khmer Size 120: hello00a0world` of
 `tests/caption-overflow-native.test.mts` failed on a Windows host with Noto Sans
-Khmer installed. Windows CI skips it because the font is absent. Ubuntu CI runs
-it with the distribution font and passes.
+Khmer installed. Windows CI skips it because the font is absent. Ubuntu CI
+installs `fonts-noto-core` and runs it: the Ubuntu caption-rendering job of
+`main` run 44274847801 reports all three Size 120 subcases passing. That font's
+U+00A0 mapping was not inspected.
 
 Pinned runtime: Windows 11 build 26300, Node 24.13.0, FFmpeg 8.1.1 (libass
 0.17.4, HarfBuzz 14.2.0, FriBidi 1.0.16, DirectWrite). The installed face is
@@ -154,8 +158,7 @@ ink-boundary path, which the existing tests cover. The native file passed with
 portrait captions containing a nonbreaking space may be refused as unverifiable.
 On this face at 2160×3840, the same nonbreaking-space caption was measured as
 fitting at Size 56 and Size 64. Ubuntu CI passes the Size 120 case with its
-distribution Noto Sans Khmer, which maps U+00A0. Other sizes and font versions
-were not tested.
+distribution font. Other sizes and font versions were not tested.
 
 ## 3. Original-video `ERR_INVALID_HTTP_RESPONSE`
 
@@ -180,14 +183,16 @@ three paused seeks, including one near 35.03 seconds.
 The table counts the 20 completed runs: 114 original GETs, zero invalid
 responses, every seek passed, zero preparation requests. Excluded as incomplete,
 because they stopped before the media workload:
-- six earlier headless attempts, whose first-frame observer failed;
+- six earlier headless attempts: five timed out waiting for the first frame and
+  one timed out opening the editor;
 - three editor starts interrupted by the first-run settings dialog.
 
-Synthetic media never produced the historical many-range regime: about 5–6
-requests per run, against 176–199. Two hypotheses remain: the anomaly may depend
+Completed runs passed all 60 paused seeks. Synthetic media never produced the
+historical many-range regime: 5–7 requests per run, against 176–199. Two hypotheses remain: the anomaly may depend
 on properties of the original footage's container or interleaving, or on that
-heavy request regime. Neither is established, and these controls also differed
-from the historical ones in browser build and harness. File size, bitrate and
+heavy request regime. Neither is established. The controls used the same Chrome version
+as the qualifying historical capture, but a different harness and, for the
+earlier headless controls, a different browser mode. File size, bitrate and
 cache headers alone did not trigger it in these runs.
 
 **Agreed diagnostic design for the next step** (not run):
@@ -255,8 +260,8 @@ the separate React render and commit totals were **not distinguished**.
    suggests, but does not prove, that the layout work simply moved rather than
    disappeared.
 2. *Row rendering containment* (`content-visibility:auto`,
-   `contain-intrinsic-size:auto 133px`, from a measured median row height of
-   132.7 px).
+   `contain-intrinsic-size:auto 132.6875px`, the measured median row
+   height).
    - At 4×, opening fell to 3.87 s from 9.32 s, beyond baseline spread in all
      three pairs. Style and layout each fell by about 2.3 s.
    - First native focus rose from 4.6 s to 10.5 s, and first usable edit from
@@ -304,8 +309,8 @@ reload succeeded. All 403 successful forwarded responses advertised
 - The server's keep-alive timer starts at server-side response completion, which
   the trace does not record. The trace also lacks socket identity.
 
-No local reproduction was attempted. The same shard passed on the later `main`
-run and on this PR's CI runs. A keep-alive expiry race (5 s server timeout
+No local reproduction was attempted. Ubuntu browser shard 1 passed on the later
+`main` run 44274847801 and on this PR's CI run 44301362166. A keep-alive expiry race (5 s server timeout
 against client socket reuse) can therefore be **neither confirmed nor
 excluded**. The cause is **not
 established**. Neither keep-alive, timeout nor retry behaviour is changed. A
