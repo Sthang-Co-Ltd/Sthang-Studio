@@ -318,6 +318,22 @@ bounded socket-lifecycle recorder stays local until a controlled failure
 demonstrates a unique client/server join, retained artifacts and acceptable
 overhead.
 
+**5,000-caption time budget (new occurrence during this PR).** On this PR's
+docs-only head `588b4da`, Ubuntu shard 2 failed
+`large-project-continuation.spec.mts:81` with "Test timeout of 120000ms
+exceeded". The same code had passed on `84cec1a`. The retained trace shows the
+workflow completing:
+- **Restore draft** restored the draft on its first click.
+- All restore assertions passed, Save reached "Saved", and after the final
+  reload the first and middle captions matched.
+- The test's total budget ran out during the last-caption assertion, so the
+  reported empty value reflects teardown, not lost data.
+- Individual Playwright actions took about 1 s each on that runner.
+
+#118 recorded the same near-budget behaviour for this test. It is a test-budget
+intermittent, not a product regression. The 120-second budget and the
+eight-second assertion bounds are unchanged.
+
 ## 6. Historical prepared-copy decode incident
 
 The incident needs the exact 3,789,112-byte prepared copy with SHA-256
