@@ -40,7 +40,10 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 });
 
-const field = (page: Page, index: number) => page.getByRole('textbox', { name: `Caption ${index + 1} text`, exact: true });
+// Fixture IDs identify the row without repeating an accessibility scan of all
+// 5,000 rows. Still require the native textbox's exact role and accessible name.
+const field = (page: Page, index: number) => page.locator(`[data-caption-id="scale-${index}"]`)
+  .getByRole('textbox', { name: `Caption ${index + 1} text`, exact: true });
 const recoveryNotice = (page: Page) => page.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
 // Keep the accessibility-role assertion, but avoid scanning all 5,000 caption
 // rows for a notice that is owned by the small, persistent toast stack.
