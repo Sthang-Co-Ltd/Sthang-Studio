@@ -1,0 +1,299 @@
+# Reliability follow-up after #118 (source only)
+
+This report covers six items left open after #118. Each item was checked against
+current `main` (`1ca9a5af09026612f3352adaa847cbd9f8b78ff9`) before any change.
+Raw traces, logs, synthetic media records and diagnostic diffs were kept in a
+local, git-ignored evidence folder. No private media, project, path or raw
+network capture is included here.
+
+| Item | Status |
+| --- | --- |
+| 1. Restore draft failure on `main` | **Fixed** (product geometry defect; regression added) |
+| 2. Noto Sans Khmer Size 120 nonbreaking-space test | **Test contract corrected**; production unchanged; legacy-font false refusal documented |
+| 3. Original-video `ERR_INVALID_HTTP_RESPONSE` | **Still under investigation**; not reproduced with synthetic media |
+| 4. 5,000-caption opening and scrolling | **Still under investigation**; bottleneck attributed, two candidates measured and rejected |
+| 5. Intermittent Windows renderer timeout and Vite `ECONNRESET` | **Not reproduced**; Vite cause not established |
+| 6. Historical prepared-copy decode incident | **Blocked** on the exact artifact |
+
+## 1. Restore draft failure
+
+### Symptom
+
+At the #118 merge, Ubuntu browser shard 4 failed
+`tests/browser/stale-save-conflicts.spec.mts:451`. After a reload, the test
+waited for an enabled **Restore draft**, clicked it once and expected the Khmer
+draft within eight seconds. The original caption stayed visible.
+
+### Evidence
+
+- The retained CI trace shows one click on the Restore button with no
+  interception retry. After it there was no network request, no "Checking
+  draft…" state and no notice; the offer stayed enabled for eight seconds.
+- The unchanged test failed once in 40 repetitions on Windows, with the same
+  symptom.
+- In both failures the clipped toast body had an internal scroll offset during
+  the toast's entrance (0 → 55 px in CI, 0 → 99 px locally) that later returned
+  to 0. The failure screenshot shows the button about 42 px below the point that
+  was clicked.
+- A held-entrance control isolated the mechanism. Playwright's scroll-into-view
+  scrolled the still-clipped `.toast-slot-body` (an `overflow:hidden` scroll
+  container) to reveal Restore. On press, focus applied
+  `.toast-slot-body:focus-within{overflow:visible}`. That reset the offset and
+  moved the button 137 px down before release, so the click landed on the
+  surrounding section. The restore handler never ran, and the offered recovery
+  copy was still present.
+- 150 instrumented natural repetitions (110 under CPU contention) all passed.
+  Each one listed the old page's final recovery copy, found it present at the
+  click, and entered the canonical read. Recovery-copy churn across the reload
+  was therefore not the cause.
+
+The defect is in the product. Any programmatic or focus-driven scroll of a
+still-clipped toast could move its action between press and release. The test's
+precondition was correct and the test is unchanged.
+
+### Change
+
+- `.toast-slot-body` now uses `overflow:clip` with `min-width:0` and
+  `min-height:0`. It is no longer a scroll container, so focus cannot move an
+  entering action. Every production build target (`apps/web/vite.config.ts`)
+  supports `overflow:clip`. `min-width:0` keeps a long unbroken notice inside a
+  narrow stack, because a non-scroll-container grid item otherwise takes a
+  content-based minimum width. The focus-within overflow rule, entrance and exit
+  transitions, inert exit and stack scrolling are unchanged.
+- Investigation also exposed a separate, reachable defect in the same action. If
+  the offered recovery copy was removed or rewritten before **Restore draft**, the
+  action refreshed silently. It now announces "That recovery copy was removed or
+  changed. Your current project is kept." This is the same message as the
+  existing post-read refusal. It then refreshes the offer and requires a fresh
+  choice. Focus follows the shared toast contract: the remaining Restore action
+  if another copy exists, otherwise the control used before the notice, or
+  Project details. Exact-record authority, the canonical read, revision
+  ownership and correction-evidence suppression are unchanged.
+
+### Verification
+
+- New held-entrance tests at 1440 and 390 px fail on the previous CSS (internal
+  offset 137 and 152 px) and pass with the change. One ordinary unforced click
+  restores the draft with exactly one canonical read. A keyboard variant shows
+  unchanged geometry on Tab, and Enter restores.
+- Refusal tests cover a removed copy, with focus returning to a caption field or
+  Project details, and a same-key rewritten copy, where a second deliberate
+  activation restores the replacement. Both perform zero restore reads and zero
+  project writes. A 390 px export-completion toast with a long unbroken filename
+  stays within the stack.
+- The original case passed 40 of 40 repetitions after the change, against 39 of
+  40 before. This supports the fix but does not prove it; the held control
+  establishes the mechanism.
+- Before the `min-width` revision, 13 further toast and recovery specs passed
+  locally (91 cases). After it, edit-recovery unit tests (99), the recovery
+  browser spec (21), the stale-save, appearance-recovery and menu specs (31),
+  typecheck, build and brand verification passed again. All runs used one worker
+  and zero retries.
+- Safari mouse activation can leave focus on the page body. The shared focus
+  hook then performs no handoff, as on the existing post-read path. This is
+  untested and unchanged.
+
+## 2. Noto Sans Khmer Size 120 with a nonbreaking space
+
+The subcase `Noto Sans Khmer Size 120: hello world` of
+`tests/caption-overflow-native.test.mts` failed on a Windows host with Noto Sans
+Khmer installed. Windows CI skips it because the font is absent. Ubuntu CI runs
+it with the distribution font and passes.
+
+Pinned runtime: Windows 11 build 26300, Node 24.13.0, FFmpeg 8.1.1 (libass
+0.17.4, HarfBuzz 14.2.0, FriBidi 1.0.16, DirectWrite). The installed face is
+Noto Sans Khmer Regular version 1.30 (2013), SHA-256
+`b122766dedf4af57abc999c04c43eeaef48571c013ef1f388d9d7e6cffc6690a`. It maps
+U+0020 but has no U+00A0 mapping.
+
+The validator assigns a missing whitespace mapping the face's maximum advance
+(2.0996 em). That keeps distant ink after blank runs inside the inspection
+canvas. At Size 120 on 2160×3840 this widens the guard to 2,337 px. The padded
+canvas then needs 36,630,240 pixels, above the 32,000,000-pixel safety cap. The
+caption is refused as *unverifiable* before native measurement, with the message
+"Caption bounds could not be safely checked. Reduce Size…". A separate padded
+render showed the ink inside the allowed frame, on one line. The nonbreaking
+space was drawn by a fallback face about 22 px wider than the primary face's
+space.
+
+**Classification:** the renderer's output is correct. The validator's refusal is
+a conservative false refusal specific to this legacy face, and the test's fit
+expectation was wrong for it. Raising the cap, substituting the primary space
+advance, or calibrating a sentinel string were each rejected as unsound. The
+fallback face's spacing is unknown in advance, and an underestimate accumulates
+across long nonbreaking runs, which could let disconnected ink escape inspection.
+
+**Change (tests only):** for that exact regular-face hash, the subcase now
+requires `CaptionOverflowError` with kind `unverifiable`. Every other face must
+still fit, which is verified by a mismatched-hash control. A new two-island case
+(`hello` + 200 × U+00A0 + `hello`) must never fit. On this host the allocation
+guard refuses it first, so it shows fail-closed behaviour rather than the
+ink-boundary path, which the existing tests cover. The native file passed with
+25 tests and the 2 existing Noto Serif skips.
+
+**Known limitation:** with this 2013 Noto Sans Khmer face installed, large 4K
+portrait captions containing a nonbreaking space may be refused as unverifiable.
+Choosing a smaller Size or a current Noto Sans Khmer release avoids it.
+
+## 3. Original-video `ERR_INVALID_HTTP_RESPONSE`
+
+Earlier isolated Windows/Chrome controls with private footage recorded invalid
+responses while playback and seeking passed. Those controls issued 176–199
+original range requests per run, almost all canceled. One qualifying capture
+showed a fresh socket whose first 4,096-byte receive did not begin with an HTTP/1
+status line and contained a NUL. The cause remains unknown. No serving change is
+made.
+
+New privacy-safe attempts used deterministic synthetic H.264/AAC media through
+the production `/media` route in headed Chrome 157.0.8103.79, with a bare video
+element and with the Studio editor. Each run needed 40 seconds of playback and
+three paused seeks, including one near 35.03 seconds.
+
+| Synthetic control | Runs | Original GETs | Invalid responses |
+| --- | --- | --- | --- |
+| 35 MB, 64 s, default cache headers | 7 | 41 | 0 |
+| Same media, single variable `Cache-Control: private, no-store` (6) with interleaved default controls (2) | 8 | 48 | 0 |
+| 607 MB, 5 min, ~16 Mbit/s, `no-store` (3) and default (2) | 5 | 25 | 0 |
+
+All runs completed playback and every seek, with zero preparation requests.
+Synthetic media never produced the historical many-range regime: about 5–6
+requests per run, against 176–199. The anomaly therefore appears to depend on
+properties of the original footage's container or interleaving, or on that
+request regime. Size, bitrate and cache headers alone did not trigger it.
+
+**Agreed diagnostic design for the next step** (not run):
+
+1. Reproduce first with the exact original-only workload.
+2. Join three observation points on one failing connection:
+   - the server's accepted connection, recording bytes *submitted to the socket*
+     with chunk, encoding and backpressure preserved, its four-tuple, lifetime,
+     first request ordinal and range;
+   - an independent loopback transport observation;
+   - Chrome's request → stream → socket → parser graph from a late-started,
+     bounded NetLog.
+3. Compare equal-length ordered prefixes across chunk boundaries. Export only
+   equality flags, structural classes, lengths, ordering and loss counters.
+4. Treat as inconclusive any missing bytes, tuple-reuse ambiguity, truncated
+   capture or unfinished NetLog finalization.
+5. Require both a uniquely joined server-side fault and a single-variable causal
+   control before any serving change.
+
+Moving forward needs a decision from the owner. Either a container-structure-only
+description of the original footage is approved (box layout and sample
+interleaving, no media content), so a structurally matched synthetic file can be
+built, or a supervised joined capture with that footage is authorized. An
+independent kernel-level loopback capture needs separate authorization for
+administrator, machine-wide capture.
+
+## 4. Large-project responsiveness
+
+All measurements below are synthetic. They use 5,000 Khmer/mixed captions and
+four seconds of synthetic media, run against a production build on one Windows
+x64 machine (i5-12500), in headless Chromium 153 with optional 4× CPU throttling.
+They are timing proxies, not physical display latency. Every caption row stays
+mounted: 5,000 text fields and 10,000 timestamp inputs.
+
+**Current baseline at `1ca9a5a`.** Medians are shown with their range across
+unprofiled runs.
+
+| Metric | 1× CPU | 4× CPU |
+| --- | --- | --- |
+| Open to two frames | 1.72 s [1.62–1.87] | 9.32 s [8.76–9.61] |
+| All rows ready | 1.39 s [1.36–1.47] | 8.19 s [7.88–9.05] |
+| First usable edit (includes Playwright lookup and focus) | 3.13 s [2.97–3.24] | 16.9 s [16.1–18.7] |
+| Steady-scroll p95 frame gap | 41.7 ms [33.3–50.0] | 191.7 ms [183.3–316.6] |
+| Release to Saved | 131 ms [128–139] | 504 ms [449–541] |
+
+An earlier three-run baseline in the same session gave 9.55 s [9.37–9.63] at 4×.
+That is the same order as the roughly 10.9 s recorded in #117.
+
+**Attribution (4×).** In the opening window, style recalculation took about
+2.45 s, layout about 2.46 s and script about 3.28 s. In every opening profile, the
+largest sampled leaf was the synchronous grid-width read in
+`apps/web/src/components/EditorLayout.tsx:103`, at 4.7–5.8 s of sampled self
+time. That read forces style and layout for the whole mounted list. Steady-scroll
+gaps of up to about 250 ms occurred with no recorded style or layout in their
+windows. Their individual cause (paint, raster, compositor or scheduling) and
+the separate React render and commit totals were **not distinguished**.
+
+**Candidates measured as alternating matched pairs, then rejected:**
+
+1. *Read the desktop grid width from the viewport instead of the element.*
+   Opening stayed within baseline variability, with per-pair changes of +83,
+   −121 and −14 ms at 4×. First usable edit was slower in every pair. The forced
+   layout simply moves to the first paint.
+2. *Row rendering containment* (`content-visibility:auto`,
+   `contain-intrinsic-size:auto 133px`, from a measured median row height of
+   132.7 px).
+   - At 4×, opening fell to 3.87 s from 9.32 s, beyond baseline spread in all
+     three pairs. Style and layout each fell by about 2.3 s.
+   - First native focus rose from 4.6 s to 10.5 s, and first usable edit from
+     16.9 s to 34.7 s.
+   - Scroll gaps above 100 ms during pending and acknowledged saves rose from 7–8
+     to 30 of 35 frames.
+   - A middle row moved 420 px while the user typed, and scroll height drifted by
+     104,538 px over a full scroll.
+   - Five row-menu tests and two 5,000-caption continuation tests failed;
+     baseline passed 29 of 29.
+   - App Find and browser `window.find` behaved as on baseline.
+
+   This breaks the caption-list viewport-stability invariant, so it cannot ship
+   in this form.
+
+**Status: still under investigation.** The opening cost is attributed to style
+and layout of the fully mounted list. Containment shows the potential saving is
+large: about 5.4 s at 4×. Capturing it without moving the edited row, breaking
+menus or delaying focus needs an interaction design, such as exact retained row
+heights or windowed rendering with stable geometry. That should be agreed
+separately, not added to this reliability fix. No product change is made for this
+item.
+
+## 5. Intermittent test failures
+
+**Windows persistent renderer.** The #118 PR-head failure began with
+`persistent native preview preserves exact spoken-word paint states…`, which
+failed `0 !== 8` after 5.6 s. Four persistent tests followed with errors
+consistent with the 60-second fallback cooldown. The initiating exception was not
+retained. Five local invocations of the CI commands passed with the opt-in
+recorder: four concurrent renderer suites plus one isolated run, on Node 24.22.1
+x64 and FFmpeg 8.1.1. Each time the spoken-word test made eight seed writes and
+produced eight frames, with no fallback. **Not reproduced.** The watchdog,
+fallback and tests are unchanged. The hosted recorder gate stays scoped to its
+original approval.
+
+**Vite `ECONNRESET`.** On Ubuntu shard 1, seven Playwright `route.fetch` forwards
+to the owned Vite server failed with `read ECONNRESET` during a reload. They
+started within 4 ms of each other in a 53-request burst, while other requests in
+that burst succeeded. The last successful forward ended 3 ms earlier. No forward
+in the test's trace ended about 5 s before the reset, so a simple keep-alive
+expiry inside that context is not supported. The trace lacks socket identity, so
+the cause is **not established**. Neither keep-alive, timeout nor retry
+behaviour is changed. A bounded socket-lifecycle recorder stays local until a
+controlled failure demonstrates a unique client/server join, retained artifacts
+and acceptable overhead.
+
+## 6. Historical prepared-copy decode incident
+
+The incident needs the exact 3,789,112-byte prepared copy with SHA-256
+`0fefbc12ef87ff92d67a8e6e16e41866569d8dd541c05fce947b13f13c1ab090`. A bounded
+re-scan of the Studio checkout and its 39 existing registered worktrees found no
+file of that exact size. Dependency, `.git` and virtual-environment folders were
+pruned, and six registered worktree paths no longer exist. The previously
+approved private upload folder was not searched again without authorization.
+**Blocked.** Another file is not a valid substitute, and no fix is claimed.
+
+## Out-of-scope observation
+
+On this Windows host, a native portrait preview fixture used by a large-project
+correctness case returned "Caption bounds could not be safely checked" on
+unchanged `main`. The request and response were byte-identical with and without
+the profiling prototype. It was not investigated further here.
+
+## Public impact
+
+- Item 1: **none.** The recovery workflow, its claims and data handling are
+  unchanged. The source recovery guide documents the refusal notice and focus.
+- Item 2: **none.** No supported behaviour changes; the legacy-font limitation
+  is documented here.
+- Items 3, 4, 5, 6: **none.** These are local diagnostics, measurements and
+  reporting only; no product code changed for them.
