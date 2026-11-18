@@ -24,26 +24,119 @@ function New-TestZip([string]$Path, [object[]]$Entries) {
 }
 
 try {
+  $ArchiveScripts = @(
+    'scripts\install-new-pc.ps1',
+    'scripts\package-macos-release.ps1',
+    'scripts\package-ota-release.ps1',
+    'scripts\package-windows-release.ps1',
+    'scripts\windows-managed-runtime.ps1'
+  )
   $Scripts = @(
     'scripts\launch-studio.ps1',
-    'scripts\windows-managed-runtime.ps1',
+    'scripts\windows-archive.ps1',
     'scripts\setup-local-timing-windows.ps1',
     'scripts\setup-windows-reviewed-node.ps1',
     'scripts\prepare-studio-update.ps1',
-    'scripts\package-ota-release.ps1',
-    'scripts\package-windows-release.ps1',
     'scripts\install-release-package.ps1',
     'scripts\stage-ota-candidate.ps1',
     'scripts\stage-macos-ota-candidate.ps1',
     'scripts\deploy-ota-signer.ps1'
-  )
+  ) + $ArchiveScripts
   foreach ($Relative in $Scripts) {
     $Tokens = $null
     $Errors = $null
-    [Management.Automation.Language.Parser]::ParseFile((Join-Path $Root $Relative), [ref]$Tokens, [ref]$Errors) | Out-Null
+    $Ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $Root $Relative), [ref]$Tokens, [ref]$Errors)
     if ($Errors.Count -gt 0) {
       throw "$Relative has PowerShell syntax errors: $($Errors[0].Message)"
     }
+    if ($ArchiveScripts -contains $Relative) {
+      $DirectExpand = $Ast.Find({
+        param($Node)
+        $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -match '(^|\\)Expand-Archive$'
+      }, $true)
+      Assert-True ($null -eq $DirectExpand) "$Relative must use Expand-StudioArchive for ZIP extraction."
+      Assert-True ($Ast.Extent.Text -match '(?m)^\s*\.\s+\(Join-Path \$PSScriptRoot ''windows-archive\.ps1''\)') "$Relative must dot-source windows-archive.ps1 beside itself."
+    }
+  }
+  Write-Host 'Archive caller static checks passed.'
+
+  $ShadowRoot = Join-Path $TempRoot 'shadow-modules'
+  $ShadowFolder = Join-Path $ShadowRoot 'Microsoft.PowerShell.Archive\99.0.0'
+  New-Item -ItemType Directory -Path $ShadowFolder -Force | Out-Null
+  $ShadowManifest = Join-Path $ShadowFolder 'Microsoft.PowerShell.Archive.psd1'
+  Set-Content -LiteralPath $ShadowManifest -Encoding ASCII -Value @'
+@{
+  RootModule = 'Microsoft.PowerShell.Archive.psm1'
+  ModuleVersion = '99.0.0'
+  FunctionsToExport = @('Expand-Archive')
+}
+'@
+  Set-Content -LiteralPath (Join-Path $ShadowFolder 'Microsoft.PowerShell.Archive.psm1') -Encoding ASCII -Value @'
+function Expand-Archive { throw 'shadow archive module used' }
+'@
+
+  $ArchiveZip = Join-Path $TempRoot 'archive[fixture].zip'
+  New-TestZip $ArchiveZip @(, @('file.txt', 'archive fixture'))
+  $ArchiveFixture = Join-Path $TempRoot 'archive-fixture.ps1'
+  Set-Content -LiteralPath $ArchiveFixture -Encoding ASCII -Value @'
+param(
+  [ValidateSet('ShadowControl', 'ShadowPath', 'ShadowLoaded', 'Core')][string]$Mode,
+  [string]$Helper,
+  [string]$Zip,
+  [string]$Destination,
+  [string]$ShadowManifest
+)
+$ErrorActionPreference = 'Stop'
+
+if ($Mode -eq 'ShadowControl') {
+  $ShadowUsed = $false
+  try { Expand-Archive -LiteralPath $Zip -DestinationPath $Destination }
+  catch { $ShadowUsed = $_.Exception.Message -eq 'shadow archive module used' }
+  if (-not $ShadowUsed) { throw 'Bare Expand-Archive did not fail with the shadow module error.' }
+  Write-Host 'Bare Expand-Archive reproduced the shadow module error.'
+  return
+}
+
+if ($Mode -eq 'ShadowLoaded') {
+  Import-Module -Name $ShadowManifest -ErrorAction Stop
+}
+
+. $Helper
+Expand-StudioArchive -LiteralPath $Zip -DestinationPath $Destination
+$File = Join-Path $Destination 'file.txt'
+if ((Get-Content -LiteralPath $File -Raw) -ne 'archive fixture') {
+  throw 'Archive extraction did not preserve the fixture content.'
+}
+Set-Content -LiteralPath $File -Value 'overwritten content'
+Expand-StudioArchive -LiteralPath $Zip -DestinationPath $Destination -Force
+if ((Get-Content -LiteralPath $File -Raw) -ne 'archive fixture') {
+  throw 'Archive extraction with -Force did not overwrite the fixture.'
+}
+
+$MissingRejected = $false
+try { Expand-StudioArchive -LiteralPath (Join-Path (Split-Path -Parent $Zip) 'missing.zip') -DestinationPath $Destination }
+catch { $MissingRejected = $_.FullyQualifiedErrorId -like 'ArchiveCmdletPathNotFound,*' }
+if (-not $MissingRejected) { throw 'The missing ZIP did not raise the expected archive error.' }
+Write-Host "$Mode extraction, -Force overwrite and missing ZIP checks passed."
+'@
+  $ArchiveFixtureArgs = @('-Helper', (Join-Path $Root 'scripts\windows-archive.ps1'), '-Zip', $ArchiveZip, '-ShadowManifest', $ShadowManifest)
+  $OriginalModulePath = $env:PSModulePath
+  try {
+    $env:PSModulePath = $ShadowRoot + [IO.Path]::PathSeparator + $OriginalModulePath
+    foreach ($Mode in @('ShadowControl', 'ShadowPath', 'ShadowLoaded')) {
+      & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ArchiveFixture @ArchiveFixtureArgs -Mode $Mode -Destination (Join-Path $TempRoot $Mode)
+      Assert-True ($LASTEXITCODE -eq 0) "Windows PowerShell archive fixture '$Mode' failed."
+    }
+  } finally {
+    $env:PSModulePath = $OriginalModulePath
+  }
+
+  $Pwsh = Get-Command -Name pwsh -CommandType Application -ErrorAction SilentlyContinue
+  if ($Pwsh) {
+    & $Pwsh.Source -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ArchiveFixture @ArchiveFixtureArgs -Mode Core -Destination (Join-Path $TempRoot 'Core')
+    Assert-True ($LASTEXITCODE -eq 0) 'PowerShell Core archive fixture failed.'
+  } else {
+    Write-Host 'PowerShell Core archive fixture skipped because pwsh is not on PATH.'
   }
 
   . (Join-Path $Root 'scripts\prepare-studio-update.ps1') -LibraryOnly

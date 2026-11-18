@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows-archive.ps1')
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
@@ -92,7 +93,7 @@ try {
   & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$PayloadZip" HEAD -- @PayloadPaths
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the tracked release payload.' }
 
-  Expand-Archive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
+  Expand-StudioArchive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
 
   $InstallerTemplate = Join-Path $Root 'packaging\windows\Install Sthang Studio.bat'
   $ReadmeTemplate = Join-Path $Root 'packaging\windows\Read Me.txt'
