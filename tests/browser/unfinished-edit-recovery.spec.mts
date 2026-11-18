@@ -105,7 +105,7 @@ async function expectCapturedWhileFocused(page: Page, field: Locator, text: stri
   }), text)).toBe(true);
 }
 
-async function reloadAndReopen(page: Page) {
+async function reloadAndReopen(page: Page, beforeOpen?: () => Promise<void>) {
   const acceptUnload = async (dialog: import('@playwright/test').Dialog) => {
     expect(dialog.type()).toBe('beforeunload');
     await dialog.accept();
@@ -113,6 +113,7 @@ async function reloadAndReopen(page: Page) {
   page.on('dialog', acceptUnload);
   try { await page.reload(); }
   finally { page.off('dialog', acceptUnload); }
+  if (beforeOpen) await beforeOpen();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeVisible();
 }
@@ -135,6 +136,58 @@ function noLearningOrGeneration(state: FixtureState) {
   expect(state.profile.correctionEvents).toEqual([]);
   expect(state.requests.filter((request) => request.method === 'POST' &&
     /(?:\/jobs|\/transcribe|\/regenerate-range|\/refine-proposal|\/postprocess-timing|\/resegment|\/caption-word-timing(?:\/batch-apply)?|\/corrections|\/contribution(?:\/|$))/.test(request.path))).toEqual([]);
+}
+
+async function prepareCaptionRecovery(page: Page, holdEntrance = false) {
+  const { state, original } = await fixture(page);
+  const text = 'Draft wording before recovery activation';
+  const caption = page.getByLabel('Caption 1 text', { exact: true });
+  await openProject(page);
+  await caption.fill(text);
+  await expectCapturedWhileFocused(page, caption, text);
+  await reloadAndReopen(page, holdEntrance ? async () => {
+    // Freeze the real entrance geometry 45 ms into its 140 ms motion. Only the
+    // slot is held; the body keeps its production clipping and focus behavior.
+    const style = await page.addStyleTag({ content: `
+      @keyframes held-recovery-entrance {
+        from { grid-template-rows: 0fr; margin-bottom: -8px; }
+        to { grid-template-rows: 1fr; margin-bottom: 0px; }
+      }
+      .toast-slot[data-motion-state="open"]:has(.unfinished-recovery) {
+        transition: none;
+        animation: held-recovery-entrance 140ms ease -45ms both paused;
+      }
+    ` });
+    await style.evaluate((node) => { node.id = 'held-recovery-entrance'; });
+  } : undefined);
+  const notice = recoveryNotice(page);
+  const restore = notice.getByRole('button', { name: 'Restore draft', exact: true });
+  await expect(restore).toBeEnabled();
+  await expect(caption).toHaveValue(original.captions[0].text);
+  const start = state.requests.length;
+  const path = `/api/projects/${original.id}`;
+  return {
+    state, original, caption, text, notice, restore,
+    projectReads: () => state.requests.slice(start).filter((request) => request.method === 'GET' && request.path === path),
+    projectWrites: () => state.requests.slice(start).filter((request) =>
+      (request.method === 'PUT' || request.method === 'POST') && (request.path === path || request.path.startsWith(`${path}/`))),
+  };
+}
+
+async function changeOfferedCopy(page: Page, replacement?: string) {
+  await page.evaluate((text) => {
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith('sthang-studio:unfinished-edits:'));
+    if (keys.length !== 1) throw new Error(`Expected one offered copy, found ${keys.length}`);
+    const [key] = keys;
+    if (text === undefined) {
+      localStorage.removeItem(key);
+      return;
+    }
+    const draft = JSON.parse(localStorage.getItem(key)!) as RecoveryDraft;
+    if (!draft.captions?.length) throw new Error('Expected an offered caption draft');
+    draft.captions[0].text = text;
+    localStorage.setItem(key, JSON.stringify(draft));
+  }, replacement);
 }
 
 test('clean sessions and normalized Accuracy fields do not install an unload guard or create recovery', async ({ page }) => {
@@ -201,6 +254,85 @@ test('a focused unsaved caption survives reload and explicit recovery without ap
   await reloadAndReopen(page);
   await expect(caption).toHaveValue(text);
   await expect(recoveryNotice(page)).toHaveCount(0);
+});
+
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`a held recovery entrance keeps pointer activation stable at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const f = await prepareCaptionRecovery(page, true);
+
+    const geometry = await f.restore.evaluate((button) => {
+      const body = button.closest<HTMLElement>('.toast-slot-body')!;
+      const clip = body.getBoundingClientRect();
+      const clipped = clip.height > 0 && button.getBoundingClientRect().bottom > clip.bottom;
+      button.scrollIntoView({ block: 'center', inline: 'nearest' });
+      return { clipped, scrollTop: body.scrollTop };
+    });
+    expect(geometry.clipped).toBe(true);
+    expect(geometry.scrollTop).toBe(0);
+
+    await page.locator('#held-recovery-entrance').evaluate((style) => style.remove());
+    await f.restore.click();
+    await expect(f.caption).toHaveValue(f.text);
+    await expect(page.locator('[data-project-entry-focus]')).toBeFocused();
+    expect(f.projectReads()).toHaveLength(1);
+    expect(f.projectWrites()).toEqual([]);
+  });
+}
+
+test('a held recovery entrance keeps Restore stable on Tab and accepts Enter', async ({ page }) => {
+  const f = await prepareCaptionRecovery(page, true);
+  await f.notice.locator('summary').focus();
+  const before = await f.restore.boundingBox();
+  await page.keyboard.press('Tab');
+  await expect(f.restore).toBeFocused();
+  const after = await f.restore.boundingBox();
+  if (!before || !after) throw new Error('Expected Restore bounds before and after Tab');
+  expect(Math.max(Math.abs(before.x - after.x), Math.abs(before.y - after.y),
+    Math.abs(before.width - after.width), Math.abs(before.height - after.height))).toBeLessThanOrEqual(1);
+
+  await page.locator('#held-recovery-entrance').evaluate((style) => style.remove());
+  await page.keyboard.press('Enter');
+  await expect(f.caption).toHaveValue(f.text);
+});
+
+test('activating Restore for a removed copy explains the refusal and returns focus to the project', async ({ page }) => {
+  const f = await prepareCaptionRecovery(page);
+  await changeOfferedCopy(page);
+  await f.restore.click();
+
+  await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
+  await expect(f.notice).toHaveCount(0);
+  await expect(page.locator('[data-project-entry-focus]')).toBeFocused();
+  await expect(f.caption).toHaveValue(f.original.captions[0].text);
+  await expect(page.locator('.save-action')).toBeDisabled();
+  expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
+  expect(f.projectReads()).toHaveLength(0);
+  expect(f.projectWrites()).toEqual([]);
+});
+
+test('activating Restore for a rewritten copy requires a fresh activation of the replacement', async ({ page }) => {
+  const f = await prepareCaptionRecovery(page);
+  const replacement = 'Replacement draft wording requires a fresh choice';
+  await f.notice.locator('summary').click();
+  await expect(f.notice.getByText(f.text, { exact: true })).toBeVisible();
+  await changeOfferedCopy(page, replacement);
+  await f.restore.click();
+
+  await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
+  await expect(f.caption).toHaveValue(f.original.captions[0].text);
+  await expect(page.locator('.save-action')).toBeDisabled();
+  expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
+  expect(f.projectReads()).toHaveLength(0);
+  expect(f.projectWrites()).toEqual([]);
+  await expect(f.notice.getByText(replacement, { exact: true })).toBeVisible();
+  const openRestore = page.locator('.toast-slot[data-motion-state="open"]').getByRole('button', { name: 'Restore draft', exact: true });
+  await expect(openRestore).toBeEnabled();
+  await expect(openRestore).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await expect(f.caption).toHaveValue(replacement);
+  expect(f.projectReads()).toHaveLength(1);
 });
 
 test('a failed caption save remains actionable after notice expiry and Retry save clears the guard', async ({ page }, testInfo) => {

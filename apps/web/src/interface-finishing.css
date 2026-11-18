@@ -1,6 +1,7 @@
 /* Notification geometry is confined to the existing fixed stack. */
 .toast-slot{min-width:0;display:grid;grid-template-rows:1fr;border-radius:10px;box-shadow:0 10px 24px #0004;transition:grid-template-rows 140ms ease,margin-bottom 140ms ease}
-.toast-slot-body{min-height:0;overflow:hidden}
+/* Clip without creating a scroll container: focus must never move an entering action. Every build target in apps/web/vite.config.ts supports overflow:clip. */
+.toast-slot-body{min-height:0;overflow:clip}
 .toast-slot-body:focus-within{overflow:visible}
 .toast-stack .toast-slot .toast,.toast-stack .toast-slot .job-toast{box-shadow:none}
 .toast-slot[data-motion-state=closed]{grid-template-rows:0fr;margin-bottom:-8px;pointer-events:none}

@@ -2832,7 +2832,15 @@ export default function App() {
 
   const restoreUnfinishedDraft = async (entry: RecoveryEntry) => {
     if (!project || busy || recoveryRead.current || mediaMutationInFlight.current || wordBatchMutation.current || currentProjectAnyActiveJob) return;
-    if (!recoveryStore.contains(entry)) { refreshUnfinishedRecoveries(); return; }
+    if (!recoveryStore.contains(entry)) {
+      const focusRequest = projectNavigationFocus.capture();
+      setNotice('That recovery copy was removed or changed. Your current project is kept.');
+      refreshUnfinishedRecoveries();
+      projectNavigationFocus.complete(focusRequest, () =>
+        document.querySelector<HTMLElement>('.toast-slot[data-motion-state="open"] .unfinished-recovery .primary:not(:disabled)')
+        || document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+      return;
+    }
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current || currentAppearanceSave().status !== 'saved') {
       setNotice('Save your current edits before restoring another draft.');
       return;
