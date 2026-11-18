@@ -521,6 +521,11 @@ release admission` in `tests/media-compatibility.test.mts`, explicitly excluded 
 Windows. The new deletion barrier test controls an admitted preview worker before
 encoding; it does not reproduce a native Windows file-sharing failure.
 
+The later [deletion ordering follow-up](PREVIEW-DELETION-ORDERING-20261118.md)
+reproduced a separate cached-metadata reader timeout after durable deletion.
+Its drain-before-deletion correction and verification are separate from this
+historical preparation-worker result.
+
 One earlier browser prerequisite run failed before Playwright: the native-download
 guard exceeded 60 seconds and a separate API-health probe timed out. Temporary
 phase instrumentation, subsequently removed byte-for-byte, measured a passing

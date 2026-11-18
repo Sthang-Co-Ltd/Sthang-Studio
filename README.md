@@ -198,8 +198,12 @@ Retry restarts the player immediately and
 checks the selected compatible copy; a confirmed missing copy can be rebuilt
 while keeping the editing session. Open copies receive a short renewable local
 cache lease and remain readable during a rebuild; space limits still apply.
+If playback readers cannot finish closing, deletion keeps the saved project and
+original media available so you can retry after playback closes.
 These changes have not been released.
 See [preview reliability evidence and limitations](docs/PREVIEW-RELIABILITY-20261115.md).
+The [deletion ordering follow-up](docs/PREVIEW-DELETION-ORDERING-20261118.md)
+records the reader-drain regression and the limits of this preservation guarantee.
 
 The update preparation closes update/job-start races, requires working Khmer
 timing for updater preparation, and checks bounded API and frontend build/launch

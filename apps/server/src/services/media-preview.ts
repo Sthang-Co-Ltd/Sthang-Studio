@@ -39,7 +39,8 @@ interface PreviewUse {
   aborters: Set<() => void>;
 }
 const entries = new Map<string, Entry>();
-const invalidating = new Set<string>();
+const invalidating = new Map<string, number>();
+const pendingAccess = new Map<string, number>();
 const cacheRoot = path.join(config.cacheDir, 'media-previews');
 const MAX_BYTES = 512 * 1024 * 1024;
 const MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024;
@@ -79,9 +80,24 @@ function projectPreviewInUse(id: string) {
   return false;
 }
 function activeReaders(id: string) {
-  let count = 0;
+  let count = pendingAccess.get(id) || 0;
   for (const [key, use] of activeUses) if (key.startsWith(`${id}/`)) count += use.readers;
   return count;
+}
+function assertPreviewAvailable(id: string) {
+  if (invalidating.has(id)) throw new MediaPreviewError('Media is being changed. Try again shortly.', 409);
+}
+async function withMediaPreviewAccess<T>(id: string, operation: () => Promise<T>): Promise<T> {
+  // Own access before source identity, pointer reads or probing can suspend.
+  // A drain must also wait for readers that have not pinned a filename yet.
+  assertPreviewAvailable(id);
+  pendingAccess.set(id, (pendingAccess.get(id) || 0) + 1);
+  try { return await operation(); }
+  finally {
+    const remaining = pendingAccess.get(id)! - 1;
+    if (remaining) pendingAccess.set(id, remaining);
+    else pendingAccess.delete(id);
+  }
 }
 async function drainPreviewReaders(id: string) {
   for (const [key, use] of activeUses) {
@@ -251,12 +267,15 @@ function ready(project: ProjectMedia, hit: PreviewHit): MediaPreviewStatus {
 }
 
 export async function mediaPreviewStatus(project: ProjectMedia): Promise<MediaPreviewStatus> {
-  if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
+  return withMediaPreviewAccess(project.id, () => readMediaPreviewStatus(project));
+}
+async function readMediaPreviewStatus(project: ProjectMedia): Promise<MediaPreviewStatus> {
   const { signature, source } = await sourceIdentity(project);
-  if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
+  assertPreviewAvailable(project.id);
   const entry = entries.get(project.id);
   if (entry?.signature === signature && entry.status.state === 'processing') return { ...entry.status };
   const hit = await cached(project, signature);
+  assertPreviewAvailable(project.id);
   if (hit && !evicting.has(project.id) && !evictingFiles.has(fileKey(project.id, hit.filename))) {
     touchPreview(project.id, hit.filename);
     return { ...ready(project, hit), ...(entry?.signature === signature && entry.status.state === 'failed'
@@ -264,6 +283,7 @@ export async function mediaPreviewStatus(project: ProjectMedia): Promise<MediaPr
   }
   if (entry?.signature === signature && entry.status.state !== 'ready') return { ...entry.status };
   const info = await inspect(source, signature);
+  assertPreviewAvailable(project.id);
   return { source: project.media.filename, state: 'original', videoCodec: info.videoCodec, progress: 0 };
 }
 
@@ -341,17 +361,20 @@ async function clearAbandonedStages(dir: string, id: string, signature: string, 
 }
 
 export async function startMediaPreview(project: ProjectMedia, options: { force?: boolean } = {}): Promise<MediaPreviewStatus> {
+  return withMediaPreviewAccess(project.id, () => prepareMediaPreview(project, options));
+}
+async function prepareMediaPreview(project: ProjectMedia, options: { force?: boolean }): Promise<MediaPreviewStatus> {
   if (evicting.has(project.id)) throw new MediaPreviewError('Playback storage is being refreshed. Try again shortly.', 409);
-  if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
   const { source, signature } = await sourceIdentity(project);
+  assertPreviewAvailable(project.id);
   const existing = entries.get(project.id);
   if (existing?.signature === signature && existing.status.state === 'processing') return { ...existing.status };
   const hit = await cached(project, signature);
+  assertPreviewAvailable(project.id);
   if (hit && !options.force && !evicting.has(project.id) && !evictingFiles.has(fileKey(project.id, hit.filename))) {
     touchPreview(project.id, hit.filename); return ready(project, hit);
   }
   if (evicting.has(project.id)) throw new MediaPreviewError('Playback storage is being refreshed. Try again shortly.', 409);
-  if (invalidating.has(project.id)) throw new MediaPreviewError('Media is being replaced. Try again shortly.', 409);
   const concurrent = entries.get(project.id);
   if (concurrent?.signature === signature && concurrent.status.state === 'processing') return { ...concurrent.status };
   if (running) throw new MediaPreviewError('Another playback copy is being prepared. Try again when it finishes.', 409);
@@ -450,14 +473,27 @@ export async function cancelMediaPreview(project: ProjectMedia) {
   return entry?.status.source === project.media.filename ? { ...entry.status } : await mediaPreviewStatus(project);
 }
 
-export async function invalidateMediaPreview(projectId: string) {
-  invalidating.add(projectId);
+/** Close preview admission before draining, and keep it closed through the
+ * caller's media mutation. Nested cache invalidation cannot release its owner. */
+export async function withMediaPreviewDrain<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  invalidating.set(projectId, (invalidating.get(projectId) || 0) + 1);
   try {
     const entry = entries.get(projectId);
-    if (entry) { entry.abort.abort(); await entry.done; entries.delete(projectId); }
+    if (entry) { entry.abort.abort(); await entry.done; }
     // Windows cannot reliably unlink an MP4 while sendFile still owns its
     // handle. Media replacement/deletion deliberately ends those streams.
     await drainPreviewReaders(projectId);
+    return await operation();
+  } finally {
+    const remaining = invalidating.get(projectId)! - 1;
+    if (remaining) invalidating.set(projectId, remaining);
+    else invalidating.delete(projectId);
+  }
+}
+
+export async function invalidateMediaPreview(projectId: string) {
+  return withMediaPreviewDrain(projectId, async () => {
+    entries.delete(projectId);
     for (let attempt = 0; ; attempt++) {
       try { await fs.rm(projectDirectory(projectId), { recursive: true, force: true }); break; }
       catch (error) {
@@ -467,12 +503,15 @@ export async function invalidateMediaPreview(projectId: string) {
       }
     }
     for (const key of activeUses.keys()) if (key.startsWith(`${projectId}/`)) activeUses.delete(key);
-  } finally { invalidating.delete(projectId); }
+  });
 }
 
 /** Acquire before awaiting disk metadata, so eviction cannot win between
  * validating a copy and opening its HTTP file stream. */
 export async function acquireMediaPreviewFile(project: ProjectMedia, filename: string, onInvalidate?: () => void) {
+  return withMediaPreviewAccess(project.id, () => readMediaPreviewFile(project, filename, onInvalidate));
+}
+async function readMediaPreviewFile(project: ProjectMedia, filename: string, onInvalidate?: () => void) {
   const { signature } = await sourceIdentity(project);
   if (!validPreviewFilename(signature, filename)) throw new MediaPreviewError('Playback copy expired.', 404);
   const release = retainMediaPreview(project.id, filename, onInvalidate, false);

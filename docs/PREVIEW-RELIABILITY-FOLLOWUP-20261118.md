@@ -8,8 +8,11 @@ separate UX worktree are outside the write scope.
 
 Follow-up status: the current browser regression gate passes. The original-file
 HTTP anomaly remains reproducible, and the historical prepared-copy incident
-cannot be retested without its exact artifact. No additional product-code change
-was justified by this follow-up; the earlier fixes remain at the commit above.
+cannot be retested without its exact artifact. That HTTP/save investigation did
+not justify an additional product-code change; its earlier fixes remain at the
+commit above. The later [deletion ordering follow-up](PREVIEW-DELETION-ORDERING-20261118.md)
+records a separately reproduced product defect and its correction. Historical
+verification and public-impact statements below describe this HTTP/save investigation.
 
 ## Large-project save observation
 
