@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page, type Request } from '@playwright/test';
 import fs from 'node:fs/promises';
-import { hydrateCaptionWordTimings, type CaptionProject, type CaptionSegment, type RegenerationProposal, type TranscriptionContext } from '@kcs/shared';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { hydrateCaptionWordTimings, type CaptionProject, type CaptionSegment, type ProcessingJob, type RegenerationProposal, type TranscriptionContext } from '@kcs/shared';
+import { cleanFixtures, fixtureExportUrl, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import type { RecoveryDraft } from '../../apps/web/src/unfinished-edit-recovery.js';
 import { expectRecoveryOfferReachable } from './recovery-layout.mjs';
 
@@ -190,6 +190,16 @@ async function changeOfferedCopy(page: Page, replacement?: string) {
   }, replacement);
 }
 
+async function expectToastToFitStack(toast: Locator) {
+  const geometry = await toast.evaluate((node) => ({
+    minWidth: getComputedStyle(node.closest('.toast-slot-body')!).minWidth,
+    toastWidth: node.getBoundingClientRect().width,
+    stackWidth: node.closest('.toast-stack')!.clientWidth,
+  }));
+  expect(geometry.minWidth).toBe('0px');
+  expect(geometry.toastWidth).toBeLessThanOrEqual(geometry.stackWidth);
+}
+
 test('clean sessions and normalized Accuracy fields do not install an unload guard or create recovery', async ({ page }) => {
   const f = await fixture(page);
   await openProject(page);
@@ -270,6 +280,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     });
     expect(geometry.clipped).toBe(true);
     expect(geometry.scrollTop).toBe(0);
+    if (viewport.width === 390) await expectToastToFitStack(f.notice);
 
     await page.locator('#held-recovery-entrance').evaluate((style) => style.remove());
     await f.restore.click();
@@ -279,6 +290,33 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     expect(f.projectWrites()).toEqual([]);
   });
 }
+
+test('a long captioned video filename keeps its completion toast within the 390px stack', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { state } = await fixture(page);
+  const filename = `${'Captioned'.repeat(16)}.mp4`;
+  const completedAt = '2026-10-19T15:01:00.000Z';
+  const completed: ProcessingJob = {
+    id: 'long-filename-export', projectId: 'landscape', projectTitle: 'Audit landscape', type: 'export-video',
+    status: 'completed', stage: 'complete', progress: 100, message: 'Captioned video export is ready.',
+    canResume: false, createdAt: '2026-10-19T15:00:00.000Z', updatedAt: completedAt, completedAt,
+    resultExport: { filename, url: fixtureExportUrl(), sizeBytes: 12000, width: 640, height: 360,
+      frameRate: 25, videoCodec: 'h264', encoder: 'libx264', audioCodec: null, durationMs: 4000, createdAt: completedAt },
+  };
+  await page.route('**/api/video-export/landscape/jobs', (route) => {
+    expect(route.request().method()).toBe('POST');
+    state.jobs = [completed];
+    return route.fulfill({ status: 202, json: { ...completed, lastUsedSettingsSaved: true } });
+  });
+  await openProject(page);
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('button', { name: 'Render captioned video', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Render anyway', exact: true }).click();
+
+  const toast = page.locator('.toast.notice').filter({ hasText: `Captioned video ready: ${filename}. Open Activity to download it.` });
+  await expect(toast).toBeVisible();
+  await expectToastToFitStack(toast);
+});
 
 test('a held recovery entrance keeps Restore stable on Tab and accepts Enter', async ({ page }) => {
   const f = await prepareCaptionRecovery(page, true);
@@ -296,20 +334,29 @@ test('a held recovery entrance keeps Restore stable on Tab and accepts Enter', a
   await expect(f.caption).toHaveValue(f.text);
 });
 
-test('activating Restore for a removed copy explains the refusal and returns focus to the project', async ({ page }) => {
-  const f = await prepareCaptionRecovery(page);
-  await changeOfferedCopy(page);
-  await f.restore.click();
+for (const previousFocus of ['Caption 1 text', 'Project details']) {
+  test(`activating Restore for a removed copy explains the refusal and returns focus to ${previousFocus}`, async ({ page }) => {
+    const f = await prepareCaptionRecovery(page);
+    const previousControl = previousFocus === 'Caption 1 text' ? f.caption : page.locator('[data-project-entry-focus]');
+    await previousControl.focus();
+    await expect(previousControl).toBeFocused();
+    await expect(f.restore).toBeEnabled();
+    // Enter on Restore keeps the preceding control as the toast's return target.
+    await f.restore.focus();
+    await expect(f.restore).toBeFocused();
+    await changeOfferedCopy(page);
+    await page.keyboard.press('Enter');
 
-  await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
-  await expect(f.notice).toHaveCount(0);
-  await expect(page.locator('[data-project-entry-focus]')).toBeFocused();
-  await expect(f.caption).toHaveValue(f.original.captions[0].text);
-  await expect(page.locator('.save-action')).toBeDisabled();
-  expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
-  expect(f.projectReads()).toHaveLength(0);
-  expect(f.projectWrites()).toEqual([]);
-});
+    await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
+    await expect(f.notice).toHaveCount(0);
+    await expect(previousControl).toBeFocused();
+    await expect(f.caption).toHaveValue(f.original.captions[0].text);
+    await expect(page.locator('.save-action')).toBeDisabled();
+    expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
+    expect(f.projectReads()).toHaveLength(0);
+    expect(f.projectWrites()).toEqual([]);
+  });
+}
 
 test('activating Restore for a rewritten copy requires a fresh activation of the replacement', async ({ page }) => {
   const f = await prepareCaptionRecovery(page);

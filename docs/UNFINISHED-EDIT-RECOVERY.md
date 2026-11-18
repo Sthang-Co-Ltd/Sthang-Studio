@@ -189,10 +189,11 @@ check, retains selector focus and updates its status. Newer typing, navigation o
 cross-tab removal/replacement still supersedes the delayed check.
 
 If the selected recovery copy was removed or changed before you choose **Restore
-draft**, Studio tells you that your current project is kept. Focus moves to an
-available **Restore draft** action or to **Project details**. Choose **Restore
-draft** again to use a refreshed copy. The recovery actions stay in place when
-they receive focus as the notice opens.
+draft**, Studio tells you that your current project is kept. If another copy
+remains, focus moves to its **Restore draft** action. Choose it again to restore
+that copy. If the notice closes, focus returns to the control you were using
+before the notice, or to **Project details** if that control is unavailable.
+The recovery actions stay in place when they receive focus as the notice opens.
 
 ### Appearance save protection (source-only)
 
