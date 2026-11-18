@@ -116,7 +116,7 @@ zero retries, on the final branch:
 
 ## 2. Noto Sans Khmer Size 120 with a nonbreaking space
 
-The subcase `Noto Sans Khmer Size 120: hello00a0world` of
+The subcase `Noto Sans Khmer Size 120: hello world` of
 `tests/caption-overflow-native.test.mts` failed on a Windows host with Noto Sans
 Khmer installed. Windows CI skips it because the font is absent. Ubuntu CI
 installs `fonts-noto-core` and runs it: the Ubuntu caption-rendering job of
