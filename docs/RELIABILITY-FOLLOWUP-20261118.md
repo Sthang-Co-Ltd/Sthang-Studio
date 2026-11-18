@@ -8,11 +8,11 @@ network capture is included here.
 
 | Item | Status |
 | --- | --- |
-| 1. Restore draft failure on `main` | **Fixed** (product geometry defect; regression added) |
+| 1. Restore draft failure on `main` | **Fixed** (product geometry defect; regressions added; a related silent refusal and a narrow-toast reachability defect also fixed) |
 | 2. Noto Sans Khmer Size 120 nonbreaking-space test | **Test contract corrected**; production unchanged; legacy-font false refusal documented |
 | 3. Original-video `ERR_INVALID_HTTP_RESPONSE` | **Still under investigation**; not reproduced with synthetic media |
 | 4. 5,000-caption opening and scrolling | **Still under investigation**; bottleneck attributed, two candidates measured and rejected |
-| 5. Intermittent Windows renderer timeout and Vite `ECONNRESET` | **Not reproduced**; Vite cause not established |
+| 5. Intermittent Windows renderer timeout and Vite `ECONNRESET` | Renderer **not reproduced** (5 local runs); Vite reset **cause not established** (trace analysis only); neither cause established |
 | 6. Historical prepared-copy decode incident | **Blocked** on the exact artifact |
 
 ## 1. Restore draft failure
@@ -45,7 +45,9 @@ draft within eight seconds. The original caption stayed visible.
 - 150 instrumented natural repetitions (110 under CPU contention) all passed.
   Each one listed the old page's final recovery copy, found it present at the
   click, and entered the canonical read. Recovery-copy churn across the reload
-  was therefore not the cause.
+  was not observed. Both retained failures and the held control show the geometry
+  mechanism instead. The two uninstrumented failures cannot themselves exclude
+  churn.
 
 The defect is in the product. Any programmatic or focus-driven scroll of a
 still-clipped toast could move its action between press and release. The test's
@@ -65,33 +67,50 @@ precondition was correct and the test is unchanged.
   action refreshed silently. It now announces "That recovery copy was removed or
   changed. Your current project is kept." This is the same message as the
   existing post-read refusal. It then refreshes the offer and requires a fresh
-  choice. Focus follows the shared toast contract: the remaining Restore action
-  if another copy exists, otherwise the control used before the notice, or
-  Project details. Exact-record authority, the canonical read, revision
-  ownership and correction-evidence suppression are unchanged.
+  choice. Focus follows the shared toast contract. If another copy remains, focus
+  moves to its Restore action, unless the user has already moved focus. If the
+  offer closes, focus returns to the control used before it, or to Project
+  details when that control is unavailable. Exact-record authority, the
+  canonical read, revision ownership and correction-evidence suppression are
+  unchanged.
+- Toast message text now wraps long unbroken runs (`min-width:0`,
+  `overflow-wrap:anywhere` on toast message spans). Before this change, at
+  390 px, a captioned-video completion toast with a long filename pushed its
+  **Dismiss notice** button off the visible toast (x ≈ 944 px against a toast
+  spanning 16–374 px), where it could not be clicked. This was already the case
+  on `main`. Every action now stays inside the toast and is clickable.
 
 ### Verification
 
-- New held-entrance tests at 1440 and 390 px fail on the previous CSS (internal
-  offset 137 and 152 px) and pass with the change. One ordinary unforced click
-  restores the draft with exactly one canonical read. A keyboard variant shows
-  unchanged geometry on Tab, and Enter restores.
-- Refusal tests cover a removed copy, with focus returning to a caption field or
-  Project details, and a same-key rewritten copy, where a second deliberate
-  activation restores the replacement. Both perform zero restore reads and zero
-  project writes. A 390 px export-completion toast with a long unbroken filename
-  stays within the stack.
-- The original case passed 40 of 40 repetitions after the change, against 39 of
-  40 before. This supports the fix but does not prove it; the held control
-  establishes the mechanism.
-- Before the `min-width` revision, 13 further toast and recovery specs passed
-  locally (91 cases). After it, edit-recovery unit tests (99), the recovery
-  browser spec (21), the stale-save, appearance-recovery and menu specs (31),
-  typecheck, build and brand verification passed again. All runs used one worker
-  and zero retries.
-- Safari mouse activation can leave focus on the page body. The shared focus
-  hook then performs no handoff, as on the existing post-read path. This is
-  untested and unchanged.
+Retained local receipts from Windows Chromium, Node 24.22.1 x64, one worker and
+zero retries, on the final branch:
+
+- **Held-entrance controls on the previous CSS.** The pointer tests fail with
+  internal offsets of 137 px (1440 px) and 152 px (390 px). First programmatic
+  focus on Restore moves it 137 px. With the change, all pass, and one ordinary
+  unforced click restores the draft with exactly one canonical read.
+- **Refusal tests.**
+  - A removed copy returns focus to the previously used caption field.
+  - When that field becomes unavailable, focus goes to Project details. This
+    case fails if the explicit fallback is removed.
+  - A same-key rewritten copy needs a second deliberate activation to restore the
+    replacement.
+  - All refusals perform zero restore reads and zero project writes.
+- **Narrow toast.** At 390 px, the long-filename toast wraps to four lines and its
+  Dismiss button can be clicked; on the previous CSS the button could not be
+  clicked.
+- **Recurrence.** The original `stale-save-conflicts.spec.mts:451` case passed
+  40 of 40 repetitions on the final branch, against 39 of 40 on `main`. This
+  supports the fix but does not prove it; the held controls establish the
+  mechanism.
+- **Suites and gates.** The recovery spec passed 21 cases. The recovery,
+  stale-save, appearance-recovery and menu specs passed 52 cases. 13 further
+  toast and recovery specs passed 92 cases. Edit-recovery unit tests passed 99.
+  Typecheck, build and brand verification passed. The built CSS contains both
+  toast rules.
+- **Known limitation.** Safari mouse activation can leave focus on the page body.
+  The shared focus hook then performs no handoff, as on the existing post-read
+  path. This is untested and unchanged.
 
 ## 2. Noto Sans Khmer Size 120 with a nonbreaking space
 
@@ -133,7 +152,10 @@ ink-boundary path, which the existing tests cover. The native file passed with
 
 **Known limitation:** with this 2013 Noto Sans Khmer face installed, large 4K
 portrait captions containing a nonbreaking space may be refused as unverifiable.
-Choosing a smaller Size or a current Noto Sans Khmer release avoids it.
+On this face at 2160×3840, the same nonbreaking-space caption was measured as
+fitting at Size 56 and Size 64. Ubuntu CI passes the Size 120 case with its
+distribution Noto Sans Khmer, which maps U+00A0. Other sizes and font versions
+were not tested.
 
 ## 3. Original-video `ERR_INVALID_HTTP_RESPONSE`
 
@@ -155,11 +177,18 @@ three paused seeks, including one near 35.03 seconds.
 | Same media, single variable `Cache-Control: private, no-store` (6) with interleaved default controls (2) | 8 | 48 | 0 |
 | 607 MB, 5 min, ~16 Mbit/s, `no-store` (3) and default (2) | 5 | 25 | 0 |
 
-All runs completed playback and every seek, with zero preparation requests.
+The table counts the 20 completed runs: 114 original GETs, zero invalid
+responses, every seek passed, zero preparation requests. Excluded as incomplete,
+because they stopped before the media workload:
+- six earlier headless attempts, whose first-frame observer failed;
+- three editor starts interrupted by the first-run settings dialog.
+
 Synthetic media never produced the historical many-range regime: about 5–6
-requests per run, against 176–199. The anomaly therefore appears to depend on
-properties of the original footage's container or interleaving, or on that
-request regime. Size, bitrate and cache headers alone did not trigger it.
+requests per run, against 176–199. Two hypotheses remain: the anomaly may depend
+on properties of the original footage's container or interleaving, or on that
+heavy request regime. Neither is established, and these controls also differed
+from the historical ones in browser build and harness. File size, bitrate and
+cache headers alone did not trigger it in these runs.
 
 **Agreed diagnostic design for the next step** (not run):
 
@@ -210,8 +239,9 @@ That is the same order as the roughly 10.9 s recorded in #117.
 **Attribution (4×).** In the opening window, style recalculation took about
 2.45 s, layout about 2.46 s and script about 3.28 s. In every opening profile, the
 largest sampled leaf was the synchronous grid-width read in
-`apps/web/src/components/EditorLayout.tsx:103`, at 4.7–5.8 s of sampled self
-time. That read forces style and layout for the whole mounted list. Steady-scroll
+`apps/web/src/components/EditorLayout.tsx:103`: 4.7–5.8 s of sampled self time
+across six profiles in the first session, and 6.2 s in a later profiled sample.
+That read forces style and layout for the whole mounted list. Steady-scroll
 gaps of up to about 250 ms occurred with no recorded style or layout in their
 windows. Their individual cause (paint, raster, compositor or scheduling) and
 the separate React render and commit totals were **not distinguished**.
@@ -220,8 +250,10 @@ the separate React render and commit totals were **not distinguished**.
 
 1. *Read the desktop grid width from the viewport instead of the element.*
    Opening stayed within baseline variability, with per-pair changes of +83,
-   −121 and −14 ms at 4×. First usable edit was slower in every pair. The forced
-   layout simply moves to the first paint.
+   −121 and −14 ms at 4×. First usable edit was slower in every pair. Aggregate
+   style and layout in the opening window were essentially unchanged, which
+   suggests, but does not prove, that the layout work simply moved rather than
+   disappeared.
 2. *Row rendering containment* (`content-visibility:auto`,
    `contain-intrinsic-size:auto 133px`, from a measured median row height of
    132.7 px).
@@ -262,23 +294,33 @@ fallback and tests are unchanged. The hosted recorder gate stays scoped to its
 original approval.
 
 **Vite `ECONNRESET`.** On Ubuntu shard 1, seven Playwright `route.fetch` forwards
-to the owned Vite server failed with `read ECONNRESET` during a reload. They
-started within 4 ms of each other in a 53-request burst, while other requests in
-that burst succeeded. The last successful forward ended 3 ms earlier. No forward
-in the test's trace ended about 5 s before the reset, so a simple keep-alive
-expiry inside that context is not supported. The trace lacks socket identity, so
-the cause is **not established**. Neither keep-alive, timeout nor retry
-behaviour is changed. A bounded socket-lifecycle recorder stays local until a
-controlled failure demonstrates a unique client/server join, retained artifacts
-and acceptable overhead.
+to the owned Vite server failed with `read ECONNRESET` during a reload. Their
+starts were within 3.8 ms of each other, while other module requests in the same
+reload succeeded. All 403 successful forwarded responses advertised
+`Keep-Alive: timeout=5`.
+- In the trace's client-side timestamps, the latest preceding success ended about
+  1 ms before the first reset completed.
+- Earlier forwards ended about 4.7–4.8 s before the resets.
+- The server's keep-alive timer starts at server-side response completion, which
+  the trace does not record. The trace also lacks socket identity.
+
+No local reproduction was attempted. The same shard passed on the later `main`
+run and on this PR's CI runs. A keep-alive expiry race (5 s server timeout
+against client socket reuse) can therefore be **neither confirmed nor
+excluded**. The cause is **not
+established**. Neither keep-alive, timeout nor retry behaviour is changed. A
+bounded socket-lifecycle recorder stays local until a controlled failure
+demonstrates a unique client/server join, retained artifacts and acceptable
+overhead.
 
 ## 6. Historical prepared-copy decode incident
 
 The incident needs the exact 3,789,112-byte prepared copy with SHA-256
 `0fefbc12ef87ff92d67a8e6e16e41866569d8dd541c05fce947b13f13c1ab090`. A bounded
-re-scan of the Studio checkout and its 39 existing registered worktrees found no
-file of that exact size. Dependency, `.git` and virtual-environment folders were
-pruned, and six registered worktree paths no longer exist. The previously
+re-scan of 39 existing roots, the Studio checkout and its registered git
+worktrees, found no file of that exact size. Dependency, `.git` and
+virtual-environment folders were pruned. Six further registered worktree paths
+no longer exist and could not be scanned. The previously
 approved private upload folder was not searched again without authorization.
 **Blocked.** Another file is not a valid substitute, and no fix is claimed.
 
@@ -292,7 +334,9 @@ the profiling prototype. It was not investigated further here.
 ## Public impact
 
 - Item 1: **none.** The recovery workflow, its claims and data handling are
-  unchanged. The source recovery guide documents the refusal notice and focus.
+  unchanged. The refusal notice, focus behaviour and toast wrapping improve
+  existing editor behaviour without changing advertised features. The source
+  recovery guide documents the notice and focus.
 - Item 2: **none.** No supported behaviour changes; the legacy-font limitation
   is documented here.
 - Items 3, 4, 5, 6: **none.** These are local diagnostics, measurements and
