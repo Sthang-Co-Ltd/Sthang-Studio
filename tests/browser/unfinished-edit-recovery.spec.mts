@@ -291,7 +291,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
   });
 }
 
-test('a long captioned video filename keeps its completion toast within the 390px stack', async ({ page }) => {
+test('a long captioned video filename keeps its completion toast within the 390px stack', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { state } = await fixture(page);
   const filename = `${'Captioned'.repeat(16)}.mp4`;
@@ -315,41 +315,103 @@ test('a long captioned video filename keeps its completion toast within the 390p
 
   const toast = page.locator('.toast.notice').filter({ hasText: `Captioned video ready: ${filename}. Open Activity to download it.` });
   await expect(toast).toBeVisible();
+  const dismiss = toast.getByRole('button', { name: 'Dismiss notice', exact: true });
+  await expect.poll(() => toast.evaluate((node) => node.closest('.toast-slot')!.getAnimations().length)).toBe(0);
+  const geometry = await dismiss.evaluate((button, exportFilename) => {
+    const notice = button.closest('.toast')!;
+    const message = notice.querySelector<HTMLElement>(':scope > span')!;
+    const slot = notice.closest('.toast-slot-body')!;
+    const toastBox = notice.getBoundingClientRect();
+    const clipBox = slot.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2);
+    const text = message.firstChild!;
+    const start = text.textContent!.indexOf(exportFilename);
+    const filenameRange = document.createRange();
+    filenameRange.setStart(text, start);
+    filenameRange.setEnd(text, start + exportFilename.length);
+    return {
+      toastBox: toastBox.toJSON(), clipBox: clipBox.toJSON(), buttonBox: buttonBox.toJSON(),
+      dismissInside: buttonBox.left >= Math.max(toastBox.left, clipBox.left, 0)
+        && buttonBox.right <= Math.min(toastBox.right, clipBox.right, innerWidth)
+        && buttonBox.top >= Math.max(toastBox.top, clipBox.top, 0)
+        && buttonBox.bottom <= Math.min(toastBox.bottom, clipBox.bottom, innerHeight),
+      dismissHittable: hit?.closest('button') === button,
+      messageHeight: message.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(message).lineHeight),
+      messageClientWidth: message.clientWidth,
+      messageScrollWidth: message.scrollWidth,
+      filenameLines: filenameRange.getClientRects().length,
+    };
+  }, filename);
+  await testInfo.attach('completion toast geometry', { body: JSON.stringify(geometry), contentType: 'application/json' });
   await expectToastToFitStack(toast);
+  expect(geometry.dismissInside).toBe(true);
+  expect(geometry.dismissHittable).toBe(true);
+  expect(geometry.messageHeight).toBeGreaterThan(geometry.lineHeight);
+  expect(geometry.messageScrollWidth).toBeLessThanOrEqual(geometry.messageClientWidth);
+  expect(geometry.filenameLines).toBeGreaterThan(1);
+  await dismiss.click();
+  await expect(toast).toHaveCount(0);
 });
 
-test('a held recovery entrance keeps Restore stable on Tab and accepts Enter', async ({ page }) => {
+test('a held recovery entrance keeps Restore stable on first focus and accepts Enter', async ({ page }, testInfo) => {
   const f = await prepareCaptionRecovery(page, true);
-  await f.notice.locator('summary').focus();
-  const before = await f.restore.boundingBox();
-  await page.keyboard.press('Tab');
+  await f.caption.focus();
+  await expect(f.caption).toBeFocused();
+  const geometry = await f.restore.evaluate((button) => {
+    const body = button.closest<HTMLElement>('.toast-slot-body')!;
+    const clip = body.getBoundingClientRect();
+    const clipped = clip.height > 0 && button.getBoundingClientRect().bottom > clip.bottom;
+    const focusWasOutside = !body.matches(':focus-within');
+    // Reveal the clipped target before the first focus entry, as scrolling to
+    // a keyboard target may do. Focusing Restore must not undo a body scroll.
+    button.scrollIntoView({ block: 'center', inline: 'nearest' });
+    const before = button.getBoundingClientRect();
+    const scrollBefore = body.scrollTop;
+    button.focus();
+    const after = button.getBoundingClientRect();
+    return { clipped, focusWasOutside, before: before.toJSON(), after: after.toJSON(), scrollBefore, scrollAfter: body.scrollTop };
+  });
+  await testInfo.attach('held keyboard geometry', { body: JSON.stringify(geometry), contentType: 'application/json' });
+  expect(geometry.clipped).toBe(true);
+  expect(geometry.focusWasOutside).toBe(true);
   await expect(f.restore).toBeFocused();
-  const after = await f.restore.boundingBox();
-  if (!before || !after) throw new Error('Expected Restore bounds before and after Tab');
+  const { before, after } = geometry;
   expect(Math.max(Math.abs(before.x - after.x), Math.abs(before.y - after.y),
     Math.abs(before.width - after.width), Math.abs(before.height - after.height))).toBeLessThanOrEqual(1);
+  expect(geometry.scrollBefore).toBe(geometry.scrollAfter);
 
   await page.locator('#held-recovery-entrance').evaluate((style) => style.remove());
   await page.keyboard.press('Enter');
   await expect(f.caption).toHaveValue(f.text);
 });
 
-for (const previousFocus of ['Caption 1 text', 'Project details']) {
-  test(`activating Restore for a removed copy explains the refusal and returns focus to ${previousFocus}`, async ({ page }) => {
+for (const returnTargetAvailable of [true, false]) {
+  const destination = returnTargetAvailable ? 'Caption 1 text' : 'Project details when the return target is unavailable';
+  test(`activating Restore for a removed copy explains the refusal and returns focus to ${destination}`, async ({ page }) => {
     const f = await prepareCaptionRecovery(page);
-    const previousControl = previousFocus === 'Caption 1 text' ? f.caption : page.locator('[data-project-entry-focus]');
-    await previousControl.focus();
-    await expect(previousControl).toBeFocused();
+    await f.caption.focus();
+    await expect(f.caption).toBeFocused();
     await expect(f.restore).toBeEnabled();
     // Enter on Restore keeps the preceding control as the toast's return target.
     await f.restore.focus();
     await expect(f.restore).toBeFocused();
+    if (!returnTargetAvailable) {
+      // Make the real return field unavailable after focus has left it. This
+      // changes neither the caption value nor the recovery offer or its focus.
+      await f.caption.evaluate((field: HTMLTextAreaElement) => { field.disabled = true; });
+      await expect(f.caption).toBeDisabled();
+      await expect(f.restore).toBeEnabled();
+      await expect(f.restore).toBeFocused();
+    }
     await changeOfferedCopy(page);
     await page.keyboard.press('Enter');
 
     await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
     await expect(f.notice).toHaveCount(0);
-    await expect(previousControl).toBeFocused();
+    const focusTarget = returnTargetAvailable ? f.caption : page.locator('[data-project-entry-focus]');
+    await expect(focusTarget).toBeFocused();
     await expect(f.caption).toHaveValue(f.original.captions[0].text);
     await expect(page.locator('.save-action')).toBeDisabled();
     expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
