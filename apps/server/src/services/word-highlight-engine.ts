@@ -207,6 +207,12 @@ function characterStream(text: string, units: HighlightDisplayUnit[]): LexicalCh
       if (optional || !ignored.test(value)) stream.push({ value, optional, unit });
     }
   }
+  // Unicode 16 grapheme data splits a coeng cluster (ម្ | ដ) while Unicode 17
+  // keeps it whole (ម្ដ), so the per-grapheme alias above can miss. Apply the
+  // coeng DA ≡ coeng TA alias on the code-point stream so every runtime agrees.
+  for (let position = 1; position < stream.length; position += 1) {
+    if (stream[position].value === 'ដ' && stream[position - 1].value === '្') stream[position].value = 'ត';
+  }
   return stream;
 }
 

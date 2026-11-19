@@ -172,6 +172,10 @@ function parseChanges(value: unknown, limit = MAX_BATCH_CHANGES): CaptionWordBat
     if (resolveCaptionWordTiming(after).state === 'stale') {
       throw new CaptionWordBatchInputError(`Change ${index + 1} has invalid word timing for its caption text.`);
     }
+    // Undo can restore marked evidence; it must be structurally valid marked evidence.
+    if (hasWordTimingEvidence(after.wordTiming) && !validateMarkedWordTiming(after.text, after.wordTiming).ok) {
+      throw new CaptionWordBatchInputError(`Change ${index + 1} has invalid word timing for its caption text.`);
+    }
     return { before, after };
   });
 }

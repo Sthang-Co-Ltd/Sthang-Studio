@@ -86,6 +86,23 @@ test('cross-tab target changes reject the whole two-caption batch without touchi
   assert.notDeepEqual(snapshot[1], project.captions[1], 'fixture contains the simulated newer edit');
 });
 
+test('undo may restore valid marked evidence but rejects malformed marked evidence', () => {
+  const project = fixture('word-batch-marked-undo');
+  const current = structuredClone(project.captions[0]);
+  const words = current.wordTiming!.words.map(({ id, startOffset, endOffset, startMs, endMs }) => ({
+    id, startOffset, endOffset, startMs, endMs, source: 'aligned' as const, method: 'kfa' as const,
+  }));
+  const marked: CaptionSegment = { ...current, wordTiming: { version: 1, evidence: 2, text: current.text, words } };
+  const restored = planCaptionWordBatchApply(project, project.media, [{ before: current, after: marked }], 'undo', true);
+  assert.equal(restored.appliedCount, 1);
+  assert.equal(restored.project.captions[0].wordTiming?.evidence, 2);
+
+  const malformed: CaptionSegment = structuredClone(marked);
+  delete malformed.wordTiming!.words[0].method;
+  assert.throws(() => planCaptionWordBatchApply(project, project.media, [{ before: current, after: malformed }], 'undo', true),
+    CaptionWordBatchInputError);
+});
+
 test('media, lock, missing-caption and duplicate-target conflicts fail closed', () => {
   const project = fixture();
   const before = structuredClone(project.captions[0]);
