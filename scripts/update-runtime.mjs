@@ -348,7 +348,7 @@ export function buildStudioStartSpec(installRoot, activation = false, platform =
   const command = process.env.ComSpec || 'cmd.exe';
   return {
     command,
-    args: ['/d', '/c', 'run-windows.bat'],
+    args: ['/d', '/c', '.\\run-windows.bat'],
     cwd: installRoot,
     env: environment,
   };

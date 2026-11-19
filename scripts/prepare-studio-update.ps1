@@ -329,7 +329,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Node dependency preparation failed.' }
     $env:KCS_NONINTERACTIVE = '1'
     $env:KCS_REQUIRE_KFA = '1'
-    & $env:ComSpec /d /c 'setup-local-timing-windows.bat'
+    & $env:ComSpec /d /c '.\setup-local-timing-windows.bat'
     if ($LASTEXITCODE -ne 0) { throw 'Local timing dependency preparation failed.' }
     & $ReviewedNpm run typecheck -- --runtime-only
     if ($LASTEXITCODE -ne 0) { throw 'The staged Studio application failed TypeScript validation.' }

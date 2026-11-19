@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Studio setup and the restart after an update on Windows PCs that block running programs from the current folder.
+
 - Apply word highlights in one local pass from Appearance. Follow saved caption
   edits after Apply, review remaining timing issues in Fine Timing, and undo the
   last eligible Apply from Appearance.
