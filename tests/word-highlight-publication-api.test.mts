@@ -660,3 +660,33 @@ for (const [barrier, label] of [
     assert.deepEqual((await historyStore.list(project.id)).map(({ id }) => id), [newEpoch.id, second.id, middle.id, first.id]);
   });
 }
+
+test('exact receipt Undo after replacing a stale persisted legacy track', async () => {
+  const caption = cue('word');
+  caption.wordTiming = {
+    version: 1, text: 'past',
+    words: [{ id: 'legacy-manual', startOffset: 0, endOffset: 4, source: 'manual', startMs: 130, endMs: 170 }],
+  };
+  const { project, epoch } = await setup('stale-legacy-undo', [caption], { word: [120, 160] });
+  const [candidate] = await prepare(project, ['word']);
+  const requestId = randomUUID();
+  const result = await ok(await publish(project, epoch, [candidate.preparedKey], 'apply', requestId));
+  assert.equal(result.appliedCount, 1);
+  assert.deepEqual(result.applied[0].before, caption);
+  assert.equal(result.applied[0].after.wordTiming.evidence, 2);
+  const receipt = await ok(await readReceipt(project, requestId));
+  assert.deepEqual(receipt, { committed: true, intent: 'apply', applied: result.applied });
+  const historyBeforeUndo = await historyStore.list(project.id);
+  assert.equal(historyBeforeUndo.length, 1);
+  const undo = await api(project, batchPath, 'POST', {
+    expectedMedia: project.media, action: 'undo', intent: 'apply',
+    changes: receipt.applied.map(({ before, after }: { before: CaptionSegment; after: CaptionSegment }) => ({ before: after, after: before })),
+  });
+  if (undo.status !== 200) {
+    assert.deepEqual(await store.get(project.id), result.project);
+    assert.deepEqual(await historyStore.list(project.id), historyBeforeUndo);
+  }
+  const undone = await ok(undo);
+  assert.deepEqual(undone.project.captions, project.captions);
+  assert.equal(undone.project.wordHighlightFollow.enabled, false);
+});
