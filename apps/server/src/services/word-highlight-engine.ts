@@ -316,21 +316,36 @@ function preserveManual(caption: CaptionSegment, words: CaptionWord[], spans: Me
   return { words: preserved, spans: automatic };
 }
 
-interface Occurrence {
-  core: string;
+interface TimeInterval {
   startMs: number;
   endMs: number;
 }
 
-export function highlightOccurrencesCollide(earlier: Occurrence, later: Occurrence): boolean {
-  const overlap = Math.min(earlier.endMs, later.endMs) - Math.max(earlier.startMs, later.startMs);
-  return earlier.startMs > later.startMs
-    || (earlier.startMs === later.startMs && earlier.endMs === later.endMs)
-    || (earlier.core === later.core && overlap >= 0.5 * Math.min(earlier.endMs - earlier.startMs, later.endMs - later.startMs));
+interface Occurrence extends TimeInterval {
+  core: string;
+}
+
+function intersection(a: TimeInterval, b: TimeInterval): TimeInterval {
+  return { startMs: Math.max(a.startMs, b.startMs), endMs: Math.min(a.endMs, b.endMs) };
+}
+
+function intersects(a: TimeInterval, b: TimeInterval) {
+  return Math.max(a.startMs, b.startMs) < Math.min(a.endMs, b.endMs);
+}
+
+function strictlyContains(outer: TimeInterval, inner: TimeInterval) {
+  return outer.startMs <= inner.startMs && inner.endMs <= outer.endMs
+    && (outer.startMs < inner.startMs || inner.endMs < outer.endMs);
+}
+
+export function highlightOccurrencesCollide(a: Occurrence, b: Occurrence): boolean {
+  const overlap = intersection(a, b);
+  return (a.startMs === b.startMs && a.endMs === b.endMs)
+    || (a.core === b.core && overlap.endMs - overlap.startMs >= 0.5 * Math.min(a.endMs - a.startMs, b.endMs - b.startMs));
 }
 
 function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[]) {
-  const positions = new Map(order.map(({ id }, index) => [id, index]));
+  const byId = new Map(drafts.map((draft) => [draft.plan.caption.id, draft]));
   const impacted = new Map<MeasuredSpan, Set<string>>();
   function addConflict(span: MeasuredSpan, owner: string) {
     const conflicts = impacted.get(span) ?? new Set();
@@ -343,6 +358,14 @@ function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[])
   const occurrences = drafts.map(({ plan, spans }) => spans.map((span) => ({
     span, occurrence: occurrence(plan.caption, span.word),
   })));
+  function dependOn(draft: CandidateDraft, peer: CaptionSegment) {
+    const dependencies = draft.outcome.dependencies!;
+    if (!Object.hasOwn(dependencies, peer.id)) {
+      Object.defineProperty(dependencies, peer.id, {
+        value: captionWordTimingRevision(peer), enumerable: true, writable: true, configurable: true,
+      });
+    }
+  }
   const retained = new Map<string, Occurrence[]>();
   function persisted(caption: CaptionSegment) {
     const cached = retained.get(caption.id);
@@ -354,27 +377,62 @@ function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[])
     retained.set(caption.id, anchors);
     return anchors;
   }
+  const protectedIntervals = new Map<string, TimeInterval[]>();
+  function protectedPaint(caption: CaptionSegment) {
+    const cached = protectedIntervals.get(caption.id);
+    if (cached) return cached;
+    function collect(track: CaptionWordTiming | undefined) {
+      if (!Array.isArray(track?.words)) return [];
+      const bounds = new Map(track.words.flatMap((word) =>
+        word && (caption.timingLocked || word.source === 'manual') && word.startMs !== null && word.endMs !== null
+          ? [[word.startOffset, word] as const] : []));
+      if (!bounds.size) return [];
+      return compileHighlightPlan({ ...caption, wordTiming: track }, 'measured-and-manual').spans.flatMap((paint) => {
+        const word = bounds.get(paint.startOffset);
+        return word?.endOffset === paint.endOffset && word.startMs !== null && word.endMs !== null
+          ? [intersection(caption, { startMs: word.startMs, endMs: word.endMs })] : [];
+      });
+    }
+    const intervals = collect(caption.wordTiming);
+    const draft = byId.get(caption.id);
+    if (draft?.words.some(({ source }) => source === 'manual')) {
+      const words = [...draft.words, ...draft.spans.map(({ word }) => word)].sort((a, b) => a.startOffset - b.startOffset);
+      intervals.push(...collect({ version: 1, evidence: 2, text: caption.text, words }));
+    }
+    protectedIntervals.set(caption.id, intervals);
+    return intervals;
+  }
+
   for (const [i, draft] of drafts.entries()) {
     const { caption, consulted } = draft.plan;
+    const peers = new Map(consulted.map((peer) => [peer.id, peer]));
+    peers.delete(caption.id);
+    // Nested cues need no stored track or candidate in this request to affect geometry.
+    for (const peer of order) {
+      if (peer.startMs >= caption.endMs) break;
+      if (peer.id === caption.id || !intersects(caption, peer)) continue;
+      peers.set(peer.id, peer);
+      dependOn(draft, peer);
+      const regions = strictlyContains(peer, caption) ? protectedPaint(peer) : [intersection(caption, peer)];
+      for (const span of draft.spans) {
+        const clipped = intersection(caption, span.word);
+        if (regions.some((region) => intersects(clipped, region))) addConflict(span, peer.id);
+      }
+    }
+
     for (const { span, occurrence: own } of occurrences[i]) {
-      const comesFirst = (peer: CaptionSegment) => positions.get(caption.id)! < positions.get(peer.id)!;
-      const collides = (peer: CaptionSegment, other: Occurrence) =>
-        comesFirst(peer) ? highlightOccurrencesCollide(own, other) : highlightOccurrencesCollide(other, own);
-      for (const peer of consulted) {
-        if (peer.id === caption.id || !persisted(peer).some((other) => collides(peer, other))) continue;
-        addConflict(span, peer.id);
-        // A retained neighboring track can compete even when its caption also
-        // has a new draft. Only the draft's independently competing spans change.
+      for (const peer of peers.values()) {
+        if (persisted(peer).some((other) => highlightOccurrencesCollide(own, other))) addConflict(span, peer.id);
       }
       for (let j = i + 1; j < drafts.length; j += 1) {
         const peerDraft = drafts[j];
         const peer = peerDraft.plan.caption;
         for (const { span: other, occurrence: competing } of occurrences[j]) {
-          if (!collides(peer, competing)) continue;
+          if (!highlightOccurrencesCollide(own, competing)) continue;
           addConflict(span, peer.id);
           addConflict(other, caption.id);
-          draft.outcome.dependencies![peer.id] = captionWordTimingRevision(peer);
-          peerDraft.outcome.dependencies![caption.id] = captionWordTimingRevision(caption);
+          dependOn(draft, peer);
+          dependOn(peerDraft, caption);
         }
       }
     }
