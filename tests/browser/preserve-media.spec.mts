@@ -330,7 +330,8 @@ test('accepted audio difference submits once and keeps reviewed words, locks and
     expect(f.state.projects[0].mediaAlignment?.state).toBe('unverified-audio-change');
     await page.getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.appearance-highlight-readiness')).toContainText('3 of 3 captions');
+    await expect(page.getByRole('region', { name: 'Word highlight results', exact: true })
+      .getByRole('status')).toHaveText('Highlighting 3 captions');
     await page.reload();
     await page.getByRole('button', { name: /Audit landscape/ }).click();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/regraded.mp4');
