@@ -92,11 +92,11 @@ test.describe('with marked word timings', () => {
     const field = page.getByLabel('Caption 501 text', { exact: true });
     await field.focus();
     await page.evaluate(() => { (window as any).__captionRowRenders = []; });
-    await field.fill('??????? caption 500 edited');
+    await field.fill('កម្ពុជា caption 500 edited');
     await expect(page.locator('.save-action')).toBeEnabled();
 
     const rendered = await page.evaluate(() => (window as any).__captionRowRenders as string[]);
     expect([...new Set(rendered)]).toEqual(['list-memo-500']);
-    await expect(field).toHaveValue('??????? caption 500 edited');
+    await expect(field).toHaveValue('កម្ពុជា caption 500 edited');
   });
 });
