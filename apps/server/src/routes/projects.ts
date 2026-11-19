@@ -50,6 +50,7 @@ import {
 import {
   applyCaptionWordBatch,
   applyPreparedWordHighlightBatch,
+  readWordHighlightPublication,
   updateWordHighlightFollow,
   CaptionWordBatchConflictError,
   CaptionWordBatchInputError,
@@ -518,6 +519,20 @@ export function createWordHighlightHandler(
 
 router.post('/:id/caption-word-timing/prepare', createWordHighlightHandler('prepare'));
 router.post('/:id/caption-word-timing/candidates', createWordHighlightHandler('candidates'));
+
+router.get('/:id/caption-word-timing/publication/:requestId', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const { filename, size } = req.query;
+  const expected = expectedMedia({ filename, size: typeof size === 'string' && size.trim() ? Number(size) : undefined });
+  if (!expected) return res.status(428).json({ error: 'Word highlighting requires the current source media version.' });
+  try {
+    return res.json(await readWordHighlightPublication(req.params.id, expected, req.params.requestId));
+  } catch (error) {
+    if (error instanceof CaptionWordBatchNotFoundError) return res.status(404).json({ error: error.message });
+    if (error instanceof CaptionWordBatchInputError) return res.status(400).json({ error: error.message });
+    return res.status(500).json({ error: 'Could not check the word highlight publication.' });
+  }
+});
 
 router.put('/:id/word-highlight-follow', async (req, res) => {
   const expected = expectedMedia(req.body?.expectedMedia);

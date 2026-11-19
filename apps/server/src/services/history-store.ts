@@ -9,6 +9,7 @@ export interface StoredHistoryEntry extends ProjectHistoryEntry {
   fingerprint: string;
   snapshot: CaptionProject;
   coalesceKey?: string;
+  publicationRequestId?: string;
 }
 
 interface CheckpointOptions {
@@ -81,7 +82,10 @@ function toIndex(entry: StoredHistoryEntry): HistoryIndexEntry {
 }
 
 function summary(entry: HistoryIndexEntry | StoredHistoryEntry): ProjectHistoryEntry {
-  const { fingerprint: _fingerprint, media: _media, coalesceKey: _coalesceKey, ...rest } = entry as HistoryIndexEntry & Partial<StoredHistoryEntry>;
+  const {
+    fingerprint: _fingerprint, media: _media, coalesceKey: _coalesceKey,
+    publicationRequestId: _publicationRequestId, ...rest
+  } = entry as HistoryIndexEntry & Partial<StoredHistoryEntry>;
   if ('snapshot' in rest) {
     const { snapshot: _snapshot, ...publicEntry } = rest;
     return publicEntry as ProjectHistoryEntry;
@@ -300,6 +304,25 @@ async function entriesForMedia(projectId: string, media: ExpectedMedia): Promise
 export const historyStore = {
   checkpoint(project: CaptionProject, label: string, source: HistorySource, options?: CheckpointOptions) {
     return queueHistory(project.id, () => checkpointInternal(project, label, source, options));
+  },
+
+  // Attach metadata only after durable publication. A pre-write checkpoint
+  // alone cannot prove that the project write succeeded.
+  recordPublicationRequest(projectId: string, historyId: string, requestId: string) {
+    return queueHistory(projectId, async () => {
+      const index = await loadIndex(projectId);
+      const entry = index.find(({ id }) => id === historyId);
+      if (!entry || entry.source !== 'word-highlight') return;
+      entry.publicationRequestId = requestId;
+      await persistIndex(projectId, index);
+    });
+  },
+
+  async hasPublicationRequest(projectId: string, expectedMedia: ExpectedMedia, requestId: string) {
+    // Avoid the lazy migration/enrichment performed by the normal History list.
+    const index = await readJson<HistoryIndexEntry[]>(indexFile(projectId));
+    return Array.isArray(index) && index.some((entry) => entry.source === 'word-highlight'
+      && entry.publicationRequestId === requestId && matchesIndexMedia(entry, expectedMedia));
   },
 
   list(projectId: string, expectedMedia?: ExpectedMedia) {

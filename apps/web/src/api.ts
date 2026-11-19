@@ -147,6 +147,12 @@ export interface CaptionWordTimingCandidate {
   edgeRepair?: CaptionEdgeRepair;
 }
 
+export type WordHighlightAppliedChange = { id: string; before: CaptionSegment; after: CaptionSegment };
+export type WordHighlightReceipt =
+  | { committed: false }
+  | { committed: true; receiptAvailable: false }
+  | { committed: true; intent: 'apply' | 'follow'; applied: WordHighlightAppliedChange[] };
+
 export type ReplacementCleanupWarning = 'history' | 'proposals' | 'old-media' | 'durability';
 export type MediaReplacementMode = 'preserve' | 'reset';
 export interface MediaReplacementCheckpoint {
@@ -400,16 +406,24 @@ export const api = {
     intent: 'apply' | 'follow',
     epoch: string,
     preparedKeys: string[],
+    requestId: string,
+    signal?: AbortSignal,
   ) => request<{
     project: CaptionProject;
     appliedCount: number;
-    applied: Array<{ id: string; before: CaptionSegment; after: CaptionSegment }>;
+    applied: WordHighlightAppliedChange[];
     unchanged: string[];
     kept: string[];
   }>(`/api/projects/${projectId}/caption-word-timing/batch-apply`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedMedia, mode: 'prepared', intent, epoch, preparedKeys }),
+    body: JSON.stringify({ expectedMedia, mode: 'prepared', intent, epoch, preparedKeys, requestId }), signal,
   }),
+  readWordHighlightPublication: (
+    projectId: string, expectedMedia: MediaReplacementBasis['expectedMedia'], requestId: string, signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ filename: expectedMedia.filename, size: String(expectedMedia.size) });
+    return request<WordHighlightReceipt>(`/api/projects/${projectId}/caption-word-timing/publication/${requestId}?${query}`, { signal });
+  },
   resegment: (
     id: string,
     mode: CaptionMode,

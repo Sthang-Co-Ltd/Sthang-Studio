@@ -14,6 +14,7 @@ import { captionWordTimingRevision, hydrateProjectWordTimings } from './caption-
 import { historyStore } from './history-store.js';
 import { store } from './store.js';
 import { wordHighlightCandidateStore, type PreparedWordHighlightCandidate } from './word-highlight-candidate-store.js';
+import { wordHighlightPublicationReceipts } from './word-highlight-publication-receipts.js';
 import {
   guardPreparedHighlightTracks, highlightInputRevision, orderHighlightCaptions, overlappingHighlightCues, planHighlightWindows,
   sameSavedHighlightTrack,
@@ -264,14 +265,39 @@ export async function updateWordHighlightFollow(
   });
 }
 
+function parsePublicationRequestId(value: unknown) {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new CaptionWordBatchInputError('Provide a valid word highlight request ID.');
+  }
+  return value.toLowerCase();
+}
+
+export async function readWordHighlightPublication(projectId: string, expectedMedia: ExpectedMedia, rawId: unknown) {
+  parseExpectedMedia(expectedMedia);
+  const requestId = parsePublicationRequestId(rawId);
+  // Serialize with in-flight work so an accepted write can publish the receipt
+  // before readback. This callback never persists or changes the project.
+  return store.withProjectWrite(projectId, async (project) => {
+    if (!project) throw new CaptionWordBatchNotFoundError();
+    if (!matchesMedia(project, expectedMedia)) return { committed: false } as const;
+    const receipt = wordHighlightPublicationReceipts.get(projectId, mediaFingerprint(project), requestId);
+    if (receipt) return { committed: true, intent: receipt.intent, applied: receipt.applied } as const;
+    if (await historyStore.hasPublicationRequest(projectId, expectedMedia, requestId)) {
+      return { committed: true, receiptAvailable: false } as const;
+    }
+    return { committed: false } as const;
+  });
+}
+
 export async function applyPreparedWordHighlightBatch(
   projectId: string,
   expectedMedia: ExpectedMedia,
-  request: { intent?: unknown; epoch?: unknown; preparedKeys?: unknown },
+  request: { intent?: unknown; epoch?: unknown; preparedKeys?: unknown; requestId?: unknown },
   dependencies: CaptionWordBatchDependencies & { candidateStore: Pick<typeof wordHighlightCandidateStore, 'get'> } =
     { ...defaultDependencies, candidateStore: wordHighlightCandidateStore },
 ): Promise<PreparedWordHighlightApplyResult> {
   parseExpectedMedia(expectedMedia);
+  const requestId = parsePublicationRequestId(request.requestId);
   const { intent, epoch, preparedKeys } = request;
   if ((intent !== 'apply' && intent !== 'follow') || typeof epoch !== 'string' || !epoch
     || !Array.isArray(preparedKeys) || !preparedKeys.length || preparedKeys.length > MAX_PREPARED_KEYS
@@ -285,6 +311,14 @@ export async function applyPreparedWordHighlightBatch(
     const follow = current.wordHighlightFollow;
     if (!matchesMedia(current, expectedMedia) || !follow?.enabled || follow.epoch !== epoch || follow.mediaFingerprint !== fingerprint) {
       throw new PreparedWordHighlightConflictError({ code: 'WORD_HIGHLIGHT_INTENT_CHANGED' });
+    }
+    const receipt = wordHighlightPublicationReceipts.get(projectId, fingerprint, requestId);
+    if (receipt) {
+      if (receipt.intent !== intent || receipt.epoch !== epoch) throw new CaptionWordBatchInputError('This word highlight request ID was already used.');
+      return { project: current, appliedCount: 0, applied: receipt.applied, unchanged: [], kept: [] };
+    }
+    if (intent === 'apply' && await historyStore.hasPublicationRequest(projectId, expectedMedia, requestId)) {
+      return { project: current, appliedCount: 0, applied: [], unchanged: [], kept: [] };
     }
 
     const expiredKeys: string[] = [];
@@ -346,8 +380,9 @@ export async function applyPreparedWordHighlightBatch(
     if (!applied.length) return { project: current, appliedCount: 0, applied, unchanged, kept };
 
     const replacements = new Map(applied.map(({ id, after }) => [id, after]));
+    let historyId: string | undefined;
     if (intent === 'apply') {
-      await dependencies.checkpoint(current, 'Before applying word highlights', 'word-highlight');
+      historyId = (await dependencies.checkpoint(current, 'Before applying word highlights', 'word-highlight')).id;
     } else {
       await dependencies.checkpoint(current, 'Before updating word highlights after edits', 'word-highlight-auto', {
         coalesceKey: JSON.stringify([projectId, fingerprint, epoch]), coalesceWindowMs: 15_000,
@@ -358,6 +393,12 @@ export async function applyPreparedWordHighlightBatch(
       captions: current.captions.map((caption) => replacements.get(caption.id) ?? caption),
       updatedAt: new Date().toISOString(),
     });
+    wordHighlightPublicationReceipts.put({ requestId, projectId, mediaFingerprint: fingerprint, intent, epoch, applied, committedAt: Date.now() });
+    if (historyId) {
+      await historyStore.recordPublicationRequest(projectId, historyId, requestId).catch(() => {
+        console.warn('[word highlights] Could not attach publication metadata to History.');
+      });
+    }
     return { project, appliedCount: applied.length, applied, unchanged, kept };
   });
 }

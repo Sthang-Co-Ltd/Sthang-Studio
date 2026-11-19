@@ -1,5 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
@@ -22,6 +23,8 @@ const { store } = await import('../apps/server/src/services/store.js');
 const { historyStore } = await import('../apps/server/src/services/history-store.js');
 const { config } = await import('../apps/server/src/config.js');
 const { wordHighlightCandidateStore } = await import('../apps/server/src/services/word-highlight-candidate-store.js');
+const { wordHighlightPublicationReceipts } = await import('../apps/server/src/services/word-highlight-publication-receipts.js');
+const { mediaFingerprint } = await import('../apps/server/src/services/cache.js');
 const { createWordHighlightEngine, highlightInputRevision } = await import('../apps/server/src/services/word-highlight-engine.js');
 const { applyPreparedWordHighlightBatch, updateWordHighlightFollow, PreparedWordHighlightConflictError } =
   await import('../apps/server/src/services/caption-word-batch.js');
@@ -54,6 +57,16 @@ app.use(express.json({ limit: '8mb' }));
 app.post('/api/projects/:id/caption-word-timing/candidates', createWordHighlightHandler('candidates', {
   engine, candidateStore: wordHighlightCandidateStore, hasActiveCaptionJobForProject: () => false,
 }));
+const dropNextPublish = new Set<string>();
+app.use('/api/projects/:id/caption-word-timing/batch-apply', (req, res, next) => {
+  if (dropNextPublish.delete(req.params.id)) {
+    res.json = () => {
+      res.destroy();
+      return res;
+    };
+  }
+  next();
+});
 app.use('/api/projects', projectsRouter);
 const server = app.listen(0, '127.0.0.1');
 await once(server, 'listening');
@@ -103,8 +116,12 @@ async function prepare(project: CaptionProject, ids: string[]): Promise<Prepared
   for (const result of results) assert.ok(result.preparedKey, JSON.stringify(result));
   return results;
 }
-function publish(project: CaptionProject, epoch: string, preparedKeys: string[], intent: 'apply' | 'follow' = 'apply') {
-  return api(project, batchPath, 'POST', { expectedMedia: project.media, mode: 'prepared', intent, epoch, preparedKeys });
+function publish(project: CaptionProject, epoch: string, preparedKeys: string[], intent: 'apply' | 'follow' = 'apply', requestId = randomUUID()) {
+  return api(project, batchPath, 'POST', { expectedMedia: project.media, mode: 'prepared', intent, epoch, preparedKeys, requestId });
+}
+function readReceipt(project: CaptionProject, requestId: string) {
+  const query = new URLSearchParams({ filename: project.media.filename, size: String(project.media.size) });
+  return api(project, `/caption-word-timing/publication/${requestId}?${query}`);
 }
 async function change(project: CaptionProject, update: (current: CaptionProject) => CaptionProject) {
   return store.withProjectWrite(project.id, (current, persist) => persist(update(current!)));
@@ -431,7 +448,7 @@ test('concurrent revoke and publish commit in project write order', async () => 
     const [entry] = await prepare(project, ['word']);
     const revoke = () => updateWordHighlightFollow(project.id, project.media, 'revoke', epoch);
     const write = () => applyPreparedWordHighlightBatch(project.id, project.media, {
-      intent: 'follow', epoch, preparedKeys: [entry.preparedKey],
+      intent: 'follow', epoch, preparedKeys: [entry.preparedKey], requestId: randomUUID(),
     });
     const outcomes = revokesFirst ? await Promise.allSettled([revoke(), write()]) : await Promise.allSettled([write(), revoke()]);
     if (revokesFirst) {
@@ -474,6 +491,66 @@ test('explicit Undo has its own History barrier and refuses an intervening manua
   assert.deepEqual(await historyStore.list(project.id), checkpoints);
 });
 
+test('a lost publication response followed by Cancel still yields the exact guarded inverse', async () => {
+  const { project, epoch } = await setup('lost-cross-chunk', [
+    cue('left', 100, 200, 'go'), cue('right', 200, 300, 'go'),
+  ], { left: [150, 230], right: [150, 230] });
+  const candidates = [...await prepare(project, ['left']), ...await prepare(project, ['right'])];
+  const keys = candidates.map(({ preparedKey }) => preparedKey);
+  const requestId = randomUUID();
+  assert.deepEqual(candidates.map(({ track }) => track?.words[0].issue), [undefined, undefined]);
+  dropNextPublish.add(project.id);
+  await assert.rejects(publish(project, epoch, keys, 'apply', requestId), TypeError);
+  const revoke = await ok(await api(project, followPath, 'PUT', { expectedMedia: project.media, action: 'revoke', epoch }));
+  assert.equal(revoke.wordHighlightFollow.enabled, false);
+  await rejectsUnchanged(project, () => publish(project, epoch, keys, 'apply', requestId), intentChanged);
+
+  const saved = (await store.get(project.id))!;
+  const history = await historyStore.list(project.id);
+  const receipt = await ok(await readReceipt(project, requestId));
+  assert.deepEqual(receipt, {
+    committed: true, intent: 'apply',
+    applied: saved.captions.map((after, index) => ({ id: after.id, before: project.captions[index], after })),
+  });
+  for (const [index, candidate] of candidates.entries()) {
+    const track = saved.captions[index].wordTiming;
+    assert.equal(track?.words[0].issue, 'ambiguous-occurrence');
+    assert.notDeepEqual(track, candidate.track);
+    assert.notDeepEqual(track, candidate.beforeTrack);
+  }
+  assert.deepEqual(history.map(({ source }) => source), ['word-highlight']);
+  assert.deepEqual(await store.get(project.id), saved);
+  assert.deepEqual(await historyStore.list(project.id), history);
+  const undone = await ok(await api(project, batchPath, 'POST', {
+    expectedMedia: project.media, action: 'undo', intent: 'apply',
+    changes: receipt.applied.map(({ before, after }: { before: CaptionSegment; after: CaptionSegment }) => ({ before: after, after: before })),
+  }));
+  assert.deepEqual(undone.project.captions, project.captions);
+});
+
+test('a request ID replays its accepted result while armed and falls back to History after receipt expiry', async (t) => {
+  const { project, epoch } = await setup('receipt-expiry', [cue('word')], { word: [120, 160] });
+  const keys = (await prepare(project, ['word'])).map(({ preparedKey }) => preparedKey);
+  const requestId = randomUUID();
+  assert.deepEqual(await ok(await readReceipt(project, requestId)), { committed: false });
+  assert.equal((await readReceipt(project, 'not-a-uuid')).status, 400);
+  assert.equal((await api(project, batchPath, 'POST', {
+    expectedMedia: project.media, mode: 'prepared', intent: 'apply', epoch, preparedKeys: keys,
+  })).status, 400);
+  const first = await ok(await publish(project, epoch, keys, 'apply', requestId));
+  const history = await historyStore.list(project.id);
+  const replay = await ok(await publish(project, epoch, keys, 'apply', requestId));
+  assert.deepEqual(replay.applied, first.applied);
+  assert.equal(replay.appliedCount, 0);
+  assert.deepEqual(replay.project, first.project);
+  assert.ok(wordHighlightPublicationReceipts.get(project.id, mediaFingerprint(project), requestId));
+  t.mock.method(Date, 'now', () => Date.parse(first.project.updatedAt) + 31 * 60_000);
+  assert.deepEqual(await ok(await readReceipt(project, requestId)), { committed: true, receiptAvailable: false });
+  assert.deepEqual(await historyStore.list(project.id), history);
+  assert.deepEqual(await store.get(project.id), first.project);
+  assert.equal(Object.hasOwn(history[0], 'publicationRequestId'), false);
+});
+
 test('prepared publication accepts more than 1,000 references and its guarded inverse', async () => {
   const captions = Array.from({ length: 1_001 }, (_, i) => cue(`c${i}`, 300 * i, 300 * i + 200, 'word'));
   const anchors = Object.fromEntries(captions.map(({ id, startMs }) => [id, [startMs + 20, startMs + 80] as [number, number]]));
@@ -506,14 +583,18 @@ test('history restore clears follow even when the selected snapshot was armed, a
 });
 
 test('same original name and size on replacement still change media identity and clear follow', async () => {
-  const { project, epoch } = await setup('replace', [cue('word')]);
+  const { project, epoch } = await setup('replace', [cue('word')], { word: [120, 160] });
   const [entry] = await prepare(project, ['word']);
+  const requestId = randomUUID();
+  const committed = await ok(await publish(project, epoch, [entry.preparedKey], 'apply', requestId));
+  const fingerprint = mediaFingerprint(project);
+  assert.ok(wordHighlightPublicationReceipts.get(project.id, fingerprint, requestId));
   await fs.writeFile(path.join(config.uploadDir, project.media.filename), 'old!');
   const body = new FormData();
   body.append('media', new Blob(['new!'], { type: 'audio/wav' }), project.media.originalName);
   body.set('mode', 'reset');
   body.set('expectedMedia', JSON.stringify({ filename: project.media.filename, size: project.media.size }));
-  body.set('expectedUpdatedAt', project.updatedAt);
+  body.set('expectedUpdatedAt', committed.project.updatedAt);
   const replacement = await ok(await fetch(`${base}/${project.id}/replace-media`, { method: 'POST', body }));
   cancelScheduledProjectPrewarm(project.id);
   assert.equal(replacement.media.size, project.media.size);
@@ -521,6 +602,9 @@ test('same original name and size on replacement still change media identity and
   assert.notEqual(replacement.media.filename, project.media.filename);
   assert.equal(replacement.wordHighlightFollow, undefined);
   assert.equal(wordHighlightCandidateStore.get(entry.preparedKey), undefined);
+  assert.equal(wordHighlightPublicationReceipts.get(project.id, fingerprint, requestId), undefined);
+  assert.deepEqual(await ok(await readReceipt(project, requestId)), { committed: false });
+  assert.deepEqual(await ok(await readReceipt(replacement, requestId)), { committed: false });
   await rejectsUnchanged(project, () => publish(project, epoch, [entry.preparedKey]), intentChanged);
   const recovered = await ok(await api(project, `/media-replacements/${replacement.mediaReplacement.id}/restore`, 'POST', {
     expectedMedia: replacement.media, expectedUpdatedAt: replacement.updatedAt,

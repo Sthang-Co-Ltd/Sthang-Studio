@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { normalizeAudioFile, probeDurationMs, waveDurationMs } from './media.js';
 import { invalidateWindowTimingAudio } from './local-timing.js';
 import { wordHighlightCandidateStore } from './word-highlight-candidate-store.js';
+import { wordHighlightPublicationReceipts } from './word-highlight-publication-receipts.js';
 
 // Audio preparation needs no caption, transcript, appearance, or context payload.
 type ProjectMedia = Pick<CaptionProject, 'id' | 'media'>;
@@ -150,6 +151,7 @@ export async function cacheDuration(projectId: string) {
 
 export async function invalidateProjectCache(projectId: string) {
   wordHighlightCandidateStore.invalidateProject(projectId);
+  wordHighlightPublicationReceipts.invalidateProject(projectId);
   const { invalidateMediaPreview } = await import('./media-preview.js');
   await invalidateMediaPreview(projectId);
   const { disposePersistentCaptionPreviews } = await import('./persistent-caption-preview.js');
