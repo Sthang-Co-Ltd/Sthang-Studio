@@ -17,6 +17,8 @@ process.env.GEMINI_API_KEY = '';
 process.env.STHANG_CONTRIBUTION_ENDPOINT = '';
 process.env.STHANG_ANALYTICS_ENDPOINT = '';
 const { config } = await import('../apps/server/src/config.js');
+const { wordHighlightCandidateStore } = await import('../apps/server/src/services/word-highlight-candidate-store.js');
+const { mediaFingerprint } = await import('../apps/server/src/services/cache.js');
 const { store } = await import('../apps/server/src/services/store.js');
 const { historyStore } = await import('../apps/server/src/services/history-store.js');
 const { jobStore } = await import('../apps/server/src/services/job-store.js');
@@ -86,6 +88,22 @@ async function seed(id: string): Promise<CaptionProject> {
   cancelScheduledProjectPrewarm(id);
   await historyStore.checkpoint(project, 'Reviewed synthetic checkpoint', 'manual-save');
   return project;
+}
+
+function preparedCandidate(project: CaptionProject) {
+  const { id, text } = project.captions[0];
+  const key = wordHighlightCandidateStore.put({
+    projectId: project.id, mediaFingerprint: mediaFingerprint(project), captionId: id,
+    basis: 'fixture', dependencies: { [id]: 'fixture' },
+    track: {
+      evidence: 2, version: 1, text, basis: 'fixture', words: [
+        { id: 'manual', startOffset: 0, endOffset: 8, startMs: 253, endMs: 803, source: 'manual', method: 'manual' },
+        { id: 'estimated', startOffset: 9, endOffset: 14, startMs: null, endMs: null, source: 'estimated', needsReview: true, issue: 'missing' },
+      ],
+    },
+  });
+  assert.ok(key && wordHighlightCandidateStore.get(key));
+  return key;
 }
 
 async function readDisk(id: string) {
@@ -195,6 +213,7 @@ test('initialization, project, History, staged media and backup files flush thro
 
 test('preserve replacement retains every reviewed field and rebases existing history without generation', async () => {
   const project = await seed('preserve-all-fields');
+  const preparedKey = preparedCandidate(project);
   const oldHistory = await historyStore.list(project.id, project.media);
   const jobsBefore = await jobStore.list(project.id);
   const response = await replace(project);
@@ -205,6 +224,7 @@ test('preserve replacement retains every reviewed field and rebases existing his
   assert.equal(replaced.media.originalName, 'synthetic-regrade.mp4');
   assert.equal(replaced.media.size, replacementBytes.length);
   assert.equal(replaced.mediaReplacement.mode, 'preserve');
+  assert.equal(wordHighlightCandidateStore.get(preparedKey), undefined);
   assert.ok(replaced.mediaReplacement.id);
   assert.equal(replaced.pipelineCache, undefined, 'derived cache identity must not survive media swap');
   assert.deepEqual(kept(await readDisk(project.id)), kept(project));
@@ -502,7 +522,9 @@ test('delete during replacement cannot orphan the newly published source; later 
     const response = await replacement;
     assert.equal(response.status, 200, await response.clone().text());
     const current = await response.json() as CaptionProject;
+    const preparedKey = preparedCandidate(current);
     assert.equal((await jsonRequest(project.id, '', 'DELETE')).status, 204);
+    assert.equal(wordHighlightCandidateStore.get(preparedKey), undefined);
     assert.equal(await store.get(project.id), null);
     await assert.rejects(fs.stat(path.join(config.uploadDir, current.media.filename)), { code: 'ENOENT' });
     await assert.rejects(fs.stat(path.join(config.historyDir, project.id)), { code: 'ENOENT' });

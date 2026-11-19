@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sys
+import time
 from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ MAX_DISK_EMISSION_BYTES = 256 * 1024 * 1024
 
 _kfa_session = None
 _emission_memory = OrderedDict()
+_window_pcm = None
 _whisper_cache_key = None
 _whisper_cache_value = None
 
@@ -513,8 +515,181 @@ def process_alignment(audio_path: Path, transcript: str, args):
     return payload
 
 
+def window_frame_bounds(start_ms, end_ms, frame_count, sample_count, sample_rate):
+    denominator = 1000 * sample_count
+    return (
+        min(frame_count, max(0, math.floor(start_ms * frame_count * sample_rate / denominator))),
+        min(frame_count, max(0, math.ceil(end_ms * frame_count * sample_rate / denominator))),
+    )
+
+
+def tokenize_window(lines, tokenize_phonemize, intersperse, vocabs):
+    tokens, texts, owners, originals = [], [], [], []
+    for line_index, line in enumerate(lines):
+        for item in tokenize_phonemize(" ".join(line["text"].split())):
+            if len(item) == 2:
+                if not owners:
+                    raise ValueError("KFA phonemizer returned an invalid leading continuation token.")
+                # The legacy span attaches every continuation to the preceding
+                # acoustic item, even if the continuation is on another line.
+                originals[-1].append(item[0])
+            else:
+                tokens.append(item[2])
+                texts.append(item[1])
+                owners.append(line_index)
+                originals.append([item[0]])
+    phonetic = "".join(intersperse(texts, "|"))
+    ids = [value for group in intersperse(tokens, [vocabs["|"]]) for value in group]
+    return phonetic, ids, list(zip(texts, owners, originals))
+
+
+def align_window_variant(emission, pcm, clock, variant, budgets):
+    import numpy as np
+    from kfa.text_normalize import tokenize_phonemize
+    from kfa.utils import backtrack, get_trellis, intersperse, merge_repeats, merge_words, vocabs
+
+    n, rate, total_frames = clock
+    first, end = window_frame_bounds(variant["startMs"], variant["endMs"], total_frames, n, rate)
+    sliced = emission[first:end]
+    phonetic, ids, owned_words = tokenize_window(variant["lines"], tokenize_phonemize, intersperse, vocabs)
+    attempt = {"variant": variant["name"], "frames": len(sliced), "ids": len(ids)}
+    if not ids:
+        return {**attempt, "result": "no-fit"}, None
+    if len(sliced) < len(ids):
+        return {**attempt, "result": "frames-short"}, None
+    cells = len(sliced) * len(ids)
+    has_context = len(variant["lines"]) > 1
+    if (has_context and (len(ids) > budgets["maxIds"] or cells > budgets["maxCells"])) or (
+        not has_context and cells > budgets["maxCellsTargetOnly"]
+    ):
+        return {**attempt, "result": "budget"}, None
+    blank_id = vocabs["[PAD]"]
+    trellis = get_trellis(sliced, ids, blank_id=blank_id)
+    try:
+        path = backtrack(trellis, sliced, ids, blank_id=blank_id)
+    except AssertionError:
+        return {**attempt, "result": "no-fit"}, None
+    segments = merge_words(merge_repeats(path, phonetic))
+    # intersperse adds leading and trailing separators. merge_words emits
+    # only non-separator runs, in the original acoustic item order.
+    if len(segments) != len(owned_words) or any(
+        segment.label != label for segment, (label, _, _) in zip(segments, owned_words)
+    ):
+        raise ValueError("KFA word and caption-line counts disagree.")
+
+    # KFA has one trellis row per emission row. backtrack records time_index
+    # in that row space; merge_repeats adds one to the last row for an exclusive
+    # end, and merge_words takes the outer boundaries without shifting them.
+    words = []
+    for segment, (_, line, pieces) in zip(segments, owned_words):
+        start_frame = first + segment.start
+        end_frame = first + segment.end
+        start_sample = start_frame * n // total_frames
+        end_sample = (end_frame * n + total_frames - 1) // total_frames
+        peak = float(np.max(np.abs(pcm[start_sample:end_sample])))
+        words.append({
+            "line": line, "text": "".join(pieces), "startFrame": start_frame,
+            "endFrame": end_frame, "score": float(segment.score), "peak": peak,
+        })
+    return {**attempt, "result": "ok"}, words
+
+
+def align_window_target(emission, pcm, clock, target, budgets):
+    started = time.perf_counter()
+    attempts = []
+    result = {"id": target["id"], "attempts": attempts}
+    for variant in target["variants"]:
+        if variant["name"] == "target-wide" and (
+            not attempts or attempts[-1]["result"] not in ("frames-short", "no-fit")
+        ):
+            continue
+        try:
+            attempt, words = align_window_variant(emission, pcm, clock, variant, budgets)
+        except Exception:
+            attempt, words = {
+                "variant": variant["name"], "result": "error",
+                "message": "KFA could not produce owned segments for this window.",
+            }, None
+        attempts.append(attempt)
+        if words is not None:
+            result["words"] = words
+            break
+    return {**result, "elapsedMs": (time.perf_counter() - started) * 1000}
+
+
+def read_window_pcm(audio, namespace, expected_count, expected_rate):
+    global _window_pcm
+    import librosa
+
+    key = (namespace, audio_identity(audio))
+    if _window_pcm is not None and _window_pcm[0] == key:
+        return _window_pcm[1]
+    _window_pcm = None
+    pcm, rate = librosa.load(str(audio), sr=16000, mono=True)
+    if len(pcm) != expected_count or rate != expected_rate:
+        raise ValueError("KFA PCM and emission clocks disagree.")
+    if pcm.nbytes <= 64 * 1024 * 1024:
+        _window_pcm = (key, pcm)
+    return pcm
+
+
+def invalidate_window_audio(request):
+    global _window_pcm
+    if _window_pcm is not None and _window_pcm[0][0] == request.get("cacheNamespace"):
+        _window_pcm = None
+    try:
+        _emission_memory.pop(audio_identity(Path(request["audio"])), None)
+    except OSError:
+        pass
+    return {"invalidated": True}
+
+
+def process_window_request(request):
+    options = options_namespace(request.get("options") or {})
+    if options.disable_kfa:
+        return {"unavailable": True}
+    try:
+        # The pinned KFA package downloads on import if its model is absent.
+        # This route has no network authority; only the setup workflow may do so.
+        from appdirs import user_cache_dir
+        if not (Path(user_cache_dir()) / "kfa" / f"{KFA_MODEL_ID}.onnx").is_file():
+            return {"unavailable": True}
+        from kfa.text_normalize import tokenize_phonemize  # ensure runtime before per-window processing
+        import librosa
+    except ImportError:
+        return {"unavailable": True}
+
+    audio = Path(request["audio"])
+    namespace = options.emission_cache_dir
+    emission, n, rate = compute_kfa_emission(audio, None if request.get("audioSource") == "chunk" else namespace)
+    if not request["targets"]:
+        return {"prepared": True}
+    frame_count = len(emission)
+    pcm = read_window_pcm(audio, namespace, n, rate)
+    clock = (n, rate, frame_count)
+    return {
+        "clock": {"sampleCount": n, "sampleRate": rate, "frameCount": frame_count},
+        "targets": [
+            align_window_target(emission, pcm, clock, target, request["budgets"])
+            for target in request["targets"]
+        ],
+    }
+
+
+def run_window_cli(args):
+    if not args.output:
+        raise RuntimeError("--output is required with --align-windows-request.")
+    request = json.loads(Path(args.align_windows_request).read_text(encoding="utf-8"))
+    payload = process_window_request(request)
+    Path(args.output).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
 def process_server_request(request):
     action = str(request.get("action") or "align")
+    if action == "align-windows":
+        return process_window_request(request)
+    if action == "invalidate-window-audio":
+        return invalidate_window_audio(request)
     options = options_namespace(request.get("options") or {})
     if action == "warm":
         if not options.disable_kfa:
@@ -573,6 +748,7 @@ def serve():
 def cli_args():
     parser = argparse.ArgumentParser(description="Local Khmer timing worker for Sthang Studio Captions")
     parser.add_argument("--server", action="store_true")
+    parser.add_argument("--align-windows-request")
     parser.add_argument("--audio")
     parser.add_argument("--transcript-file")
     parser.add_argument("--output")
@@ -604,6 +780,8 @@ def main():
     args = cli_args()
     if args.server:
         serve()
+    elif args.align_windows_request:
+        run_window_cli(args)
     else:
         run_cli(args)
 

@@ -53,6 +53,11 @@ import {
   CaptionWordBatchInputError,
   CaptionWordBatchNotFoundError,
 } from '../services/caption-word-batch.js';
+import { LocalTimingUnavailableError } from '../services/local-timing.js';
+import { wordHighlightCandidateStore } from '../services/word-highlight-candidate-store.js';
+import {
+  wordHighlightEngine, wordHighlightEngineVersion, WordHighlightProjectError,
+} from '../services/word-highlight-engine.js';
 
 await fs.mkdir(config.uploadDir, { recursive: true });
 await fs.mkdir(config.exportDir, { recursive: true });
@@ -404,6 +409,92 @@ export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRo
 }
 
 router.post('/:id/caption-word-timing', createCaptionWordTimingHandler());
+
+const maximumWordHighlightRequestBytes = 16 * 1024;
+let wordHighlightQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueWordHighlight<T>(operation: () => Promise<T>): Promise<T> {
+  const pending = wordHighlightQueue.then(operation);
+  wordHighlightQueue = pending.catch(() => {});
+  return pending;
+}
+
+interface WordHighlightRouteDependencies {
+  engine: typeof wordHighlightEngine;
+  candidateStore: typeof wordHighlightCandidateStore;
+  hasActiveCaptionJobForProject: (projectId: string) => boolean;
+}
+
+const defaultWordHighlightRouteDependencies: WordHighlightRouteDependencies = {
+  engine: wordHighlightEngine,
+  candidateStore: wordHighlightCandidateStore,
+  hasActiveCaptionJobForProject: (id) => jobStore.hasActiveCaptionJobForProject(id),
+};
+
+export function createWordHighlightHandler(
+  action: 'prepare' | 'candidates', dependencies: WordHighlightRouteDependencies = defaultWordHighlightRouteDependencies,
+): RequestHandler {
+  return async (req, res) => {
+    const projectId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!projectId) {
+      res.status(400).json({ error: 'Project id is required for word timing.' });
+      return;
+    }
+    if (Number(req.headers['content-length']) > maximumWordHighlightRequestBytes
+      || Buffer.byteLength(JSON.stringify(req.body ?? {})) > maximumWordHighlightRequestBytes) {
+      res.status(413).json({ error: 'The word timing request is too large.' });
+      return;
+    }
+    const expected = expectedMedia(req.body?.expectedMedia);
+    if (!expected) {
+      res.status(428).json({ error: 'Word timing requires the current source media version.' });
+      return;
+    }
+    const ids: unknown = req.body?.ids;
+    if (action === 'candidates' && (!Array.isArray(ids) || ids.length < 1 || ids.length > 32
+      || !ids.every((id: unknown) => typeof id === 'string' && id.trim() && id.length <= 128)
+      || new Set(ids).size !== ids.length)) {
+      res.status(400).json({ error: 'Provide between 1 and 32 distinct caption ids.' });
+      return;
+    }
+    const checkCaptionJob = () => {
+      if (dependencies.hasActiveCaptionJobForProject(projectId)) {
+        throw new JobAdmissionError('Finish or cancel the active caption processing job before preparing word timing.');
+      }
+    };
+    try {
+      checkCaptionJob();
+      const response = await jobAdmission.runForProject(projectId, () => enqueueWordHighlight(async () => {
+        checkCaptionJob();
+        if (action === 'prepare') return dependencies.engine.prepare(projectId, expected);
+        const { mediaFingerprint, results } = await dependencies.engine.candidates(projectId, expected, ids as string[]);
+        return {
+          engine: wordHighlightEngineVersion,
+          results: results.map((result) => {
+            if (result.status !== 'candidate' || !result.track || !result.dependencies || !result.basis) return result;
+            const preparedKey = dependencies.candidateStore.put({
+              projectId, mediaFingerprint, captionId: result.id,
+              basis: result.basis, dependencies: result.dependencies, track: result.track,
+            });
+            return preparedKey ? { ...result, preparedKey } : result;
+          }),
+        };
+      }));
+      res.json(response);
+    } catch (error) {
+      if (error instanceof JobAdmissionError) { res.status(409).json({ code: 'WORD_TIMING_PROJECT_BUSY', error: error.message }); return; }
+      if (error instanceof WordHighlightProjectError) { res.status(error.status).json({ error: error.message }); return; }
+      if (error instanceof LocalTimingUnavailableError) {
+        res.status(503).json({ code: 'WORD_TIMING_UNAVAILABLE', error: error.message });
+        return;
+      }
+      res.status(500).json({ error: 'Could not prepare local word timing.' });
+    }
+  };
+}
+
+router.post('/:id/caption-word-timing/prepare', createWordHighlightHandler('prepare'));
+router.post('/:id/caption-word-timing/candidates', createWordHighlightHandler('candidates'));
 
 router.post('/:id/caption-word-timing/batch-apply', async (req, res) => {
   const preparedFor = expectedMedia(req.body?.expectedMedia);

@@ -4,6 +4,7 @@ export * from './caption-settings.js';
 export * from './caption-looks.js';
 export * from './word-timing.js';
 export { endsWithKhmerWord, segmentKhmerWords } from './khmer-word-segmentation.js';
+export { highlightDisplayUnits, type HighlightDisplayUnit } from './highlight-display-units.js';
 export * from './caption-interchange.js';
 export * from './export-checks.js';
 export * from './export-freshness.js';
