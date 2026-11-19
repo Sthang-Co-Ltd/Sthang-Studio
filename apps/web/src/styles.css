@@ -343,7 +343,7 @@ body{color:var(--text);caret-color:var(--accent)}
 .toast-stack{position:fixed;right:16px;bottom:16px;z-index:90;width:min(390px,calc(100vw - 32px));display:flex;flex-direction:column;align-items:stretch;gap:8px;pointer-events:none}
 .toast-stack .toast,.toast-stack .job-toast{position:static;transform:none;width:100%;min-height:44px;margin:0;pointer-events:auto;box-shadow:0 14px 45px #0009}
 .toast-stack .toast{justify-content:flex-start;font-size:12px;line-height:1.45}
-.toast-stack .toast>span{flex:1}
+.toast-stack .toast>span{flex:1;min-width:0;overflow-wrap:anywhere}
 .toast-stack .toast>button{width:28px;height:28px;min-height:28px;border:0;border-radius:7px;background:transparent;color:currentColor;display:grid;place-items:center;cursor:pointer;opacity:.7}
 .toast-stack .toast>button:hover{background:#ffffff0d;opacity:1}
 .toast-stack .job-toast{left:auto;bottom:auto}

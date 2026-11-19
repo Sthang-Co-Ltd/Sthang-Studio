@@ -4,7 +4,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionSegment, type TimedToken } from '@kcs/shared';
+const LEGACY_NOTO_SANS_KHMER_REGULAR_SHA256 = 'b122766dedf4af57abc999c04c43eeaef48571c013ef1f388d9d7e6cffc6690a';
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'caption-overflow-native-'));
 process.env.STHANG_STUDIO_STATE_ROOT = root;
 process.env.STHANG_STUDIO_ENV_FILE = path.join(root, 'missing.env');
@@ -70,6 +72,11 @@ test('disconnected ink beyond the guard cannot yield a false fit', async () => {
   }
 });
 
+test('two ink islands separated by nonbreaking spaces cannot fit', async () => {
+  // Disconnected ink must not yield a false fit.
+  await assert.rejects(validateCaptionOverflow({ ...base, captions: [cue(`hello${'\u00a0'.repeat(200)}hello`)] }), CaptionOverflowError);
+});
+
 test('ordinary nonbreaking phrases and a blank line remain supported', async () => {
   for (const text of ['hello\u00a0world', 'hello\n\nworld']) {
     await validateCaptionOverflow({ ...base, captions: [cue(text)] });
@@ -105,7 +112,21 @@ test('ordinary 4K portrait captions fit with axis-specific native guards', async
       const a = { ...appearance, fontFamily: name, fontSize1080 };
       const directory = await fs.mkdtemp(path.join(root, 'portrait-fonts-'));
       const staged = await prepareCaptionFonts(directory, a);
-      await validateCaptionOverflow({ ...base, width: 2160, height: 3840, fontDirectory: staged, appearance: a, captions: [cue(text)] });
+      const input = { ...base, width: 2160, height: 3840, fontDirectory: staged, appearance: a, captions: [cue(text)] };
+      if (name === 'Noto Sans Khmer' && fontSize1080 === 120 && text === 'hello\u00a0world') {
+        const regularFaces = (await fs.readdir(staged, { withFileTypes: true }))
+          .filter((file) => file.isFile() && path.parse(file.name).name === 'regular');
+        const [regular] = regularFaces;
+        assert.ok(regular && regularFaces.length === 1, `Expected exactly one staged regular face for ${name}`);
+        const sha256 = createHash('sha256').update(await fs.readFile(path.join(staged, regular.name))).digest('hex');
+        if (sha256 === LEGACY_NOTO_SANS_KHMER_REGULAR_SHA256) {
+          // The missing NBSP mapping makes the conservative allocation exceed the pixel cap.
+          // Ink fits in a separate padded render; see docs/RELIABILITY-FOLLOWUP-20261118.md (item 2).
+          await assert.rejects(validateCaptionOverflow(input), (error) => error instanceof CaptionOverflowError && error.kind === 'unverifiable');
+          return;
+        }
+      }
+      await validateCaptionOverflow(input);
     });
   }
 });

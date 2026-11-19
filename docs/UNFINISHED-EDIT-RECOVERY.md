@@ -188,6 +188,16 @@ remains usable while a check is pending; choosing another copy cancels the old
 check, retains selector focus and updates its status. Newer typing, navigation or
 cross-tab removal/replacement still supersedes the delayed check.
 
+If the selected recovery copy was removed or changed before you choose **Restore
+draft**, Studio tells you that your current project is kept. If another copy
+remains, choose **Restore draft** again to restore it. If you have already moved
+focus elsewhere, it stays there. Otherwise, focus moves to the remaining
+**Restore draft** action. If the recovery offer closes, focus returns to the
+control you were using before the offer, or to **Project details** if that control
+is unavailable. If a click leaves focus on the page itself rather than on the
+Restore button, as some browsers do, focus stays there. The recovery actions stay in place when
+they receive focus as the offer opens.
+
 ### Appearance save protection (source-only)
 
 Current development source also includes pending or failed Appearance changes in

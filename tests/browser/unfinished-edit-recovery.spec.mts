@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page, type Request } from '@playwright/test';
 import fs from 'node:fs/promises';
-import { hydrateCaptionWordTimings, type CaptionProject, type CaptionSegment, type RegenerationProposal, type TranscriptionContext } from '@kcs/shared';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { hydrateCaptionWordTimings, type CaptionProject, type CaptionSegment, type ProcessingJob, type RegenerationProposal, type TranscriptionContext } from '@kcs/shared';
+import { cleanFixtures, fixtureExportUrl, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import type { RecoveryDraft } from '../../apps/web/src/unfinished-edit-recovery.js';
 import { expectRecoveryOfferReachable } from './recovery-layout.mjs';
 
@@ -105,7 +105,7 @@ async function expectCapturedWhileFocused(page: Page, field: Locator, text: stri
   }), text)).toBe(true);
 }
 
-async function reloadAndReopen(page: Page) {
+async function reloadAndReopen(page: Page, beforeOpen?: () => Promise<void>) {
   const acceptUnload = async (dialog: import('@playwright/test').Dialog) => {
     expect(dialog.type()).toBe('beforeunload');
     await dialog.accept();
@@ -113,6 +113,7 @@ async function reloadAndReopen(page: Page) {
   page.on('dialog', acceptUnload);
   try { await page.reload(); }
   finally { page.off('dialog', acceptUnload); }
+  if (beforeOpen) await beforeOpen();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeVisible();
 }
@@ -135,6 +136,68 @@ function noLearningOrGeneration(state: FixtureState) {
   expect(state.profile.correctionEvents).toEqual([]);
   expect(state.requests.filter((request) => request.method === 'POST' &&
     /(?:\/jobs|\/transcribe|\/regenerate-range|\/refine-proposal|\/postprocess-timing|\/resegment|\/caption-word-timing(?:\/batch-apply)?|\/corrections|\/contribution(?:\/|$))/.test(request.path))).toEqual([]);
+}
+
+async function prepareCaptionRecovery(page: Page, holdEntrance = false) {
+  const { state, original } = await fixture(page);
+  const text = 'Draft wording before recovery activation';
+  const caption = page.getByLabel('Caption 1 text', { exact: true });
+  await openProject(page);
+  await caption.fill(text);
+  await expectCapturedWhileFocused(page, caption, text);
+  await reloadAndReopen(page, holdEntrance ? async () => {
+    // Freeze the real entrance geometry 45 ms into its 140 ms motion. Only the
+    // slot is held; the body keeps its production clipping and focus behavior.
+    const style = await page.addStyleTag({ content: `
+      @keyframes held-recovery-entrance {
+        from { grid-template-rows: 0fr; margin-bottom: -8px; }
+        to { grid-template-rows: 1fr; margin-bottom: 0px; }
+      }
+      .toast-slot[data-motion-state="open"]:has(.unfinished-recovery) {
+        transition: none;
+        animation: held-recovery-entrance 140ms ease -45ms both paused;
+      }
+    ` });
+    await style.evaluate((node) => { node.id = 'held-recovery-entrance'; });
+  } : undefined);
+  const notice = recoveryNotice(page);
+  const restore = notice.getByRole('button', { name: 'Restore draft', exact: true });
+  await expect(restore).toBeEnabled();
+  await expect(caption).toHaveValue(original.captions[0].text);
+  const start = state.requests.length;
+  const path = `/api/projects/${original.id}`;
+  return {
+    state, original, caption, text, notice, restore,
+    projectReads: () => state.requests.slice(start).filter((request) => request.method === 'GET' && request.path === path),
+    projectWrites: () => state.requests.slice(start).filter((request) =>
+      (request.method === 'PUT' || request.method === 'POST') && (request.path === path || request.path.startsWith(`${path}/`))),
+  };
+}
+
+async function changeOfferedCopy(page: Page, replacement?: string) {
+  await page.evaluate((text) => {
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith('sthang-studio:unfinished-edits:'));
+    if (keys.length !== 1) throw new Error(`Expected one offered copy, found ${keys.length}`);
+    const [key] = keys;
+    if (text === undefined) {
+      localStorage.removeItem(key);
+      return;
+    }
+    const draft = JSON.parse(localStorage.getItem(key)!) as RecoveryDraft;
+    if (!draft.captions?.length) throw new Error('Expected an offered caption draft');
+    draft.captions[0].text = text;
+    localStorage.setItem(key, JSON.stringify(draft));
+  }, replacement);
+}
+
+async function expectToastToFitStack(toast: Locator) {
+  const geometry = await toast.evaluate((node) => ({
+    minWidth: getComputedStyle(node.closest('.toast-slot-body')!).minWidth,
+    toastWidth: node.getBoundingClientRect().width,
+    stackWidth: node.closest('.toast-stack')!.clientWidth,
+  }));
+  expect(geometry.minWidth).toBe('0px');
+  expect(geometry.toastWidth).toBeLessThanOrEqual(geometry.stackWidth);
 }
 
 test('clean sessions and normalized Accuracy fields do not install an unload guard or create recovery', async ({ page }) => {
@@ -201,6 +264,184 @@ test('a focused unsaved caption survives reload and explicit recovery without ap
   await reloadAndReopen(page);
   await expect(caption).toHaveValue(text);
   await expect(recoveryNotice(page)).toHaveCount(0);
+});
+
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`a held recovery entrance keeps pointer activation stable at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const f = await prepareCaptionRecovery(page, true);
+
+    const geometry = await f.restore.evaluate((button) => {
+      const body = button.closest<HTMLElement>('.toast-slot-body')!;
+      const clip = body.getBoundingClientRect();
+      const clipped = clip.height > 0 && button.getBoundingClientRect().bottom > clip.bottom;
+      button.scrollIntoView({ block: 'center', inline: 'nearest' });
+      return { clipped, scrollTop: body.scrollTop };
+    });
+    expect(geometry.clipped).toBe(true);
+    expect(geometry.scrollTop).toBe(0);
+    if (viewport.width === 390) await expectToastToFitStack(f.notice);
+
+    await page.locator('#held-recovery-entrance').evaluate((style) => style.remove());
+    await f.restore.click();
+    await expect(f.caption).toHaveValue(f.text);
+    await expect(page.locator('[data-project-entry-focus]')).toBeFocused();
+    expect(f.projectReads()).toHaveLength(1);
+    expect(f.projectWrites()).toEqual([]);
+  });
+}
+
+test('a long captioned video filename keeps its completion toast within the 390px stack', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { state } = await fixture(page);
+  const filename = `${'Captioned'.repeat(16)}.mp4`;
+  const completedAt = '2026-10-19T15:01:00.000Z';
+  const completed: ProcessingJob = {
+    id: 'long-filename-export', projectId: 'landscape', projectTitle: 'Audit landscape', type: 'export-video',
+    status: 'completed', stage: 'complete', progress: 100, message: 'Captioned video export is ready.',
+    canResume: false, createdAt: '2026-10-19T15:00:00.000Z', updatedAt: completedAt, completedAt,
+    resultExport: { filename, url: fixtureExportUrl(), sizeBytes: 12000, width: 640, height: 360,
+      frameRate: 25, videoCodec: 'h264', encoder: 'libx264', audioCodec: null, durationMs: 4000, createdAt: completedAt },
+  };
+  await page.route('**/api/video-export/landscape/jobs', (route) => {
+    expect(route.request().method()).toBe('POST');
+    state.jobs = [completed];
+    return route.fulfill({ status: 202, json: { ...completed, lastUsedSettingsSaved: true } });
+  });
+  await openProject(page);
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('button', { name: 'Render captioned video', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Render anyway', exact: true }).click();
+
+  const toast = page.locator('.toast.notice').filter({ hasText: `Captioned video ready: ${filename}. Open Activity to download it.` });
+  await expect(toast).toBeVisible();
+  const dismiss = toast.getByRole('button', { name: 'Dismiss notice', exact: true });
+  await expect.poll(() => toast.evaluate((node) => node.closest('.toast-slot')!.getAnimations().length)).toBe(0);
+  const geometry = await dismiss.evaluate((button, exportFilename) => {
+    const notice = button.closest('.toast')!;
+    const message = notice.querySelector<HTMLElement>(':scope > span')!;
+    const slot = notice.closest('.toast-slot-body')!;
+    const toastBox = notice.getBoundingClientRect();
+    const clipBox = slot.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2);
+    const text = message.firstChild!;
+    const start = text.textContent!.indexOf(exportFilename);
+    const filenameRange = document.createRange();
+    filenameRange.setStart(text, start);
+    filenameRange.setEnd(text, start + exportFilename.length);
+    return {
+      toastBox: toastBox.toJSON(), clipBox: clipBox.toJSON(), buttonBox: buttonBox.toJSON(),
+      dismissInside: buttonBox.left >= Math.max(toastBox.left, clipBox.left, 0)
+        && buttonBox.right <= Math.min(toastBox.right, clipBox.right, innerWidth)
+        && buttonBox.top >= Math.max(toastBox.top, clipBox.top, 0)
+        && buttonBox.bottom <= Math.min(toastBox.bottom, clipBox.bottom, innerHeight),
+      dismissHittable: hit?.closest('button') === button,
+      messageHeight: message.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(message).lineHeight),
+      messageClientWidth: message.clientWidth,
+      messageScrollWidth: message.scrollWidth,
+      filenameLines: filenameRange.getClientRects().length,
+    };
+  }, filename);
+  await testInfo.attach('completion toast geometry', { body: JSON.stringify(geometry), contentType: 'application/json' });
+  await expectToastToFitStack(toast);
+  expect(geometry.dismissInside).toBe(true);
+  expect(geometry.dismissHittable).toBe(true);
+  expect(geometry.messageHeight).toBeGreaterThan(geometry.lineHeight);
+  expect(geometry.messageScrollWidth).toBeLessThanOrEqual(geometry.messageClientWidth);
+  expect(geometry.filenameLines).toBeGreaterThan(1);
+  await dismiss.click();
+  await expect(toast).toHaveCount(0);
+});
+
+test('a held recovery entrance keeps Restore stable on first focus and accepts Enter', async ({ page }, testInfo) => {
+  const f = await prepareCaptionRecovery(page, true);
+  await f.caption.focus();
+  await expect(f.caption).toBeFocused();
+  const geometry = await f.restore.evaluate((button) => {
+    const body = button.closest<HTMLElement>('.toast-slot-body')!;
+    const clip = body.getBoundingClientRect();
+    const clipped = clip.height > 0 && button.getBoundingClientRect().bottom > clip.bottom;
+    const focusWasOutside = !body.matches(':focus-within');
+    // Reveal the clipped target before the first focus entry, as scrolling to
+    // a keyboard target may do. Focusing Restore must not undo a body scroll.
+    button.scrollIntoView({ block: 'center', inline: 'nearest' });
+    const before = button.getBoundingClientRect();
+    const scrollBefore = body.scrollTop;
+    button.focus();
+    const after = button.getBoundingClientRect();
+    return { clipped, focusWasOutside, before: before.toJSON(), after: after.toJSON(), scrollBefore, scrollAfter: body.scrollTop };
+  });
+  await testInfo.attach('held keyboard geometry', { body: JSON.stringify(geometry), contentType: 'application/json' });
+  expect(geometry.clipped).toBe(true);
+  expect(geometry.focusWasOutside).toBe(true);
+  await expect(f.restore).toBeFocused();
+  const { before, after } = geometry;
+  expect(Math.max(Math.abs(before.x - after.x), Math.abs(before.y - after.y),
+    Math.abs(before.width - after.width), Math.abs(before.height - after.height))).toBeLessThanOrEqual(1);
+  expect(geometry.scrollBefore).toBe(geometry.scrollAfter);
+
+  await page.locator('#held-recovery-entrance').evaluate((style) => style.remove());
+  await page.keyboard.press('Enter');
+  await expect(f.caption).toHaveValue(f.text);
+});
+
+for (const returnTargetAvailable of [true, false]) {
+  const destination = returnTargetAvailable ? 'Caption 1 text' : 'Project details when the return target is unavailable';
+  test(`activating Restore for a removed copy explains the refusal and returns focus to ${destination}`, async ({ page }) => {
+    const f = await prepareCaptionRecovery(page);
+    await f.caption.focus();
+    await expect(f.caption).toBeFocused();
+    await expect(f.restore).toBeEnabled();
+    // Enter on Restore keeps the preceding control as the toast's return target.
+    await f.restore.focus();
+    await expect(f.restore).toBeFocused();
+    if (!returnTargetAvailable) {
+      // Make the real return field unavailable after focus has left it. This
+      // changes neither the caption value nor the recovery offer or its focus.
+      await f.caption.evaluate((field: HTMLTextAreaElement) => { field.disabled = true; });
+      await expect(f.caption).toBeDisabled();
+      await expect(f.restore).toBeEnabled();
+      await expect(f.restore).toBeFocused();
+    }
+    await changeOfferedCopy(page);
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
+    await expect(f.notice).toHaveCount(0);
+    const focusTarget = returnTargetAvailable ? f.caption : page.locator('[data-project-entry-focus]');
+    await expect(focusTarget).toBeFocused();
+    await expect(f.caption).toHaveValue(f.original.captions[0].text);
+    await expect(page.locator('.save-action')).toBeDisabled();
+    expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
+    expect(f.projectReads()).toHaveLength(0);
+    expect(f.projectWrites()).toEqual([]);
+  });
+}
+
+test('activating Restore for a rewritten copy requires a fresh activation of the replacement', async ({ page }) => {
+  const f = await prepareCaptionRecovery(page);
+  const replacement = 'Replacement draft wording requires a fresh choice';
+  await f.notice.locator('summary').click();
+  await expect(f.notice.getByText(f.text, { exact: true })).toBeVisible();
+  await changeOfferedCopy(page, replacement);
+  await f.restore.click();
+
+  await expect(page.getByText('That recovery copy was removed or changed. Your current project is kept.', { exact: true })).toBeVisible();
+  await expect(f.caption).toHaveValue(f.original.captions[0].text);
+  await expect(page.locator('.save-action')).toBeDisabled();
+  expect(f.state.projects[0].updatedAt).toBe(f.original.updatedAt);
+  expect(f.projectReads()).toHaveLength(0);
+  expect(f.projectWrites()).toEqual([]);
+  await expect(f.notice.getByText(replacement, { exact: true })).toBeVisible();
+  const openRestore = page.locator('.toast-slot[data-motion-state="open"]').getByRole('button', { name: 'Restore draft', exact: true });
+  await expect(openRestore).toBeEnabled();
+  await expect(openRestore).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await expect(f.caption).toHaveValue(replacement);
+  expect(f.projectReads()).toHaveLength(1);
 });
 
 test('a failed caption save remains actionable after notice expiry and Retry save clears the guard', async ({ page }, testInfo) => {
