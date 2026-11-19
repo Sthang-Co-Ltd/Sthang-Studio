@@ -3,7 +3,8 @@ import {
   applyCaptionLook,
   DEFAULT_CAPTION_APPEARANCE,
   normalizeCaptionAppearance,
-  resolveCaptionWordTiming,
+  hasWordTimingEvidence,
+  highlightAttention,
   type CaptionAppearance,
   type CaptionAppearancePreset,
   type CaptionLookId,
@@ -224,7 +225,10 @@ export function CaptionAppearanceWorkspace({
   }, [resourceOwner, loadingFonts, loadingPresets, fontReadError, presetReadError]);
   const wordReadiness = useMemo(() => {
     const spoken = captions.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, ''));
-    return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
+    const applicable = spoken.map((caption) => ({ caption, attention: highlightAttention(caption) }))
+      .filter(({ attention }) => attention !== 'not-applicable');
+    const unresolved = applicable.filter(({ attention }) => attention === 'needs-attention').map(({ caption }) => caption);
+    return { unresolved, total: applicable.length, marked: captions.some((caption) => hasWordTimingEvidence(caption.wordTiming)) };
   }, [captions]);
   const hasOverlappingCaptions = useMemo(() => {
     const visible = captions
@@ -859,7 +863,7 @@ export function CaptionAppearanceWorkspace({
     <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.status === 'preparing' || wordPreparation?.status === 'applying'}><summary ref={wordHighlightSummaryRef}>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
     <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
       <div className="appearance-word-highlight-head">
-        <p>Color the current word while the full caption stays visible.</p>
+        <p>{wordReadiness.marked ? 'Color words with usable timing while the full caption stays visible.' : 'Color the current word while the full caption stays visible.'}</p>
         <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
           onClick={() => {
             const enabled = appearanceRef.current.highlightMode !== 'word';
@@ -873,7 +877,7 @@ export function CaptionAppearanceWorkspace({
           onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
         <div className="appearance-highlight-readiness" role="status">
           <div><strong>{wordReadiness.total ? `${wordReadiness.total - wordReadiness.unresolved.length} of ${wordReadiness.total} captions ready` : 'No spoken captions'}</strong>
-            {wordReadiness.unresolved.length > 0 && <span>Captions that need timing stay plain.</span>}</div>
+            {wordReadiness.unresolved.length > 0 && <span>{wordReadiness.marked ? 'Words without usable timing keep the normal color.' : 'Captions that need timing stay plain.'}</span>}</div>
           {!wordReadiness.unresolved.length && wordReadiness.total > 0 && <button type="button" onClick={() => onEditWordTiming()}>Edit word timing</button>}
         </div>
       </>}

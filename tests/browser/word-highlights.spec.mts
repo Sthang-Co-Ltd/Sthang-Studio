@@ -412,6 +412,67 @@ test('spoken-word highlight setting saves and links directly to the word editor'
   await expect(page.locator('.word-timing-panel')).toBeVisible();
 });
 
+test('legacy highlight counts retain the text filter of each consumer', async ({ page }) => {
+  const saved = project();
+  saved.captionAppearance = { ...saved.captionAppearance!, highlightMode: 'word' };
+  saved.captions.push(
+    { id: 'punctuation', text: '...', startMs: 3600, endMs: 3700 },
+    { id: 'format-only', text: '\u200B', startMs: 3700, endMs: 3800 },
+    { id: 'space-only', text: ' ', startMs: 3800, endMs: 3900 },
+  );
+  await openProject(page);
+  await page.getByRole('button', { name: /^Appearance$/i }).click();
+  await expect(page.locator('.appearance-highlight-readiness')).toContainText('2 of 3 captions ready');
+
+  const whitespaceRow = page.locator('[data-caption-id="space-only"]');
+  await whitespaceRow.getByRole('textbox', { name: 'Caption 5 text' }).click();
+  await expect(whitespaceRow.getByRole('button', { name: 'Review word timing' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await expect(page.locator('.export-warnings')).toContainText('2 captions will remain plain because word timing needs review.');
+  await page.getByRole('button', { name: /Captions file/ }).click();
+  const advanced = page.getByText('Advanced caption formats', { exact: false }).filter({ has: page.getByText('For compatible editors and backups') });
+  await advanced.click();
+  await expect(page.locator('.handoff-word-readiness')).toContainText('2 of 4 captions with text ready for word-timed export.');
+});
+
+test('marked group and partial timing show visual readiness without promoting group word export', async ({ page }) => {
+  const saved = project();
+  saved.captionAppearance = { ...saved.captionAppearance!, highlightMode: 'word' };
+  const [partial, grouped] = saved.captions;
+  const partialWords = partial.wordTiming!.words.map((word) => ({ ...word, method: 'kfa' as const }));
+  const { method: _method, ...unsupported } = partialWords[2];
+  partial.wordTiming = {
+    version: 1, evidence: 2, text: partial.text,
+    words: [partialWords[0], partialWords[1], {
+      ...unsupported, source: 'estimated', startMs: null, endMs: null, needsReview: true, issue: 'no-fit',
+    }, ...partialWords.slice(3)],
+  };
+  const [start, end] = grouped.wordTiming!.words;
+  grouped.wordTiming = {
+    version: 1, evidence: 2, text: grouped.text,
+    words: [{
+      ...start, endOffset: end.endOffset, endMs: end.endMs, source: 'aligned', method: 'kfa-group',
+      members: [[start.startOffset, start.endOffset], [end.startOffset, end.endOffset]],
+    }],
+  };
+  saved.captions.push({
+    id: 'marked-punctuation', text: '...', startMs: 3600, endMs: 3800,
+    wordTiming: { version: 1, evidence: 2, text: '...', words: [] },
+  });
+
+  await openProject(page);
+  await page.getByRole('button', { name: /^Appearance$/i }).click();
+  await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 of 2 captions ready');
+  await expect(page.locator('.appearance-highlight-readiness')).toContainText('Words without usable timing keep the normal color.');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await expect(page.locator('.export-warnings')).toContainText('Words without usable timing keep the normal color in 1 caption.');
+  await page.getByRole('button', { name: /Captions file/ }).click();
+  await page.locator('summary').filter({ hasText: 'Advanced caption formats' }).click();
+  await expect(page.locator('.handoff-word-readiness')).toContainText('0 of 3 captions with text ready for word-timed export.');
+  await expect(page.locator('.handoff-word-readiness')).toContainText('1 of 2 spoken captions have full word highlighting.');
+});
+
 test('native preview changes paint when seeking between words and restores plain text during a gap', async ({ page }) => {
   state.native = true;
   project().captionAppearance = { ...project().captionAppearance!, highlightMode: 'word', highlightColor: '#D7FF4F' };

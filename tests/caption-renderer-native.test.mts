@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance, type CaptionProject, type CaptionSegment, type TimedToken, type VideoExportCapabilities } from '@kcs/shared';
+import { buildCaptionWordTiming, DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance, type CaptionProject, type CaptionSegment, type CaptionWord, type TimedToken, type VideoExportCapabilities } from '@kcs/shared';
 
 // Only synthetic media, isolated state, no API keys/network/Gemini calls. This suite is
 // deliberately separate from portable unit tests and fails if native prerequisites are absent.
@@ -183,6 +183,103 @@ test('spoken-word highlight keeps full unspaced Khmer geometry static and change
   assert.ok(dialogue.every((line) => line.includes('ខ្មែរ') && line.includes('កម្ពុជា')), 'every paint interval keeps the full caption block visible');
   assert.match(document, /\\1c&H4FFFD7&/);
   assert.doesNotMatch(document, /\\k(?:f|o)?\d/i, 'highlight uses static color spans, not karaoke fill/sweep tags');
+});
+
+test('marked partial and group tracks color only the supported glyphs with identical native geometry', async () => {
+  const labels = ['ខ្មែរ', 'CapCut', '2026'];
+  const text = labels.join('      ');
+  const words: CaptionWord[] = labels.map((label, index) => {
+    const startOffset = text.indexOf(label);
+    return {
+      id: label, startOffset, endOffset: startOffset + label.length, source: 'aligned', method: 'kfa',
+      startMs: [180, 300, 500][index], endMs: [400, 450, 780][index],
+    };
+  });
+  const [first, second, third] = words;
+  const untimed = (word: CaptionWord): CaptionWord => ({
+    id: word.id, startOffset: word.startOffset, endOffset: word.endOffset,
+    startMs: null, endMs: null, source: 'estimated', needsReview: true, issue: 'no-fit',
+  });
+  const group: CaptionWord = {
+    ...first, endOffset: second.endOffset, method: 'kfa-group',
+    members: [[first.startOffset, first.endOffset], [second.startOffset, second.endOffset]],
+  };
+  const caption = cue(text)[0];
+  const plain = {
+    ...geometryFixtureAppearance(), highlightMode: 'off' as const, textColor: '#FFFFFF',
+    outlineWidth1080: 0, shadowWidth1080: 0,
+  };
+  const highlighted = { ...plain, highlightMode: 'word' as const, highlightColor: '#D7FF4F' };
+  const { width, height } = source;
+  const render = (captions: CaptionSegment[], style: CaptionAppearance, timesMs: number[]) =>
+    renderCaptionPreview(parseCaptionPreviewInput({ captions, timesMs, appearance: style, resolution: 'source' }), capabilities);
+  const [baseFrame] = (await render([caption], plain, [120])).frames;
+  const baseline = decodePng(baseFrame.png);
+  const baseMask = await referenceFrame([caption], plain, width, height, 120, new Set([0]));
+  const occupiedColumns: number[] = [];
+  for (let x = 0; x < width; x += 1) {
+    for (let y = 0; y < height; y += 1) {
+      if (baseline[(y * width + x) * 4 + 3] === 0) continue;
+      occupiedColumns.push(x);
+      break;
+    }
+  }
+  const gaps = occupiedColumns.slice(1).map((x, index) => ({
+    size: x - occupiedColumns[index] - 1, cut: x,
+  })).sort((a, b) => b.size - a.size);
+  assert.ok(gaps[1]?.size > 10, 'expected two clear gaps separating the three glyph runs');
+  const cuts = [0, ...gaps.slice(0, 2).map(({ cut }) => cut).sort((a, b) => a - b), width];
+  const timesMs = [120, 220, 450, 600, 820];
+  const scenarios = [
+    { name: 'partial', words: [first, untimed(second), third], lit: [[], [0], [], [2], []] },
+    { name: 'group', words: [group, untimed(third)], lit: [[], [0, 1], [], [], []] },
+  ];
+  const white = [255, 255, 255];
+  const lime = [215, 255, 79];
+  const matchesColor = (pixels: Buffer, offset: number, color: number[]) =>
+    color.every((channel, index) => Math.abs(pixels[offset + index] - channel) <= 5);
+  // Both white and the reference background have green midway between red and
+  // blue. Lime is distinguishable throughout the visible antialiased glyph.
+  const hasLimeTint = (pixels: Buffer, offset: number) =>
+    pixels[offset + 1] - (pixels[offset] + pixels[offset + 2]) / 2 > 15;
+  for (const scenario of scenarios) {
+    const marked: CaptionSegment = {
+      ...caption, wordTiming: { version: 1, evidence: 2, text, words: scenario.words },
+    };
+    const { frames } = await render([marked], highlighted, timesMs);
+    assert.deepEqual(frames.map(({ atMs }) => atMs), timesMs);
+    for (const [index, frame] of frames.entries()) {
+      const rgba = decodePng(frame.png);
+      const label = `${scenario.name}/${frame.atMs}`;
+      assert.deepEqual(frame.bounds, baseFrame.bounds, label);
+      const direct = await referenceFrame([marked], highlighted, width, height, frame.atMs);
+      // Preview reconstructs alpha from black and white composites. The base
+      // renderer already gives colored antialiasing different alpha values.
+      // Force white in the real ASS painter to compare coverage pixel for pixel.
+      assert.deepEqual(await referenceFrame([marked], highlighted, width, height, frame.atMs, new Set([0])), baseMask, label);
+      for (let band = 0; band < labels.length; band += 1) {
+        const lit = scenario.lit[index].includes(band);
+        const color = lit ? lime : white;
+        let previewColorPixels = 0;
+        let assColorPixels = 0;
+        let previewLimePixels = 0;
+        let assLimePixels = 0;
+        for (let y = 0; y < height; y += 1) {
+          for (let x = cuts[band]; x < cuts[band + 1]; x += 1) {
+            const offset = (y * width + x) * 4;
+            if (rgba[offset + 3] >= 250 && matchesColor(rgba, offset, color)) previewColorPixels += 1;
+            if (matchesColor(direct, offset, color)) assColorPixels += 1;
+            if (rgba[offset + 3] >= 16 && hasLimeTint(rgba, offset)) previewLimePixels += 1;
+            if (hasLimeTint(direct, offset)) assLimePixels += 1;
+          }
+        }
+        assert.ok(previewColorPixels > 20 && assColorPixels > 20, `${label}: wrong paint on ${labels[band]}`);
+        if (!lit) {
+          assert.equal(previewLimePixels + assLimePixels, 0, `${label}: highlight leaked onto ${labels[band]}`);
+        }
+      }
+    }
+  }
 });
 
 test('default mixed Khmer and Latin captions stay on one line until appearance narrows the layout', async () => {

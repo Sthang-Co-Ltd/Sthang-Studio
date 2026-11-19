@@ -1,5 +1,5 @@
 import type { CaptionAppearance } from './caption-settings.js';
-import type { CaptionWordTiming } from './word-timing.js';
+import type { CaptionWordTiming, WordHighlightFollow } from './word-timing.js';
 export * from './caption-settings.js';
 export * from './caption-looks.js';
 export * from './word-timing.js';
@@ -245,6 +245,7 @@ export interface CaptionProject {
   mode: CaptionMode;
   /** Project-level burned-in caption appearance. It never changes SRT serialization. */
   captionAppearance?: CaptionAppearance;
+  wordHighlightFollow?: WordHighlightFollow;
   engineVersion?: string;
   pipelineCache?: PipelineCacheInfo;
   /** Set when accepted caption-only diffs no longer exactly mirror canonical transcript tokens. */

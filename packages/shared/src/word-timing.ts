@@ -1,7 +1,13 @@
 import type { CaptionProject, CaptionSegment, TimedToken } from './index.js';
+import { captionRenderTime } from './caption-settings.js';
 import { segmentKhmerWords } from './khmer-word-segmentation.js';
 
 export type CaptionWordSource = 'aligned' | 'manual' | 'estimated';
+export type WordMethod = 'kfa' | 'kfa-group' | 'legacy' | 'manual';
+export type WordIssue = 'missing' | 'text-mismatch' | 'no-fit' | 'budget'
+  | 'edited' | 'outside-cue' | 'grid-collapse' | 'time-conflict'
+  | 'ambiguous-occurrence' | 'discontinuous' | 'manual-conflict';
+export type DisplaySpan = [startOffset: number, endOffset: number];
 
 export interface CaptionWord {
   id: string;
@@ -14,14 +20,60 @@ export interface CaptionWord {
   source: CaptionWordSource;
   /** The interval was carried through an edit or otherwise needs a fresh local alignment before highlighting. */
   needsReview?: boolean;
+  method?: WordMethod;
+  issue?: WordIssue;
+  members?: DisplaySpan[];
 }
 
 export interface CaptionWordTiming {
   version: 1;
+  evidence?: 2;
   /** Exact caption text snapshot used by every stored offset. */
   text: string;
   words: CaptionWord[];
+  basis?: string;
 }
+
+export type CaptionDataWord = Omit<CaptionWord, 'id'>;
+export type CaptionDataWordTiming =
+  Omit<CaptionWordTiming, 'words' | 'basis'> & { words: CaptionDataWord[] };
+export type WordHighlightFollow = {
+  version: 1; mediaFingerprint: string; epoch: string; enabled: boolean;
+};
+
+export type Coverage = 'full-individual' | 'full-with-groups' | 'partial' | 'none';
+export type PaintSpan = {
+  startOffset: number; endOffset: number; startMs: number; endMs: number;
+};
+export type HighlightProblem = {
+  offsets: DisplaySpan | null; code: WordIssue | 'stale' | 'locked';
+};
+export interface HighlightPlan {
+  coverage: Coverage;
+  spokenUnits: number;
+  paintedUnits: number;
+  spans: PaintSpan[];
+  issues: HighlightProblem[];
+}
+export type HighlightPolicy = 'measured-and-manual';
+export type WordExport = { ready: true; words: CaptionWord[] }
+  | { ready: false; reason: string };
+export type HighlightAttention = 'ok' | 'needs-attention' | 'not-applicable';
+
+export const CAPTION_DATA_LIMITS = Object.freeze({
+  maxBytes: 4 * 1024 * 1024,
+  maxCaptions: 20_000,
+  maxWordsPerCaption: 5_000,
+  maxTotalWords: 100_000,
+  maxGraphemesPerCaption: 10_000,
+  maxTotalGraphemes: 500_000,
+  maxTimelineMs: 7 * 24 * 60 * 60 * 1_000,
+});
+
+const WORD_ISSUES = new Set<unknown>([
+  'missing', 'text-mismatch', 'no-fit', 'budget', 'edited', 'outside-cue',
+  'grid-collapse', 'time-conflict', 'ambiguous-occurrence', 'discontinuous', 'manual-conflict',
+] satisfies WordIssue[]);
 
 export interface CaptionEdgeRepair {
   before: CaptionSegment[];
@@ -480,6 +532,257 @@ export function resolveCaptionWordTiming(caption: CaptionSegment): CaptionWordTi
   return partialReason
     ? { state: 'partial', words: words as CaptionWord[], reason: partialReason }
     : { state: 'ready', words: words as CaptionWord[] };
+}
+
+/** Marker presence selects the marked path, including unsupported marker values. */
+export function hasWordTimingEvidence(raw: unknown): boolean {
+  return raw !== null && typeof raw === 'object' && Object.hasOwn(raw, 'evidence');
+}
+
+type MarkedWordTimingValidation = { ok: true; timing: CaptionWordTiming & { evidence: 2 } }
+  | { ok: false; reason: string };
+
+export function validateMarkedWordTiming(text: string, raw: unknown, durationMs?: number): MarkedWordTimingValidation {
+  const invalid = (reason: string) => ({ ok: false as const, reason });
+  if (!hasWordTimingEvidence(raw) || Array.isArray(raw)) return invalid('Word timing evidence is absent.');
+  const timing = raw as Partial<CaptionWordTiming>;
+  if (timing.version !== 1 || timing.evidence !== 2 || !Array.isArray(timing.words)) {
+    return invalid('Word timing evidence has an unsupported version or shape.');
+  }
+  if (typeof text !== 'string' || timing.text !== text) return invalid('Word timing belongs to different caption text.');
+  if (timing.basis !== undefined && typeof timing.basis !== 'string') return invalid('Word timing basis is invalid.');
+  const { maxWordsPerCaption, maxGraphemesPerCaption, maxTimelineMs } = CAPTION_DATA_LIMITS;
+  if (timing.words.length > maxWordsPerCaption || text.length > CAPTION_DATA_LIMITS.maxBytes) {
+    return invalid('Word timing exceeds the caption data limits.');
+  }
+  const boundaries = graphemeBoundaries(text);
+  if (!boundaries) return invalid('Unicode grapheme segmentation is unavailable.');
+  if (boundaries.size - 1 > maxGraphemesPerCaption) return invalid('Word timing exceeds the caption data limits.');
+  const validOffsets = (start: number, end: number, previous: number) =>
+    Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= previous && end > start
+    && boundaries.has(start) && boundaries.has(end)
+    && isIgnorableText(text.slice(previous, start)) && !isIgnorableText(text.slice(start, end));
+  const ids = new Set<string>();
+  const words: CaptionWord[] = [];
+  let previousEnd = 0;
+  let units = 0;
+  for (const word of timing.words) {
+    if (!word || typeof word !== 'object' || Array.isArray(word)
+      || typeof word.id !== 'string' || !word.id || word.id.length > 128 || ids.has(word.id)
+      || !validOffsets(word.startOffset, word.endOffset, previousEnd)) {
+      return invalid('Word timing offsets or identifiers are invalid for this caption text.');
+    }
+    const { id, startOffset, endOffset, startMs, endMs, source, needsReview, method, issue } = word;
+    if ((needsReview !== undefined && typeof needsReview !== 'boolean') || (issue !== undefined && !WORD_ISSUES.has(issue))) {
+      return invalid('A word timing review flag or issue is invalid.');
+    }
+    if (startMs === null && endMs === null) {
+      if (source !== 'estimated' || needsReview !== true || issue === undefined || method !== undefined) {
+        return invalid('An untimed word must carry a review issue.');
+      }
+    } else {
+      if (typeof startMs !== 'number' || typeof endMs !== 'number' || !Number.isFinite(startMs)
+        || !Number.isFinite(endMs) || startMs < 0 || endMs <= startMs || endMs > maxTimelineMs
+        || (durationMs !== undefined && endMs > durationMs)) {
+        return invalid('A word timing interval is invalid.');
+      }
+      const aligned = source === 'aligned' && (method === 'kfa' || method === 'kfa-group' || method === 'legacy');
+      if (!aligned && !(source === 'manual' && method === 'manual')) {
+        return invalid('A word timing source and method do not agree.');
+      }
+    }
+    let members: DisplaySpan[] | undefined;
+    if (word.members !== undefined) {
+      if (method === undefined || method === 'kfa' || !Array.isArray(word.members) || word.members.length < 2
+        || units + word.members.length > maxWordsPerCaption) return invalid('The word timing group is invalid.');
+      members = [];
+      let previousMemberEnd = startOffset;
+      for (const member of word.members) {
+        if (!Array.isArray(member) || member.length !== 2
+          || !validOffsets(member[0], member[1], previousMemberEnd) || member[1] > endOffset) {
+          return invalid('The word timing group does not cover its word span.');
+        }
+        members.push([member[0], member[1]]);
+        previousMemberEnd = member[1];
+      }
+      if (members[0][0] !== startOffset || previousMemberEnd !== endOffset) {
+        return invalid('The word timing group does not cover its word span.');
+      }
+    } else if (method === 'kfa-group') {
+      return invalid('The word timing group has no member spans.');
+    }
+    ids.add(id);
+    previousEnd = endOffset;
+    units += members?.length ?? 1;
+    if (units > maxWordsPerCaption) return invalid('Word timing exceeds the caption data limits.');
+    words.push({
+      id, startOffset, endOffset, startMs, endMs, source,
+      ...(needsReview !== undefined ? { needsReview } : {}),
+      ...(method !== undefined ? { method } : {}),
+      ...(issue !== undefined ? { issue } : {}),
+      ...(members !== undefined ? { members } : {}),
+    });
+  }
+  if (!isIgnorableText(text.slice(previousEnd))) return invalid('Word timing does not safely cover this caption text.');
+  return { ok: true, timing: {
+    version: 1, evidence: 2, text, words, ...(timing.basis !== undefined ? { basis: timing.basis } : {}),
+  } };
+}
+
+function eligibleWord(word: CaptionWord): word is CaptionWord & { startMs: number; endMs: number } {
+  // Source and method have already been checked by the marked validator.
+  return word.startMs !== null && word.endMs !== null && !word.needsReview && word.issue === undefined;
+}
+
+interface PaintCandidate {
+  span: PaintSpan;
+  rawStart: number;
+  rawEnd: number;
+  manual: boolean;
+  units: number;
+  index: number;
+}
+
+/** Compare each automatic candidate with all peers and each manual candidate with manual peers.
+ * Use the original candidates so a suppressed interval cannot hide a conflict.
+ */
+function paintConflicts(candidates: PaintCandidate[]) {
+  const conflicts = new Set<number>();
+  let rawEnd = -Infinity;
+  let gridEnd = -Infinity;
+  let manualRawEnd = -Infinity;
+  let manualGridEnd = -Infinity;
+  for (const entry of candidates) {
+    if (entry.rawStart < (entry.manual ? manualRawEnd : rawEnd)
+      || entry.span.startMs < (entry.manual ? manualGridEnd : gridEnd)) conflicts.add(entry.index);
+    rawEnd = Math.max(rawEnd, entry.rawEnd);
+    gridEnd = Math.max(gridEnd, entry.span.endMs);
+    if (entry.manual) {
+      manualRawEnd = Math.max(manualRawEnd, entry.rawEnd);
+      manualGridEnd = Math.max(manualGridEnd, entry.span.endMs);
+    }
+  }
+  let rawStart = Infinity;
+  let gridStart = Infinity;
+  let manualRawStart = Infinity;
+  let manualGridStart = Infinity;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const entry = candidates[index];
+    if (entry.rawEnd > (entry.manual ? manualRawStart : rawStart)
+      || entry.span.endMs > (entry.manual ? manualGridStart : gridStart)) conflicts.add(entry.index);
+    rawStart = Math.min(rawStart, entry.rawStart);
+    gridStart = Math.min(gridStart, entry.span.startMs);
+    if (entry.manual) {
+      manualRawStart = Math.min(manualRawStart, entry.rawStart);
+      manualGridStart = Math.min(manualGridStart, entry.span.startMs);
+    }
+  }
+  return conflicts;
+}
+
+export function compileHighlightPlan(caption: CaptionSegment, _policy: HighlightPolicy): HighlightPlan {
+  if (!hasWordTimingEvidence(caption.wordTiming)) {
+    const resolved = resolveCaptionWordTiming(caption);
+    if (resolved.state === 'ready') {
+      const spans = resolved.words.map(({ startOffset, endOffset, startMs, endMs }) => ({
+        startOffset, endOffset, startMs: captionRenderTime(startMs!), endMs: captionRenderTime(endMs!),
+      }));
+      return { coverage: 'full-individual', spokenUnits: spans.length, paintedUnits: spans.length, spans, issues: [] };
+    }
+    const code = resolved.state === 'stale' ? 'stale' : 'missing';
+    const issues: HighlightProblem[] = [{ offsets: null, code }];
+    if (caption.timingLocked) issues.push({ offsets: null, code: 'locked' });
+    return { coverage: 'none', spokenUnits: speechUnits(caption.text)?.length ?? 0, paintedUnits: 0, spans: [], issues };
+  }
+
+  const validation = validateMarkedWordTiming(caption.text, caption.wordTiming);
+  if (!validation.ok) {
+    return {
+      coverage: 'none', spokenUnits: speechUnits(caption.text)?.length ?? 0, paintedUnits: 0,
+      spans: [], issues: [{ offsets: null, code: 'stale' }],
+    };
+  }
+  const candidates: PaintCandidate[] = [];
+  const problems: Array<HighlightProblem | undefined> = [];
+  let spokenUnits = 0;
+  validation.timing.words.forEach((word, index) => {
+    const { startOffset, endOffset } = word;
+    const offsets: DisplaySpan = [startOffset, endOffset];
+    const units = word.members?.length ?? 1;
+    spokenUnits += units;
+    if (!eligibleWord(word)) {
+      problems[index] = { offsets, code: word.issue ?? 'missing' };
+      return;
+    }
+    const rawStart = Math.max(word.startMs, caption.startMs);
+    const rawEnd = Math.min(word.endMs, caption.endMs);
+    if (!(rawEnd > rawStart)) {
+      problems[index] = { offsets, code: 'outside-cue' };
+      return;
+    }
+    const startMs = captionRenderTime(rawStart);
+    const endMs = captionRenderTime(rawEnd);
+    if (endMs <= startMs) {
+      problems[index] = { offsets, code: 'grid-collapse' };
+      return;
+    }
+    candidates.push({ span: { startOffset, endOffset, startMs, endMs }, rawStart, rawEnd, units, index, manual: word.source === 'manual' });
+  });
+
+  const conflicts = paintConflicts(candidates);
+  const spans: PaintSpan[] = [];
+  let paintedUnits = 0;
+  for (const { span, units, index } of candidates) {
+    if (conflicts.has(index)) problems[index] = { offsets: [span.startOffset, span.endOffset], code: 'time-conflict' };
+    else {
+      spans.push(span);
+      paintedUnits += units;
+    }
+  }
+  let coverage: Coverage = 'none';
+  if (paintedUnits > 0) {
+    if (paintedUnits < spokenUnits) coverage = 'partial';
+    else coverage = paintedUnits > spans.length ? 'full-with-groups' : 'full-individual';
+  }
+  return { coverage, spokenUnits, paintedUnits, spans, issues: problems.filter((issue) => issue !== undefined) };
+}
+
+export function highlightAttention(caption: CaptionSegment): HighlightAttention {
+  if (!hasWordTimingEvidence(caption.wordTiming)) {
+    return resolveCaptionWordTiming(caption).state === 'ready' ? 'ok' : 'needs-attention';
+  }
+  const plan = compileHighlightPlan(caption, 'measured-and-manual');
+  if (plan.spokenUnits === 0) return 'not-applicable';
+  return plan.coverage === 'full-individual' || plan.coverage === 'full-with-groups' ? 'ok' : 'needs-attention';
+}
+
+export function resolveWordExport(caption: CaptionSegment): WordExport {
+  if (!hasWordTimingEvidence(caption.wordTiming)) {
+    const resolved = resolveCaptionWordTiming(caption);
+    return resolved.state === 'ready' ? { ready: true, words: resolved.words }
+      : { ready: false, reason: resolved.reason || 'This caption has no saved word timing.' };
+  }
+  const validation = validateMarkedWordTiming(caption.text, caption.wordTiming);
+  if (!validation.ok) return { ready: false, reason: validation.reason };
+  if (!Number.isFinite(caption.startMs) || !Number.isFinite(caption.endMs) || caption.endMs <= caption.startMs) {
+    return { ready: false, reason: 'Caption timing is invalid.' };
+  }
+  const { words } = validation.timing;
+  if (!words.length) return { ready: false, reason: 'This caption has no word timing spans.' };
+  let previousEnd = caption.startMs;
+  for (const word of words) {
+    if (word.members) return { ready: false, reason: 'Word-timed files require separate timing for each word in a group.' };
+    if (!eligibleWord(word)) return { ready: false, reason: 'At least one word needs usable timing.' };
+    if (word.startMs < caption.startMs || word.endMs > caption.endMs) {
+      return { ready: false, reason: 'A word timing interval falls outside the caption timing.' };
+    }
+    if (word.startMs < previousEnd) return { ready: false, reason: 'Word timing intervals overlap or are out of order.' };
+    if (captionRenderTime(word.endMs) <= captionRenderTime(word.startMs)) {
+      return { ready: false, reason: 'A word timing interval collapses on the 10 ms timing grid.' };
+    }
+    previousEnd = word.endMs;
+  }
+  return { ready: true, words };
 }
 
 const MAX_AUTO_WORD_TRIM_MS = 50;

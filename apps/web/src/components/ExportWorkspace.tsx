@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import {
-  normalizeCaptionAppearance, normalizeVideoExportSettings, estimateVideoExportBytes, isVideoProject, resolveCaptionWordTiming,
+  normalizeCaptionAppearance, normalizeVideoExportSettings, estimateVideoExportBytes, hasWordTimingEvidence, highlightAttention, isVideoProject,
   type AppProfile,
   type CaptionAppearance,
   type CaptionProject,
@@ -303,7 +303,8 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const source = capabilities?.source;
   const appearanceFontUnavailable = Boolean(capabilities && !capabilities.fonts.some((font) => font.available && font.name === appearance.fontFamily && (!appearance.bold || font.boldAvailable)));
   const plainWordCaptions = useMemo(() => appearance.highlightMode === 'word'
-    ? project.captions.filter((caption) => caption.text.trim() && resolveCaptionWordTiming(caption).state !== 'ready') : [], [project.captions, appearance.highlightMode]);
+    ? project.captions.filter((caption) => caption.text.trim() && highlightAttention(caption) === 'needs-attention') : [], [project.captions, appearance.highlightMode]);
+  const hasMarkedCaptions = project.captions.some((caption) => hasWordTimingEvidence(caption.wordTiming));
   const selectedFormat = outputMode === 'video' ? 'video' : session.handoff.advancedFormat || 'srt';
   const checksAppearance = outputMode === 'video' || selectedFormat === 'ass';
   const layoutResolution = outputMode === 'video' ? settings.resolution : 'source';
@@ -689,7 +690,11 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
         {appearance.highlightMode === 'word' && <div className={`export-warnings${plainWordCaptions.length === 0 ? ' export-information' : ''}`} role="status">
           <div><Palette size={14}/><span>Word highlights appear in captioned video.
-            {plainWordCaptions.length > 0 ? ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.` : ' All captions with text have usable word timing.'}</span></div>
+            {plainWordCaptions.length > 0
+              ? hasMarkedCaptions
+                ? ` Words without usable timing keep the normal color in ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'}.`
+                : ` ${plainWordCaptions.length} caption${plainWordCaptions.length === 1 ? '' : 's'} will remain plain because word timing needs review.`
+              : hasMarkedCaptions ? ' Word highlighting is ready for the spoken captions.' : ' All captions with text have usable word timing.'}</span></div>
           {plainWordCaptions.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(plainWordCaptions[0].id)}>Review word timing</button>}
         </div>}
 

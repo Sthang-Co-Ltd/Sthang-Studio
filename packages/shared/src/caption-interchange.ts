@@ -1,6 +1,11 @@
 import { captionRenderTime, DEFAULT_CAPTION_APPEARANCE, type CaptionAppearance } from './caption-settings.js';
 import type { CaptionSegment, TimingQuality, TimingSource } from './index.js';
-import { resolveCaptionWordTiming, type CaptionWordSource } from './word-timing.js';
+import {
+  CAPTION_DATA_LIMITS, compileHighlightPlan, hasWordTimingEvidence, resolveCaptionWordTiming,
+  resolveWordExport, validateMarkedWordTiming,
+  type CaptionDataWord, type CaptionDataWordTiming, type CaptionWordSource, type CaptionWordTiming,
+} from './word-timing.js';
+export { CAPTION_DATA_LIMITS, type CaptionDataWord, type CaptionDataWordTiming } from './word-timing.js';
 
 export type CaptionFileFormat = 'srt' | 'word-srt' | 'vtt' | 'word-vtt' | 'ttml' | 'ass' | 'data' | 'bundle';
 export type SharedCaptionFileFormat = Exclude<CaptionFileFormat, 'ass' | 'bundle'>;
@@ -49,21 +54,6 @@ export interface CaptionInterchangeAnalysis {
   issues: CaptionInterchangeIssue[];
 }
 
-export interface CaptionDataWord {
-  startOffset: number;
-  endOffset: number;
-  startMs: number | null;
-  endMs: number | null;
-  source: CaptionWordSource;
-  needsReview?: boolean;
-}
-
-export interface CaptionDataWordTiming {
-  version: 1;
-  text: string;
-  words: CaptionDataWord[];
-}
-
 export interface CaptionDataCue {
   text: string;
   startMs: number;
@@ -79,21 +69,11 @@ export interface CaptionDataCue {
 
 export interface CaptionDataDocument {
   kind: 'sthang-caption-data';
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   captions: CaptionDataCue[];
   appearance?: Partial<CaptionAppearance>;
   durationMs?: number;
 }
-
-export const CAPTION_DATA_LIMITS = Object.freeze({
-  maxBytes: 4 * 1024 * 1024,
-  maxCaptions: 20_000,
-  maxWordsPerCaption: 5_000,
-  maxTotalWords: 100_000,
-  maxGraphemesPerCaption: 10_000,
-  maxTotalGraphemes: 500_000,
-  maxTimelineMs: 7 * 24 * 60 * 60 * 1_000,
-});
 
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const TIMING_QUALITY: readonly TimingQuality[] = ['high', 'medium', 'low'];
@@ -280,8 +260,11 @@ interface WordPiece {
 function readyWordPieces(sorted: Array<{ caption: CaptionSegment; index: number }>) {
   const pieces: WordPiece[] = [];
   for (const { caption, index: captionIndex } of sorted) {
-    const resolved = resolveCaptionWordTiming(caption);
-    if (resolved.state !== 'ready') fail(`Caption ${captionIndex + 1} does not have complete reviewed word timing; word-level export requires every caption to be ready.`);
+    const resolved = resolveWordExport(caption);
+    if (!resolved.ready) {
+      if (hasWordTimingEvidence(caption.wordTiming)) fail(`Caption ${captionIndex + 1}: ${resolved.reason}`);
+      fail(`Caption ${captionIndex + 1} does not have complete reviewed word timing; word-level export requires every caption to be ready.`);
+    }
     const words = resolved.words;
     if (!words.length) fail(`Caption ${captionIndex + 1} has no word timing spans.`);
     let reconstructed = '';
@@ -418,8 +401,18 @@ function effectStateNeedsV2(appearance: Partial<CaptionAppearance> | undefined) 
     || (appearance.motionDurationMs ?? DEFAULT_CAPTION_APPEARANCE.motionDurationMs) !== DEFAULT_CAPTION_APPEARANCE.motionDurationMs;
 }
 
-function projectWordTiming(caption: CaptionSegment, captionIndex: number): CaptionDataWordTiming | undefined {
+function portableMarkedTiming(timing: CaptionWordTiming & { evidence: 2 }): CaptionDataWordTiming {
+  const { version, evidence, text, words } = timing;
+  return { version, evidence, text, words: words.map(({ id: _id, ...word }) => word) };
+}
+
+function projectWordTiming(caption: CaptionSegment, captionIndex: number, durationMs?: number): CaptionDataWordTiming | undefined {
   if (caption.wordTiming === undefined) return undefined;
+  if (hasWordTimingEvidence(caption.wordTiming)) {
+    const validation = validateMarkedWordTiming(caption.text, caption.wordTiming, durationMs);
+    if (!validation.ok) fail(`Caption ${captionIndex + 1} has invalid word timing. ${validation.reason}`);
+    return portableMarkedTiming(validation.timing);
+  }
   const resolved = resolveCaptionWordTiming(caption);
   if (resolved.state === 'stale' || resolved.state === 'missing') fail(`Caption ${captionIndex + 1} has stale or malformed word timing and cannot be archived safely.`);
   if (resolved.words.length > CAPTION_DATA_LIMITS.maxWordsPerCaption) fail(`Caption ${captionIndex + 1} has too many word timing spans.`);
@@ -444,15 +437,11 @@ export function createCaptionData(input: CaptionInterchangeInput): CaptionDataDo
   const projectedAppearance = projectAppearance(input.appearance);
   const validatedAppearance = validateAppearance(projectedAppearance, 3);
   const motionPreset = validatedAppearance?.motionPreset ?? DEFAULT_CAPTION_APPEARANCE.motionPreset;
-  const version: 1 | 2 | 3 = motionPreset === 'rise' || motionPreset === 'soft-pop'
-    ? 3
-    : effectStateNeedsV2(validatedAppearance) ? 2 : 1;
-  const appearance = version === 1 ? projectAppearance(validatedAppearance, V1_APPEARANCE_KEYS) : validatedAppearance;
   let totalWords = 0;
   let totalGraphemes = 0;
   const captions: CaptionDataCue[] = input.captions.map((caption, index) => {
     totalGraphemes += validateCaption(caption, index, durationMs);
-    const wordTiming = projectWordTiming(caption, index);
+    const wordTiming = projectWordTiming(caption, index, durationMs);
     totalWords += wordTiming?.words.length || 0;
     const out: CaptionDataCue = { text: caption.text, startMs: caption.startMs, endMs: caption.endMs };
     if (wordTiming) out.wordTiming = wordTiming;
@@ -466,6 +455,10 @@ export function createCaptionData(input: CaptionInterchangeInput): CaptionDataDo
   });
   if (totalGraphemes > CAPTION_DATA_LIMITS.maxTotalGraphemes) fail('Caption text exceeds the total interchange grapheme limit.');
   if (totalWords > CAPTION_DATA_LIMITS.maxTotalWords) fail('Word timing data exceeds the total interchange word limit.');
+  const version = captions.some((caption) => caption.wordTiming?.evidence === 2) ? 4
+    : motionPreset === 'rise' || motionPreset === 'soft-pop' ? 3
+      : effectStateNeedsV2(validatedAppearance) ? 2 : 1;
+  const appearance = version === 1 ? projectAppearance(validatedAppearance, V1_APPEARANCE_KEYS) : validatedAppearance;
   return {
     kind: 'sthang-caption-data',
     version,
@@ -493,14 +486,28 @@ function parseOptionalNumber(value: unknown, path: string, min: number, max: num
   return value;
 }
 
-function parseDataWordTiming(value: unknown, caption: CaptionDataCue, captionIndex: number, total: { words: number }) {
+function parseDataWordTiming(value: unknown, caption: CaptionDataCue, captionIndex: number, total: { words: number },
+  version: CaptionDataDocument['version'], durationMs?: number) {
   if (!plainObject(value)) fail(`Caption ${captionIndex + 1} wordTiming must be an object.`);
-  assertAllowedKeys(value, ['version', 'text', 'words'], `captions[${captionIndex}].wordTiming`);
+  const marked = version === 4 && hasWordTimingEvidence(value);
+  const timingKeys = ['version', 'text', 'words'];
+  assertAllowedKeys(value, marked ? [...timingKeys, 'evidence'] : timingKeys, `captions[${captionIndex}].wordTiming`);
   if (value.version !== 1 || typeof value.text !== 'string' || !Array.isArray(value.words)) fail(`Caption ${captionIndex + 1} wordTiming has an unsupported version or shape.`);
   if (value.text !== caption.text) fail(`Caption ${captionIndex + 1} wordTiming text snapshot is stale.`);
   if (value.words.length > CAPTION_DATA_LIMITS.maxWordsPerCaption) fail(`Caption ${captionIndex + 1} has too many word timing spans.`);
   total.words += value.words.length;
   if (total.words > CAPTION_DATA_LIMITS.maxTotalWords) fail('Word timing data exceeds the total interchange word limit.');
+  if (marked) {
+    const words = value.words.map((raw, wordIndex) => {
+      const path = `captions[${captionIndex}].wordTiming.words[${wordIndex}]`;
+      if (!plainObject(raw)) fail(`${path} must be an object.`);
+      assertAllowedKeys(raw, ['startOffset', 'endOffset', 'startMs', 'endMs', 'source', 'needsReview', 'method', 'issue', 'members'], path);
+      return { id: `w-${wordIndex}`, ...raw };
+    });
+    const validation = validateMarkedWordTiming(caption.text, { ...value, words }, durationMs);
+    if (!validation.ok) fail(`Caption ${captionIndex + 1} has invalid word timing. ${validation.reason}`);
+    return portableMarkedTiming(validation.timing);
+  }
   const words: CaptionDataWord[] = value.words.map((raw, wordIndex) => {
     const path = `captions[${captionIndex}].wordTiming.words[${wordIndex}]`;
     if (!plainObject(raw)) fail(`${path} must be an object.`);
@@ -536,7 +543,8 @@ function parseDataWordTiming(value: unknown, caption: CaptionDataCue, captionInd
   return timing;
 }
 
-function parseDataCue(value: unknown, index: number, durationMs: number | undefined, total: { graphemes: number; words: number }): CaptionDataCue {
+function parseDataCue(value: unknown, index: number, durationMs: number | undefined, total: { graphemes: number; words: number },
+  version: CaptionDataDocument['version']): CaptionDataCue {
   if (!plainObject(value)) fail(`captions[${index}] must be an object.`);
   assertAllowedKeys(value, ['text', 'startMs', 'endMs', 'wordTiming', 'confidence', 'timingQuality', 'timingSource', 'approved', 'textLocked', 'timingLocked'], `captions[${index}]`);
   const temp: CaptionSegment = { id: `import-${index}`, text: value.text as string, startMs: value.startMs as number, endMs: value.endMs as number };
@@ -554,7 +562,7 @@ function parseDataCue(value: unknown, index: number, durationMs: number | undefi
     cue.timingSource = value.timingSource as TimingSource;
   }
   for (const field of ['approved', 'textLocked', 'timingLocked'] as const) if (value[field] !== undefined) cue[field] = parseBoolean(value[field], `captions[${index}].${field}`);
-  if (value.wordTiming !== undefined) cue.wordTiming = parseDataWordTiming(value.wordTiming, cue, index, total);
+  if (value.wordTiming !== undefined) cue.wordTiming = parseDataWordTiming(value.wordTiming, cue, index, total, version, durationMs);
   return cue;
 }
 
@@ -567,14 +575,14 @@ export function parseCaptionData(text: string): CaptionDataDocument {
   if (!plainObject(raw)) fail('Caption data must be a JSON object.');
   assertAllowedKeys(raw, ['kind', 'version', 'captions', 'appearance', 'durationMs'], 'caption data');
   if (raw.kind !== 'sthang-caption-data') fail('Unknown caption data file kind.');
-  if (raw.version !== 1 && raw.version !== 2 && raw.version !== 3) fail('Unsupported caption data version.');
-  const version = raw.version as 1 | 2 | 3;
+  if (raw.version !== 1 && raw.version !== 2 && raw.version !== 3 && raw.version !== 4) fail('Unsupported caption data version.');
+  const version = raw.version;
   if (!Array.isArray(raw.captions)) fail('Caption data captions must be an array.');
   if (raw.captions.length > CAPTION_DATA_LIMITS.maxCaptions) fail(`Caption count exceeds ${CAPTION_DATA_LIMITS.maxCaptions}.`);
   const durationMs = validateDuration(raw.durationMs);
-  const appearance = validateAppearance(raw.appearance, version);
+  const appearance = validateAppearance(raw.appearance, version === 4 ? 3 : version);
   const total = { graphemes: 0, words: 0 };
-  const captions = raw.captions.map((cue, index) => parseDataCue(cue, index, durationMs, total));
+  const captions = raw.captions.map((cue, index) => parseDataCue(cue, index, durationMs, total, version));
   return {
     kind: 'sthang-caption-data', version, captions,
     ...(appearance ? { appearance } : {}),
@@ -598,7 +606,7 @@ export function captionFileBlockers(input: CaptionInterchangeInput, format: Capt
   // Match caption-handoff's wordReadiness: a bundle includes both word files only
   // when every caption is ready. A partial/missing track omits both files instead.
   const bundleHasWordFiles = format === 'bundle' && input.captions.length > 0
-    && input.captions.every((caption) => resolveCaptionWordTiming(caption).state === 'ready');
+    && input.captions.every((caption) => resolveWordExport(caption).ready);
   const add = (captionIndex: number | null, field: CaptionFileBlocker['field'], error: unknown) =>
     issues.push({ captionIndex, field, message: error instanceof Error ? error.message : 'Caption data is invalid for export.' });
   input.captions.forEach((caption, index) => {
@@ -612,7 +620,7 @@ export function captionFileBlockers(input: CaptionInterchangeInput, format: Capt
     }
     // Studio's handoff revision first captures a portable snapshot for every
     // format. Missing/partial tracks are permitted; corrupt saved tracks are not.
-    try { totalWords += projectWordTiming(caption, index)?.words.length || 0; }
+    try { totalWords += projectWordTiming(caption, index, input.durationMs)?.words.length || 0; }
     catch (error) { add(index, 'word-timing', error); return; }
     if (format === 'ass') {
       if (captionRenderTime(caption.endMs) <= captionRenderTime(caption.startMs)) {
@@ -624,7 +632,7 @@ export function captionFileBlockers(input: CaptionInterchangeInput, format: Capt
     const wordFormat = format === 'word-srt' || format === 'word-vtt';
     // Readiness has its own actionable finding. Ready tracks can still collapse
     // when individual word timestamps are rounded for a subtitle file.
-    if (wordFormat && resolveCaptionWordTiming(caption).state !== 'ready') return;
+    if (wordFormat && !resolveWordExport(caption).ready) return;
     let cues: SerializedCue[];
     try { cues = wordFormat ? readyWordPieces([{ caption, index }]) : [caption]; }
     catch (error) { add(index, 'word-timing', error); return; }
@@ -675,6 +683,23 @@ export function analyzeCaptionInterchange(captions: CaptionSegment[]): CaptionIn
     if (typeof caption.text === 'string' && caption.text.trim()) nonemptyCaptionCount += 1;
     else issues.push({ captionIndex: index, code: 'empty-text', severity: 'error', message: 'Caption has no text.' });
     if (!validMs(caption.startMs) || !validMs(caption.endMs) || caption.endMs <= caption.startMs) issues.push({ captionIndex: index, code: 'invalid-cue', severity: 'error', message: 'Caption timing is invalid.' });
+    if (hasWordTimingEvidence(caption.wordTiming)) {
+      const plan = compileHighlightPlan(caption, 'measured-and-manual');
+      const wordExport = resolveWordExport(caption);
+      totalWordCount += plan.spokenUnits;
+      if (wordExport.ready) readyWordCaptionCount += 1;
+      else if (plan.issues.some((issue) => issue.code === 'stale')) {
+        staleWordCaptionCount += 1;
+        issues.push({ captionIndex: index, code: 'word-timing-stale', severity: 'error', message: wordExport.reason });
+      } else if (plan.coverage === 'none') {
+        missingWordCaptionCount += 1;
+        issues.push({ captionIndex: index, code: 'word-timing-missing', severity: 'warning', message: wordExport.reason });
+      } else {
+        partialWordCaptionCount += 1;
+        issues.push({ captionIndex: index, code: 'word-timing-partial', severity: 'warning', message: wordExport.reason });
+      }
+      return;
+    }
     const resolved = resolveCaptionWordTiming(caption);
     totalWordCount += resolved.words.length;
     if (resolved.state === 'ready') readyWordCaptionCount += 1;

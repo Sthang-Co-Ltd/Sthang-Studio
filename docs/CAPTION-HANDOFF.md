@@ -113,7 +113,7 @@ are rejected with a path to TTML or caption data; text is never silently dropped
 WebVTT/XML text is escaped so creator wording cannot become control markup.
 
 Caption data requires `kind: "sthang-caption-data"` and supported `version: 1`,
-`version: 2`, or `version: 3`, with bounded
+`version: 2`, `version: 3`, or `version: 4`, with bounded
 cue/word counts, a 4 MiB file limit, valid Unicode and timing, explicit field
 allowlists, and grapheme-safe exact-text word offsets. Unsupported versions and
 malformed/stale tracks fail validation. Valid partial/null word timing stays
@@ -125,6 +125,24 @@ without the newer fields. Older readers reject newer versions explicitly; versio
 2 cannot contain the new motion names. Restore
 remains captions-only: the included appearance is a reference and the receiving
 project's current appearance stays unchanged. See [Caption effects](CAPTION-EFFECTS.md).
+
+### Caption Data v4
+
+Studio writes version 4 when at least one exported caption has a marked word timing
+track (`wordTiming.evidence: 2`). Marked tracks preserve each word's `method`,
+`issue`, and group `members` when present, along with the original text offsets
+and raw timing. One measured group can highlight together in styled output.
+Word-by-word SRT and WebVTT require separate usable timing for every word, including
+each member of a group.
+
+A version 4 file can contain both marked and unmarked tracks and uses the same
+appearance fields as version 3. Restore assigns new local cue and word IDs and
+preserves the evidence marker. Project-local timing fingerprints and automatic
+follow intent are excluded from the portable format.
+
+Older Studio versions reject v4. Exports containing only unmarked tracks continue
+to use versions 1–3 under the same appearance rules. Use standard SRT, WebVTT, or
+TTML to exchange cue text and timing with an older reader.
 
 ## Compatibility evidence
 

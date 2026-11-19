@@ -3,7 +3,8 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { nanoid } from 'nanoid';
-import { reconcileCaptionWordTiming, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionMode, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
+import { hasWordTimingEvidence, reconcileCaptionWordTiming, resolveCaptionWordTiming, validateMarkedWordTiming,
+  type CaptionProject, type CaptionSegment, type CaptionMode, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
 import { config } from '../config.js';
 import { ProjectDeletionBlockedError, store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
@@ -157,6 +158,18 @@ function sanitizeCaptionWordTiming(caption: CaptionSegment): CaptionSegment {
   if (resolution.state !== 'stale') return caption;
   const { wordTiming: _wordTiming, ...safe } = caption;
   return safe;
+}
+
+/** Caption saves can accept marked evidence that is partial but structurally sound. */
+function sanitizeSavedCaptionWordTiming(caption: CaptionSegment, durationMs?: number): CaptionSegment | null {
+  const timing = caption.wordTiming;
+  if (!timing || !hasWordTimingEvidence(timing)) return sanitizeCaptionWordTiming(caption);
+  if (typeof timing.text === 'string' && timing.text !== caption.text) {
+    const { wordTiming: _wordTiming, ...safe } = caption;
+    return safe;
+  }
+  const validated = validateMarkedWordTiming(caption.text, timing, durationMs);
+  return validated.ok ? { ...caption, wordTiming: validated.timing } : null;
 }
 
 // Opt-in projection preserves the existing full-project API for other callers.
@@ -504,7 +517,6 @@ router.put('/:id/context', async (req, res) => {
 router.put('/:id/captions', async (req, res) => {
   const requestedCaptions = Array.isArray(req.body.captions) ? req.body.captions as CaptionSegment[] : null;
   if (!requestedCaptions) return res.status(400).json({ error: 'captions must be an array' });
-  const captions = requestedCaptions.map(sanitizeCaptionWordTiming);
   const expectedMedia = req.body?.expectedMedia;
   if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
     return res.status(428).json({ error: 'Caption save requires the media version it was edited against.' });
@@ -538,6 +550,14 @@ router.put('/:id/captions', async (req, res) => {
         return { status: 'revision' as const };
       }
 
+      const knownDuration = project.pipelineCache?.normalizedAudioDurationMs ?? project.transcript?.timing?.audioDurationMs;
+      const durationMs = knownDuration && Number.isFinite(knownDuration) && knownDuration > 0 ? knownDuration : undefined;
+      const captions: CaptionSegment[] = [];
+      for (const caption of requestedCaptions) {
+        const sanitized = sanitizeSavedCaptionWordTiming(caption, durationMs);
+        if (!sanitized) return { status: 'word-timing-invalid' as const };
+        captions.push(sanitized);
+      }
       const before = project.captions;
       const changed = JSON.stringify(before) !== JSON.stringify(captions);
       if (changed) {
@@ -576,6 +596,9 @@ router.put('/:id/captions', async (req, res) => {
     }
     if (result.status === 'recovery-stale') {
       return res.status(409).json({ error: 'The saved project changed after this draft was restored. Your draft was kept. Download your edits, then reload to review the current project.', code: 'DRAFT_RECOVERY_CHANGED' });
+    }
+    if (result.status === 'word-timing-invalid') {
+      return res.status(400).json({ error: 'Caption word timing is invalid.', code: 'WORD_TIMING_INVALID' });
     }
     res.json({ project: result.project, correctionsCreated: result.correctionsCreated });
   } catch (error) {

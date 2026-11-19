@@ -3,13 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
 import {
-  analyzeCaptionInterchange,
   captionRenderTime,
   createCaptionData,
   hydrateCaptionWordTimings,
   isVideoProject,
   normalizeCaptionAppearance,
   parseCaptionData,
+  resolveWordExport,
   serializeCaptionFile,
   type CaptionAppearance,
   type CaptionDataDocument,
@@ -190,15 +190,11 @@ function projectDurationMs(project: CaptionProject) {
 }
 
 function wordReadiness(captions: CaptionSegment[]) {
-  const analysis = analyzeCaptionInterchange(captions);
-  const unresolvedIndices = new Set(analysis.issues
-    .filter((issue) => issue.code.startsWith('word-timing-'))
-    .map((issue) => issue.captionIndex));
-  const unresolvedCaptionIds = captions.flatMap((caption, index) => unresolvedIndices.has(index) ? [caption.id] : []);
+  const unresolvedCaptionIds = captions.flatMap((caption) => resolveWordExport(caption).ready ? [] : [caption.id]);
   return {
-    readyWordCaptionCount: analysis.readyWordCaptionCount,
+    readyWordCaptionCount: captions.length - unresolvedCaptionIds.length,
     unresolvedCaptionIds,
-    allReady: captions.length > 0 && analysis.readyWordCaptionCount === captions.length,
+    allReady: captions.length > 0 && unresolvedCaptionIds.length === 0,
   };
 }
 
@@ -396,6 +392,7 @@ function materializeCaptionData(document: CaptionDataDocument): CaptionSegment[]
       ...(cue.wordTiming ? {
         wordTiming: {
           version: 1 as const,
+          ...(cue.wordTiming.evidence === 2 ? { evidence: 2 as const } : {}),
           text: cue.wordTiming.text,
           words: cue.wordTiming.words.map((word, index) => ({ id: `${id}:word:${index}`, ...word })),
         },
@@ -419,6 +416,10 @@ function assertRestoreCueBounds(document: CaptionDataDocument, mediaDurationMs: 
     }
     if (cue.endMs > mediaDurationMs) {
       throw new CaptionHandoffError(`Caption ${index + 1} ends after the current source media.`, 409);
+    }
+    if (cue.wordTiming?.evidence === 2
+      && cue.wordTiming.words.some((word) => word.endMs !== null && word.endMs > mediaDurationMs)) {
+      throw new CaptionHandoffError(`Caption ${index + 1} has word timing after the current source media.`, 409);
     }
   }
 }

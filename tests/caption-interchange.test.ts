@@ -274,7 +274,7 @@ test('caption data preserves fractional cue, word and media duration millisecond
 test('data parser rejects unknown file/version/fields and stale or malformed word maps', () => {
   const base = createCaptionData({ captions: [readyLiteralCue()] });
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, kind: 'other-caption-data' })), /unknown caption data file kind/i);
-  assert.throws(() => parseCaptionData(JSON.stringify({ ...base, version: 4 })), /unsupported caption data version/i);
+  assert.throws(() => parseCaptionData(JSON.stringify({ ...base, version: 5 })), /unsupported caption data version/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, localPath: 'C:\\secret' })), /unsupported field/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, captions: [{ ...base.captions[0], unknown: true }] })), /unsupported field/i);
   assert.throws(() => parseCaptionData(JSON.stringify({ ...base, captions: [{ ...base.captions[0], id: 'imported-id' }] })), /unsupported field/i);

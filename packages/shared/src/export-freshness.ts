@@ -1,7 +1,7 @@
 import type { CaptionProject } from './index.js';
 import { createCaptionData, serializeCaptionFile, type CaptionFileFormat } from './caption-interchange.js';
 import { normalizeCaptionAppearance } from './caption-settings.js';
-import { hydrateCaptionWordTimings, resolveCaptionWordTiming } from './word-timing.js';
+import { compileHighlightPlan, hasWordTimingEvidence, hydrateCaptionWordTimings, resolveCaptionWordTiming } from './word-timing.js';
 
 export type ExportEvidenceFormat = CaptionFileFormat | 'video';
 export interface ExportEvidence {
@@ -24,6 +24,10 @@ export function exportContentBasis(project: CaptionProject, format: ExportEviden
     content = createCaptionData(input);
   } else {
     content = { appearance, captions: hydrated.captions.map((caption) => {
+      if (appearance.highlightMode === 'word' && hasWordTimingEvidence(caption.wordTiming)) {
+        return { text: caption.text, startMs: caption.startMs, endMs: caption.endMs,
+          wordPaint: compileHighlightPlan(caption, 'measured-and-manual').spans };
+      }
       const timing = appearance.highlightMode === 'word' ? resolveCaptionWordTiming(caption) : null;
       return { text: caption.text, startMs: caption.startMs, endMs: caption.endMs,
         ...(timing ? { wordPaint: timing.state === 'ready'
