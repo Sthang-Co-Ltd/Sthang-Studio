@@ -27,7 +27,7 @@ import { TimestampInput } from './TimestampInput';
 import { focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEditKind } from '../timing-edit';
 import { captionTimingBasisMatches, prepareCaptionTiming, planCaptionTimingEdit, timingTransactionMatches, type CaptionTimingGestureBasis, type CaptionTimingOptions, type CaptionTimingTransaction, type PreparedCaptionTiming } from '../caption-timing-transaction';
 import type { TimingPlaybackRange } from '../timing-playback';
-import { WordTimingPanel, type WordTimingCandidate } from './WordTimingPanel';
+import { WordTimingPanel, type WordTimingSyncResult } from './WordTimingPanel';
 import { changeWordTiming } from '../word-timing-edit';
 import { hitTestWaveformEdges, type WaveformEdgeTarget } from './waveform-hit-targets';
 import './waveform-editor.css';
@@ -44,7 +44,8 @@ interface WaveformEditorProps {
   initialMode: 'waveform' | 'spectrum';
   initialZoom: number;
   initialEditMode?: 'caption' | 'words';
-  onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
+  wordTimingFocus?: { captionId: string; wordId: string } | null;
+  onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingSyncResult | null>;
   onNextWordTimingIssue?(): void;
   syncDisabled: boolean;
   highlightEnabled: boolean;
@@ -178,6 +179,7 @@ export function WaveformEditor({
   initialZoom,
   initialEditMode = 'caption',
   onSyncWords,
+  wordTimingFocus,
   onNextWordTimingIssue,
   syncDisabled,
   highlightEnabled,
@@ -336,6 +338,9 @@ export function WaveformEditor({
     setWordCandidate(null);
     onStopPreview();
   }, [selectedCaption?.id]);
+  useEffect(() => {
+    if (wordTimingFocus?.captionId === selectedCaption?.id) setSelectedWordId(wordTimingFocus?.wordId ?? null);
+  }, [wordTimingFocus, selectedCaption?.id]);
   useEffect(() => { setEditMode(initialEditMode); }, [initialEditMode]);
 
   useEffect(() => {

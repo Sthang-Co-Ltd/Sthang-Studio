@@ -1,6 +1,7 @@
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
 import { buildCaptionWordTiming, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type TimedToken } from '../../packages/shared/src/index.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { stubHighlightRoutes } from './word-highlight-routes.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
 
 const test = base.extend({ context: async ({ context }, use) => { await use(context); await closeOwnedBrowserContext(context); } });
@@ -9,9 +10,7 @@ let state: FixtureState;
 let tokens: TimedToken[];
 let syncHold: ReturnType<typeof deferred> | null;
 let undoHold: ReturnType<typeof deferred> | null;
-let cancelResponse: boolean;
-let syncCalls: number;
-let batchCalls: Array<{ action: 'apply' | 'undo'; changes: Array<{ before: CaptionSegment; after: CaptionSegment }> }>;
+let routes: Awaited<ReturnType<typeof stubHighlightRoutes>>;
 const project = () => state.projects[0] as CaptionProject;
 const group = (page: Page) => page.locator('.appearance-word-details');
 const summary = (page: Page) => group(page).locator(':scope > summary');
@@ -19,7 +18,7 @@ const toggle = (page: Page) => page.getByRole('button', { name: 'Highlight spoke
 const exactSize = (page: Page) => page.getByRole('spinbutton', { name: 'Exact size', exact: true });
 function deferred() { let release!: () => void; const promise = new Promise<void>((resolve) => { release = resolve; }); return { promise, release }; }
 test.beforeEach(async ({ page }) => {
-  state = await installFixture(page); syncHold = null; undoHold = null; cancelResponse = false; syncCalls = 0; batchCalls = [];
+  state = await installFixture(page); syncHold = null; undoHold = null;
   state.profile.preferences.autosaveDelayMs = 60_000;
   await page.emulateMedia({ reducedMotion: 'reduce' });
   tokens = [{ id: 'w1', text: 'ខ្មែរ', startMs: 220, endMs: 620, spaceBefore: false, timingSource: 'stt', confidence: .99, alignmentScore: .99 },
@@ -29,23 +28,11 @@ test.beforeEach(async ({ page }) => {
   caption.wordTiming = { ...timing, words: timing.words.map((word, index) => index ? word : { ...word, source: 'estimated', needsReview: true }) };
   project().captions = [caption]; project().captionAppearance = { ...project().captionAppearance!, highlightMode: 'off' };
   project().transcript!.tokens = tokens; project().transcript!.segments = structuredClone(project().captions); project().transcript!.fullText = caption.text;
-  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
-    const { caption: basis } = route.request().postDataJSON() as { caption: CaptionSegment };
-    const held = syncHold; const abort = cancelResponse; syncCalls += 1;
-    await held?.promise;
-    if (abort) { await route.abort('aborted').catch(() => {}); return; }
-    await route.fulfill({ json: { basis, wordTiming: buildCaptionWordTiming(basis, tokens), sourceRevision: 'owned-kfa-fixture' } });
-  });
-  await page.route('**/api/projects/landscape/caption-word-timing/batch-apply', async (route) => {
-    const body = route.request().postDataJSON() as (typeof batchCalls)[number]; batchCalls.push(structuredClone(body));
-    if (body.action === 'undo') await undoHold?.promise;
-    for (const { before, after } of body.changes) {
-      const index = project().captions.findIndex((caption) => caption.id === before.id);
-      if (index < 0) throw new Error('Unknown owned batch caption');
-      project().captions[index] = structuredClone(after);
-    }
-    await route.fulfill({ json: { project: project(), appliedCount: body.changes.length } });
-  });
+  routes = await stubHighlightRoutes(page, project());
+  routes.build = (current) => ({ ...current, wordTiming: {
+    ...buildCaptionWordTiming(current, tokens)!, evidence: 2,
+    words: buildCaptionWordTiming(current, tokens)!.words.map((word) => ({ ...word, method: 'kfa' })),
+  } });
 });
 async function openAppearance(page: Page, enabled = false) {
   project().captionAppearance!.highlightMode = enabled ? 'word' : 'off';
@@ -103,37 +90,37 @@ for (const width of [1440, 390]) test(`exact appearance input leaves composition
 
 for (const width of [1440, 390]) test(`explicit word sync and off-state Undo hand off before their controls change at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 1000 }); await openAppearance(page, true);
-  const before = structuredClone(project().captions); syncHold = deferred(); undoHold = deferred();
+  const before = structuredClone(project().captions); syncHold = routes.holdCandidates = deferred(); undoHold = routes.holdUndo = deferred();
   try {
-    await activate(page, page.getByRole('button', { name: 'Sync remaining', exact: true }));
-    await expect.poll(() => syncCalls).toBe(1); await visibleFocus(summary(page));
-    await expect(page.getByRole('region', { name: 'Preparing word highlights', exact: true })).toBeVisible();
+    await activate(page, page.getByRole('button', { name: 'Apply to all captions', exact: true }));
+    await expect.poll(() => routes.chunks.length).toBe(1); await visibleFocus(summary(page));
+    await expect(page.getByRole('region', { name: 'Word highlight results', exact: true })).toBeVisible();
     syncHold.release();
-    const undo = page.getByRole('button', { name: 'Undo timing changes', exact: true }); await expect(undo).toBeEnabled();
+    const undo = page.getByRole('region', { name: 'Word highlight results' }).getByRole('button', { name: 'Undo', exact: true }); await expect(undo).toBeEnabled();
     await expect(summary(page)).toBeFocused(); expect(resolveCaptionWordTiming(project().captions[0]).state).toBe('ready');
     expect(project().captions[0].approved).toBe(true);
     await activate(page, toggle(page)); await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
-    await activate(page, undo); await expect.poll(() => batchCalls.length).toBe(2); await visibleFocus(summary(page));
+    await activate(page, undo); await expect.poll(() => routes.writes.length).toBe(2); await visibleFocus(summary(page));
     await page.screenshot({ path: info.outputPath(`word-batch-undo-focus-${width}.png`), animations: 'disabled' });
     if (width === 390) { await exactSize(page).focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('78'); }
     undoHold.release(); await expect(undo).toHaveCount(0); await expect(group(page)).not.toHaveAttribute('open');
     if (width === 390) { await expect(exactSize(page)).toBeFocused(); await expect(exactSize(page)).toHaveValue('78'); }
     else await visibleFocus(summary(page));
-    expect(batchCalls.map((call) => call.action)).toEqual(['apply', 'undo']); expect(project().captions).toEqual(before); await keptNodes(page);
+    expect(routes.writes.map(({ action }) => action ?? 'apply')).toEqual(['apply', 'undo']); expect(project().captions).toEqual(before); await keptNodes(page);
   } finally { syncHold.release(); undoHold.release(); }
 });
 
 for (const width of [1440, 390]) test(`Cancel keeps the word-highlighting task focused and never applies the held batch at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 1000 }); await openAppearance(page, true);
-  const before = structuredClone(project().captions); syncHold = deferred(); cancelResponse = true;
+  const before = structuredClone(project().captions); syncHold = routes.holdCandidates = deferred();
   try {
-    await activate(page, page.getByRole('button', { name: 'Sync remaining', exact: true }));
-    await expect.poll(() => syncCalls).toBe(1);
-    await activate(page, page.getByRole('region', { name: 'Preparing word highlights', exact: true }).getByRole('button', { name: 'Cancel', exact: true }));
+    await activate(page, page.getByRole('button', { name: 'Apply to all captions', exact: true }));
+    await expect.poll(() => routes.chunks.length).toBe(1);
+    await activate(page, page.getByRole('region', { name: 'Word highlight results', exact: true }).getByRole('button', { name: 'Cancel', exact: true }));
     await visibleFocus(summary(page));
-    await expect(page.getByRole('region', { name: 'Preparing word highlights', exact: true })).toHaveCount(0);
-    await expect(page.getByText('Sync canceled.', { exact: true })).toBeVisible();
-    await visibleFocus(summary(page)); expect(batchCalls).toEqual([]); expect(project().captions).toEqual(before); await keptNodes(page);
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Apply to all captions', exact: true })).toBeEnabled();
+    await visibleFocus(summary(page)); expect(routes.writes).toEqual([]); expect(project().captions).toEqual(before); await keptNodes(page);
     await page.screenshot({ path: info.outputPath(`word-batch-cancel-focus-${width}.png`), animations: 'disabled' });
   } finally { syncHold.release(); }
 });
@@ -143,12 +130,12 @@ test('Cancel sync retains its summary and prevents waiting preparation after cap
   const before = structuredClone(project().captions[0].wordTiming);
   await page.getByRole('button', { name: 'Mark caption as needing review', exact: true }).click();
   await activate(page, summary(page)); await activate(page, toggle(page));
-  await expect(page.getByText('Word sync will start after current caption work is saved.', { exact: true })).toBeVisible();
-  await activate(page, page.getByRole('button', { name: 'Cancel sync', exact: true }));
+  await expect(page.getByText('Word sync will continue after your edits are saved.', { exact: true })).toBeVisible();
+  await activate(page, page.getByRole('button', { name: 'Cancel', exact: true }));
   await visibleFocus(summary(page));
-  await expect(page.getByText('Word sync will start after current caption work is saved.', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Word sync will continue after your edits are saved.', { exact: true })).toHaveCount(0);
   const saved = page.waitForResponse((response) => response.url().endsWith('/captions') && response.request().method() === 'PUT');
   await page.keyboard.press('Control+s'); await (await saved).finished();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  expect(syncCalls).toBe(0); expect(batchCalls).toEqual([]); expect(project().captions[0].wordTiming).toEqual(before); await keptNodes(page);
+  expect(routes.chunks).toHaveLength(0); expect(routes.writes).toEqual([]); expect(project().captions[0].wordTiming).toEqual(before); await keptNodes(page);
 });

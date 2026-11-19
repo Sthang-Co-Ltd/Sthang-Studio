@@ -1,3 +1,4 @@
+import { stubHighlightRoutes } from './word-highlight-routes.mjs';
 import { test, expect, type Page } from '@playwright/test';
 import { buildCaptionWordTiming, type CaptionProject, type CaptionSegment, type TimedToken } from '../../packages/shared/src/index.js';
 import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
@@ -399,6 +400,7 @@ test('temporary Khmer composition does not destroy the original word timings', a
 });
 
 test('spoken-word highlight setting saves and links directly to the word editor', async ({ page }) => {
+  await stubHighlightRoutes(page, project());
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
   await expandAppearanceSection(page, 'words');
@@ -406,13 +408,13 @@ test('spoken-word highlight setting saves and links directly to the word editor'
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();
   await expect.poll(() => project().captionAppearance?.highlightMode).toBe('word');
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('2 of 2 captions');
+  await expect(page.getByRole('region', { name: 'Word highlight results' })).toContainText('Highlighting 2 captions');
   await page.getByRole('button', { name: 'Edit word timing', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.word-timing-panel')).toBeVisible();
 });
 
-test('legacy highlight counts retain the text filter of each consumer', async ({ page }) => {
+test('Apply counts spoken cues and preserves legacy export guidance', async ({ page }) => {
   const saved = project();
   saved.captionAppearance = { ...saved.captionAppearance!, highlightMode: 'word' };
   saved.captions.push(
@@ -422,7 +424,7 @@ test('legacy highlight counts retain the text filter of each consumer', async ({
   );
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('2 of 3 captions ready');
+  await expect(page.getByRole('region', { name: 'Word highlight results' })).toContainText('Highlighting 2 captions');
 
   const whitespaceRow = page.locator('[data-caption-id="space-only"]');
   await whitespaceRow.getByRole('textbox', { name: 'Caption 5 text' }).click();
@@ -463,8 +465,7 @@ test('marked group and partial timing show visual readiness without promoting gr
 
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('1 of 2 captions ready');
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('Words without usable timing keep the normal color.');
+  await expect(page.getByRole('region', { name: 'Word highlight results' })).toContainText('1 with words lit together · 1 partly');
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.locator('.export-warnings')).toContainText('Words without usable timing keep the normal color in 1 caption.');
   await page.getByRole('button', { name: /Captions file/ }).click();

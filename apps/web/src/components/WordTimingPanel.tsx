@@ -20,6 +20,8 @@ export interface WordTimingCandidate {
   edgeRepair?: CaptionEdgeRepair;
 }
 
+export type WordTimingSyncResult = WordTimingCandidate | { published: true; message: string };
+
 interface Props {
   caption: CaptionSegment;
   captionContext: CaptionSegment[];
@@ -33,7 +35,7 @@ interface Props {
   onSelectWord(id: string): void;
   onChange(before: CaptionSegment, after: CaptionSegment): boolean;
   onApplyEdgeRepair(repair: CaptionEdgeRepair): boolean;
-  onSync(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
+  onSync(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingSyncResult | null>;
   onNextWordTimingIssue?(): void;
   onCandidatePreview(basis: CaptionSegment, preview: CaptionSegment | null, repair?: CaptionEdgeRepair): void;
   onPreview(range: TimingPlaybackRange): void;
@@ -150,6 +152,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
       const result = await onSync(basis, controller.signal);
       if (controller.signal.aborted || request.current !== controller) return;
       if (!result) { setMessage('Word sync was not applied. Check the saved caption and try again.'); return; }
+      if ('published' in result) { setMessage(result.message); return; }
       if (!sameTimingRevision(currentCaption.current, result.basis)) {
         setMessage('The caption changed during word sync. Your newer edits were kept.'); return;
       }

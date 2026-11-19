@@ -1,3 +1,4 @@
+import type { WordHighlightCandidateResult } from './word-highlight-apply';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -400,6 +401,14 @@ export const api = {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expectedMedia, action, epoch }),
   }),
+  prepareWordHighlights: (projectId: string, expectedMedia: MediaReplacementBasis['expectedMedia'], signal: AbortSignal) =>
+    request<{ ready: true; durationMs: number; mediaFingerprint: string }>(`/api/projects/${projectId}/caption-word-timing/prepare`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia }), signal,
+    }),
+  checkWordHighlightCandidates: (projectId: string, expectedMedia: MediaReplacementBasis['expectedMedia'], ids: string[], signal: AbortSignal) =>
+    request<{ engine: 'word-highlight-v1'; results: WordHighlightCandidateResult[] }>(`/api/projects/${projectId}/caption-word-timing/candidates`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia, ids }), signal,
+    }),
   publishPreparedWordHighlights: (
     projectId: string,
     expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
