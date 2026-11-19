@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createUntimedCaptionWordTiming, editCaptionWord, preserveManualCaptionWords, repairSmallWordTimingBoundaries, resolveCaptionWordTiming, type CaptionEdgeRepair, type CaptionSegment, type CaptionWordTiming } from '@kcs/shared';
+import {
+  compileHighlightPlan, createUntimedCaptionWordTiming, editCaptionWord, hasWordTimingEvidence, highlightAttention,
+  preserveManualCaptionWords, repairSmallWordTimingBoundaries, resolveCaptionWordTiming, validateMarkedWordTiming,
+  type CaptionEdgeRepair, type CaptionSegment, type CaptionWordTiming,
+} from '@kcs/shared';
 import { LoaderCircle, Play, RefreshCw } from 'lucide-react';
 import { TimestampInput } from './TimestampInput';
 import { sameTimingRevision } from '../timing-edit';
@@ -16,6 +20,8 @@ export interface WordTimingCandidate {
   edgeRepair?: CaptionEdgeRepair;
 }
 
+export type WordTimingSyncResult = WordTimingCandidate | { published: true; message: string };
+
 interface Props {
   caption: CaptionSegment;
   captionContext: CaptionSegment[];
@@ -29,7 +35,7 @@ interface Props {
   onSelectWord(id: string): void;
   onChange(before: CaptionSegment, after: CaptionSegment): boolean;
   onApplyEdgeRepair(repair: CaptionEdgeRepair): boolean;
-  onSync(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
+  onSync(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingSyncResult | null>;
   onNextWordTimingIssue?(): void;
   onCandidatePreview(basis: CaptionSegment, preview: CaptionSegment | null, repair?: CaptionEdgeRepair): void;
   onPreview(range: TimingPlaybackRange): void;
@@ -59,9 +65,16 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   const repair = validCandidate?.edgeRepair;
   const preview = repair?.after.find((cue) => cue.id === caption.id)
     ?? (validCandidate ? { ...caption, wordTiming: validCandidate.wordTiming } : caption);
-  const resolution = resolveCaptionWordTiming(preview);
-  const words = resolution.state === 'stale' ? [] : resolution.words;
-  const wordsNeedingReview = words.map((word, index) => (
+  const marked = hasWordTimingEvidence(preview.wordTiming);
+  const markedTiming = marked ? validateMarkedWordTiming(preview.text, preview.wordTiming) : null;
+  const words = markedTiming
+    ? markedTiming.ok ? markedTiming.timing.words : []
+    : resolveCaptionWordTiming(preview).words;
+  const attention = highlightAttention(preview);
+  const markedProblems = marked
+    ? new Set(compileHighlightPlan(preview, 'measured-and-manual').issues.flatMap(({ offsets }) => offsets ? [offsets[0]] : []))
+    : null;
+  const wordsNeedingReview = words.map((word, index) => markedProblems ? markedProblems.has(word.startOffset) : (
     word.needsReview || word.source === 'estimated' || word.startMs == null || word.endMs == null
     || word.startMs < Math.max(preview.startMs, words[index - 1]?.endMs ?? preview.startMs)
     || word.endMs > preview.endMs
@@ -139,6 +152,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
       const result = await onSync(basis, controller.signal);
       if (controller.signal.aborted || request.current !== controller) return;
       if (!result) { setMessage('Word sync was not applied. Check the saved caption and try again.'); return; }
+      if ('published' in result) { setMessage(result.message); return; }
       if (!sameTimingRevision(currentCaption.current, result.basis)) {
         setMessage('The caption changed during word sync. Your newer edits were kept.'); return;
       }
@@ -234,7 +248,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   return <div ref={panel} className="word-timing-panel" role="group" aria-label="Word timing controls" tabIndex={-1}>
     <div className="word-timing-head">
       <div><strong>{validCandidate && !repair ? 'Proposed word timing' : 'Words in this caption'}</strong>
-        {resolution.state !== 'ready' && <p className="timing-hint">Word highlighting stays off until every word has usable timing.</p>}</div>
+        {attention === 'needs-attention' && <p className="timing-hint">{marked ? 'Words without usable timing keep the normal color.' : 'Word highlighting stays off until every word has usable timing.'}</p>}</div>
       <button ref={syncButton} title="Align the current caption text to audio without changing the wording" disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
         {syncing ? <LoaderCircle size={15} className="spin"/> : <RefreshCw size={15}/>} {syncing ? 'Syncing…' : 'Sync words'}
       </button>
@@ -265,7 +279,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
       <button disabled={locked} onClick={() => { const after = createUntimedCaptionWordTiming(caption); if (after !== caption && onChange(caption, after)) retainActionFocus('word'); }}>Set words manually</button>
     </div> : <>
       <div className="word-timing-chips" role="group" aria-label="Select a word to time">
-        {words.map((word, wordIndex) => <button key={word.id} ref={word.id === selected?.id ? selectedWordButton : undefined} aria-label={`Word ${wordIndex + 1}: ${preview.text.slice(word.startOffset, word.endOffset)}`} aria-pressed={word.id === selected?.id}
+        {words.map((word, wordIndex) => <button key={word.id} ref={word.id === selected?.id ? selectedWordButton : undefined} aria-label={`${marked && word.members ? 'Word group' : 'Word'} ${wordIndex + 1}: ${preview.text.slice(word.startOffset, word.endOffset)}`} aria-pressed={word.id === selected?.id}
           aria-description={wordsNeedingReview[wordIndex] ? 'Needs review' : undefined}
           className={`${word.id === selected?.id ? 'selected' : ''} ${wordsNeedingReview[wordIndex] ? 'word-needs-review' : ''}`}
           onClick={() => { onStopPreview(); onSelectWord(word.id); setMessage(''); }}>
@@ -273,7 +287,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
         </button>)}
       </div>
       {selected && <div className="word-timing-selected">
-        <div className="word-timing-selected-head"><strong>Word {index + 1}: {wordLabel}</strong><button disabled={!assigned} onClick={hearWord}><Play size={14}/>Hear word</button></div>
+        <div className="word-timing-selected-head"><strong>{marked && selected.members ? 'Word group' : 'Word'} {index + 1}: {wordLabel}</strong><button disabled={!assigned} onClick={hearWord}><Play size={14}/>{marked && selected.members ? 'Hear group' : 'Hear word'}</button></div>
         {!hasRoom && <p className="timing-lock-status" role="status">No space between word boundaries. Adjust a neighboring word or caption edge, or try Sync words.</p>}
         {!assigned && hasRoom && <p className="timing-hint">No timing assigned. Set Start and End, then Apply word timing. The available range is not measured timing.</p>}
         {assigned && (assignedOutsideAvailableRange || selected.needsReview || selected.source === 'estimated') && <p className="timing-hint">

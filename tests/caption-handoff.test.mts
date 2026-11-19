@@ -384,6 +384,53 @@ test('bundle includes word-level files only when every caption has ready word ti
   assert.match(entries.get('README.txt')!.toString('utf8'), /does not guarantee native highlight animation/i);
 });
 
+test('handoff kit lists omitted word files for a measured group and v4 restore remints its IDs', async () => {
+  const grouped = cue('source-cue', 'AI CapCut', 100, 800);
+  const group = { id: 'local-group-id', startOffset: 0, endOffset: 9, startMs: 90, endMs: 700,
+    source: 'aligned' as const, method: 'kfa-group' as const, members: [[0, 2], [3, 9]] as [number, number][] };
+  grouped.wordTiming = { version: 1, evidence: 2, text: grouped.text, words: [group], basis: 'source-local-basis' };
+  const owner = projectFixture('marked-group-kit', [grouped]);
+  owner.wordHighlightFollow = { version: 1, mediaFingerprint: 'source-local-media', epoch: 'source-local-epoch', enabled: true };
+  activeService = makeHarness(owner, { durationMs: 5_000 }).service;
+  const sourceSummary = await (await summary(owner.id)).json();
+  assert.equal(sourceSummary.readyWordCaptionCount, 0);
+  assert.deepEqual(sourceSummary.formats.wordTimed, []);
+  const bundle = await post(owner.id, 'export', { format: 'bundle', ...precondition(owner, sourceSummary.revision) });
+  assert.equal(bundle.status, 200);
+  assert.match(bundle.headers.get('x-sthang-handoff-warnings') || '', /word-by-word SRT\/VTT were omitted/i);
+  const entries = readStoreZip(Buffer.from(await bundle.arrayBuffer()));
+  assert.equal(entries.has('captions-word-by-word.srt'), false);
+  assert.equal(entries.has('captions-word-by-word.vtt'), false);
+  assert.match(entries.get('README.txt')!.toString('utf8'), /omitted because at least one caption/i);
+  const data = entries.get('caption-data.json')!.toString('utf8');
+  assert.doesNotMatch(data, /local-group-id|source-cue|source-local-|wordHighlightFollow/);
+  const portable = parseCaptionData(data);
+  assert.equal(portable.version, 4);
+  assert.equal(portable.captions[0].wordTiming?.evidence, 2);
+
+  const target = projectFixture('marked-group-restore');
+  const harness = makeHarness(target, { durationMs: 5_000 });
+  activeService = harness.service;
+  const targetSummary = await (await summary(target.id)).json();
+  const guard = precondition(target, targetSummary.revision);
+  const preview = await post(target.id, 'restore-preview', { data, ...guard });
+  assert.equal(preview.status, 200);
+  const { candidate, candidateDigest } = await preview.json();
+  assert.deepEqual(candidate, portable);
+  const restore = await post(target.id, 'restore', { data, ...guard, confirmed: true, expectedCandidateDigest: candidateDigest });
+  assert.equal(restore.status, 200);
+  const restored = await restore.json() as CaptionProject;
+  const [imported] = restored.captions;
+  assert.notEqual(imported.id, grouped.id);
+  assert.equal(imported.approved, false);
+  assert.equal(Object.hasOwn(restored, 'wordHighlightFollow'), false);
+  assert.equal(imported.wordTiming?.evidence, 2);
+  assert.equal(Object.hasOwn(imported.wordTiming!, 'basis'), false);
+  assert.deepEqual(imported.wordTiming?.words, [{ ...group, id: `${imported.id}:word:0` }]);
+  assert.deepEqual(harness.getCurrent(), restored);
+  assert.equal(harness.counts().persists, 1);
+});
+
 test('bundle word-file preflight agrees with real service rejection and conditional omission', async () => {
   const multiline = cue('line-break', 'Hello\nworld', 0, 1200);
   multiline.wordTiming = { version: 1, text: multiline.text, words: [

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { once } from 'node:events';
 import { config } from '../config.js';
 import type { TimingResult, TimingWord } from './timing-types.js';
 import { levenshteinSimilarity, normalizeForMatch, tokenizeText } from './tokenizer.js';
@@ -32,6 +33,56 @@ interface TimingCacheEnvelope {
 
 export interface LocalTimingAlignOptions {
   allowWhisperFallback?: boolean;
+}
+
+export interface WindowClock {
+  sampleCount: number;
+  sampleRate: number;
+  frameCount: number;
+  sampleOrigin?: number;
+}
+
+export type WindowVariantName = 'full' | 'drop-far' | 'target' | 'target-wide';
+
+export interface WindowVariant {
+  name: WindowVariantName;
+  startMs: number;
+  endMs: number;
+  lines: { owner: string; text: string; target: boolean }[];
+}
+
+export interface AlignWindowsRequest {
+  budgets: { maxIds: number; maxCells: number; maxCellsTargetOnly: number };
+  targets: { id: string; variants: WindowVariant[] }[];
+  audioSource?: 'chunk';
+}
+
+export interface WindowWord {
+  line: number;
+  text: string;
+  startFrame: number;
+  endFrame: number;
+  score: number;
+  peak: number;
+}
+
+export interface WindowAttempt {
+  variant: WindowVariantName;
+  result: 'ok' | 'frames-short' | 'budget' | 'no-fit' | 'error';
+  frames?: number;
+  ids?: number;
+}
+
+export interface AlignWindowsResult {
+  clock: WindowClock;
+  targets: { id: string; attempts: WindowAttempt[]; words?: WindowWord[]; elapsedMs?: number; clock?: WindowClock }[];
+}
+
+export class LocalTimingUnavailableError extends Error {
+  constructor() {
+    super('Local Khmer timing is unavailable. Check the local timing setup.');
+    this.name = 'LocalTimingUnavailableError';
+  }
 }
 
 class LocalTimingWorkerTransportError extends Error {
@@ -243,7 +294,7 @@ function handleWorkerLine(child: ChildProcessWithoutNullStreams, line: string) {
 
 function ensureWorker() {
   if (workerProcess && !workerProcess.killed) return workerProcess;
-  const child = spawn(config.localTimingPython, [config.localTimingWorker, '--server'], {
+  const child = spawn(config.localTimingPython, ['-I', '-B', config.localTimingWorker, '--server'], {
     shell: false,
     windowsHide: true,
     env: privateTimingEnvironment(),
@@ -271,7 +322,7 @@ function ensureWorker() {
 }
 
 function requestWorker(
-  action: 'warm' | 'prepare' | 'align',
+  action: 'warm' | 'prepare' | 'align' | 'align-windows' | 'invalidate-window-audio',
   payload: Record<string, unknown> = {},
   cacheNamespace?: string,
   alignOptions?: LocalTimingAlignOptions,
@@ -459,6 +510,80 @@ export async function prepareTimingLocally(wavPath: string, cacheNamespace?: str
     console.warn(`[local timing] Acoustic precomputation skipped; normal alignment will retry. ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
+}
+
+async function runWindowRequest(
+  audio: string,
+  cacheNamespace: string,
+  request: AlignWindowsRequest,
+): Promise<AlignWindowsResult | { prepared: true }> {
+  if (!config.localKfaEnabled) throw new LocalTimingUnavailableError();
+  const payload = { audio, ...request };
+  const alignOptions = { allowWhisperFallback: false };
+  let result: unknown;
+  try {
+    result = await requestWorker('align-windows', payload, cacheNamespace, alignOptions);
+  } catch (error) {
+    if (!(error instanceof LocalTimingWorkerTransportError)) throw new Error('Local window timing failed.');
+    await fs.mkdir(config.workingDir, { recursive: true });
+    const workDir = await fs.mkdtemp(path.join(config.workingDir, 'window-timing-'));
+    try {
+      const input = path.join(workDir, 'request.json');
+      const output = path.join(workDir, 'response.json');
+      await fs.writeFile(input, JSON.stringify({ ...payload, options: timingOptions(cacheNamespace, alignOptions) }), 'utf8');
+      try {
+        await runOneShot(config.localTimingPython, [
+          '-I', '-B', config.localTimingWorker, '--align-windows-request', input, '--output', output,
+        ], 'Local window timing');
+      } catch (fallbackError) {
+        const message = fallbackError instanceof Error ? fallbackError.message : '';
+        if (/could not start .*ENOENT|can't open file .*\[Errno 2\]/i.test(message)) {
+          throw new LocalTimingUnavailableError();
+        }
+        throw new Error('Local window timing failed.');
+      }
+      result = JSON.parse(await fs.readFile(output, 'utf8')) as unknown;
+    } finally {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+  if (!result || typeof result !== 'object') throw new Error('Local window timing returned an invalid response.');
+  if ('unavailable' in result && result.unavailable === true) throw new LocalTimingUnavailableError();
+  if ('prepared' in result && result.prepared === true && !request.targets.length) return { prepared: true };
+  if ('clock' in result && 'targets' in result && Array.isArray(result.targets)) return result as AlignWindowsResult;
+  throw new Error('Local window timing returned an invalid response.');
+}
+
+export async function alignWindowsLocally(
+  wavPath: string, cacheNamespace: string, request: AlignWindowsRequest,
+): Promise<AlignWindowsResult> {
+  const result = await runWindowRequest(wavPath, cacheNamespace, request);
+  if ('clock' in result) return result;
+  throw new Error('No window timing targets were submitted.');
+}
+
+export async function prepareFullEmission(wavPath: string, cacheNamespace: string): Promise<{ prepared: true }> {
+  const result = await runWindowRequest(wavPath, cacheNamespace, {
+    budgets: { maxIds: 0, maxCells: 0, maxCellsTargetOnly: 0 }, targets: [],
+  });
+  if ('prepared' in result) return result;
+  throw new Error('Local timing did not prepare acoustic evidence.');
+}
+
+export async function invalidateWindowTimingAudio(wavPath: string, cacheNamespace: string): Promise<void> {
+  if (!workerProcess || workerProcess.killed) return;
+  await requestWorker('invalidate-window-audio', {
+    audio: wavPath, cacheNamespace: emissionCacheDirFor(cacheNamespace),
+  }, cacheNamespace).catch(() => {});
+}
+
+/** Graceful shutdown after an offline caller has finished using the shared worker. */
+export async function closeLocalTimingWorker(): Promise<void> {
+  const child = workerProcess;
+  if (!child) return;
+  const closed = once(child, 'close');
+  child.stdin.end();
+  await closed;
 }
 
 export async function alignTimingLocally(

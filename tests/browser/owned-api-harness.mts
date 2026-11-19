@@ -75,12 +75,20 @@ async function closeChild(child: ChildProcess): Promise<void> {
     child.kill();
   });
 }
-export async function startOwnedApi(root: string, options: { config?: HarnessConfig; entry?: string; timeoutMs?: number } = {}): Promise<OwnedApi> {
+export async function startOwnedApi(root: string, options: {
+  config?: HarnessConfig;
+  entry?: string;
+  timeoutMs?: number;
+  fixtureHighlightCaptionIds?: string[];
+} = {}): Promise<OwnedApi> {
   const cfg = options.config || requireHarnessConfig();
   const ownedRoot = verifyOwnedStateRoot(root, cfg);
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const entry = options.entry || path.join(repoRoot, 'tests', 'browser', 'owned-api-child.mts');
-  const child = spawn(process.execPath, ['--import', 'tsx', entry], { cwd: repoRoot, env: isolatedEnvironment(cfg, ownedRoot), stdio: ['ignore', 'pipe', 'pipe', 'ipc'], windowsHide: true });
+  const env = isolatedEnvironment(cfg, ownedRoot);
+  env.STHANG_BROWSER_FIXTURE_HIGHLIGHT_CAPTION_IDS = options.fixtureHighlightCaptionIds === undefined
+    ? undefined : JSON.stringify(options.fixtureHighlightCaptionIds);
+  const child = spawn(process.execPath, ['--import', 'tsx', entry], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], windowsHide: true });
   let output = '';
   child.stdout?.on('data', (chunk) => { output = (output + String(chunk)).slice(-16_000); });
   child.stderr?.on('data', (chunk) => { output = (output + String(chunk)).slice(-16_000); });

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import {
-  normalizeCaptionAppearance, resolveVideoDimensions,
+  hasWordTimingEvidence, normalizeCaptionAppearance, resolveVideoDimensions, validateMarkedWordTiming,
   type CaptionAppearance, type CaptionPreviewResult, type CaptionSegment,
   type VideoExportCapabilities, type VideoResolutionPreset,
 } from '@kcs/shared';
@@ -75,7 +75,12 @@ export function parseCaptionPreviewInput(value: unknown) {
     }
     const rawTiming = (item as { wordTiming?: unknown }).wordTiming;
     let wordTiming: CaptionSegment['wordTiming'];
-    if (rawTiming !== undefined) {
+    if (hasWordTimingEvidence(rawTiming)) {
+      const validated = validateMarkedWordTiming(item.text, rawTiming);
+      if (!validated.ok) throw new Error('Invalid caption word timing in preview request.');
+      const { basis: _basis, ...portableTiming } = validated.timing;
+      wordTiming = portableTiming;
+    } else if (rawTiming !== undefined) {
       const timing = rawTiming as CaptionSegment['wordTiming'];
       if (!timing || timing.version !== 1 || typeof timing.text !== 'string' || !Array.isArray(timing.words)) {
         throw new Error('Invalid caption word timing in preview request.');

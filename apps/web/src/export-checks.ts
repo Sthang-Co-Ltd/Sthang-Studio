@@ -1,4 +1,7 @@
-import { captionFileBlockers, resolveCaptionWordTiming, type CaptionAppearance, type CaptionFileFormat, type CaptionSegment } from '@kcs/shared';
+import {
+  captionFileBlockers, compileHighlightPlan, hasWordTimingEvidence, highlightAttention, resolveCaptionWordTiming, resolveWordExport,
+  type CaptionAppearance, type CaptionFileFormat, type CaptionSegment,
+} from '@kcs/shared';
 import type { ReviewIssue } from './review';
 
 export type ExportRepairKind = 'caption' | 'timing' | 'word-timing' | 'appearance';
@@ -66,13 +69,21 @@ export function buildExportCaptionIssues(input: {
   if (showsWords) {
     for (const caption of captions) {
       if (!caption.text.trim()) continue;
-      const timing = resolveCaptionWordTiming(caption);
-      if (timing.state === 'ready') continue;
+      const strict = needsWords || format === 'bundle';
+      const wordExport = strict ? resolveWordExport(caption) : null;
+      if (wordExport ? wordExport.ready : highlightAttention(caption) !== 'needs-attention') continue;
+      const marked = hasWordTimingEvidence(caption.wordTiming);
+      const plan = marked && !strict ? compileHighlightPlan(caption, 'measured-and-manual') : null;
+      const reason = wordExport && !wordExport.ready ? wordExport.reason
+        : marked ? 'Words without usable timing keep the normal color.'
+          : resolveCaptionWordTiming(caption).reason || 'This caption has no saved word timing.';
       const consequence = needsWords ? 'Word-timed download requires usable timing for every caption.'
         : format === 'bundle' ? 'The handoff kit will omit word-timed files until every caption is ready.'
-          : 'This caption will keep its normal color without a spoken-word highlight.';
+          : plan?.coverage === 'partial' ? 'Some words keep their normal color.'
+            : plan ? 'This caption keeps its normal color.'
+              : 'This caption will keep its normal color without a spoken-word highlight.';
       issues.push({ id: `words:${caption.id}`, severity: needsWords ? 'blocker' : 'advisory', title: 'Word timing needs review',
-        reasons: [timing.reason || 'This caption has no saved word timing.', consequence],
+        reasons: plan ? [consequence] : [reason, consequence],
         remedy: 'Open Word timing, sync or adjust the words, then review and apply the timing.',
         captionIds: [caption.id], repair: 'word-timing' });
     }

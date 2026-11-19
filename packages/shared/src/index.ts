@@ -1,9 +1,10 @@
 import type { CaptionAppearance } from './caption-settings.js';
-import type { CaptionWordTiming } from './word-timing.js';
+import type { CaptionWordTiming, WordHighlightFollow } from './word-timing.js';
 export * from './caption-settings.js';
 export * from './caption-looks.js';
 export * from './word-timing.js';
 export { endsWithKhmerWord, segmentKhmerWords } from './khmer-word-segmentation.js';
+export { highlightDisplayUnits, type HighlightDisplayUnit } from './highlight-display-units.js';
 export * from './caption-interchange.js';
 export * from './export-checks.js';
 export * from './export-freshness.js';
@@ -245,6 +246,7 @@ export interface CaptionProject {
   mode: CaptionMode;
   /** Project-level burned-in caption appearance. It never changes SRT serialization. */
   captionAppearance?: CaptionAppearance;
+  wordHighlightFollow?: WordHighlightFollow;
   engineVersion?: string;
   pipelineCache?: PipelineCacheInfo;
   /** Set when accepted caption-only diffs no longer exactly mirror canonical transcript tokens. */
@@ -454,7 +456,8 @@ export interface SystemDoctorReport {
   };
 }
 
-export type HistorySource = 'manual-save' | 'autosave' | 'text-edit' | 'regeneration' | 'regroup' | 'cleanup' | 'timing-fix' | 'restore' | 'system';
+export type HistorySource = 'manual-save' | 'autosave' | 'text-edit' | 'regeneration' | 'regroup' | 'cleanup' | 'timing-fix' | 'restore' | 'system'
+  | 'word-highlight' | 'word-highlight-auto';
 
 export interface ProjectHistoryEntry {
   id: string;

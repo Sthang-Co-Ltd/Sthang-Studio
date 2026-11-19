@@ -1,17 +1,16 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   buildCaptionWordTiming,
-  resolveCaptionWordTiming,
   type CaptionProject,
   type CaptionSegment,
   type TimedToken,
 } from '../../packages/shared/src/index.js';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, seek } from './fixtures.mjs';
+
+import { deferredHighlight, stubHighlightRoutes } from './word-highlight-routes.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
-
-let state: FixtureState;
 
 function makeCue(id: string, text: string, startMs: number, endMs: number, starts: number[], ends: number[]) {
   const tokens: TimedToken[] = text.split(' ').map((word, index) => ({
@@ -34,217 +33,223 @@ function makeCue(id: string, text: string, startMs: number, endMs: number, start
   return { caption, tokens };
 }
 
-test('enabling highlights syncs and repairs words, applies ready tracks with approval, and exposes exceptions and Undo', async ({ page }) => {
-  state = await installFixture(page);
-  const first = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
-  const second = makeCue('c2', 'ស្រឡាញ់ កម្ពុជា', 1400, 2400, [1420, 1920], [1820, 2320]);
-  const repair = makeCue('c3', 'ខ្មែរ AI now', 2450, 3550, [2460, 2700, 3110], [2650, 3120, 3510]);
-  repair.caption.wordTiming!.words[0] = { ...repair.caption.wordTiming!.words[0], source: 'aligned', needsReview: undefined };
-  const locked = makeCue('c4', 'Next issue', 3600, 4300, [3610, 4000], [3940, 4290]);
-  locked.caption.timingLocked = true;
-  const project = state.projects[0] as CaptionProject;
-  project.captions = [first.caption, second.caption, repair.caption, locked.caption];
-  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'off' };
-  project.transcript!.tokens = [...first.tokens, ...second.tokens, ...repair.tokens, ...locked.tokens];
-  project.transcript!.segments = structuredClone(project.captions);
-  project.transcript!.fullText = project.captions.map((caption) => caption.text).join(' ');
 
-  const syncOrder: string[] = [];
-  let activeSyncs = 0;
-  let maxActiveSyncs = 0;
-  let releaseFirst!: () => void;
-  const firstSyncGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-
-  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
-    const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
-    syncOrder.push(caption.id);
-    activeSyncs += 1;
-    maxActiveSyncs = Math.max(maxActiveSyncs, activeSyncs);
-    try {
-      if (syncOrder.length === 1) await firstSyncGate;
-      const tokens = caption.id === first.caption.id ? first.tokens : second.tokens;
-      const wordTiming = buildCaptionWordTiming(caption, tokens);
-      if (!wordTiming) throw new Error(`Could not prepare fixture timing for ${caption.id}`);
-      const prepared = caption.id === second.caption.id
-        ? { ...wordTiming, words: wordTiming.words.map((word, index) => index === 0 ? { ...word, source: 'estimated' as const, needsReview: true } : word) }
-        : wordTiming;
-      await route.fulfill({
-        json: {
-          basis: caption,
-          wordTiming: prepared,
-          sourceRevision: `fixture-kfa-${caption.id}`,
-          warnings: caption.id === second.caption.id ? ['One spoken word should be checked.'] : [],
-        },
-      });
-    } finally {
-      activeSyncs -= 1;
-    }
-  });
-
-  const batchRequests: Array<{
-    expectedMedia: { filename: string; size: number };
-    changes: Array<{ before: CaptionSegment; after: CaptionSegment }>;
-    action: 'apply' | 'undo';
-  }> = [];
-  await page.route('**/api/projects/landscape/caption-word-timing/batch-apply', async (route) => {
-    const body = route.request().postDataJSON() as (typeof batchRequests)[number];
-    batchRequests.push(structuredClone(body));
-    for (const change of body.changes) {
-      const index = project.captions.findIndex((caption) => caption.id === change.before.id);
-      if (index < 0) throw new Error(`Unknown batch caption ${change.before.id}`);
-      project.captions[index] = structuredClone(change.after);
-    }
-    await route.fulfill({ json: { project, appliedCount: body.changes.length } });
-  });
-
-  await openProject(page);
-  await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await page.locator('.appearance-word-details > summary').click();
-  await page.getByRole('button', { name: 'Highlight spoken word', exact: true }).click();
-  await expect.poll(() => syncOrder).toEqual(['c1']);
-  const preparing = page.getByRole('region', { name: 'Preparing word highlights' });
-  await expect(preparing).toBeVisible();
-  await expect(preparing).toContainText('0 of 4 captions checked');
-  await expect(preparing.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
-
-  expect(batchRequests).toHaveLength(0);
-  releaseFirst();
-  await expect.poll(() => batchRequests.length).toBe(1);
-  expect(syncOrder).toEqual(['c1', 'c2']);
-  expect(maxActiveSyncs).toBe(1);
-  expect(batchRequests[0].action).toBe('apply');
-  expect(batchRequests[0].changes.map(({ before }) => before.id)).toEqual(['c1', 'c3']);
-  expect(batchRequests[0].changes.every(({ after }) => after.approved && resolveCaptionWordTiming(after).state === 'ready')).toBe(true);
-  expect(project.captions[2].wordTiming?.words[1].endMs).toBe(3110);
-  await expect(page.getByRole('button', { name: 'Sync remaining', exact: true })).toBeVisible();
-  await expect(page.locator('.appearance-highlight-readiness')).toContainText('2 of 4 captions ready');
-  expect(resolveCaptionWordTiming(project.captions[0]).state).toBe('ready');
-  expect(resolveCaptionWordTiming(project.captions[1]).state).toBe('partial');
-
-  await page.locator('video').evaluate((video: HTMLVideoElement) => {
-    video.pause();
-    video.currentTime = 1.6;
-    video.dispatchEvent(new Event('timeupdate'));
-  });
-  await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-paint-key', /^[^|]+$/);
-
-  await page.getByRole('button', { name: 'Review remaining (2)', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.timing-caption-text')).toContainText(second.caption.text);
-  await page.getByRole('button', { name: 'Next timing issue', exact: true }).click();
-  await expect(page.locator('.timing-caption-text')).toContainText(locked.caption.text);
-  expect(syncOrder).toEqual(['c1', 'c2']);
-
-  await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await page.getByRole('button', { name: 'Undo timing changes', exact: true }).click();
-  await expect.poll(() => batchRequests.length).toBe(2);
-  expect(batchRequests[1].action).toBe('undo');
-  expect(batchRequests[1].changes.map(({ before }) => before.id)).toEqual(['c1', 'c3']);
-  expect(batchRequests[1].changes.every(({ after }) => after.approved && resolveCaptionWordTiming(after).state === 'partial')).toBe(true);
-  expect(resolveCaptionWordTiming(project.captions[0]).state).toBe('partial');
-  await expect(page.getByRole('button', { name: 'Review remaining (4)', exact: true })).toBeVisible();
+const baseCue = (id: string, text: string, startMs: number): CaptionSegment => ({
+  id, text, startMs, endMs: startMs + 620, approved: true,
 });
 
-test('turning highlight off during preparation cancels before later captions or apply', async ({ page }) => {
-  state = await installFixture(page);
-  const first = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
-  const second = makeCue('c2', 'ស្រឡាញ់ កម្ពុជា', 1400, 2400, [1420, 1920], [1820, 2320]);
+async function batchFixture(page: Page, enabled = false) {
+  const state = await installFixture(page);
   const project = state.projects[0] as CaptionProject;
-  project.captions = [first.caption, second.caption];
-  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'off' };
-  project.transcript!.tokens = [...first.tokens, ...second.tokens];
-  project.transcript!.segments = structuredClone(project.captions);
-  project.transcript!.fullText = `${first.caption.text} ${second.caption.text}`;
-  const savedCaptions = structuredClone(project.captions);
+  project.captions = [
+    baseCue('c1', 'First caption', 100),
+    baseCue('c2', 'Second caption', 800),
+    baseCue('c3', 'Third caption', 1500),
+    { ...baseCue('c4', 'Locked caption', 2300), timingLocked: true },
+  ];
+  project.transcript = null;
+  project.captionAppearance = { ...project.captionAppearance!, highlightMode: enabled ? 'word' : 'off' };
+  const routes = await stubHighlightRoutes(page, project);
+  return { state, project, routes };
+}
 
-  const syncOrder: string[] = [];
-  let releaseFirst!: () => void;
-  const firstSyncGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
-    const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
-    syncOrder.push(caption.id);
-    if (syncOrder.length === 1) {
-      await firstSyncGate;
-      await route.abort('aborted').catch(() => {});
-      return;
-    }
-    const wordTiming = buildCaptionWordTiming(caption, caption.id === first.caption.id ? first.tokens : second.tokens);
-    if (!wordTiming) throw new Error(`Could not prepare fixture timing for ${caption.id}`);
-    await route.fulfill({ json: { basis: caption, wordTiming, sourceRevision: `fixture-kfa-${caption.id}` } });
-  });
-
-  let batchApplyRequests = 0;
-  await page.route('**/api/projects/landscape/caption-word-timing/batch-apply', async (route) => {
-    batchApplyRequests += 1;
-    await route.fulfill({ json: { project, appliedCount: 0 } });
-  });
-
-  await openProject(page);
-  await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await page.locator('.appearance-word-details > summary').click();
-  const toggle = page.getByRole('button', { name: 'Highlight spoken word', exact: true });
-  await toggle.click();
-  await expect.poll(() => syncOrder).toEqual(['c1']);
-
-  const preparing = page.getByRole('region', { name: 'Preparing word highlights' });
-  await expect(preparing).toBeVisible();
-  await expect(preparing).toContainText('0 of 2 captions checked');
-  const cancel = preparing.getByRole('button', { name: 'Cancel', exact: true });
-  await expect(cancel).toBeVisible();
-
-  await toggle.click();
-  releaseFirst();
-  await expect(page.locator('.appearance-word-details > summary')).toHaveText('Word highlighting · Off');
-  await expect(preparing).toHaveCount(0);
-  expect(syncOrder).toEqual(['c1']);
-  expect(batchApplyRequests).toBe(0);
-  expect(project.captions).toEqual(savedCaptions);
-});
-
-test('enabling highlights waits for an approval to save through ordinary autosave', async ({ page }) => {
-  state = await installFixture(page);
-  await page.clock.install();
-  state.profile.preferences.autosaveDelayMs = 60_000;
-  const { caption, tokens } = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
-  const project = state.projects[0] as CaptionProject;
-  project.captions = [{ ...caption, approved: false }];
-  project.captionAppearance = { ...project.captionAppearance!, highlightMode: 'off' };
-  project.transcript!.tokens = tokens;
-  project.transcript!.segments = structuredClone(project.captions);
-  project.transcript!.fullText = caption.text;
-  const syncApprovals: Array<boolean | undefined> = [];
-  await page.route('**/api/projects/landscape/caption-word-timing', async (route) => {
-    const { caption: basis } = route.request().postDataJSON() as { caption: CaptionSegment };
-    syncApprovals.push(basis.approved);
-    await route.fulfill({ json: { basis, wordTiming: buildCaptionWordTiming(basis, tokens) } });
-  });
-  await page.route('**/api/projects/landscape/caption-word-timing/batch-apply', async (route) => {
-    const { changes } = route.request().postDataJSON() as { changes: Array<{ after: CaptionSegment }> };
-    project.captions = changes.map(({ after }) => after);
-    await route.fulfill({ json: { project, appliedCount: changes.length } });
-  });
-  const captionSaves = () => state.requests.filter(({ path, method }) => path.endsWith('/captions') && method === 'PUT');
-
-  await openProject(page);
-  await page.getByRole('button', { name: 'Approve caption', exact: true }).click();
+const controls = (page: Page) => page.getByRole('region', { name: 'Word highlight results' });
+const toggle = (page: Page) => page.getByRole('button', { name: 'Highlight spoken word', exact: true });
+const undo = (page: Page) => controls(page).getByRole('button', { name: 'Undo', exact: true });
+async function appearance(page: Page) {
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await page.locator('.appearance-word-details > summary').click();
-  await page.getByRole('button', { name: 'Highlight spoken word', exact: true }).click();
-  await expect(page.getByText('Word sync will start after current caption work is saved.')).toBeVisible();
-  expect(captionSaves()).toHaveLength(0);
-  expect(syncApprovals).toEqual([]);
+  await expandAppearanceSection(page, 'words');
+}
 
-  await page.clock.fastForward(61_000);
-  await expect(page.getByRole('button', { name: 'Undo timing changes', exact: true })).toBeEnabled();
-  expect(captionSaves()).toHaveLength(1);
-  expect(captionSaves()[0].body).toMatchObject({ source: 'autosave', recordCorrections: false });
-  expect(syncApprovals).toEqual([true]);
+test('one Apply publishes eligible candidates by reference and offers ranked review and exact Undo', async ({ page }) => {
+  const { project, routes } = await batchFixture(page);
+  const before = structuredClone(project.captions);
+  const held = routes.holdCandidates = deferredHighlight();
+  routes.terminal.add('c2');
+  await openProject(page);
+  await appearance(page);
+  await toggle(page).click();
+
+  await expect(controls(page)).toContainText('Checking captions… 0 of 3');
+  await expect(controls(page).getByRole('progressbar')).toBeVisible();
+  expect(routes.writes).toHaveLength(0);
+  held.release();
+  await expect(undo(page)).toBeEnabled();
+  expect(routes.arms).toBe(1);
+  expect(routes.prepares).toBe(1);
+  expect(routes.chunks).toEqual([['c1', 'c2', 'c3']]);
+  expect(routes.writes).toHaveLength(1);
+  expect(routes.committed[0].map(({ id }) => id)).toEqual(['c1', 'c3']);
+  expect(project.captions.every(({ approved }) => approved)).toBe(true);
+  await expect(controls(page)).toContainText('Highlighting 2 captions · 2 plain');
+  await seek(page, 320);
+  await expect(page.locator('.native-caption-surface[data-preview-mode="exact"]')).toHaveAttribute('data-paint-key', '0|0:6-13');
+
+  await controls(page).getByRole('button', { name: 'Review remaining (2)' }).click();
+  await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.timing-caption-text')).toContainText('Second caption');
+  await page.getByRole('button', { name: 'Next timing issue', exact: true }).click();
+  await expect(page.locator('.timing-caption-text')).toContainText('Locked caption');
+  expect(routes.chunks).toHaveLength(1);
+  await appearance(page);
+  await undo(page).click();
+  await expect(undo(page)).toHaveCount(0);
+  expect(routes.writes.map(({ action }) => action ?? 'apply')).toEqual(['apply', 'undo']);
+  expect(project.captions).toEqual(before);
+  expect(project.wordHighlightFollow?.enabled).toBe(false);
+  await expect(controls(page).getByRole('button', { name: 'Apply to all captions', exact: true })).toBeVisible();
+});
+
+for (const action of ['Cancel', 'Off'] as const) test(`${action} revokes the running pass and keeps saved timing`, async ({ page }) => {
+  const { project, routes } = await batchFixture(page);
+  const before = structuredClone(project.captions);
+  const held = routes.holdCandidates = deferredHighlight();
+  try {
+    await openProject(page);
+    await appearance(page);
+    await toggle(page).click();
+    await expect.poll(() => routes.chunks.length).toBe(1);
+    if (action === 'Off') await toggle(page).click();
+    else await controls(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    held.release();
+    await expect.poll(() => routes.revokes).toBe(1);
+    await expect(controls(page).getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+    expect(routes.writes).toHaveLength(0);
+    expect(project.captions).toEqual(before);
+    await expect.poll(() => project.captionAppearance?.highlightMode).toBe(action === 'Off' ? 'off' : 'word');
+  } finally { held.release(); }
+});
+
+test('Apply starts after the ordinary autosave and follows saved text without prompting', async ({ page }) => {
+  const { state, project, routes } = await batchFixture(page);
+  state.profile.preferences.autosaveDelayMs = 60_000;
+  project.captions[0].approved = false;
+  await page.clock.install();
+  await openProject(page);
+  await page.getByRole('button', { name: 'Approve caption', exact: true }).first().click();
+  await appearance(page);
+  await toggle(page).click();
+  await expect(controls(page)).toContainText('Word sync will continue after your edits are saved.');
+  expect(routes.arms).toBe(0);
+  expect(routes.chunks).toEqual([]);
+  await page.clock.fastForward(62_000);
+  await expect(undo(page)).toBeEnabled();
   expect(project.captions[0].approved).toBe(true);
+  const input = page.locator('[data-caption-id="c2"] textarea');
+  await input.fill('Revised wording');
+  await input.press('Tab');
+  await page.clock.fastForward(62_000);
+  await expect.poll(() => project.captions[1].text).toBe('Revised wording');
+  await page.clock.fastForward(2_000);
+  await expect.poll(() => routes.writes.length).toBe(2);
+  expect(routes.writes[1].intent).toBe('follow');
+  expect(routes.chunks[1]).toEqual(['c1', 'c2', 'c3']);
+  expect(routes.committed[1].map(({ id }) => id)).toEqual(['c2']);
+  expect(routes.arms).toBe(1);
+});
+
+test('composition defers publication until saved and a context conflict checks only affected IDs', async ({ page }) => {
+  const { project, routes } = await batchFixture(page, true);
+  const held = routes.holdCandidates = deferredHighlight();
+  try {
+    await openProject(page);
+    await appearance(page);
+    await controls(page).getByRole('button', { name: 'Apply to all captions' }).click();
+    await expect.poll(() => routes.chunks.length).toBe(1);
+    const editor = page.locator('[data-caption-id="c2"] textarea');
+    await editor.dispatchEvent('compositionstart');
+    await editor.fill('កម្ពុជា Second');
+    held.release();
+    await expect(controls(page)).toContainText('Word sync will continue after your edits are saved.');
+    expect(routes.writes).toHaveLength(0);
+    routes.rejectNext.push('c2');
+    await editor.dispatchEvent('compositionend');
+    await editor.press('Tab');
+    await expect(undo(page)).toBeEnabled();
+    expect(project.captions[1].text).toBe('កម្ពុជា Second');
+    expect(routes.chunks[1]).toEqual(['c2']);
+    expect(routes.writes[1].preparedKeys).toEqual(expect.arrayContaining([routes.writes[0].preparedKeys![0], routes.writes[0].preparedKeys![2]]));
+  } finally { held.release(); }
+});
+
+test('a dirty unrelated edit survives a delayed publication response', async ({ page }) => {
+  const { project, routes } = await batchFixture(page, true);
+  const held = routes.holdPublish = deferredHighlight();
+  try {
+    await openProject(page);
+    await appearance(page);
+    await controls(page).getByRole('button', { name: 'Apply to all captions' }).click();
+    await expect.poll(() => routes.committed.length).toBe(1);
+    const editor = page.locator('[data-caption-id="c4"] textarea');
+    await editor.fill('New local text');
+    held.release();
+    await expect(editor).toHaveValue('New local text');
+    await editor.press('Tab');
+    await expect.poll(() => project.captions[3].text).toBe('New local text');
+    expect(project.captions[0].wordTiming?.evidence).toBe(2);
+  } finally { held.release(); }
+});
+
+test('Cancel after commit recovers the lost response and exposes the exact Undo', async ({ page }) => {
+  const { project, routes } = await batchFixture(page, true);
+  const held = routes.holdPublish = deferredHighlight();
+  routes.dropAcknowledgement = true;
+  try {
+    await openProject(page);
+    await appearance(page);
+    await controls(page).getByRole('button', { name: 'Apply to all captions' }).click();
+    await expect.poll(() => routes.committed.length).toBe(1);
+    await controls(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect.poll(() => routes.revokes).toBe(1);
+    held.release();
+    await expect(undo(page)).toBeEnabled();
+    await undo(page).click();
+    await expect(undo(page)).toHaveCount(0);
+    expect(project.captions[0].wordTiming).toBeUndefined();
+  } finally { held.release(); }
+});
+
+test('an armed project resumes quietly while an old On project waits for Apply', async ({ page }) => {
+  const { project, routes } = await batchFixture(page, true);
+  await page.clock.install();
+  await openProject(page);
+  await appearance(page);
+  await page.clock.fastForward(3_000);
+  await expect(controls(page).getByRole('button', { name: 'Apply to all captions' })).toBeVisible();
+  expect(routes.prepares).toBe(0);
+  routes.armInitial();
+  await openProject(page);
+  await page.clock.fastForward(3_000);
+  await expect.poll(() => routes.writes.length).toBe(1);
+  expect(routes.writes[0].intent).toBe('follow');
+  expect(routes.arms).toBe(0);
+  await expect(page.locator('.caption-appearance-workspace')).toHaveCount(0);
+  const paint = project.captions.map(({ wordTiming }) => wordTiming);
+  await openProject(page);
+  await page.clock.fastForward(3_000);
+  expect(project.captions.map(({ wordTiming }) => wordTiming)).toEqual(paint);
+  expect(routes.writes).toHaveLength(1);
+});
+
+test('Undo rejects a changed target and retains intervening manual evidence', async ({ page }) => {
+  const { project, routes } = await batchFixture(page, true);
+  await openProject(page);
+  await appearance(page);
+  await controls(page).getByRole('button', { name: 'Apply to all captions' }).click();
+  await expect(undo(page)).toBeEnabled();
+  const word = project.captions[0].wordTiming!.words[0];
+  word.source = 'manual';
+  word.method = 'manual';
+  await undo(page).click();
+  await expect(page.getByText(/Those captions have newer edits/)).toBeVisible();
+  expect(word.source).toBe('manual');
+  expect(routes.writes).toHaveLength(2);
+  expect(project.wordHighlightFollow?.enabled).toBe(false);
 });
 
 for (const allReady of [false, true]) {
   test(`word highlight controls fit with ${allReady ? 'ready' : 'unresolved'} timing`, async ({ page }, testInfo) => {
-    state = await installFixture(page);
+    const state = await installFixture(page);
     const first = makeCue('c1', 'ខ្មែរ AI', 200, 1200, [220, 720], [620, 1100]);
     const second = makeCue('c2', 'ស្រឡាញ់ កម្ពុជា', 1400, 2400, [1420, 1920], [1820, 2320]);
     if (allReady) {
@@ -261,9 +266,9 @@ for (const allReady of [false, true]) {
     await page.getByRole('button', { name: 'Appearance', exact: true }).click();
     const section = page.getByRole('region', { name: 'Spoken word highlight', exact: true });
     await expect(section.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(section).toContainText(`${allReady ? 2 : 0} of 2 captions ready`);
+    await expect(section).toContainText(allReady ? 'Highlighting 2 captions' : '2 plain');
     await expect(section).toContainText('SRT carries text and timing only.');
-    await expect(section.getByRole('button', { name: 'Sync remaining', exact: true })).toHaveCount(allReady ? 0 : 1);
+    await expect(section.getByRole('button', { name: 'Apply to all captions', exact: true })).toBeVisible();
     const disclosure = page.locator('.appearance-word-details');
     const summary = disclosure.locator(':scope > summary');
     await summary.focus();

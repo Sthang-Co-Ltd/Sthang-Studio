@@ -12,7 +12,7 @@ import {
 import type { CaptionSegment } from '@kcs/shared';
 import { useSurfacePresence } from '../use-surface-presence';
 import { useMenuKeyboard } from '../use-menu-keyboard';
-import { reconcileCaptionWordTiming, resolveCaptionWordTiming } from '@kcs/shared';
+import { highlightAttention, reconcileCaptionWordTiming } from '@kcs/shared';
 import {
   Clock3,
   Combine,
@@ -120,7 +120,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   const registerText = useCallback((id: string, element: HTMLTextAreaElement | null) => { textareas.current[id] = element; }, []);
   // Run before the viewport/focus layout effects, which can synchronously focus a row.
   useLayoutEffect(() => { liveRowAction.current = committedRowAction; });
-  const wordsNeedingReview = useMemo(() => new Set(highlightEnabled ? captions.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready').map((caption) => caption.id) : []), [captions, highlightEnabled]);
+  const wordsNeedingReview = useMemo(() => new Set(highlightEnabled ? captions.filter((caption) => highlightAttention(caption) === 'needs-attention').map((caption) => caption.id) : []), [captions, highlightEnabled]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const visible = useMemo(
     () => reviewMode ? captions.filter((caption) => issueMap.has(caption.id) && !caption.approved) : captions,

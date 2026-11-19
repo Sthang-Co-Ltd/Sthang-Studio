@@ -144,11 +144,44 @@ The full caption stays visible. Only the currently timed word changes color;
 pauses and the interval after the last word use the normal text color. There is
 no cumulative fill, bouncing word, or syllable animation in this implementation.
 
-Appearance shows how many captions have usable word timing and links directly to
-the first one needing attention. Every spoken span in a caption must be ready for
-that caption to highlight. Missing, stale, overlapping, out-of-range, estimated,
-or review-needed timings leave the entire caption plain. Correcting the text
-therefore cannot silently highlight the wrong old word.
+In v0.90.0, Appearance shows how many captions have usable word timing and links
+to the first one needing attention. Every spoken span in a caption must be ready
+for that caption to highlight. Missing, stale, overlapping, out-of-range,
+estimated, or review-needed timings leave the entire caption plain. Correcting
+the text therefore cannot silently highlight the wrong old word.
+
+### One-click Apply (unreleased source)
+
+In Appearance, turning **Word highlighting** on starts Apply. If an existing
+project already has highlighting on, choose **Apply to all captions**. Loading
+a preset can change the appearance. Apply gives the project permission to check
+timing after later caption saves.
+
+Studio reuses local audio preparation, checks eligible captions, and saves the
+supported evidence together after pending edits save. It keeps the caption
+wording, outer timing, Review approvals, and manual word anchors. Supported
+individual words light separately, measured groups light together, and words
+without usable timing keep their normal color. A group has one measured interval
+and needs separate confirmed times for word-by-word SRT or VTT. Standard SRT
+keeps the caption text and cue times.
+
+Appearance counts individual, grouped, partial, and plain captions. Choose
+**Review remaining** to open the most urgent issue in **Fine Timing**. Use
+**Next timing issue** to navigate there or **Sync remaining** to retry unlocked
+exceptions. **Sync words** checks one caption through the same local flow while
+the project follows edits. The unarmed Fine Timing workflow still offers the
+separately confirmed caption-edge repair described above.
+
+After Apply, Studio waits briefly after a saved wording or cue change, then
+checks the affected captions and their neighbors. An armed project can resume
+outstanding work when reopened. **Cancel** keeps the selected look and saved
+timing. Turning the look off also turns off paint. Both stop automatic sync
+until the next Apply.
+
+**Undo** restores the exact tracks changed by the last Apply if those tracks
+still match. It also stops automatic sync. If intervening edits prevent Undo,
+**Before applying word highlights** in History is the earlier recovery point.
+Automatic timing updates record their own History checkpoint.
 
 ### Automatic preparation in v0.90.0
 

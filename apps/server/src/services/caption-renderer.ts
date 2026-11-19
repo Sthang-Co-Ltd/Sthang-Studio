@@ -3,8 +3,8 @@ import path from 'node:path';
 import { PreviewFontCache, type FontLease } from './preview-font-cache.js';
 import { discoverCaptionFonts } from './font-library.js';
 import {
-  normalizeCaptionAppearance, captionRenderTime, captionWordBreakOffsets, planCaptionRenderStates, resolveCaptionWordTiming,
-  type CaptionAppearance, type CaptionSegment, type VideoExportFontCapability,
+  normalizeCaptionAppearance, captionRenderTime, captionWordBreakOffsets, planCaptionRenderStates, compileHighlightPlan,
+  type CaptionAppearance, type CaptionSegment, type PaintSpan, type VideoExportFontCapability,
 } from '@kcs/shared';
 
 export async function fontCapabilities() {
@@ -105,6 +105,7 @@ function styledCaptionText(
   breakOffsets: readonly number[],
   horizontalScale: number,
   appearance: CaptionAppearance,
+  paintSpans: readonly PaintSpan[] | undefined,
   activeWordOffsets: ReadonlyArray<{ captionIndex: number; startOffset: number; endOffset: number }> | undefined,
   forcedColor?: string,
 ) {
@@ -114,21 +115,18 @@ function styledCaptionText(
   const tags = breakOffsets.map((at) => ({
     at, order: 0, value: `{\\fscx0} {\\fscx${horizontalScale}}`,
   }));
-  if (appearance.highlightMode === 'word') {
-    const resolved = resolveCaptionWordTiming(caption);
-    if (resolved.state === 'ready') {
-      const active = new Set((activeWordOffsets || [])
-        .filter((word) => word.captionIndex === captionIndex)
-        .map((word) => `${word.startOffset}:${word.endOffset}`));
-      const baseColor = assOverrideColor(forcedColor || appearance.textColor);
-      const highlightColor = assOverrideColor(forcedColor || appearance.highlightColor || appearance.textColor);
-      for (const word of resolved.words) {
-        const color = active.has(`${word.startOffset}:${word.endOffset}`) ? highlightColor : baseColor;
-        tags.push(
-          { at: word.startOffset, order: 2, value: `{\\1c${color}}` },
-          { at: word.endOffset, order: 1, value: `{\\1c${baseColor}}` },
-        );
-      }
+  if (paintSpans?.length) {
+    const active = new Set((activeWordOffsets || [])
+      .filter((word) => word.captionIndex === captionIndex)
+      .map((word) => `${word.startOffset}:${word.endOffset}`));
+    const baseColor = assOverrideColor(forcedColor || appearance.textColor);
+    const highlightColor = assOverrideColor(forcedColor || appearance.highlightColor || appearance.textColor);
+    for (const span of paintSpans) {
+      const color = active.has(`${span.startOffset}:${span.endOffset}`) ? highlightColor : baseColor;
+      tags.push(
+        { at: span.startOffset, order: 2, value: `{\\1c${color}}` },
+        { at: span.endOffset, order: 1, value: `{\\1c${baseColor}}` },
+      );
     }
   }
   tags.sort((left, right) => left.at - right.at || left.order - right.order);
@@ -163,6 +161,7 @@ export function buildAssDocument(
   const side = Math.max(8, Math.round(width * (100 - a.maxWidthPct) / 200));
   const bottom = Math.max(8, Math.round(height * a.positionBottomPct / 100));
   const breakOffsets = captions.map((caption) => captionWordBreakOffsets(caption.text));
+  const paintSpans = highlightWords ? captions.map((caption) => compileHighlightPlan(caption, 'measured-and-manual').spans) : undefined;
   // Fade and decorative layers repaint the same plain caption text many times. Cache
   // that pure break/escape result per cue and horizontal scale; spoken-word paint still takes the dynamic
   // path below because its inline color spans change with the active word.
@@ -210,7 +209,7 @@ export function buildAssDocument(
       const cacheKey = `${index}:${motionScalePct}`;
       let visible = plainTextCache?.get(cacheKey);
       if (visible === undefined) {
-        visible = styledCaptionText(captions[index], index, breakOffsets[index], motionScalePct, a, c.activeWordOffsets, forcedColor);
+        visible = styledCaptionText(captions[index], index, breakOffsets[index], motionScalePct, a, paintSpans?.[index], c.activeWordOffsets, forcedColor);
         plainTextCache?.set(cacheKey, visible);
       }
       // The editor may request a separate white-on-black focus mask. Alpha changes

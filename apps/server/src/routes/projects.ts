@@ -3,7 +3,8 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { nanoid } from 'nanoid';
-import { reconcileCaptionWordTiming, resolveCaptionWordTiming, type CaptionProject, type CaptionSegment, type CaptionMode, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
+import { hasWordTimingEvidence, reconcileCaptionWordTiming, resolveCaptionWordTiming, validateMarkedWordTiming,
+  type CaptionProject, type CaptionSegment, type CaptionMode, type CaptionWord, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
 import { config } from '../config.js';
 import { ProjectDeletionBlockedError, store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
@@ -48,10 +49,19 @@ import {
 } from '../services/caption-word-timing.js';
 import {
   applyCaptionWordBatch,
+  applyPreparedWordHighlightBatch,
+  readWordHighlightPublication,
+  updateWordHighlightFollow,
   CaptionWordBatchConflictError,
   CaptionWordBatchInputError,
   CaptionWordBatchNotFoundError,
+  PreparedWordHighlightConflictError,
 } from '../services/caption-word-batch.js';
+import { LocalTimingUnavailableError } from '../services/local-timing.js';
+import { wordHighlightCandidateStore } from '../services/word-highlight-candidate-store.js';
+import {
+  wordHighlightEngine, wordHighlightEngineVersion, WordHighlightProjectError,
+} from '../services/word-highlight-engine.js';
 
 await fs.mkdir(config.uploadDir, { recursive: true });
 await fs.mkdir(config.exportDir, { recursive: true });
@@ -153,10 +163,37 @@ function expectedMedia(value: unknown): Pick<CaptionProject['media'], 'filename'
 
 function sanitizeCaptionWordTiming(caption: CaptionSegment): CaptionSegment {
   if (!caption.wordTiming) return caption;
-  const resolution = resolveCaptionWordTiming(caption);
-  if (resolution.state !== 'stale') return caption;
+  const valid = hasWordTimingEvidence(caption.wordTiming)
+    ? validateMarkedWordTiming(caption.text, caption.wordTiming).ok
+    : resolveCaptionWordTiming(caption).state !== 'stale';
+  if (valid) return caption;
   const { wordTiming: _wordTiming, ...safe } = caption;
   return safe;
+}
+
+/** Caption saves can accept marked evidence that is partial but structurally sound. */
+function sanitizeSavedCaptionWordTiming(
+  caption: CaptionSegment, durationMs: number | undefined, retainedTailWords: Set<string>,
+): CaptionSegment | null {
+  const timing = caption.wordTiming;
+  if (!timing || !hasWordTimingEvidence(timing)) return sanitizeCaptionWordTiming(caption);
+  if (typeof timing.text === 'string' && timing.text !== caption.text) {
+    const { wordTiming: _wordTiming, ...safe } = caption;
+    return safe;
+  }
+  let validated = validateMarkedWordTiming(caption.text, timing, durationMs);
+  if (!validated.ok && durationMs !== undefined && retainedTailWords.size) {
+    // WAV duration metadata rounds to milliseconds; an already saved sample-clock
+    // interval can extend into that fraction. Do not admit any new raw bound there.
+    const exact = validateMarkedWordTiming(caption.text, timing, durationMs + 0.5);
+    if (exact.ok && exact.timing.words.every((word) =>
+      word.endMs === null || word.endMs <= durationMs || retainedTailWords.has(tailWordIdentity(caption.text, word)))) validated = exact;
+  }
+  return validated.ok ? { ...caption, wordTiming: validated.timing } : null;
+}
+
+function tailWordIdentity(text: string, word: CaptionWord) {
+  return JSON.stringify([text.slice(word.startOffset, word.endOffset), word.startMs, word.endMs, word.source, word.method]);
 }
 
 // Opt-in projection preserves the existing full-project API for other callers.
@@ -392,22 +429,152 @@ export function createCaptionWordTimingHandler(dependencies: CaptionWordTimingRo
 
 router.post('/:id/caption-word-timing', createCaptionWordTimingHandler());
 
+const maximumWordHighlightRequestBytes = 16 * 1024;
+let wordHighlightQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueWordHighlight<T>(operation: () => Promise<T>): Promise<T> {
+  const pending = wordHighlightQueue.then(operation);
+  wordHighlightQueue = pending.catch(() => {});
+  return pending;
+}
+
+interface WordHighlightRouteDependencies {
+  engine: typeof wordHighlightEngine;
+  candidateStore: typeof wordHighlightCandidateStore;
+  hasActiveCaptionJobForProject: (projectId: string) => boolean;
+}
+
+const defaultWordHighlightRouteDependencies: WordHighlightRouteDependencies = {
+  engine: wordHighlightEngine,
+  candidateStore: wordHighlightCandidateStore,
+  hasActiveCaptionJobForProject: (id) => jobStore.hasActiveCaptionJobForProject(id),
+};
+
+export function createWordHighlightHandler(
+  action: 'prepare' | 'candidates', dependencies: WordHighlightRouteDependencies = defaultWordHighlightRouteDependencies,
+): RequestHandler {
+  return async (req, res) => {
+    const projectId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!projectId) {
+      res.status(400).json({ error: 'Project id is required for word timing.' });
+      return;
+    }
+    if (Number(req.headers['content-length']) > maximumWordHighlightRequestBytes
+      || Buffer.byteLength(JSON.stringify(req.body ?? {})) > maximumWordHighlightRequestBytes) {
+      res.status(413).json({ error: 'The word timing request is too large.' });
+      return;
+    }
+    const expected = expectedMedia(req.body?.expectedMedia);
+    if (!expected) {
+      res.status(428).json({ error: 'Word timing requires the current source media version.' });
+      return;
+    }
+    const ids: unknown = req.body?.ids;
+    if (action === 'candidates' && (!Array.isArray(ids) || ids.length < 1 || ids.length > 32
+      || !ids.every((id: unknown) => typeof id === 'string' && id.trim() && id.length <= 128)
+      || new Set(ids).size !== ids.length)) {
+      res.status(400).json({ error: 'Provide between 1 and 32 distinct caption ids.' });
+      return;
+    }
+    const checkCaptionJob = () => {
+      if (dependencies.hasActiveCaptionJobForProject(projectId)) {
+        throw new JobAdmissionError('Finish or cancel the active caption processing job before preparing word timing.');
+      }
+    };
+    try {
+      checkCaptionJob();
+      const response = await jobAdmission.runForProject(projectId, () => enqueueWordHighlight(async () => {
+        checkCaptionJob();
+        if (action === 'prepare') return dependencies.engine.prepare(projectId, expected);
+        const { mediaFingerprint, results } = await dependencies.engine.candidates(projectId, expected, ids as string[]);
+        return {
+          engine: wordHighlightEngineVersion,
+          results: results.map((result) => {
+            const {
+              track, dependencies: revisions, inputRevisions, basis, consulted, overlapping, planDurationMs, evidenceDurationMs, beforeTrack,
+            } = result;
+            if (result.status !== 'candidate' || !track || !revisions || !inputRevisions || !basis
+              || !consulted || !overlapping || planDurationMs === undefined || evidenceDurationMs === undefined
+              || beforeTrack === undefined) return result;
+            const preparedKey = dependencies.candidateStore.put({
+              projectId, mediaFingerprint, captionId: result.id,
+              basis, dependencies: revisions, inputRevisions, consulted, overlapping, planDurationMs, evidenceDurationMs, beforeTrack, track,
+            });
+            return preparedKey ? { ...result, preparedKey } : result;
+          }),
+        };
+      }));
+      res.json(response);
+    } catch (error) {
+      if (error instanceof JobAdmissionError) { res.status(409).json({ code: 'WORD_TIMING_PROJECT_BUSY', error: error.message }); return; }
+      if (error instanceof WordHighlightProjectError) { res.status(error.status).json({ error: error.message }); return; }
+      if (error instanceof LocalTimingUnavailableError) {
+        res.status(503).json({ code: 'WORD_TIMING_UNAVAILABLE', error: error.message });
+        return;
+      }
+      res.status(500).json({ error: 'Could not prepare local word timing.' });
+    }
+  };
+}
+
+router.post('/:id/caption-word-timing/prepare', createWordHighlightHandler('prepare'));
+router.post('/:id/caption-word-timing/candidates', createWordHighlightHandler('candidates'));
+
+router.get('/:id/caption-word-timing/publication/:requestId', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const { filename, size } = req.query;
+  const expected = expectedMedia({ filename, size: typeof size === 'string' && size.trim() ? Number(size) : undefined });
+  if (!expected) return res.status(428).json({ error: 'Word highlighting requires the current source media version.' });
+  try {
+    return res.json(await readWordHighlightPublication(req.params.id, expected, req.params.requestId));
+  } catch (error) {
+    if (error instanceof CaptionWordBatchNotFoundError) return res.status(404).json({ error: error.message });
+    if (error instanceof CaptionWordBatchInputError) return res.status(400).json({ error: error.message });
+    return res.status(500).json({ error: 'Could not check the word highlight publication.' });
+  }
+});
+
+router.put('/:id/word-highlight-follow', async (req, res) => {
+  const expected = expectedMedia(req.body?.expectedMedia);
+  if (!expected) return res.status(428).json({ error: 'Word highlighting requires the current source media version.' });
+  try {
+    res.json(await updateWordHighlightFollow(req.params.id, expected, req.body?.action, req.body?.epoch));
+  } catch (error) {
+    if (error instanceof PreparedWordHighlightConflictError) return res.status(409).json({ error: error.message, ...error.details });
+    if (error instanceof CaptionWordBatchNotFoundError) return res.status(404).json({ error: error.message });
+    if (error instanceof CaptionWordBatchInputError) return res.status(400).json({ error: error.message });
+    return res.status(500).json({ error: 'Could not save the word highlight setting.' });
+  }
+});
+
 router.post('/:id/caption-word-timing/batch-apply', async (req, res) => {
   const preparedFor = expectedMedia(req.body?.expectedMedia);
   if (!preparedFor) {
     return res.status(428).json({ error: 'Word timing batch apply requires the media version it was prepared against.' });
   }
-  if (jobStore.hasActiveCaptionJobForProject(req.params.id)) {
-    return res.status(409).json({ error: 'Finish or cancel the active caption processing job before applying prepared word timings.' });
-  }
+  const prepared = req.body?.mode === 'prepared';
+  const checkCaptionJob = () => {
+    if (jobStore.hasActiveCaptionJobForProject(req.params.id)) {
+      throw new JobAdmissionError('Finish or cancel the active caption processing job before applying prepared word timings.');
+    }
+  };
   try {
-    res.json(await jobAdmission.runForProject(req.params.id, () => applyCaptionWordBatch(req.params.id, preparedFor, req.body?.changes, req.body?.action)));
+    checkCaptionJob();
+    res.json(await jobAdmission.runForProject(req.params.id, () => {
+      checkCaptionJob();
+      return prepared
+        ? applyPreparedWordHighlightBatch(req.params.id, preparedFor, req.body)
+        : applyCaptionWordBatch(req.params.id, preparedFor, req.body?.changes, req.body?.action, undefined, req.body?.intent);
+    }));
   } catch (error) {
-    if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
+    if (error instanceof JobAdmissionError) {
+      return res.status(409).json({ error: error.message, ...(prepared ? { code: 'WORD_TIMING_PROJECT_BUSY' } : {}) });
+    }
+    if (error instanceof PreparedWordHighlightConflictError) return res.status(409).json({ error: error.message, ...error.details });
     if (error instanceof CaptionWordBatchNotFoundError) return res.status(404).json({ error: error.message });
     if (error instanceof CaptionWordBatchConflictError) return res.status(409).json({ error: error.message });
     if (error instanceof CaptionWordBatchInputError) return res.status(400).json({ error: error.message });
-    console.error('[word timing] Batch apply failed:', error);
+    console.error('[word timing] Batch apply failed.');
     return res.status(500).json({ error: 'Could not apply the prepared word timings. Your current captions were kept.' });
   }
 });
@@ -424,6 +591,7 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
       await historyStore.checkpoint(current, 'Before restoring an earlier version', 'restore');
       const restored: CaptionProject = {
         ...entry.snapshot,
+        wordHighlightFollow: undefined,
         id: current.id,
         media: current.media,
         mediaAlignment: current.mediaAlignment,
@@ -504,7 +672,6 @@ router.put('/:id/context', async (req, res) => {
 router.put('/:id/captions', async (req, res) => {
   const requestedCaptions = Array.isArray(req.body.captions) ? req.body.captions as CaptionSegment[] : null;
   if (!requestedCaptions) return res.status(400).json({ error: 'captions must be an array' });
-  const captions = requestedCaptions.map(sanitizeCaptionWordTiming);
   const expectedMedia = req.body?.expectedMedia;
   if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
     return res.status(428).json({ error: 'Caption save requires the media version it was edited against.' });
@@ -538,6 +705,25 @@ router.put('/:id/captions', async (req, res) => {
         return { status: 'revision' as const };
       }
 
+      const knownDuration = project.pipelineCache?.normalizedAudioDurationMs ?? project.transcript?.timing?.audioDurationMs;
+      const durationMs = knownDuration && Number.isFinite(knownDuration) && knownDuration > 0 ? knownDuration : undefined;
+      const retainedTailWords = new Set<string>();
+      if (durationMs !== undefined) {
+        for (const caption of project.captions) {
+          if (caption.wordTiming?.evidence !== 2 || !Array.isArray(caption.wordTiming.words)) continue;
+          for (const word of caption.wordTiming.words) {
+            if (word.endMs !== null && word.endMs > durationMs && word.endMs <= durationMs + 0.5) {
+              retainedTailWords.add(tailWordIdentity(caption.text, word));
+            }
+          }
+        }
+      }
+      const captions: CaptionSegment[] = [];
+      for (const caption of requestedCaptions) {
+        const sanitized = sanitizeSavedCaptionWordTiming(caption, durationMs, retainedTailWords);
+        if (!sanitized) return { status: 'word-timing-invalid' as const };
+        captions.push(sanitized);
+      }
       const before = project.captions;
       const changed = JSON.stringify(before) !== JSON.stringify(captions);
       if (changed) {
@@ -576,6 +762,9 @@ router.put('/:id/captions', async (req, res) => {
     }
     if (result.status === 'recovery-stale') {
       return res.status(409).json({ error: 'The saved project changed after this draft was restored. Your draft was kept. Download your edits, then reload to review the current project.', code: 'DRAFT_RECOVERY_CHANGED' });
+    }
+    if (result.status === 'word-timing-invalid') {
+      return res.status(400).json({ error: 'Caption word timing is invalid.', code: 'WORD_TIMING_INVALID' });
     }
     res.json({ project: result.project, correctionsCreated: result.correctionsCreated });
   } catch (error) {

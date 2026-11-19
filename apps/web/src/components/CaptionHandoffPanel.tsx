@@ -1,5 +1,5 @@
 import { useMemo, useState, type ChangeEvent, type RefObject } from 'react';
-import { isVideoProject, resolveCaptionWordTiming, type CaptionProject } from '@kcs/shared';
+import { hasWordTimingEvidence, highlightAttention, isVideoProject, resolveWordExport, type CaptionProject } from '@kcs/shared';
 import { Download, ExternalLink, FileJson, FileText, PackageOpen, RotateCcw, TriangleAlert } from 'lucide-react';
 import type { CaptionDestinationId, CaptionHandoffSession } from '../export-session';
 import './caption-handoff.css';
@@ -190,9 +190,15 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
   const destinationGuide = DESTINATIONS.find((item) => item.id === destination) || DESTINATIONS[0];
   const nonemptyCaptions = useMemo(() => project.captions.filter((caption) => caption.text.trim().length > 0), [project.captions]);
   const unresolvedWords = useMemo(
-    () => nonemptyCaptions.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'),
+    () => nonemptyCaptions.filter((caption) => !resolveWordExport(caption).ready),
     [nonemptyCaptions],
   );
+  const highlightCounts = useMemo(() => {
+    if (project.captionAppearance?.highlightMode !== 'word'
+      || !nonemptyCaptions.some((caption) => hasWordTimingEvidence(caption.wordTiming))) return null;
+    const attention = nonemptyCaptions.map(highlightAttention).filter((status) => status !== 'not-applicable');
+    return { ready: attention.filter((status) => status === 'ok').length, total: attention.length };
+  }, [nonemptyCaptions, project.captionAppearance?.highlightMode]);
   const overlapPairs = useMemo(() => {
     const ordered = project.captions.filter((caption) => Number.isFinite(caption.startMs) && Number.isFinite(caption.endMs) && caption.endMs > caption.startMs)
       .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
@@ -312,7 +318,8 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
       <summary>Advanced caption formats <span>For compatible editors and backups</span></summary>
       <div className="handoff-advanced-body">
         <div className="handoff-word-readiness" role="status">
-          <div><strong>Word timing</strong><span>{readyWordCount} of {nonemptyCaptions.length} caption{nonemptyCaptions.length === 1 ? '' : 's'} with text ready for word-timed export.</span></div>
+          <div><strong>Word timing</strong><span>{readyWordCount} of {nonemptyCaptions.length} caption{nonemptyCaptions.length === 1 ? '' : 's'} with text ready for word-timed export.</span>
+            {Boolean(highlightCounts?.total) && <span>{highlightCounts!.ready} of {highlightCounts!.total} spoken captions have full word highlighting.</span>}</div>
           {unresolvedWords.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(unresolvedWords[0]?.id)}>Review word timing</button>}
         </div>
 

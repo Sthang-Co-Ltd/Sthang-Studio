@@ -1,4 +1,5 @@
-import { normalizeCaptionAppearance, reconcileCaptionWordTiming, type CaptionAppearance, type CaptionProject, type CaptionSegment } from '@kcs/shared';
+import { demoteRecoveredMarkedWordTiming, hasWordTimingEvidence, normalizeCaptionAppearance, reconcileCaptionWordTiming, validateMarkedWordTiming,
+  type CaptionAppearance, type CaptionProject, type CaptionSegment } from '@kcs/shared';
 import type { AccuracyFields } from './accuracy-context-draft';
 import { projectMediaKey } from './project-scope';
 
@@ -131,12 +132,15 @@ function compactCaptionWire(draft: RecoveryDraft): Record<string, unknown> | und
     const savedCues = cues.map((cue) => {
       if (!Array.isArray(cue) || cue.length !== 11) throw new Error('Invalid saved cue.');
       const track = cue[10];
-      if (track !== null && (!Array.isArray(track) || track.length !== 3 || !Array.isArray(track[2]))) throw new Error('Invalid word timing.');
+      if (track !== null && (!Array.isArray(track) || !Array.isArray(track[2])
+        || (track.length !== 3 && (track.length !== 4 || track[3] !== 2)))) throw new Error('Invalid word timing.');
+      const marked = Array.isArray(track) && track[3] === 2;
       const compactTrack = Array.isArray(track) ? [
         track[0], track[1], track[2].map((word: unknown) => {
-          if (!Array.isArray(word) || word.length !== 7) throw new Error('Invalid timed word.');
-          return [word[0], word[1], word[2], word[3], word[4], word[5], word[6] ? 1 : 0];
+          if (!Array.isArray(word) || word.length !== (marked ? 10 : 7)) throw new Error('Invalid timed word.');
+          return [word[0], word[1], word[2], word[3], word[4], word[5], word[6] ? 1 : 0, ...word.slice(7)];
         }),
+        ...(marked ? [2] : []),
       ] : null;
       const packed = [
         cue[0], cue[1], cue[2], cue[3],
@@ -191,23 +195,31 @@ function expandCompactCaptions(basis: unknown, edits: unknown): { basis: string;
     let track: unknown = null;
     if (row.length === 9) {
       const packed = row[8];
-      if (!Array.isArray(packed) || packed.length !== 3 || packed[0] !== 1
+      if (!Array.isArray(packed) || (packed.length !== 3 && (packed.length !== 4 || packed[3] !== 2)) || packed[0] !== 1
         || !textWithin(packed[1], limits.maxFieldChars) || !Array.isArray(packed[2])) return undefined;
+      const marked = packed[3] === 2;
       wordCount += packed[2].length;
       if (wordCount > 100_000) return undefined;
       const wordIds = new Set<string>();
       const words: unknown[][] = [];
       for (const word of packed[2]) {
-        if (!Array.isArray(word) || word.length !== 7 || !identity(word[0]) || wordIds.has(word[0])
+        if (!Array.isArray(word) || word.length !== (marked ? 10 : 7) || !identity(word[0]) || wordIds.has(word[0])
           || !whole(word[1]) || !whole(word[2]) || word[2] <= word[1] || word[2] > packed[1].length
           || word[3] !== null && !time(word[3]) || word[4] !== null && !time(word[4])
           || word[3] !== null && word[4] !== null && word[4] < word[3]
           || word[5] !== 'aligned' && word[5] !== 'manual' && word[5] !== 'estimated'
           || !bitFlags(word[6], 1)) return undefined;
         wordIds.add(word[0]);
-        words.push([word[0], word[1], word[2], word[3], word[4], word[5], Boolean(word[6])]);
+        words.push([word[0], word[1], word[2], word[3], word[4], word[5], Boolean(word[6]), ...word.slice(7)]);
       }
-      track = [packed[0], packed[1], words];
+      if (marked && !validateMarkedWordTiming(row[1], {
+        version: 1, evidence: 2, text: packed[1],
+        words: words.map(([id, startOffset, endOffset, startMs, endMs, source, needsReview, method, issue, members]) => ({
+          id, startOffset, endOffset, startMs, endMs, source, needsReview,
+          method: method ?? undefined, issue: issue ?? undefined, members: members ?? undefined,
+        })),
+      }).ok) return undefined;
+      track = [packed[0], packed[1], words, ...(marked ? [2] : [])];
     }
     saved.push([row[0], row[1], row[2], row[3],
       Boolean(row[4] & 1), Boolean(row[4] & 2), Boolean(row[4] & 4),
@@ -312,7 +324,8 @@ function captionsBasis(project: CaptionProject) {
     caption.confidence ?? null, caption.timingQuality ?? null, caption.timingSource ?? null,
     caption.wordTiming ? [caption.wordTiming.version, caption.wordTiming.text, caption.wordTiming.words.map((word) => [
       word.id, word.startOffset, word.endOffset, word.startMs, word.endMs, word.source, Boolean(word.needsReview),
-    ])] : null,
+      ...(hasWordTimingEvidence(caption.wordTiming) ? [word.method ?? null, word.issue ?? null, word.members ?? null] : []),
+    ]), ...(hasWordTimingEvidence(caption.wordTiming) ? [caption.wordTiming.evidence] : [])] : null,
   ])]);
 }
 
@@ -357,10 +370,10 @@ export function restoredCaptions(entry: RecoveryEntry, canonical: CaptionProject
   const current = new Map(canonical.captions.map((caption) => [caption.id, caption]));
   return recovered.map((caption) => {
     const before = current.get(caption.id);
-    if (before && JSON.stringify(editableCaption(before)) === JSON.stringify(caption)) return { ...before };
+    if (before && JSON.stringify(editableCaption(before)) === JSON.stringify(caption)) return demoteRecoveredMarkedWordTiming({ ...before });
     const sameContent = before && before.text === caption.text && before.startMs === caption.startMs && before.endMs === caption.endMs;
     const after: CaptionSegment = { ...(sameContent ? before : {}), ...caption, approved: false };
-    return before ? reconcileCaptionWordTiming(before, after) : after;
+    return before ? demoteRecoveredMarkedWordTiming(reconcileCaptionWordTiming(before, after)) : after;
   });
 }
 

@@ -461,17 +461,19 @@ suggested edges and word timing in the existing preview area. **Play suggestion*
 uses the actual video. **Apply timing repair** commits the affected captions as
 one undoable edit and explains its effect on Review approval before applying.
 
-Put the optional **Spoken word highlight** toggle and color under Appearance, with
-counts of usable and unresolved captions and a direct **Review remaining** link.
-Keep the disclosure heading and its controls inside one restrained enclosing
-surface, with one explanation, separate color and readiness rows, and flat
-preparation states. Turning the effect on starts local preparation and applies
-ready results automatically. Show checked/total progress and Cancel during
-preparation. **Review remaining** opens the first exception in Fine Timing and
-**Next timing issue** moves between unresolved captions. **Sync remaining** retries
-unresolved, unlocked captions. Keep the guarded **Undo timing changes** accessible
-after applying, including when the effect is off. Keep preparation non-modal
-and preserve playback.
+In unreleased source, place the **Word highlighting** toggle and color under
+Appearance. Turning it on starts Apply. Show **Apply to all captions** when an
+older project has highlighting on and has yet to arm follow. Show preparation
+and checked/total progress with **Cancel** in the same disclosure. One result
+line distinguishes individually lit captions, measured groups, partially lit
+captions, and plain captions. Unsupported spans keep their normal color.
+
+**Review remaining** opens the highest-priority exception in Fine Timing without
+starting playback. **Next timing issue** follows the same order. **Sync remaining**
+retries unlocked exceptions. Keep **Undo** reachable when the effect is off, and
+keep explicit actions’ focus on the persistent summary when the action disappears.
+An armed project responds to saved wording or cue changes after a short delay.
+Background work preserves playback and focus.
 For Khmer word-boundary mismatches, display trusted KFA acoustic evidence without
 claiming a separate boundary when no separate measurement exists. A confirmed
 whole-word interval can be used for one exact displayed word; any proportional

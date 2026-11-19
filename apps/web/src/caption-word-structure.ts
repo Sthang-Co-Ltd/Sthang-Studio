@@ -1,5 +1,10 @@
 import {
+  fillEditedMarkedWordTiming,
+  hasWordTimingEvidence,
+  highlightDisplayUnits,
+  rebaseMarkedWord,
   resolveCaptionWordTiming,
+  validateMarkedWordTiming,
   type CaptionSegment,
   type CaptionWord,
   type CaptionWordTiming,
@@ -91,6 +96,12 @@ function attachTrack(caption: CaptionSegment, words: CaptionWord[]) {
   return resolved.state === 'stale' || resolved.state === 'missing' ? withoutWordTiming(caption) : candidate;
 }
 
+function markedSplitTrack(caption: CaptionSegment, words: CaptionWord[], start: number, end: number) {
+  const preserved = words.filter((word) => word.startOffset >= start && word.endOffset <= end)
+    .map((word) => rebaseMarkedWord(word, -start));
+  return fillEditedMarkedWordTiming(caption.text, preserved);
+}
+
 function finiteEnd(word: CaptionWord) {
   return typeof word.endMs === 'number' && Number.isFinite(word.endMs) ? word.endMs : null;
 }
@@ -122,7 +133,9 @@ export function splitCaptionForEditing(
   if (caption.textLocked || caption.timingLocked || !leftId || !rightId || leftId === rightId) return null;
   if (!Number.isFinite(caption.startMs) || !Number.isFinite(caption.endMs) || caption.endMs - caption.startMs < MIN_CAPTION_MS * 2) return null;
 
-  const words = validWords(caption);
+  const marked = hasWordTimingEvidence(caption.wordTiming);
+  const validated = marked ? validateMarkedWordTiming(caption.text, caption.wordTiming) : undefined;
+  const words = marked ? (validated?.ok ? validated.timing.words : []) : validWords(caption);
   const trackedBoundary = words ? trackedSplitBoundary(caption.text, words) : undefined;
   const intlBoundary = trackedBoundary === undefined ? intlWordSplitBoundary(caption.text) : undefined;
   const boundary = trackedBoundary ?? intlBoundary ?? graphemeSplitBoundary(caption.text);
@@ -156,7 +169,13 @@ export function splitCaptionForEditing(
 
   // Only a boundary owned by a structurally valid stored track proves that no
   // stored word was cut. ICU/grapheme fallbacks intentionally clear timing maps.
-  if (trackedBoundary !== undefined && words) {
+  if (marked && words) {
+    const leftTiming = markedSplitTrack(left, words, leftRange.startOffset, leftRange.endOffset);
+    const rightTiming = markedSplitTrack(right, words, rightRange.startOffset, rightRange.endOffset);
+    if (!leftTiming || !rightTiming) return null;
+    left = { ...left, wordTiming: leftTiming };
+    right = { ...right, wordTiming: rightTiming };
+  } else if (trackedBoundary !== undefined && words) {
     left = attachTrack(left, rebasedWords(words, leftRange.startOffset, leftRange.endOffset));
     right = attachTrack(right, rebasedWords(words, rightRange.startOffset, rightRange.endOffset));
   }
@@ -173,6 +192,44 @@ function uniqueWordId(id: string, used: Set<string>, mergedId: string, side: 'le
   while (used.has(candidate)) candidate = `${id}:${mergedId}:${side}:${index}:${suffix++}`;
   used.add(candidate);
   return candidate;
+}
+
+function markedMergeWords(caption: CaptionSegment) {
+  if (hasWordTimingEvidence(caption.wordTiming)) {
+    const checked = validateMarkedWordTiming(caption.text, caption.wordTiming);
+    return checked.ok ? checked.timing.words : [];
+  }
+  const { state, words } = resolveCaptionWordTiming(caption);
+  return words.flatMap((word): CaptionWord[] => {
+    if (word.source === 'estimated' || word.startMs === null || word.endMs === null || word.startMs < 0) return [];
+    const units = highlightDisplayUnits(caption.text.slice(word.startOffset, word.endOffset));
+    const members = units.length > 1 ? units.map((unit, index): [number, number] => [
+      index === 0 ? word.startOffset : word.startOffset + unit.startOffset,
+      index === units.length - 1 ? word.endOffset : word.startOffset + unit.endOffset,
+    ]) : undefined;
+    return [{
+      id: word.id, startOffset: word.startOffset, endOffset: word.endOffset,
+      startMs: word.startMs, endMs: word.endMs, source: word.source,
+      method: word.source === 'manual' ? 'manual' : 'legacy',
+      ...(word.needsReview || (word.source === 'aligned' && state !== 'ready') ? { needsReview: true } : {}),
+      ...(members ? { members } : {}),
+    }];
+  });
+}
+
+function markedMergedTrack(merged: CaptionSegment, left: CaptionSegment, right: CaptionSegment, leftEnd: number, rightStart: number) {
+  const used = new Set<string>();
+  const words = [
+    ...markedMergeWords(left).filter((word) => word.endOffset <= leftEnd),
+    ...markedMergeWords(right).filter((word) => word.startOffset >= rightStart)
+      .map((word) => rebaseMarkedWord(word, merged.text.length - right.text.length)),
+  ].map((word, index) => {
+    let id = word.id;
+    for (let suffix = 1; id.length > 128 || used.has(id); suffix += 1) id = `merged:${index}:${suffix}`;
+    used.add(id);
+    return id === word.id ? word : { ...word, id };
+  });
+  return fillEditedMarkedWordTiming(merged.text, words);
 }
 
 function mergedTrack(
@@ -241,7 +298,11 @@ export function mergeCaptionsForEditing(left: CaptionSegment, right: CaptionSegm
     timingQuality: 'medium',
     approved: false,
   };
-  const timing = mergedTrack(merged, left, right, joined.left, joined.right, joined.separator);
+  const marked = hasWordTimingEvidence(left.wordTiming) || hasWordTimingEvidence(right.wordTiming);
+  const timing = marked
+    ? markedMergedTrack(merged, left, right, joined.left.length, right.text.length - joined.right.length)
+    : mergedTrack(merged, left, right, joined.left, joined.right, joined.separator);
+  if (marked && !timing) return null;
   if (timing) merged = { ...merged, wordTiming: timing };
   return merged;
 }

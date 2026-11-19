@@ -32,6 +32,12 @@ for (const name of ['uploadDir', 'workingDir', 'exportDir', 'dataFile', 'profile
 const { profileStore } = await import('../../apps/server/src/services/profile-store.js');
 await profileStore.patch({ preferences: { autosaveDelayMs: 60_000, privacyUpgradeNoticeVersion: '0.8' } });
 
+const fixtureCaptionIds = process.env.STHANG_BROWSER_FIXTURE_HIGHLIGHT_CAPTION_IDS;
+if (fixtureCaptionIds !== undefined) {
+  const { installFixtureWordHighlightEngine } = await import('./word-highlight-fixture-engine.mjs');
+  installFixtureWordHighlightEngine(JSON.parse(fixtureCaptionIds));
+}
+
 const originalListen = http.Server.prototype.listen;
 http.Server.prototype.listen = function (this: http.Server, ...args: unknown[]) {
   if (args[0] !== cfg.apiPort || args[1] !== '127.0.0.1') throw new Error('Owned browser API attempted an unexpected listener.');

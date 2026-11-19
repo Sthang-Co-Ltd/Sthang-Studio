@@ -8,6 +8,14 @@ import { config } from '../config.js';
 export interface StoredHistoryEntry extends ProjectHistoryEntry {
   fingerprint: string;
   snapshot: CaptionProject;
+  coalesceKey?: string;
+  publicationRequestId?: string;
+}
+
+interface CheckpointOptions {
+  dedupeWindowMs?: number;
+  coalesceKey?: string;
+  coalesceWindowMs?: number;
 }
 
 type ExpectedMedia = Pick<CaptionProject['media'], 'filename' | 'size'>;
@@ -74,7 +82,10 @@ function toIndex(entry: StoredHistoryEntry): HistoryIndexEntry {
 }
 
 function summary(entry: HistoryIndexEntry | StoredHistoryEntry): ProjectHistoryEntry {
-  const { fingerprint: _fingerprint, media: _media, ...rest } = entry as HistoryIndexEntry & Partial<StoredHistoryEntry>;
+  const {
+    fingerprint: _fingerprint, media: _media, coalesceKey: _coalesceKey,
+    publicationRequestId: _publicationRequestId, ...rest
+  } = entry as HistoryIndexEntry & Partial<StoredHistoryEntry>;
   if ('snapshot' in rest) {
     const { snapshot: _snapshot, ...publicEntry } = rest;
     return publicEntry as ProjectHistoryEntry;
@@ -157,18 +168,29 @@ function queueHistory<T>(projectId: string, operation: () => Promise<T>) {
   return task;
 }
 
-async function checkpointInternal(project: CaptionProject, label: string, source: HistorySource, options?: { dedupeWindowMs?: number }) {
+async function checkpointInternal(project: CaptionProject, label: string, source: HistorySource, options?: CheckpointOptions) {
   const index = await loadIndex(project.id);
+  const { dedupeWindowMs = 0, coalesceKey, coalesceWindowMs = 0 } = options ?? {};
+  const now = Date.now();
+  if (coalesceKey !== undefined && coalesceWindowMs > 0) {
+    const priorIndex = index.findIndex((entry) => entry.source === source && entry.coalesceKey === coalesceKey);
+    const prior = index[priorIndex];
+    if (prior && now - Date.parse(prior.createdAt) < coalesceWindowMs
+      && index.slice(0, priorIndex).every((entry) => entry.source === 'autosave' || entry.source === 'word-highlight-auto')) {
+      return summary(prior);
+    }
+  }
   const hash = fingerprint(project);
   const newestIndex = index.findIndex((entry) => matchesIndexMedia(entry, project.media));
   const newest = newestIndex >= 0 ? index[newestIndex] : undefined;
-  const dedupeWindowMs = options?.dedupeWindowMs ?? 0;
-  if (newest?.fingerprint === hash) return summary(newest);
+  if (source !== 'word-highlight' && source !== 'word-highlight-auto') {
+    if (newest?.fingerprint === hash) return summary(newest);
+  }
 
-  if (dedupeWindowMs > 0 && newest?.source === source && Date.now() - Date.parse(newest.createdAt) < dedupeWindowMs) {
+  if (dedupeWindowMs > 0 && newest?.source === source && now - Date.parse(newest.createdAt) < dedupeWindowMs) {
     const updated: StoredHistoryEntry = {
       ...newest,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(now).toISOString(),
       label,
       fingerprint: hash,
       snapshot: structuredClone(project),
@@ -186,7 +208,7 @@ async function checkpointInternal(project: CaptionProject, label: string, source
   const entry: StoredHistoryEntry = {
     id: nanoid(12),
     projectId: project.id,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(now).toISOString(),
     label: label.slice(0, 120),
     source,
     captionCount: project.captions.length,
@@ -194,6 +216,7 @@ async function checkpointInternal(project: CaptionProject, label: string, source
     textLockedCount: project.captions.filter((caption) => caption.textLocked).length,
     timingLockedCount: project.captions.filter((caption) => caption.timingLocked).length,
     fingerprint: hash,
+    ...(coalesceKey !== undefined ? { coalesceKey } : {}),
     snapshot: structuredClone(project),
   };
   index.unshift(toIndex(entry));
@@ -280,8 +303,27 @@ async function entriesForMedia(projectId: string, media: ExpectedMedia): Promise
 }
 
 export const historyStore = {
-  checkpoint(project: CaptionProject, label: string, source: HistorySource, options?: { dedupeWindowMs?: number }) {
+  checkpoint(project: CaptionProject, label: string, source: HistorySource, options?: CheckpointOptions) {
     return queueHistory(project.id, () => checkpointInternal(project, label, source, options));
+  },
+
+  // Attach metadata only after durable publication. A pre-write checkpoint
+  // alone cannot prove that the project write succeeded.
+  recordPublicationRequest(projectId: string, historyId: string, requestId: string) {
+    return queueHistory(projectId, async () => {
+      const index = await loadIndex(projectId);
+      const entry = index.find(({ id }) => id === historyId);
+      if (!entry || entry.source !== 'word-highlight') return;
+      entry.publicationRequestId = requestId;
+      await persistIndex(projectId, index);
+    });
+  },
+
+  async hasPublicationRequest(projectId: string, expectedMedia: ExpectedMedia, requestId: string) {
+    // Avoid the lazy migration/enrichment performed by the normal History list.
+    const index = await readJson<HistoryIndexEntry[]>(indexFile(projectId));
+    return Array.isArray(index) && index.some((entry) => entry.source === 'word-highlight'
+      && entry.publicationRequestId === requestId && matchesIndexMedia(entry, expectedMedia));
   },
 
   list(projectId: string, expectedMedia?: ExpectedMedia) {

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTimingDock } from './EditorLayout';
 import { EDITOR_LAYOUT_CHANGE } from '../editor-layout-state';
 import type { CaptionSegment, TimedToken } from '@kcs/shared';
-import { resolveCaptionWordTiming } from '@kcs/shared';
+import { hasWordTimingEvidence, highlightAttention, resolveCaptionWordTiming, validateMarkedWordTiming } from '@kcs/shared';
 import {
   AudioLines,
   LocateFixed,
@@ -27,7 +27,7 @@ import { TimestampInput } from './TimestampInput';
 import { focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEditKind } from '../timing-edit';
 import { captionTimingBasisMatches, prepareCaptionTiming, planCaptionTimingEdit, timingTransactionMatches, type CaptionTimingGestureBasis, type CaptionTimingOptions, type CaptionTimingTransaction, type PreparedCaptionTiming } from '../caption-timing-transaction';
 import type { TimingPlaybackRange } from '../timing-playback';
-import { WordTimingPanel, type WordTimingCandidate } from './WordTimingPanel';
+import { WordTimingPanel, type WordTimingSyncResult } from './WordTimingPanel';
 import { changeWordTiming } from '../word-timing-edit';
 import { hitTestWaveformEdges, type WaveformEdgeTarget } from './waveform-hit-targets';
 import './waveform-editor.css';
@@ -44,7 +44,8 @@ interface WaveformEditorProps {
   initialMode: 'waveform' | 'spectrum';
   initialZoom: number;
   initialEditMode?: 'caption' | 'words';
-  onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingCandidate | null>;
+  wordTimingFocus?: { captionId: string; wordId: string } | null;
+  onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingSyncResult | null>;
   onNextWordTimingIssue?(): void;
   syncDisabled: boolean;
   highlightEnabled: boolean;
@@ -178,6 +179,7 @@ export function WaveformEditor({
   initialZoom,
   initialEditMode = 'caption',
   onSyncWords,
+  wordTimingFocus,
   onNextWordTimingIssue,
   syncDisabled,
   highlightEnabled,
@@ -244,8 +246,17 @@ export function WaveformEditor({
   const editingDisabled = !selectedCaption || Boolean(selectedCaption.timingLocked) || !editLimitMs;
   const editReason = selectedCaption?.timingLocked ? 'Timing locked. Unlock it in the caption menu to edit. You can still listen.'
     : !editLimitMs ? 'Wait for audio timing to load before editing.' : '';
-  const wordResolution = useMemo(() => currentCaption ? resolveCaptionWordTiming(currentCaption) : null, [currentCaption]);
-  const editableWords = wordResolution?.state === 'stale' ? [] : wordResolution?.words || [];
+  const editableWords = useMemo(() => {
+    if (!currentCaption) return [];
+    if (hasWordTimingEvidence(currentCaption.wordTiming)) {
+      const checked = validateMarkedWordTiming(currentCaption.text, currentCaption.wordTiming);
+      return checked.ok ? checked.timing.words : [];
+    }
+    const resolution = resolveCaptionWordTiming(currentCaption);
+    return resolution.state === 'stale' ? [] : resolution.words;
+  }, [currentCaption]);
+  const wordAttention = useMemo(() => currentCaption ? highlightAttention(currentCaption) : 'needs-attention', [currentCaption]);
+  const markedWordTiming = hasWordTimingEvidence(currentCaption?.wordTiming);
   const selectedWord = editableWords.find((word) => word.id === selectedWordId) || editableWords[0];
   const captionEdges = useMemo<WaveformEdgeTarget[]>(() => captions.flatMap((caption) => caption.timingLocked ? [] : [
     { ownerId: caption.id, edge: 'start' as const, timeMs: caption.startMs, selected: selected.has(caption.id) },
@@ -327,6 +338,9 @@ export function WaveformEditor({
     setWordCandidate(null);
     onStopPreview();
   }, [selectedCaption?.id]);
+  useEffect(() => {
+    if (wordTimingFocus?.captionId === selectedCaption?.id) setSelectedWordId(wordTimingFocus?.wordId ?? null);
+  }, [wordTimingFocus, selectedCaption?.id]);
   useEffect(() => { setEditMode(initialEditMode); }, [initialEditMode]);
 
   useEffect(() => {
@@ -851,7 +865,9 @@ export function WaveformEditor({
       <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
         <button aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('caption'); }}>Caption edges</button>
         <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('words'); }}>Word timing</button>
-        {editMode === 'words' && <span className="timing-hint">{wordResolution?.state === 'ready' ? 'Timing ready' : 'Word timing needs review'}</span>}
+        {editMode === 'words' && wordAttention !== 'not-applicable' && <span className="timing-hint">
+          {wordAttention === 'ok' ? 'Timing ready' : markedWordTiming ? 'Words without usable timing keep the normal color.' : 'Word timing needs review'}
+        </span>}
       </div>
       <div className="timing-view-controls">
         <span className="timing-view-span">{(viewDurationMs / 1000).toFixed(1)} s visible</span>

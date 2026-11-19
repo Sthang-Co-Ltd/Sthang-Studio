@@ -1,7 +1,7 @@
 import type { CaptionSegment } from './index.js';
 import type { CaptionAppearance } from './caption-settings.js';
 import { captionRenderTime } from './caption-settings.js';
-import { resolveCaptionWordTiming } from './word-timing.js';
+import { compileHighlightPlan } from './word-timing.js';
 import { segmentKhmerWords } from './khmer-word-segmentation.js';
 
 /** Render-only linguistic break opportunities, expressed in original UTF-16 offsets.
@@ -179,11 +179,10 @@ export function planCaptionRenderStates(
       }
     }
     if (!highlightWords) return;
-    const resolved = resolveCaptionWordTiming(caption);
-    if (resolved.state !== 'ready') return;
-    const words = resolved.words.flatMap((word) => {
-      const wordStart = Math.max(start, captionRenderTime(word.startMs!));
-      const wordEnd = Math.min(end, captionRenderTime(word.endMs!));
+    const spans = compileHighlightPlan(caption, 'measured-and-manual').spans;
+    const words = spans.flatMap((word) => {
+      const wordStart = Math.max(start, word.startMs);
+      const wordEnd = Math.min(end, word.endMs);
       if (wordEnd <= wordStart) return [];
       boundary(wordStart);
       boundary(wordEnd);

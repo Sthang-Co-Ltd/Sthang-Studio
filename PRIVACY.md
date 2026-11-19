@@ -189,6 +189,15 @@ a persisted recovery snapshot and is lost when dismissed or the editor reloads.
 
 ### Local word timing and highlighting
 
+In unreleased source, an explicit Apply can reuse the local acoustic analysis
+of the full normalized audio from caption generation or compute it on this
+computer. Studio checks each eligible caption against that audio and nearby
+saved wording. The project stores a small opt-in to follow later saved caption
+edits with the same local processing. Cancel, turning highlighting off, and
+Undo stop that follow behavior. The audio, wording, timing evidence and saved
+follow choice stay in Studio’s local project state. Apply and follow make no
+cloud transfer.
+
 In v0.90.0, turning on **Word highlighting** checks unresolved captions
 and syncs words when needed. **Sync remaining** and Fine Timing’s **Sync words**
 can also start this work. Studio processes bounded clips from the existing

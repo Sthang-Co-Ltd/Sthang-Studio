@@ -224,26 +224,25 @@ must support the new cuts. Preview the full change and apply explicitly as one
 timing edit. Applying clears Review approval for the changed cues, and Undo
 restores their previous edges, word timing, and approvals.
 
-In source builds, explicitly turning on **Word highlighting** starts a local pass
-over unresolved, unlocked captions. Reuse ready tracks and repair small geometric
-conflicts only where measured intervals support the correction. Clip the smallest
-required edges while preserving manual anchors. Send remaining targets through
-exact-word local alignment and intersect measured first and last words with the
-saved cue. If a short cue's padded clip puts a word in an adjoining caption,
-use a neighbor-bounded retry only when its words agree with a contextual
-alignment and fit the saved cue with at most a small edge trim. Carry any
-independently measured splits into both checks. Captions with uncertain, missing, or locked timing
-remain available through **Review remaining** and **Next timing issue**.
+In unreleased source, turning on **Word highlighting** starts a local Apply.
+**Apply to all captions** is available when an older project already has the
+look on. Ready legacy tracks retain their paint and timing. For marked tracks,
+supported words light individually, measured groups share one highlight interval,
+and unsupported words keep the normal color. Word-by-word files require separate
+usable intervals. Ordinary SRT uses caption text and cue timing.
 
-Show progress and Cancel in Appearance. The ready results apply automatically
-in a revision-guarded, history-backed project write. Cancel before the write
-discards prepared timings. **Undo timing changes** restores the previous tracks
-through the same guard. The pass uses the existing local audio and makes no
-cloud transcription request.
-In source builds, explicitly activating Sync, Cancel or Undo hands keyboard focus
-to the persistent **Word highlighting** summary before its button changes.
-This also keeps focus usable when Undo collapses the disclosure with highlights off.
-Background completion never moves focus away from newer editing.
+Studio prepares project audio locally, checks eligible captions, and publishes
+the results in one guarded write after normal saves settle. Apply arms the
+project to recheck affected captions and neighbors after later saved wording
+or cue changes. Armed projects can resume on reopen. Presets affect appearance.
+**Review remaining** prioritizes uncertain and plain captions and opens Fine
+Timing. **Sync words** uses the armed project’s guarded check for one caption.
+
+**Cancel** keeps the saved paint and ends follow. Turning the effect off also
+disables paint. **Undo** restores the exact prior tracks for the accepted Apply
+when the targets still match and stops follow. History is the recovery path when
+later timing or wording edits prevent the guarded inverse. The Word highlighting
+summary retains focus when its explicit controls disappear.
 
 Source-only Khmer alignment refinement preserves each directly forced-aligned
 KFA acoustic word interval until the final wording is reconciled. Differences

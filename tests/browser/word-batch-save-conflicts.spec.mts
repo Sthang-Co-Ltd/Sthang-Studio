@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page, type Response } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page, type Request, type Response } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -33,18 +33,32 @@ const fixtureCases: Case[] = [...scenarios.map(({ action, foreign }) => caseFor(
 const idFor = (name: Case) => `disk-word-batch-${name}`;
 const titleFor = (name: Case) => `Word batch ${name} save authority`;
 const fixtures = new Map<Case, CaptionProject>();
-const preparedTimings = new Map<Case, NonNullable<CaptionSegment['wordTiming']>>();
 const additionalContexts = new Set<BrowserContext>();
 let root = '';
 let server: OwnedApi | null = null;
 let detachChildExit: (() => void) | null = null;
 
+type BatchChange = { before: CaptionSegment; after: CaptionSegment };
 interface BatchRequest {
   expectedMedia: { filename: string; size: number };
-  changes: Array<{ before: CaptionSegment; after: CaptionSegment }>;
-  action?: Action;
+  mode?: 'prepared';
+  epoch?: string;
+  requestId?: string;
+  preparedKeys?: string[];
+  changes?: BatchChange[];
+  action?: 'undo';
+  intent: 'apply' | 'follow';
 }
-interface BatchResponse { project: CaptionProject; appliedCount: number }
+interface BatchResponse {
+  project: CaptionProject;
+  appliedCount: number;
+  applied?: Array<BatchChange & { id: string }>;
+}
+interface CandidateCheck {
+  ids: string[];
+  status: number;
+  results: Array<{ id: string; status: string; preparedKey?: string }>;
+}
 interface CaptionWrite {
   request: { captions: CaptionSegment[]; expectedUpdatedAt: string; source: string };
   status?: number;
@@ -80,7 +94,6 @@ test.beforeAll(async () => {
     ];
     const ready = buildCaptionWordTiming(first, tokens);
     if (!ready) throw new Error('Synthetic first caption word timing could not be built.');
-    preparedTimings.set(name, ready);
     first.wordTiming = {
       ...ready,
       words: ready.words.map((word, index) => index === 0 ? { ...word, source: 'estimated' as const, needsReview: true } : word),
@@ -125,7 +138,7 @@ test.beforeAll(async () => {
   }
   await fs.writeFile(path.join(projects, 'order.json'), JSON.stringify(fixtureCases.map(idFor)), 'utf8');
   await fs.writeFile(path.join(projects, '.per-project-v1'), 'fixture\n', 'utf8');
-  server = await startOwnedApi(root);
+  server = await startOwnedApi(root, { fixtureHighlightCaptionIds: ['c1'] });
 });
 
 test.afterAll(async () => {
@@ -185,9 +198,8 @@ async function preparePage(page: Page) {
     try {
       const health = await response.json();
       // Capability-only fixture: the isolated child intentionally has no Python
-      // runtime. The candidate below is synthetic; no model is invoked or
-      // downloaded. All project reads, writes, batch operations and History use
-      // the actual owned API and its isolated disk store without substitutions.
+      // runtime. Synthetic acoustic measurements feed the real owned engine.
+      // Project reads, writes, publications and History use the owned API.
       await route.fulfill({ response, json: { ...health, timing: { ...health.timing, configured: true } } });
     } finally { await response.dispose(); }
   });
@@ -241,6 +253,66 @@ async function clients(page: Page, name: Case) {
 const captionField = (page: Page, index: number) => page.getByLabel(`Caption ${index} text`, { exact: true });
 const conflict = (page: Page) => page.locator('.save-failure').filter({ hasText: 'Saved project changed.' });
 const isCaptionPut = (response: Response, name: Case) => response.url().endsWith(`/api/projects/${idFor(name)}/captions`) && response.request().method() === 'PUT';
+const highlightResults = (page: Page) => page.getByRole('region', { name: 'Word highlight results', exact: true });
+const isFollowPublication = (request: Request, name: Case) => request.method() === 'POST'
+  && request.url().endsWith(`/api/projects/${idFor(name)}/caption-word-timing/batch-apply`)
+  && request.postDataJSON()?.intent === 'follow' && request.postDataJSON()?.action !== 'undo';
+
+function watchFollowPublications(page: Page, name: Case) {
+  const requests: BatchRequest[] = [];
+  page.on('request', (request) => {
+    if (isFollowPublication(request, name)) requests.push(request.postDataJSON());
+  });
+  return requests;
+}
+
+async function holdPreparation(page: Page, name: Case, gate: Promise<void>, onHeld: () => void) {
+  await page.route(`**/api/projects/${idFor(name)}/caption-word-timing/prepare`, async (route) => {
+    const response = await fetchOwnedRoute(route);
+    try {
+      const body = await response.body();
+      onHeld();
+      await gate;
+      await route.fulfill({ response, body });
+    } finally { await response.dispose(); }
+  });
+}
+
+async function watchCandidateChecks(page: Page, name: Case) {
+  const checks: CandidateCheck[] = [];
+  await page.route(`**/api/projects/${idFor(name)}/caption-word-timing/candidates`, async (route) => {
+    const { ids } = route.request().postDataJSON() as { ids: string[] };
+    const response = await fetchOwnedRoute(route);
+    try {
+      const body = await response.body();
+      checks.push({ ids, status: response.status(), results: JSON.parse(body.toString()).results });
+      await route.fulfill({ response, body });
+    } finally { await response.dispose(); }
+  });
+  return checks;
+}
+
+function expectPreparedApply(
+  request: BatchRequest, response: BatchResponse, checks: CandidateCheck[], before: CaptionProject,
+  epoch = before.wordHighlightFollow?.epoch,
+) {
+  expect(checks).toEqual([{
+    ids: ['c1'],
+    status: 200,
+    results: [expect.objectContaining({ id: 'c1', status: 'candidate', preparedKey: expect.any(String) })],
+  }]);
+  expect(request).toMatchObject({
+    intent: 'apply', mode: 'prepared',
+    preparedKeys: [checks[0].results[0].preparedKey],
+    epoch,
+    expectedMedia: { filename: before.media.filename, size: before.media.size },
+  });
+  expect(request.changes).toBeUndefined();
+  expect(request.requestId).toMatch(/^[\da-f-]{36}$/i);
+  expect(response.appliedCount).toBe(1);
+  expect(response.applied).toEqual([{ id: 'c1', before: before.captions[0], after: response.project.captions[0] }]);
+}
+
 async function disk(name: Case): Promise<CaptionProject> {
   return JSON.parse(await fs.readFile(path.join(root, 'data', 'projects', `${idFor(name)}.json`), 'utf8'));
 }
@@ -294,11 +366,13 @@ for (const { action, foreign } of scenarios) {
   test(`${action}: a held batch acknowledgement ${foreign ? 'cannot lend a foreign caption revision to autosave or queued saves' : 'keeps accepted timing and newer typing saveable without a foreign change'}`, async ({ page }, testInfo) => {
     const other = await clients(page, name);
     await other.clock.install();
+    if (foreign) await page.clock.install();
     const original = fixtures.get(name)!;
     const firstText = `CLIENT B TYPED WHILE THE ${action.toUpperCase()} ACK WAS HELD`;
     const newestText = `សេចក្ដីព្រាង B ថ្មី ${action}\nNEWER THIRD CAPTION MUST SURVIVE`;
     const foreignText = `FOREIGN SECOND CAPTION FROM CLIENT A BEFORE ${action.toUpperCase()}`;
     const candidateGate = deferred();
+    const foreignFollowGate = deferred();
     const batchGate = deferred();
     const saveGate = deferred();
     const batches: BatchRequest[] = [];
@@ -306,32 +380,40 @@ for (const { action, foreign } of scenarios) {
     const preflights: Array<{ status: number; project: CaptionProject }> = [];
     let heldBatch: BatchResponse | null = null;
     let heldBatchRequest: BatchRequest | null = null;
+    let heldBatchStatus: number | null = null;
+    let cleanApplyResponse: BatchResponse | null = null;
+    let cleanApplyStatus: number | null = null;
     let firstPreflight = false;
-    const candidateIds: string[] = [];
+    let preparedAudio = false;
+    let foreignFollowPrepared = false;
+    const foreignFollows = watchFollowPublications(page, name);
+    const editorFollows = watchFollowPublications(other, name);
+    const candidateChecks = await watchCandidateChecks(other, name);
     const evidence: Record<string, unknown> = { action, foreign, fixture: original };
 
-    await other.route(`**/api/projects/${idFor(name)}/caption-word-timing`, async (route) => {
-      const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
-      candidateIds.push(caption.id);
-      expect(caption).toEqual(original.captions[0]);
-      await candidateGate.promise;
-      await route.fulfill({ json: {
-        basis: caption, wordTiming: preparedTimings.get(name), sourceRevision: `synthetic-word-batch-${name}`, warnings: [],
-      } });
-    });
+    // Let A save before the server plans candidates against c1's context.
+    await holdPreparation(other, name, candidateGate.promise, () => { preparedAudio = true; });
+    if (action === 'apply' && foreign) {
+      // A's save also adopts the armed epoch. Hold its preparation through B's
+      // apply so that A cannot measure and publish c1 ahead of the test's batch.
+      await holdPreparation(page, name, foreignFollowGate.promise, () => { foreignFollowPrepared = true; });
+    }
     await other.route(`**/api/projects/${idFor(name)}/caption-word-timing/batch-apply`, async (route) => {
       const request = route.request().postDataJSON() as BatchRequest;
       batches.push(structuredClone(request));
       const response = await fetchOwnedRoute(route);
       try {
         const body = await response.body();
-        expect(response.status()).toBe(200);
-        if ((request.action || 'apply') === action) {
+        if (request.intent === 'apply' && (request.action || 'apply') === action) {
           // This hold begins only after the real server persisted the batch and
           // History checkpoint. It delays delivery, never fakes the result.
           heldBatchRequest = structuredClone(request);
+          heldBatchStatus = response.status();
           heldBatch = JSON.parse(body.toString()) as BatchResponse;
           await batchGate.promise;
+        } else if (action === 'undo' && request.intent === 'apply' && !request.action) {
+          cleanApplyStatus = response.status();
+          cleanApplyResponse = JSON.parse(body.toString()) as BatchResponse;
         }
         await route.fulfill({ response, body });
       } finally { await response.dispose(); }
@@ -351,30 +433,64 @@ for (const { action, foreign } of scenarios) {
 
     try {
       await other.getByRole('button', { name: 'Appearance', exact: true }).click();
-      await other.getByRole('button', { name: 'Sync remaining', exact: true }).click();
-      await expect.poll(() => candidateIds).toEqual(['c1']);
+      const results = highlightResults(other);
+      await results.getByRole('button', { name: 'Apply to all captions', exact: true }).click();
+      await expect.poll(() => preparedAudio).toBe(true);
 
+      let cleanApplied: CaptionProject | undefined;
       if (action === 'undo') {
+        const armedBasis = await disk(name);
         candidateGate.resolve();
-        await expect(other.getByRole('button', { name: 'Undo timing changes', exact: true })).toBeEnabled();
-        const cleanApplied = await disk(name);
-        expect(cleanApplied.captions[0]).toEqual({ ...original.captions[0], wordTiming: preparedTimings.get(name) });
+        await expect(results.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+        cleanApplied = await disk(name);
+        expect(cleanApplied.captions[0].wordTiming).not.toEqual(original.captions[0].wordTiming);
+        expect(resolveCaptionWordTiming(cleanApplied.captions[0]).state).toBe('ready');
+        expect(cleanApplied.captions).toEqual(original.captions.map((caption) => caption.id === 'c1'
+          ? { ...caption, wordTiming: cleanApplied!.captions[0].wordTiming } : caption));
         evidence.cleanApplyBeforeUndo = cleanApplied;
         // A must actually adopt the clean apply before making its own c2 edit.
         // B stays open with the genuine Undo offer and its older c2 baseline.
         await open(page, name);
+        expect(cleanApplyStatus).toBe(200);
+        expect(cleanApplyResponse!.project).toEqual(cleanApplied);
+        expectPreparedApply(batches[0], cleanApplyResponse!, candidateChecks, armedBasis);
       }
-      if (foreign) await saveForeignCaption(page, name, foreignText);
+      const follow = foreign ? page.waitForResponse((response) => isFollowPublication(response.request(), name)) : null;
+      async function expectUnchangedFollow(before: CaptionProject, historyBefore: Record<string, string>) {
+        const response = await follow!;
+        expect(response.status()).toBe(200);
+        const result = await response.json();
+        expect(result).toMatchObject({ project: before, appliedCount: 0, applied: [], unchanged: ['c1'] });
+        expect(await disk(name)).toEqual(before);
+        expect(await history(name)).toEqual(historyBefore);
+        evidence.foreignFollowResponse = result;
+      }
+
+      if (foreign) {
+        await saveForeignCaption(page, name, foreignText);
+        const beforeFollow = await disk(name);
+        const historyBeforeFollow = await history(name);
+        await page.clock.fastForward(1_501);
+        if (action === 'apply') {
+          await expect.poll(() => foreignFollowPrepared).toBe(true);
+          expect(beforeFollow.captions[0]).toEqual(original.captions[0]);
+        } else {
+          // A's c2 save rechecks c1 against the already published timing.
+          expect(beforeFollow.captions[0]).toEqual(cleanApplied!.captions[0]);
+          await expectUnchangedFollow(beforeFollow, historyBeforeFollow);
+        }
+      }
       const beforeBatch = await disk(name);
       const historyBeforeBatch = await history(name);
       evidence.beforeBatch = beforeBatch;
       evidence.historyBeforeBatch = historyBeforeBatch;
       await expect(captionField(other, 2)).toHaveValue(original.captions[1].text);
 
-      const busyLabel = action === 'apply' ? 'Applying word highlights…' : 'Undoing prepared word timings…';
+      const busyLabel = action === 'apply' ? 'Saving word highlights…' : 'Undoing word highlights…';
       if (action === 'apply') candidateGate.resolve();
-      else await other.getByRole('button', { name: 'Undo timing changes', exact: true }).click();
+      else await results.getByRole('button', { name: 'Undo', exact: true }).click();
       await expect.poll(() => heldBatch !== null).toBe(true);
+      expect(heldBatchStatus).toBe(200);
       await expect(other.getByText(busyLabel, { exact: true })).toBeVisible();
       const persistedBatch = heldBatch!.project;
       const afterBatch = await disk(name);
@@ -383,19 +499,30 @@ for (const { action, foreign } of scenarios) {
       evidence.historyAfterBatch = historyAfterBatch;
       expect(afterBatch).toEqual(persistedBatch);
       expect(heldBatch!.appliedCount).toBe(1);
-      expect(heldBatchRequest!.changes).toHaveLength(1);
-      expect(heldBatchRequest!.changes[0].before.id).toBe('c1');
+      if (action === 'apply') {
+        expectPreparedApply(heldBatchRequest!, heldBatch!, candidateChecks, beforeBatch);
+      } else {
+        expect(heldBatchRequest).toMatchObject({ action: 'undo', intent: 'apply' });
+        expect(heldBatchRequest!.changes).toEqual([{ before: beforeBatch.captions[0], after: afterBatch.captions[0] }]);
+      }
+      const acceptedTrack = action === 'apply' ? afterBatch.captions[0].wordTiming : original.captions[0].wordTiming;
+      expect(afterBatch.captions[0].wordTiming).not.toEqual(beforeBatch.captions[0].wordTiming);
       expect(afterBatch.captions).toEqual(beforeBatch.captions.map((caption) => caption.id === 'c1'
-        ? { ...caption, wordTiming: action === 'apply' ? preparedTimings.get(name) : original.captions[0].wordTiming }
-        : caption));
+        ? { ...caption, wordTiming: acceptedTrack } : caption));
+      expect(afterBatch.wordHighlightFollow?.enabled).toBe(action === 'apply');
       expect(resolveCaptionWordTiming(afterBatch.captions[0]).state).toBe(action === 'apply' ? 'ready' : 'partial');
       const newCheckpointFiles = Object.keys(historyAfterBatch).filter((filename) => filename !== 'index.json' && !(filename in historyBeforeBatch));
       expect(newCheckpointFiles).toHaveLength(1);
       const batchCheckpoint = JSON.parse(historyAfterBatch[newCheckpointFiles[0]]);
-      expect(batchCheckpoint.label).toBe(action === 'apply' ? 'Before applying prepared word timings' : 'Before undoing prepared word timings');
-      expect(batchCheckpoint.source).toBe('timing-fix');
+      expect(batchCheckpoint.label).toBe(action === 'apply' ? 'Before applying word highlights' : 'Before undoing word highlights');
+      expect(batchCheckpoint.source).toBe('word-highlight');
       expect(batchCheckpoint.snapshot.captions).toEqual(beforeBatch.captions);
       expect(batchCheckpoint.snapshot.media).toEqual(beforeBatch.media);
+
+      if (action === 'apply' && foreign) {
+        foreignFollowGate.resolve();
+        await expectUnchangedFollow(afterBatch, historyAfterBatch);
+      }
 
       await captionField(other, 3).fill(firstText);
       if (action === 'apply') await captionField(other, 3).blur();
@@ -442,6 +569,12 @@ for (const { action, foreign } of scenarios) {
           && (await other.locator('.save-action').textContent())?.trim() === 'Saved';
       }).toBe(true);
 
+      // An accepted c3 edit can only recheck the locked c2/c3 cues. A stale
+      // editor cannot schedule follow while its draft requires comparison.
+      await other.clock.fastForward(1_501);
+      await settledFrame(other);
+      expect(editorFollows).toHaveLength(0);
+      expect(foreignFollows).toHaveLength(foreign ? 1 : 0);
       const afterSaves = await disk(name);
       const historyAfterSaves = await history(name);
       const finalEditor = await editorEvidence(other, name);
@@ -456,7 +589,7 @@ for (const { action, foreign } of scenarios) {
       expect(afterSaves.captions[1]).toEqual(afterBatch.captions[1]);
       expect(afterSaves.captions[0]).toEqual(afterBatch.captions[0]);
       expect(finalEditor.texts).toEqual([original.captions[0].text, original.captions[1].text, newestText]);
-      await expect(other.locator('.appearance-highlight-readiness')).toContainText(`${action === 'apply' ? 1 : 0} of 3 captions ready`);
+      await expect(results.getByRole('status')).toHaveText(action === 'apply' ? 'Highlighting 1 caption · 2 plain' : '3 plain');
 
       if (foreign) {
         expect(afterSaves).toEqual(afterBatch);
@@ -477,6 +610,7 @@ for (const { action, foreign } of scenarios) {
         await other.clock.fastForward(61_000);
         await settledFrame(other);
         expect({ writes: writes.length, reads: preflights.length }).toEqual(stopped);
+        expect(editorFollows).toHaveLength(0);
         const downloaded = await downloadDraft(other, 'Download edits');
         expect(downloaded.captions).toEqual(expectedDraft);
         evidence.downloadedComparisonDraft = downloaded;
@@ -491,6 +625,9 @@ for (const { action, foreign } of scenarios) {
         await expect(recovery.getByRole('button', { name: 'Restore draft', exact: true }).and(recovery.locator('button:enabled'))).toHaveCount(0);
         await expect(recovery.getByRole('button', { name: 'Download draft', exact: true })).toBeEnabled();
         expect((await downloadDraft(other, 'Download draft')).captions).toEqual(expectedDraft);
+        await other.clock.fastForward(1_501);
+        await settledFrame(other);
+        expect(editorFollows).toHaveLength(0);
         expect(await disk(name)).toEqual(afterBatch);
         expect(await history(name)).toEqual(historyAfterBatch);
       } else {
@@ -519,10 +656,15 @@ for (const { action, foreign } of scenarios) {
       // Release every route even after an assertion fails, so teardown cannot
       // leave a pending request or remove a guard around a live editor.
       candidateGate.resolve();
+      foreignFollowGate.resolve();
       batchGate.resolve();
       saveGate.resolve();
       evidence.batchRequests = batches;
       evidence.heldBatchResponse = heldBatch;
+      evidence.heldBatchStatus = heldBatchStatus;
+      evidence.candidateChecks = candidateChecks;
+      evidence.foreignFollowPublications = foreignFollows;
+      evidence.editorFollowPublications = editorFollows;
       evidence.ordinaryPreflights = preflights;
       evidence.ordinaryCaptionWrites = writes;
       const evidencePath = testInfo.outputPath('word-batch-before-after.json');
@@ -538,20 +680,23 @@ test('typing on the prepared target during its held acknowledgement cannot undo 
   await other.clock.install();
   const gate = deferred();
   let held: BatchResponse | null = null;
+  let heldRequest: BatchRequest | null = null;
+  let heldStatus: number | null = null;
   const writes: CaptionWrite[] = [];
+  const editorFollows = watchFollowPublications(other, name);
+  const candidateChecks = await watchCandidateChecks(other, name);
 
-  await other.route(`**/api/projects/${idFor(name)}/caption-word-timing`, async (route) => {
-    const { caption } = route.request().postDataJSON() as { caption: CaptionSegment };
-    expect(caption.id).toBe('c1');
-    await route.fulfill({ json: { basis: caption, wordTiming: preparedTimings.get(name), sourceRevision: 'target-edit-evidence', warnings: [] } });
-  });
   await other.route(`**/api/projects/${idFor(name)}/caption-word-timing/batch-apply`, async (route) => {
+    const request = route.request().postDataJSON() as BatchRequest;
     const response = await fetchOwnedRoute(route);
     try {
-      expect(response.status()).toBe(200);
       const body = await response.body();
-      held = JSON.parse(body.toString()) as BatchResponse;
-      await gate.promise;
+      if (request.intent === 'apply' && !request.action) {
+        heldRequest = request;
+        heldStatus = response.status();
+        held = JSON.parse(body.toString()) as BatchResponse;
+        await gate.promise;
+      }
       await route.fulfill({ response, body });
     } finally { await response.dispose(); }
   });
@@ -569,23 +714,34 @@ test('typing on the prepared target during its held acknowledgement cannot undo 
 
   try {
     await other.getByRole('button', { name: 'Appearance', exact: true }).click();
-    await other.getByRole('button', { name: 'Sync remaining', exact: true }).click();
+    const beforeBatch = await disk(name);
+    await highlightResults(other).getByRole('button', { name: 'Apply to all captions', exact: true }).click();
     await expect.poll(() => held !== null).toBe(true);
+    expect(heldStatus).toBe(200);
     const savedBatch = await disk(name);
     const savedHistory = await history(name);
-    expect(savedBatch.captions[0].wordTiming).toEqual(preparedTimings.get(name));
+    expectPreparedApply(heldRequest!, held!, candidateChecks, beforeBatch, savedBatch.wordHighlightFollow?.epoch);
+    expect(savedBatch).toEqual(held!.project);
+    expect(savedBatch.captions[0].wordTiming).not.toEqual(beforeBatch.captions[0].wordTiming);
+    expect(resolveCaptionWordTiming(savedBatch.captions[0]).state).toBe('ready');
+    expect(savedBatch.captions).toEqual(beforeBatch.captions.map((caption) => caption.id === 'c1'
+      ? { ...caption, wordTiming: savedBatch.captions[0].wordTiming } : caption));
+    await expect(highlightResults(other).getByRole('status')).toHaveText('Saving word highlights…');
     const latestTyping = 'LOCAL WORDING TYPED WHILE TARGET APPLY ACK IS HELD';
     await captionField(other, 1).fill(latestTyping);
     await captionField(other, 2).focus();
     expect(writes).toHaveLength(0);
     gate.resolve();
-    await expect(other.getByText('Applying word highlights…', { exact: true })).toHaveCount(0);
+    await expect(other.getByText('Saving word highlights…', { exact: true })).toHaveCount(0);
     await expect(captionField(other, 1)).toHaveValue(latestTyping);
     await other.keyboard.press('Control+s');
     await expect.poll(async () => writes.length > 0 || await conflict(other).isVisible()).toBe(true);
 
     // The batch owns accepted timing; target-local input is kept for manual
     // comparison if it cannot be merged without replacing that saved timing.
+    await other.clock.fastForward(1_501);
+    await settledFrame(other);
+    expect(editorFollows).toHaveLength(0);
     expect(await disk(name)).toEqual(savedBatch);
     expect(await history(name)).toEqual(savedHistory);
     expect(writes).toHaveLength(0);

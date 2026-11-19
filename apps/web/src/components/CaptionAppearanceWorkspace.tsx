@@ -3,7 +3,6 @@ import {
   applyCaptionLook,
   DEFAULT_CAPTION_APPEARANCE,
   normalizeCaptionAppearance,
-  resolveCaptionWordTiming,
   type CaptionAppearance,
   type CaptionAppearancePreset,
   type CaptionLookId,
@@ -222,10 +221,6 @@ export function CaptionAppearanceWorkspace({
     const target = error ? intent.button : intent.kind === 'fonts' ? fontPickerRef.current : presetTarget;
     if (target?.isConnected) target.focus({ preventScroll: true });
   }, [resourceOwner, loadingFonts, loadingPresets, fontReadError, presetReadError]);
-  const wordReadiness = useMemo(() => {
-    const spoken = captions.filter((caption) => caption.text.replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, ''));
-    return { unresolved: spoken.filter((caption) => resolveCaptionWordTiming(caption).state !== 'ready'), total: spoken.length };
-  }, [captions]);
   const hasOverlappingCaptions = useMemo(() => {
     const visible = captions
       .filter((caption) => caption.text.trim() && Number.isFinite(caption.startMs) && Number.isFinite(caption.endMs) && caption.endMs > caption.startMs)
@@ -856,10 +851,10 @@ export function CaptionAppearanceWorkspace({
       <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay this caption to check its look.'}</span>
     </section>
 
-    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.status === 'preparing' || wordPreparation?.status === 'applying'}><summary ref={wordHighlightSummaryRef}>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
+    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.running}><summary ref={wordHighlightSummaryRef}>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
     <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
       <div className="appearance-word-highlight-head">
-        <p>Color the current word while the full caption stays visible.</p>
+        <p>Color words with usable timing while the full caption stays visible.</p>
         <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
           onClick={() => {
             const enabled = appearanceRef.current.highlightMode !== 'word';
@@ -871,11 +866,7 @@ export function CaptionAppearanceWorkspace({
       {appearance.highlightMode === 'word' && <>
         <label className="appearance-highlight-color"><span>Highlight color</span><input type="color" aria-label="Word highlight color" value={appearance.highlightColor || '#D7FF4F'}
           onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
-        <div className="appearance-highlight-readiness" role="status">
-          <div><strong>{wordReadiness.total ? `${wordReadiness.total - wordReadiness.unresolved.length} of ${wordReadiness.total} captions ready` : 'No spoken captions'}</strong>
-            {wordReadiness.unresolved.length > 0 && <span>Captions that need timing stay plain.</span>}</div>
-          {!wordReadiness.unresolved.length && wordReadiness.total > 0 && <button type="button" onClick={() => onEditWordTiming()}>Edit word timing</button>}
-        </div>
+        {wordPreparation?.exceptions === 0 && <button type="button" onClick={() => onEditWordTiming()}>Edit word timing</button>}
       </>}
       {wordPreparation && <WordHighlightPreparation view={wordPreparation} enabled={appearance.highlightMode === 'word'} actionFocusTarget={wordHighlightSummaryRef}/>}
       {appearance.highlightMode === 'word' && <p className="appearance-highlight-note">Highlights appear in video. SRT carries text and timing only.</p>}

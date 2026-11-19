@@ -138,6 +138,41 @@ test('two caption clients keep the winning save and reject a stale edit without 
   assert.deepEqual(await diskSnapshot(), beforeDisk);
 });
 
+test('caption save rejects malformed marked timing atomically and strips stale marked timing after a text edit', async (t) => {
+  const initial = await seed('marked-word-save');
+  const caption = initial.captions[0];
+  const wordTiming: NonNullable<CaptionSegment['wordTiming']> = {
+    version: 1, evidence: 2, text: caption.text, basis: 'test-basis',
+    words: [{ id: 'measured', startOffset: 0, endOffset: 5, startMs: 1100, endMs: 1600, source: 'aligned', method: 'kfa' }],
+  };
+  const save = (project: CaptionProject, captions: CaptionSegment[]) => request(project.id, 'captions', {
+    captions, expectedMedia: project.media, expectedUpdatedAt: project.updatedAt,
+  });
+  const matched = await save(initial, [{ ...caption, wordTiming }]);
+  assert.equal(matched.status, 200);
+  const { project: accepted } = await matched.json() as { project: CaptionProject };
+  assert.deepEqual(accepted.captions[0].wordTiming, wordTiming);
+  const previousDisk = await diskSnapshot();
+  const previousHistory = await historyStore.list(accepted.id, accepted.media);
+  const effects = observeEvidence(t);
+
+  const malformed = { ...wordTiming, words: [{ ...wordTiming.words[0], endMs: null }] };
+  const otherCaption = { ...caption, id: 'new-caption', text: 'other change', startMs: 2050, endMs: 2500 };
+  const rejected = await save(accepted, [otherCaption, { ...accepted.captions[0], wordTiming: malformed }]);
+  assert.equal(rejected.status, 400);
+  assert.equal((await rejected.json()).code, 'WORD_TIMING_INVALID');
+  assert.deepEqual(await readProject(accepted.id), accepted);
+  assert.deepEqual(await historyStore.list(accepted.id, accepted.media), previousHistory);
+  assert.deepEqual(await diskSnapshot(), previousDisk);
+  assert.deepEqual(evidenceCounts(effects), noEvidence);
+
+  const stale = await save(accepted, [{ ...accepted.captions[0], text: 'hello again' }]);
+  assert.equal(stale.status, 200);
+  const current = await readProject(accepted.id);
+  assert.equal(current.captions[0].text, 'hello again');
+  assert.equal(Object.hasOwn(current.captions[0], 'wordTiming'), false);
+});
+
 test('two Accuracy clients keep the winning save and reject stale context without changing disk or caption evidence', { concurrency: false }, async (t) => {
   const project = await seed('context-clients');
   const [first, second] = await Promise.all([readProject(project.id), readProject(project.id)]);
