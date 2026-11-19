@@ -30,7 +30,11 @@ const track = {
   version: 1 as const, evidence: 2 as const, text: 'word', basis: 'basis',
   words: [{ id: 'cue:0-4', startOffset: 0, endOffset: 4, startMs: 100, endMs: 200, source: 'aligned' as const, method: 'kfa' as const }],
 };
-const entry = { projectId: 'fixture', mediaFingerprint: 'media-revision', captionId: 'cue', basis: 'basis', dependencies: { cue: 'before' }, track };
+const entry = {
+  projectId: 'fixture', mediaFingerprint: 'media-revision', captionId: 'cue', basis: 'basis',
+  dependencies: { cue: 'before' }, inputRevisions: { cue: 'inputs' }, consulted: ['cue'],
+  overlapping: [], planDurationMs: 1_000, evidenceDurationMs: 1_000, beforeTrack: null, track,
+};
 let busy = false;
 let onAdmission = () => {};
 let prepare = async (id: string, expected: typeof expectedMedia) => {
@@ -50,7 +54,7 @@ const deps = {
         mediaFingerprint: entry.mediaFingerprint,
         results: ids.map((captionId): WordHighlightOutcome => ({
           id: captionId, diagnostics: { attempts: [] },
-          ...(captionId === 'cue' ? { status: 'candidate', track, dependencies: entry.dependencies, basis: entry.basis } : { status: 'error' }),
+          ...(captionId === 'cue' ? { ...entry, status: 'candidate' } : { status: 'error' }),
         })),
       };
     },

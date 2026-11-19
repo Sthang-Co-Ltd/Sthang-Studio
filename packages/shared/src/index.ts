@@ -456,7 +456,8 @@ export interface SystemDoctorReport {
   };
 }
 
-export type HistorySource = 'manual-save' | 'autosave' | 'text-edit' | 'regeneration' | 'regroup' | 'cleanup' | 'timing-fix' | 'restore' | 'system';
+export type HistorySource = 'manual-save' | 'autosave' | 'text-edit' | 'regeneration' | 'regroup' | 'cleanup' | 'timing-fix' | 'restore' | 'system'
+  | 'word-highlight' | 'word-highlight-auto';
 
 export interface ProjectHistoryEntry {
   id: string;

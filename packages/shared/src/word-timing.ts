@@ -1,6 +1,7 @@
 import type { CaptionProject, CaptionSegment, TimedToken } from './index.js';
 import { captionRenderTime } from './caption-settings.js';
 import { segmentKhmerWords } from './khmer-word-segmentation.js';
+import { highlightDisplayUnits } from './highlight-display-units.js';
 
 export type CaptionWordSource = 'aligned' | 'manual' | 'estimated';
 export type WordMethod = 'kfa' | 'kfa-group' | 'legacy' | 'manual';
@@ -837,7 +838,130 @@ export function preserveManualCaptionWords(caption: CaptionSegment, timing: Capt
   return anchors.size ? undefined : { ...timing, words };
 }
 
+/** Rebase a stored component without changing its acoustic interval or members. */
+export function rebaseMarkedWord(word: CaptionWord, delta: number): CaptionWord {
+  return {
+    ...word, startOffset: word.startOffset + delta, endOffset: word.endOffset + delta,
+    ...(word.members ? { members: word.members.map(([start, end]): DisplaySpan => [start + delta, end + delta]) } : {}),
+  };
+}
+
+function editedMarkedWord(id: string, startOffset: number, endOffset: number): CaptionWord {
+  return { id, startOffset, endOffset, startMs: null, endMs: null, source: 'estimated', needsReview: true, issue: 'edited' };
+}
+
+function editedMarkedWordId(used: Set<string>, startOffset: number, endOffset: number) {
+  const base = `edited:${startOffset}-${endOffset}`;
+  let id = base;
+  for (let suffix = 2; used.has(id); suffix += 1) id = `${base}:${suffix}`;
+  used.add(id);
+  return id;
+}
+
+function demoteAlignedMarkedWords(words: CaptionWord[]): CaptionWord[] {
+  const used = new Set(words.map(({ id }) => id));
+  return words.flatMap((word) => {
+    if (word.source !== 'aligned') return [word];
+    const units = word.members ?? [[word.startOffset, word.endOffset]];
+    return units.map(([start, end], index) =>
+      editedMarkedWord(index === 0 ? word.id : editedMarkedWordId(used, start, end), start, end));
+  });
+}
+
+/** Build a marked track from surviving components. Uncovered text has no acoustic evidence. */
+export function fillEditedMarkedWordTiming(text: string, preserved: CaptionWord[]): CaptionWordTiming | undefined {
+  const used = new Set(preserved.map(({ id }) => id));
+  const words: CaptionWord[] = [];
+  function editedGap(start: number, end: number) {
+    for (const unit of highlightDisplayUnits(text.slice(start, end))) {
+      const startOffset = start + unit.startOffset;
+      const endOffset = start + unit.endOffset;
+      words.push(editedMarkedWord(editedMarkedWordId(used, startOffset, endOffset), startOffset, endOffset));
+    }
+  }
+  let previousEnd = 0;
+  for (const word of preserved) {
+    editedGap(previousEnd, word.startOffset);
+    words.push(word);
+    previousEnd = word.endOffset;
+  }
+  editedGap(previousEnd, text.length);
+  const verified = validateMarkedWordTiming(text, { version: 1, evidence: 2, text, words });
+  return verified.ok ? verified.timing : undefined;
+}
+
+/** Saved manual anchors may survive draft recovery. Automatic measurements cannot. */
+export function demoteRecoveredMarkedWordTiming(caption: CaptionSegment): CaptionSegment {
+  if (!hasWordTimingEvidence(caption.wordTiming)) return caption;
+  const validated = validateMarkedWordTiming(caption.text, caption.wordTiming);
+  if (!validated.ok) return withoutWordTiming(caption);
+  if (!validated.timing.words.some(({ source }) => source === 'aligned')) return caption;
+  return {
+    ...caption,
+    wordTiming: fillEditedMarkedWordTiming(caption.text, demoteAlignedMarkedWords(validated.timing.words)),
+  };
+}
+
+function preservedMarkedWords(before: CaptionSegment, after: CaptionSegment, words: CaptionWord[]): CaptionWord[] {
+  if (before.text === after.text) return words;
+  const segmenter = new Intl.Segmenter('km', { granularity: 'grapheme' });
+  const oldParts = [...segmenter.segment(before.text)];
+  const newParts = [...segmenter.segment(after.text)];
+  let prefix = 0;
+  while (prefix < oldParts.length && prefix < newParts.length && oldParts[prefix].segment === newParts[prefix].segment) prefix += 1;
+  let suffix = 0;
+  while (suffix < oldParts.length - prefix && suffix < newParts.length - prefix
+    && oldParts[oldParts.length - 1 - suffix].segment === newParts[newParts.length - 1 - suffix].segment) suffix += 1;
+
+  const prefixEnd = newParts[prefix]?.index ?? after.text.length;
+  const oldSuffixStart = oldParts[oldParts.length - suffix]?.index ?? before.text.length;
+  const newSuffixStart = newParts[newParts.length - suffix]?.index ?? after.text.length;
+  const oldUnits = highlightDisplayUnits(before.text);
+  const newUnits = highlightDisplayUnits(after.text);
+  const oldMiddle = oldUnits.filter((unit) => unit.endOffset > prefixEnd && unit.startOffset < oldSuffixStart);
+  const newMiddle = newUnits.filter((unit) => unit.endOffset > prefixEnd && unit.startOffset < newSuffixStart);
+  const changedKeys = new Set([
+    ...oldMiddle.map((unit) => normalizeWordKey(before.text.slice(unit.startOffset, unit.endOffset))),
+    ...newMiddle.map((unit) => normalizeWordKey(after.text.slice(unit.startOffset, unit.endOffset))),
+  ]);
+  const suffixDelta = after.text.length - before.text.length;
+  return words.flatMap((word) => {
+    const rebased = word.endOffset <= prefixEnd ? word
+      : word.startOffset >= oldSuffixStart ? rebaseMarkedWord(word, suffixDelta) : undefined;
+    if (!rebased || newMiddle.some((unit) => unit.endOffset > rebased.startOffset && unit.startOffset < rebased.endOffset)) return [];
+    const members = word.members ?? [[word.startOffset, word.endOffset]];
+    return members.some(([start, end]) => changedKeys.has(normalizeWordKey(before.text.slice(start, end)))) ? [] : [rebased];
+  });
+}
+
+function reconcileMarkedWordTiming(before: CaptionSegment, after: CaptionSegment): CaptionSegment {
+  const oldTiming = before.wordTiming!;
+  const explicit = Object.hasOwn(after, 'wordTiming') && after.wordTiming !== oldTiming
+    && JSON.stringify(after.wordTiming) !== JSON.stringify(oldTiming);
+  if (explicit) {
+    return validateMarkedWordTiming(after.text, after.wordTiming).ok ? after : withoutWordTiming(after);
+  }
+  const validated = validateMarkedWordTiming(before.text, oldTiming);
+  if (!validated.ok) return withoutWordTiming(after);
+  const delta = after.startMs - before.startMs;
+  const moved = Number.isFinite(delta) && delta !== 0 && delta === after.endMs - before.endMs;
+  if (before.text === after.text && !moved) return { ...after, wordTiming: oldTiming };
+
+  let preserved = preservedMarkedWords(before, after, validated.timing.words);
+  if (moved) {
+    preserved = demoteAlignedMarkedWords(preserved).flatMap((word) => {
+      if (word.source !== 'manual') return [word];
+      const startMs = word.startMs! + delta;
+      const endMs = word.endMs! + delta;
+      return startMs >= 0 && endMs <= CAPTION_DATA_LIMITS.maxTimelineMs ? [{ ...word, startMs, endMs }] : [];
+    });
+  }
+  const timing = fillEditedMarkedWordTiming(after.text, preserved);
+  return timing ? { ...after, wordTiming: timing } : withoutWordTiming(after);
+}
+
 export function reconcileCaptionWordTiming(before: CaptionSegment, after: CaptionSegment): CaptionSegment {
+  if (hasWordTimingEvidence(before.wordTiming)) return reconcileMarkedWordTiming(before, after);
   if (before === after) return after;
   const afterOwnsTrack = Object.prototype.hasOwnProperty.call(after, 'wordTiming');
   if (afterOwnsTrack && after.wordTiming == null && before.wordTiming != null) return after;
@@ -943,6 +1067,8 @@ export function editCaptionWord(
   patch: { startMs: number; endMs: number },
 ): CaptionSegment {
   if (caption.timingLocked || !caption.wordTiming) return caption;
+  const marked = hasWordTimingEvidence(caption.wordTiming);
+  if (marked && !validateMarkedWordTiming(caption.text, caption.wordTiming).ok) return caption;
   const resolved = resolveCaptionWordTiming(caption);
   if (resolved.state === 'stale' || resolved.state === 'missing') return caption;
   if (!Number.isFinite(patch.startMs) || !Number.isFinite(patch.endMs) || patch.endMs <= patch.startMs) return caption;
@@ -953,7 +1079,8 @@ export function editCaptionWord(
   const index = caption.wordTiming.words.findIndex((word) => word.id === wordId);
   if (index < 0) return caption;
   const current = caption.wordTiming.words[index];
-  if (current.startMs === startMs && current.endMs === endMs && current.source === 'manual' && !current.needsReview) return caption;
+  if (current.startMs === startMs && current.endMs === endMs && current.source === 'manual' && !current.needsReview
+    && (!marked || current.issue === undefined)) return caption;
 
   const previous = caption.wordTiming.words[index - 1];
   const next = caption.wordTiming.words[index + 1];
@@ -966,6 +1093,7 @@ export function editCaptionWord(
     endMs,
     source: 'manual' as const,
     needsReview: undefined,
+    ...(marked ? { method: 'manual' as const, issue: undefined } : {}),
   } : word);
   const edited: CaptionSegment = {
     ...caption,
@@ -973,5 +1101,10 @@ export function editCaptionWord(
     timingQuality: 'medium',
     wordTiming: { ...caption.wordTiming, words },
   };
+  if (marked) {
+    const { basis: _basis, ...timing } = edited.wordTiming!;
+    const verified = validateMarkedWordTiming(caption.text, timing);
+    return verified.ok ? { ...edited, wordTiming: verified.timing } : caption;
+  }
   return resolveCaptionWordTiming(edited).state === 'stale' ? caption : edited;
 }

@@ -95,6 +95,8 @@ function preparedCandidate(project: CaptionProject) {
   const key = wordHighlightCandidateStore.put({
     projectId: project.id, mediaFingerprint: mediaFingerprint(project), captionId: id,
     basis: 'fixture', dependencies: { [id]: 'fixture' },
+    inputRevisions: { [id]: 'fixture' }, consulted: [id], overlapping: [], planDurationMs: 4_000, evidenceDurationMs: 4_000,
+    beforeTrack: project.captions[0].wordTiming ?? null,
     track: {
       evidence: 2, version: 1, text, basis: 'fixture', words: [
         { id: 'manual', startOffset: 0, endOffset: 8, startMs: 253, endMs: 803, source: 'manual', method: 'manual' },
@@ -212,7 +214,11 @@ test('initialization, project, History, staged media and backup files flush thro
 });
 
 test('preserve replacement retains every reviewed field and rebases existing history without generation', async () => {
-  const project = await seed('preserve-all-fields');
+  const seeded = await seed('preserve-all-fields');
+  const armed = await jsonRequest(seeded.id, '/word-highlight-follow', 'PUT', { expectedMedia: seeded.media, action: 'arm' });
+  assert.equal(armed.status, 200);
+  const project = (await store.get(seeded.id))!;
+  assert.equal(project.wordHighlightFollow?.enabled, true);
   const preparedKey = preparedCandidate(project);
   const oldHistory = await historyStore.list(project.id, project.media);
   const jobsBefore = await jobStore.list(project.id);
@@ -220,6 +226,7 @@ test('preserve replacement retains every reviewed field and rebases existing his
   assert.equal(response.status, 200, await response.clone().text());
   const replaced = await response.json() as CaptionProject & { mediaReplacement: { id: string; mode: string } };
   assert.deepEqual(kept(replaced), kept(project));
+  assert.equal(replaced.wordHighlightFollow, undefined);
   assert.notEqual(replaced.media.filename, project.media.filename);
   assert.equal(replaced.media.originalName, 'synthetic-regrade.mp4');
   assert.equal(replaced.media.size, replacementBytes.length);

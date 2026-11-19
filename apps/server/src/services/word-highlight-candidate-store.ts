@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { CaptionWordTiming } from '@kcs/shared';
+import type { HighlightCueBounds } from './word-highlight-engine.js';
 
 export interface PreparedWordHighlightCandidate {
   projectId: string;
@@ -7,6 +8,12 @@ export interface PreparedWordHighlightCandidate {
   captionId: string;
   basis: string;
   dependencies: Record<string, string>;
+  inputRevisions: Record<string, string>;
+  consulted: string[];
+  overlapping: HighlightCueBounds[];
+  planDurationMs: number;
+  evidenceDurationMs: number;
+  beforeTrack: CaptionWordTiming | null;
   track: CaptionWordTiming & { evidence: 2 };
   createdAt: number;
 }
@@ -19,7 +26,7 @@ export function createWordHighlightCandidateStore(options: {
   clock?: () => number;
 } = {}) {
   const {
-    maxEntries = 4_096, maxProjectEntries = 2_048, maxBytes = 32 * 1024 * 1024,
+    maxEntries = 5_000, maxProjectEntries = 5_000, maxBytes = 32 * 1024 * 1024,
     ttlMs = 30 * 60 * 1_000, clock = Date.now,
   } = options;
   const entries = new Map<string, { value: PreparedWordHighlightCandidate; bytes: number }>();

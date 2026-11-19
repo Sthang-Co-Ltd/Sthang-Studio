@@ -12,6 +12,7 @@ import type {
   CaptionProjectSummary,
   CaptionSegment,
   CaptionWordTiming,
+  WordHighlightFollow,
   ContributionStatus,
   ProcessingJob,
   ProjectHistoryEntry,
@@ -180,6 +181,13 @@ export class ApiRequestError extends Error {
   }
 }
 
+export class WordHighlightPublicationError extends ApiRequestError {
+  constructor(message: string, code: string, readonly changedIds: string[], readonly expiredKeys: string[]) {
+    super(message, 409, code);
+    this.name = 'WordHighlightPublicationError';
+  }
+}
+
 export class MediaAudioMismatchError extends ApiRequestError {
   constructor(message: string, readonly preserveAudioConfirmation: PreserveAudioConfirmation) {
     super(message, 422);
@@ -193,6 +201,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({}));
     const message = typeof body?.error === 'string' ? body.error : `Request failed (${res.status})`;
     const confirmation = body?.preserveAudioConfirmation;
+    if (res.status === 409 && typeof body?.code === 'string' && body.code.startsWith('WORD_HIGHLIGHT_')) {
+      const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+      throw new WordHighlightPublicationError(message, body.code, strings(body.changedIds), strings(body.expiredKeys));
+    }
     if (res.status === 422 && body?.code === 'MEDIA_AUDIO_MISMATCH'
       && typeof confirmation?.token === 'string' && confirmation.token.length > 0 && confirmation.token.length <= 4096
       && typeof confirmation?.expiresAt === 'string' && Number.isFinite(Date.parse(confirmation.expiresAt))) {
@@ -367,10 +379,36 @@ export const api = {
     expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
     changes: Array<{ before: CaptionSegment; after: CaptionSegment }>,
     action: 'apply' | 'undo' = 'apply',
+    intent?: 'apply' | 'follow',
   ) => request<{ project: CaptionProject; appliedCount: number }>(`/api/projects/${projectId}/caption-word-timing/batch-apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedMedia, changes, action }),
+    body: JSON.stringify({ expectedMedia, changes, action, intent }),
+  }),
+  updateWordHighlightFollow: (
+    projectId: string,
+    expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+    action: 'arm' | 'revoke',
+    epoch?: string,
+  ) => request<{ wordHighlightFollow: WordHighlightFollow | null; updatedAt: string }>(`/api/projects/${projectId}/word-highlight-follow`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedMedia, action, epoch }),
+  }),
+  publishPreparedWordHighlights: (
+    projectId: string,
+    expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+    intent: 'apply' | 'follow',
+    epoch: string,
+    preparedKeys: string[],
+  ) => request<{
+    project: CaptionProject;
+    appliedCount: number;
+    applied: Array<{ id: string; before: CaptionSegment; after: CaptionSegment }>;
+    unchanged: string[];
+    kept: string[];
+  }>(`/api/projects/${projectId}/caption-word-timing/batch-apply`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedMedia, mode: 'prepared', intent, epoch, preparedKeys }),
   }),
   resegment: (
     id: string,

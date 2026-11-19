@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import {
   compileHighlightPlan, hasWordTimingEvidence, highlightDisplayUnits, resolveCaptionWordTiming, validateMarkedWordTiming,
   type CaptionProject, type CaptionSegment, type CaptionWord, type CaptionWordTiming, type Coverage,
@@ -35,6 +36,12 @@ export interface WordHighlightOutcome {
   track?: EvidenceTrack;
   basis?: string;
   dependencies?: Record<string, string>;
+  inputRevisions?: Record<string, string>;
+  consulted?: string[];
+  overlapping?: HighlightCueBounds[];
+  planDurationMs?: number;
+  evidenceDurationMs?: number;
+  beforeTrack?: CaptionWordTiming | null;
   variant?: WindowVariantName;
   conflicts?: string[];
   diagnostics: { attempts: WindowAttempt[]; mappingFailure?: boolean };
@@ -78,9 +85,42 @@ interface CandidateDraft {
   durationMs: number;
 }
 
-export function orderHighlightCaptions(captions: CaptionSegment[]): CaptionSegment[] {
+export type HighlightCueBounds = Pick<CaptionSegment, 'id' | 'startMs' | 'endMs'>;
+
+function manualAlignmentWords(caption: CaptionSegment): CaptionWord[] {
+  const timing = caption.wordTiming;
+  if (timing?.text !== caption.text || !Array.isArray(timing.words)) return [];
+  return timing.words.filter((word) => word?.source === 'manual' && word.startMs !== null && word.endMs !== null);
+}
+
+export function highlightInputRevision(caption: CaptionSegment): string {
+  const { id, text, startMs, endMs, timingLocked } = caption;
+  const manual = manualAlignmentWords(caption).map((word) => ({
+    startOffset: word.startOffset, endOffset: word.endOffset, startMs: word.startMs, endMs: word.endMs,
+  }));
+  return stageSignature({ id, text, startMs, endMs, timingLocked: Boolean(timingLocked), manual });
+}
+
+/** Compare exact stored values. Optional in-memory undefined fields have no JSON representation. */
+export function sameSavedHighlightTrack(
+  first: CaptionWordTiming | null | undefined, second: CaptionWordTiming | null | undefined,
+): boolean {
+  if (isDeepStrictEqual(first ?? null, second ?? null)) return true;
+  return isDeepStrictEqual(JSON.parse(JSON.stringify(first ?? null)), JSON.parse(JSON.stringify(second ?? null)));
+}
+
+export function overlappingHighlightCues(caption: CaptionSegment, order: CaptionSegment[]): HighlightCueBounds[] {
+  const overlapping: HighlightCueBounds[] = [];
+  for (const { id, startMs, endMs } of order) {
+    if (startMs >= caption.endMs) break;
+    if (id !== caption.id && intersects(caption, { startMs, endMs })) overlapping.push({ id, startMs, endMs });
+  }
+  return overlapping;
+}
+
+export function orderHighlightCaptions(captions: CaptionSegment[], includeBlank = false): CaptionSegment[] {
   return captions.map((caption, index) => ({ caption, index }))
-    .filter(({ caption }) => /[^\s\p{Cf}]/u.test(caption.text))
+    .filter(({ caption }) => includeBlank || /[^\s\p{Cf}]/u.test(caption.text))
     .sort((a, b) => a.caption.startMs - b.caption.startMs || a.caption.endMs - b.caption.endMs || a.index - b.index)
     .map(({ caption }) => caption);
 }
@@ -281,8 +321,7 @@ function overlaps(a: HighlightDisplayUnit, b: HighlightDisplayUnit) {
 }
 
 function preserveManual(caption: CaptionSegment, words: CaptionWord[], spans: MeasuredSpan[]) {
-  if (caption.wordTiming?.text !== caption.text) return { words, spans };
-  const manual = caption.wordTiming.words.filter(({ source }) => source === 'manual').map((word): CaptionWord => {
+  const manual = manualAlignmentWords(caption).map((word): CaptionWord => {
     const units = highlightDisplayUnits(caption.text.slice(word.startOffset, word.endOffset));
     const members = units.length > 1
       ? units.map(({ startOffset, endOffset }, index): [number, number] => [
@@ -344,8 +383,15 @@ export function highlightOccurrencesCollide(a: Occurrence, b: Occurrence): boole
     || (a.core === b.core && overlap.endMs - overlap.startMs >= 0.5 * Math.min(a.endMs - a.startMs, b.endMs - b.startMs));
 }
 
-function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[]) {
+type OccurrenceDraft = Pick<CandidateDraft, 'words' | 'spans'> & {
+  plan: Pick<TargetPlan, 'caption' | 'consulted'>;
+};
+
+function guardOccurrences(
+  drafts: OccurrenceDraft[], order: CaptionSegment[], usePersistedSelectedTracks: boolean,
+) {
   const byId = new Map(drafts.map((draft) => [draft.plan.caption.id, draft]));
+  const peersById = new Map<string, Map<string, CaptionSegment>>();
   const impacted = new Map<MeasuredSpan, Set<string>>();
   function addConflict(span: MeasuredSpan, owner: string) {
     const conflicts = impacted.get(span) ?? new Set();
@@ -358,16 +404,15 @@ function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[])
   const occurrences = drafts.map(({ plan, spans }) => spans.map((span) => ({
     span, occurrence: occurrence(plan.caption, span.word),
   })));
-  function dependOn(draft: CandidateDraft, peer: CaptionSegment) {
-    const dependencies = draft.outcome.dependencies!;
-    if (!Object.hasOwn(dependencies, peer.id)) {
-      Object.defineProperty(dependencies, peer.id, {
-        value: captionWordTimingRevision(peer), enumerable: true, writable: true, configurable: true,
-      });
-    }
+  function dependOn(draft: OccurrenceDraft, peer: CaptionSegment) {
+    const id = draft.plan.caption.id;
+    const peers = peersById.get(id) ?? new Map();
+    peers.set(peer.id, peer);
+    peersById.set(id, peers);
   }
   const retained = new Map<string, Occurrence[]>();
   function persisted(caption: CaptionSegment) {
+    if (!usePersistedSelectedTracks && byId.has(caption.id)) return [];
     const cached = retained.get(caption.id);
     if (cached) return cached;
     const validated = validateMarkedWordTiming(caption.text, caption.wordTiming);
@@ -393,7 +438,7 @@ function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[])
           ? [intersection(caption, { startMs: word.startMs, endMs: word.endMs })] : [];
       });
     }
-    const intervals = collect(caption.wordTiming);
+    const intervals = usePersistedSelectedTracks || !byId.has(caption.id) ? collect(caption.wordTiming) : [];
     const draft = byId.get(caption.id);
     if (draft?.words.some(({ source }) => source === 'manual')) {
       const words = [...draft.words, ...draft.spans.map(({ word }) => word)].sort((a, b) => a.startOffset - b.startOffset);
@@ -437,22 +482,48 @@ function applyOccurrenceGuard(drafts: CandidateDraft[], order: CaptionSegment[])
       }
     }
   }
-  for (const draft of drafts) {
+  return drafts.map((draft) => {
     const { caption } = draft.plan;
     const conflicts = new Set<string>();
+    const words = [...draft.words];
     for (const span of draft.spans) {
       const owners = impacted.get(span);
-      if (!owners) draft.words.push(span.word);
+      if (!owners) words.push(span.word);
       else {
         owners.forEach((id) => conflicts.add(id));
-        draft.words.push(...span.units.map((unit) => placeholder(caption.id, unit, 'ambiguous-occurrence')));
+        words.push(...span.units.map((unit) => placeholder(caption.id, unit, 'ambiguous-occurrence')));
       }
     }
-    if (conflicts.size) draft.outcome.conflicts = [...conflicts].sort();
-  }
+    return { words, conflicts: [...conflicts].sort(), peers: [...(peersById.get(caption.id)?.values() ?? [])] };
+  });
 }
 
-function evidenceBasis(caption: CaptionSegment, variant: WindowVariant, project: CaptionProject, clock: WindowClock) {
+/** Re-run the preparation guard on selected tracks and retained canonical neighbours. */
+export function guardPreparedHighlightTracks(
+  selected: Array<{ caption: CaptionSegment; consulted: CaptionSegment[]; track: EvidenceTrack }>,
+  order: CaptionSegment[],
+): EvidenceTrack[] {
+  const drafts = selected.map(({ caption, consulted, track }): OccurrenceDraft => {
+    const words: CaptionWord[] = [];
+    const spans: MeasuredSpan[] = [];
+    for (const word of track.words) {
+      const { startMs, endMs } = word;
+      if (word.source === 'aligned' && startMs !== null && endMs !== null && !word.needsReview && !word.issue) {
+        const units = word.members?.map(([startOffset, endOffset]) => ({ startOffset, endOffset }))
+          ?? [{ startOffset: word.startOffset, endOffset: word.endOffset }];
+        spans.push({ units, word: { ...word, startMs, endMs } });
+      } else words.push(word);
+    }
+    return { plan: { caption, consulted }, words, spans };
+  });
+  return guardOccurrences(drafts, order, false).map(({ words }, index) => ({
+    ...selected[index].track, words: words.sort((a, b) => a.startOffset - b.startOffset),
+  }));
+}
+
+function evidenceBasis(
+  caption: CaptionSegment, variant: WindowVariant, project: CaptionProject, clock: WindowClock, overlapping: HighlightCueBounds[],
+) {
   const context = variant.lines.filter((line) => !line.target).map((line) => {
     const { id, text, startMs, endMs } = project.captions.find((cue) => cue.id === line.owner)!;
     return { id, text, startMs, endMs };
@@ -460,7 +531,7 @@ function evidenceBasis(caption: CaptionSegment, variant: WindowVariant, project:
   const { id, text, startMs, endMs } = caption;
   return stageSignature({
     engine: wordHighlightEngineVersion, mediaFingerprint: mediaFingerprint(project),
-    target: { id, text, startMs, endMs }, context, variant: variant.name, aliasesVersion: 1, unitsVersion: 1, clock,
+    target: { id, text, startMs, endMs }, context, overlapping, variant: variant.name, aliasesVersion: 1, unitsVersion: 1, clock,
   });
 }
 
@@ -470,6 +541,7 @@ function outcome(id: string, status: WordHighlightOutcome['status'], attempts: W
 
 function draftCandidate(
   plan: TargetPlan, result: AlignWindowsResult['targets'][number], project: CaptionProject, clock: WindowClock,
+  order: CaptionSegment[], planDurationMs: number,
 ): CandidateDraft | WordHighlightOutcome {
   const { caption, variants, consulted } = plan;
   const last = result.attempts.at(-1);
@@ -484,10 +556,14 @@ function draftCandidate(
   const preserved = preserveManual(caption, measurement.words, measurement.spans);
   const candidate = outcome(caption.id, 'candidate', result.attempts);
   candidate.variant = variant.name;
-  candidate.dependencies = Object.fromEntries(consulted.map((cue) => [cue.id, captionWordTimingRevision(cue)]));
-  candidate.basis = evidenceBasis(caption, variant, project, clock);
+  candidate.consulted = consulted.map(({ id }) => id);
+  candidate.overlapping = overlappingHighlightCues(caption, order);
+  candidate.planDurationMs = planDurationMs;
+  candidate.evidenceDurationMs = highlightFrameTime(clock.frameCount, clock);
+  candidate.beforeTrack = caption.wordTiming ?? null;
+  candidate.basis = evidenceBasis(caption, variant, project, clock, candidate.overlapping);
   if (measurement.mappingFailure) candidate.diagnostics.mappingFailure = true;
-  return { outcome: candidate, plan, ...preserved, durationMs: highlightFrameTime(clock.frameCount, clock) };
+  return { outcome: candidate, plan, ...preserved, durationMs: candidate.evidenceDurationMs };
 }
 
 const defaultDependencies: WordHighlightDependencies = {
@@ -517,6 +593,8 @@ export function createWordHighlightEngine(dependencies: WordHighlightDependencie
       const project = await loadProject(projectId, expectedMedia);
       const fingerprint = mediaFingerprint(project);
       const order = orderHighlightCaptions(project.captions);
+      const allCues = orderHighlightCaptions(project.captions, true);
+      const captionsById = new Map(allCues.map((caption) => [caption.id, caption]));
       const indices = new Map(order.map(({ id }, index) => [id, index]));
       const results = new Map<string, WordHighlightOutcome>();
       const eligible = ids.flatMap((id) => {
@@ -551,7 +629,9 @@ export function createWordHighlightEngine(dependencies: WordHighlightDependencie
           const started = dependencies.clock();
           const measurement = byId.get(plan.caption.id);
           try {
-            const result = measurement && draftCandidate(plan, measurement, project, measurement.clock ?? measured.clock);
+            const result = measurement && draftCandidate(
+              plan, measurement, project, measurement.clock ?? measured.clock, allCues, normalized.durationMs,
+            );
             if (result && 'plan' in result) drafts.push(result);
             else results.set(plan.caption.id, result ?? outcome(plan.caption.id, 'error'));
           } catch {
@@ -560,24 +640,30 @@ export function createWordHighlightEngine(dependencies: WordHighlightDependencie
             dependencies.onTargetMeasured?.(plan.caption.id, dependencies.clock() - started + (measurement?.elapsedMs ?? 0));
           }
         }
-        applyOccurrenceGuard(drafts, order);
+        const guarded = guardOccurrences(drafts, order, true);
         const latest = await loadProject(projectId, expectedMedia);
         if (mediaFingerprint(latest) !== fingerprint) throw new WordHighlightProjectError(409);
         const latestById = new Map(latest.captions.map((caption) => [caption.id, caption]));
-        for (const draft of drafts) {
+        for (const [index, draft] of drafts.entries()) {
           const { caption } = draft.plan;
           const candidate = draft.outcome;
-          const stale = Object.entries(candidate.dependencies!).some(([id, revision]) => {
-            const latestCaption = latestById.get(id);
-            return !latestCaption || captionWordTimingRevision(latestCaption) !== revision;
-          });
+          const { words, conflicts, peers } = guarded[index];
+          const dependencies = [...draft.plan.consulted, ...candidate.overlapping!.map(({ id }) => captionsById.get(id)!), ...peers];
+          candidate.dependencies = Object.fromEntries(dependencies.map((cue) => [cue.id, captionWordTimingRevision(cue)]));
+          candidate.inputRevisions = Object.fromEntries(dependencies.map((cue) => [cue.id, highlightInputRevision(cue)]));
+          if (conflicts.length) candidate.conflicts = conflicts;
+          const stale = !sameSavedHighlightTrack(latestById.get(caption.id)?.wordTiming, candidate.beforeTrack)
+            || Object.entries(candidate.inputRevisions).some(([id, revision]) => {
+              const latestCaption = latestById.get(id);
+              return !latestCaption || highlightInputRevision(latestCaption) !== revision;
+            });
           if (stale) {
             results.set(caption.id, outcome(caption.id, 'stale', candidate.diagnostics.attempts));
             continue;
           }
           const verified = validateMarkedWordTiming(caption.text, {
             version: 1, evidence: 2, text: caption.text, basis: candidate.basis,
-            words: draft.words.sort((a, b) => a.startOffset - b.startOffset),
+            words: words.sort((a, b) => a.startOffset - b.startOffset),
           }, draft.durationMs);
           if (verified.ok) {
             candidate.track = verified.timing;

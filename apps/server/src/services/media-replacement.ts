@@ -304,7 +304,7 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
         // project publication. Invalidation also drains in-flight normalization.
         await deps.invalidateCache(projectId);
         abortIfRequested(options.signal);
-        const saved = await persist(target, { restoreAppearance: Boolean(restoreId) });
+        const saved = await persist({ ...target, wordHighlightFollow: undefined }, { restoreAppearance: Boolean(restoreId) });
         published = true;
         const warnings: string[] = [];
         try { if ((await deps.removeProposals(projectId)).failed) warnings.push('proposals'); } catch { warnings.push('proposals'); }
