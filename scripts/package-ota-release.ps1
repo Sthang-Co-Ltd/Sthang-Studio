@@ -3,6 +3,7 @@ param(
   [string]$ReleaseNotesFile
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows-archive.ps1')
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -50,7 +51,7 @@ try {
   # settings here so this Windows checkout exports the same accepted bytes.
   & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$PayloadZip" HEAD -- @Paths
   if ($LASTEXITCODE -ne 0) { throw 'Could not archive the reviewed OTA payload.' }
-  Expand-Archive -LiteralPath $PayloadZip -DestinationPath $Source -Force
+  Expand-StudioArchive -LiteralPath $PayloadZip -DestinationPath $Source -Force
 
   foreach ($Protected in @('data','uploads','exports','node_modules','.venv','.timing-envs','.timing-setup.lock','.timing-transaction.json','.timing-transaction.json.tmp','versions','updates','release-artifacts','.sthang-update-version.json')) {
     if (Test-Path (Join-Path $Source $Protected)) { throw "OTA payload contains protected state: $Protected" }

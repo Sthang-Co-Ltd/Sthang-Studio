@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+. (Join-Path $PSScriptRoot 'windows-archive.ps1')
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
@@ -160,7 +161,7 @@ function Install-FFmpegFallback {
 
     if (Test-Path $target) { Remove-Item $target -Recurse -Force }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
-    Expand-Archive -Path $archive -DestinationPath $target -Force
+    Expand-StudioArchive -LiteralPath $archive -DestinationPath $target -Force
     $ffmpegExe = Get-ChildItem -Path $target -Filter ffmpeg.exe -File -Recurse | Select-Object -First 1
   }
 

@@ -1,5 +1,6 @@
 # Shared app-private Python provisioning. Dot-source only; no global PATH writes.
 # Reviewed candidate bytes still require native Windows acceptance before release.
+. (Join-Path $PSScriptRoot 'windows-archive.ps1')
 $env:ORT_DISABLE_TELEMETRY = '1'
 $env:HF_HUB_DISABLE_TELEMETRY = '1'
 $env:DO_NOT_TRACK = '1'
@@ -103,7 +104,7 @@ function Get-StudioManagedNode([switch]$NoDownload) {
       if ($LASTEXITCODE -ne 0) { throw 'The private Node download failed.' }
     } else { Invoke-WebRequest -Uri $Url -OutFile $Archive -UseBasicParsing -TimeoutSec 1800 }
     if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $StudioNodeSha256) { throw 'The private Node archive failed SHA-256 verification.' }
-    Expand-Archive -LiteralPath $Archive -DestinationPath $Extract
+    Expand-StudioArchive -LiteralPath $Archive -DestinationPath $Extract
     if (-not (Test-StudioNode (Join-Path $Candidate 'node.exe')) -or -not (Test-Path -LiteralPath (Join-Path $Candidate 'npm.cmd'))) { throw 'The verified Node candidate failed native x64/security-floor validation.' }
     if (Test-Path -LiteralPath $Target) { Move-Item -LiteralPath $Target -Destination $Backup; $HadPrevious = $true }
     try {

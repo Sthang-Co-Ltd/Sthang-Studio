@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows-archive.ps1')
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
@@ -80,7 +81,7 @@ try {
   Write-Host "Preparing exact tracked release build for commit $Commit..." -ForegroundColor Cyan
   & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$BuildArchive" $Commit
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the exact tracked release-build source archive.' }
-  Expand-Archive -LiteralPath $BuildArchive -DestinationPath $BuildRoot -Force
+  Expand-StudioArchive -LiteralPath $BuildArchive -DestinationPath $BuildRoot -Force
 
   $BuildPackageLock = Join-Path $BuildRoot 'package-lock.json'
   if (-not (Test-Path -LiteralPath $BuildPackageLock)) {
@@ -147,7 +148,7 @@ try {
   Write-Host "Creating clean Apple Silicon macOS package for Sthang Studio $Version..." -ForegroundColor Cyan
   & git -c core.autocrlf=false -c core.eol=lf archive --format=zip "--output=$PayloadZip" $Commit -- @PayloadPaths
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the tracked macOS release payload.' }
-  Expand-Archive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
+  Expand-StudioArchive -LiteralPath $PayloadZip -DestinationPath $FilesFolder -Force
 
   foreach ($BuildOutput in @(
     'apps\server\dist',
