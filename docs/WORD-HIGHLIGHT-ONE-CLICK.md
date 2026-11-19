@@ -54,7 +54,76 @@ painted groups, the plain caption, fast speech, repeated words, overlaps, cue
 edges, and a sample of partial captions. Reviewers should record onset and end
 independently and mark every caption they would change before export.
 
+## Timing accuracy
+
+Coverage measures whether a word lights. Accuracy measures whether it lights at
+the right moment. The accuracy study ran after implementation, on scratch copies
+of the two qualification projects. Two blind AI listeners labelled when each word
+was heard, without seeing Studio's timing. A component counts as correct when
+both its start and its end fall within 80 ms of the listener's edges. It counts
+as wrong-word when it does not overlap the heard word at all. Owner listening is
+still pending, so these figures are provisional.
+
+The study used a random holdout of 80 captions. Eleven of those captions also
+appeared in the tuning set, so they were excluded. The remaining 69 captions
+contain 193 painted components.
+
+| Within | 80 ms | 120 ms | 150 ms | 200 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Components with both edges in range | 144 / 193 (74.6%) | 81.3% | 86.5% | 91.2% |
+
+- The median edge error was 30 ms at the start and 20 ms at the end.
+- In 39 of the 69 captions, every component was within 80 ms. At 150 ms, 50 of
+  69 met that bar.
+- 19 components were wrong-word. Of those, 11 lie entirely outside the saved
+  caption cue, so no change inside the existing cue can fix them.
+- On 165 holdout paints that the previous per-caption sync also produced, from
+  60 captions, the two methods matched closely:
+
+  | Measure | This branch | Previous sync |
+  | --- | ---: | ---: |
+  | Within 80 ms | 128 | 130 |
+  | Within 150 ms | 145 | 145 |
+  | Wrong-word | 12 | 15 |
+
+- One-click Apply therefore raises coverage without a measurable change in
+  timing accuracy.
+- The two listeners agreed on whether a word was spoken for 117 of 118 words.
+  For 90 of 113 components, they agreed on both edges within 80 ms. Their
+  median disagreement was 30 ms and the 90th percentile was 130 ms. The 80 ms
+  threshold is close to the floor of this measurement.
+
+Caption cue edges come from the same local alignment as the word timing. Most
+remaining errors are therefore errors in the cue as well. They cluster in two
+places:
+
+- speech the caption text leaves out, such as false starts, fillers, and
+  repeated or extra words;
+- short words at the end of a line spoken quickly.
+
+None of the following improved accuracy without losing correct highlights, so
+none ships:
+
+- an alignment-score gate;
+- energy-based or acoustic-posterior silence trimming;
+- a wording-mismatch flag;
+- fallback-recognizer word timing;
+- perturbation stability gates;
+- wildcard tokens for unwritten speech;
+- unrestricted CTC alignment.
+
+A control experiment ran the same local model against the exact spoken wording
+of 41 disputed captions. Within-80 ms components rose from 66 to 74 of 118.
+Wrong-word components fell from 20 to 10. Using exact wording in the product
+would change the caption-generation request, so it is future work that needs a
+separate product decision.
+
 ## Known limitations
+
+Apply measures words inside each saved caption cue and does not move cues.
+Where the caption text leaves out spoken words, or where a cue edge is itself
+off, a highlight can light early, late or on a neighbouring word. See
+[Timing accuracy](#timing-accuracy). Correct those captions in Fine Timing.
 
 Word-by-word exports require an individual supported interval for every word.
 For large Apply operations, inline Undo is bounded by the existing 8 MiB API
