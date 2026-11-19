@@ -33,6 +33,7 @@ test('Windows stable broker launches from cwd across command-sensitive install p
     'Desktop Code & Script',
     'Desktop (Code) Script',
   ];
+  const hardeningKey = 'NoDefaultCurrentDirectoryInExePath';
   try {
     for (const name of cases) {
       const installRoot = path.join(root, name);
@@ -46,14 +47,22 @@ test('Windows stable broker launches from cwd across command-sensitive install p
 
       for (const [activation, expectedMode] of [[true, 'activation'], [false, 'previous']]) {
         const spec = buildStudioStartSpec(installRoot, activation);
-        const result = spawnSync(spec.command, spec.args, {
-          cwd: spec.cwd,
-          env: spec.env,
-          encoding: 'utf8',
-          windowsHide: true,
-        });
-        assert.equal(result.status, 0, `${name} (${expectedMode}): ${result.stderr}`);
-        assert.match(result.stdout, new RegExp(`MODE=${expectedMode}`));
+        assert.deepEqual(spec.args, ['/d', '/c', '.\\run-windows.bat']);
+        assert.ok(spec.args.every(arg => !arg.includes(installRoot)));
+        const env = { ...spec.env };
+        for (const key of Object.keys(env)) {
+          if (key.toLowerCase() === hardeningKey.toLowerCase()) delete env[key];
+        }
+        for (const hardened of [false, true]) {
+          const result = spawnSync(spec.command, spec.args, {
+            cwd: spec.cwd,
+            env: hardened ? { ...env, [hardeningKey]: '1' } : env,
+            encoding: 'utf8',
+            windowsHide: true,
+          });
+          assert.equal(result.status, 0, `${name} (${expectedMode}, hardened=${hardened}): ${result.stderr}`);
+          assert.match(result.stdout, new RegExp(`MODE=${expectedMode}`));
+        }
       }
     }
   } finally {

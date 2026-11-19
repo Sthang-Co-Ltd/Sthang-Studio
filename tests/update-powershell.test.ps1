@@ -311,7 +311,7 @@ Write-Host "$Mode extraction, -Force overwrite and missing ZIP checks passed."
 
   $Prepare = Get-Content -LiteralPath (Join-Path $Root 'scripts\prepare-studio-update.ps1') -Raw
   $NpmIndex = $Prepare.IndexOf('& $ReviewedNpm ci')
-  $PythonIndex = $Prepare.IndexOf("& `$env:ComSpec /d /c 'setup-local-timing-windows.bat'")
+  $PythonIndex = $Prepare.IndexOf("& `$env:ComSpec /d /c '.\setup-local-timing-windows.bat'")
   $TypecheckIndex = $Prepare.IndexOf('& $ReviewedNpm run typecheck')
   $BuildIndex = $Prepare.IndexOf('& $ReviewedNpm run build')
   $MoveIndex = $Prepare.IndexOf('Move-Item -LiteralPath $ExtractRoot -Destination $Target')

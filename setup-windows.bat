@@ -53,7 +53,7 @@ if errorlevel 1 (echo ERROR: application typecheck failed.& if not "%KCS_NONINTE
 echo.
 echo Core app setup complete.
 echo Now setting up local caption timing...
-call "setup-local-timing-windows.bat"
+call ".\setup-local-timing-windows.bat"
 if errorlevel 1 (
   echo.
   echo Core app installed, but local timing setup did not finish.
