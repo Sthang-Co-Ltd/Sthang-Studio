@@ -647,6 +647,32 @@ test('three follow publications preserve the first snapshot, and later saves bre
 for (const [barrier, label] of [
   ['manual-save', 'Before manual save'],
   ['restore', 'Before restoring an earlier version'],
+] as const) {
+  test(`History dedupes an identical ${barrier} checkpoint and keeps the follow burst open`, async () => {
+    const project = fixture(`barrier-${barrier}-identical`, [cue('word')]);
+    const options = { coalesceKey: 'first-epoch', coalesceWindowMs: 15_000 };
+    const first = await historyStore.checkpoint(project, 'Follow', 'word-highlight-auto', options);
+    const middle = await historyStore.checkpoint(project, label, barrier);
+    assert.equal(middle.id, first.id);
+    const second = await historyStore.checkpoint(project, 'Follow', 'word-highlight-auto', options);
+    assert.equal(second.id, first.id);
+    const newEpoch = await historyStore.checkpoint(project, 'Follow', 'word-highlight-auto', { ...options, coalesceKey: 'new-epoch' });
+    assert.deepEqual((await historyStore.list(project.id)).map(({ id }) => id), [newEpoch.id, first.id]);
+  });
+
+  test(`History preserves a changed ${barrier} checkpoint and closes the follow burst`, async () => {
+    const project = fixture(`barrier-${barrier}-changed`, [cue('word')]);
+    const changed = { ...project, captions: [{ ...project.captions[0], text: 'Changed text' }] };
+    const options = { coalesceKey: 'first-epoch', coalesceWindowMs: 15_000 };
+    const first = await historyStore.checkpoint(project, 'Follow', 'word-highlight-auto', options);
+    const middle = await historyStore.checkpoint(changed, label, barrier);
+    const second = await historyStore.checkpoint(changed, 'Follow', 'word-highlight-auto', options);
+    const newEpoch = await historyStore.checkpoint(changed, 'Follow', 'word-highlight-auto', { ...options, coalesceKey: 'new-epoch' });
+    assert.deepEqual((await historyStore.list(project.id)).map(({ id }) => id), [newEpoch.id, second.id, middle.id, first.id]);
+  });
+}
+
+for (const [barrier, label] of [
   ['word-highlight', 'Before applying word highlights'],
   ['word-highlight', 'Before undoing word highlights'],
 ] as const) {

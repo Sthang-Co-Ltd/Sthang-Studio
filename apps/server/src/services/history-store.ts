@@ -183,8 +183,9 @@ async function checkpointInternal(project: CaptionProject, label: string, source
   const hash = fingerprint(project);
   const newestIndex = index.findIndex((entry) => matchesIndexMedia(entry, project.media));
   const newest = newestIndex >= 0 ? index[newestIndex] : undefined;
-  if (coalesceKey === undefined && source !== 'word-highlight'
-    && newest?.source === source && newest.fingerprint === hash) return summary(newest);
+  if (source !== 'word-highlight' && source !== 'word-highlight-auto') {
+    if (newest?.fingerprint === hash) return summary(newest);
+  }
 
   if (dedupeWindowMs > 0 && newest?.source === source && now - Date.parse(newest.createdAt) < dedupeWindowMs) {
     const updated: StoredHistoryEntry = {
