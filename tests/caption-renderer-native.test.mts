@@ -242,6 +242,13 @@ test('marked partial and group tracks color only the supported glyphs with ident
   // blue. Lime is distinguishable throughout the visible antialiased glyph.
   const hasLimeTint = (pixels: Buffer, offset: number) =>
     pixels[offset + 1] - (pixels[offset] + pixels[offset + 2]) / 2 > 15;
+
+  await fs.mkdir(config.uploadDir, { recursive: true });
+  const filename = 'marked-paint.mp4';
+  const input = path.join(config.uploadDir, filename);
+  ffmpeg(['-f', 'lavfi', '-i', 'color=0x204060:s=640x360:r=25:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', input]);
+  const size = (await fs.stat(input)).size;
+  const mp4Samples = [160, 200, 360, 400, 480, 520, 760, 800];
   for (const scenario of scenarios) {
     const marked: CaptionSegment = {
       ...caption, wordTiming: { version: 1, evidence: 2, text, words: scenario.words },
@@ -279,6 +286,59 @@ test('marked partial and group tracks color only the supported glyphs with ident
         }
       }
     }
+    const project: CaptionProject = {
+      id: `marked-paint-${scenario.name}`, title: 'Synthetic marked paint', mode: 'phrase', transcript: null,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      media: { filename, originalName: filename, mimeType: 'video/mp4', size, url: '/media/' + filename },
+      captions: [marked], captionAppearance: highlighted,
+    };
+    const exported = await renderCaptionedVideo(project, [marked], highlighted, { encoder: 'software', quality: 'high' });
+    const output = path.join(config.exportDir, exported.filename);
+    const presentationTimes = JSON.parse(execFileSync(config.ffprobePath, [
+      '-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time',
+      '-of', 'json', output,
+    ], { encoding: 'utf8', windowsHide: true })).frames.map((frame: { best_effort_timestamp_time: string }) =>
+      Math.round(Number(frame.best_effort_timestamp_time) * 1_000));
+    const bytes = ffmpeg(['-i', output, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-']);
+    const frameSize = width * height * 4;
+    assert.equal(bytes.length, presentationTimes.length * frameSize);
+    const native = await render([marked], highlighted, mp4Samples);
+    for (const [index, atMs] of mp4Samples.entries()) {
+      const frameIndex = presentationTimes.indexOf(atMs);
+      assert.ok(frameIndex >= 0, `Missing presentation frame at ${atMs} ms`);
+      const encoded = bytes.subarray(frameIndex * frameSize, (frameIndex + 1) * frameSize);
+      const exact = decodePng(native.frames[index].png);
+      const box = native.frames[index].bounds!;
+      const firstLit = atMs >= 180 && atMs < 400;
+      const thirdLit = scenario.name === 'partial' && atMs >= 500 && atMs < 780;
+      const expected = [firstLit, firstLit && scenario.name === 'group', thirdLit];
+      let absoluteError = 0;
+      let compared = 0;
+      for (let band = 0; band < labels.length; band++) {
+        let colored = 0;
+        let whitePixels = 0;
+        for (let y = box.y; y < box.y + box.height; y++) {
+          for (let x = Math.max(box.x, cuts[band]); x < Math.min(box.x + box.width, cuts[band + 1]); x++) {
+            const offset = (y * width + x) * 4;
+            if (encoded[offset + 1] > 194 && encoded[offset + 2] < 135 && hasLimeTint(encoded, offset)) colored++;
+            if ([0, 1, 2].every((channel) => encoded[offset + channel] > 220)) whitePixels++;
+            const alpha = exact[offset + 3] / 255;
+            for (const [channel, base] of [32, 64, 96].entries()) {
+              absoluteError += Math.abs(encoded[offset + channel] - (exact[offset + channel] * alpha + base * (1 - alpha)));
+              compared++;
+            }
+          }
+        }
+        const sample = `${scenario.name} / ${atMs} ms / ${labels[band]}`;
+        if (expected[band]) assert.ok(colored > 20, `${sample} must contain lime glyphs`);
+        else {
+          assert.ok(whitePixels > 20, `${sample} must retain white glyphs`);
+          assert.ok(colored <= 3, `${sample} contains unexpected lime paint`);
+        }
+      }
+      assert.ok(absoluteError / compared < 8, `${scenario.name} MP4 and native preview disagree at ${atMs} ms`);
+    }
+
   }
 });
 
