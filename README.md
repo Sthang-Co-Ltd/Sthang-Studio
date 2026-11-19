@@ -214,6 +214,21 @@ behavior. See [verification and public impact](docs/PREVIEW-UPDATE-SAFETY.md).
 
 ## Word-highlight preparation
 
+### One-click word highlighting (unreleased source)
+
+Turn on **Word highlighting** in Appearance to check captions using the
+project’s local audio. On an older project with highlighting already on, use
+**Apply to all captions**. Studio shows progress and saves supported timing in
+one guarded step after ordinary caption saves finish.
+
+Words with their own timing light individually. A measured group lights together.
+Unsupported words keep the normal color. Word-by-word exports require a usable
+interval for each individual word. **Review remaining** opens captions that need
+a listen. While Apply is active for the project, Studio checks affected captions
+after saved text or cue edits. **Cancel** and turning highlighting off stop future
+sync. **Undo** restores the last Apply while its saved tracks still match. See
+the [Fine Timing guide](docs/FINE-TIMING.md#one-click-apply-unreleased-source).
+
 In v0.90.0, turning on **Word highlighting** in Appearance syncs the
 unresolved captions locally and applies usable timing automatically. Finish
 reviewing caption wording first. Word timing edits preserve Review approvals.

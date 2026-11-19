@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Apply word highlights in one local pass from Appearance. Follow saved caption
+  edits after Apply, review remaining timing issues in Fine Timing, and undo the
+  last eligible Apply from Appearance.
+
 - Add source support for marked word timing. Native preview and styled exports can
   color supported words and measured groups while unsupported words keep their
   normal color. Caption Data v4 preserves this evidence for restore. Word-by-word
