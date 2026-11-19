@@ -220,6 +220,7 @@ type RetainedMediaView = {
 };
 
 const MAX_REPLACEMENT_EDIT_RECOVERIES = 3;
+const EMPTY_WORD_HIGHLIGHT_SUMMARY = wordHighlightCoverage([]);
 
 const uniqueLines = uniqueContextLines;
 
@@ -3896,8 +3897,15 @@ export default function App() {
   }, [exportRepair, workspaceTool, viewTicket]);
 
 
-  const wordHighlightSummary = useMemo(() => wordHighlightCoverage(draft), [draft]);
   const highlighting = previewAppearance.highlightMode === 'word';
+  const wordHighlightSummary = useMemo(() => {
+    if (!highlighting) return EMPTY_WORD_HIGHLIGHT_SUMMARY;
+    if (import.meta.env.DEV) {
+      (window as unknown as { __STHANG_TEST_HOOKS__?: { onWordHighlightCoverage?: (count: number, captions: readonly CaptionSegment[]) => void } })
+        .__STHANG_TEST_HOOKS__?.onWordHighlightCoverage?.(draft.length, draft);
+    }
+    return wordHighlightCoverage(draft);
+  }, [draft, highlighting]);
   const wordHighlightArmed = Boolean(project?.wordHighlightFollow?.enabled && highlighting);
   const highlightAvailability = Boolean(!busy && !saveConflict && !groupingApplying && !mediaMutationStatus
     && !currentProjectActiveJob && !generationPreparing);

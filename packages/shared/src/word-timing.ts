@@ -934,6 +934,20 @@ function preservedMarkedWords(before: CaptionSegment, after: CaptionSegment, wor
   });
 }
 
+// Reconciliation receives immutable timing tracks and reads the validated words.
+const markedWordTimingValidationCache = new WeakMap<object, {
+  text: string;
+  result: ReturnType<typeof validateMarkedWordTiming>;
+}>();
+
+function validateMarkedWordTimingCached(text: string, timing: CaptionWordTiming): MarkedWordTimingValidation {
+  const cached = markedWordTimingValidationCache.get(timing);
+  if (cached && text === cached.text) return cached.result;
+  const result = validateMarkedWordTiming(text, timing);
+  markedWordTimingValidationCache.set(timing, { text, result });
+  return result;
+}
+
 function reconcileMarkedWordTiming(before: CaptionSegment, after: CaptionSegment): CaptionSegment {
   const oldTiming = before.wordTiming!;
   const explicit = Object.hasOwn(after, 'wordTiming') && after.wordTiming !== oldTiming
@@ -941,11 +955,13 @@ function reconcileMarkedWordTiming(before: CaptionSegment, after: CaptionSegment
   if (explicit) {
     return validateMarkedWordTiming(after.text, after.wordTiming).ok ? after : withoutWordTiming(after);
   }
-  const validated = validateMarkedWordTiming(before.text, oldTiming);
+  const validated = validateMarkedWordTimingCached(before.text, oldTiming);
   if (!validated.ok) return withoutWordTiming(after);
   const delta = after.startMs - before.startMs;
   const moved = Number.isFinite(delta) && delta !== 0 && delta === after.endMs - before.endMs;
-  if (before.text === after.text && !moved) return { ...after, wordTiming: oldTiming };
+  if (before.text === after.text && !moved) {
+    return after.wordTiming === oldTiming ? after : { ...after, wordTiming: oldTiming };
+  }
 
   let preserved = preservedMarkedWords(before, after, validated.timing.words);
   if (moved) {
@@ -961,8 +977,12 @@ function reconcileMarkedWordTiming(before: CaptionSegment, after: CaptionSegment
 }
 
 export function reconcileCaptionWordTiming(before: CaptionSegment, after: CaptionSegment): CaptionSegment {
+  if (before === after) {
+    if (!hasWordTimingEvidence(before.wordTiming)) return after;
+    if (validateMarkedWordTimingCached(before.text, before.wordTiming!).ok) return after;
+    // An invalid marked track still needs to be stripped before saving the draft.
+  }
   if (hasWordTimingEvidence(before.wordTiming)) return reconcileMarkedWordTiming(before, after);
-  if (before === after) return after;
   const afterOwnsTrack = Object.prototype.hasOwnProperty.call(after, 'wordTiming');
   if (afterOwnsTrack && after.wordTiming == null && before.wordTiming != null) return after;
   if (

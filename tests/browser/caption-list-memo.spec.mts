@@ -1,13 +1,14 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { cleanFixtures, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
+import { markFixtureCaption } from './word-highlight-routes.mjs';
 
-const test = base.extend({ context: async ({ context }, use) => {
+const test = base.extend<{ markedTracks: boolean }>({ markedTracks: [false, { option: true }], context: async ({ context }, use) => {
   try { await use(context); } finally { await closeOwnedBrowserContext(context); }
 } });
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, markedTracks }) => {
   const state = await installFixture(page);
   state.profile.preferences.autosaveDelayMs = 60_000;
   const first = state.projects[0].captions[0];
@@ -15,12 +16,15 @@ test.beforeEach(async ({ page }) => {
     ...first, id: `list-memo-${index}`, text: `កម្ពុជា caption ${index}`,
     startMs: 200 + index * 1000, endMs: 800 + index * 1000, approved: false,
   }));
+  if (markedTracks) state.projects[0].captions = state.projects[0].captions.map(markFixtureCaption);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => {
     const target = window as any;
     target.__captionListBuilds = [];
+    target.__captionRowRenders = [];
     target.__STHANG_TEST_HOOKS__ = { ...(target.__STHANG_TEST_HOOKS__ || {}),
-      onCaptionListBuild: (count: number) => target.__captionListBuilds.push(count) };
+      onCaptionListBuild: (count: number) => target.__captionListBuilds.push(count),
+      onCaptionRowRender: (id: string) => target.__captionRowRenders.push(id) };
   });
 });
 async function tick(page: Page, time: number) {
@@ -76,4 +80,23 @@ test('cached-list menu actions retain a newer independent draft and their curren
   await expect(page.getByLabel('Caption 1 start time', { exact: true })).toBeEnabled();
   await expect(field).toHaveValue(text);
   await expect(page.locator('.caption-row')).toHaveCount(1000);
+});
+
+test.describe('with marked word timings', () => {
+  test.use({ markedTracks: true });
+
+  test('editing one caption only rerenders the edited row', async ({ page }) => {
+    await openProject(page);
+    await expect(page.locator('.caption-row')).toHaveCount(1000);
+    await tick(page, .25);
+    const field = page.getByLabel('Caption 501 text', { exact: true });
+    await field.focus();
+    await page.evaluate(() => { (window as any).__captionRowRenders = []; });
+    await field.fill('??????? caption 500 edited');
+    await expect(page.locator('.save-action')).toBeEnabled();
+
+    const rendered = await page.evaluate(() => (window as any).__captionRowRenders as string[]);
+    expect([...new Set(rendered)]).toEqual(['list-memo-500']);
+    await expect(field).toHaveValue('??????? caption 500 edited');
+  });
 });

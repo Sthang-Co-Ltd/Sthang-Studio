@@ -244,3 +244,44 @@ test('exceptions rank conflicts, plain and partial captions before locked ones, 
   assert.deepEqual(result.counts, { 'full-individual': 0, 'full-with-groups': 1, partial: 2, none: 2 });
   assert.deepEqual(classifyHighlightTargets([group, partial]).targets, ['partial']);
 });
+
+test('warm coverage matches fresh plans and refreshes when any plan input changes', () => {
+  const word = (id: string, startOffset: number, endOffset: number, startMs: number): CaptionWord => ({
+    id, startOffset, endOffset, startMs, endMs: startMs + 40, source: 'aligned', method: 'kfa',
+  });
+  const track = (words: CaptionWord[]) => ({ version: 1 as const, evidence: 2 as const, text: 'Alpha beta', words });
+  const full = track([word('alpha', 0, 5, 120), word('beta', 6, 10, 200)]);
+  const partial = track([full.words[0], {
+    ...full.words[1], startMs: null, endMs: null, source: 'estimated', method: undefined, needsReview: true, issue: 'missing',
+  }]);
+  const captions: CaptionSegment[] = [
+    { ...cue('full'), wordTiming: full },
+    { ...cue('groups'), wordTiming: track([{ ...word('group', 0, 10, 120), method: 'kfa-group', members: [[0, 5], [6, 10]] }]) },
+    { ...cue('partial'), wordTiming: partial },
+    cue('none'),
+    { ...cue('locked'), timingLocked: true },
+    { ...cue('stale'), wordTiming: { ...full, text: 'Different wording' } },
+    cue('punctuation', 100, '?'),
+  ];
+
+  const cold = () => wordHighlightCoverage(structuredClone(captions));
+  const expected = cold();
+  assert.deepEqual(expected.counts, { 'full-individual': 1, 'full-with-groups': 1, partial: 1, none: 3 });
+  assert.deepEqual(expected.exceptions.map(({ id }) => id), ['stale', 'none', 'partial', 'locked']);
+  assert.deepEqual(wordHighlightCoverage(captions), expected);
+  assert.deepEqual(wordHighlightCoverage(captions), expected);
+
+  for (const mutate of [
+    () => { captions[0].text = 'Different wording'; },
+    () => { captions[1].startMs = 200; },
+    () => { captions[2].endMs = 110; },
+    () => { captions[3].timingLocked = true; },
+    () => { captions[5].wordTiming = full; },
+  ]) {
+    const previous = wordHighlightCoverage(captions);
+    mutate();
+    const recomputed = cold();
+    assert.notDeepEqual(recomputed, previous);
+    assert.deepEqual(wordHighlightCoverage(captions), recomputed);
+  }
+});

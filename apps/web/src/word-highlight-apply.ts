@@ -1,4 +1,4 @@
-import { compileHighlightPlan, highlightAttention, type CaptionProject, type CaptionSegment, type Coverage } from '@kcs/shared';
+import { compileHighlightPlan, highlightAttention, type CaptionProject, type CaptionSegment, type Coverage, type HighlightPlan } from '@kcs/shared';
 import { ApiRequestError, WordHighlightPublicationError, type WordHighlightAppliedChange, type WordHighlightReceipt } from './api';
 
 export type WordHighlightIntent = 'apply' | 'follow';
@@ -74,11 +74,29 @@ export function affectedHighlightIds(before: CaptionSegment[], after: CaptionSeg
 const issueSeverity = ['text-mismatch', 'no-fit', 'discontinuous', 'outside-cue', 'missing', 'grid-collapse', 'edited'];
 const urgentIssues = new Set(['ambiguous-occurrence', 'manual-conflict', 'stale']);
 
+const coveragePlans = new WeakMap<CaptionSegment, Pick<CaptionSegment,
+  'text' | 'startMs' | 'endMs' | 'timingLocked' | 'wordTiming'> & { plan: HighlightPlan }>();
+
+function coveragePlanFor(caption: CaptionSegment): HighlightPlan {
+  const { text, startMs, endMs, timingLocked, wordTiming } = caption;
+  const cached = coveragePlans.get(caption);
+  if (cached && text === cached.text && startMs === cached.startMs && endMs === cached.endMs
+    && timingLocked === cached.timingLocked && wordTiming === cached.wordTiming) return cached.plan;
+
+  const plan = planFor(caption);
+  coveragePlans.set(caption, { text, startMs, endMs, timingLocked, wordTiming, plan });
+  if (import.meta.env?.DEV) {
+    (window as unknown as { __STHANG_TEST_HOOKS__?: { onWordHighlightCoveragePlan?: (id: string) => void } })
+      .__STHANG_TEST_HOOKS__?.onWordHighlightCoveragePlan?.(caption.id);
+  }
+  return plan;
+}
+
 export function wordHighlightCoverage(captions: CaptionSegment[]) {
   const counts: Record<Coverage, number> = { 'full-individual': 0, 'full-with-groups': 0, partial: 0, none: 0 };
   const exceptions = captions.flatMap((caption) => {
     if (!hasSpokenText(caption)) return [];
-    const plan = planFor(caption);
+    const plan = coveragePlanFor(caption);
     counts[plan.coverage]++;
     if (plan.coverage === 'full-individual' || plan.coverage === 'full-with-groups') return [];
     const urgent = plan.issues.find(({ code }) => urgentIssues.has(code));
