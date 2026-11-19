@@ -145,7 +145,7 @@ function sameNonBatchFields(before: CaptionSegment, after: CaptionSegment) {
   return JSON.stringify(stableNonBatchFields(before)) === JSON.stringify(stableNonBatchFields(after));
 }
 
-function parseChanges(value: unknown, limit = MAX_BATCH_CHANGES): CaptionWordBatchChange[] {
+function parseChanges(value: unknown, limit = MAX_BATCH_CHANGES, restoring = false): CaptionWordBatchChange[] {
   if (!Array.isArray(value) || value.length < 1) {
     throw new CaptionWordBatchInputError('Prepared word timing changes are required.');
   }
@@ -170,7 +170,10 @@ function parseChanges(value: unknown, limit = MAX_BATCH_CHANGES): CaptionWordBat
     if (!sameNonBatchFields(before, after)) {
       throw new CaptionWordBatchInputError(`Change ${index + 1} may change only word timing.`);
     }
-    if (resolveCaptionWordTiming(after).state === 'stale') {
+    // Undo restores the exact previously persisted track. A legacy track whose
+    // text snapshot was already stale is never painted and is restored as-is;
+    // the revision guard still rejects any intervening edit.
+    if (resolveCaptionWordTiming(after).state === 'stale' && !(restoring && !hasWordTimingEvidence(after.wordTiming))) {
       throw new CaptionWordBatchInputError(`Change ${index + 1} has invalid word timing for its caption text.`);
     }
     // Undo can restore marked evidence; it must be structurally valid marked evidence.
@@ -416,7 +419,7 @@ export function planCaptionWordBatchApply(
 ): { project: CaptionProject; appliedCount: number } {
   const expectedMedia = parseExpectedMedia(expectedMediaInput);
   const action = parseAction(actionInput);
-  const changes = parseChanges(changesInput, preparedUndo ? MAX_PREPARED_KEYS : MAX_BATCH_CHANGES);
+  const changes = parseChanges(changesInput, preparedUndo ? MAX_PREPARED_KEYS : MAX_BATCH_CHANGES, action === 'undo');
   if (action === 'apply') {
     if (changes.some(({ after }) => hasWordTimingEvidence(after.wordTiming))) {
       throw new CaptionWordBatchInputError('Publish marked word timing by prepared reference.');
@@ -476,7 +479,7 @@ export async function applyCaptionWordBatch(
     throw new CaptionWordBatchInputError('This word highlight intent is only valid when undoing a prepared publication.');
   }
   const preparedUndo = intent !== undefined;
-  parseChanges(changes, preparedUndo ? MAX_PREPARED_KEYS : MAX_BATCH_CHANGES);
+  parseChanges(changes, preparedUndo ? MAX_PREPARED_KEYS : MAX_BATCH_CHANGES, action === 'undo');
 
   return dependencies.store.withProjectWrite(projectId, async (current, persist) => {
     if (!current) throw new CaptionWordBatchNotFoundError();

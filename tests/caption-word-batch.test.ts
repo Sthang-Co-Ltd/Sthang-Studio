@@ -103,6 +103,17 @@ test('undo may restore valid marked evidence but rejects malformed marked eviden
     CaptionWordBatchInputError);
 });
 
+test('undo restores an exact stale legacy track while apply still rejects stale timing', () => {
+  const project = fixture('word-batch-stale-undo');
+  const current = structuredClone(project.captions[0]);
+  const stale: CaptionSegment = { ...current, wordTiming: { ...current.wordTiming!, text: `${current.text} (older wording)` } };
+  assert.equal(resolveCaptionWordTiming(stale).state, 'stale');
+  const restored = planCaptionWordBatchApply(project, project.media, [{ before: current, after: stale }], 'undo', true);
+  assert.equal(restored.appliedCount, 1);
+  assert.deepEqual(restored.project.captions[0].wordTiming, stale.wordTiming);
+  assert.throws(() => planCaptionWordBatchApply(project, project.media, [{ before: current, after: stale }]), CaptionWordBatchInputError);
+});
+
 test('media, lock, missing-caption and duplicate-target conflicts fail closed', () => {
   const project = fixture();
   const before = structuredClone(project.captions[0]);
