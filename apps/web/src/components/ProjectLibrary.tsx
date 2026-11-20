@@ -17,6 +17,7 @@ interface ProjectLibraryProps {
   openingProjectId: string | null;
   onOpen: (id: string) => void;
   onBack: () => void;
+  onCreate: () => void;
   onRetry: () => void;
   storageUnavailable?: boolean;
   onReviewStorage?: () => void;
@@ -29,7 +30,7 @@ function ProjectDate({ label, value }: { label: string; value: string }) {
   return <span>{label} <time dateTime={date.toISOString()} title={date.toLocaleString()}>{dateFormatter.format(date)}</time></span>;
 }
 
-export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
+export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onCreate, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
   const ids = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
@@ -76,7 +77,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
       </div>
     </header>
 
-    <div className="project-library-toolbar">
+    {(!ready || result.total > 0) && <div className="project-library-toolbar">
       <div className="project-library-search" role="search" aria-label="Find projects">
         <label htmlFor={`${ids}-search`}>Search projects</label>
         <div className="project-library-search-field">
@@ -91,7 +92,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
           <option value="updated">Last edited</option><option value="created">Newest created</option><option value="title">Name A–Z</option>
         </select>
       </label>
-    </div>
+    </div>}
 
     {loading && <div className="project-library-empty" role="status"><LoaderCircle className="spin" size={22} aria-hidden="true"/><h2>Loading projects…</h2><p>Your saved projects will appear here.</p></div>}
     {!loading && loadFailed && <div className="project-library-empty" role="alert"><FolderOpen size={25} aria-hidden="true"/><h2>Could not load projects</h2><p>Your saved projects have not been changed. Try loading the list again.</p>
@@ -106,19 +107,19 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
     {ready && <>
       <div className="project-library-refresh">
         <span role="status" aria-live="polite" aria-atomic="true">{refreshing ? 'Refreshing projects…' : refreshError
-          ? `${refreshError} Last loaded projects are shown; this list may be out of date.` : 'Project list loaded.'}</span>
+          ? `${refreshError} Last loaded projects are shown; this list may be out of date.` : result.total ? 'Project list loaded.' : ''}</span>
         <button type="button" aria-disabled={refreshing || undefined} aria-busy={refreshing || undefined}
           onClick={() => { if (!refreshing) refresh(); }}>
           {refreshing ? <LoaderCircle size={16} className="spin" aria-hidden="true"/> : <RefreshCw size={16} aria-hidden="true"/>}Refresh projects
         </button>
       </div>
-      <div className="project-library-summary">
+      {result.total > 0 && <div className="project-library-summary">
         <h2 ref={resultHeading} tabIndex={-1} aria-live="polite" aria-atomic="true">{result.matches === result.total
           ? `${result.total} ${result.total === 1 ? 'project' : 'projects'}`
           : `${result.matches} of ${result.total} projects`}</h2>
         {result.pages > 1 && <span>Showing {result.start}–{result.end}</span>}
-      </div>
-      {result.total === 0 ? <div className="project-library-empty"><FolderOpen size={28} aria-hidden="true"/><h2>{storageUnavailable ? 'Project storage needs a check' : 'No projects yet'}</h2><p>{storageUnavailable ? 'Studio cannot confirm this is an empty saved library. Review storage; existing files are kept.' : 'Choose a video or audio file on Home to start your first project.'}</p><button type="button" onClick={storageUnavailable && onReviewStorage ? onReviewStorage : onBack}>{storageUnavailable && onReviewStorage ? 'Review storage' : 'Create a project'}</button></div>
+      </div>}
+      {result.total === 0 ? <div className="project-library-empty"><FolderOpen size={28} aria-hidden="true"/><h2 ref={resultHeading} tabIndex={-1}>{storageUnavailable ? 'Project storage needs a check' : 'No projects yet'}</h2><p>{storageUnavailable ? 'Studio cannot confirm this is an empty saved library. Review storage; existing files are kept.' : 'Choose a video or audio file on Home to start your first project.'}</p><button type="button" onClick={storageUnavailable && onReviewStorage ? onReviewStorage : onCreate}>{storageUnavailable && onReviewStorage ? 'Review storage' : 'Create a project'}</button></div>
         : result.matches === 0 ? <div className="project-library-empty"><Search size={26} aria-hidden="true"/><h2>No projects match your search</h2><p>Try another project name, or clear your search to see all projects.</p><button type="button" onClick={clearSearch}>Show all projects</button></div>
         : <ul className="project-library-results" aria-label="Project results">{result.items.map((project, index) => {
           const opening = openingProjectId === project.id;

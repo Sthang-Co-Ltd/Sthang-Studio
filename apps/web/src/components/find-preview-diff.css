@@ -1,3 +1,17 @@
+/* Keep the affected wording in view before the optional glossary decision. */
+.find-replace-modal .find-match-options{grid-template-columns:repeat(2,minmax(0,1fr))}
+.find-replace-modal .find-rule-choice{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:transparent;border:0;padding:0}
+.find-rule-choice label{font-size:13px;color:#b8c1cc}
+.find-rule-choice select{max-width:100%}
+@media(max-width:620px){
+  .find-replace-modal .modal-actions{position:sticky;bottom:0;z-index:1;background:var(--panel)}
+  .find-replace-modal .find-grid{padding-top:9px;gap:6px}
+  .find-replace-modal .find-rule-choice{margin-block:8px 0}
+}
+@media(max-width:360px){
+  .find-replace-modal .find-match-options{grid-template-columns:minmax(0,1fr)}
+  .find-replace-modal .find-match-options label{display:grid;grid-template-columns:48px minmax(0,1fr);align-items:center;gap:6px}
+}
 /* Keep unchanged wording quiet; only the changed grapheme spans carry color. */
 .find-replace-modal .find-preview-copy .find-after{color:#eef1f4}
 .find-preview-copy .find-preview-removed,.find-preview-copy .find-preview-added{font:inherit;text-decoration-line:underline;text-decoration-thickness:1px;text-underline-offset:.18em;text-decoration-skip-ink:auto}

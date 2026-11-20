@@ -265,14 +265,11 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
   };
 
   return <div className="caption-handoff-panel">
-    <section className="handoff-primary" aria-labelledby="caption-handoff-srt-title">
-      <div className="handoff-primary-copy">
-        <strong id="caption-handoff-srt-title">Captions file (SRT)</strong>
-        <span>Text and timing only. Set visual styling in the destination editor.</span>
-      </div>
-      <button className="handoff-download-primary" type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || saveBlocked || invalidCaptions} onClick={(event) => void exportFormat('srt', event.currentTarget)}>
+    <section className="handoff-primary" aria-label="SRT download">
+      <button className="handoff-download-primary" type="button" aria-describedby="srt-styling-note" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || saveBlocked || invalidCaptions} onClick={(event) => void exportFormat('srt', event.currentTarget)}>
         <Download size={15}/>{exporting === 'srt' ? 'Preparing…' : 'Download SRT'}
       </button>
+      <div className="handoff-primary-copy"><span id="srt-styling-note">Text and timing only. Set visual styling in the destination editor.</span></div>
     </section>
 
     <section className="handoff-destination" aria-labelledby="handoff-destination-title">
@@ -299,7 +296,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
       </div>
     </section>
 
-    <div className="handoff-transfer-summary" aria-label="What transfers with the selected caption format">
+    <div className="handoff-transfer-summary" aria-label="What transfers with SRT">
       <div><strong>Keeps</strong><span>{summary.keeps}</span></div>
       <div><strong>Set again in editor</strong><span>{summary.reset}</span></div>
     </div>
@@ -334,7 +331,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
               disabled={assBlocked}
               onClick={() => setAdvancedFormat(format.id)}
             >
-              <span className="handoff-format-top"><strong>{format.label}</strong><small>{format.badge}</small></span>
+              <span className="handoff-format-top"><strong>{format.label}</strong>{format.badge !== format.label && <small>{format.badge}</small>}</span>
               <span>{format.description}</span>
               {assBlocked
                 ? <em>ASS requires a video project to match source geometry.</em>

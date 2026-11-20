@@ -10,6 +10,7 @@ let actions: Array<{ mode: string; editedText?: string }>;
 const dock = (page: Page) => page.getByRole('region', { name: 'Live regeneration review', exact: true });
 const wording = (page: Page) => dock(page).getByLabel('Edit proposed caption wording', { exact: true });
 const hint = (page: Page) => dock(page).getByRole('textbox', { name: /Accuracy hint/ });
+const refine = (page: Page) => dock(page).locator('summary').filter({ hasText: 'Refine this proposal' });
 const revisedWording = 'ពាក្យថ្មី កម្ពុជា Newer wording';
 const revisedHint = 'Keep Khmer names កម្ពុជា in this newer hint';
 function proposal(id = 'q-main', text = 'សំណើ Khmer proposal', passNumber = 1): RegenerationProposal {
@@ -77,12 +78,17 @@ async function visibleStage(page: Page) {
       uncovered: hits.every((hit) => hit.ownsPoint), rect: { left, top, right, bottom, width, height }, hits };
   })).toMatchObject({ inViewport: true, uncovered: true });
 }
+async function tabTo(page: Page, target: Locator) {
+  for (let index = 0; index < 16; index++) {
+    if (await target.evaluate((node) => document.activeElement === node)) return;
+    await page.keyboard.press('Tab');
+  }
+  await expect(target).toBeFocused();
+}
 async function editWithKeyboard(page: Page, field: 'wording' | 'hint', value: string) {
-  await dock(page).getByRole('button', { name: 'Preview proposed captions', exact: true }).focus();
-  await page.keyboard.press('Tab');
-  await expect(wording(page)).toBeFocused();
-  if (field === 'hint') await page.keyboard.press('Tab');
   const target = field === 'wording' ? wording(page) : hint(page);
+  await dock(page).getByRole('button', { name: 'Proposed', exact: true }).focus();
+  await tabTo(page, target);
   await visibleFocus(target);
   await page.keyboard.press('Control+a'); await page.keyboard.insertText(value);
   await expect(target).toHaveValue(value);
@@ -114,6 +120,7 @@ for (const [width, mode] of [[1440, 'all'], [390, 'text-only']] as const) {
     await expect(full).toBeEnabled(); await expect(text).toBeEnabled();
     await (mode === 'all' ? full : text).click();
     await expect(dock(page)).toHaveCount(0);
+    await visibleFocus(page.getByLabel('Open project tools', { exact: true }));
     expect(actions).toEqual([{ mode, editedText: revisedWording }]);
     await keptEvidence(page, before);
   });
@@ -132,49 +139,48 @@ test('empty wording preserves deliberate Keep current and timing-only decisions'
   await keptEvidence(page, before);
 });
 
+test('opening a comparison from Home Activity reveals its heading and Close tool returns to Tools on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.goto('/');
+  await page.locator('.home-tools').getByRole('button', { name: /^Activity/ }).press('Enter');
+  await page.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).press('Enter');
+  const heading = page.getByRole('group', { name: 'Compare captions workspace', exact: true });
+  await visibleFocus(heading);
+  await heading.getByRole('button', { name: 'Close tool', exact: true }).press('Enter');
+  await expect(dock(page)).toHaveCount(0);
+  await visibleFocus(page.getByLabel('Open project tools', { exact: true }));
+  expect(actions).toEqual([]);
+});
+
+test('Escape in the desktop comparison restores keyboard focus to project Tools', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openComparison(page);
+  await wording(page).press('Escape');
+  await expect(dock(page)).toHaveCount(0);
+  await visibleFocus(page.getByLabel('Open project tools', { exact: true }));
+  expect(actions).toEqual([]);
+});
+
 test('mobile keyboard entry reveals proposal wording with the normal preview and no notice', async ({ page }, info) => {
-  await page.setViewportSize({ width: 390, height: 1000 }); await openComparison(page);
+  await page.setViewportSize({ width: 390, height: 760 }); await openComparison(page);
+  const heading = page.getByRole('group', { name: 'Compare captions workspace', exact: true });
+  await visibleFocus(heading);
   const before = structuredClone(state.projects[0].captions);
-  await expect(page.locator('.toast.notice')).toBeVisible();
-  await page.getByRole('button', { name: 'Dismiss notice', exact: true }).click();
   await expect(page.locator('.toast-stack > *')).toHaveCount(0);
   const modes = dock(page).getByRole('group', { name: 'Caption preview version' });
   const current = modes.getByRole('button', { name: 'Current', exact: true });
   const proposed = modes.getByRole('button', { name: 'Proposed', exact: true });
-  const previewCurrent = dock(page).getByRole('button', { name: 'Preview current captions', exact: true });
-  const previewProposed = dock(page).getByRole('button', { name: 'Preview proposed captions', exact: true });
+  await expect(modes.getByRole('button')).toHaveCount(2);
+  await expect(hint(page)).toBeHidden();
   await expect(current).toHaveAttribute('aria-pressed', 'false');
-  await expect(previewCurrent).toHaveAttribute('aria-pressed', 'false');
   await expect(proposed).toHaveAttribute('aria-pressed', 'true');
-  await expect(previewProposed).toHaveAttribute('aria-pressed', 'true');
-  // Start from one stable, real keyboard entry point, then use ordinary Tab
-  // traversal through the mode switch, playback actions and comparison cards.
-  const tabTo = async (target: Locator, maximum = 12) => {
-    for (let index = 0; index < maximum; index++) {
-      if (await target.evaluate((node) => document.activeElement === node)) return;
-      await page.keyboard.press('Tab');
-    }
-    await expect(target).toBeFocused();
-  };
-  await dock(page).getByRole('button', { name: 'Close regeneration review', exact: true }).focus();
-  await tabTo(current);
-  await page.keyboard.press('Enter');
+  await current.press('Enter');
   await expect(current).toHaveAttribute('aria-pressed', 'true');
-  await expect(previewCurrent).toHaveAttribute('aria-pressed', 'true');
   await expect(proposed).toHaveAttribute('aria-pressed', 'false');
-  await expect(previewProposed).toHaveAttribute('aria-pressed', 'false');
-  await tabTo(proposed);
+  await tabTo(page, proposed);
   await page.keyboard.press('Space');
   await expect(proposed).toHaveAttribute('aria-pressed', 'true');
-  await expect(previewProposed).toHaveAttribute('aria-pressed', 'true');
-  await tabTo(previewCurrent);
-  await page.keyboard.press('Enter');
-  await expect(current).toHaveAttribute('aria-pressed', 'true');
-  await expect(previewProposed).toHaveAttribute('aria-pressed', 'false');
-  await tabTo(previewProposed);
-  await page.keyboard.press('Enter');
-  await expect(previewProposed).toHaveAttribute('aria-pressed', 'true');
-  await page.keyboard.press('Tab');
+  await tabTo(page, wording(page));
   await visibleFocus(wording(page));
   await visibleStage(page);
   await expect.poll(() => page.locator('.stage-column').evaluate((node) =>
@@ -182,14 +188,21 @@ test('mobile keyboard entry reveals proposal wording with the normal preview and
   await page.keyboard.press('Control+a'); await page.keyboard.insertText(revisedWording);
   await expect(wording(page)).toHaveValue(revisedWording);
   await expect(proposed).toHaveAttribute('aria-pressed', 'true');
-  await expect(previewProposed).toHaveAttribute('aria-pressed', 'true');
   await expect(current).toHaveAttribute('aria-pressed', 'false');
-  await expect(previewCurrent).toHaveAttribute('aria-pressed', 'false');
   await visibleFocus(wording(page));
   await visibleStage(page);
   await expect(page.locator('.toast-stack > *')).toHaveCount(0);
   expect(actions).toEqual([]); await keptEvidence(page, before);
   await page.screenshot({ path: info.outputPath('proposal-wording-normal-preview-390.png'), animations: 'disabled' });
+  for (const name of ['Keep current', 'Accept text only', 'Accept timing only', 'Accept edited proposal']) {
+    await page.keyboard.press('Tab');
+    await expect(dock(page).getByRole('button', { name, exact: true })).toBeFocused();
+  }
+  await page.keyboard.press('Tab');
+  await expect(refine(page)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await tabTo(page, hint(page));
+  await visibleFocus(hint(page));
 });
 
 const editCases = [
@@ -210,6 +223,7 @@ for (const { width, field, phase } of editCases) {
       try { await route.fulfill({ json: next }); } finally { finished.release(); }
     });
     try {
+      await refine(page).click();
       await dock(page).getByRole('button', { name: 'Realign exact wording', exact: true }).click();
       await expect(dock(page)).toContainText('Synthetic refinement running');
       const fieldNode = field === 'wording' ? wording(page) : hint(page);
@@ -245,6 +259,7 @@ for (const { width, field, phase } of editCases) {
 
 test('an unchanged submitted comparison still opens its completed refinement automatically', async ({ page }) => {
   await openComparison(page); const before = structuredClone(state.projects[0].captions);
+  await refine(page).click();
   await wording(page).fill(revisedWording); await hint(page).fill(revisedHint);
   let submitted: any;
   await page.route('**/api/jobs/refine-proposal', async (route) => {
@@ -253,7 +268,9 @@ test('an unchanged submitted comparison still opens its completed refinement aut
   });
   await page.route('**/regeneration-proposals/q-next', (route) => route.fulfill({ json: proposal('q-next', 'សំណើថ្មី New completed take', 2) }));
   await dock(page).getByRole('button', { name: 'Realign exact wording', exact: true }).click();
-  await expect(dock(page)).toContainText('Synthetic refinement running');
+  await refine(page).click();
+  await expect(hint(page)).toBeHidden();
+  await expect(dock(page).getByText('Synthetic refinement running', { exact: true })).toBeVisible();
   expect(submitted).toMatchObject({ editedText: revisedWording, accuracyHint: revisedHint, strategy: 'manual-realign' });
   state.jobs = state.jobs.map((item) => item.id === 'unchanged-refinement' ? { ...item, status: 'completed', stage: 'complete', progress: 100, proposalId: 'q-next', updatedAt: '2026-01-02', completedAt: '2026-01-02' } : item);
   await expect(wording(page)).toHaveValue('សំណើថ្មី New completed take');

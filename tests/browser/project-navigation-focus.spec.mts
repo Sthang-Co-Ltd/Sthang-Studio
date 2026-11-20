@@ -113,16 +113,21 @@ for (const foreground of ['Settings', 'Guide'] as const) test(`a delayed Open yi
   } finally { gate.release(); }
 });
 
-test('the first-project guide keeps opening priority and returns to the named project control', async ({ page }) => {
+test('the first project focuses its named control and opens the guide on request', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.removeItem('sthang:project-guide-seen:v1'));
   await openRecentWithKeyboard(page);
   const close = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true }).getByRole('button', { name: 'Close guide', exact: true });
+  await visibleFocus(entry(page));
+  await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
+  await expect(close).toHaveCount(0);
+  const tools = page.getByLabel('Open project tools', { exact: true });
+  await tools.press('Enter');
+  await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).press('Enter');
   await expect(close).toBeFocused();
   await close.press('Escape');
   await expect(close).toHaveCount(0);
-  await expect(entry(page)).toBeFocused();
-  await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
+  await visibleFocus(tools);
 });
 
 test('a superseded Open cannot take focus or replace a newer project draft', async ({ page }) => {

@@ -211,9 +211,6 @@ async function open(page: Page, name: Case) {
 }
 
 async function openFromHome(page: Page, name: Case) {
-  // The real isolated API has no AI credential and opens Settings once per
-  // document. Dismiss that actual dialog, including after a recovery reload.
-  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.getByRole('button', { name: new RegExp(titleFor(name)) }).click();
   await expect(captionField(page, 1)).toBeVisible();
   await expect(page.locator('video')).toHaveAttribute('src', `/media/${idFor(name)}.mp4`);

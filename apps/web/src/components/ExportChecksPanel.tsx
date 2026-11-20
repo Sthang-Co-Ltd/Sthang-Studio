@@ -50,7 +50,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
     <div className="export-checks-head">
       <div><h3 id="export-checks-heading" ref={headingRef} tabIndex={-1}><ListChecks size={17}/>Check before export</h3>
         <p>{blockers > 0 ? `${blockers} blocker${blockers === 1 ? '' : 's'}` : 'No caption blockers'}
-          {suggestions > 0 ? ` · ${suggestions} review suggestion${suggestions === 1 ? '' : 's'}` : ''} for this output.</p></div>
+          {suggestions > 0 ? ` · ${suggestions} review suggestion${suggestions === 1 ? '' : 's'}` : ''}.</p></div>
       {supportAction}
     </div>
 

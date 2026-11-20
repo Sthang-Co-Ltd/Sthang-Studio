@@ -217,7 +217,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
         if (bounds.height > 0 && bounds.left < popup.right && bounds.right > popup.left) bottom = Math.min(bottom, bounds.top - 8);
       }
       const above = Math.max(0, buttonBox.top - top - 8);
-      const below = Math.max(0, bottom - buttonBox.bottom - 8);
+      const below = bottom - buttonBox.bottom - 8;
       const up = below < menu.scrollHeight && above > below;
       const height = Math.floor(up ? above : below);
       const first = menu.querySelector<HTMLButtonElement>('button:not(:disabled)');

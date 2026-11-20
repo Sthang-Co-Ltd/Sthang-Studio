@@ -543,13 +543,9 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     : currentPreset?.id || '';
 
   return <div className="export-workspace export-graphite">
-    {videoProject && <div className="export-workspace-head">
-      <span>Choose MP4 to keep the caption styling or SRT to edit the subtitles in another app.</span>
-    </div>}
-
     <div className="export-mode-switch" role="group" aria-label="Export type">
-      <button ref={videoOutput} aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
-      <button ref={captionOutput} aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT</small></button>
+      <button ref={videoOutput} aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4 · keeps styling</small></button>
+      <button ref={captionOutput} aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT · editable subtitles</small></button>
     </div>
 
     {sessionStorageError && <p className="export-mode-help" role="status">{sessionStorageError}</p>}

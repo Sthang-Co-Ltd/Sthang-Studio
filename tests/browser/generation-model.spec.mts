@@ -59,12 +59,11 @@ for (const missingKey of [true, false]) {
     } }));
     await page.reload();
     const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
-    if (missingKey) await dialog.getByRole('button', { name: 'Close settings' }).click();
     await page.getByRole('button', { name: /Audit landscape/ }).click();
     const workspace = page.getByRole('complementary', { name: 'Generate captions workspace' });
     await expect(workspace.getByText('Ready to generate captions', { exact: true })).toHaveCount(0);
     await workspace.getByRole('button', { name: actionName, exact: true }).press('Enter');
-    if (missingKey) await expect(dialog.getByLabel('Primary model', { exact: true })).toBeVisible();
+    if (missingKey) await expect(dialog.getByLabel('API key', { exact: true })).toBeVisible();
     else await expect(dialog.locator('#system-check-status')).toBeAttached();
     await dialog.getByRole('button', { name: 'Close settings' }).click();
     await expect(page.locator('.toast.error')).toHaveCount(0);

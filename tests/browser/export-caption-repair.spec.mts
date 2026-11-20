@@ -28,7 +28,7 @@ async function advancedFormats(page: Page) {
 }
 async function assMode(page: Page) {
   await captionsMode(page); await advancedFormats(page);
-  await page.getByRole('button', { name: /^ASS ASS/ }).click();
+  await page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ }).click();
 }
 function deferred() {
   let resolve!: () => void;

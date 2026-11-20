@@ -153,6 +153,27 @@ test('scrolling the mobile workbench updates an open menu and dismisses before i
   await expectEvidencePreserved(page);
 });
 
+test('one click opens the first row menu flush with the bottom of a short phone screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openProject(page);
+  const first = page.getByLabel('More actions for caption 1', { exact: true });
+  await first.scrollIntoViewIfNeeded();
+  const workbench = page.locator('.editor-workbench');
+  await first.evaluate((button) => {
+    button.closest<HTMLElement>('.editor-workbench')!.scrollTop += button.getBoundingClientRect().bottom - innerHeight;
+  });
+  expect(await first.evaluate((button) => Math.abs(button.getBoundingClientRect().bottom - innerHeight))).toBeLessThanOrEqual(2);
+  const before = await workbench.evaluate((node) => node.scrollTop);
+  await first.click();
+  const firstMenu = page.getByRole('menu', { name: 'Caption 1 actions', exact: true });
+  await expect(firstMenu).toBeVisible();
+  await expectUsableFocus(page, 1);
+  expect(await workbench.evaluate((node) => node.scrollTop)).toBeGreaterThan(before);
+  await page.keyboard.press('Escape');
+  await expect(first).toBeFocused();
+});
+
 test('opening the visible first mobile row reveals one complete action once without changing Follow', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openProject(page);

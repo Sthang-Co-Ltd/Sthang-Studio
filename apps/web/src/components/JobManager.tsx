@@ -21,6 +21,7 @@ interface Props {
   onResume(id: string): void;
   onCancel(id: string): void;
   onOpen(job: ProcessingJob): void;
+  getResultFocusTarget(): HTMLElement | null;
 }
 
 function isStopping(job: ProcessingJob) {
@@ -89,10 +90,10 @@ function formatDuration(ms: number) {
   return `${seconds}s`;
 }
 
-export function JobManager({ open, jobs, loadState, pendingActions, openingJobId, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen }: Props) {
+export function JobManager({ open, jobs, loadState, pendingActions, openingJobId, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen, getResultFocusTarget }: Props) {
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
-  useModalFocus(open, dialog, onClose);
+  useModalFocus(open, dialog, onClose, undefined, getResultFocusTarget);
   const [now, setNow] = useState(Date.now());
   const [exportDirectory, setExportDirectory] = useState('');
   const [exportDirectoryError, setExportDirectoryError] = useState('');

@@ -164,7 +164,6 @@ const FIRST_RUN_DISMISSED_KEY = 'sthang:first-run-dismissed:v1';
 function withCaptionWordTimings(project: CaptionProject): CaptionProject {
   return hydrateCaptionWordTimings(project);
 }
-const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
 type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
 
@@ -273,7 +272,7 @@ export default function App() {
   // project names or searches outside this tab's existing local project flow.
   const [projectLibraryView, setProjectLibraryView] = useState<ProjectLibraryView>(DEFAULT_PROJECT_LIBRARY_VIEW);
   const homeProjectsButton = useRef<HTMLButtonElement>(null);
-  const restoreHomeProjectsFocus = useRef(false);
+  const returnToHomeControl = useRef<'projects' | 'upload' | null>(null);
   const [startupAttempt, setStartupAttempt] = useState(0);
   const savedStorage = useProjectStorage(startupAttempt);
   const [storageNoticeDismissed, setStorageNoticeDismissed] = useState(false);
@@ -418,6 +417,7 @@ export default function App() {
   const [pendingJobActions, setPendingJobActions] = useState<Record<string, 'resume' | 'cancel'>>({});
   const pendingJobActionIds = useRef(new Set<string>());
   const [openingJobId, setOpeningJobId] = useState<string | null>(null);
+  const activityResultFocus = useRef<{ ticket: ProjectTicket; comparison: boolean } | null>(null);
   const pendingJobResult = useRef<{ id: string; request: AbortController } | null>(null);
   const jobReadGeneration = useRef(0);
   const appliedJobRead = useRef(0);
@@ -456,6 +456,8 @@ export default function App() {
   const [exportChoiceStorageError, setExportChoiceStorageError] = useState('');
   const [exportRepair, setExportRepair] = useState<{ ticket: ProjectTicket; target: ExportRepairTarget } | null>(null);
   const exportRepairFocus = useRef(false);
+  const [fontFocusTrigger, setFontFocusTrigger] = useState<HTMLButtonElement | null>(null);
+  useEffect(() => { if (workspaceTool !== 'appearance') setFontFocusTrigger(null); }, [workspaceTool]);
   const exportSession = exportVisit?.ticket === viewTicket && viewTicket.key === mediaKey
     ? exportVisit.session : createExportWorkspaceSession(Boolean(project && isVideoProject(project)));
   useEffect(() => {
@@ -583,7 +585,6 @@ export default function App() {
   const highlightJobActive = useRef(false);
   const highlightFollow = useRef<{ ticket: ProjectTicket; epoch: string; captions: CaptionSegment[]; pending: Set<string>; attempted: Set<string> } | null>(null);
   const lastChangeReason = useRef<DraftChangeReason>('metadata');
-  const aiOnboardingShown = useRef(false);
   const reviewPlaybackPass = useRef<ReviewPlaybackPass>('focus');
 
   useEffect(() => {
@@ -595,9 +596,10 @@ export default function App() {
   useEffect(() => () => { handoffRequest.current?.abort(); }, []);
 
   useEffect(() => {
-    if (!project && !showAllProjects && restoreHomeProjectsFocus.current) {
-      restoreHomeProjectsFocus.current = false;
-      homeProjectsButton.current?.focus();
+    if (!project && !showAllProjects && returnToHomeControl.current) {
+      const target = returnToHomeControl.current === 'upload' ? document.querySelector<HTMLElement>('.empty-stage .dropzone') : homeProjectsButton.current;
+      returnToHomeControl.current = null;
+      target?.focus();
     }
   }, [project, showAllProjects]);
 
@@ -919,13 +921,13 @@ export default function App() {
     setSelectionEnd(null);
     projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('.empty-stage .dropzone'));
   }
-  function changeProjectListView(allProjects: boolean) {
+  function changeProjectListView(allProjects: boolean, returnTo: 'projects' | 'upload' = 'projects') {
     if (project || busy) return;
     // Switching Home/library is a navigation intent too: a pending project read
     // must not open its editor after the creator has returned to the launcher.
     beginNavigation();
     setError('');
-    restoreHomeProjectsFocus.current = !allProjects;
+    returnToHomeControl.current = allProjects ? null : returnTo;
     setShowAllProjects(allProjects);
   }
   async function loadProposal(projectId: string, proposalId: string, ticket: ProjectTicket, automatic = false, submittedViewRevision?: number,
@@ -951,13 +953,6 @@ export default function App() {
     setProposalEntry({ ticket, value });
     return true;
   }
-
-  useEffect(() => {
-    if (!llmSettings || llmSettings.configured || aiOnboardingShown.current || project || busy) return;
-    aiOnboardingShown.current = true;
-    setSettingsTab('ai');
-    setShowProfile(true);
-  }, [llmSettings, project, busy]);
 
   useEffect(() => {
     if (!profile) return;
@@ -1061,16 +1056,6 @@ export default function App() {
   }, [mediaKey]);
 
   useEffect(() => () => { wordBatchController.current?.abort(); }, []);
-
-  useEffect(() => {
-    if (!project) return;
-    try {
-      if (localStorage.getItem(PROJECT_GUIDE_SEEN_KEY) !== '1') {
-        setShowGuide(true);
-        localStorage.setItem(PROJECT_GUIDE_SEEN_KEY, '1');
-      }
-    } catch { /* local-only onboarding preference */ }
-  }, [project?.id]);
 
   useEffect(() => {
     if (!proposal) return;
@@ -1975,6 +1960,7 @@ export default function App() {
     }
     const intent = requestNavigation();
     pendingJobResult.current?.request.abort();
+    const trigger = document.activeElement;
     const pending = { id: job.id, request: new AbortController() };
     pendingJobResult.current = pending;
     setOpeningJobId(job.id);
@@ -2011,8 +1997,10 @@ export default function App() {
           isCurrent: () => pendingJobResult.current === pending && operationRevision.current === navigationRevision,
         }) || !projectScope.current.isCurrent(ticket)
           || pendingJobResult.current !== pending || operationRevision.current !== navigationRevision) return;
-        setNotice('Regeneration preview opened. Current captions remain untouched until you approve it.');
       } else setNotice(compatibilityTranscriptionNotice(target) || (job.resultExport ? 'Export project opened. Compare the video with current content in Activity.' : 'Completed caption job opened.'));
+      if ((job.proposalId || target.id !== project?.id) && (document.activeElement === trigger || document.activeElement === document.body)) {
+        activityResultFocus.current = { ticket, comparison: Boolean(job.proposalId) };
+      }
       setShowJobs(false);
       handledJobVersions.current.set(job.id, jobObservation(job));
     } catch (reason) {
@@ -2206,6 +2194,13 @@ export default function App() {
       : caption), undefined, 'timing');
   };
 
+  const closeComparison = () => {
+    if (document.activeElement === document.body || document.activeElement?.closest('.workspace-inspector')) {
+      document.querySelector<HTMLElement>('.workspace-tools-menu > summary')?.focus();
+    }
+    setProposal(null);
+  };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
@@ -2226,7 +2221,7 @@ export default function App() {
       // shortcuts must never become a bare playback or approval action.
       if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey && !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       if (event.key === 'Escape') {
-        if (proposal) { setProposal(null); return; }
+        if (proposal) { closeComparison(); return; }
         if (showGuide) { setShowGuide(false); return; }
         if (showCorrections || showProfile || showFindReplace || showHistory || showJobs || showUpdates) {
           setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
@@ -3213,7 +3208,7 @@ export default function App() {
         mode !== 'reject',
       );
       if (published === 'stale') return;
-      setProposal(null);
+      closeComparison();
       if (published === 'applied') setNotice(mode === 'reject' ? 'Proposal discarded. Current captions were kept.' : `Regeneration applied: ${mode.replace('-', ' ')}.`);
     } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not apply regeneration'); }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
@@ -3997,6 +3992,14 @@ export default function App() {
     onReloadProject: () => void reloadSavedProject(),
   };
 
+  // Keep the Activity dialog and its focused control mounted while a result opens its project.
+  const activity = <JobManager key="activity" open={showJobs} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} getResultFocusTarget={() => {
+      const next = activityResultFocus.current;
+      activityResultFocus.current = null;
+      if (!next || !projectScope.current.isCurrent(next.ticket)) return null;
+      return document.querySelector<HTMLElement>(next.comparison ? '.workspace-inspector:not([hidden]) .inspector-heading' : '[data-project-entry-focus]');
+    }} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => void actOnJob(id, 'resume')} onCancel={(id) => void actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>;
+
   const overlays = <>
     {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError}
       preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
@@ -4011,7 +4014,6 @@ export default function App() {
       onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} loadState={historyLoadState} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
-    <JobManager open={showJobs} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => void actOnJob(id, 'resume')} onCancel={(id) => void actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}
@@ -4084,13 +4086,12 @@ export default function App() {
       <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
-      {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? 'Preferences could not load. Retry startup below to enable uploads.' : 'Loading preferences before you can upload.'
           : busy && busy !== 'Uploading…' ? 'Wait for the current task to finish before uploading.' : ''}
-        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={llmSettings?.configured} timingConfigured={health?.timing.configured} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={llmSettings?.configured} timingConfigured={health?.timing.configured} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>Set up AI for caption generation</button> : undefined}/>
     </div>
-    {health && !timingConfigured && (showAllProjects || !showFirstRun) && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
+    {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready.</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>Open System check</button></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
     {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">Loading preferences…</div>}
     {showAllProjects ? <ProjectLibrary
@@ -4099,12 +4100,13 @@ export default function App() {
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
       refreshing={projectListState.refreshing} refreshError={projectListState.error} refresh={() => void refreshProjects()}
       openingProjectId={openingProjectId} onOpen={(id) => void openRecentProject(id)}
-      onBack={() => changeProjectListView(false)} onRetry={() => setStartupAttempt((value) => value + 1)}
+      onBack={() => changeProjectListView(false)} onCreate={() => changeProjectListView(false, 'upload')} onRetry={() => setStartupAttempt((value) => value + 1)}
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
     /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{projectListState.error} Last loaded projects are shown.</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>Refresh projects</button></div>}
     {statusToasts}
+    {activity}
     {overlays}
   </main>;
 
@@ -4141,14 +4143,17 @@ export default function App() {
       tool={proposal ? 'proposal' : workspaceTool}
       title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
-      onClose={proposal ? () => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
-      getCloseFocusTarget={!proposal && workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
+      onClose={proposal ? () => { closeComparison(); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
+      getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
       preview={
         <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label="Media preview">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} recoveryFocusTarget={mediaPreviewFocus} onElementChange={setMediaElement}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} onChooseFont={proposal ? undefined : (trigger) => {
+            cancelPlayback(); media.current?.pause(); setReviewMode(false);
+            setFontFocusTrigger(trigger); setWorkspaceTool('appearance');
+          }} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
       }
@@ -4176,7 +4181,6 @@ export default function App() {
           editedText={proposalEditedText}
           accuracyHint={proposalAccuracyHint}
           refinementJob={refinementJob}
-          onClose={() => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); }}
           onPreviewMode={setProposalPreviewMode}
           onLoop={setProposalLoop}
           onReplay={replayProposal}
@@ -4229,6 +4233,7 @@ export default function App() {
           />}
 
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={mediaKey} project={project} captions={draft}
+            fontFocusTrigger={fontFocusTrigger} onFontFocusHandled={() => setFontFocusTrigger(null)}
             initialAppearance={previewAppearance}
             profileImportRevision={profileImportRevision}
             flushSave={flushAppearanceSave}
@@ -4406,6 +4411,7 @@ export default function App() {
     </EditorLayout>
 
     {statusToasts}
+    {activity}
     {overlays}
   </main>;
 }

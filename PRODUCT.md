@@ -709,6 +709,10 @@ available from Windows source folders containing spaces, without reloading the
 editor or discarding its draft. Explicit Retry keeps keyboard focus on the
 persistent Close tool control while loading, including below the mobile preview.
 
+Importing media, editing captions manually and downloading SRT are available before AI setup.
+The empty project library offers Create a project, which focuses the file picker. Users
+open Settings or Quick guide when they need them.
+
 Home explains when preferences or another task prevent importing, and shows
 Uploading only for an actual media import. Settings opens its existing sheet
 while startup data loads, offers Retry settings after failure, and keeps the
@@ -720,7 +724,8 @@ Optional startup-notice dismissal still closes after a failed local marker attem
 closing does not select or change either privacy choice.
 
 Find & Correct selects its prefilled query once on opening and identifies invalid
-regular expressions on the editable Find field. Project History guards duplicate
+regular expressions on the editable Find field. A blank replacement previews removal
+and names it on the action. Text locks protect matching captions. Project History guards duplicate
 refresh requests while preserving the visible entries and keyboard focus.
 Accuracy's Save globally confirms the submitted glossary against the saved result.
 Partial saves explain how to retry, preserve the full draft, and never claim every

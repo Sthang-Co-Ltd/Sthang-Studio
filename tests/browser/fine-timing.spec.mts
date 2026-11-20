@@ -67,6 +67,7 @@ test('clicking the audio above an edge seeks without changing timing', async ({ 
 });
 
 test('whole-caption movement preserves duration and stops at the media edge', async ({ page }) => {
+  state.projects[0].captions[2].endMs = 4000;
   await openTiming(page);
   await page.getByRole('button', { name: 'Move earlier', exact: true }).click();
   await expect.poll(() => state.projects[0].captions[0].startMs).toBe(150);
@@ -76,6 +77,20 @@ test('whole-caption movement preserves duration and stops at the media edge', as
   await page.getByRole('button', { name: 'Move earlier', exact: true }).click();
   await expect.poll(() => state.projects[0].captions[0].startMs).toBe(0);
   expect(state.projects[0].captions[0].endMs).toBe(800);
+  const timing = page.locator('.fine-timing');
+  const replay = timing.getByRole('button', { name: 'Replay caption', exact: true });
+  await expect(timing.getByRole('button', { name: 'Move earlier', exact: true })).toBeDisabled();
+  await expect(timing.getByRole('button', { name: 'Move start earlier by 100 milliseconds', exact: true })).toBeDisabled();
+  await replay.press('Alt+ArrowLeft');
+  await expect(page.locator('.toast.notice')).toHaveText('Reached the start of the media.');
+  const next = timing.getByRole('button', { name: 'Next caption', exact: true });
+  await next.click();
+  await next.click();
+  await expect(timing.getByLabel('Fine timing end', { exact: true })).toHaveValue('00:04.000');
+  await expect(timing.getByRole('button', { name: 'Move later', exact: true })).toBeDisabled();
+  await expect(timing.getByRole('button', { name: 'Move end later by 100 milliseconds', exact: true })).toBeDisabled();
+  await replay.press('Alt+ArrowRight');
+  await expect(page.locator('.toast.notice')).toHaveText('Reached the end of the media.');
 });
 
 test('locked captions remain playable but their timing cannot be changed', async ({ page }) => {

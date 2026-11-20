@@ -23,6 +23,55 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/system/llm-settings/test', (route) => route.fulfill({ json: connection }));
 });
 
+test('returning Home leaves setup optional and saves the chosen models with a first key on mobile', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let submitted: Record<string, string> | undefined;
+  await page.route('**/api/system/llm-settings', (route) => {
+    if (route.request().method() === 'PUT') submitted = route.request().postDataJSON();
+    return route.fulfill({ json: submitted
+      ? { ...baseline, model: submitted.model, fallbackModel: submitted.fallbackModel }
+      : { ...baseline, configured: false, keySource: 'none', canForgetSecureKey: false } });
+  });
+  await page.goto('/');
+  const launcher = page.locator('.empty-stage');
+  const setup = launcher.getByRole('button', { name: 'Set up AI for caption generation', exact: true });
+  await expect(setup).toBeInViewport();
+  await expect(launcher.getByRole('button', { name: 'Choose a video or audio file', exact: true })).toBeInViewport();
+  await expect(settings(page)).toBeHidden();
+  await page.screenshot({ path: info.outputPath('returning-home-no-key-390.png') });
+  await setup.press('Enter');
+  const firstKey = settings(page).getByLabel('API key', { exact: true });
+  await expect(firstKey).toBeVisible();
+  await expect(save(page)).toBeDisabled();
+  await expect(model(page)).toBeHidden();
+  await expect(fallback(page)).toBeHidden();
+  await page.screenshot({ path: info.outputPath('first-key-models-closed-390.png') });
+  await firstKey.fill('fixture-first-key');
+  await expect(save(page)).toBeEnabled();
+  const disclosure = settings(page).getByText('Model settings', { exact: true });
+  expect((await disclosure.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await disclosure.press('Enter');
+  await expect(model(page)).toHaveValue(baseline.model);
+  await expect(fallback(page)).toHaveValue(baseline.fallbackModel);
+  const help = settings(page).getByText('About these models', { exact: true });
+  const explanation = settings(page).getByText(/Leave the fallback blank to disable automatic failover/);
+  await expect(explanation).toBeHidden();
+  await help.press('Enter');
+  await expect(explanation).toBeVisible();
+  await help.press('Enter');
+  await expect(explanation).toBeHidden();
+  await expect(help).toBeFocused();
+  await model(page).fill('fixture-chosen-model');
+  await disclosure.press('Enter');
+  await expect(model(page)).toBeHidden();
+  await expect(firstKey).toHaveValue('fixture-first-key');
+  expect(submitted).toBeUndefined();
+  await save(page).press('Enter');
+  await expect(settings(page).getByText('AI settings saved securely on this computer. No restart needed.', { exact: true })).toBeVisible();
+  expect(submitted).toEqual({ apiKey: 'fixture-first-key', model: 'fixture-chosen-model', fallbackModel: baseline.fallbackModel });
+  await expect(key(page)).toHaveValue('');
+});
+
 test('saving acknowledges the captured AI settings and preserves newer key and model drafts', async ({ page }) => {
   const gate = deferred(); let saves = 0; let submitted: Record<string, string> = {};
   await page.route('**/api/system/llm-settings', async (route) => {

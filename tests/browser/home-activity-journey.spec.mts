@@ -71,11 +71,16 @@ test('first-run setup reports readiness with no projects and keeps known setup a
     : { json: { ...configured, configured: false } }));
 
   await page.reload();
-  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Could not load: System status' })).toBeVisible();
   await expect(connect).toBeEnabled();
   await expect(timing).toHaveCount(0);
   await expect(ready).toHaveCount(0);
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await expect(dialog).toBeHidden();
+  await connect.press('Enter');
+  await expect(dialog.getByLabel('API key', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(connect).toBeFocused();
 
   unavailable = 'ai';
   await page.setViewportSize({ width: 390, height: 844 });
@@ -91,7 +96,6 @@ test('first-run setup reports readiness with no projects and keeps known setup a
     environment: { platform: 'Synthetic Windows', node: 'test', appRoot: 'synthetic', apiPort: 1, webOrigin: 'synthetic' },
   } }));
   await timing.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
   await expect(dialog.getByText('Media check completed.', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Run checks', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');

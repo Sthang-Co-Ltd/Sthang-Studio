@@ -38,6 +38,8 @@ interface Props {
   onReplayEffect?: () => Promise<void>;
   onCancelReplayEffect?: () => void;
   onFontLibraryChange?: () => void;
+  fontFocusTrigger?: HTMLButtonElement | null;
+  onFontFocusHandled?: () => void;
   replayPreparing?: boolean;
   replayPlaying?: boolean;
   replayDisabled?: boolean;
@@ -70,6 +72,8 @@ export function CaptionAppearanceWorkspace({
   onReplayEffect,
   onCancelReplayEffect,
   onFontLibraryChange,
+  fontFocusTrigger,
+  onFontFocusHandled,
   replayPreparing = false,
   replayPlaying = false,
   replayDisabled = false,
@@ -221,6 +225,14 @@ export function CaptionAppearanceWorkspace({
     const target = error ? intent.button : intent.kind === 'fonts' ? fontPickerRef.current : presetTarget;
     if (target?.isConnected) target.focus({ preventScroll: true });
   }, [resourceOwner, loadingFonts, loadingPresets, fontReadError, presetReadError]);
+  useLayoutEffect(() => {
+    if (loadingFonts || !fontFocusTrigger) return;
+    if (fontFocusTrigger.isConnected && !document.querySelector('[aria-modal="true"]')
+      && (document.activeElement === fontFocusTrigger || document.activeElement === document.body)) {
+      revealAppearanceControl(fontPickerRef.current);
+    }
+    onFontFocusHandled?.();
+  }, [fontFocusTrigger, loadingFonts, onFontFocusHandled]);
   const hasOverlappingCaptions = useMemo(() => {
     const visible = captions
       .filter((caption) => caption.text.trim() && Number.isFinite(caption.startMs) && Number.isFinite(caption.endMs) && caption.endMs > caption.startMs)

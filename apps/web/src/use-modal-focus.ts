@@ -6,7 +6,10 @@ export function useModalFocus(
   dialog: RefObject<HTMLElement | null>,
   onDismiss: () => void,
   initialFocus?: RefObject<HTMLElement | null>,
+  getDestination?: () => HTMLElement | null,
 ) {
+  const destination = useRef(getDestination);
+  destination.current = getDestination;
   const dismiss = useRef(onDismiss);
   dismiss.current = onDismiss;
   useEffect(() => {
@@ -15,7 +18,7 @@ export function useModalFocus(
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     let composingTarget: HTMLElement | null = null;
     const focusable = () => Array.from(root.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      'button:not(:disabled), summary, [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
     )).filter((item) => item.tabIndex >= 0 && item.getClientRects().length > 0 && !item.closest('[inert], [aria-hidden="true"]'));
     const isTopmost = () => Array.from(document.querySelectorAll('[aria-modal="true"]')).at(-1) === root;
     const focusFirst = () => {
@@ -67,7 +70,11 @@ export function useModalFocus(
       root.removeEventListener('compositionstart', onCompositionStart, true);
       root.removeEventListener('compositionend', onCompositionEnd, true);
       root.removeEventListener('focusout', onFocusOut, true);
-      if (previous?.isConnected) {
+      const next = destination.current?.();
+      if (next?.isConnected && next.getClientRects().length && !document.querySelector('[aria-modal="true"]')) {
+        next.focus({ preventScroll: true });
+        next.scrollIntoView({ behavior: 'instant', block: 'start', inline: 'nearest' });
+      } else if (previous?.isConnected) {
         const target = previous.getClientRects().length ? previous : previous.closest('details')?.querySelector('summary');
         target?.focus();
       }

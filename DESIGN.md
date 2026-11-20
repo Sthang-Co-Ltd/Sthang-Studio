@@ -1057,6 +1057,11 @@ retargeted from native controls. Exact Ctrl/Command Save and Find remain availab
 
 ### Guide navigation and caption import (source-only)
 
+Open a completed comparison from Activity at its heading. Put the preview switch
+and wording ahead of the decision buttons, then offer optional refinement. Keep job
+progress visible when refinement is collapsed. An unavailable saved preview font
+links to the font picker in Appearance and leaves the saved choice with the user.
+
 Quick guide is a nonmodal companion. Focus its Close control on explicit opening,
 allow Tab to leave for the editor, and return focus to a connected launcher only
 while the guide owns the interaction. Escape respects composition and foreground

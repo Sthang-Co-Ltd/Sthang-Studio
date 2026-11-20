@@ -173,6 +173,11 @@ export function planCaptionTimingEdit(
     else requested = Math.min(value, limits.upper);
   }
   const after = editCaptionTiming(caption, kind, requested, durationMs);
-  const limited = requested !== value ? 'Reached the neighboring caption. Adjust the shared boundary or enable Allow overlaps to continue.' : undefined;
+  const start = kind === 'move' ? caption.startMs + value : value;
+  const end = kind === 'move' ? caption.endMs + value : value;
+  const limited = kind !== 'end' && start < 0 && after.startMs === 0 ? 'Reached the start of the media.'
+    : kind !== 'start' && end > durationMs && after.endMs === durationMs ? 'Reached the end of the media.'
+    : requested !== value ? 'Reached the neighboring caption. Adjust the shared boundary or enable Allow overlaps to continue.'
+    : undefined;
   return after === caption ? empty(limited) : { before: [caption], after: [after], limited };
 }

@@ -166,7 +166,7 @@ test('caption-file layout uses source resolution without waiting for saved video
     await expect(checkLayout(page)).toBeDisabled();
     await page.getByRole('group', { name: 'Export type' }).getByRole('button', { name: /Captions file/ }).click();
     await page.locator('.handoff-advanced > summary').click();
-    await page.getByRole('button', { name: /^ASS ASS/ }).click();
+    await page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ }).click();
     await expect(checkLayout(page)).toBeEnabled();
     await checkLayout(page).click();
     await expect(page.getByText('Layout fits the checked frame', { exact: true })).toBeVisible();

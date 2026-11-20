@@ -46,6 +46,7 @@ for (const width of [1440, 390]) test(`manual caption-preview retries keep a sta
   await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
   await remember(page); await expect(retry(page)).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Choose another font' })).toHaveCount(0);
   const before = JSON.stringify({ projects: state.projects, jobs: state.jobs });
   const time = await page.locator('video').evaluate((node: HTMLVideoElement) => node.currentTime);
   let held: ReturnType<typeof deferred> | null = null;
@@ -72,6 +73,28 @@ for (const width of [1440, 390]) test(`manual caption-preview retries keep a sta
       await unchanged(page, before);
     } finally { gate.release(); held = null; }
   }
+});
+
+for (const width of [1440, 390]) test(`unavailable preview font opens the font picker and recovers after a selection at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+  const missing = 'Unavailable Khmer fixture';
+  state.projects[0].captionAppearance = { ...state.projects[0].captionAppearance!, fontFamily: missing };
+  await page.route('**/api/video-export/landscape/preview', (route) => {
+    if (route.request().postDataJSON().appearance.fontFamily !== missing) return route.fallback();
+    return route.fulfill({ status: 400, json: { error: 'The saved font is unavailable.', code: 'font-unavailable' } });
+  });
+  await openProject(page);
+  const changeFont = stage(page).getByRole('button', { name: 'Choose another font', exact: true });
+  await expect(retry(page)).toBeEnabled();
+  await expect(changeFont).toBeEnabled();
+  await activate(page, changeFont);
+
+  const picker = page.getByRole('combobox', { name: 'Khmer font', exact: true });
+  await visibleFocus(picker);
+  await expect(picker).toHaveValue(missing);
+  await picker.selectOption(state.fonts[0].name);
+  await expect(page.locator('.native-caption-image')).toBeVisible();
+  await expect(changeFont).toHaveCount(0);
 });
 
 for (const width of [1440, 390]) for (const format of ['srt', 'vtt'] as const) {

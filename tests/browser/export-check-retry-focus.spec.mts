@@ -81,7 +81,7 @@ async function failedAppearance(page: Page) {
   await page.getByRole('group', { name: 'Export type', exact: true }).getByRole('button', { name: /Captions file/ }).click();
   await page.getByLabel('Caption destination', { exact: true }).selectOption('premiere');
   await page.locator('.handoff-advanced > summary').click();
-  await page.getByRole('button', { name: /^ASS ASS/ }).click();
+  await page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ }).click();
   await expect(retry(page)).toBeEnabled();
   await remember(page);
   return {
@@ -107,7 +107,7 @@ for (const width of [1440, 390]) test(`appearance-load Retry keeps a visible key
         if (initial === 0) await page.screenshot({ path: info.outputPath(`export-appearance-retry-focus-${width}.png`), animations: 'disabled' });
         gate.release(); await settled(page, succeeds); await visibleFocus(heading(page));
         await expect(page.getByLabel('Caption destination', { exact: true })).toHaveValue('premiere');
-        await expect(page.getByRole('button', { name: /^ASS ASS/ })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ })).toHaveAttribute('aria-pressed', 'true');
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
         await unchanged(page, before);
       } finally { gate.release(); }

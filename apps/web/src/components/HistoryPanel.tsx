@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import type { ProjectHistoryEntry } from '@kcs/shared';
-import { CheckCircle2, Clock3, History, LoaderCircle, LockKeyhole, RotateCcw, X } from 'lucide-react';
+import { Clock3, History, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { useModalFocus } from '../use-modal-focus';
 import { useSurfacePresence } from '../use-surface-presence';
 import './history-panel.css';
@@ -32,7 +32,6 @@ export function HistoryPanel({ open, entries, busy, loadState, onClose, onRefres
         {entries.map((entry) => <article key={entry.id}>
           <div className="history-icon"><Clock3 size={15}/></div>
           <div className="history-copy"><strong>{entry.label}</strong><span>{new Date(entry.createdAt).toLocaleString()} · {entry.source.replaceAll('-', ' ')}</span><small>{entry.captionCount} captions · {entry.approvedCount} approved · {entry.textLockedCount} text locks · {entry.timingLockedCount} timing locks</small></div>
-          <div className="history-badges">{entry.approvedCount > 0 && <i><CheckCircle2 size={10}/>{entry.approvedCount}</i>}{entry.textLockedCount + entry.timingLockedCount > 0 && <i><LockKeyhole size={10}/>{entry.textLockedCount + entry.timingLockedCount}</i>}</div>
           <button aria-label={`Restore ${entry.label} saved ${new Date(entry.createdAt).toLocaleString()}`} disabled={busy} onClick={() => onRestore(entry.id)}><RotateCcw size={14}/>Restore</button>
         </article>)}
         {loadState.loaded && !entries.length && !loadState.loading && !loadState.error && <div className="review-empty">History appears after a meaningful edit or automatic change.</div>}

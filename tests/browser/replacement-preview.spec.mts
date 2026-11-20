@@ -53,6 +53,29 @@ test('deletion, unchanged proposals and invalid regex are clear before applying'
   await expect(page.locator('.caption-row textarea').nth(2)).toHaveValue('Third caption');
 });
 
+test('a phone user can see and apply a removal while locked captions keep their text', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const original = 'Studio កម្ពុជា';
+  state.projects[0].captions[0].text = original;
+  state.projects[0].captions[1].text = original;
+  state.projects[0].captions[1].textLocked = true;
+  const panel = await openCorrection(page);
+  await panel.getByLabel('Find', { exact: true }).fill('Studio ');
+  const preview = panel.locator('.find-after');
+  await expect(preview.first()).toHaveText('កម្ពុជា');
+  await expect(preview.last()).toHaveText(original);
+  const remove = panel.getByRole('button', { name: 'Remove matching text' });
+  for (const target of [preview.first(), remove]) {
+    expect(await target.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= innerHeight && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    })).toBe(true);
+  }
+  await remove.click();
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue('កម្ពុជា');
+  await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveValue(original);
+});
+
 test('every proposal is reachable and mobile copy wraps without horizontal overflow', async ({ page }, info) => {
   state.projects[0].captions = Array.from({ length: 65 }, (_, index) => ({ id: `many-${index}`, text: `ខ្មែរ ${index} ${'LongWord'.repeat(12)}`, startMs: index * 50, endMs: index * 50 + 40 }));
   await page.setViewportSize({ width: 390, height: 844 });
