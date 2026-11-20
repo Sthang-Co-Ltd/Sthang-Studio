@@ -98,6 +98,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   onConfirm, session, onSessionChange, sessionStorageError = '', onRepair, reviewIssues, unsaved, saveBlocked, fontRevision, profileImportRevision = 0 }: Props) {
   const videoProject = isVideoProject(project);
   const captionOutput = useRef<HTMLButtonElement>(null);
+  const videoOutput = useRef<HTMLButtonElement>(null);
   const checksHeading = useRef<HTMLHeadingElement>(null);
   const managePresets = useRef<HTMLElement>(null);
   const importFocus = useRef<{ owner: HTMLButtonElement; release(): void } | null>(null);
@@ -542,12 +543,12 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     : currentPreset?.id || '';
 
   return <div className="export-workspace export-graphite">
-    <div className="export-workspace-head">
-      <span>Choose a file or captioned video. Edit the look in Appearance.</span>
-    </div>
+    {videoProject && <div className="export-workspace-head">
+      <span>Choose MP4 to keep the caption styling or SRT to edit the subtitles in another app.</span>
+    </div>}
 
     <div className="export-mode-switch" role="group" aria-label="Export type">
-      <button aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
+      <button ref={videoOutput} aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4</small></button>
       <button ref={captionOutput} aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT</small></button>
     </div>
 
@@ -587,7 +588,10 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
           saveBlocked={saveBlocked} invalidCaptions={invalidCaptionFiles}
           selectedFormatBlocked={captionIssues.some((issue) => issue.severity === 'blocker')}
           styledLayoutBlocked={Boolean(loadingAppearance || appearanceFontUnavailable || nativeLayoutBlocked || appearanceSaveBlocked)}
-          onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => setOutputMode('video') : undefined}/>)}
+          onEditWordTiming={onEditWordTiming} onRenderedVideo={videoProject ? () => {
+            videoOutput.current?.focus();
+            setOutputMode('video');
+          } : undefined}/>)}
 
     {outputMode === 'video' && <>
       {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · keep editing while this snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}

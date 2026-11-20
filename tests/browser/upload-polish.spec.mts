@@ -157,7 +157,7 @@ for (const width of [1440, 390]) test(`drop feedback fits at ${width}px and resp
     await expect(dropzone(page).locator('strong')).toHaveText('Drop to import');
     expect(await dropzone(page).evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(page.getByRole('heading', { name: 'Accurate Khmer captions, ready for CapCut.', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Create Khmer captions', exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath(`drop-${width}.png`) });
   } finally { await data.dispose(); }
 });

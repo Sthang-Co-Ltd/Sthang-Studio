@@ -4064,16 +4064,16 @@ export default function App() {
       {jobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity{activeJobs.length > 0 && <b>{activeJobs.length}</b>}</button>}
       {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
       <button onClick={() => setShowUpdates(true)} data-tooltip="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
-      <button className={llmSettings?.configured ? '' : 'setup-needed'} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
+      <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
       {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? 'Preferences could not load. Retry startup below to enable uploads.' : 'Loading preferences before you can upload.'
           : busy && busy !== 'Uploading…' ? 'Wait for the current task to finish before uploading.' : ''}
-        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={llmSettings?.configured} timingConfigured={health?.timing.configured} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
     </div>
-    {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
+    {health && !timingConfigured && (showAllProjects || !showFirstRun) && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
     {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">Loading preferences…</div>}
     {showAllProjects ? <ProjectLibrary

@@ -178,8 +178,8 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
   };
   return <><div className="empty-stage">
     <StudioBrand variant="hero" moduleLabel="CAPTIONS" moduleDescriptor=""/>
-    <h1>Accurate Khmer captions, ready for CapCut.</h1>
-    <p className="lead">Upload, generate, review, and export.</p>
+    <h1>Create Khmer captions</h1>
+    <p className="lead">Review the words and timing, then export subtitles or a captioned video.</p>
     {beforeDropzone}
     <button ref={dropzone} tabIndex={blocked ? -1 : 0} aria-label="Choose a video or audio file" aria-describedby={[feedback ? statusId : '', recovery ? recoveryId : ''].filter(Boolean).join(' ') || undefined} aria-busy={busy || undefined} aria-disabled={blocked || undefined}
       className={`dropzone ${drag && !blocked?'drag':''}`} onClick={()=>{ if (!blockedRef.current && !submitting.current) ref.current?.click(); }}
@@ -200,7 +200,9 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
         if (target instanceof Node || !dragDepth.current) clearDrag();
       }}
       onDrop={event=>{event.preventDefault();accept(Array.from(event.dataTransfer.files));}}>
-      <FileUp className="upload-file-icon" size={34}/><strong>{busy?'Uploading…':drag?'Drop to import':'Choose a video or audio file'}</strong><span>Or drag a file here · MP4, MOV, MP3, WAV and more</span>
+      <FileUp className="upload-file-icon" size={34}/>
+      <strong>{busy ? 'Uploading…' : drag ? 'Drop to import' : 'Choose a video or audio file'}</strong>
+      {!busy && <span>{!drag && 'Or drag a file here. '}MP4, MOV, MP3, WAV and more.</span>}
     </button>
     <p id={statusId} className={`upload-validation${disabledReason ? ' upload-availability' : ''}`} role="status" aria-live="polite" aria-atomic="true">{feedback}</p>
     {storageError && <p className="upload-storage-feedback" role="status">{storageError}</p>}
@@ -248,7 +250,6 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
       event.currentTarget.value = '';
       accept(files);
     }}/>
-    <div className="sthang-parent-note">A STHANG PRODUCT</div>
   </div><input ref={originalFile} className="upload-original-file" hidden disabled={busy || disabled || Boolean(recovering)} type="file" accept="video/*,audio/*" onChange={event => {
     const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = '';
     const owner = reselectOwner.current; reselectOwner.current = null; const current = attemptRef.current;

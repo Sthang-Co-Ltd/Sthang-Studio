@@ -74,7 +74,7 @@
 .export-graphite .export-history .export-history-error { color: #e6c97b; }
 .export-graphite :is(.handoff-destination, .handoff-primary, .handoff-advanced, .handoff-rendered-video) { border-color: var(--export-line); background: linear-gradient(160deg, #1b1d20 0%, #131518 100%); }
 .export-graphite .handoff-destination-guide { padding: 12px 0 0; border: 0; border-top: 1px solid var(--export-line); border-radius: 0; background: transparent; }
-.export-graphite :is(.handoff-section-head span, .handoff-primary-copy span, .handoff-guide-title span, .handoff-destination-guide p, .handoff-transfer-summary span, .handoff-rendered-video span, .handoff-local-note) { color: var(--export-muted); line-height: 1.6; }
+.export-graphite :is(.handoff-primary-copy span, .handoff-guide-title span, .handoff-destination-guide p, .handoff-transfer-summary span, .handoff-rendered-video span, .handoff-local-note) { color: var(--export-muted); line-height: 1.6; }
 .export-graphite :is(.handoff-primary, .handoff-rendered-video, .handoff-advanced-action, .handoff-word-readiness, .handoff-restore) { flex-direction: column; align-items: stretch; }
 .export-graphite :is(.handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { width: 100%; min-height: 40px; }
 .export-graphite .handoff-transfer-summary { grid-template-columns: 1fr; border: 0; border-radius: 0; background: transparent; }

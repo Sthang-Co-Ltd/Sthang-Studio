@@ -671,12 +671,12 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     <div className="panel-head">
       <div className="panel-head-copy">
         <PanelHeaderGrip pane="captions">{reviewMode ? 'Review queue' : 'Captions'}</PanelHeaderGrip>
-        <span>{visible.length} shown · {captions.length} total · {followPlayback ? 'Following playback' : 'Follow paused'}</span>
+        <span>{reviewMode ? `${visible.length} to review` : `${captions.length} caption${captions.length === 1 ? '' : 's'}`}</span>
       </div>
       <div className="panel-tools">
         <button className="panel-tool" data-tooltip="Jump to the caption at the playhead" data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
-        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>{followPlayback ? 'Following' : 'Follow'}</span></button>
-        <button className="icon-btn" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={17}/></button>
+        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} aria-pressed={followPlayback} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>Follow playback</span></button>
+        <button className="panel-tool" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={15}/><span>Add</span></button>
       </div>
     </div>
     <div

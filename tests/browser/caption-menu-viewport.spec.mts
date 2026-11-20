@@ -175,7 +175,7 @@ test('opening the visible first mobile row reveals one complete action once with
   const shift = await workbench.evaluate((node, before) => node.scrollTop - before, before);
   expect(shift).toBeGreaterThan(0);
   expect(shift).toBeLessThanOrEqual(60);
-  await expect(page.locator('.panel-tools').getByRole('button', { name: 'Following', exact: true })).toBeVisible();
+  await expect(page.locator('.panel-tools').getByRole('button', { name: 'Follow playback', exact: true, pressed: true })).toBeVisible();
   expect(await firstMenu.getByRole('menuitem').first().evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
   await page.screenshot({ path: info.outputPath('caption-menu-mobile-opening-reveal.png') });
 

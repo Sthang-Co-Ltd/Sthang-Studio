@@ -1,6 +1,6 @@
 import { useMemo, useState, type ChangeEvent, type RefObject } from 'react';
 import { hasWordTimingEvidence, highlightAttention, isVideoProject, resolveWordExport, type CaptionProject } from '@kcs/shared';
-import { Download, ExternalLink, FileJson, FileText, PackageOpen, RotateCcw, TriangleAlert } from 'lucide-react';
+import { Download, ExternalLink, FileJson, PackageOpen, RotateCcw, TriangleAlert } from 'lucide-react';
 import type { CaptionDestinationId, CaptionHandoffSession } from '../export-session';
 import './caption-handoff.css';
 
@@ -265,14 +265,22 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
   };
 
   return <div className="caption-handoff-panel">
-    <section className="handoff-destination" aria-labelledby="handoff-destination-title">
-      <div className="handoff-section-head">
-        <div><strong id="handoff-destination-title">Where will you use the captions?</strong><span>See the import steps for your editor.</span></div>
+    <section className="handoff-primary" aria-labelledby="caption-handoff-srt-title">
+      <div className="handoff-primary-copy">
+        <strong id="caption-handoff-srt-title">Captions file (SRT)</strong>
+        <span>Text and timing only. Set visual styling in the destination editor.</span>
       </div>
-      <label className="handoff-destination-select-wrap">
-        <span>Destination</span>
+      <button className="handoff-download-primary" type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || saveBlocked || invalidCaptions} onClick={(event) => void exportFormat('srt', event.currentTarget)}>
+        <Download size={15}/>{exporting === 'srt' ? 'Preparing…' : 'Download SRT'}
+      </button>
+    </section>
+
+    <section className="handoff-destination" aria-labelledby="handoff-destination-title">
+      <h3 id="handoff-destination-title">Import instructions</h3>
+      <div className="handoff-destination-select-wrap">
+        <label htmlFor="handoff-caption-destination">Caption destination</label>
         <select
-          aria-label="Caption destination"
+          id="handoff-caption-destination"
           value={destination}
           disabled={busy || Boolean(exporting) || restoring}
           onChange={(event) => {
@@ -281,7 +289,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
         >
           {DESTINATIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>
-      </label>
+      </div>
 
       <div className="handoff-destination-guide" aria-live="polite">
         <div className="handoff-guide-title"><strong>{destinationGuide.label}</strong><span>{destinationGuide.summary}</span></div>
@@ -289,16 +297,6 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
         {destinationGuide.note && <p>{destinationGuide.note}</p>}
         {destinationGuide.doc && <a href={destinationGuide.doc.href} target="_blank" rel="noopener noreferrer">{destinationGuide.doc.label}<ExternalLink size={13}/></a>}
       </div>
-    </section>
-
-    <section className="handoff-primary" aria-labelledby="caption-handoff-srt-title">
-      <div className="handoff-primary-copy">
-        <span className="handoff-format-icon"><FileText size={17}/></span>
-        <div><strong id="caption-handoff-srt-title">Captions file (SRT)</strong><span>Text and timing only. Set visual styling in the destination editor.</span></div>
-      </div>
-      <button className="handoff-download-primary" type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || saveBlocked || invalidCaptions} onClick={(event) => void exportFormat('srt', event.currentTarget)}>
-        <Download size={15}/>{exporting === 'srt' ? 'Preparing…' : 'Download SRT'}
-      </button>
     </section>
 
     <div className="handoff-transfer-summary" aria-label="What transfers with the selected caption format">

@@ -236,4 +236,6 @@ test('desktop and mobile export guidance remain readable with labeled touch cont
   expect(heights.every((height) => height >= 44)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/caption-handoff-mobile.png', fullPage: true });
+  await page.locator('.handoff-rendered-video').getByRole('button', { name: 'Captioned video' }).press('Enter');
+  await expect(page.getByRole('button', { name: 'Captioned video MP4', pressed: true })).toBeFocused();
 });

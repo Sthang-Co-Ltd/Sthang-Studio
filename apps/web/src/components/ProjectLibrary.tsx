@@ -71,7 +71,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
     <header className="project-library-header">
       <button type="button" className="project-library-back" onClick={onBack}><ChevronLeft size={16} aria-hidden="true"/>Back to Home</button>
       <div className="project-library-heading">
-        <div><h1 id={`${ids}-title`} ref={heading} tabIndex={-1}>All projects</h1><p>Choose a saved project to continue.</p></div>
+        <h1 id={`${ids}-title`} ref={heading} tabIndex={-1}>All projects</h1>
         <span className="project-library-local"><FolderOpen size={16} aria-hidden="true"/>Saved on this computer</span>
       </div>
     </header>
@@ -81,7 +81,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
         <label htmlFor={`${ids}-search`}>Search projects</label>
         <div className="project-library-search-field">
           <Search size={18} aria-hidden="true"/>
-          <input id={`${ids}-search`} ref={search} type="search" autoComplete="off" placeholder="Search by project name" value={view.query}
+          <input id={`${ids}-search`} ref={search} type="search" autoComplete="off" value={view.query}
             onChange={(event) => onViewChange({ ...view, query: event.target.value, page: 1 })}/>
           {view.query.length > 0 && <button type="button" className="project-library-clear" onClick={clearSearch}>Clear search</button>}
         </div>
@@ -116,7 +116,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
         <h2 ref={resultHeading} tabIndex={-1} aria-live="polite" aria-atomic="true">{result.matches === result.total
           ? `${result.total} ${result.total === 1 ? 'project' : 'projects'}`
           : `${result.matches} of ${result.total} projects`}</h2>
-        {result.matches > 0 && <span>Showing {result.start}–{result.end}</span>}
+        {result.pages > 1 && <span>Showing {result.start}–{result.end}</span>}
       </div>
       {result.total === 0 ? <div className="project-library-empty"><FolderOpen size={28} aria-hidden="true"/><h2>{storageUnavailable ? 'Project storage needs a check' : 'No projects yet'}</h2><p>{storageUnavailable ? 'Studio cannot confirm this is an empty saved library. Review storage; existing files are kept.' : 'Choose a video or audio file on Home to start your first project.'}</p><button type="button" onClick={storageUnavailable && onReviewStorage ? onReviewStorage : onBack}>{storageUnavailable && onReviewStorage ? 'Review storage' : 'Create a project'}</button></div>
         : result.matches === 0 ? <div className="project-library-empty"><Search size={26} aria-hidden="true"/><h2>No projects match your search</h2><p>Try another project name, or clear your search to see all projects.</p><button type="button" onClick={clearSearch}>Show all projects</button></div>

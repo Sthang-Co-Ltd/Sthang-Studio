@@ -85,7 +85,7 @@ compact drag/keyboard custom order. Within that popover, keep a clear lifted
 proxy, drop target and actual-panel outline; commit positions on drop. Left/Right buttons
 and arrow-key handles provide the same result, with spoken order feedback.
 The actual panel headers expose a grip and draggable title at supported desktop
-widths. Keep Close tool, Current, Following and Add caption as independent actions.
+widths. Keep Close tool, Current, Follow playback and Add caption as independent actions.
 Start dragging after a small movement threshold. The actual panel follows the
 pointer above its neighbours; they slide into a provisional insertion order when
 the pointer crosses a neighbour's midpoint. Use a vacant-slot outline, stable
@@ -300,8 +300,8 @@ export warnings retain their warning treatment. Appearance remains a summary and
 navigation action. This facelift does not change defaults, saved choices, export
 checks, snapshots, rendering or file workflows, and is not public-release evidence.
 
-For editable caption handoff, **Captions file** opens one compact
-destination selector, a short import guide, and **Download SRT**. Keep advanced
+For editable caption handoff, **Captions file** puts **Download SRT** before
+the destination selector and its import instructions. Keep advanced
 formats behind a labeled disclosure. Show what each format retains and what the
 destination must style again; a word-per-cue file must never be labeled a portable
 full-sentence highlight effect. Explain CapCut mobile's manual Desktop/Web sync

@@ -131,14 +131,33 @@ test('browsing a long caption list keeps its position and follow choice across t
   await openProject(page);
   const list = page.locator('.caption-list');
   await list.hover(); await page.mouse.wheel(0, 350);
-  await expect(page.locator('.caption-panel').getByRole('button', { name: 'Follow', exact: true })).toBeVisible();
+  await expect(page.locator('.caption-panel').getByRole('button', { name: 'Follow playback', exact: true, pressed: false })).toBeVisible();
   const top = await list.evaluate((element) => element.scrollTop);
   expect(top).toBeGreaterThan(100);
   for (const name of ['Appearance', 'Fine timing', 'Details']) {
     await page.getByRole('button', { name, exact: true }).click();
     await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(top);
-    await expect(page.locator('.caption-panel').getByRole('button', { name: 'Follow', exact: true })).toBeVisible();
+    await expect(page.locator('.caption-panel').getByRole('button', { name: 'Follow playback', exact: true, pressed: false })).toBeVisible();
     expect(await page.locator('.caption-row').count()).toBe(20);
+  }
+});
+
+test('caption toolbar labels fit and phone controls keep their touch targets', async ({ page }) => {
+  await openProject(page);
+  const header = page.locator('.caption-panel .panel-head');
+  for (const width of [320, 390, 1024]) {
+    await page.setViewportSize({ width, height: 844 });
+    const bounds = await header.boundingBox();
+    expect(bounds).toBeTruthy();
+    for (const name of ['Current', 'Follow playback', 'Add caption']) {
+      const button = header.getByRole('button', { name, exact: true });
+      await expect(button.locator('span')).toBeVisible();
+      const box = (await button.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(bounds!.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds!.x + bounds!.width + 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(bounds!.y + bounds!.height + 1);
+      if (width <= 390) expect(box.height).toBeGreaterThanOrEqual(44);
+    }
   }
 });
 

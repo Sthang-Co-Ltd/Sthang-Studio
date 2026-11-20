@@ -81,8 +81,8 @@ test('small clicks do not move panels and header action buttons remain independe
   await openEditor(page); const before=await saved(page); const box=(await grip(page,'preview').boundingBox())!;
   await page.mouse.move(box.x+10,box.y+10); await page.mouse.down(); await page.mouse.move(box.x+12,box.y+12); await page.mouse.up();
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]); expect(await saved(page)).toBe(before); await expect(page.locator('.editor-pane-floating')).toHaveCount(0);
-  await page.locator('.caption-panel').getByRole('button',{ name:'Following',exact:true }).click();
-  await expect(page.locator('.caption-panel').getByRole('button',{ name:'Follow',exact:true })).toBeVisible();
+  await page.locator('.caption-panel').getByRole('button',{ name:'Follow playback',exact:true,pressed:true }).click();
+  await expect(page.locator('.caption-panel').getByRole('button',{ name:'Follow playback',exact:true,pressed:false })).toBeVisible();
   await page.locator('.caption-panel').getByRole('button',{ name:'Current',exact:true }).click();
   const count=await page.locator('.caption-row').count(); await page.getByRole('button',{ name:'Add caption',exact:true }).click(); await expect(page.locator('.caption-row')).toHaveCount(count+1);
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]); await expect(page.locator('.editor-pane-floating')).toHaveCount(0);
@@ -226,13 +226,13 @@ test('a real header touch cancels a pending timing drag without changing caption
 test('playing media, caption text/caret, list scroll and paused Follow survive direct-header moves',async ({ page },info) => {
   state.projects[0].captions=Array.from({ length:20 },(_,index) => ({ id:`header-${index}`,startMs:index*180,endMs:index*180+160,text:`Caption ${index+1}`,timingQuality:'high',timingSource:'stt' }));
   await openEditor(page); const text=page.getByLabel('Caption 2 text',{ exact:true }); await text.fill('Keep this caption edit'); await text.evaluate((node:HTMLTextAreaElement) => node.setSelectionRange(3,9));
-  const list=page.locator('.caption-list'); await list.hover(); await page.mouse.wheel(0,350); await expect(page.locator('.caption-panel').getByRole('button',{ name:'Follow',exact:true })).toBeVisible(); const top=await list.evaluate((node) => node.scrollTop);
+  const list=page.locator('.caption-list'); await list.hover(); await page.mouse.wheel(0,350); await expect(page.locator('.caption-panel').getByRole('button',{ name:'Follow playback',exact:true,pressed:false })).toBeVisible(); const top=await list.evaluate((node) => node.scrollTop);
   await page.locator('video').evaluate(async (node:HTMLVideoElement) => { (window as any).__directVideo=node;(window as any).__directList=document.querySelector('.caption-list');(window as any).__directPauses=0;node.loop=true;node.addEventListener('pause',() => (window as any).__directPauses++);await node.play(); });
   await dragTo(page,'preview','inspector'); await expect.poll(() => actualOrder(page)).toEqual(['captions','inspector','preview']);
   expect(await page.locator('video').evaluate((node:HTMLVideoElement) => node===(window as any).__directVideo && !node.paused)).toBe(true); expect(await page.evaluate(() => (window as any).__directPauses)).toBe(0);
   expect(await list.evaluate((node) => node===(window as any).__directList)).toBe(true);
   expect(await list.evaluate((node) => node.scrollTop)).toBe(top); await expect(text).toHaveValue('Keep this caption edit'); expect(await text.evaluate((node:HTMLTextAreaElement) => [node.selectionStart,node.selectionEnd])).toEqual([3,9]);
-  await expect(page.locator('.caption-panel').getByRole('button',{ name:'Follow',exact:true })).toBeVisible();
+  await expect(page.locator('.caption-panel').getByRole('button',{ name:'Follow playback',exact:true,pressed:false })).toBeVisible();
   await page.screenshot({ path:info.outputPath('direct-header-preview-right.png'),fullPage:true });
 });
 
