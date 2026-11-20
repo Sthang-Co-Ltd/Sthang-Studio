@@ -6,7 +6,7 @@ import { UPLOAD_RECOVERY_PREFIX } from '../../apps/web/src/upload-recovery.js';
 
 const test = base.extend({ context: async ({ context }, use) => { try { await use(context); } finally { await closeOwnedBrowserContext(context); } } });
 test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
-const zone = (page: Page) => page.getByRole('button', { name: 'Choose a video or audio file', exact: true });
+const zone = (page: Page) => page.getByRole('button', { name: /^(Choose a video or audio file|Upload recovery in progress)$/ });
 const input = (page: Page) => page.locator('.empty-stage input[type=file]');
 const recovery = (page: Page) => page.locator('.upload-recovery');
 const video = () => ({ name: 'restart-original.mp4', mimeType: 'video/mp4', buffer: fixtureMedia() });

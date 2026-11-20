@@ -26,6 +26,16 @@ export function captionFieldViewport(field: HTMLElement, list: HTMLElement, work
   return { box, listBox, top, bottom };
 }
 
+/** Align the saved wording inside the part of the caption list below the sticky preview. */
+export function revealFocusedCaptionRow(row: HTMLElement, list: HTMLElement, workbench: HTMLElement) {
+  const text = row.querySelector('textarea');
+  if (document.activeElement !== row || !text || !list.contains(row)) return;
+  const { box, top, bottom } = captionFieldViewport(text, list, workbench);
+  if (bottom <= top || box.top >= top && box.bottom <= bottom) return;
+  const offset = box.top - top - Math.max(0, (bottom - top - box.height) / 2);
+  list.scrollBy({ top: offset, behavior: 'instant' });
+}
+
 /** Finish an owned focus reveal without moving the caption list or its Follow state. */
 export function revealFocusedCaptionField(field: HTMLElement, list: HTMLElement, workbench: HTMLElement) {
   if (document.activeElement !== field || !field.isConnected || !workbench.isConnected

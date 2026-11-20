@@ -72,7 +72,6 @@ for (const width of [1440, 390]) test(`a failed library Open returns to its reen
   try {
     await page.goto('/');
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
-    const heading = page.getByRole('heading', { name: 'All projects', exact: true });
     const open = page.getByRole('button', { name: 'Open Audit landscape', exact: true });
     await open.focus(); await open.press('Enter');
     await expect.poll(() => reads).toBe(1);
@@ -85,7 +84,7 @@ for (const width of [1440, 390]) test(`a failed library Open returns to its reen
     await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
     const back = page.getByRole('button', { name: 'Back to projects', exact: true });
     await back.focus(); await back.press('Enter');
-    await visibleFocus(heading);
+    await visibleFocus(open);
     await expect(page.getByRole('list', { name: 'Project results', exact: true }).getByRole('button')).toHaveCount(2);
     expect(reads).toBe(2);
   } finally { gate.release(); }

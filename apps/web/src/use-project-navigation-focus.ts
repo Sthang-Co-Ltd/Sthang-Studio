@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 export interface ProjectNavigationFocusRequest { readonly owner: HTMLElement }
 type PendingFocus = { request: ProjectNavigationFocusRequest; release(): void };
-type Completion = { request: ProjectNavigationFocusRequest; target(): HTMLElement | null };
+type Completion = { request: ProjectNavigationFocusRequest; target(): HTMLElement | null; reveal?(target: HTMLElement): void };
 
 /** One explicit Open/Back action owns one handoff after its destination commits. */
 export function useProjectNavigationFocus() {
@@ -39,8 +39,8 @@ export function useProjectNavigationFocus() {
     window.addEventListener('blur', relinquish);
     return request;
   }, [release]);
-  const complete = useCallback((request: ProjectNavigationFocusRequest | null, target: () => HTMLElement | null) => {
-    if (request && pending.current?.request === request) setCompletion({ request, target });
+  const complete = useCallback((request: ProjectNavigationFocusRequest | null, target: () => HTMLElement | null, reveal?: (target: HTMLElement) => void) => {
+    if (request && pending.current?.request === request) setCompletion({ request, target, reveal });
   }, []);
 
   useLayoutEffect(() => {
@@ -56,7 +56,9 @@ export function useProjectNavigationFocus() {
     const target = completion.target();
     if (!target?.isConnected || !target.getClientRects().length || target.matches(':disabled') || target.closest('[inert],[hidden],[aria-hidden="true"]')) return;
     target.focus({ preventScroll: true });
-    if (document.activeElement === target) target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    if (document.activeElement !== target) return;
+    if (completion.reveal) completion.reveal(target);
+    else target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   }, [completion, release]);
   useLayoutEffect(() => () => release(), [release]);
   return { capture, complete, cancel };

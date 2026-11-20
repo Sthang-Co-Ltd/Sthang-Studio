@@ -552,7 +552,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     {!videoProject && <p className="export-mode-help">Audio projects can export editable caption files. Captioned video requires a video source.</p>}
 
     {!showingCaptionImport && <ExportChecksPanel captions={project.captions} issues={checkIssues} onRepair={onRepair} headingRef={checksHeading}
-      supportAction={videoProject && outputMode === 'video' ? <button className="export-support-recheck" onClick={() => void loadCapabilities(true)} disabled={loadingCapabilities} aria-label="Recheck video export support" title="Recheck video export support"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck support</button> : undefined}
+      supportAction={videoProject && outputMode === 'video' ? <button className="export-support-recheck" onClick={() => { if (!loadingCapabilities) void loadCapabilities(true); }} aria-disabled={loadingCapabilities || undefined} aria-busy={loadingCapabilities || undefined} aria-label="Recheck video export support" title="Recheck video export support"><RefreshCw className={loadingCapabilities ? 'spin' : ''} size={14}/>Recheck support</button> : undefined}
       unsaved={unsaved} saveBlocked={saveBlocked}
       appearancePending={checksAppearance && loadingAppearance}
       appearancePrerequisite={checksAppearance && appearanceError ? {

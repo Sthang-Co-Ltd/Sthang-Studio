@@ -153,6 +153,18 @@ test('scrolling the mobile workbench updates an open menu and dismisses before i
   await expectEvidencePreserved(page);
 });
 
+test('a short phone can open row actions while the normal preview stays visible', async ({ page }) => {
+  await openEditor(page, { width: 390, height: 667 });
+  await placeTrigger(page, 'bottom');
+  await trigger(page).click();
+  await expect(menu(page)).toBeVisible();
+  await expectUsableFocus(page);
+  await expect(page.locator('.media-stage')).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(trigger(page)).toBeFocused();
+  await expectEvidencePreserved(page);
+});
+
 test('one click opens the first row menu flush with the bottom of a short phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 760 });
   await page.emulateMedia({ reducedMotion: 'no-preference' });

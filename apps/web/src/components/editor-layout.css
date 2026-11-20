@@ -161,6 +161,10 @@
   .editor-toolbar .workspace-tool-strip{overflow-x:auto}
   .editor-toolbar .workspace-tool-strip nav{flex-wrap:nowrap;width:max-content}
 }
+/* Keep room for the active row and one full menu action below the sticky preview. */
+@media(max-width:620px) and (max-height:720px){
+  .editor-workbench{--mobile-preview-height:clamp(100px,calc(100dvh - 450px),240px)}
+}
 @media(max-width:620px){
   .refined-editor .panel-tools .panel-tool{min-height:44px}
   .inspector-content .transcribe-card>.primary,.inspector-content .controls-card button,.editor-toolbar .workspace-tool-strip nav button,.inspector-heading button,.inspector-content .accuracy-actions button{min-height:44px}

@@ -510,7 +510,8 @@ Search includes projects beyond the current page and preserves Khmer text.
 Reopening fetches the current saved project through the existing navigation,
 save-conflict, and unfinished-draft recovery protections. A later project choice
 or a return to Home cancels ownership of an earlier pending read. The collection's
-search, ordering and page remain in the current tab while its editor is open.
+search and ordering remain in the current tab while its editor is open. On
+return, focus follows that project to its current page when it still matches.
 Listing/searching uses existing local metadata and does not load every caption
 body, start processing, or transfer searches to a provider. Returning to Home or
 All projects, bringing that collection back to the foreground, and explicit
@@ -790,7 +791,10 @@ saving a preset does not apply grouping to captions.
 
 Correction Inbox decisions retain keyboard position through pending, success and
 failure. A resolved Pending item advances to a surviving correction, or the
-Pending filter when none remain; History keeps the resolved card available.
+Pending filter when none remain. History keeps the resolved card available
+from Home after every decision is complete. Review audio keeps a failed project
+read on its original card. Success reveals the saved caption and plays its
+recorded excerpt with the configured surrounding audio.
 Export preset retries and confirmed deletions move focus to the persistent
 Manage presets control before their temporary actions disappear. Later responses
 preserve newer focus and form edits.
@@ -843,8 +847,10 @@ responses. Profile import keeps newer raw Accuracy drafts, while imported defaul
 remain available through the profile. Reopened Settings shows newer acknowledged
 glossary choices rather than an earlier save's snapshot.
 
-Profile import checks the required sections of a Studio profile file before
-replacing saved settings. Incomplete or mistyped sections leave the current profile,
+Profile import checks the required sections and asks whether to replace this
+computer’s profile. The confirmation names the file, the settings and correction
+data it replaces, and the effect on optional sharing. Keeping the current profile
+sends no import request. After a failed import, Retry uses the same confirmed file. Incomplete or mistyped sections leave the current profile,
 privacy choices and form drafts intact. Older exports may omit newer optional
 appearance and video-output fields; existing normalization still applies.
 

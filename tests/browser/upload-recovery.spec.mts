@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
   state = await installFixture(page); state.projects = [];
   await page.emulateMedia({ reducedMotion: 'reduce' });
 });
-const zone = (page: Page) => page.getByRole('button', { name: 'Choose a video or audio file', exact: true });
+const zone = (page: Page) => page.getByRole('button', { name: /^(Choose a video or audio file|Upload recovery in progress)$/ });
 const input = (page: Page) => page.locator('.empty-stage input[type=file]');
 const recovery = (page: Page) => page.locator('.upload-recovery');
 const fileName = 'synthetic-local-recording-with-a-long-readable-name-for-upload-recovery.mp4';
@@ -57,7 +57,7 @@ async function readable(page: Page) {
 }
 
 for (const width of [1440, 390]) test(`a lost acknowledgement finds only its exact saved upload and waits for deliberate Open at ${width}px`, async ({ page }, info) => {
-  await page.setViewportSize({ width, height: 1000 });
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
   const attempts: Attempt[] = [];
   const check = deferred(); let exactReads = 0; let completedChecks = 0;
   await page.route(/\/api\/projects\/upload_[a-f0-9]{32}(?:\?|$)/, async (route) => {
@@ -75,6 +75,12 @@ for (const width of [1440, 390]) test(`a lost acknowledgement finds only its exa
     await ready(page); await zone(page).focus(); await input(page).setInputFiles(video());
     await expect(recovery(page)).toContainText('Saved upload found');
     await expect(recovery(page)).toContainText(fileName);
+    await expect(recovery(page)).not.toContainText('This earlier upload may already be saved.');
+    await expect(zone(page)).toHaveAccessibleName('Upload recovery in progress');
+    await expect(zone(page)).not.toContainText('Or drag a file here.');
+    const savedProject = recovery(page).getByRole('button').first();
+    await expect(savedProject).toHaveAccessibleName('Open saved project');
+    await expect(savedProject).toBeInViewport({ ratio: 1 });
     await expect(page.locator('.media-stage video')).toHaveCount(0);
     await expect(zone(page)).toBeDisabled(); await expect(input(page)).toBeDisabled();
     await expect(zone(page)).toBeFocused();
@@ -89,7 +95,7 @@ for (const width of [1440, 390]) test(`a lost acknowledgement finds only its exa
     check.release(); await expect(checkButton).toBeEnabled(); await expect(checkButton).toBeFocused();
     await readable(page);
     await page.screenshot({ path: info.outputPath(`upload-recovered-${width}.png`) });
-    await page.getByRole('button', { name: 'Open saved project', exact: true }).click(); await opened(page);
+    await savedProject.click(); await opened(page);
     expect(attempts).toHaveLength(1); expect(state.projects.map((item) => item.id)).toEqual([attempts[0].id]);
   } finally { check.release(); if (exactReads > 1) await expect.poll(() => completedChecks).toBeGreaterThanOrEqual(1); }
 });

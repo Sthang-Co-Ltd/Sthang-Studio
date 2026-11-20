@@ -48,8 +48,8 @@ interface WaveformEditorProps {
   onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingSyncResult | null>;
   onNextWordTimingIssue?(): void;
   syncDisabled: boolean;
-  highlightEnabled: boolean;
-  onOpenAppearance(): void;
+  onOpenAppearance?(): void;
+  onWordControlReady?(target: HTMLElement): void;
   onEditCaptionText(): void;
   onWordPreview(ownerId: string, preview: CaptionTimingTransaction | null): void;
   onSeek(ms: number): void;
@@ -182,8 +182,8 @@ export function WaveformEditor({
   wordTimingFocus,
   onNextWordTimingIssue,
   syncDisabled,
-  highlightEnabled,
   onOpenAppearance,
+  onWordControlReady,
   onEditCaptionText,
   onWordPreview,
   onSeek,
@@ -1023,7 +1023,7 @@ export function WaveformEditor({
         && <p className="timing-lock-status">This caption overlaps another. Adjust its edges to separate them; other captions stay in place.</p>}
     </>}
     {selectedCaption && editMode === 'words' && <WordTimingPanel key={selectedCaption.id} caption={selectedCaption} selectedWordId={selectedWordId}
-      playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop} highlightEnabled={highlightEnabled}
+      playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop}
       onSelectWord={setSelectedWordId} onChange={(before, after) => commit({ before: [before], after: [after] })} onSync={onSyncWords} onNextWordTimingIssue={onNextWordTimingIssue}
       captionContext={captions} onApplyEdgeRepair={commit}
       onCandidatePreview={(basis, preview, repair) => {
@@ -1031,7 +1031,7 @@ export function WaveformEditor({
         setWordCandidate(change ? { ownerId: basis.id, preview: change } : null);
         onWordPreview(basis.id, change);
       }}
-      onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText}/>}
+      onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText} onWordControlReady={onWordControlReady}/>}
     {editMode === 'words' && <div className="timing-move-controls"><label>Step<select aria-label="Word nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}
     <details className="timing-options"><summary>Snapping, playback speed and display</summary>
       <div className="timing-options-controls">

@@ -116,6 +116,23 @@ for (const response of ['success', 'failure'] as const) test(`a delayed connecti
   } finally { gate.resolve(); }
 });
 
+test('a rejected connection keeps the focused retry action visible on a phone', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/system/llm-settings/test', (route) => route.fulfill({ status: 401, json: { error: 'The key could not be verified. Check the key and try again.' } }));
+  await openSettings(page);
+  const check = settings(page).getByRole('button', { name: 'Test connection', exact: true });
+  await check.scrollIntoViewIfNeeded();
+  await check.press('Enter');
+  await expect(settings(page).getByRole('alert')).toContainText('The key could not be verified.');
+  await expect(check).toBeFocused();
+  await expect.poll(() => check.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    return [rect.top + 2, rect.bottom - 2].every((y) => node.contains(document.elementFromPoint(x, y)));
+  })).toBe(true);
+  await page.screenshot({ path: info.outputPath('ai-connection-retry-390.png') });
+});
+
 test('failed AI saving keeps entries retryable and leaving a pending test cannot start a later save', async ({ page }) => {
   let fail = true; let saves = 0;
   await page.route('**/api/system/llm-settings', (route) => {

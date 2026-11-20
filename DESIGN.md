@@ -1170,7 +1170,9 @@ Profile import uses one structural file check in the picker and server replaceme
 path. Reject missing or mistyped core sections before any profile write or privacy
 reset. Keep startup loading, patch semantics, legacy optional fields and deeper
 normalization under their existing rules. Invalid-file recovery preserves local
-form drafts and lets the user choose the corrected file again.
+form drafts and lets the user choose the corrected file again. For a valid file,
+show the backup name and the scope of replacement before offering **Keep current**
+and **Replace profile**. A retry applies to the file the user already confirmed.
 
 An acknowledged import invalidates profile reads in mounted Export and Appearance
 workspaces. Refresh their preset catalogs and reconcile removed selection IDs;
@@ -1181,8 +1183,8 @@ catalog, and import refresh does not start a font scan or reapply appearance.
 Explicit Recent/All projects Open may hand focus to the persistent Project details
 control after the new editor commits. Its accessible description identifies the
 project even when the compact header is shown. Failure may restore its own
-reenabled Open control. Back to Home continues at upload; returning to All projects
-keeps the existing collection focus. Arm these handoffs only while the initiating
+reenabled Open control. Back to Home continues at upload. Returning to All projects
+focuses the original project even if its refreshed summary moves it to another page. Arm these handoffs only while the initiating
 control still owns focus after any required save, cancel them on newer interaction,
 and yield to guides and dialogs. Background project publication never arms one.
 

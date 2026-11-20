@@ -56,6 +56,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
   const [recovering, setRecovering] = useState<'check' | 'open' | ''>('');
   const recoveryPending = useRef<{ revision: number; action: 'check' | 'open' } | null>(null);
   const mounted = useRef(true);
+  const reviewingUpload = recovery?.state === 'uncertain';
   const blocked = busy || disabled || recovery?.state === 'uncertain' || Boolean(recovering);
   const blockedRef = useRef(blocked); blockedRef.current = blocked;
   const [drag, setDrag] = useState(false);
@@ -181,8 +182,8 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
     <h1>Create Khmer captions</h1>
     <p className="lead">Review the words and timing, then export subtitles or a captioned video.</p>
     {beforeDropzone}
-    <button ref={dropzone} tabIndex={blocked ? -1 : 0} aria-label="Choose a video or audio file" aria-describedby={[feedback ? statusId : '', recovery ? recoveryId : ''].filter(Boolean).join(' ') || undefined} aria-busy={busy || undefined} aria-disabled={blocked || undefined}
-      className={`dropzone ${drag && !blocked?'drag':''}`} onClick={()=>{ if (!blockedRef.current && !submitting.current) ref.current?.click(); }}
+    <button ref={dropzone} tabIndex={blocked ? -1 : 0} aria-label={reviewingUpload ? 'Upload recovery in progress' : 'Choose a video or audio file'} aria-describedby={[feedback ? statusId : '', recovery ? recoveryId : ''].filter(Boolean).join(' ') || undefined} aria-busy={busy || undefined} aria-disabled={blocked || undefined}
+      className={`dropzone ${reviewingUpload ? 'recovering-upload' : ''} ${drag && !blocked?'drag':''}`} onClick={()=>{ if (!blockedRef.current && !submitting.current) ref.current?.click(); }}
       onDragEnter={event=>{
         if (blockedRef.current || submitting.current || !fileDrag(event)) return;
         event.preventDefault(); dragDepth.current++; setDrag(true);
@@ -200,9 +201,9 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
         if (target instanceof Node || !dragDepth.current) clearDrag();
       }}
       onDrop={event=>{event.preventDefault();accept(Array.from(event.dataTransfer.files));}}>
-      <FileUp className="upload-file-icon" size={34}/>
-      <strong>{busy ? 'Uploading…' : drag ? 'Drop to import' : 'Choose a video or audio file'}</strong>
-      {!busy && <span>{!drag && 'Or drag a file here. '}MP4, MOV, MP3, WAV and more.</span>}
+      {!reviewingUpload && <FileUp className="upload-file-icon" size={34}/>}
+      <strong>{busy ? 'Uploading…' : reviewingUpload ? 'Finish reviewing the previous upload' : drag ? 'Drop to import' : 'Choose a video or audio file'}</strong>
+      {!busy && !reviewingUpload && <span>{!drag && 'Or drag a file here. '}MP4, MOV, MP3, WAV and more.</span>}
     </button>
     <p id={statusId} className={`upload-validation${disabledReason ? ' upload-availability' : ''}`} role="status" aria-live="polite" aria-atomic="true">{feedback}</p>
     {storageError && <p className="upload-storage-feedback" role="status">{storageError}</p>}
@@ -213,7 +214,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
         {attempt.retryRejection && attempt.retryRejection !== recovery.message && <p>{attempt.retryRejection}</p>}
       </div>
       <div className="upload-recovery-actions">
-        {recovery.state === 'uncertain' && recovery.project && onOpenRecovered && <button type="button" aria-disabled={busy || disabled || Boolean(recovering) || undefined} aria-busy={recovering === 'open' || undefined} onClick={() => void recover('open')}>{recovering === 'open' ? 'Opening saved project…' : 'Open saved project'}</button>}
+        {recovery.state === 'uncertain' && recovery.project && onOpenRecovered && <button type="button" className="upload-recovery-primary" aria-disabled={busy || disabled || Boolean(recovering) || undefined} aria-busy={recovering === 'open' || undefined} onClick={() => void recover('open')}>{recovering === 'open' ? 'Opening saved project…' : 'Open saved project'}</button>}
         {recovery.state === 'uncertain' && onCheckAttempt && <button type="button" aria-disabled={busy || disabled || Boolean(recovering) || undefined} aria-busy={recovering === 'check' || undefined} onClick={() => void recover('check')}>{recovering === 'check' ? 'Checking saved upload…' : 'Check saved upload'}</button>}
         {!(recovery.state === 'uncertain' && recovery.project) && !attempt.file && <button type="button" disabled={busy || disabled || Boolean(recovering)} onClick={event => {
           if (busy || disabled || submitting.current || recoveryPending.current) return;
@@ -235,7 +236,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
         }}>Forget this upload reminder</button>}
       </div>
       {reselectionNotice && <p className="upload-reselection-feedback" role="status">{reselectionNotice}</p>}
-      {recovery.state === 'uncertain' && <p>Starting another upload creates a new attempt. This earlier upload may already be saved.</p>}
+      {recovery.state === 'uncertain' && !recovery.project && <p>Starting another upload creates a new attempt. This earlier upload may already be saved.</p>}
     </section>}
     {reminders.some((entry) => entry.metadata.id !== attempt?.id) && <details className="upload-earlier-recoveries">
       <summary>Earlier upload reminders ({reminders.filter((entry) => entry.metadata.id !== attempt?.id).length})</summary>

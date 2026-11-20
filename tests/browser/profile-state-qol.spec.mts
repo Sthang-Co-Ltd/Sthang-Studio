@@ -178,6 +178,7 @@ test('a delayed profile import preserves newer raw Accuracy text while importing
   try {
     await openProject(page); await openProfile(page);
     await settings(page).locator('input[type=file]').setInputFiles({ name: 'studio-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(imported)) });
+    await page.getByRole('button', { name: 'Replace profile', exact: true }).click();
     await expect.poll(() => imports).toBe(1);
     await closeProfile(page);
     const accuracy = await openAccuracy(page);

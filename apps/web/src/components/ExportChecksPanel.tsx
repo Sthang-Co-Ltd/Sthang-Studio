@@ -36,7 +36,8 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
   const captionsById = useMemo(() => new Map(captions.map((caption, index) => [caption.id, { caption, index }])), [captions]);
   const pages = Math.max(1, Math.ceil(issues.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
-  const visible = issues.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  const visible = issues.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+    .map((issue) => ({ ...issue, reasons: issue.reasons.filter((reason) => reason !== issue.title) }));
   const blockers = issues.filter((issue) => issue.severity === 'blocker').length;
   const suggestions = issues.length - blockers;
   useEffect(() => { if (blockers > 0) setIssuesExpanded(true); }, [blockers]);
@@ -94,7 +95,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
               <button type="button" onClick={() => onRepair({ kind: issue.repair, captionId: id })}>Go to caption {match.index + 1}</button>
             </div>;
           })}
-          <ul className="export-check-reasons">{issue.reasons.map((reason, index) => <li key={`${index}:${reason}`}>{reason}</li>)}</ul>
+          {issue.reasons.length > 0 && <ul className="export-check-reasons">{issue.reasons.map((reason, index) => <li key={`${index}:${reason}`}>{reason}</li>)}</ul>}
           <p className="export-check-remedy">{issue.remedy}</p>
           {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair })}>{issue.id === 'font' ? 'Choose an available font' : issue.repair === 'appearance' ? 'Review appearance' : 'Review captions'}</button>}
         </li>)}

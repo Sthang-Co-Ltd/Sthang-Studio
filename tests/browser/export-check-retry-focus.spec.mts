@@ -57,6 +57,32 @@ async function settled(page: Page, succeeds: boolean) {
     await expect(layout(page)).toBeDisabled();
   }
 }
+test('retrying video support retains keyboard focus while settings return', async ({ page }) => {
+  const gate = deferred();
+  let rechecks = 0;
+  await page.route('**/api/video-export/*/capabilities*', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('refresh') !== '1')
+      return route.fulfill({ status: 503, json: { error: 'Video tools could not be checked.' } });
+    rechecks++;
+    await gate.promise;
+    return route.fallback();
+  });
+  try {
+    await openProject(page);
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(page.getByText('Video export check failed', { exact: true })).toBeVisible();
+    const support = checks(page).getByRole('button', { name: 'Recheck video export support', exact: true });
+    await activate(page, support);
+    await expect(support).toHaveAttribute('aria-busy', 'true');
+    await visibleFocus(support);
+    await page.keyboard.press('Enter');
+    gate.release();
+    await expect(page.getByLabel('Resolution', { exact: true })).toBeVisible();
+    await visibleFocus(support);
+    expect(rechecks).toBe(1);
+  } finally { gate.release(); }
+});
+
 async function failedAppearance(page: Page) {
   await openProject(page);
   let attempt: { succeeds: boolean; gate: ReturnType<typeof deferred> } | null = null;

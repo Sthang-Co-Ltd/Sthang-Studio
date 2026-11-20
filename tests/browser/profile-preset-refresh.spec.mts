@@ -54,6 +54,7 @@ async function importWhileOpen(page: Page) {
   const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
   await dialog.getByRole('button', { name: 'Profile', exact: true }).click();
   await dialog.locator('input[type=file]').setInputFiles({ name: 'studio-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(importedProfile())) });
+  await page.getByRole('button', { name: 'Replace profile', exact: true }).click();
   await expect(dialog.locator('.profile-import-feedback')).toContainText('Profile imported.');
   await dialog.getByRole('button', { name: 'Close settings', exact: true }).click();
 }

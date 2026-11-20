@@ -89,6 +89,7 @@ for (const format of ['current', 'legacy'] as const) test(`a complete ${format} 
     lastVideoExportSettings: { resolution: 'source', frameRate: 'source', quality: 'recommended', codec: 'h264', encoder: 'auto' } };
   const { captionAppearances: _looks, videoExportPresets: _presets, lastVideoExportSettings: _last, ...legacy } = full;
   const imported = format === 'legacy' ? legacy : full;
+  const file = { ...selectedFile(imported), name: format === 'legacy' ? 'sthang-studio-profile-before-restoring-the-interview-and-its-saved-caption-settings.json' : 'studio-profile.json' };
   await page.route('**/api/profile/import', async (route) => {
     const submitted = route.request().postDataJSON();
     submissions.push(structuredClone(submitted));
@@ -99,7 +100,26 @@ for (const format of ['current', 'legacy'] as const) test(`a complete ${format} 
   });
   try {
     await openProfile(page);
-    await input(page).setInputFiles(selectedFile(imported));
+    const choose = settings(page).getByRole('button', { name: 'Import profile', exact: true });
+    const keep = page.getByRole('button', { name: 'Keep current', exact: true });
+    const replace = page.getByRole('button', { name: 'Replace profile', exact: true });
+    await choose.focus();
+    await input(page).setInputFiles(file);
+    await expect(keep).toBeVisible();
+    await expect(keep).toBeFocused();
+    const review = page.getByRole('alertdialog');
+    await expect(review).toContainText(file.name);
+    expect(await review.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(submissions).toHaveLength(0);
+    await page.screenshot({ path: info.outputPath('profile-import-review-' + format + '.png') });
+    await keep.press('Enter');
+    await expect(replace).toBeHidden();
+    expect(submissions).toHaveLength(0);
+    expect(state.profile.defaultVocabulary).toEqual(['Keep saved term']);
+    await expect(glossary(page)).toHaveValue('Keep unsaved glossary កម្ពុជា');
+    await expect(packName(page)).toHaveValue('Keep unsaved pack name');
+    await input(page).setInputFiles(file);
+    await replace.press('Enter');
     await expect.poll(() => submissions.length).toBe(1);
     await glossary(page).focus();
     first.release();
@@ -109,13 +129,14 @@ for (const format of ['current', 'legacy'] as const) test(`a complete ${format} 
     await expect(input(page)).toHaveValue('');
     await feedback(page).scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath(`profile-valid-${format}-retry.png`) });
-    await settings(page).getByRole('button', { name: 'Retry import', exact: true }).click();
+    await settings(page).getByRole('button', { name: 'Retry import', exact: true }).press('Enter');
     await expect.poll(() => submissions.length).toBe(2);
-    await packName(page).focus();
+    expect(await settings(page).evaluate((node) => node.contains(document.activeElement))).toBe(true);
+    await packName(page).fill('Newer name while retrying');
     retry.release();
     await expect(feedback(page)).toContainText('Profile imported. Your unsaved glossary text is still in the form.');
     await expect(packName(page)).toBeFocused();
-    await expect(packName(page)).toHaveValue('Keep unsaved pack name');
+    await expect(packName(page)).toHaveValue('Newer name while retrying');
     await expect(glossary(page)).toHaveValue('Keep unsaved glossary កម្ពុជា');
     await expect(settings(page).getByRole('button', { name: 'Retry import', exact: true })).toHaveCount(0);
     expect(submissions).toEqual([imported, imported]);

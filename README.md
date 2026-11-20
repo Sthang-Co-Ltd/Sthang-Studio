@@ -117,8 +117,9 @@ sort by **Last edited**, **Newest created**, or **Name A–Z**. Results are show
 pages of 24; search covers the whole collection, including older projects.
 
 Choose **Continue editing** to reopen saved captions or **Open project** for a
-project that has not been generated. **Back to projects** returns to the same
-search, sort order, and page during this Studio session. Reopening uses the current
+project that has not been generated. **Back to projects** keeps the search and sort order during this Studio session.
+On this development branch it also returns to the project you opened, following
+it to its new page if the collection order has changed. Reopening uses the current
 saved project and the existing unfinished-draft recovery flow; it does not restart
 generation or resume playback automatically. Listing and searching use local
 project summaries.

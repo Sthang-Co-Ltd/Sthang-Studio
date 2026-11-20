@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ClipboardPaste,
@@ -38,16 +38,23 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   const pending = useRef(false);
   const keyInput = useRef<HTMLInputElement>(null);
   const pasteButton = useRef<HTMLButtonElement>(null);
+  const feedbackTrigger = useRef<HTMLButtonElement | null>(null);
   const { confirm, confirmationDialog } = useStudioConfirm();
   const pasteShortcut = navigator.platform.toLowerCase().includes('mac') ? 'Command+V' : 'Ctrl+V';
   useEffect(() => () => { lifetime.current++; }, []);
+  useLayoutEffect(() => {
+    const trigger = feedbackTrigger.current;
+    if ((error || message || result) && trigger && document.activeElement === trigger) {
+      trigger.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
+  }, [error, message, result]);
 
   useEffect(() => {
     if (!edited.current.model) setModel(settings.model);
     if (!edited.current.fallback) setFallbackModel(settings.fallbackModel);
   }, [settings.model, settings.fallbackModel]);
 
-  const resetFeedback = () => { setError(''); setMessage(''); setResult(null); };
+  const resetFeedback = () => { feedbackTrigger.current = null; setError(''); setMessage(''); setResult(null); };
 
   const pasteKey = async () => {
     if (pending.current) return;
@@ -76,9 +83,10 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     }
   };
 
-  const save = async () => {
+  const save = async (trigger: HTMLButtonElement) => {
     if (pending.current) return;
     resetFeedback();
+    feedbackTrigger.current = trigger;
     if (!settings.configured && !apiKey.trim()) {
       setError('Paste a Gemini API key before saving.');
       return;
@@ -110,13 +118,14 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     }
   };
 
-  const test = async () => {
+  const test = async (trigger: HTMLButtonElement) => {
     if (pending.current) return;
     pending.current = true;
     const owner = lifetime.current;
     const revision = JSON.stringify(revisions.current);
     const current = () => lifetime.current === owner && JSON.stringify(revisions.current) === revision;
     resetFeedback();
+    feedbackTrigger.current = trigger;
     setWorking('test');
     try {
       const next = await onTest({ apiKey: apiKey.trim() || undefined, model: model.trim() });
@@ -214,8 +223,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     <div className="ai-settings-actions">
       {settings.canForgetSecureKey && <button className="danger-quiet" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'forget' || undefined} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}Forget saved key</button>}
       <span>{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'No settings saved yet'}</span>
-      <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={() => void test()}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
-      <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={() => void save()}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
+      <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={(event) => void test(event.currentTarget)}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
+      <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={(event) => void save(event.currentTarget)}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
     </div>
     {confirmationDialog}
   </div>;

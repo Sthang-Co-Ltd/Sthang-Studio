@@ -5,6 +5,7 @@ import { selectProjectLibrary, type ProjectLibrarySort, type ProjectLibraryView 
 import '../project-library.css';
 
 interface ProjectLibraryProps {
+  focusHeadingOnMount: boolean;
   projects: CaptionProjectSummary[];
   view: ProjectLibraryView;
   onViewChange: (value: ProjectLibraryView) => void;
@@ -30,7 +31,7 @@ function ProjectDate({ label, value }: { label: string; value: string }) {
   return <span>{label} <time dateTime={date.toISOString()} title={date.toLocaleString()}>{dateFormatter.format(date)}</time></span>;
 }
 
-export function ProjectLibrary({ projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onCreate, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
+export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onCreate, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
   const ids = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
@@ -41,7 +42,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
   const result = useMemo(() => selectProjectLibrary(projects, view), [projects, view]);
   const ready = !loading && !loadFailed;
 
-  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => { if (focusHeadingOnMount) heading.current?.focus({ preventScroll: true }); }, [focusHeadingOnMount]);
   useEffect(() => {
     if (pageFocusPending.current) {
       pageFocusPending.current = false;
@@ -125,7 +126,7 @@ export function ProjectLibrary({ projects, view, onViewChange, loading, loadFail
           const opening = openingProjectId === project.id;
           const descriptionId = `${ids}-project-${index}`;
           return <li key={project.id}>
-            <button type="button" className="project-library-item" aria-label={`Open ${project.title}`} aria-describedby={descriptionId}
+            <button type="button" className="project-library-item" data-library-project={project.id} aria-label={`Open ${project.title}`} aria-describedby={descriptionId}
               aria-busy={opening} disabled={disabled || opening} onClick={() => onOpen(project.id)}>
               <span className="project-library-item-icon"><FolderOpen size={21} aria-hidden="true"/></span>
               <span className="project-library-item-content"><strong className="project-library-item-title" title={project.title}>{project.title}</strong>

@@ -2,7 +2,7 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSP
 import { RotateCcw, X } from 'lucide-react';
 import { PanelArrangement } from './PanelArrangement';
 import { PanelHeaderDragContext, PanelHeaderGrip, usePanelHeaderDrag } from './PanelHeaderGrip';
-import { isFocusPreservingCaptionViewport, revealFocusedCaptionField } from '../caption-field-viewport';
+import { isFocusPreservingCaptionViewport, revealFocusedCaptionField, revealFocusedCaptionRow } from '../caption-field-viewport';
 import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_CHANGE, EDITOR_LAYOUT_KEY, LEGACY_EDITOR_LAYOUT_KEY, PANE_LABELS, editorGeometry, editorResizeBounds, parseEditorLayout, resizeEditorBoundary, visibleEditorPanes, type EditorLayoutPreference, type EditorPane } from '../editor-layout-state';
 import './editor-layout.css';
 
@@ -58,8 +58,10 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   }
   function finishNativeCaptionFocus(target: EventTarget | null) {
     cancelNativeFocusReveal();
-    if (!window.matchMedia('(max-width: 1199px)').matches
-      || !(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement && !['checkbox', 'range'].includes(target.type))) return;
+    if (!(target instanceof HTMLElement)) return;
+    const row = target.hasAttribute('data-caption-id');
+    if (!row && !window.matchMedia('(max-width: 1199px)').matches) return;
+    if (!row && !(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement && !['checkbox', 'range'].includes(target.type))) return;
     if (isFocusPreservingCaptionViewport(target)) return;
     const list = target.closest<HTMLElement>('.caption-list');
     const owner = workbench.current;
@@ -70,6 +72,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
     queued.frame = requestAnimationFrame(() => {
       if (nativeFocusReveal.current !== queued) return;
       nativeFocusReveal.current = null;
+      if (row) { revealFocusedCaptionRow(queued.field, queued.list, queued.owner); return; }
       const rect = queued.field.getBoundingClientRect();
       const port = queued.owner.getBoundingClientRect();
       const top = port.top + queued.owner.clientTop;

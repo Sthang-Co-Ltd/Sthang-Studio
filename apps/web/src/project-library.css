@@ -29,7 +29,7 @@
 .project-library-summary h2{margin:0;font-size:14px;font-weight:600;line-height:1.6;color:#dce1e7}
 .project-library-summary>span{font-size:12px;line-height:1.6;color:#99a4b1}
 .project-library-results{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.project-library-item{width:100%;min-height:100px;display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:15px;align-items:center;border:1px solid #29313b;border-radius:12px;background:#101318;padding:18px;text-align:left;color:#e9edf2}
+.project-library-item{width:100%;min-height:100px;scroll-margin-block:8px;display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:15px;align-items:center;border:1px solid #29313b;border-radius:12px;background:#101318;padding:18px;text-align:left;color:#e9edf2}
 .project-library-item:hover:not(:disabled){border-color:#576737;background:#151b13}
 .project-library-item-icon{width:42px;height:42px;display:grid;place-items:center;border:1px solid #323d2a;border-radius:10px;background:#172013;color:#c1dd86}
 .project-library-item-content{display:block;min-width:0}

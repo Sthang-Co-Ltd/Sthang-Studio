@@ -52,6 +52,22 @@ async function openComparison(page: Page) {
   await openProject(page); await openInitialComparison(page);
   await page.evaluate(() => { document.querySelector('video')?.pause(); (window as any).__regenDraftNodes = [document.querySelector('video'), document.querySelector('.caption-list')]; });
 }
+test('applying a topic pack preserves the active comparison and its edited wording', async ({ page }) => {
+  state.profile.topicPacks = [{ id: 'review-pack', name: 'Interview vocabulary', description: 'A recorded interview',
+    vocabulary: ['Interview term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }];
+  await openComparison(page);
+  await wording(page).fill(revisedWording);
+  await page.getByLabel('Open project tools', { exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Settings/ }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await settings.getByRole('button', { name: 'Profile', exact: true }).click();
+  await settings.getByRole('button', { name: 'Apply Interview vocabulary', exact: true }).press('Enter');
+  await expect(settings).toBeHidden();
+  await expect(wording(page)).toHaveValue(revisedWording);
+  await expect(page.getByText(/Review the project context in Accuracy after this comparison/)).toBeVisible();
+  expect(actions).toHaveLength(0);
+});
+
 async function keptEvidence(page: Page, captions: FixtureState['projects'][number]['captions']) {
   expect(state.projects[0].captions).toEqual(captions);
   expect(await page.evaluate(() => (window as any).__regenDraftNodes.every((node: Element, index: number) => node === document.querySelector(index ? '.caption-list' : 'video')))).toBe(true);

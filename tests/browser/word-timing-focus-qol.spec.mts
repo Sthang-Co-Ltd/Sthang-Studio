@@ -57,6 +57,17 @@ async function expectUncovered(target: Locator) {
     });
   })).toBe(true);
 }
+test('Edit word timing focuses the selected caption’s visible controls on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 844 });
+  await openProject(page);
+  await page.getByLabel('More actions for caption 1', { exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit word timing', exact: true }).press('Enter');
+  const sync = page.getByRole('group', { name: 'Word timing controls', exact: true }).getByRole('button', { name: 'Sync words', exact: true });
+  await expect(sync).toBeFocused();
+  await expectUncovered(sync);
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(first().text);
+});
+
 function deferred() {
   let release!: () => void;
   const promise = new Promise<void>((resolve) => { release = resolve; });

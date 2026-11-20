@@ -29,6 +29,6 @@ export function ProjectStoragePanel({ status, checking, error, onRecheck }: {
       {!attention && !checking && !error && <p>No project read errors were found at the last check. This does not verify backups or free disk space.</p>}
       <time dateTime={status.checkedAt}>Last checked {new Date(status.checkedAt).toLocaleString()}</time>
     </> : null}
-    {onRecheck && <button type="button" disabled={checking} onClick={onRecheck}>Recheck saved projects</button>}
+    {onRecheck && <button type="button" aria-disabled={checking || undefined} aria-busy={checking || undefined} onClick={() => { if (!checking) onRecheck(); }}>Recheck saved projects</button>}
   </section>;
 }

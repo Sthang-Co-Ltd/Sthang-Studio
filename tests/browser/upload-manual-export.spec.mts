@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { prepareOwnedStateRoot, requireHarnessConfig, verifyOwnedStateRoot } from './harness-config.mjs';
 import { cleanupOwnedApiClients, startOwnedApi, stopOwnedApi } from './owned-api-harness.mjs';
-import { closeOwnedBrowserContext, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
+import { closeOwnedBrowserContext, fetchOwnedRoute, installBrowserNetworkGuard } from './owned-browser-routes.mjs';
 
 const harness = requireHarnessConfig();
 const test = base.extend<{ studioRoot: string }>({
@@ -127,3 +127,64 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(field).toHaveValue(caption);
   });
 }
+
+test('a lost replacement receipt can recover the saved local file and captions without resubmission', async ({ page, studioRoot }, info) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const clip = await makeClip(studioRoot);
+  const [created] = await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith('/api/projects') && response.status() === 201),
+    chooseMedia(page, clip),
+  ]);
+  const original = await created.json();
+  await page.getByRole('button', { name: 'Add caption', exact: true }).click();
+  const field = page.getByLabel('Caption 1 text', { exact: true });
+  await field.fill('សួស្តី · Interview opening');
+  await field.press('Tab');
+
+  let submissions = 0;
+  let lostReceipt = false;
+  let allowRead = false;
+  await page.route('**/api/projects/' + original.id + '/replace-media', async (route) => {
+    submissions++;
+    const response = await fetchOwnedRoute(route, harness);
+    try {
+      expect(response.ok()).toBe(true);
+      lostReceipt = true;
+      await route.abort('failed');
+    } finally { await response.dispose(); }
+  });
+  await page.route('**/api/projects/' + original.id, async (route) => {
+    if (lostReceipt && !allowRead && route.request().method() === 'GET') {
+      return route.fulfill({ status: 503, json: { error: 'Source check interrupted.' } });
+    }
+    return route.fallback();
+  });
+
+  await page.getByLabel('Open project tools').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: /^Replace media/ }).click();
+  const replacementName = 'Interview revised.mp4';
+  await (await chooser).setFiles({ ...clip, name: replacementName });
+  const dialog = page.getByRole('dialog', { name: 'Replace media', exact: true });
+  await dialog.getByRole('button', { name: 'Replace and keep captions', exact: true }).click();
+  const check = dialog.getByRole('button', { name: 'Check saved source' });
+  await expect(check).toBeEnabled({ timeout: 25000 });
+  await expect(check).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: info.outputPath('lost-local-receipt.png'), animations: 'disabled' });
+  allowRead = true;
+  const [read] = await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith('/api/projects/' + original.id) && response.request().method() === 'GET'),
+    check.click(),
+  ]);
+  const saved = await read.json();
+  expect(saved.media.originalName).toBe(replacementName);
+  expect(saved.media.filename).not.toBe(original.media.filename);
+  expect(await fs.readFile(path.join(studioRoot, 'uploads', saved.media.filename))).toEqual(clip.buffer);
+  expect(saved.captions[0].text).toBe('សួស្តី · Interview opening');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.media-stage video')).toHaveAttribute('src', saved.media.url);
+  await expect(field).toHaveValue(saved.captions[0].text);
+  expect(submissions).toBe(1);
+});

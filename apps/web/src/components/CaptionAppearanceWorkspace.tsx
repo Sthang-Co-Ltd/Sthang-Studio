@@ -32,6 +32,7 @@ interface Props {
   captions: CaptionSegment[];
   initialAppearance?: CaptionAppearance;
   onEditWordTiming(id?: string): void;
+  onHighlightControlReady?(control: HTMLButtonElement | null): void;
   onAppearanceChange(appearance: CaptionAppearance): void;
   onInteractionChange(active: boolean): void;
   onConfirm(options: StudioConfirmOptions): Promise<boolean>;
@@ -66,6 +67,7 @@ export function CaptionAppearanceWorkspace({
   captions,
   initialAppearance,
   onEditWordTiming,
+  onHighlightControlReady,
   onAppearanceChange,
   onInteractionChange,
   onConfirm,
@@ -867,7 +869,7 @@ export function CaptionAppearanceWorkspace({
     <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
       <div className="appearance-word-highlight-head">
         <p>Color words with usable timing while the full caption stays visible.</p>
-        <button type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
+        <button ref={onHighlightControlReady} type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
           onClick={() => {
             const enabled = appearanceRef.current.highlightMode !== 'word';
             if (updateAppearance((current) => ({ ...current, highlightMode: enabled ? 'word' : 'off' }))) wordPreparation?.onToggle(enabled);

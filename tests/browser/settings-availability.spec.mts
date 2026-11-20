@@ -97,11 +97,14 @@ test('AI connection stays available while preferences load and closing Settings 
 
 test('topic packs explain their project prerequisite on Home and apply after a project opens', async ({ page }) => {
   state.profile.topicPacks = [{ id: 'available-pack', name: 'Creator context', description: 'Saved context កម្ពុជា',
-    vocabulary: ['Pack term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }];
+    vocabulary: ['Pack term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { id: 'other-pack', name: 'Newsroom', description: 'News context',
+      vocabulary: ['News term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }];
   await page.goto('/');
   await homeSettings(page).click();
   await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
-  const apply = settings(page).getByRole('button', { name: 'Apply', exact: true });
+  const apply = settings(page).getByRole('button', { name: /^Apply\b.*Creator context$/ });
+  await expect(settings(page).getByRole('button', { name: /^Apply\b.*Newsroom$/ })).toBeDisabled();
   await expect(apply).toBeDisabled();
   await expect(apply).toHaveAccessibleDescription('Open a project to apply a topic pack.');
   await expect(settings(page).getByText('Open a project to apply a topic pack.', { exact: true })).toBeVisible();
@@ -115,9 +118,10 @@ test('topic packs explain their project prerequisite on Home and apply after a p
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
   await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
   await expect(apply).toBeEnabled();
-  await apply.click();
+  await apply.press('Enter');
   await expect(settings(page)).toBeHidden();
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await expect(page.getByRole('complementary', { name: 'Accuracy workspace' })).toBeVisible();
+  await expect(page.locator('#accuracy-context-description')).toBeFocused();
   await expect(page.locator('#accuracy-context-description')).toHaveValue('Saved context កម្ពុជា');
   await expect(page.locator('#accuracy-context-vocabulary')).toHaveValue(/Pack term/);
 });

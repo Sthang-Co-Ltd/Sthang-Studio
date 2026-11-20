@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Return to the same project in a large library and replay a saved correction at
+  its recorded time, including from History after the inbox is clear.
+- Review the scope of a profile import before replacing settings. After an
+  interrupted media replacement, check which source was saved before retrying.
+
 - Fix Studio setup and the restart after an update on Windows PCs that block running programs from the current folder.
 
 - Apply word highlights in one local pass from Appearance. Follow saved caption
