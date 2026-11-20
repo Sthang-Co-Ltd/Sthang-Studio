@@ -85,6 +85,17 @@ test('first-run setup reports readiness with no projects and keeps known setup a
   await expect(connect).toHaveCount(0);
   await expect(ready).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('home-setup-mobile.png') });
+  await page.route('**/api/system/doctor', (route) => route.fulfill({ json: {
+    overall: 'ok', generatedAt: stamp, engineVersion: 'synthetic',
+    checks: [{ id: 'media', label: 'Synthetic media tools', status: 'ok', detail: 'Media check completed.' }],
+    environment: { platform: 'Synthetic Windows', node: 'test', appRoot: 'synthetic', apiPort: 1, webOrigin: 'synthetic' },
+  } }));
+  await timing.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await expect(dialog.getByText('Media check completed.', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Run checks', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(timing).toBeFocused();
 });
 
 for (const width of [1440, 390]) test(`Home keeps terminal Activity reachable after dismissal, with keyboard return and a real download at ${width}px`, async ({ page }, info) => {

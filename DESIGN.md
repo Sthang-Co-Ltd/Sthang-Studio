@@ -72,10 +72,10 @@ collapse them into unexplained icon-only buttons at narrower widths.
 
 ### Editor
 
-The video and caption list are the persistent core. Advanced workspaces appear one at a time:
+The video and caption list are the persistent core. Review opens from the project header. The tool strip opens one specialist workspace at a time.
 
 ```text
-Review · Fine timing · Accuracy · Caption grouping · Appearance · Details
+Fine timing · Accuracy · Caption grouping · Appearance · Details
 ```
 
 Use the refined A desktop layout at widths of 1200px and above: default preview
@@ -135,16 +135,15 @@ when adjacent; with Preview in the middle it uses the caption column only and
 the inspector retains full height. Timing controls stay in the inspector. Layout
 geometry changes cancel any pending timing drag before moving its canvas.
 A narrower window keeps the canonical preview-first order and uses a vertically
-scrollable arrangement with a consistent preview height across tools. Keep media
-visible while reaching lower controls. Do not use a blocking modal for a task
+scrollable arrangement. Keep a compact preview above an open tool, bring its
+heading into view on entry, and give an empty caption list only the space it needs. Do not use a blocking modal for a task
 that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
 
 ### Generate caption AI options
 
-Keep **AI options** in the Generate captions card, immediately before its primary
-action. Its collapsed summary shows the current choice. A labeled native
+Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary shows the current choice. A labeled native
 **Caption model** selector in current source offers **Automatic**, **Gemini 3.8 Flash**,
 **Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
 this project and leaves global settings unchanged. Existing projects start with

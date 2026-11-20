@@ -192,11 +192,3 @@ export function analyzeCaptions(
     return (firstIndex.get(a.captionId) ?? -1) - (firstIndex.get(b.captionId) ?? -1);
   });
 }
-
-export function exportReadiness(captions: CaptionSegment[], issues: ReviewIssue[]) {
-  if (!captions.length) return 0;
-  const weight: Record<ReviewSeverity, number> = { info: 0.2, warning: 0.7, error: 1.5 };
-  const penalty = issues.reduce((sum, issue) => sum + weight[issue.severity], 0);
-  const approvalBonus = captions.filter((caption) => caption.approved).length / captions.length * 6;
-  return Math.max(0, Math.min(100, Math.round(100 - (penalty / captions.length) * 32 + approvalBonus)));
-}

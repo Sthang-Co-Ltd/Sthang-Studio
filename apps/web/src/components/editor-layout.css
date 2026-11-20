@@ -132,21 +132,24 @@
   .workspace.refined-workspace.has-persistent-recovery :is(.inspector-content :is(button,input,textarea,select,summary,canvas),[data-workspace-close]){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
   /* Native keyboard focus must account for evidence that covers the outer
      scrollport, without adding that padding inside the nested caption list. */
-  .editor-workbench.caption-list-focused{scroll-padding-top:calc(clamp(240px,45dvh,440px) + 110px)}
+  .editor-workbench{--mobile-preview-height:clamp(240px,45dvh,440px)}
+  .editor-workbench:has(.refined-editor.inspector-open){--mobile-preview-height:clamp(120px,24dvh,240px)}
+  .editor-workbench.caption-list-focused{scroll-padding-top:calc(var(--mobile-preview-height) + 110px)}
   .workspace.refined-workspace:is(.has-persistent-recovery,.has-caption-proposal.has-toasts) .editor-workbench.caption-list-focused{scroll-padding-top:calc(clamp(120px,24dvh,240px) + 112px)}
   .editor-workbench{overflow:auto}
   .editor-workbench .refined-editor,.editor-workbench .refined-editor.inspector-open,.editor-workbench .refined-editor.timing-layout.inspector-open{display:flex;flex-direction:column;overflow:visible;flex:none;gap:12px;min-height:0;reading-flow:normal}
   .refined-editor>.stage-column,.refined-editor>.caption-panel,.refined-editor>.workspace-inspector{order:0}
   .editor-divider,.editor-layout-controls{display:none}
   .refined-editor>.stage-column{min-height:0;flex:none;position:sticky;top:60px;z-index:5}
-  .refined-editor .stage-column .media-stage{height:clamp(240px,45dvh,440px);min-height:0;flex:none}
+  .refined-editor .stage-column .media-stage{height:var(--mobile-preview-height);min-height:0;flex:none}
   .refined-editor>.caption-panel{min-height:320px;height:50dvh;flex:none}
+  .refined-editor>.caption-panel[data-empty]{height:auto;min-height:0}
   .refined-editor .workspace-inspector{max-height:none;flex:none;overflow:visible}
   .inspector-content{overflow:visible;min-height:0}
   .inspector-content .timing-header{position:static}
   .inspector-content .timing-waveform-surface{margin-block:12px}
   /* Include the sticky preview label, toolbar and a small gap above controls. */
-  .editor-workbench .inspector-content :is(button,input,textarea,select,summary,canvas,.word-timing-panel,.appearance-save-state),.editor-workbench .inspector-content .export-checks h3,.editor-workbench .inspector-content .caption-restore-review h3,.editor-workbench [data-workspace-close]{scroll-margin-top:calc(clamp(240px,45dvh,440px) + 110px)}
+  .editor-workbench .inspector-heading,.editor-workbench .inspector-content :is(button,input,textarea,select,summary,canvas,.word-timing-panel,.appearance-save-state),.editor-workbench .inspector-content .export-checks h3,.editor-workbench .inspector-content .caption-restore-review h3,.editor-workbench [data-workspace-close]{scroll-margin-top:calc(var(--mobile-preview-height) + 110px)}
   .refined-workspace.has-caption-proposal.has-toasts .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
   .refined-workspace.has-caption-proposal.has-toasts :is(.inspector-content :is(button,input,textarea,select,summary,canvas),[data-workspace-close]){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
   /* A pointer action can reveal an inspector target before focus leaves Captions.
@@ -160,8 +163,11 @@
 }
 @media(max-width:620px){
   .refined-editor .panel-tools .panel-tool{min-height:44px}
-  .editor-toolbar .workspace-tool-strip nav button,.inspector-heading button,.inspector-content .accuracy-actions button{min-height:44px}
+  .inspector-content .transcribe-card>.primary,.inspector-content .controls-card button,.editor-toolbar .workspace-tool-strip nav button,.inspector-heading button,.inspector-content .accuracy-actions button{min-height:44px}
   .inspector-content .review-card{padding:4px}
+  .inspector-content .review-nav-actions,.inspector-content .review-decision-actions{display:grid}
+  .inspector-content .review-autoplay-toggle{grid-column:auto}
+  .refined-editor>.caption-panel[data-empty] .review-empty{padding-block:12px}
   .editor-workbench .refined-editor{margin:8px}
   .refined-editor .caption-row{grid-template-columns:20px 24px minmax(86px,1fr) 96px;gap:6px}
   .refined-editor .row-actions{width:96px}

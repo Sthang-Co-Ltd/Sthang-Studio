@@ -94,13 +94,13 @@ existing flagged queue, decisions and playback rules.
 
 Reordering requires browser support for matching visual and keyboard reading
 order; unsupported browsers retain the canonical order and working resizing.
-Smaller screens keep preview first, retain the desktop preference, use the same
-preview height across tools, and retain access to the
-caption list and tool controls through scrolling. Appearance starts with Looks,
+Smaller screens keep preview first and retain the desktop preference. Current source
+uses a compact preview while a tool is open so its controls are easier to reach.
+The caption list and tools remain available through scrolling. Appearance starts with Looks,
 font, color, size and position; Motion, word highlighting, saved presets and
 additional styling use labeled disclosures. Existing saved settings, native
 preview/export behavior and all editing actions retain their existing meaning.
-These controls are included in the verified 0.89.0 packages and signed offers.
+The desktop arrangement controls shipped in the verified 0.89.0 packages and signed offers.
 
 ## Caption appearance contract
 

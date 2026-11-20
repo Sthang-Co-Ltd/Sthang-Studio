@@ -667,7 +667,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     openMenuId, menuPresence.present, menuPresence.value, menuPresence.open, menuPlacement.up, menuPlacement.height,
     hasWordTiming, registerRow, registerText, dispatchRowAction]);
 
-  return <div className="caption-panel">
+  return <div className="caption-panel" data-empty={captions.length === 0 || undefined}>
     <div className="panel-head">
       <div className="panel-head-copy">
         <PanelHeaderGrip pane="captions">{reviewMode ? 'Review queue' : 'Captions'}</PanelHeaderGrip>
@@ -686,7 +686,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onTouchMove={pauseFollowForBrowsing}
       onScroll={() => { snapshotReviewViewport(); if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
-      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'No captions yet. Add one to start.'}</div>}
+      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'Use Add to write a caption manually.'}</div>}
       {renderedRows}
     </div>
   </div>;

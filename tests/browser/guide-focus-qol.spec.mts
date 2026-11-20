@@ -62,6 +62,8 @@ for (const width of [1440, 390]) {
     await openProject(page);
     await keepEditorEvidence(page);
     await openGuide(page);
+    await expect(guide(page).getByText('Captions generated', { exact: true })).toBeVisible();
+    await expect(guide(page).getByRole('button', { name: /Captions generated/, disabled: false })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`guide-focus-editor-${width}.png`) });
     await page.keyboard.press('Escape');
     await expect(guide(page)).toHaveCount(0); await expect(tools(page)).toBeFocused();
@@ -156,6 +158,14 @@ for (const width of [1440, 390]) {
     }
   });
 }
+
+test('Guide does not report timing ready when the system status check failed', async ({ page }) => {
+  await page.route('**/api/health', (route) => route.fulfill({ status: 503, json: { error: 'Synthetic health failure' } }));
+  await openProject(page);
+  await openGuide(page);
+  await expect(guide(page).getByRole('button', { name: /Khmer timing/i })).toBeEnabled();
+  await expect(guide(page).getByText('Timing ready', { exact: true })).toHaveCount(0);
+});
 
 test('a newer focus choice wins over a Guide workspace handoff', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });

@@ -80,7 +80,7 @@ import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCa
 import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { ReplaceMediaDialog, RestoreMediaDialog } from './components/ReplaceMediaDialog';
-import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
+import { analyzeCaptions, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
 import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { reconcileCaptionSelection } from './caption-selection-validity';
@@ -443,8 +443,8 @@ export default function App() {
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
   const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
-  const guideWorkspaceFocus = useRef<{
-    ticket: ProjectTicket; tool: 'accuracy' | 'review' | 'export'; previous: Element | null;
+  const workspaceEntryFocus = useRef<{
+    ticket: ProjectTicket; tool: Exclude<WorkspaceTool, null>; fromGuide?: boolean; previous: Element | null;
   } | null>(null);
   const generationAccuracyEntry = useRef<HTMLButtonElement>(null);
   const [exportVisit, setExportVisitState] = useState<{ ticket: ProjectTicket; session: ExportWorkspaceSession } | null>(null);
@@ -484,17 +484,17 @@ export default function App() {
   };
   const restoreInlineAccuracyFocus = () => requestAnimationFrame(() => getAccuracyCloseFocusTarget()?.focus());
   useEffect(() => {
-    const request = guideWorkspaceFocus.current;
+    const request = workspaceEntryFocus.current;
     if (!request) return;
-    guideWorkspaceFocus.current = null;
+    workspaceEntryFocus.current = null;
     if (showGuide || proposal || workspaceTool !== request.tool || !projectScope.current.isCurrent(request.ticket)
       || document.querySelector('[aria-modal="true"]')
       || (document.activeElement !== request.previous && document.activeElement !== document.body)) return;
     const inspector = document.querySelector<HTMLElement>('.workspace-inspector:not([hidden])');
-    const target = request.tool === 'accuracy'
+    const target = request.fromGuide && request.tool === 'accuracy'
       ? inspector?.querySelector<HTMLElement>('#accuracy-context-description') : inspector?.querySelector<HTMLElement>('.inspector-heading');
     target?.focus({ preventScroll: true });
-    target?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+    target?.scrollIntoView({ behavior: 'instant', block: request.fromGuide ? 'nearest' : 'start', inline: 'nearest' });
   }, [showGuide, workspaceTool, viewTicket, proposal]);
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
@@ -1337,12 +1337,11 @@ export default function App() {
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const riskyIds = useMemo(() => draft.filter((caption) => !caption.approved && issueMap.has(caption.id)).map((caption) => caption.id), [draft, issueMap]);
   // Approval suppresses some informational flags. Reconsider the same captions
-  // only for completion copy; the real queue, readiness and export checks keep
+  // only for completion copy; the review queue and export checks keep
   // their existing analysis and approval semantics.
   const reviewedFlags = useMemo(() => reviewMode && !riskyIds.length && draft.some((caption) => caption.approved)
     && analyzeCaptions(draft.map((caption) => caption.approved ? { ...caption, approved: false } : caption), vocabularyLines, qaSettings, mediaDurationMs).length > 0,
   [reviewMode, riskyIds.length, draft, vocabularyLines, qaSettings, mediaDurationMs]);
-  const readiness = useMemo(() => exportReadiness(draft, issues), [draft, issues]);
   const pendingCorrections = profile?.correctionEvents.filter((event) => event.status === 'pending').length || 0;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
   const currentProjectAnyActiveJob = project ? activeJobs.find((job) => job.projectId === project.id) : undefined;
@@ -2233,6 +2232,8 @@ export default function App() {
           setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
         }
         if (workspaceTool) {
+          const closeTool = target?.closest('.workspace-inspector')?.querySelector<HTMLButtonElement>('[data-workspace-close]');
+          if (closeTool) { closeTool.click(); return; }
           cancelPlayback();
           setWorkspaceTool(null);
           setReviewMode(false);
@@ -2745,10 +2746,11 @@ export default function App() {
     }
   }
   const generate = async () => {
-    if (!project || generationModelWrite.current || generationPreparation.current) return;
-    if (!llmSettings?.configured) {
-      setError('Connect AI in Settings → AI connection before generating captions.');
-      openSettings('ai');
+    if (!project || busy || currentProjectActiveJob || generationModelWrite.current || generationPreparation.current || mediaMutationInFlight.current) return;
+    if (llmSettings?.configured === false) { openSettings('ai'); return; }
+    if (health?.timing.configured === false) { openSettings('doctor'); void runDoctor(); return; }
+    if (!llmSettings || !health) {
+      if (generationSetupFailed) setStartupAttempt((attempt) => attempt + 1);
       return;
     }
     generationPreparation.current = true;
@@ -3109,7 +3111,7 @@ export default function App() {
     }
   };
   const applyStyle = () => {
-    if (!project || !profile) return;
+    if (!project || !profile || busy || currentProjectActiveJob || groupingInFlight.current) return;
     const style = profile.styles.find((item) => item.id === 'my-tiktok-style') || profile.styles[0];
     if (!style) return;
     setMaxChars(style.maxChars);
@@ -3782,7 +3784,7 @@ export default function App() {
   const timing = project?.transcript?.timing;
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
-  const showGenerationAccuracy = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
+  const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const savedContext = project?.transcriptionContext;
   const hasSavedContext = Boolean(savedContext?.description?.trim() || savedContext?.vocabulary?.some((term) => term.trim()));
   const usedFallback = timing?.engine === 'faster-whisper-local';
@@ -3792,7 +3794,17 @@ export default function App() {
     : null;
   const timingConfigured = health?.timing.configured ?? true;
 
+  const generationSetupFailed = (!health && startupErrors.includes('System status')) || (!llmSettings && startupErrors.includes('AI connection'));
+  const generationSetupMissing = llmSettings?.configured === false || health?.timing.configured === false;
+  const checkingGenerationSetup = !generationSetupMissing && (!llmSettings || !health) && !generationSetupFailed;
+  const generationPending = Boolean(busy || currentProjectActiveJob || generationPreparing || generationModelSaving || mediaMutationStatus);
+  const generationLabel = currentProjectActiveJob ? 'Caption job in progress' : generationPreparing ? 'Submitting…'
+    : llmSettings?.configured === false ? 'Connect AI' : health?.timing.configured === false ? 'Open System check'
+    : generationSetupFailed ? 'Retry setup checks' : checkingGenerationSetup ? 'Checking setup…'
+    : legacy ? 'Queue rebuild' : 'Generate captions';
+
   const openReviewWorkspace = () => {
+    if (!draft.length) return;
     setWorkspaceTool('review');
     setReviewMode(true);
     const id = riskyIds[0] || selection.ids[0] || draft[0]?.id;
@@ -3800,7 +3812,7 @@ export default function App() {
   };
   const openWorkspaceFromGuide = (tool: 'accuracy' | 'review' | 'export') => {
     if (!project) return;
-    guideWorkspaceFocus.current = { ticket: viewTicket, tool, previous: document.activeElement };
+    workspaceEntryFocus.current = { ticket: viewTicket, tool, fromGuide: true, previous: document.activeElement };
     accuracyDescriptionFocus.current = null;
     setShowGuide(false);
     cancelPlayback();
@@ -3808,6 +3820,9 @@ export default function App() {
     else { setReviewMode(false); setWorkspaceTool(tool); }
   };
   const chooseWorkspaceTool = (tool: Exclude<WorkspaceTool, null>) => {
+    if (tool !== workspaceTool && !proposal && window.matchMedia('(max-width: 1199px)').matches) {
+      workspaceEntryFocus.current = { ticket: viewTicket, tool, previous: document.activeElement };
+    }
     accuracyDescriptionFocus.current = null;
     cancelPlayback();
     if (tool === 'timeline') setRequestedTimingMode('caption');
@@ -3992,7 +4007,7 @@ export default function App() {
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
     {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
     <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
-      loadFailed={startupErrors.includes('Preferences') || startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
+      profileLoadFailed={startupErrors.includes('Preferences')} aiLoadFailed={startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
       onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} loadState={historyLoadState} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
@@ -4001,8 +4016,10 @@ export default function App() {
     <NewUserGuide
       open={showGuide}
       project={project}
-      llmConfigured={Boolean(llmSettings?.configured)}
-      timingConfigured={timingConfigured}
+      llmConfigured={llmSettings?.configured}
+      timingConfigured={health?.timing.configured}
+      generationPending={generationPending}
+      hasCaptions={draft.length > 0}
       issueCount={riskyIds.length}
       onClose={() => setShowGuide(false)}
       onConnect={() => { setShowGuide(false); openSettings('ai'); }}
@@ -4097,7 +4114,7 @@ export default function App() {
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
-        <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
+        <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} disabled={!draft.length && !reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
           pendingCorrections={pendingCorrections}
@@ -4137,10 +4154,9 @@ export default function App() {
       }
       toolbar={!proposal && (
         <div className="workspace-tool-strip">
-            {(!showGenerationAccuracy || draft.length > 0) && <nav aria-label="Caption workspace tools">
-              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b>{riskyIds.length}</b>}</button>}
+            {(!showGeneration || draft.length > 0) && <nav aria-label="Caption workspace tools">
               {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
-              {!showGenerationAccuracy && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>}
+              {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span></button>}
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
               {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
@@ -4287,7 +4303,8 @@ export default function App() {
             onPreferenceChange={(value) => void saveWaveformPreference(value)}
           />}
 
-          {workspaceTool === 'review' && hasHybrid && <div className="review-card review-active">
+          {workspaceTool === 'review' && !draft.length && <p className="muted-copy">No captions to review.</p>}
+          {workspaceTool === 'review' && draft.length > 0 && <div className="review-card review-active">
             {!riskyIds.length && draft.length > 0 && <ReviewCompletion reviewed={reviewedFlags} exportDisabled={Boolean(busy)}
               onShowAll={() => {
                 const returnTo = document.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]');
@@ -4296,10 +4313,9 @@ export default function App() {
               }}
               onExport={() => chooseWorkspaceTool('export')}/>}
             {riskyIds.length > 0 && <>
-            <div className="review-score"><ListChecks size={22}/><div><strong>{readiness}% export readiness</strong><span>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</span></div></div>
-            <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b><span>{selection.captions.length} selected · {selection.captions.filter((caption) => caption.approved).length} approved</span></div>
+            <div className="review-score"><ListChecks size={22}/><strong>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</strong></div>
+            <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b>{selection.captions.length > 1 && <span>{selection.captions.length} selected</span>}</div>
             </>}
-            <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
             {riskyIds.length > 0 && <div className="review-actions review-primary-actions">
               <div className="review-nav-actions">
                 <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
@@ -4308,10 +4324,13 @@ export default function App() {
                 <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
               </div>
               <div className="review-decision-actions">
-                <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
+                {project.transcript?.tokens?.length && project.transcript.timing
+                  ? <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
+                  : <button onClick={() => selection.ids[0] && editor.current?.focusCaption(selection.ids[0])} disabled={!selection.ids.length}>Edit text</button>}
                 <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
               </div>
             </div>}
+            <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
             <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
           </div>}
 
@@ -4326,12 +4345,13 @@ export default function App() {
               <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
             {hasHybrid && generationOptions}
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed ? generationLabel : 'Preview full regeneration'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
           </div>}
 
-          {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
-            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild with current timing.' : 'Create Khmer text aligned to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div>
-            {showGenerationAccuracy && <div className="generation-accuracy">
+          {showGeneration && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
+            <Captions size={28} aria-hidden="true"/><div><strong>{generationSetupMissing ? 'Finish caption setup' : legacy ? 'Rebuild with local timing' : 'Captions from audio'}</strong><span>{llmSettings?.configured === false ? 'Connect AI to transcribe this audio.' : health?.timing.configured === false ? 'Set up Khmer timing to align captions with the audio.' : legacy ? 'Rebuild this project’s older timing from the audio.' : 'Create Khmer text aligned to the audio.'}</span></div>
+            <button className="primary" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}>{currentProjectActiveJob || generationPreparing ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured === false ? <KeyRound size={18}/> : <Captions size={18}/>} {generationLabel}</button>
+            <div className="generation-accuracy">
               <div className="generation-accuracy-copy">
                 <BookOpenText size={18} aria-hidden="true"/>
                 <div>
@@ -4350,9 +4370,8 @@ export default function App() {
               }}>
                 {hasSavedContext ? 'Edit context' : 'Add context'} <ChevronRight size={14} aria-hidden="true"/>
               </button>
-            </div>}
+            </div>
             {generationOptions}
-            <button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
 
           {workspaceTool === 'details' && hasHybrid && <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
@@ -4380,7 +4399,7 @@ export default function App() {
                 {groupingApplying ? 'Applying grouping…' : 'Apply grouping'}</button>
               <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>Clean Khmer spacing</button>
               <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? 'Saving grouping preset…' : 'Save grouping preset'}</button>
-              {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying}>Apply saved grouping</button> : null}
+              {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying || !!currentProjectActiveJob}>Apply saved grouping</button> : null}
             </div>
           </div>}
         </>}

@@ -111,16 +111,15 @@ export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onA
   return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
     <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="correction-inbox-title" tabIndex={-1} className="modal correction-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong id="correction-inbox-title">Correction Inbox</strong><span>{pending} pending · Edits appear when you leave a caption field, Save, or Export.</span></div>
+        <div><strong id="correction-inbox-title">Correction Inbox</strong><span>Edits appear when you leave a caption field, save, or export.</span></div>
         <button className="icon-btn" aria-label="Close correction inbox" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="inbox-toolbar">
         <button ref={pendingFilter} aria-pressed={!showAll} className={!showAll ? 'selected' : ''} onClick={() => changeFilter(false)}>Pending ({pending})</button>
         <button aria-pressed={showAll} className={showAll ? 'selected' : ''} onClick={() => changeFilter(true)}>History ({profile.correctionEvents.length})</button>
-        <span>Open a correction to replay the source audio.</span>
       </div>
       <div className="correction-list">
-        {events.length === 0 && <div className="modal-empty"><CheckCheck size={26}/><strong>Inbox clear</strong><span>New caption corrections appear here automatically.</span></div>}
+        {events.length === 0 && <div className="modal-empty"><CheckCheck size={26}/><strong>{showAll ? 'No correction history yet' : 'Inbox clear'}</strong><span>New caption corrections appear here automatically.</span></div>}
         {events.map((event) => <article className={`correction-card status-${event.status}`} key={event.id}
           ref={(element) => { if (element) cards.current.set(event.id, element); else cards.current.delete(event.id); }}
           tabIndex={-1} aria-label={`Correction at ${formatTime(event.startMs)} in ${event.projectTitle}`} aria-busy={working === event.id || undefined}>
@@ -132,8 +131,8 @@ export function CorrectionInbox({ profile, open, busy, onClose, onOpenEvent, onA
             <button onClick={() => onOpenEvent(event)}><CirclePlay size={15}/>Review audio</button>
             <CopyReportButton text={reportText(event)}/>
             {event.status === 'pending' && <>
-              <button disabled={busy || Boolean(working)} className="remember" aria-label="Remember for all projects" onClick={(click) => void decide(event, 'remember-global', click.currentTarget)}><BookOpenCheck size={15}/>Remember everywhere</button>
-              <button disabled={busy || Boolean(working)} aria-label="Remember for this project" onClick={(click) => void decide(event, 'add-project', click.currentTarget)}><FolderPlus size={15}/>Remember here</button>
+              <button disabled={busy || Boolean(working)} className="remember" onClick={(click) => void decide(event, 'remember-global', click.currentTarget)}><BookOpenCheck size={15} aria-hidden="true"/>Remember for all projects</button>
+              <button disabled={busy || Boolean(working)} onClick={(click) => void decide(event, 'add-project', click.currentTarget)}><FolderPlus size={15} aria-hidden="true"/>Remember for this project</button>
               <button disabled={busy || Boolean(working)} onClick={(click) => void decide(event, 'ignore', click.currentTarget)}><XCircle size={15}/>Ignore</button>
             </>}
             {event.status !== 'pending' && <span className="decision-label">{event.status.replace('-', ' ')}</span>}

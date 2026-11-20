@@ -202,7 +202,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         {divider(1)}
         <aside className="workspace-inspector" hidden={!open} aria-label={`${title} workspace`}>
           <div className="inspector-heading" tabIndex={-1} role="group" aria-label={`${title} workspace`}><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" data-workspace-close onClick={() => {
-            const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.editor-toolbar button[aria-pressed="true"]')
+            const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.workspace-tool-strip button[aria-pressed="true"]')
               || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]') || null;
             onClose();
             requestAnimationFrame(() => {

@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Download,
   HelpCircle,
-  ListChecks,
   ListRestart,
   FileUp,
   X,
@@ -38,8 +37,10 @@ export function HomeSetupChecklist({ llmConfigured, timingConfigured, onConnect,
 interface GuideProps {
   open: boolean;
   project: CaptionProject | null;
-  llmConfigured: boolean;
-  timingConfigured: boolean;
+  llmConfigured?: boolean;
+  timingConfigured?: boolean;
+  hasCaptions: boolean;
+  generationPending: boolean;
   issueCount: number;
   onClose(): void;
   onConnect(): void;
@@ -55,6 +56,8 @@ export function NewUserGuide({
   project,
   llmConfigured,
   timingConfigured,
+  hasCaptions,
+  generationPending,
   issueCount,
   onClose,
   onConnect,
@@ -91,7 +94,6 @@ export function NewUserGuide({
     event.preventDefault(); event.stopPropagation(); close();
   };
   if (!open) return null;
-  const hasCaptions = Boolean(project?.captions.length);
   const mac = navigator.platform.toLowerCase().includes('mac');
   const modifier = mac ? 'Command' : 'Ctrl';
   const editingShortcuts = [
@@ -109,7 +111,8 @@ export function NewUserGuide({
         <button className={llmConfigured ? 'done' : 'next'} onClick={() => handoff(onConnect)}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected' : 'Required to generate caption text.'}</small></span></button>
         <button className={timingConfigured ? 'done' : 'next'} onClick={() => handoff(onOpenDoctor)}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>Khmer timing</b><small>{timingConfigured ? 'Timing ready' : 'Open System check for setup.'}</small></span><ChevronRight size={14}/></button>
         <button onClick={() => handoff(onContext)}><i>3</i><span><b>Add accuracy context <em>optional</em></b><small>Preserve names, brands, versions, and Khmer-English terms.</small></span><ChevronRight size={14}/></button>
-        <button className={!hasCaptions ? 'next' : 'done'} onClick={() => handoff(onGenerate)} disabled={!llmConfigured || !timingConfigured}><i>{hasCaptions ? <Check size={14}/> : 4}</i><span><b>{hasCaptions ? 'Captions generated' : 'Generate captions'}</b><small>Creates text and timing from the audio.</small></span><ChevronRight size={14}/></button>
+        {hasCaptions ? <div className="guide-completed-step"><Check size={16} aria-hidden="true"/><b>{project.transcript ? 'Captions generated' : 'Captions added'}</b></div>
+          : <button className="next" onClick={() => handoff(onGenerate)} disabled={!llmConfigured || !timingConfigured || generationPending}><i>4</i><span><b>{generationPending ? 'Generation unavailable' : 'Generate captions'}</b><small>Create timed captions from the audio.</small></span><ChevronRight size={14}/></button>}
         <button className={hasCaptions && issueCount ? 'next' : hasCaptions ? 'done' : ''} onClick={() => handoff(onReview)} disabled={!hasCaptions}><i>{hasCaptions && !issueCount ? <Check size={14}/> : 5}</i><span><b>Review flagged captions</b><small>{hasCaptions ? `${issueCount} to check.` : 'Available after generation.'}</small></span><ChevronRight size={14}/></button>
         <button onClick={() => handoff(onExport)} disabled={!hasCaptions}><i>6</i><span><b>Export</b><small>{isVideoProject(project) ? 'Download subtitles or a video with captions.' : 'Download subtitles for your audio.'}</small></span><Download size={14}/></button>
       </section>
@@ -121,12 +124,10 @@ export function NewUserGuide({
         <dl>{editingShortcuts.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
         <h3>Review only</h3>
         <dl>{reviewShortcuts.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
-        <p>Approve &amp; next and Skip advance through flagged captions while Review is active.</p>
       </details>
 
       <section className="guide-tools">
         <h3>Other tools</h3>
-        <div><ListChecks size={15}/><span><b>Review</b><small>Flags captions to check; they may be correct.</small></span></div>
         <div><BookOpenCheck size={15}/><span><b>Corrections</b><small>Learns from edits after you approve each suggestion.</small></span></div>
         <div><ListRestart size={15}/><span><b>Regeneration preview</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
       </section>

@@ -37,6 +37,64 @@ async function options(page: Page) {
   return page.getByRole('combobox', { name: 'Caption model', exact: true });
 }
 
+for (const missingKey of [true, false]) {
+  const actionName = missingKey ? 'Connect AI' : 'Open System check';
+  test(`generation setup opens ${actionName} when timing is unavailable without submitting a job`, async ({ page }) => {
+    state.projects[0].transcript = null;
+    state.projects[0].captions = [];
+    const [healthResponse, settingsResponse] = await Promise.all([
+      page.waitForResponse('**/api/health'),
+      page.waitForResponse('**/api/system/llm-settings'),
+      page.goto('/'),
+    ]);
+    const health = await healthResponse.json();
+    const settings = { ...await settingsResponse.json(), configured: !missingKey };
+    await page.route('**/api/health', (route) => route.fulfill({ json: {
+      ...health, llm: settings, timing: { ...health.timing, configured: false },
+    } }));
+    await page.route('**/api/system/llm-settings', (route) => route.fulfill({ json: settings }));
+    await page.route('**/api/system/doctor', (route) => route.fulfill({ json: {
+      generatedAt: '2026-01-01T00:00:00.000Z', engineVersion: 'synthetic', overall: 'warning', checks: [],
+      environment: { platform: 'Synthetic Windows', node: 'test', appRoot: 'Synthetic app', apiPort: 1, webOrigin: 'http://127.0.0.1' },
+    } }));
+    await page.reload();
+    const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+    if (missingKey) await dialog.getByRole('button', { name: 'Close settings' }).click();
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    const workspace = page.getByRole('complementary', { name: 'Generate captions workspace' });
+    await expect(workspace.getByText('Ready to generate captions', { exact: true })).toHaveCount(0);
+    await workspace.getByRole('button', { name: actionName, exact: true }).press('Enter');
+    if (missingKey) await expect(dialog.getByLabel('Primary model', { exact: true })).toBeVisible();
+    else await expect(dialog.locator('#system-check-status')).toBeAttached();
+    await dialog.getByRole('button', { name: 'Close settings' }).click();
+    await expect(page.locator('.toast.error')).toHaveCount(0);
+    expect(submissions).toHaveLength(0);
+  });
+}
+
+test('generation stays unavailable while submission is pending and while the accepted job is queued', async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let attempts = 0;
+  await page.route('**/api/jobs/transcribe', async (route) => {
+    attempts++;
+    await pending;
+    await route.fallback();
+  });
+  await initialProject(page);
+  const primary = page.locator('.transcribe-card button.primary');
+  try {
+    await primary.click();
+    await expect.poll(() => attempts).toBe(1);
+    await expect(primary).toBeDisabled();
+    await expect(primary).not.toHaveText('Generate captions');
+  } finally { release(); }
+  await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
+  await expect(primary).toBeDisabled();
+  await expect(primary).not.toHaveText('Generate captions');
+  expect(submissions).toHaveLength(1);
+});
+
 test('optional Accuracy entry reflects saved project context', async ({ page }, info) => {
   await page.route('**/api/projects/landscape/context', (route) => {
     const { transcriptionContext } = route.request().postDataJSON();
