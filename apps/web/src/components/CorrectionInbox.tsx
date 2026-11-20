@@ -17,6 +17,8 @@ interface CorrectionInboxProps {
   busy: boolean;
   openingId: string | null;
   readError: { id: string; message: string } | null;
+  blockedSave?: { id: string; message: string };
+  onReturnToEdits(): void;
   onFilterChange(): void;
   getAudioFocusTarget(): HTMLElement | null;
   onClose(): void;
@@ -24,7 +26,7 @@ interface CorrectionInboxProps {
   onAction(event: CorrectionEvent, action: 'remember-global' | 'add-project' | 'ignore'): void | Promise<void>;
 }
 
-export function CorrectionInbox({ profile, open, busy, openingId, readError, onFilterChange, getAudioFocusTarget, onClose, onOpenEvent, onAction }: CorrectionInboxProps) {
+export function CorrectionInbox({ profile, open, busy, openingId, readError, blockedSave, onReturnToEdits, onFilterChange, getAudioFocusTarget, onClose, onOpenEvent, onAction }: CorrectionInboxProps) {
   const dialog = useRef<HTMLElement | null>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const pendingFilter = useRef<HTMLButtonElement | null>(null);
@@ -137,10 +139,12 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, onF
           {(event.contextBefore || event.contextAfter) && <p className="correction-context">… {event.contextBefore || ''} <mark>{event.correctedText}</mark> {event.contextAfter || ''} …</p>}
           <div className="correction-suggestion"><span>Suggested memory</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
           {readError?.id === event.id && <p className="correction-read-error" role="alert">{readError.message}</p>}
+          {blockedSave?.id === event.id && <p className="correction-read-error" role="alert">{blockedSave.message}</p>}
           <div className="correction-actions">
             <button aria-disabled={Boolean(openingId || working || busy) || undefined}
               onClick={() => { if (!openingId && !working && !busy) onOpenEvent(event); }}>
               <CirclePlay size={15}/>{openingId === event.id ? 'Opening audio…' : 'Review audio'}</button>
+            {blockedSave?.id === event.id && <button className="remember" onClick={onReturnToEdits}>Return to edits</button>}
             <CopyReportButton text={reportText(event)}/>
             {event.status === 'pending' && <>
               <button disabled={busy || Boolean(working || openingId)} className="remember" onClick={(click) => void decide(event, 'remember-global', click.currentTarget)}><BookOpenCheck size={15} aria-hidden="true"/>Remember for all projects</button>

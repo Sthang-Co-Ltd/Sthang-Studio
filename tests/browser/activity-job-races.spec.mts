@@ -181,8 +181,8 @@ test('a server-accepted resume with a lost POST response still hands off its new
   await openProject(page);
   const dialog = await openActivity(page);
   await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
-  await expect(page.locator('.toast.error')).toContainText('Could not confirm the resume request.');
   await expect(dialog.locator('.job-state')).toHaveText('Waiting');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close Activity', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   const readsBefore = projectReads();

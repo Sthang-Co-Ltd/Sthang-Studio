@@ -287,6 +287,9 @@ playback visible, and provides precise start/end entry, bounded nudges, whole-cu
 movement, edge auditions, optional looping, and timing undo/redo. Neighbor
 protection prevents accidental overlaps; an explicit shared-edge option adjusts
 the transition between two captions without shifting later speech.
+On the development branch, the focused waveform also supports keyboard seeking.
+The [Fine Timing guide](docs/FINE-TIMING.md#choose-the-timing-you-need-to-change)
+lists the playback and pan controls.
 
 **Word timing** lets creators adjust one word inside a caption. **Sync words**
 aligns the current corrected wording locally and offers a candidate to review

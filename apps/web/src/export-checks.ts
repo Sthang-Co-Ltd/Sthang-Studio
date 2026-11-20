@@ -9,6 +9,7 @@ export type ExportRepairKind = 'caption' | 'timing' | 'word-timing' | 'appearanc
 export interface ExportRepairTarget {
   kind: ExportRepairKind;
   captionId?: string;
+  focus?: 'font';
 }
 
 export interface ExportCheckIssue {

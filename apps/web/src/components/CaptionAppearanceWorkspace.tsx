@@ -40,6 +40,7 @@ interface Props {
   onCancelReplayEffect?: () => void;
   onFontLibraryChange?: () => void;
   fontFocusTrigger?: HTMLButtonElement | null;
+  onExportFontReady?: (target: HTMLElement | null) => void;
   onFontFocusHandled?: () => void;
   replayPreparing?: boolean;
   replayPlaying?: boolean;
@@ -75,6 +76,7 @@ export function CaptionAppearanceWorkspace({
   onCancelReplayEffect,
   onFontLibraryChange,
   fontFocusTrigger,
+  onExportFontReady,
   onFontFocusHandled,
   replayPreparing = false,
   replayPlaying = false,
@@ -123,6 +125,8 @@ export function CaptionAppearanceWorkspace({
   const fontImportChoiceRevisionRef = useRef(0);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const fontPickerRef = useRef<HTMLSelectElement>(null);
+  const fontRetryRef = useRef<HTMLButtonElement>(null);
+  const fontAddRef = useRef<HTMLButtonElement>(null);
   const saveStatusRef = useRef<HTMLDivElement>(null);
   const retrySavePendingRef = useRef(false);
   const fontMutationRef = useRef(false);
@@ -235,6 +239,11 @@ export function CaptionAppearanceWorkspace({
     }
     onFontFocusHandled?.();
   }, [fontFocusTrigger, loadingFonts, onFontFocusHandled]);
+  useLayoutEffect(() => {
+    if (!loadingFonts && onExportFontReady) {
+      onExportFontReady(fontReadError ? fontRetryRef.current : fonts.length ? fontPickerRef.current : fontAddRef.current);
+    }
+  }, [loadingFonts, fontReadError, fonts.length, onExportFontReady]);
   const hasOverlappingCaptions = useMemo(() => {
     const visible = captions
       .filter((caption) => caption.text.trim() && Number.isFinite(caption.startMs) && Number.isFinite(caption.endMs) && caption.endMs > caption.startMs)
@@ -785,7 +794,7 @@ export function CaptionAppearanceWorkspace({
       void loadSavedAppearance();
     }}>Retry saved appearance</button></div>}
     {presetError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{presetError}</span></div>}
-    {fontReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{fontReadError}. {fontsLoaded ? 'Last checked fonts are still shown.' : 'Your saved font is not yet verified.'} Your current appearance is kept.</span><button type="button" disabled={loadingFonts} aria-busy={loadingFonts || undefined} onClick={(event) => {
+    {fontReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{fontReadError}. {fontsLoaded ? 'Last checked fonts are still shown.' : 'Your saved font is not yet verified.'} Your current appearance is kept.</span><button ref={fontRetryRef} type="button" disabled={loadingFonts} aria-busy={loadingFonts || undefined} onClick={(event) => {
       if (fontReadRequest.current) return;
       if (document.activeElement === event.currentTarget) readFocus.current = { kind: 'fonts', owner: resourceOwner, button: event.currentTarget };
       void loadFonts(true);
@@ -808,7 +817,7 @@ export function CaptionAppearanceWorkspace({
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · {loadingFonts ? 'checking local fonts…' : fontDiscoveryFailed ? 'not yet verified' : 'unavailable'}</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
+      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · {loadingFonts ? 'checking local fonts…' : fontDiscoveryFailed ? 'not yet verified' : 'unavailable'}</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button ref={fontAddRef} type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
       <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
       <AppearanceRange key={`fontSize1080:${project.id}:${project.media.filename}`} label="Size" value={appearance.fontSize1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.fontSize1080} min={22} max={120} step={1} unit="px" context="At 1080p" onChange={(value, history) => updateAppearance((current) => ({ ...current, fontSize1080: value }), { history })}/>
       <AppearanceRange key={`positionBottomPct:${project.id}:${project.media.filename}`} label="Position" value={appearance.positionBottomPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.positionBottomPct} min={3} max={82} step={1} unit="%" context="From bottom" onChange={(value, history) => updateAppearance((current) => ({ ...current, positionBottomPct: value }), { history })}/>

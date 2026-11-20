@@ -137,6 +137,20 @@ test('last-used settings persist only after an accepted render and survive anoth
   expect(lastUsedWrites()).toHaveLength(0);
 });
 
+test('choosing the active quality again preserves the named preset and custom bitrate', async ({ page }) => {
+  state.profile.videoExportPresets = [{ id: 'interview', name: 'Interview', settings: chosen,
+    createdAt: '2026-01-01', updatedAt: '2026-01-01' }];
+  await openExport(page);
+  const preset = page.getByLabel('Video export preset', { exact: true });
+  await preset.selectOption('interview'); await expectExportChoices(page, chosen);
+  await page.getByRole('button', { name: 'High quality', exact: true }).press('Space');
+  await expect(preset).toHaveValue('interview');
+  await expect(page.getByLabel('Custom bitrate (Mbps)', { exact: true })).toHaveValue('11');
+  await page.getByRole('button', { name: 'Recommended', exact: true }).press('Space');
+  await expect(preset).toHaveValue('');
+  await expect(page.getByLabel('Custom bitrate (Mbps)', { exact: true })).toHaveValue('');
+});
+
 test('a named video preset can be saved, reused across projects, and deleted without changing last-used settings', async ({ page }) => {
   await openExport(page);
   await setExportChoices(page);

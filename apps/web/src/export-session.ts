@@ -18,6 +18,9 @@ export interface ExportWorkspaceSession {
   selectedPresetId: string;
   /** Stored preset selected for management. Independent of compatible output settings. */
   managedPresetId: string;
+  /** Unfinished preset edits stay with this visit while the user checks another tool. */
+  presetNameDraft?: string;
+  presetManagerOpen?: boolean;
   advancedOpen: boolean;
   handoff: CaptionHandoffSession;
   /** Visit-only diagnostic evidence. Never included in remembered output choices. */

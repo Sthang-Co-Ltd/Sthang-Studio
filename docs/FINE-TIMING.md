@@ -7,8 +7,13 @@ Fine Timing is available from Sthang Studio `0.85.5`. Automatic word sync and ca
 Open **Fine timing** below the source player. Select a caption in the list or use
 **Previous** and **Next**. The waveform focuses around that caption even in a
 long recording. **Focus caption**, **Full clip**, and zoom controls switch between
-orientation and close editing. Clicking the audio moves the playhead; it does not
-change the caption.
+orientation and close editing. Click the audio to move the playhead.
+
+On the development branch, zoom keeps the current playhead in view when it is
+inside the visible range. With the waveform focused, press Left or Right to seek
+by the selected timing step. Home and End seek to the beginning and end of the
+recording. Use the slider below the waveform to browse a different time range
+while keeping playback and caption edges in place.
 
 **Caption edges** edits when the entire caption appears and disappears.
 **Word timing** edits the words inside that caption. These are separate levels:

@@ -93,6 +93,54 @@ test('whole-caption movement preserves duration and stops at the media edge', as
   await expect(page.locator('.toast.notice')).toHaveText('Reached the end of the media.');
 });
 
+test('zoom keeps a visible playhead in place and preserves a deliberately browsed window', async ({ page }) => {
+  await openTiming(page);
+  const waveform = page.getByRole('slider', { name: 'Waveform playhead', exact: true });
+  const pan = page.getByRole('slider', { name: 'Scroll timing waveform', exact: true });
+  const zoom = page.getByRole('button', { name: 'Zoom in', exact: true });
+  await page.getByRole('button', { name: 'Full clip', exact: true }).click();
+  await expect(pan).toBeDisabled();
+  const bounds = (await waveform.boundingBox())!;
+  await waveform.click({ position: { x: bounds.width * .8, y: 70 } });
+  await expect.poll(() => page.locator('video').evaluate((media) => media.currentTime)).toBeCloseTo(3.2, 1);
+  await zoom.click();
+  await zoom.click();
+  await expect(page.locator('.timing-view-span')).toHaveText('1.8 s visible');
+  const start = Number(await pan.inputValue());
+  expect((3200 - start) / (4000 / 2.25)).toBeCloseTo(.8, 1);
+  await pan.press('Home');
+  await expect(pan).toHaveValue('0');
+  await zoom.click();
+  const center = Number(await pan.inputValue()) + 4000 / 3.375 / 2;
+  expect(Math.abs(center - 4000 / 2.25 / 2)).toBeLessThan(30);
+  await expect.poll(() => page.locator('video').evaluate((media) => media.currentTime)).toBeCloseTo(3.2, 1);
+});
+
+test('keyboard waveform seeking and panning leave caption timing and playback independent', async ({ page }) => {
+  await openTiming(page);
+  const before = structuredClone(state.projects[0].captions);
+  const waveform = page.getByRole('slider', { name: 'Waveform playhead', exact: true });
+  const pan = page.getByRole('slider', { name: 'Scroll timing waveform', exact: true });
+  const time = () => page.locator('video').evaluate((media) => Math.round(media.currentTime * 1000));
+  await waveform.press('Home');
+  await expect.poll(time).toBe(0);
+  await waveform.press('ArrowRight');
+  await expect.poll(time).toBe(50);
+  await expect(waveform).toHaveAttribute('aria-valuetext', '00:00.050');
+  await pan.press('ArrowRight');
+  await expect(pan).toHaveValue('250');
+  await expect(pan).toHaveAttribute('aria-valuetext', '00:00.250 to 00:02.750');
+  expect(await time()).toBe(50);
+  await waveform.press('End');
+  await expect.poll(time).toBe(4000);
+  await waveform.press('ArrowUp');
+  await expect.poll(time).toBe(4000);
+  await waveform.press('ArrowLeft');
+  await expect.poll(time).toBe(3950);
+  expect(state.projects[0].captions).toEqual(before);
+  await expect(page.locator('.fine-timing').getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+});
+
 test('locked captions remain playable but their timing cannot be changed', async ({ page }) => {
   state.projects[0].captions[0].timingLocked = true;
   await openTiming(page);

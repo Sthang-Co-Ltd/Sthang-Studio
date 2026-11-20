@@ -10,16 +10,20 @@ import './job-manager.css';
 
 interface Props {
   open: boolean;
+  entryJobId: string | null;
+  uncertainProject?: string;
   jobs: ProcessingJob[];
   loadState: { loading: boolean; loaded: boolean; error: string };
   pendingActions: Readonly<Partial<Record<string, 'resume' | 'cancel'>>>;
   openingJobId?: string | null;
+  blockedSave?: { id: string; message: string };
+  onReturnToEdits(): void;
   project?: CaptionProject;
   appearanceReconciliation: AppearanceReconciliation;
   onClose(): void;
   onRefresh(feedback?: boolean): void;
-  onResume(id: string): void;
-  onCancel(id: string): void;
+  onResume(id: string): Promise<boolean | undefined>;
+  onCancel(id: string): Promise<boolean | undefined>;
   onOpen(job: ProcessingJob): void;
   getResultFocusTarget(): HTMLElement | null;
 }
@@ -90,10 +94,27 @@ function formatDuration(ms: number) {
   return `${seconds}s`;
 }
 
-export function JobManager({ open, jobs, loadState, pendingActions, openingJobId, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen, getResultFocusTarget }: Props) {
+export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState, pendingActions, openingJobId, blockedSave, onReturnToEdits, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen, getResultFocusTarget }: Props) {
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
-  useModalFocus(open, dialog, onClose, undefined, getResultFocusTarget);
+  const entryCard = useRef<HTMLElement | null>(null);
+  useModalFocus(open, dialog, onClose, entryCard, getResultFocusTarget);
+  const [actionErrors, setActionErrors] = useState<Record<string, { observation: string; message: string }>>({});
+  async function act(job: ProcessingJob, action: 'resume' | 'cancel', button: HTMLButtonElement) {
+    if (pendingActions[job.id]) return;
+    const card = button.closest('article');
+    if (document.activeElement === button) card?.focus({ preventScroll: true });
+    setActionErrors((current) => {
+      const next = { ...current };
+      delete next[job.id];
+      return next;
+    });
+    const confirmed = await (action === 'resume' ? onResume(job.id) : onCancel(job.id));
+    if (confirmed !== false) return;
+    const message = action === 'resume' ? 'Could not confirm the resume request.' : 'Could not confirm the stop request.';
+    setActionErrors((current) => ({ ...current, [job.id]: { observation: job.status, message } }));
+    if (button.isConnected && card === document.activeElement) button.focus({ preventScroll: true });
+  }
   const [now, setNow] = useState(Date.now());
   const [exportDirectory, setExportDirectory] = useState('');
   const [exportDirectoryError, setExportDirectoryError] = useState('');
@@ -155,8 +176,9 @@ export function JobManager({ open, jobs, loadState, pendingActions, openingJobId
           ? loadState.loaded ? 'Refreshing activity…' : 'Loading activity…'
           : loadState.error && !loadState.loaded ? 'Activity unavailable'
           : `${loadState.error ? 'Last loaded: ' : ''}${activeJobs.length} active · ${jobs.length} recent`}</span>
-        <button disabled={loadState.loading} aria-busy={loadState.loading || undefined} onClick={() => onRefresh(true)}><RefreshCw size={13}/>{loadState.error ? 'Retry activity' : 'Refresh'}</button>
+        <button aria-disabled={loadState.loading || undefined} aria-busy={loadState.loading || undefined} onClick={() => { if (!loadState.loading) onRefresh(true); }}><RefreshCw size={13}/>{loadState.error ? 'Retry activity' : 'Refresh'}</button>
       </div>
+      {uncertainProject && <p className="job-outcome-message" role="status">Studio lost the reply for <strong>{uncertainProject}</strong>. Check its recent jobs before starting another.</p>}
       {loadState.error && <p className="job-load-error" role="alert">{loadState.error}{loadState.loaded ? ' The last loaded activity is still shown.' : ''}</p>}
       {appearanceReconciliation.value.status === 'error' && jobs.some((job) => job.projectId === project?.id && job.resultExport && job.exportContentFingerprint) && <div className="history-toolbar" role="status"><span>Current appearance could not be compared.</span><button onClick={() => void appearanceReconciliation.refresh()}>Retry appearance comparison</button></div>}
       {hasCompletedExport && <div className="activity-export-location" aria-label="Video export location" aria-live="polite">
@@ -173,7 +195,8 @@ export function JobManager({ open, jobs, loadState, pendingActions, openingJobId
               ? `Took ${formatDuration(duration)}`
               : `${formatDuration(duration)} elapsed`
             : '';
-          return <article key={job.id} className={`job-${job.status}`} aria-label={`${jobLabel(job)} · ${job.projectTitle}`}>
+          const failedAction = actionErrors[job.id];
+          return <article ref={entryJobId === job.id ? entryCard : undefined} tabIndex={-1} key={job.id} className={`job-${job.status}`} aria-label={`${jobLabel(job)} · ${job.projectTitle}`}>
             <div className="job-status-icon" aria-hidden="true">{icon(job)}</div>
             <div className="job-copy">
               <div className="job-title-line"><strong>{jobLabel(job)}</strong><span title={job.projectTitle}>{job.projectTitle}</span></div>
@@ -196,12 +219,15 @@ export function JobManager({ open, jobs, loadState, pendingActions, openingJobId
                   {job.resultExport && <div><dt>Video</dt><dd>{job.resultExport.width}×{job.resultExport.height} · {job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0)} fps · {(job.resultExport.sizeBytes / 1024 / 1024).toFixed(1)} MB</dd></div>}
                 </dl>
               </details>
+              {failedAction?.observation === job.status && <p role="alert" className="job-action-error">{failedAction.message} Check the job status before trying again.</p>}
+              {blockedSave?.id === job.id && <p role="alert" className="job-action-error">{blockedSave.message}</p>}
               <div className="job-actions">
                 {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}><Play size={13}/>{openingJobId === job.id ? 'Opening result…' : 'Open result'}</button>}
+                {blockedSave?.id === job.id && <button className="job-action-primary" onClick={onReturnToEdits}>Return to edits</button>}
                 {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>Download video</button>}
                 {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}>{openingJobId === job.id ? 'Opening project…' : 'Open project to compare'}</button>}
-                {job.canResume && <button disabled={Boolean(pending)} aria-busy={pending === 'resume' || undefined} onClick={() => onResume(job.id)}><Play size={13}/>{pending === 'resume' ? 'Resuming…' : 'Resume'}</button>}
-                {['queued', 'running'].includes(job.status) && <button disabled={Boolean(pending) || stopping} aria-busy={pending === 'cancel' || undefined} onClick={() => onCancel(job.id)}><Ban size={13}/>{stopping ? 'Stopping…' : pending === 'cancel' ? 'Requesting stop…' : 'Cancel'}</button>}
+                {job.canResume && <button aria-disabled={Boolean(pending) || undefined} aria-busy={pending === 'resume' || undefined} onClick={(event) => { if (!pending) void act(job, 'resume', event.currentTarget); }}><Play size={13}/>{pending === 'resume' ? 'Resuming…' : 'Resume'}</button>}
+                {['queued', 'running'].includes(job.status) && <button aria-disabled={Boolean(pending) || stopping || undefined} aria-busy={pending === 'cancel' || undefined} onClick={(event) => { if (!pending && !stopping) void act(job, 'cancel', event.currentTarget); }}><Ban size={13}/>{stopping ? 'Stopping…' : pending === 'cancel' ? 'Requesting stop…' : 'Cancel'}</button>}
               </div>
             </div>
           </article>;

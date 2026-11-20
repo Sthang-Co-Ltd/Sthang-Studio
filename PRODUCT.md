@@ -904,8 +904,12 @@ Video export consumes the reviewed saved look without rewriting it. A newer save
 look discovered during preparation requires reopening Export to review it.
 
 Failed or interrupted background processing names its project in a nonmodal notice.
-Open Activity is deliberate and returns keyboard focus to a persistent control on
-close. A completed job whose result cannot be read stays completed; Open result
+Open Activity from a job notice reveals and focuses that specific job, even deep
+in a full history. Closing Activity returns focus to a persistent control.
+Interrupted job submissions offer a read of Activity. On the same media, a lost
+reply remains checkable when the user dismisses its notice or visits another
+project. A failed Resume or Cancel reports its outcome on the originating job.
+A completed job whose result cannot be read stays completed; Open result
 retries loading without requesting generation again. Background completion keeps
 newer captions, Accuracy edits and deliberate Activity visits authoritative.
 Open result shows pending feedback and ignores repeated activation. Closing

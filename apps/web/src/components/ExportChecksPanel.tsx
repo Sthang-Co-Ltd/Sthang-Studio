@@ -97,7 +97,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
           })}
           {issue.reasons.length > 0 && <ul className="export-check-reasons">{issue.reasons.map((reason, index) => <li key={`${index}:${reason}`}>{reason}</li>)}</ul>}
           <p className="export-check-remedy">{issue.remedy}</p>
-          {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair })}>{issue.id === 'font' ? 'Choose an available font' : issue.repair === 'appearance' ? 'Review appearance' : 'Review captions'}</button>}
+          {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair, focus: issue.id === 'font' ? 'font' : undefined })}>{issue.id === 'font' ? 'Choose an available font' : issue.repair === 'appearance' ? 'Review appearance' : 'Review captions'}</button>}
         </li>)}
       </ol>
       {pages > 1 && <nav className="export-check-pages" aria-label="Export issue pages">

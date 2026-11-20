@@ -24,6 +24,7 @@ import { decodeWaveformAudio } from '../audio/wav';
 import { computeSpectrum } from '../audio/spectrum';
 import { buildWaveformPeaks, waveformExtrema, type WaveformPeaks } from '../audio/peaks';
 import { TimestampInput } from './TimestampInput';
+import { formatTimestamp } from '../timestamp';
 import { focusedTimingViewport, sameTimingRevision, timingPreviewWindow, type TimingEditKind } from '../timing-edit';
 import { captionTimingBasisMatches, prepareCaptionTiming, planCaptionTimingEdit, timingTransactionMatches, type CaptionTimingGestureBasis, type CaptionTimingOptions, type CaptionTimingTransaction, type PreparedCaptionTiming } from '../caption-timing-transaction';
 import type { TimingPlaybackRange } from '../timing-playback';
@@ -86,8 +87,8 @@ type WaveformHover = {
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 function formatMs(value: number) {
-  const seconds = Math.max(0, value) / 1000;
-  return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
+  const tenths = Math.max(0, Math.round(value / 100));
+  return `${Math.floor(tenths / 600)}:${((tenths % 600) / 10).toFixed(1).padStart(4, '0')}`;
 }
 
 function nearestBoundary(tokens: TimedToken[], value: number, edge: TimingEditKind) {
@@ -197,6 +198,7 @@ export function WaveformEditor({
 }: WaveformEditorProps) {
   const timingDock = useTimingDock();
   const unavailableId = useId();
+  const waveformHintId = useId();
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
@@ -241,6 +243,7 @@ export function WaveformEditor({
   const maxZoom = Math.max(24, durationMs / 500);
   const viewDurationMs = durationMs ? durationMs / zoom : 1;
   const viewEndMs = viewStartMs + viewDurationMs;
+  const maxViewStartMs = Math.max(0, durationMs - viewDurationMs);
   const editLimitMs = mediaDurationMs && Number.isFinite(mediaDurationMs)
     ? (durationMs ? Math.min(durationMs, mediaDurationMs) : mediaDurationMs) : durationMs;
   const editingDisabled = !selectedCaption || Boolean(selectedCaption.timingLocked) || !editLimitMs;
@@ -822,12 +825,12 @@ export function WaveformEditor({
 
   const setZoomValue = (value: number) => {
     const next = clamp(value, 1, maxZoom);
-    const previousDuration = durationMs / zoom;
-    const center = viewStartMs + previousDuration / 2;
+    const anchor = playheadMs >= viewStartMs && playheadMs <= viewEndMs ? playheadMs : viewStartMs + viewDurationMs / 2;
+    const fraction = (anchor - viewStartMs) / viewDurationMs;
     const nextDuration = durationMs / next;
     setZoom(next);
     setFollow(false);
-    setViewStartMs(clamp(center - nextDuration / 2, 0, Math.max(0, durationMs - nextDuration)));
+    setViewStartMs(clamp(anchor - nextDuration * fraction, 0, Math.max(0, durationMs - nextDuration)));
     // Caption-focused zoom can exceed the legacy whole-video preference range.
     if (next <= 24) onPreferenceChange({ waveformZoom: next });
   };
@@ -892,10 +895,26 @@ export function WaveformEditor({
       <canvas
         ref={canvas}
         className={`waveform-data-canvas${hover?.kind === 'edge' ? ' hover-edge' : hover?.kind === 'move' ? ' hover-move' : ''}`}
-        tabIndex={0}
-        aria-label={editMode === 'words'
-          ? 'Audio timing view. Click audio to seek. Drag word edges to trim or the middle to move. Use the time controls for keyboard editing.'
-          : 'Audio timing view. Click audio to seek. Drag caption edges to trim or the middle to move. Use the time controls for keyboard editing.'}
+        role="slider" tabIndex={durationMs && !loadError ? 0 : -1}
+        aria-label="Waveform playhead" aria-describedby={waveformHintId}
+        aria-disabled={!durationMs || Boolean(loadError) || undefined} aria-valuemin={0} aria-valuemax={editLimitMs}
+        aria-valuenow={clamp(Math.round(playheadMs), 0, editLimitMs)} aria-valuetext={formatTimestamp(clamp(playheadMs, 0, editLimitMs))}
+        onKeyDown={(event) => {
+          if (!durationMs || loadError || dragRef.current || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          let next = playheadMs;
+          switch (event.key) {
+            case 'ArrowLeft': case 'ArrowDown': next -= stepMs; break;
+            case 'ArrowRight': case 'ArrowUp': next += stepMs; break;
+            case 'Home': next = 0; break;
+            case 'End': next = editLimitMs; break;
+            default: return;
+          }
+          event.preventDefault();
+          const position = clamp(Math.round(next), 0, editLimitMs);
+          setFollow(false);
+          if (position < viewStartMs || position > viewEndMs) setViewStartMs(clamp(position - viewDurationMs / 2, 0, maxViewStartMs));
+          onSeek(position);
+        }}
         onPointerDown={(event: React.PointerEvent<HTMLCanvasElement>) => {
           if (!durationMs || loading || loadError || event.button !== 0) return;
           event.currentTarget.focus({ preventScroll: true });
@@ -959,15 +978,25 @@ export function WaveformEditor({
       <input
         type="range"
         aria-label="Scroll timing waveform"
+        aria-valuetext={`${formatTimestamp(viewStartMs)} to ${formatTimestamp(viewEndMs)}`}
         min="0"
-        max={Math.max(0, durationMs - viewDurationMs)}
+        max={maxViewStartMs}
+        disabled={!maxViewStartMs}
         step="50"
-        value={Math.min(viewStartMs, Math.max(0, durationMs - viewDurationMs))}
+        value={Math.min(viewStartMs, maxViewStartMs)}
+        onKeyDown={(event) => {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          const direction = ['ArrowLeft', 'ArrowDown'].includes(event.key) ? -1 : ['ArrowRight', 'ArrowUp'].includes(event.key) ? 1 : 0;
+          if (!direction) return;
+          event.preventDefault();
+          setFollow(false);
+          setViewStartMs(clamp(viewStartMs + direction * Math.max(50, Math.round(viewDurationMs / 10)), 0, maxViewStartMs));
+        }}
         onChange={(event: React.ChangeEvent<HTMLInputElement>) => { setFollow(false); setViewStartMs(Number(event.target.value)); }}
       />
       <span>{formatMs(viewEndMs)}</span>
     </div>
-    <p className="timing-hint">{editMode === 'words' ? 'Select a word above the caption bar. Drag an edge to trim or the middle to move it. Other words stay in place.' : 'Click audio to seek. Drag caption edges to trim or the middle to move. Hold Shift to disable snapping.'}</p>
+    <p className="timing-hint" id={waveformHintId}>Click audio or use the arrow keys on the waveform to seek. {editMode === 'words' ? 'Drag a word edge to trim or its middle to move it.' : 'Drag a caption edge to trim or its middle to move it. Hold Shift to ignore snapping.'}</p>
   </div>;
 
   return <section className="waveform-card fine-timing" ref={host} aria-label="Fine timing editor">

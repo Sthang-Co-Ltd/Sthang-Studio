@@ -297,6 +297,7 @@ export default function App() {
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
+  const reopenAfterReload = useRef<string | null>(null);
   const [dismissedAlignmentNotice, setDismissedAlignmentNotice] = useState<string | null>(null);
   useEffect(() => { setDismissedAlignmentNotice(null); }, [project?.id]);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
@@ -369,6 +370,7 @@ export default function App() {
   const retainedMediaSeek = useRef<{ key: string; timeMs: number } | null>(null);
   const flushAppearanceSave = useRef<(() => Promise<boolean>) | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const healthRequest = useRef(0);
   const [llmSettings, setLlmSettings] = useState<LlmSettingsStatus | null>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [profileImportRevision, setProfileImportRevision] = useState(0);
@@ -412,7 +414,14 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showJobs, setShowJobsState] = useState(false);
   const jobsViewRevision = useRef(0);
-  const setShowJobs = (open: boolean) => { jobsViewRevision.current += 1; setShowJobsState(open); };
+  const [activityEntryId, setActivityEntryId] = useState<string | null>(null);
+  const [uncertainJobs, setUncertainJobs] = useState<{ key: string; title: string; captionJob: boolean; afterRead: number; dismissed: boolean }[]>([]);
+  const lastSuccessfulJobRead = useRef(0);
+  const setShowJobs = (open: boolean, id: string | null = null) => {
+    jobsViewRevision.current += 1;
+    setActivityEntryId(open ? id : null);
+    setShowJobsState(open);
+  };
   const [jobNotification, setJobNotification] = useState<{ id: string; observation: string; projectTitle: string; message: string; error: boolean } | null>(null);
   const jobNotificationRevision = useRef(0);
   const notifyJob = (job: ProcessingJob, message: string, error = true) => {
@@ -435,6 +444,8 @@ export default function App() {
   const [pendingJobActions, setPendingJobActions] = useState<Record<string, 'resume' | 'cancel'>>({});
   const pendingJobActionIds = useRef(new Set<string>());
   const [openingJobId, setOpeningJobId] = useState<string | null>(null);
+  const [blockedSwitch, setBlockedSwitch] = useState<{ surface: 'activity' | 'corrections'; id: string; reason?: string } | null>(null);
+  const returnToEditsFocus = useRef<{ surface: 'activity' | 'corrections'; ticket: ProjectTicket } | null>(null);
   const activityResultFocus = useRef<{ ticket: ProjectTicket; comparison: boolean } | null>(null);
   const pendingJobResult = useRef<{ id: string; request: AbortController } | null>(null);
   const jobReadGeneration = useRef(0);
@@ -451,6 +462,8 @@ export default function App() {
   const viewTicket = projectScope.current.capture();
   const proposal = proposalForProject(proposalEntry, viewTicket, project);
   const mediaKey = projectMediaKey(project);
+  const uncertainJob = uncertainJobs.find((item) => item.key === mediaKey && !item.dismissed);
+  const projectAwaitingJobCheck = uncertainJobs.some((item) => item.key === mediaKey);
   const [proposalPreviewMode, setProposalPreviewMode] = useState<RegenerationPreviewMode>('proposed');
   const [proposalLoop, setProposalLoop] = useState(true);
   const [proposalEditedText, setProposalEditedText] = useState('');
@@ -475,7 +488,13 @@ export default function App() {
   const [exportRepair, setExportRepair] = useState<{ ticket: ProjectTicket; target: ExportRepairTarget } | null>(null);
   const exportRepairFocus = useRef(false);
   const [fontFocusTrigger, setFontFocusTrigger] = useState<HTMLButtonElement | null>(null);
+  const [exportFontFocus, setExportFontFocus] = useState<{ request: ProjectNavigationFocusRequest; ticket: ProjectTicket } | null>(null);
   useEffect(() => { if (workspaceTool !== 'appearance') setFontFocusTrigger(null); }, [workspaceTool]);
+  useEffect(() => {
+    if (!exportFontFocus || workspaceTool === 'appearance' && exportFontFocus.ticket === viewTicket) return;
+    projectNavigationFocus.cancel(exportFontFocus.request);
+    setExportFontFocus(null);
+  }, [workspaceTool, viewTicket, exportFontFocus, projectNavigationFocus.cancel]);
   const exportSession = exportVisit?.ticket === viewTicket && viewTicket.key === mediaKey
     ? exportVisit.session : createExportWorkspaceSession(Boolean(project && isVideoProject(project)));
   useEffect(() => {
@@ -683,6 +702,26 @@ export default function App() {
   }, [Boolean(project)]);
   useEffect(() => () => { projectListRequest.current?.abort(); }, []);
 
+  async function refreshSystemHealth(isCurrent: () => boolean = () => true) {
+    const request = ++healthRequest.current;
+    const ownsRead = () => request === healthRequest.current && isCurrent();
+    try {
+      const next = await api.health();
+      if (!ownsRead()) return false;
+      setHealth(next);
+      startupLoaded.current.add('System status');
+      setStartupErrors((current) => current.filter((label) => label !== 'System status'));
+      return true;
+    } catch {
+      if (ownsRead()) {
+        setHealth(null);
+        startupLoaded.current.delete('System status');
+        setStartupErrors((current) => current.includes('System status') ? current : [...current, 'System status']);
+      }
+      return false;
+    }
+  }
+
   useEffect(() => {
     let disposed = false;
     setStartupErrors([]);
@@ -698,7 +737,7 @@ export default function App() {
     // Independent requests publish independently. Preferences remain required before
     // opening/uploading a project, so late profile hydration cannot reset an edit.
     if (!startupLoaded.current.has('Projects')) void refreshProjects({ startup: true, isCurrent: () => !disposed });
-    load('System status', api.health, setHealth);
+    if (!startupLoaded.current.has('System status')) void refreshSystemHealth(() => !disposed);
     load('Preferences', api.profile, setProfile);
     if (!startupLoaded.current.has('Activity')) {
       void refreshJobs({ feedback: true, startup: true, isCurrent: () => !disposed });
@@ -831,6 +870,7 @@ export default function App() {
     return !unavailable && (result.status === 'saved' || result.status === 'cleared');
   }
   async function reloadSavedProject() {
+    if (!project) return;
     const ticket = projectScope.current.capture();
     const captionRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
@@ -845,7 +885,12 @@ export default function App() {
         || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
         || appearanceRevision !== currentAppearanceSave().revision) return;
     }
-    window.location.reload();
+    // A fresh page resets the old save queues and recovery owner. Keep the
+    // exact destination in the fragment, local to the browser.
+    const destination = new URL(window.location.href);
+    destination.searchParams.set('reloadSavedProject', '1');
+    destination.hash = new URLSearchParams({ project: project.id, anchor: destination.hash }).toString();
+    window.location.replace(destination.href);
   }
   function rememberSavedCaptions(next: CaptionProject, ownsCaptions = true) {
     if (projectMediaKey(next) !== projectScope.current.capture().key) return;
@@ -879,15 +924,14 @@ export default function App() {
     operationRevision.current += 1;
     return captureOperationIntent();
   }
-  function openNotifiedActivity() {
+  function openActivityFromNotice(id: string | null = null) {
     // This temporary notice disappears on entry or when the job advances. Give
     // the dialog a persistent return target before it captures keyboard focus.
     const returnTo = project
       ? document.querySelector<HTMLElement>('[aria-label="Open project tools"]')
       : document.querySelector<HTMLElement>('.home-tools button:not(:disabled)');
     returnTo?.focus({ preventScroll: true });
-    setShowJobs(true);
-    dismissJobNotification();
+    setShowJobs(true, id);
   }
   function closeHistory() {
     historyRead.current += 1;
@@ -1919,6 +1963,7 @@ export default function App() {
       const items = await api.jobs();
       if (!ownsRead()) return;
       appliedJobRead.current = read;
+      lastSuccessfulJobRead.current = read;
       settleFeedback();
       items.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status))
         .forEach((job) => trackedJobIds.current.add(job.id));
@@ -1968,10 +2013,9 @@ export default function App() {
         if (job.id !== id || job !== requestedJob && Date.parse(job.updatedAt) >= Date.parse(updated.updatedAt)) return job;
         return updated;
       }));
+      return true;
     } catch {
-      setError(action === 'cancel'
-        ? 'Could not confirm the stop request. Check Activity and try again.'
-        : 'Could not confirm the resume request. Check Activity and try again.');
+      return false;
     } finally {
       pendingJobActionIds.current.delete(id);
       setPendingJobActions((current) => {
@@ -1984,6 +2028,7 @@ export default function App() {
   };
 
   const closeActivity = () => {
+    setBlockedSwitch(null);
     const pending = pendingJobResult.current;
     if (pending) {
       pending.request.abort();
@@ -1994,6 +2039,10 @@ export default function App() {
       // proposal read that follows a completed project read.
       operationRevision.current += 1;
       proposalRead.current += 1;
+    }
+    if (projectAwaitingJobCheck && jobLoadState.loaded && !jobLoadState.loading && !jobLoadState.error) {
+      const reviewedRead = lastSuccessfulJobRead.current;
+      setUncertainJobs((items) => items.filter((item) => item.key !== mediaKey || item.afterRead >= reviewedRead));
     }
     setShowJobs(false);
   };
@@ -2013,12 +2062,12 @@ export default function App() {
     const pending = { id: job.id, request: new AbortController() };
     pendingJobResult.current = pending;
     setOpeningJobId(job.id);
+    setBlockedSwitch(null);
     let ticket = intent.ticket;
     let navigationRevision = intent.revision;
     setError('');
     try {
-      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)
-        || pendingJobResult.current !== pending) return;
+      if (!await saveBeforeSwitch('activity', job.id, () => isCurrentOperation(intent) && pendingJobResult.current === pending)) return;
       ticket = beginNavigation();
       navigationRevision = operationRevision.current;
       projectOpen.current = pending.request;
@@ -2031,7 +2080,7 @@ export default function App() {
         || operationRevision.current !== navigationRevision || !projectScope.current.isCurrent(ticket)) return;
       if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
         || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-        setNotice('Newer edits arrived while the result was loading. They are kept here; open the result again when you are ready.');
+        setBlockedSwitch({ surface: 'activity', id: job.id });
         return;
       }
       // The GET is settled. Applying it may perform further proposal reads;
@@ -2148,6 +2197,12 @@ export default function App() {
       setNotice('AI options changed while preparing this request. Start again with the saved choice.');
       return null;
     }
+    if (uncertainJobs.some((item) => item.key === intent.key && item.captionJob === captionJob)) {
+      openActivityFromNotice();
+      void refreshJobs({ feedback: true });
+      return null;
+    }
+    const submittingControl = document.activeElement;
     const ownsPreparation = captionJob && !generationPreparation.current;
     const submittedViewRevision = proposalViewRevision.current;
     const submittedActivityRevision = jobsViewRevision.current;
@@ -2165,14 +2220,23 @@ export default function App() {
       const observed = mergeJobSnapshot(jobItems.current, [job])[0];
       setJobs((current) => [observed, ...current.filter((item) => item.id !== job.id)]);
       if (isCurrentOperation(intent)) {
-        if (openQueue && jobsViewRevision.current === submittedActivityRevision) setShowJobs(true);
+        if (openQueue && jobsViewRevision.current === submittedActivityRevision) setShowJobs(true, job.id);
         if (observed.status === 'queued' || observed.status === 'running') setNotice(message);
       }
       return observed;
     } catch (reason) {
-      if (isCurrentOperation(intent)) setError(reason instanceof ApiRequestError
-        ? reason.message
-        : 'The request outcome could not be confirmed. Check Activity for accepted work before starting another request.');
+      const current = isCurrentOperation(intent);
+      if (reason instanceof ApiRequestError) {
+        if (current) setError(reason.message);
+      } else {
+        // The server can accept the job before this tab navigates or loses the reply.
+        const receipt = { key: intent.key, title: project?.title || 'this project', captionJob,
+          afterRead: jobReadGeneration.current, dismissed: false };
+        setUncertainJobs((items) => [...items.filter((item) => item.key !== intent.key || item.captionJob !== captionJob), receipt]);
+        void refreshJobs({ feedback: current });
+        if (current && openQueue && jobsViewRevision.current === submittedActivityRevision && !document.querySelector('[aria-modal="true"]')
+          && (document.activeElement === submittingControl || document.activeElement === document.body)) openActivityFromNotice();
+      }
       return null;
     } finally {
       if (ownsPreparation) { generationPreparation.current = false; setGenerationPreparing(false); }
@@ -2362,7 +2426,7 @@ export default function App() {
     if (media.current) media.current.playbackRate = rate;
   };
 
-  const openRecentProject = async (id: string): Promise<boolean> => {
+  const openRecentProject = async (id: string, reviewRecovery = false): Promise<boolean> => {
     const initiatingControl = document.activeElement;
     if (!profile || busy || mediaMutationInFlight.current) return false;
     const uploadReminder = captureUploadRecoveryForProject(id);
@@ -2389,9 +2453,12 @@ export default function App() {
         }
         publishContextProject(value, contextObservation);
         applyProject(value);
+        if (reviewRecovery) refreshUnfinishedRecoveries();
         if (showAllProjects) libraryOrigin.current = id;
         clearUploadRecoveryForProject(id, uploadReminder);
-        projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+        projectNavigationFocus.complete(focusRequest, () =>
+          (reviewRecovery ? document.querySelector<HTMLElement>('.unfinished-recovery summary') : null)
+          || document.querySelector<HTMLElement>('[data-project-entry-focus]'));
         focusCompleted = true;
         return true;
       }
@@ -2407,6 +2474,24 @@ export default function App() {
     }
     return false;
   };
+
+  useEffect(() => {
+    const destination = new URL(window.location.href);
+    if (destination.searchParams.get('reloadSavedProject') !== '1') return;
+    const fragment = new URLSearchParams(destination.hash.slice(1));
+    reopenAfterReload.current = fragment.get('project');
+    destination.searchParams.delete('reloadSavedProject');
+    destination.hash = fragment.get('anchor') || '';
+    window.history.replaceState(window.history.state, '', destination.href);
+  }, []);
+  useEffect(() => {
+    const id = reopenAfterReload.current;
+    if (!id || !profile) return;
+    reopenAfterReload.current = null;
+    if (operationRevision.current || project || showAllProjects || showProfile || showGuide || showJobs || showUpdates || showCorrections) return;
+    if (document.activeElement === document.body) document.querySelector<HTMLElement>('.empty-stage .dropzone')?.focus({ preventScroll: true });
+    void openRecentProject(id, true);
+  }, [profile, project, showAllProjects, showProfile, showGuide, showJobs, showUpdates, showCorrections]);
 
   const checkUploadAttempt = async (attemptId: string): Promise<UploadRecoveryResult> => {
     const ticket = projectScope.current.capture();
@@ -2821,6 +2906,7 @@ export default function App() {
   }
   const generate = async () => {
     if (!project || busy || currentProjectActiveJob || generationModelWrite.current || generationPreparation.current || mediaMutationInFlight.current) return;
+    if (generationNeedsCheck) { openActivityFromNotice(); void refreshJobs({ feedback: true }); return; }
     if (llmSettings?.configured === false) { openSettings('ai'); return; }
     if (health?.timing.configured === false) { openSettings('doctor'); void runDoctor(); return; }
     if (!llmSettings || !health) {
@@ -2907,15 +2993,22 @@ export default function App() {
     }
   };
 
-  async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true): Promise<boolean> {
+  async function saveBeforeSwitch(surface: 'activity' | 'corrections', id: string, owns: () => boolean) {
+    let reason: string | undefined;
+    const saved = await saveUnfinishedChanges(true, owns, (message) => { reason = message; });
+    if (!owns()) return false;
+    if (!saved) setBlockedSwitch({ surface, id, reason });
+    return saved;
+  }
+  async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true, explain: (message: string) => void = setNotice): Promise<boolean> {
     if (!isCurrentIntent()) return false;
     if (!project) return true;
     if (currentAppearanceSave().conflict) {
-      setNotice('The saved appearance changed. Download your edits and reload the saved project to compare.');
+      explain('The saved appearance changed. Download your edits and reload the saved project to compare.');
       return false;
     }
     if (compositionInProgress.current) {
-      setNotice('Finish the current text input before saving or leaving.');
+      explain('Finish the current text input before saving or leaving.');
       return false;
     }
     const ticket = projectScope.current.capture();
@@ -2927,12 +3020,12 @@ export default function App() {
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (conflictedSave.current?.key === ticket.key) return false;
     if (pending !== saveQueue.current || compositionInProgress.current) {
-      setNotice('Changes are still being saved or entered. Wait for them to finish before leaving.');
+      explain('Changes are still being saved or entered. Wait for them to finish before leaving.');
       return false;
     }
     if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
       || appearanceRevision !== currentAppearanceSave().revision) {
-      setNotice('Newer changes arrived while saving. Your project is still open; save again when you are ready.');
+      explain('Newer changes arrived while saving. Your project is still open; save again when you are ready.');
       return false;
     }
     if (dirtyRef.current && !await saveDraft(silent, 'manual-save', true)) return false;
@@ -2943,12 +3036,12 @@ export default function App() {
     if (!await flushCaptionAppearanceSaves(project.id, project.media)) return false;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-      setNotice('Newer appearance changes arrived while saving. Your project is still open; continue when you are ready.');
+      explain('Newer appearance changes arrived while saving. Your project is still open; continue when you are ready.');
       return false;
     }
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
       || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) {
-      setNotice('Newer changes are still unsaved. Save them before leaving.');
+      explain('Newer changes are still unsaved. Save them before leaving.');
       return false;
     }
     return true;
@@ -3644,6 +3737,7 @@ export default function App() {
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
   function cancelCorrectionRead() {
+    setBlockedSwitch(null);
     correctionRequest.current?.abort();
     correctionRequest.current = null;
     setOpeningCorrection(null);
@@ -3667,10 +3761,11 @@ export default function App() {
     const request = new AbortController();
     correctionRequest.current = request;
     setOpeningCorrection(event.id);
+    setBlockedSwitch(null);
     setCorrectionReadError(null);
     const ownsRead = () => correctionRequest.current === request && !request.signal.aborted && isCurrentOperation(intent);
     try {
-      if (!await saveUnfinishedChanges(true, ownsRead) || !ownsRead()) return;
+      if (!await saveBeforeSwitch('corrections', event.id, ownsRead)) return;
       const readRevision = draftEditRevision.current;
       const contextRevision = accuracyDraft.current.editRevision;
       const appearanceRevision = currentAppearanceSave().revision;
@@ -3679,7 +3774,7 @@ export default function App() {
       if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
         || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || appearanceRevision !== currentAppearanceSave().revision
         || currentAppearanceSave().status !== 'saved') {
-        setCorrectionReadError({ id: event.id, message: 'New edits arrived while the project was opening. Save them, then try Review audio again.' });
+        setBlockedSwitch({ surface: 'corrections', id: event.id });
         return;
       }
       const ticket = beginNavigation();
@@ -3723,7 +3818,7 @@ export default function App() {
     setDoctor(null);
     setDoctorError('');
     setDoctorLoadState('idle');
-    try { setHealth(await api.health()); } catch { /* settings remain usable even if health refresh fails */ }
+    await refreshSystemHealth();
     return next;
   };
   const saveLlmSettings = async (input: SaveLlmSettingsInput) => refreshAiHealth(await api.saveLlmSettings(input));
@@ -3767,7 +3862,12 @@ export default function App() {
     setBusy('Running system checks…');
     try {
       const report = await api.doctor();
-      if (doctorRequest.current === request) { setDoctor(report); setDoctorLoadState('ready'); }
+      if (doctorRequest.current !== request) return;
+      const confirmed = await refreshSystemHealth(() => doctorRequest.current === request);
+      if (doctorRequest.current !== request) return;
+      setDoctor(report);
+      if (!confirmed) setDoctorError('The checks finished, but Studio could not confirm caption setup.');
+      setDoctorLoadState(confirmed ? 'ready' : 'error');
     } catch (reason) {
       if (doctorRequest.current === request) {
         setDoctorError(reason instanceof Error ? reason.message : 'System check failed.');
@@ -3912,7 +4012,8 @@ export default function App() {
   const generationSetupMissing = llmSettings?.configured === false || health?.timing.configured === false;
   const checkingGenerationSetup = !generationSetupMissing && (!llmSettings || !health) && !generationSetupFailed;
   const generationPending = Boolean(busy || currentProjectActiveJob || generationPreparing || generationModelSaving || mediaMutationStatus);
-  const generationLabel = currentProjectActiveJob ? 'Caption job in progress' : generationPreparing ? 'Submitting…'
+  const generationNeedsCheck = uncertainJobs.some((item) => item.key === mediaKey && item.captionJob);
+  const generationLabel = currentProjectActiveJob ? 'Caption job in progress' : generationPreparing ? 'Submitting…' : generationNeedsCheck ? 'Check Activity'
     : llmSettings?.configured === false ? 'Connect AI' : health?.timing.configured === false ? 'Open System check'
     : generationSetupFailed ? 'Retry setup checks' : checkingGenerationSetup ? 'Checking setup…'
     : legacy ? 'Queue rebuild' : 'Generate captions';
@@ -4016,7 +4117,11 @@ export default function App() {
     setReviewMode(false);
     setExportVisit({ ticket: viewTicket, session: exportSession });
     setExportRepair({ ticket: viewTicket, target });
-    exportRepairFocus.current = true;
+    exportRepairFocus.current = target.focus !== 'font';
+    if (target.focus === 'font') {
+      const request = projectNavigationFocus.capture();
+      if (request) setExportFontFocus({ request, ticket: viewTicket });
+    }
     if (caption) {
       setSelectionAnchor(caption.id); setSelectionEnd(caption.id);
       const atMs = Math.max(0, Math.min(caption.startMs, mediaDurationMs ? mediaDurationMs - 1 : caption.startMs));
@@ -4136,17 +4241,41 @@ export default function App() {
     onReloadProject: () => void reloadSavedProject(),
   };
 
+  function returnToEdits(surface: 'activity' | 'corrections') {
+    returnToEditsFocus.current = { surface, ticket: projectScope.current.capture() };
+    if (surface === 'activity') closeActivity();
+    else closeCorrections();
+  }
+  function takeEditsFocus(surface: 'activity' | 'corrections') {
+    const intent = returnToEditsFocus.current;
+    if (!intent || intent.surface !== surface) return null;
+    returnToEditsFocus.current = null;
+    if (!projectScope.current.isCurrent(intent.ticket)) return null;
+    return document.querySelector<HTMLElement>('.save-failure .toast-action:not(:disabled)')
+      || document.querySelector<HTMLElement>('.save-action:not(:disabled)')
+      || document.querySelector<HTMLElement>('[data-project-entry-focus]');
+  }
+  const blockedSaveMessage = blockedSwitch?.reason || (saveNeedsComparison ? 'The saved project changed. Review your current edits before switching.'
+    : saveFailed ? 'Your current edits could not be saved.' : 'Finish saving your current edits before switching projects.');
+
   // Keep the Activity dialog and its focused control mounted while a result opens its project.
-  const activity = <JobManager key="activity" open={showJobs} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} getResultFocusTarget={() => {
+  const activity = <JobManager key="activity" open={showJobs} entryJobId={activityEntryId}
+    uncertainProject={projectAwaitingJobCheck ? project?.title : undefined} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} getResultFocusTarget={() => {
+      const edits = takeEditsFocus('activity');
+      if (edits) return edits;
       const next = activityResultFocus.current;
       activityResultFocus.current = null;
       if (!next || !projectScope.current.isCurrent(next.ticket)) return null;
       return document.querySelector<HTMLElement>(next.comparison ? '.workspace-inspector:not([hidden]) .inspector-heading' : '[data-project-entry-focus]');
-    }} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => void actOnJob(id, 'resume')} onCancel={(id) => void actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>;
+    }} blockedSave={blockedSwitch?.surface === 'activity' ? { id: blockedSwitch.id, message: blockedSaveMessage } : undefined}
+    onReturnToEdits={() => returnToEdits('activity')} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => actOnJob(id, 'resume')} onCancel={(id) => actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>;
 
   const corrections = profile && <CorrectionInbox key="corrections" profile={profile} open={showCorrections} busy={!!busy}
     openingId={openingCorrection} readError={correctionReadError} onClose={closeCorrections} onFilterChange={cancelCorrectionRead}
-    onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction} getAudioFocusTarget={() => {
+    blockedSave={blockedSwitch?.surface === 'corrections' ? { id: blockedSwitch.id, message: blockedSaveMessage } : undefined}
+    onReturnToEdits={() => returnToEdits('corrections')} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction} getAudioFocusTarget={() => {
+      const edits = takeEditsFocus('corrections');
+      if (edits) return edits;
       const next = correctionDestination.current;
       correctionDestination.current = null;
       if (!next || !projectScope.current.isCurrent(next.ticket)) return null;
@@ -4202,14 +4331,19 @@ export default function App() {
     {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
-    {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
+    {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true, currentProjectToastJob.id)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
+    {uncertainJob && !showJobs && <div className="toast error" role="alert">
+      <span>Studio lost the reply for {uncertainJob.title}. Check Activity before starting another job.</span>
+      <button className="toast-action" onClick={() => openActivityFromNotice()}>Open Activity</button>
+      <button aria-label="Dismiss job notice" onClick={() => setUncertainJobs((items) => items.map((item) => item === uncertainJob ? { ...item, dismissed: true } : item))}><X size={14}/></button>
+    </div>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
     {jobNotification && !showJobs && <div className={`toast processing-notice ${jobNotification.error ? 'error' : 'notice'}`} role={jobNotification.error ? 'alert' : 'status'}>
       <span><strong>{jobNotification.projectTitle}.</strong> {jobNotification.message}</span>
-      <button className="toast-action" onClick={openNotifiedActivity}>Open Activity</button>
+      <button className="toast-action" onClick={() => { openActivityFromNotice(jobNotification.id); dismissJobNotification(); }}>Open Activity</button>
       <button aria-label="Dismiss processing notice" onClick={dismissJobNotification}><X size={14}/></button>
     </div>}
-    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>{saveNeedsComparison ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveNeedsComparison
+    {saveFailed && unfinishedChanges && !showJobs && !showCorrections && <div className="toast error save-failure" role="alert"><span><strong>{saveNeedsComparison ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveNeedsComparison
       ? <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void reloadSavedProject()}>Reload saved project</button>
       : <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button>}<button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
     {recoveryStorageError && unfinishedChanges && <div className="toast error recovery-storage-error" role="status"><span>{recoveryStorageError}</span>{!saveFailed && <button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button>}</div>}
@@ -4395,6 +4529,10 @@ export default function App() {
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={mediaKey} project={project} captions={draft}
             onHighlightControlReady={wordControlEntry?.tool === 'appearance' ? focusWordControl : undefined}
             fontFocusTrigger={fontFocusTrigger} onFontFocusHandled={() => setFontFocusTrigger(null)}
+            onExportFontReady={exportFontFocus?.ticket === viewTicket ? (target) => {
+              projectNavigationFocus.complete(exportFontFocus.request, () => target);
+              setExportFontFocus(null);
+            } : undefined}
             initialAppearance={previewAppearance}
             profileImportRevision={profileImportRevision}
             flushSave={flushAppearanceSave}
@@ -4516,7 +4654,7 @@ export default function App() {
               <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
             {hasHybrid && generationOptions}
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed ? generationLabel : 'Preview full regeneration'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed || generationNeedsCheck ? generationLabel : 'Preview full regeneration'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
           </div>}
 
           {showGeneration && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>

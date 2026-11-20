@@ -162,7 +162,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const [presetSaveAction, setPresetSaveAction] = useState<'save' | 'update' | null>(null);
   const presetNameRevision = useRef(0);
   const presetMutation = useRef(false);
-  const [presetName, setPresetName] = useState('');
+  const presetName = session.presetNameDraft ?? '';
   const [presetError, setPresetError] = useState('');
   const [presetNotice, setPresetNotice] = useState('');
   const [lastUsedError, setLastUsedError] = useState('');
@@ -357,7 +357,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
       }) : [];
     if (checksAppearance && appearanceFontUnavailable) native.unshift({ id: 'font', severity: 'blocker', title: 'Saved font selection is unavailable',
       reasons: [`${appearance.fontFamily}${appearance.bold ? ' Bold' : ''} is not available for this output.`],
-      remedy: 'Choose an available Khmer font or weight in Appearance. Studio will keep your selection until you change it.', captionIds: [], repair: 'appearance' });
+      remedy: 'Choose an available Khmer font or weight in Appearance.', captionIds: [], repair: 'appearance' });
     return [...native, ...captionIssues];
   }, [checksAppearance, layoutCheck, layoutKey, project.captions, appearanceFontUnavailable, appearance, captionIssues]);
   const nativeLayoutBlocked = checksAppearance && currentLayout?.result?.status === 'blocked';
@@ -479,12 +479,11 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
       if (!saved || JSON.stringify(normalizeVideoExportSettings(saved.settings)) !== snapshotKey) throw new Error('The saved preset could not be confirmed. Your name and settings are kept; try again.');
       const currentForm = presetNameRevision.current === nameRevision && JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey;
       if (currentForm) onSessionChange((current) => ({ ...current,
-        managedPresetId: saved.id, settingsHydrated: true,
+        managedPresetId: saved.id, settingsHydrated: true, presetNameDraft: '',
         selectedPresetId: JSON.stringify(normalizeVideoExportSettings(currentSettings.current)) === snapshotKey
           ? saved.id : current.selectedPresetId,
       }), false);
       if (currentForm) {
-        setPresetName('');
         setPresetNotice(`${previous ? 'Updated' : 'Saved'} video preset “${saved.name}”.`);
       }
     } catch (error) {
@@ -610,7 +609,10 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
                 {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
               </select>
             </label>
-            <details className="export-preset-tools">
+            <details className="export-preset-tools" open={Boolean(session.presetManagerOpen)} onToggle={(event) => {
+              const open = event.currentTarget.open;
+              if (open !== Boolean(session.presetManagerOpen)) onSessionChange((current) => ({ ...current, presetManagerOpen: open }), false);
+            }}>
               <summary ref={managePresets}>Manage presets</summary>
               <div className="export-preset-tools-body">
                 {presets.length > 0 && <label className="export-preset-manage" htmlFor="video-export-manage-preset-select">
@@ -623,7 +625,12 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
                   </select>
                 </label>}
                 <label htmlFor="video-export-preset-name"><span>Save current video settings as</span>
-                  <input id="video-export-preset-name" aria-label="Save video export preset as" value={presetName} maxLength={80} placeholder="Example: Vertical high quality" onChange={(event) => { presetNameRevision.current++; setPresetName(event.target.value); setPresetNotice(''); }}/>
+                  <input id="video-export-preset-name" aria-label="Save video export preset as" value={presetName} maxLength={80} placeholder="Example: Vertical high quality" onChange={(event) => {
+                    const name = event.currentTarget.value;
+                    presetNameRevision.current++;
+                    onSessionChange((current) => ({ ...current, presetNameDraft: name }), false);
+                    setPresetNotice('');
+                  }}/>
                 </label>
                 <button type="button" disabled={!presetName.trim() || loadingProfile || Boolean(profileLoadError) || savingPreset} aria-busy={Boolean(presetSaveAction) || undefined} onClick={() => void savePreset()}><Save size={14}/>{presetSaveAction ? presetSaveAction === 'update' ? 'Updating…' : 'Saving…' : matchingPresetName ? 'Update preset' : 'Save preset'}</button>
                 {managedPreset && <div className="export-preset-delete"><span>Delete saved preset: <b>{managedPreset.name}</b></span><button type="button" className="danger-quiet" disabled={loadingProfile || Boolean(profileLoadError) || savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
@@ -654,7 +661,13 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
                 {(['source', 24, 25, 30, 50, 60] as VideoFrameRatePreset[]).map((value) => <option key={String(value)} value={String(value)}>{frameRateLabel(value, source?.frameRate || 0)}</option>)}
               </select>
             </label>
-            <div className="export-quality-choice"><span>Quality</span><div role="group" aria-label="Video quality">{(['smaller', 'recommended', 'high'] as VideoQualityPreset[]).map((quality) => <button key={quality} aria-pressed={settings.quality === quality} className={settings.quality === quality ? 'selected' : ''} onClick={() => setSettings((current) => ({ ...current, quality, customBitrateMbps: undefined }))}>{qualityCopy[quality]}</button>)}</div></div>
+            <div className="export-quality-choice"><span>Quality</span>
+              <div role="group" aria-label="Video quality">{(['smaller', 'recommended', 'high'] as VideoQualityPreset[]).map((quality) =>
+                <button key={quality} aria-pressed={settings.quality === quality} className={settings.quality === quality ? 'selected' : ''} onClick={() => {
+                  if (settings.quality !== quality) setSettings((current) => ({ ...current, quality, customBitrateMbps: undefined }));
+                }}>{qualityCopy[quality]}</button>
+              )}</div>
+            </div>
           </div>
 
           <details className="export-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
