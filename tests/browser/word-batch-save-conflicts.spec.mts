@@ -207,10 +207,6 @@ async function preparePage(page: Page) {
 
 async function open(page: Page, name: Case) {
   await page.goto('/');
-  await openFromHome(page, name);
-}
-
-async function openFromHome(page: Page, name: Case) {
   await page.getByRole('button', { name: new RegExp(titleFor(name)) }).click();
   await expect(captionField(page, 1)).toBeVisible();
   await expect(page.locator('video')).toHaveAttribute('src', `/media/${idFor(name)}.mp4`);
@@ -614,14 +610,20 @@ for (const { action, foreign } of scenarios) {
 
         other.once('dialog', async (dialog) => { expect(dialog.type()).toBe('beforeunload'); await dialog.accept(); });
         await other.getByRole('button', { name: 'Reload saved project', exact: true }).click();
-        await openFromHome(other, name);
+        await expect(other.getByRole('button', { name: 'Project details', exact: true })).toHaveAccessibleDescription(new RegExp(titleFor(name)));
+        await expect(other.locator('video')).toHaveAttribute('src', `/media/${idFor(name)}.mp4`);
         await expect(captionField(other, 2)).toHaveValue(foreignText);
         await expect(captionField(other, 3)).toHaveValue(original.captions[2].text);
         const recovery = other.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
-        await expect(recovery).toBeVisible();
+        await expect(recovery.getByRole('status')).toContainText('The saved project has changed. Download this draft to compare your edits.');
         await expect(recovery.getByRole('button', { name: 'Restore draft', exact: true }).and(recovery.locator('button:enabled'))).toHaveCount(0);
         await expect(recovery.getByRole('button', { name: 'Download draft', exact: true })).toBeEnabled();
         expect((await downloadDraft(other, 'Download draft')).captions).toEqual(expectedDraft);
+        const reopened = await editorEvidence(other, name);
+        expect(reopened.texts).toEqual(afterBatch.captions.map((caption) => caption.text));
+        expect(reopened.recovery).toHaveLength(1);
+        expect(reopened.recovery[0].captions).toEqual(expectedDraft);
+        evidence.editorAfterSavedProjectReload = reopened;
         await other.clock.fastForward(1_501);
         await settledFrame(other);
         expect(editorFollows).toHaveLength(0);

@@ -36,15 +36,25 @@ export function revealFocusedCaptionRow(row: HTMLElement, list: HTMLElement, wor
   list.scrollBy({ top: offset, behavior: 'instant' });
 }
 
-/** Finish an owned focus reveal without moving the caption list or its Follow state. */
+/** Reveal a focused editor inside the list and beneath the sticky preview. */
 export function revealFocusedCaptionField(field: HTMLElement, list: HTMLElement, workbench: HTMLElement) {
   if (document.activeElement !== field || !field.isConnected || !workbench.isConnected
     || field.closest('.caption-list') !== list || !workbench.contains(field)
     || !/auto|scroll/.test(getComputedStyle(workbench).overflowY)) return;
-  const { box, listBox, top, bottom } = captionFieldViewport(field, list, workbench);
-  // Native scrolling rounds to pixels; a fractional border overlap must not
-  // prevent revealing a field that is already inside the list.
-  if (bottom <= top || box.top < listBox.top - 1 || box.bottom > listBox.bottom + 1) return;
-  const shift = box.bottom > bottom ? box.bottom - bottom + 8 : box.top < top ? box.top - top - 8 : 0;
+  let viewport = captionFieldViewport(field, list, workbench);
+  const { box, listBox } = viewport;
+  if (box.bottom <= listBox.top || box.top >= listBox.bottom) return;
+  // Native focus can leave the top or bottom of a textarea clipped by the
+  // list. Reveal that edge before accounting for the sticky preview outside it.
+  const clip = box.top < listBox.top - 1 ? box.top - listBox.top
+    : box.bottom > listBox.bottom + 1 ? box.bottom - listBox.bottom : 0;
+  if (clip) {
+    list.scrollBy({ top: clip, behavior: 'instant' });
+    viewport = captionFieldViewport(field, list, workbench);
+  }
+  const { top, bottom } = viewport;
+  if (bottom <= top) return;
+  const shift = viewport.box.bottom > bottom ? viewport.box.bottom - bottom + 8
+    : viewport.box.top < top ? viewport.box.top - top - 8 : 0;
   if (shift) workbench.scrollBy({ top: shift, behavior: 'instant' });
 }

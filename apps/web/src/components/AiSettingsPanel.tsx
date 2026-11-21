@@ -28,6 +28,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   const [model, setModel] = useState(settings.model);
   const [fallbackModel, setFallbackModel] = useState(settings.fallbackModel);
   const [showKey, setShowKey] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(settings.configured);
   const [working, setWorking] = useState<'save' | 'test' | 'forget' | 'paste' | ''>('');
   const [result, setResult] = useState<LlmConnectionTest | null>(null);
   const [message, setMessage] = useState('');
@@ -203,7 +204,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
         <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'Your operating-system account protects the saved key. Profile exports exclude it.' : 'Set a server environment variable on this platform.'}</span></div></div>
       </section>
 
-      <details className="ai-settings-section ai-model-settings" open={settings.configured}>
+      <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>
         <summary>Model settings</summary>
         <div className="ai-model-grid">
           <label><span>Primary model</span><input list="gemini-model-options" value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>

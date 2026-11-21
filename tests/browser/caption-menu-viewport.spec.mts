@@ -189,11 +189,15 @@ test('one click opens the first row menu flush with the bottom of a short phone 
 test('opening the visible first mobile row reveals one complete action once without changing Follow', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 390, height: 740 });
   const first = page.getByLabel('More actions for caption 1', { exact: true });
   const firstMenu = page.getByRole('menu', { name: 'Caption 1 actions', exact: true });
   const workbench = page.locator('.editor-workbench');
+  // Place the row at the edge of the real scrollport after the responsive reflow.
+  await first.evaluate((button) => {
+    const bench = button.closest<HTMLElement>('.editor-workbench')!;
+    bench.scrollTop += button.getBoundingClientRect().bottom - bench.getBoundingClientRect().bottom + 8;
+  });
   const before = await workbench.evaluate((node) => node.scrollTop);
   const captionsBefore = structuredClone(state.projects[0].captions);
   await page.evaluate(() => {
@@ -201,7 +205,11 @@ test('opening the visible first mobile row reveals one complete action once with
   });
   // Match the real first-open case: its trigger is visible, but a complete
   // 44px menu action does not yet fit beneath it within the phone viewport.
-  expect(await first.evaluate((node) => innerHeight - node.getBoundingClientRect().bottom - 8)).toBeLessThan(58);
+  expect(await first.evaluate((node) => innerHeight - node.getBoundingClientRect().bottom)).toBeCloseTo(8, 0);
+  expect(await first.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return node.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+  })).toBe(true);
   await first.click();
   await expect(firstMenu).toBeVisible();
   await expectUsableFocus(page, 1);

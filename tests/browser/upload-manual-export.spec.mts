@@ -97,9 +97,14 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await field.press('Tab');
 
     await page.getByRole('button', { name: 'Export', exact: true }).click();
+    // Video blockers (such as a missing font) expand these checks automatically.
+    // Exercise the same transition on machines where the video font is installed.
+    const videoIssues = page.locator('.export-check-details');
+    if (!await videoIssues.evaluate((details: HTMLDetailsElement) => details.open)) await videoIssues.locator('summary').click();
     await page.getByRole('button', { name: /Captions file.*SRT/i }).click();
     const downloadSrt = page.getByRole('button', { name: 'Download SRT', exact: true });
     await expect(downloadSrt).toBeEnabled();
+    await expect(page.locator('.export-check-details')).toHaveJSProperty('open', false);
     if (viewport.width === 390) {
       await expect(downloadSrt).toBeInViewport({ ratio: 1 });
       await expect.poll(() => downloadSrt.evaluate((button) => {

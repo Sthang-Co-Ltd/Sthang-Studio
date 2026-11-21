@@ -68,6 +68,7 @@ test('returning Home leaves setup optional and saves the chosen models with a fi
   expect(submitted).toBeUndefined();
   await save(page).press('Enter');
   await expect(settings(page).getByText('AI settings saved securely on this computer. No restart needed.', { exact: true })).toBeVisible();
+  await expect(model(page)).toBeHidden();
   expect(submitted).toEqual({ apiKey: 'fixture-first-key', model: 'fixture-chosen-model', fallbackModel: baseline.fallbackModel });
   await expect(key(page)).toHaveValue('');
 });

@@ -43,7 +43,13 @@ async function selectWord(page: Page, index: number, text: string) {
 test('caption moves stop at the next caption and translate owned words exactly once', async ({ page }) => {
   await openTiming(page, false);
   await page.getByLabel('Timing nudge step').selectOption('100');
-  for (let index = 0; index < 5; index++) await page.getByRole('button', { name: 'Move later', exact: true }).click();
+  const later = page.getByRole('button', { name: 'Move later', exact: true });
+  for (const end of ['00:02.600', '00:02.700', '00:02.800']) {
+    await expect(later).toBeEnabled();
+    await later.click();
+    await expect(page.getByLabel('Fine timing end', { exact: true })).toHaveValue(end);
+  }
+  await expect(later).toBeDisabled();
   await expect.poll(() => first().endMs).toBe(2800);
   expect(first().startMs).toBe(500);
   expect(first().wordTiming!.words[0].startMs).toBe(500);
@@ -51,7 +57,8 @@ test('caption moves stop at the next caption and translate owned words exactly o
   expect(project().captions[1].startMs).toBe(2800);
   await page.locator('.timing-options > summary').click();
   await page.getByLabel('Allow overlaps', { exact: true }).check();
-  await page.getByRole('button', { name: 'Move later', exact: true }).click();
+  await expect(later).toBeEnabled();
+  await later.click();
   await expect.poll(() => first().endMs).toBe(2900);
   await expect(page.locator('.fine-timing')).toContainText('This caption overlaps another.');
 });
