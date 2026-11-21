@@ -40,8 +40,9 @@ unavailable or invalid storage does not stop editing. **Close tool** returns to
 the ordinary video-and-caption view. Review retains its existing queue filtering,
 approval, focus and playback behavior.
 
-Smaller windows use an adapted scrolling layout with a consistent preview size
-across tools. Captions remain reachable. Appearance shows Looks and essential
+In the current source, smaller windows keep a larger preview during caption editing
+and a compact preview while a tool is open. Opening Review or a tool from the
+strip brings its controls into view. Captions remain reachable. Appearance shows Looks and essential
 font/color/size/position editing first. Motion, word highlighting, other styling
 and saved presets are disclosed through labeled sections. Replay stays available
 outside Motion. No source artwork, media, caption appearance, export format,

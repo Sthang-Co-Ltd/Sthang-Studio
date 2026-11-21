@@ -207,13 +207,6 @@ async function preparePage(page: Page) {
 
 async function open(page: Page, name: Case) {
   await page.goto('/');
-  await openFromHome(page, name);
-}
-
-async function openFromHome(page: Page, name: Case) {
-  // The real isolated API has no AI credential and opens Settings once per
-  // document. Dismiss that actual dialog, including after a recovery reload.
-  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.getByRole('button', { name: new RegExp(titleFor(name)) }).click();
   await expect(captionField(page, 1)).toBeVisible();
   await expect(page.locator('video')).toHaveAttribute('src', `/media/${idFor(name)}.mp4`);
@@ -617,14 +610,20 @@ for (const { action, foreign } of scenarios) {
 
         other.once('dialog', async (dialog) => { expect(dialog.type()).toBe('beforeunload'); await dialog.accept(); });
         await other.getByRole('button', { name: 'Reload saved project', exact: true }).click();
-        await openFromHome(other, name);
+        await expect(other.getByRole('button', { name: 'Project details', exact: true })).toHaveAccessibleDescription(new RegExp(titleFor(name)));
+        await expect(other.locator('video')).toHaveAttribute('src', `/media/${idFor(name)}.mp4`);
         await expect(captionField(other, 2)).toHaveValue(foreignText);
         await expect(captionField(other, 3)).toHaveValue(original.captions[2].text);
         const recovery = other.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
-        await expect(recovery).toBeVisible();
+        await expect(recovery.getByRole('status')).toContainText('The saved project has changed. Download this draft to compare your edits.');
         await expect(recovery.getByRole('button', { name: 'Restore draft', exact: true }).and(recovery.locator('button:enabled'))).toHaveCount(0);
         await expect(recovery.getByRole('button', { name: 'Download draft', exact: true })).toBeEnabled();
         expect((await downloadDraft(other, 'Download draft')).captions).toEqual(expectedDraft);
+        const reopened = await editorEvidence(other, name);
+        expect(reopened.texts).toEqual(afterBatch.captions.map((caption) => caption.text));
+        expect(reopened.recovery).toHaveLength(1);
+        expect(reopened.recovery[0].captions).toEqual(expectedDraft);
+        evidence.editorAfterSavedProjectReload = reopened;
         await other.clock.fastForward(1_501);
         await settledFrame(other);
         expect(editorFollows).toHaveLength(0);
@@ -797,11 +796,12 @@ for (const { name, endpoint, busyLabel } of cleanupScenarios) {
 
     try {
       const tools = other.getByRole('navigation', { name: 'Caption workspace tools', exact: true });
+      const review = other.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
       if (endpoint === 'normalize-khmer-spacing') {
         await tools.getByRole('button', { name: 'Caption grouping', exact: true }).click();
         await other.getByRole('button', { name: 'Clean Khmer spacing', exact: true }).click();
       } else {
-        await tools.getByRole('button', { name: /^Review/ }).click();
+        await review.click();
         await other.locator('.advanced-review-tools > summary').click();
         await other.getByRole('button', { name: 'Fix safe timing', exact: true }).click();
         await other.getByRole('alertdialog', { name: 'Apply safe timing cleanup?', exact: true })
@@ -810,7 +810,7 @@ for (const { name, endpoint, busyLabel } of cleanupScenarios) {
       await expect.poll(() => reads.length > 0 || cleanups.some((entry) => entry.status !== undefined)).toBe(true);
       // Review filters out approved c1. Return to the full caption list before
       // editing, while the actual cleanup decision remains held by the gate.
-      if (endpoint === 'postprocess-timing') await tools.getByRole('button', { name: /^Review/ }).click();
+      if (endpoint === 'postprocess-timing') await review.click();
       const local = `សេចក្ដីព្រាង B ${endpoint}\nKEEP THIS NEW THIRD CAPTION`;
       await captionField(other, 3).fill(local);
       evidence.editorWhileDecisionHeld = await editorEvidence(other, name);

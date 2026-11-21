@@ -42,6 +42,9 @@ for (const width of [1440, 390]) test('Settings keeps its shell and keyboard foc
     await dialog.evaluate((node) => { (window as any).__settingsAvailabilityShell = node; });
     initial.release();
     await expect(dialog.getByRole('alert')).toHaveText('Could not load settings');
+    await dialog.getByRole('button', { name: 'Profile', exact: true }).click();
+    await expect(dialog.getByLabel('Global protected vocabulary', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
+    await dialog.getByRole('button', { name: 'AI connection', exact: true }).click();
     const retryButton = dialog.getByRole('button', { name: 'Retry settings', exact: true });
     await retryButton.focus();
     if (width === 390) expect((await retryButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -55,7 +58,7 @@ for (const width of [1440, 390]) test('Settings keeps its shell and keyboard foc
     await expect.poll(() => reads).toBe(readsBefore + 1);
     expect(await dialog.evaluate((node) => node === (window as any).__settingsAvailabilityShell)).toBe(true);
     retry.release();
-    await expect(dialog.getByRole('button', { name: 'AI connection', exact: true })).toBeVisible();
+    await expect(dialog.getByLabel('Replace current key', { exact: true })).toBeVisible();
     await expect(dialog).toBeFocused();
     expect(await dialog.evaluate((node) => node === (window as any).__settingsAvailabilityShell)).toBe(true);
     await dialog.getByRole('button', { name: 'Profile', exact: true }).click();
@@ -66,7 +69,7 @@ for (const width of [1440, 390]) test('Settings keeps its shell and keyboard foc
   } finally { initial.release(); retry.release(); }
 });
 
-test('closing pending Settings keeps it closed when its late preferences arrive', async ({ page }) => {
+test('AI connection stays available while preferences load and closing Settings keeps late Profile data from reopening it', async ({ page }) => {
   const pending = deferred();
   await page.route('**/api/profile', async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
@@ -76,6 +79,8 @@ test('closing pending Settings keeps it closed when its late preferences arrive'
   try {
     await page.goto('/');
     await homeSettings(page).click();
+    await expect(settings(page).getByLabel('Replace current key', { exact: true })).toBeVisible();
+    await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(settings(page).getByRole('status')).toHaveText('Loading settings…');
     await page.keyboard.press('Escape');
     await expect(settings(page)).toBeHidden();
@@ -92,11 +97,14 @@ test('closing pending Settings keeps it closed when its late preferences arrive'
 
 test('topic packs explain their project prerequisite on Home and apply after a project opens', async ({ page }) => {
   state.profile.topicPacks = [{ id: 'available-pack', name: 'Creator context', description: 'Saved context កម្ពុជា',
-    vocabulary: ['Pack term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }];
+    vocabulary: ['Pack term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { id: 'other-pack', name: 'Newsroom', description: 'News context',
+      vocabulary: ['News term'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }];
   await page.goto('/');
   await homeSettings(page).click();
   await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
-  const apply = settings(page).getByRole('button', { name: 'Apply', exact: true });
+  const apply = settings(page).getByRole('button', { name: /^Apply\b.*Creator context$/ });
+  await expect(settings(page).getByRole('button', { name: /^Apply\b.*Newsroom$/ })).toBeDisabled();
   await expect(apply).toBeDisabled();
   await expect(apply).toHaveAccessibleDescription('Open a project to apply a topic pack.');
   await expect(settings(page).getByText('Open a project to apply a topic pack.', { exact: true })).toBeVisible();
@@ -110,9 +118,10 @@ test('topic packs explain their project prerequisite on Home and apply after a p
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
   await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
   await expect(apply).toBeEnabled();
-  await apply.click();
+  await apply.press('Enter');
   await expect(settings(page)).toBeHidden();
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await expect(page.getByRole('complementary', { name: 'Accuracy workspace' })).toBeVisible();
+  await expect(page.locator('#accuracy-context-description')).toBeFocused();
   await expect(page.locator('#accuracy-context-description')).toHaveValue('Saved context កម្ពុជា');
   await expect(page.locator('#accuracy-context-vocabulary')).toHaveValue(/Pack term/);
 });

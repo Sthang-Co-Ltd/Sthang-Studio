@@ -95,9 +95,12 @@ test('dismissing an unavailable storage notice keeps an empty library unresolved
     await recheck.press('Enter');
     await expect(panel).toContainText('Checking saved project files');
     await expect(recheck).toBeDisabled();
+    await expect(recheck).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: 'Project storage needs a check' })).toBeVisible();
   } finally { release(); }
   await expect(panel).toContainText('No project read errors were found at the last check');
+  await expect(recheck).toBeFocused();
   await expect(page.getByRole('heading', { name: 'No projects yet', exact: true })).toBeVisible();
   expect(rechecks).toBe(1);
   expect(state.requests.some((request) => request.path === '/api/system/doctor')).toBe(false);
@@ -117,8 +120,10 @@ test('a failed recheck does not keep a previously verified empty library healthy
   const panel = page.getByRole('region', { name: 'Saved project storage' });
   await expect(panel).toContainText('No project read errors were found at the last check');
   unavailable = true;
-  await panel.getByRole('button', { name: 'Recheck saved projects', exact: true }).click();
+  const recheck = panel.getByRole('button', { name: 'Recheck saved projects', exact: true });
+  await recheck.press('Enter');
   await expect(panel).toContainText('storage could not be checked');
+  await expect(recheck).toBeFocused();
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.getByRole('button', { name: 'Dismiss storage check notice', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

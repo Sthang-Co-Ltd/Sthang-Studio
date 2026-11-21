@@ -9,6 +9,7 @@ export type ExportRepairKind = 'caption' | 'timing' | 'word-timing' | 'appearanc
 export interface ExportRepairTarget {
   kind: ExportRepairKind;
   captionId?: string;
+  focus?: 'font';
 }
 
 export interface ExportCheckIssue {
@@ -59,7 +60,7 @@ export function buildExportCaptionIssues(input: {
       captionIds: [previous.id, issue.captionId], repair: 'timing' });
     const reasons = issue.reasons.filter((reason) => !overlap || reason !== 'Overlaps the previous caption')
       .map((reason) => reason === 'Weak/interpolated timing' ? 'The timing needs a careful listen against the source.' : reason);
-    if (reasons.length) issues.push({ id: `review:${issue.captionId}`, severity: 'advisory', title: 'Review suggested',
+    if (reasons.length) issues.push({ id: `review:${issue.captionId}`, severity: 'advisory', title: reasons[0],
       reasons, remedy: 'Listen to this caption and check its wording, duration and nearby captions. Export keeps your chosen text and timing.',
       captionIds: [issue.captionId], repair: 'caption' });
   }

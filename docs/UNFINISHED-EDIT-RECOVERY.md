@@ -57,9 +57,11 @@ approval analytics. Missing revisions are refused, including from older clients.
 If those fields changed, or the revision changes between checking and saving,
 the editor keeps the local draft and shows **Saved project changed**. Further
 queued saves and automatic retries stop; **Save** is disabled. Use **Download
-edits**, then **Reload saved project** to compare with the saved work. Reload
-captures the existing recovery copy but does not merge or overwrite changed
-saved fields. If browser storage cannot keep the copy, reloading requires an
+edits**, then **Reload saved project** to compare with the saved work. On the
+development branch, Studio reopens the same project and focuses **Preview draft**
+when it can offer a comparison. If a save blocks a switch from Activity or the
+Correction inbox, choose **Return to edits** to reach the recovery controls.
+If browser storage cannot keep the copy, reloading requires an
 explicit warning and confirmation; cancel keeps the editor open. Download first
 to retain the current draft. A conflicted comparison copy remains even if you
 type back to the earlier saved text, because that text is no longer the current

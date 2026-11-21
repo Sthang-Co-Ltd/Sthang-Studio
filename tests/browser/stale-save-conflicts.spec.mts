@@ -246,12 +246,20 @@ test('two real clients keep a stale caption local, stop retries, and preserve a 
 
   other.once('dialog', async (dialog) => { expect(dialog.type()).toBe('beforeunload'); await dialog.accept(); });
   await other.getByRole('button', { name: 'Reload saved project', exact: true }).click();
-  await other.getByRole('button', { name: new RegExp(titleFor(name)) }).click();
   await expect(captionField(other)).toHaveValue(canonical.captions[0].text);
   const recovery = other.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
   await expect(recovery).toBeVisible();
+  await expect(recovery.locator('summary')).toBeFocused();
   await expect(recovery.getByRole('button', { name: 'Restore draft', exact: true }).and(recovery.locator('button:enabled'))).toHaveCount(0);
   await expect(recovery.getByRole('button', { name: 'Download draft', exact: true })).toBeEnabled();
+  const downloading = other.waitForEvent('download');
+  await recovery.getByRole('button', { name: 'Download draft', exact: true }).click();
+  const retained = await fs.readFile((await (await downloading).path())!, 'utf8');
+  expect(JSON.parse(retained).projectId).toBe(idFor(name));
+  expect(retained).toContain(JSON.stringify(local));
+  expect(new URL(other.url()).searchParams.has('reloadSavedProject')).toBe(false);
+  await other.reload();
+  await expect(other.getByRole('region', { name: 'Recent projects' })).toBeVisible();
   expect(await disk(name)).toEqual(canonical);
   expect(await history(name)).toEqual(checkpoints);
 });

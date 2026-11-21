@@ -8,8 +8,6 @@
   gap: 14px;
   min-width: 0;
 }
-.export-graphite .export-workspace-head { padding: 0; }
-.export-graphite .export-workspace-head > span { color: var(--export-muted); font-size: 12px; line-height: 1.6; }
 .export-graphite .export-mode-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; align-self: stretch; gap: 8px; padding: 0; border: 0; background: transparent; }
 .export-graphite .export-mode-switch button { min-width: 0; min-height: 46px; padding: 9px 10px; border: 1px solid var(--export-line); border-radius: 9px; background: #17191d; color: var(--export-text); justify-content: center; flex-wrap: wrap; font-size: 13px; gap: 5px 7px; }
 .export-graphite .export-mode-switch button small { color: var(--export-muted); font-size: 11px; }
@@ -74,7 +72,7 @@
 .export-graphite .export-history .export-history-error { color: #e6c97b; }
 .export-graphite :is(.handoff-destination, .handoff-primary, .handoff-advanced, .handoff-rendered-video) { border-color: var(--export-line); background: linear-gradient(160deg, #1b1d20 0%, #131518 100%); }
 .export-graphite .handoff-destination-guide { padding: 12px 0 0; border: 0; border-top: 1px solid var(--export-line); border-radius: 0; background: transparent; }
-.export-graphite :is(.handoff-section-head span, .handoff-primary-copy span, .handoff-guide-title span, .handoff-destination-guide p, .handoff-transfer-summary span, .handoff-rendered-video span, .handoff-local-note) { color: var(--export-muted); line-height: 1.6; }
+.export-graphite :is(.handoff-primary-copy span, .handoff-guide-title span, .handoff-destination-guide p, .handoff-transfer-summary span, .handoff-rendered-video span, .handoff-local-note) { color: var(--export-muted); line-height: 1.6; }
 .export-graphite :is(.handoff-primary, .handoff-rendered-video, .handoff-advanced-action, .handoff-word-readiness, .handoff-restore) { flex-direction: column; align-items: stretch; }
 .export-graphite :is(.handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { width: 100%; min-height: 40px; }
 .export-graphite .handoff-transfer-summary { grid-template-columns: 1fr; border: 0; border-radius: 0; background: transparent; }
@@ -101,6 +99,7 @@
   .export-graphite .handoff-format-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
+  .export-workspace.export-graphite { gap: 10px; }
   .export-graphite .export-warnings > button { min-height: 44px; }
   .export-graphite .export-checks .export-support-recheck { min-height: 44px; }
   .export-graphite :is(.export-mode-switch button, .export-quality-choice button, .export-appearance-summary > button, .export-checks button, .export-advanced summary, .export-preset-tools summary, .export-setting-grid select, .export-advanced-grid select, .export-advanced-grid input[type=number], .export-preset-bar select, .export-preset-tools-body input, .export-preset-tools-body select, .handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { min-height: 44px; }

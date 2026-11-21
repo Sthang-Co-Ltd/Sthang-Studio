@@ -148,6 +148,7 @@ for (const width of [1440, 390]) test('opening a completed result is one keyboar
     await page.keyboard.press('Enter');
     await expect(dialog).toBeHidden();
     await expect(page.getByRole('button', { name: 'Project details', exact: true })).toHaveAccessibleDescription(/Audit second/);
+    await expect(page.getByRole('button', { name: 'Project details', exact: true })).toBeFocused();
     expect(reads).toBe(2);
     expect(state.requests.filter((request) => request.method === 'POST' && request.path.startsWith('/api/jobs'))).toHaveLength(0);
   } finally { gate.release(); }

@@ -117,8 +117,9 @@ sort by **Last edited**, **Newest created**, or **Name A–Z**. Results are show
 pages of 24; search covers the whole collection, including older projects.
 
 Choose **Continue editing** to reopen saved captions or **Open project** for a
-project that has not been generated. **Back to projects** returns to the same
-search, sort order, and page during this Studio session. Reopening uses the current
+project that has not been generated. **Back to projects** keeps the search and sort order during this Studio session.
+On this development branch it also returns to the project you opened, following
+it to its new page if the collection order has changed. Reopening uses the current
 saved project and the existing unfinished-draft recovery flow; it does not restart
 generation or resume playback automatically. Listing and searching use local
 project summaries.
@@ -286,6 +287,9 @@ playback visible, and provides precise start/end entry, bounded nudges, whole-cu
 movement, edge auditions, optional looping, and timing undo/redo. Neighbor
 protection prevents accidental overlaps; an explicit shared-edge option adjusts
 the transition between two captions without shifting later speech.
+On the development branch, the focused waveform also supports keyboard seeking.
+The [Fine Timing guide](docs/FINE-TIMING.md#choose-the-timing-you-need-to-change)
+lists the playback and pan controls.
 
 **Word timing** lets creators adjust one word inside a caption. **Sync words**
 aligns the current corrected wording locally and offers a candidate to review

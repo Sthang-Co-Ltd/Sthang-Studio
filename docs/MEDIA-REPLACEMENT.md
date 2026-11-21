@@ -47,6 +47,10 @@ remain available; they do not silently clear the alignment reminder.
 
 ## Local recovery
 
+On this development branch, if Studio loses contact during a replacement or
+restore, **Check saved source** reads the project to find out which media was
+saved. You can close the dialog and check again later without sending the file again.
+
 Successful replacement stores the prior source, full project snapshot, and its
 media-scoped history in a local recovery. **Undo media replacement** in Tools
 remains available after reopening Studio. Restoring a selected backup replaces

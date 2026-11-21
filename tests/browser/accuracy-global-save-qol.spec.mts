@@ -165,8 +165,8 @@ test('a late global response keeps newer raw vocabulary and a later saved Review
     await doubleActivate(page);
     await expect.poll(() => writes.length).toBe(1);
     await vocabulary(page).fill('  Newer term  \n\nMixed កម្ពុជា  ');
-    const tools = page.getByRole('navigation', { name: 'Caption workspace tools', exact: true });
-    await tools.getByRole('button', { name: /^Review/ }).click();
+    const review = page.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
+    await review.click();
     await page.getByRole('checkbox', { name: 'Auto-play next', exact: true }).check();
     await expect.poll(() => state.profile.preferences.autoPlayNextReview).toBe(true);
     await openAccuracy(page);
@@ -176,7 +176,7 @@ test('a late global response keeps newer raw vocabulary and a later saved Review
     await expect(feedback(page)).toHaveText('Earlier glossary saved globally. Your newer Accuracy edits are kept; save again to include newer terms.');
     await expect(vocabulary(page)).toHaveValue('  Newer term  \n\nMixed កម្ពុជា  ');
     expect(writes).toEqual([['Saved glossary', 'Submitted term', 'ខ្មែរ']]);
-    await tools.getByRole('button', { name: /^Review/ }).click();
+    await review.click();
     await expect(page.getByRole('checkbox', { name: 'Auto-play next', exact: true })).toBeChecked();
     await openAccuracy(page);
     await expect(vocabulary(page)).toHaveValue('  Newer term  \n\nMixed កម្ពុជា  ');

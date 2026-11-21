@@ -46,6 +46,7 @@ for (const width of [1440, 390]) test(`manual caption-preview retries keep a sta
   await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
   await remember(page); await expect(retry(page)).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Choose another font' })).toHaveCount(0);
   const before = JSON.stringify({ projects: state.projects, jobs: state.jobs });
   const time = await page.locator('video').evaluate((node: HTMLVideoElement) => node.currentTime);
   let held: ReturnType<typeof deferred> | null = null;
@@ -72,6 +73,77 @@ for (const width of [1440, 390]) test(`manual caption-preview retries keep a sta
       await unchanged(page, before);
     } finally { gate.release(); held = null; }
   }
+});
+
+for (const width of [1440, 390]) test(`unavailable preview font opens the font picker and recovers after a selection at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+  const missing = 'Unavailable Khmer fixture';
+  state.projects[0].captionAppearance = { ...state.projects[0].captionAppearance!, fontFamily: missing };
+  await page.route('**/api/video-export/landscape/preview', (route) => {
+    if (route.request().postDataJSON().appearance.fontFamily !== missing) return route.fallback();
+    return route.fulfill({ status: 400, json: { error: 'The saved font is unavailable.', code: 'font-unavailable' } });
+  });
+  await openProject(page);
+  const changeFont = stage(page).getByRole('button', { name: 'Choose another font', exact: true });
+  await expect(retry(page)).toBeEnabled();
+  await expect(changeFont).toBeEnabled();
+  await activate(page, changeFont);
+
+  const picker = page.getByRole('combobox', { name: 'Khmer font', exact: true });
+  await visibleFocus(picker);
+  await expect(picker).toHaveValue(missing);
+  await picker.selectOption(state.fonts[0].name);
+  await expect(page.locator('.native-caption-image')).toBeVisible();
+  await expect(changeFont).toHaveCount(0);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 640 }]) test(`Export font repair focuses the visible Khmer picker and returns with the chosen output at ${viewport.width}px`, async ({ page }, info) => {
+  await page.setViewportSize(viewport);
+  state.projects[0].captionAppearance = { ...state.projects[0].captionAppearance!, fontFamily: 'Missing export font' };
+  await openProject(page);
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const resolution = page.getByLabel('Resolution', { exact: true });
+  await resolution.selectOption('720p');
+  const repair = page.getByRole('button', { name: 'Choose an available font', exact: true });
+  await expect(repair).toBeVisible(); await activate(page, repair);
+  const picker = page.getByRole('combobox', { name: 'Khmer font', exact: true });
+  await visibleFocus(picker); await expect(picker).toHaveValue('Missing export font');
+  await page.screenshot({ path: info.outputPath('export-font-repair.png'), animations: 'disabled' });
+  await picker.selectOption(state.fonts[0].name);
+  await activate(page, page.getByRole('button', { name: 'Back to export', exact: true }));
+  await expect(repair).toHaveCount(0); await expect(resolution).toHaveValue('720p');
+  await expect(page.getByRole('button', { name: 'Render captioned video' })).toBeEnabled();
+});
+
+for (const outcome of ['failed lookup', 'no compatible fonts', 'new pointer input', 'window blur'] as const) test(`delayed Export font repair respects ${outcome}`, async ({ page }) => {
+  state.projects[0].captionAppearance = { ...state.projects[0].captionAppearance!, fontFamily: 'Missing export font' };
+  await openProject(page); await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const repair = page.getByRole('button', { name: 'Choose an available font', exact: true });
+  await expect(repair).toBeVisible();
+  const gate = deferred(); const started = deferred();
+  await page.route('**/api/video-export/fonts', async (route) => {
+    started.release(); await gate.promise;
+    if (outcome === 'failed lookup') return route.fulfill({ status: 503, json: { error: 'Font discovery unavailable' } });
+    return route.fulfill({ json: { fonts: outcome === 'no compatible fonts' ? [] : state.fonts } });
+  });
+  const picker = page.getByRole('combobox', { name: 'Khmer font', exact: true });
+  try {
+    await activate(page, repair); await started.promise; await expect(picker).toBeDisabled();
+    if (outcome === 'new pointer input') await page.getByText('Khmer font', { exact: true }).click();
+    if (outcome === 'window blur') await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    const received = page.waitForResponse('**/api/video-export/fonts');
+    gate.release(); await received; await expect(picker).toBeEnabled();
+    if (outcome === 'failed lookup') {
+      const retry = page.getByRole('button', { name: 'Retry fonts', exact: true });
+      await visibleFocus(retry);
+      await activate(page, retry); await visibleFocus(picker);
+    } else if (outcome === 'no compatible fonts') {
+      await visibleFocus(page.getByRole('button', { name: /^Add font/ }));
+    } else {
+      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+      await expect(picker).not.toBeFocused();
+    }
+  } finally { gate.release(); }
 });
 
 for (const width of [1440, 390]) for (const format of ['srt', 'vtt'] as const) {

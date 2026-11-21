@@ -35,11 +35,36 @@ async function expectNoOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 }
 
+test('manual captions open from Quick guide for text editing and approval without a transcript', async ({ page }) => {
+  const project = state.projects[0];
+  project.transcript = null;
+  project.captions = [{
+    id: 'manual-caption', startMs: 500, endMs: 700, timingSource: 'manual',
+    text: 'This manually entered caption is too long to read in its brief interval.',
+  }];
+  await openProject(page);
+  await page.getByLabel('Open project tools', { exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).click();
+  const guide = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true });
+  await expect(guide.getByText('Captions added', { exact: true })).toBeVisible();
+  await expect(guide.getByRole('button', { name: /Captions added|Generate captions/i })).toHaveCount(0);
+  await guide.getByRole('button', { name: /Review flagged captions/ }).press('Enter');
+  await review(page).getByRole('button', { name: 'Edit text', exact: true }).press('Enter');
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeFocused();
+  await expect(approve(page)).toBeEnabled();
+  await approve(page).click();
+  await expect(completion(page)).toBeVisible();
+});
+
 test('last approval offers deliberate next actions, preserves drafts and editor nodes, and Undo restores the queue', async ({ page }, info) => {
   cleanCaptions();
   state.projects[0].captions[0].timingQuality = 'low';
   await page.route('**/api/projects/landscape/captions', (route) => route.fulfill({ status: 503, json: { error: 'Synthetic save failure' } }));
   await openReview(page);
+  const entry = page.getByRole('button', { name: /^Review(?: \d+)?$/ });
+  await expect(entry).toHaveCount(1);
+  await expect(entry).toHaveAccessibleName('Review 1');
+  await expect(review(page)).not.toContainText(/\d+% export readiness/i);
   const text = page.getByLabel('Caption 1 text', { exact: true });
   await text.fill('កែសម្រួល');
   await page.evaluate(() => { (window as any).__completionNodes = [document.querySelector('video'), document.querySelector('.caption-panel')]; });
@@ -48,7 +73,8 @@ test('last approval offers deliberate next actions, preserves drafts and editor 
   await expect(page.getByRole('heading', { name: 'All flagged captions reviewed', exact: true })).toBeFocused();
   await expect(approve(page)).toHaveCount(0);
   await expect(page.locator('.header-actions .tool-badge')).toHaveCount(0);
-  await expect(page.locator('.editor-toolbar').getByRole('button', { name: 'Review', exact: true })).toBeVisible();
+  await expect(entry).toHaveAccessibleName('Review');
+  await expect(entry).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('complementary', { name: 'Export workspace' })).toHaveCount(0);
   expect(await page.locator('video').evaluate((video: HTMLVideoElement) => video.paused)).toBe(true);
   await page.keyboard.press('Enter');

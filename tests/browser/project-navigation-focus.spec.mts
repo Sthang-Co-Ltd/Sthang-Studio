@@ -40,6 +40,48 @@ async function rendered(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
+for (const surface of ['Activity', 'Correction Inbox'] as const) {
+  test(`a blocked switch in ${surface} returns to a visible save action with the local draft intact`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 640 });
+    const now = '2026-11-20T00:00:00.000Z';
+    state.jobs = [{ id: 'ready', projectId: 'second', resultProjectId: 'second', projectTitle: 'Audit second',
+      type: 'transcribe', status: 'completed', stage: 'complete', progress: 100, message: 'Captions ready.',
+      canResume: false, createdAt: now, updatedAt: now, completedAt: now }];
+    state.profile.correctionEvents = [{ id: 'correction', projectId: 'second', projectTitle: 'Audit second', captionId: 'c1',
+      startMs: 500, endMs: 1000, originalText: 'ខ្មែរ', correctedText: 'ខ្មែរ corrected', suggestionKind: 'review',
+      suggestedVocabularyLine: 'Khmer', status: 'ignored', createdAt: now }];
+    await page.goto('/');
+    await openRecentWithKeyboard(page);
+    const field = page.getByLabel('Caption 1 text', { exact: true });
+    await expect(field).toHaveValue(state.projects[0].captions[0].text);
+    if (surface === 'Activity') {
+      await page.route('**/api/projects/landscape/captions', (route) => route.request().method() === 'PUT'
+        ? route.fulfill({ status: 503, json: { error: 'Could not save these captions.' } }) : route.fallback());
+    } else {
+      state.projects[0].captions[0].text = 'Newer externally saved text';
+      state.projects[0].updatedAt = '2027-01-01T00:00:00.000Z';
+    }
+    const local = 'សេចក្ដីព្រាង · Local caption';
+    await field.fill(local);
+    await page.getByLabel('Open project tools', { exact: true }).click();
+    await page.getByRole('menuitem', { name: surface === 'Activity' ? /Processing jobs/ : /Correction inbox/ }).click();
+    const dialog = page.getByRole('dialog', { name: surface, exact: true });
+    const open = dialog.getByRole('button', { name: surface === 'Activity' ? 'Open result' : 'Review audio', exact: true });
+    await open.focus();
+    await open.press('Enter');
+    await expect(dialog.getByRole('alert')).toContainText(surface === 'Activity' ? 'could not be saved' : 'saved project changed');
+    await expect(open).toBeFocused();
+    await open.press('Tab');
+    const back = dialog.getByRole('button', { name: 'Return to edits', exact: true });
+    await visibleFocus(back);
+    await back.press('Enter');
+    const primary = page.getByRole('alert').getByRole('button', { name: surface === 'Activity' ? 'Retry save' : 'Reload saved project', exact: true });
+    await visibleFocus(primary);
+    await expect(field).toHaveValue(local);
+    expect(state.requests.some((request) => request.method === 'GET' && request.path === '/api/projects/second')).toBe(false);
+  });
+}
+
 for (const width of [1440, 390]) test(`Recent project entry and Back to Home provide visible keyboard destinations at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 });
   const before = JSON.stringify(state.projects);
@@ -72,7 +114,6 @@ for (const width of [1440, 390]) test(`a failed library Open returns to its reen
   try {
     await page.goto('/');
     await page.getByRole('button', { name: 'All projects', exact: true }).click();
-    const heading = page.getByRole('heading', { name: 'All projects', exact: true });
     const open = page.getByRole('button', { name: 'Open Audit landscape', exact: true });
     await open.focus(); await open.press('Enter');
     await expect.poll(() => reads).toBe(1);
@@ -85,7 +126,7 @@ for (const width of [1440, 390]) test(`a failed library Open returns to its reen
     await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
     const back = page.getByRole('button', { name: 'Back to projects', exact: true });
     await back.focus(); await back.press('Enter');
-    await visibleFocus(heading);
+    await visibleFocus(open);
     await expect(page.getByRole('list', { name: 'Project results', exact: true }).getByRole('button')).toHaveCount(2);
     expect(reads).toBe(2);
   } finally { gate.release(); }
@@ -113,16 +154,21 @@ for (const foreground of ['Settings', 'Guide'] as const) test(`a delayed Open yi
   } finally { gate.release(); }
 });
 
-test('the first-project guide keeps opening priority and returns to the named project control', async ({ page }) => {
+test('the first project focuses its named control and opens the guide on request', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.removeItem('sthang:project-guide-seen:v1'));
   await openRecentWithKeyboard(page);
   const close = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true }).getByRole('button', { name: 'Close guide', exact: true });
+  await visibleFocus(entry(page));
+  await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
+  await expect(close).toHaveCount(0);
+  const tools = page.getByLabel('Open project tools', { exact: true });
+  await tools.press('Enter');
+  await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).press('Enter');
   await expect(close).toBeFocused();
   await close.press('Escape');
   await expect(close).toHaveCount(0);
-  await expect(entry(page)).toBeFocused();
-  await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
+  await visibleFocus(tools);
 });
 
 test('a superseded Open cannot take focus or replace a newer project draft', async ({ page }) => {

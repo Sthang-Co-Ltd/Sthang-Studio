@@ -36,7 +36,8 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
   const captionsById = useMemo(() => new Map(captions.map((caption, index) => [caption.id, { caption, index }])), [captions]);
   const pages = Math.max(1, Math.ceil(issues.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
-  const visible = issues.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  const visible = issues.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+    .map((issue) => ({ ...issue, reasons: issue.reasons.filter((reason) => reason !== issue.title) }));
   const blockers = issues.filter((issue) => issue.severity === 'blocker').length;
   const suggestions = issues.length - blockers;
   useEffect(() => { if (blockers > 0) setIssuesExpanded(true); }, [blockers]);
@@ -50,7 +51,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
     <div className="export-checks-head">
       <div><h3 id="export-checks-heading" ref={headingRef} tabIndex={-1}><ListChecks size={17}/>Check before export</h3>
         <p>{blockers > 0 ? `${blockers} blocker${blockers === 1 ? '' : 's'}` : 'No caption blockers'}
-          {suggestions > 0 ? ` · ${suggestions} review suggestion${suggestions === 1 ? '' : 's'}` : ''} for this output.</p></div>
+          {suggestions > 0 ? ` · ${suggestions} review suggestion${suggestions === 1 ? '' : 's'}` : ''}.</p></div>
       {supportAction}
     </div>
 
@@ -94,9 +95,9 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
               <button type="button" onClick={() => onRepair({ kind: issue.repair, captionId: id })}>Go to caption {match.index + 1}</button>
             </div>;
           })}
-          <ul className="export-check-reasons">{issue.reasons.map((reason, index) => <li key={`${index}:${reason}`}>{reason}</li>)}</ul>
+          {issue.reasons.length > 0 && <ul className="export-check-reasons">{issue.reasons.map((reason, index) => <li key={`${index}:${reason}`}>{reason}</li>)}</ul>}
           <p className="export-check-remedy">{issue.remedy}</p>
-          {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair })}>{issue.id === 'font' ? 'Choose an available font' : issue.repair === 'appearance' ? 'Review appearance' : 'Review captions'}</button>}
+          {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair, focus: issue.id === 'font' ? 'font' : undefined })}>{issue.id === 'font' ? 'Choose an available font' : issue.repair === 'appearance' ? 'Review appearance' : 'Review captions'}</button>}
         </li>)}
       </ol>
       {pages > 1 && <nav className="export-check-pages" aria-label="Export issue pages">

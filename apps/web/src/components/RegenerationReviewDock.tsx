@@ -33,7 +33,6 @@ interface Props {
   editedText: string;
   accuracyHint: string;
   refinementJob?: ProcessingJob;
-  onClose(): void;
   onPreviewMode(mode: RegenerationPreviewMode): void;
   onLoop(value: boolean): void;
   onReplay(startMs?: number): void;
@@ -68,7 +67,6 @@ export function RegenerationReviewDock({
   editedText,
   accuracyHint,
   refinementJob,
-  onClose,
   onPreviewMode,
   onLoop,
   onReplay,
@@ -114,14 +112,9 @@ export function RegenerationReviewDock({
     <div className="regen-dock-head">
       <div className="regen-title-icon"><RefreshCw size={17}/></div>
       <div className="regen-title-copy">
-        <div><strong>Live regeneration review</strong><span>Pass {proposal.passNumber}</span><em>{strategyLabel(proposal)}</em></div>
-        <p>{fmt(proposal.startMs)}–{fmt(proposal.endMs)} · Nothing applied yet. Compare against the video.</p>
+        <div><span>Pass {proposal.passNumber}</span><em>{strategyLabel(proposal)}</em></div>
+        <p>{fmt(proposal.startMs)}–{fmt(proposal.endMs)} · Preview each version against the video before accepting.</p>
       </div>
-      <button className="regen-close" onClick={onClose} aria-label="Close regeneration review" title="Close review"><X size={17}/></button>
-    </div>
-
-    <div className="regen-beginner-guide">
-      <Play size={15}/><span>Replay and listen, compare <b>Current / Proposed</b>, then choose what to accept.</span>
     </div>
 
     <div className="regen-playback-bar">
@@ -130,7 +123,7 @@ export function RegenerationReviewDock({
         <button className={previewMode === 'proposed' ? 'selected' : ''} aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>Proposed</button>
       </div>
       <button onClick={() => onReplay()}><Play size={14}/>Replay range</button>
-      <button className={loop ? 'selected' : ''} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>{loop ? 'Looping' : 'Loop'}</button>
+      <button className={loop ? 'selected' : ''} aria-pressed={loop} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>{loop ? 'Looping' : 'Loop'}</button>
       {proposal.changes.length > 0 && <div className="regen-change-nav">
         <button onClick={() => selectChange(changeIndex - 1)} disabled={changeIndex === 0} aria-label="Previous proposed change"><ChevronLeft size={14}/></button>
         <span>Change {changeIndex + 1} of {proposal.changes.length}</span>
@@ -155,11 +148,11 @@ export function RegenerationReviewDock({
 
     <div className="regen-comparison">
       <article className={previewMode === 'current' ? 'previewing' : ''}>
-        <header><span>Current text</span><button aria-label="Preview current captions" aria-pressed={previewMode === 'current'} onClick={() => onPreviewMode('current')}>Preview</button></header>
+        <div className="regen-text-label">Current text</div>
         <p>{currentText || 'No current text in this range.'}</p>
       </article>
       <article className={previewMode === 'proposed' ? 'previewing proposed' : 'proposed'}>
-        <header><span>Proposed text</span><button aria-label="Preview proposed captions" aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>Preview</button></header>
+        <div className="regen-text-label">Proposed text</div>
         <textarea
           value={editedText}
           onChange={(event) => { onEditedText(event.target.value); onPreviewMode('proposed'); }}
@@ -173,14 +166,19 @@ export function RegenerationReviewDock({
     </div>
 
     {edited && !wordingEmpty && <div className="regen-honesty-note warning">
-      <Lightbulb size={15}/><span><b>Wording edited.</b> Accepting now keeps the proposal’s timing. Choose <b>Realign exact wording</b> to update timing first.</span>
+      <Lightbulb size={15}/><span><b>Wording edited.</b> Accepting now keeps the proposal’s timing. Open <b>Refine this proposal</b> to realign the edited wording first.</span>
     </div>}
 
-    <div className="regen-refine-card">
-      <div className="regen-refine-copy">
-        <strong>Still not right?</strong>
-        <span>Add a hint or try another take. Refine trusted wording or realign edited text.</span>
-      </div>
+    <div className="regen-apply-actions">
+      <button disabled={working} onClick={() => onApply('reject')}><X size={14}/>Keep current</button>
+      <button disabled={working || wordingEmpty || (!textChanges && !edited)} onClick={() => onApply('text-only', editedText)}><FileText size={14}/>Accept text only</button>
+      <button disabled={working || !timingChanges} onClick={() => onApply('timing-only')}><Clock3 size={14}/>Accept timing only</button>
+      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}><Check size={14}/>{edited ? 'Accept edited proposal' : 'Accept proposed range'}</button>
+    </div>
+
+    <details className="regen-refine-options">
+      <summary>Refine this proposal</summary>
+      <div className="regen-refine-card">
       <label className="regen-hint"><span>Accuracy hint <i>optional</i></span><input value={accuracyHint} onChange={(event) => onAccuracyHint(event.target.value)} placeholder={'Example: The exact model name is “GPT 5.6 Luna”. Preserve Terra in Latin script.'}/></label>
       <div className="regen-refine-actions">
         <button disabled={working} onClick={() => refine('alternative', false)} title="Try another suggestion"><RefreshCw size={14}/>Try another take</button>
@@ -188,9 +186,9 @@ export function RegenerationReviewDock({
         <button disabled={working} onClick={() => refine('deep-verify', edited)} title="Compare extra attempts and keep the strongest suggestion"><ScanText size={14}/>Deep verify</button>
         <button disabled={working || !editedText.trim()} onClick={() => refine('manual-realign', true)} title="Keep your exact wording and refresh its timing"><PencilLine size={14}/>Realign exact wording</button>
       </div>
-      <div className="regen-baseline-help"><Check size={13}/><span>Baseline refinement is temporary. Only an Accept action updates saved captions.</span></div>
-      <div className="regen-accuracy-truth"><Lightbulb size={13}/><span>Another take may help unclear speech. Check names manually; realign exact wording when you know what was said.</span></div>
-    </div>
+      <div className="regen-baseline-help"><Check size={13}/><span>You can compare the next take before accepting it.</span></div>
+      </div>
+    </details>
 
     {refinementJob && ['queued', 'running'].includes(refinementJob.status) && <div className="regen-job-progress">
       <LoaderCircle className="spin" size={15}/><div><strong>{refinementJob.message}</strong><span>{refinementJob.progress}% · Review this proposal while the next pass runs.</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
@@ -206,11 +204,5 @@ export function RegenerationReviewDock({
       {proposal.selectedCandidateReason && <p className="regen-candidate-note">{proposal.selectedCandidateReason}</p>}
     </details>}
 
-    <div className="regen-apply-actions">
-      <button disabled={working} onClick={() => onApply('reject')}><X size={14}/>Keep current</button>
-      <button disabled={working || wordingEmpty || (!textChanges && !edited)} onClick={() => onApply('text-only', editedText)}><FileText size={14}/>Accept text only</button>
-      <button disabled={working || !timingChanges} onClick={() => onApply('timing-only')}><Clock3 size={14}/>Accept timing only</button>
-      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}><Check size={14}/>{edited ? 'Accept edited proposal' : 'Accept proposed range'}</button>
-    </div>
   </section>;
 }

@@ -15,4 +15,6 @@
 .unfinished-recovery-actions button:disabled{opacity:.5;cursor:not-allowed}
 .unfinished-recovery-actions button:focus-visible,.unfinished-recovery summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .toast-stack .save-failure>.toast-action{min-height:36px;flex-shrink:0;white-space:nowrap}
+.toast-stack .save-failure{flex-wrap:wrap}
+.toast-stack .toast.save-failure>span{flex:0 0 100%}
 @media(max-width:620px){.unfinished-recovery-actions button,.unfinished-recovery summary,.toast-stack .save-failure>.toast-action{min-height:44px}.unfinished-recovery-actions{gap:8px}.unfinished-recovery-actions button{flex:1 1 auto}}

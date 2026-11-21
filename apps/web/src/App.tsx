@@ -72,7 +72,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { jobObservation, mergeJobSnapshot } from './processing-jobs';
 import { ProjectLibrary } from './components/ProjectLibrary';
-import { DEFAULT_PROJECT_LIBRARY_VIEW, type ProjectLibraryView } from './project-library';
+import { DEFAULT_PROJECT_LIBRARY_VIEW, selectProjectLibrary, type ProjectLibraryView } from './project-library';
 import { captureProjectCollectionBasis, reconcileProjectCollection } from './project-collection';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
@@ -80,14 +80,14 @@ import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCa
 import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { ReplaceMediaDialog, RestoreMediaDialog } from './components/ReplaceMediaDialog';
-import { analyzeCaptions, exportReadiness, QA_PROFILES, resolveQaProfile } from './review';
+import { analyzeCaptions, QA_PROFILES, resolveQaProfile } from './review';
 import { captionTextForEditing } from './caption-text';
 import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { reconcileCaptionSelection } from './caption-selection-validity';
 import { deferWorkspace } from './components/DeferredWorkspace';
 import { retryWorkspace } from './retry-workspace';
 import { ProjectIdentity } from './components/ProjectIdentity';
-import { useProjectNavigationFocus } from './use-project-navigation-focus';
+import { useProjectNavigationFocus, type ProjectNavigationFocusRequest } from './use-project-navigation-focus';
 import { ReviewCompletion } from './components/ReviewCompletion';
 import { ToastStack, type ToastLayoutState } from './components/ToastStack';
 import { captionFieldViewport, revealFocusedCaptionField } from './caption-field-viewport';
@@ -164,7 +164,6 @@ const FIRST_RUN_DISMISSED_KEY = 'sthang:first-run-dismissed:v1';
 function withCaptionWordTimings(project: CaptionProject): CaptionProject {
   return hydrateCaptionWordTimings(project);
 }
-const PROJECT_GUIDE_SEEN_KEY = 'sthang:project-guide-seen:v1';
 
 type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
 
@@ -203,6 +202,13 @@ type PendingMediaReplacement = {
     editRevision: number;
     contextRevision: number;
   };
+};
+
+type MediaSourceCheck = {
+  target: CaptionProject;
+  ticket: ProjectTicket;
+  editRevision: number;
+  contextRevision: number;
 };
 
 type RetainedMediaView = {
@@ -273,7 +279,12 @@ export default function App() {
   // project names or searches outside this tab's existing local project flow.
   const [projectLibraryView, setProjectLibraryView] = useState<ProjectLibraryView>(DEFAULT_PROJECT_LIBRARY_VIEW);
   const homeProjectsButton = useRef<HTMLButtonElement>(null);
-  const restoreHomeProjectsFocus = useRef(false);
+  const libraryOrigin = useRef<string | null>(null);
+  const libraryReturnId = useRef<string | null>(null);
+  const releaseLibraryReturn = () => { libraryReturnId.current = null; };
+  const libraryReturnTarget = (id: string | null) =>
+    (id && document.querySelector<HTMLElement>(`[data-library-project="${CSS.escape(id)}"]`)) || document.querySelector<HTMLElement>('.project-library h1');
+  const returnToHomeControl = useRef<'projects' | 'upload' | null>(null);
   const [startupAttempt, setStartupAttempt] = useState(0);
   const savedStorage = useProjectStorage(startupAttempt);
   const [storageNoticeDismissed, setStorageNoticeDismissed] = useState(false);
@@ -286,12 +297,16 @@ export default function App() {
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
+  const reopenAfterReload = useRef<string | null>(null);
   const [dismissedAlignmentNotice, setDismissedAlignmentNotice] = useState<string | null>(null);
   useEffect(() => { setDismissedAlignmentNotice(null); }, [project?.id]);
   const [draft, setDraft] = useState<CaptionSegment[]>([]);
   const [wordTimingPreview, setWordTimingPreview] = useState<{ mediaKey: string; ownerId: string; change: CaptionTimingTransaction } | null>(null);
   const [wordBatch, setWordBatch] = useState<WordHighlightProgress>(EMPTY_HIGHLIGHT_PROGRESS);
   const [wordTimingFocus, setWordTimingFocus] = useState<{ captionId: string; wordId: string } | null>(null);
+  const [wordControlEntry, setWordControlEntry] = useState<{
+    tool: 'timeline' | 'appearance'; captionId?: string; ticket: ProjectTicket; request: ProjectNavigationFocusRequest;
+  } | null>(null);
   const [wordBatchUndo, setWordBatchUndo] = useState<{ ticket: ProjectTicket; applied: Array<{ before: CaptionSegment; after: CaptionSegment }> } | null>(null);
   const [busy, setBusy] = useState('');
   const [generationModelSaving, setGenerationModelSaving] = useState(false);
@@ -345,6 +360,9 @@ export default function App() {
   const [mediaBackupsLoading, setMediaBackupsLoading] = useState(false);
   const [mediaMutationStatus, setMediaMutationStatus] = useState('');
   const [mediaMutationError, setMediaMutationError] = useState('');
+  const [unconfirmedSource, setUnconfirmedSource] = useState<MediaSourceCheck | null>(null);
+  const [checkingMediaSource, setCheckingMediaSource] = useState(false);
+  const mediaSourceRequest = useRef<AbortController | null>(null);
   const [mediaUndoNotice, setMediaUndoNotice] = useState<{ key: string; checkpoint: MediaReplacementCheckpoint } | null>(null);
   const mediaMutationInFlight = useRef(false);
   const mediaBackupsRequest = useRef<AbortController | null>(null);
@@ -352,6 +370,7 @@ export default function App() {
   const retainedMediaSeek = useRef<{ key: string; timeMs: number } | null>(null);
   const flushAppearanceSave = useRef<(() => Promise<boolean>) | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const healthRequest = useRef(0);
   const [llmSettings, setLlmSettings] = useState<LlmSettingsStatus | null>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [profileImportRevision, setProfileImportRevision] = useState(0);
@@ -395,7 +414,14 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showJobs, setShowJobsState] = useState(false);
   const jobsViewRevision = useRef(0);
-  const setShowJobs = (open: boolean) => { jobsViewRevision.current += 1; setShowJobsState(open); };
+  const [activityEntryId, setActivityEntryId] = useState<string | null>(null);
+  const [uncertainJobs, setUncertainJobs] = useState<{ key: string; title: string; captionJob: boolean; afterRead: number; dismissed: boolean }[]>([]);
+  const lastSuccessfulJobRead = useRef(0);
+  const setShowJobs = (open: boolean, id: string | null = null) => {
+    jobsViewRevision.current += 1;
+    setActivityEntryId(open ? id : null);
+    setShowJobsState(open);
+  };
   const [jobNotification, setJobNotification] = useState<{ id: string; observation: string; projectTitle: string; message: string; error: boolean } | null>(null);
   const jobNotificationRevision = useRef(0);
   const notifyJob = (job: ProcessingJob, message: string, error = true) => {
@@ -418,6 +444,9 @@ export default function App() {
   const [pendingJobActions, setPendingJobActions] = useState<Record<string, 'resume' | 'cancel'>>({});
   const pendingJobActionIds = useRef(new Set<string>());
   const [openingJobId, setOpeningJobId] = useState<string | null>(null);
+  const [blockedSwitch, setBlockedSwitch] = useState<{ surface: 'activity' | 'corrections'; id: string; reason?: string } | null>(null);
+  const returnToEditsFocus = useRef<{ surface: 'activity' | 'corrections'; ticket: ProjectTicket } | null>(null);
+  const activityResultFocus = useRef<{ ticket: ProjectTicket; comparison: boolean } | null>(null);
   const pendingJobResult = useRef<{ id: string; request: AbortController } | null>(null);
   const jobReadGeneration = useRef(0);
   const appliedJobRead = useRef(0);
@@ -433,6 +462,8 @@ export default function App() {
   const viewTicket = projectScope.current.capture();
   const proposal = proposalForProject(proposalEntry, viewTicket, project);
   const mediaKey = projectMediaKey(project);
+  const uncertainJob = uncertainJobs.find((item) => item.key === mediaKey && !item.dismissed);
+  const projectAwaitingJobCheck = uncertainJobs.some((item) => item.key === mediaKey);
   const [proposalPreviewMode, setProposalPreviewMode] = useState<RegenerationPreviewMode>('proposed');
   const [proposalLoop, setProposalLoop] = useState(true);
   const [proposalEditedText, setProposalEditedText] = useState('');
@@ -443,8 +474,8 @@ export default function App() {
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
   const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
-  const guideWorkspaceFocus = useRef<{
-    ticket: ProjectTicket; tool: 'accuracy' | 'review' | 'export'; previous: Element | null;
+  const workspaceEntryFocus = useRef<{
+    ticket: ProjectTicket; tool: Exclude<WorkspaceTool, null>; fromGuide?: boolean; previous: Element | null;
   } | null>(null);
   const generationAccuracyEntry = useRef<HTMLButtonElement>(null);
   const [exportVisit, setExportVisitState] = useState<{ ticket: ProjectTicket; session: ExportWorkspaceSession } | null>(null);
@@ -456,6 +487,14 @@ export default function App() {
   const [exportChoiceStorageError, setExportChoiceStorageError] = useState('');
   const [exportRepair, setExportRepair] = useState<{ ticket: ProjectTicket; target: ExportRepairTarget } | null>(null);
   const exportRepairFocus = useRef(false);
+  const [fontFocusTrigger, setFontFocusTrigger] = useState<HTMLButtonElement | null>(null);
+  const [exportFontFocus, setExportFontFocus] = useState<{ request: ProjectNavigationFocusRequest; ticket: ProjectTicket } | null>(null);
+  useEffect(() => { if (workspaceTool !== 'appearance') setFontFocusTrigger(null); }, [workspaceTool]);
+  useEffect(() => {
+    if (!exportFontFocus || workspaceTool === 'appearance' && exportFontFocus.ticket === viewTicket) return;
+    projectNavigationFocus.cancel(exportFontFocus.request);
+    setExportFontFocus(null);
+  }, [workspaceTool, viewTicket, exportFontFocus, projectNavigationFocus.cancel]);
   const exportSession = exportVisit?.ticket === viewTicket && viewTicket.key === mediaKey
     ? exportVisit.session : createExportWorkspaceSession(Boolean(project && isVideoProject(project)));
   useEffect(() => {
@@ -484,17 +523,17 @@ export default function App() {
   };
   const restoreInlineAccuracyFocus = () => requestAnimationFrame(() => getAccuracyCloseFocusTarget()?.focus());
   useEffect(() => {
-    const request = guideWorkspaceFocus.current;
+    const request = workspaceEntryFocus.current;
     if (!request) return;
-    guideWorkspaceFocus.current = null;
+    workspaceEntryFocus.current = null;
     if (showGuide || proposal || workspaceTool !== request.tool || !projectScope.current.isCurrent(request.ticket)
       || document.querySelector('[aria-modal="true"]')
       || (document.activeElement !== request.previous && document.activeElement !== document.body)) return;
     const inspector = document.querySelector<HTMLElement>('.workspace-inspector:not([hidden])');
-    const target = request.tool === 'accuracy'
+    const target = request.fromGuide && request.tool === 'accuracy'
       ? inspector?.querySelector<HTMLElement>('#accuracy-context-description') : inspector?.querySelector<HTMLElement>('.inspector-heading');
     target?.focus({ preventScroll: true });
-    target?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+    target?.scrollIntoView({ behavior: 'instant', block: request.fromGuide ? 'nearest' : 'start', inline: 'nearest' });
   }, [showGuide, workspaceTool, viewTicket, proposal]);
   const [showFirstRun, setShowFirstRun] = useState(() => {
     try { return localStorage.getItem(FIRST_RUN_DISMISSED_KEY) !== '1'; } catch { return true; }
@@ -551,7 +590,11 @@ export default function App() {
   const ordinarySaveBasis = useRef<CaptionProject | null>(null);
   const conflictedSave = useRef<{ key: string; basis: CaptionProject } | null>(null);
   const restoredRecovery = useRef<{ key: string; expectedUpdatedAt: string; basis: CaptionProject; origin: RecoveryEntry } | null>(null);
-  const [queuedSeekMs, setQueuedSeekMs] = useState<number | null>(null);
+  const correctionPlayback = useRef<{ key: string; recordedStartMs: number; startMs: number; endMs: number } | null>(null);
+  const correctionDestination = useRef<{ ticket: ProjectTicket; captionId?: string } | null>(null);
+  const correctionRequest = useRef<AbortController | null>(null);
+  const [openingCorrection, setOpeningCorrection] = useState<string | null>(null);
+  const [correctionReadError, setCorrectionReadError] = useState<{ id: string; message: string } | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
@@ -583,7 +626,6 @@ export default function App() {
   const highlightJobActive = useRef(false);
   const highlightFollow = useRef<{ ticket: ProjectTicket; epoch: string; captions: CaptionSegment[]; pending: Set<string>; attempted: Set<string> } | null>(null);
   const lastChangeReason = useRef<DraftChangeReason>('metadata');
-  const aiOnboardingShown = useRef(false);
   const reviewPlaybackPass = useRef<ReviewPlaybackPass>('focus');
 
   useEffect(() => {
@@ -595,9 +637,10 @@ export default function App() {
   useEffect(() => () => { handoffRequest.current?.abort(); }, []);
 
   useEffect(() => {
-    if (!project && !showAllProjects && restoreHomeProjectsFocus.current) {
-      restoreHomeProjectsFocus.current = false;
-      homeProjectsButton.current?.focus();
+    if (!project && !showAllProjects && returnToHomeControl.current) {
+      const target = returnToHomeControl.current === 'upload' ? document.querySelector<HTMLElement>('.empty-stage .dropzone') : homeProjectsButton.current;
+      returnToHomeControl.current = null;
+      target?.focus();
     }
   }, [project, showAllProjects]);
 
@@ -612,7 +655,18 @@ export default function App() {
     try {
       const items = await api.listSummaries(request.signal);
       if (!owns()) return;
-      setProjects((current) => reconcileProjectCollection(current, items, basis));
+      const next = reconcileProjectCollection(projectItems.current, items, basis);
+      const origin = libraryReturnId.current;
+      const active = document.activeElement;
+      if (origin && active === libraryReturnTarget(origin)) {
+        // A fresh summary can move the focused row to a different page, or remove
+        // it entirely. Follow that first refresh only while the return owns focus.
+        releaseLibraryReturn();
+        const focus = projectNavigationFocus.capture(active);
+        setProjectLibraryView((view) => ({ ...view, page: selectProjectLibrary(next, view, origin).page }));
+        projectNavigationFocus.complete(focus, () => libraryReturnTarget(origin));
+      }
+      setProjects(next);
       startupLoaded.current.add('Projects');
       setStartupErrors((current) => current.filter((label) => label !== 'Projects'));
       setProjectListState({ refreshing: false, error: '' });
@@ -648,6 +702,26 @@ export default function App() {
   }, [Boolean(project)]);
   useEffect(() => () => { projectListRequest.current?.abort(); }, []);
 
+  async function refreshSystemHealth(isCurrent: () => boolean = () => true) {
+    const request = ++healthRequest.current;
+    const ownsRead = () => request === healthRequest.current && isCurrent();
+    try {
+      const next = await api.health();
+      if (!ownsRead()) return false;
+      setHealth(next);
+      startupLoaded.current.add('System status');
+      setStartupErrors((current) => current.filter((label) => label !== 'System status'));
+      return true;
+    } catch {
+      if (ownsRead()) {
+        setHealth(null);
+        startupLoaded.current.delete('System status');
+        setStartupErrors((current) => current.includes('System status') ? current : [...current, 'System status']);
+      }
+      return false;
+    }
+  }
+
   useEffect(() => {
     let disposed = false;
     setStartupErrors([]);
@@ -663,7 +737,7 @@ export default function App() {
     // Independent requests publish independently. Preferences remain required before
     // opening/uploading a project, so late profile hydration cannot reset an edit.
     if (!startupLoaded.current.has('Projects')) void refreshProjects({ startup: true, isCurrent: () => !disposed });
-    load('System status', api.health, setHealth);
+    if (!startupLoaded.current.has('System status')) void refreshSystemHealth(() => !disposed);
     load('Preferences', api.profile, setProfile);
     if (!startupLoaded.current.has('Activity')) {
       void refreshJobs({ feedback: true, startup: true, isCurrent: () => !disposed });
@@ -674,6 +748,7 @@ export default function App() {
 
   useEffect(() => () => {
     pendingJobResult.current?.request.abort();
+    correctionRequest.current?.abort();
     projectOpen.current?.abort();
     projectScope.current.invalidate();
     cancelPlayback();
@@ -795,6 +870,7 @@ export default function App() {
     return !unavailable && (result.status === 'saved' || result.status === 'cleared');
   }
   async function reloadSavedProject() {
+    if (!project) return;
     const ticket = projectScope.current.capture();
     const captionRevision = draftEditRevision.current;
     const contextRevision = accuracyDraft.current.editRevision;
@@ -809,7 +885,12 @@ export default function App() {
         || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
         || appearanceRevision !== currentAppearanceSave().revision) return;
     }
-    window.location.reload();
+    // A fresh page resets the old save queues and recovery owner. Keep the
+    // exact destination in the fragment, local to the browser.
+    const destination = new URL(window.location.href);
+    destination.searchParams.set('reloadSavedProject', '1');
+    destination.hash = new URLSearchParams({ project: project.id, anchor: destination.hash }).toString();
+    window.location.replace(destination.href);
   }
   function rememberSavedCaptions(next: CaptionProject, ownsCaptions = true) {
     if (projectMediaKey(next) !== projectScope.current.capture().key) return;
@@ -843,15 +924,14 @@ export default function App() {
     operationRevision.current += 1;
     return captureOperationIntent();
   }
-  function openNotifiedActivity() {
+  function openActivityFromNotice(id: string | null = null) {
     // This temporary notice disappears on entry or when the job advances. Give
     // the dialog a persistent return target before it captures keyboard focus.
     const returnTo = project
       ? document.querySelector<HTMLElement>('[aria-label="Open project tools"]')
       : document.querySelector<HTMLElement>('.home-tools button:not(:disabled)');
     returnTo?.focus({ preventScroll: true });
-    setShowJobs(true);
-    dismissJobNotification();
+    setShowJobs(true, id);
   }
   function closeHistory() {
     historyRead.current += 1;
@@ -868,6 +948,8 @@ export default function App() {
     setNotice('');
     setPendingMediaReplacement(null);
     setShowMediaBackups(false);
+    cancelMediaSourceRead();
+    setUnconfirmedSource(null);
     mediaBackupsRequest.current?.abort();
     projectOpen.current?.abort();
     projectOpen.current = null;
@@ -882,7 +964,7 @@ export default function App() {
     setWordBatchUndo(null);
     setOpeningProjectId(null);
     setProposal(null);
-    setQueuedSeekMs(null);
+    correctionPlayback.current = null;
     queuedCaption.current = null;
     setReviewMode(false);
     setReviewUndo(null);
@@ -901,7 +983,13 @@ export default function App() {
     }
     const intent = requestNavigation();
     if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
-    const focusRequest = showAllProjects ? null : projectNavigationFocus.capture(initiatingControl);
+    const focusRequest = projectNavigationFocus.capture(initiatingControl);
+    const origin = showAllProjects ? libraryOrigin.current : null;
+    libraryReturnId.current = focusRequest ? origin : null;
+    if (origin) {
+      const page = selectProjectLibrary(projectItems.current, projectLibraryView, origin).page;
+      setProjectLibraryView((view) => ({ ...view, page }));
+    }
     beginNavigation();
     projectScope.current.select(null);
     setProject(null);
@@ -917,15 +1005,20 @@ export default function App() {
     setTime(0);
     setSelectionAnchor(null);
     setSelectionEnd(null);
-    projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('.empty-stage .dropzone'));
+    projectNavigationFocus.complete(focusRequest, () => {
+      if (!showAllProjects) return document.querySelector<HTMLElement>('.empty-stage .dropzone');
+      return libraryReturnTarget(origin);
+    });
   }
-  function changeProjectListView(allProjects: boolean) {
+  function changeProjectListView(allProjects: boolean, returnTo: 'projects' | 'upload' = 'projects') {
     if (project || busy) return;
     // Switching Home/library is a navigation intent too: a pending project read
     // must not open its editor after the creator has returned to the launcher.
     beginNavigation();
     setError('');
-    restoreHomeProjectsFocus.current = !allProjects;
+    libraryOrigin.current = null;
+    releaseLibraryReturn();
+    returnToHomeControl.current = allProjects ? null : returnTo;
     setShowAllProjects(allProjects);
   }
   async function loadProposal(projectId: string, proposalId: string, ticket: ProjectTicket, automatic = false, submittedViewRevision?: number,
@@ -951,13 +1044,6 @@ export default function App() {
     setProposalEntry({ ticket, value });
     return true;
   }
-
-  useEffect(() => {
-    if (!llmSettings || llmSettings.configured || aiOnboardingShown.current || project || busy) return;
-    aiOnboardingShown.current = true;
-    setSettingsTab('ai');
-    setShowProfile(true);
-  }, [llmSettings, project, busy]);
 
   useEffect(() => {
     if (!profile) return;
@@ -1034,6 +1120,7 @@ export default function App() {
     return () => { window.removeEventListener('pagehide', preserve); window.removeEventListener('storage', onStorage); };
   }, [mediaKey, profile?.defaultVocabulary]);
   useEffect(() => () => { mediaBackupsRequest.current?.abort(); }, []);
+  useEffect(() => () => { mediaSourceRequest.current?.abort(); }, []);
 
   useEffect(() => {
     const pending = pendingMediaReplacement;
@@ -1056,21 +1143,12 @@ export default function App() {
     wordBatchRevoke.current = null;
     highlightFollow.current = null;
     setWordTimingFocus(null);
+    setWordControlEntry(null);
     setWordBatch(EMPTY_HIGHLIGHT_PROGRESS);
     setWordBatchUndo(null);
   }, [mediaKey]);
 
   useEffect(() => () => { wordBatchController.current?.abort(); }, []);
-
-  useEffect(() => {
-    if (!project) return;
-    try {
-      if (localStorage.getItem(PROJECT_GUIDE_SEEN_KEY) !== '1') {
-        setShowGuide(true);
-        localStorage.setItem(PROJECT_GUIDE_SEEN_KEY, '1');
-      }
-    } catch { /* local-only onboarding preference */ }
-  }, [project?.id]);
 
   useEffect(() => {
     if (!proposal) return;
@@ -1111,7 +1189,7 @@ export default function App() {
       setContextSaveError('');
       projectScope.current.select(next);
       setProposal(null);
-      setQueuedSeekMs(null);
+      correctionPlayback.current = null;
       setReviewMode(false);
       setReviewUndo(null);
       setTime(0);
@@ -1337,12 +1415,11 @@ export default function App() {
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
   const riskyIds = useMemo(() => draft.filter((caption) => !caption.approved && issueMap.has(caption.id)).map((caption) => caption.id), [draft, issueMap]);
   // Approval suppresses some informational flags. Reconsider the same captions
-  // only for completion copy; the real queue, readiness and export checks keep
+  // only for completion copy; the review queue and export checks keep
   // their existing analysis and approval semantics.
   const reviewedFlags = useMemo(() => reviewMode && !riskyIds.length && draft.some((caption) => caption.approved)
     && analyzeCaptions(draft.map((caption) => caption.approved ? { ...caption, approved: false } : caption), vocabularyLines, qaSettings, mediaDurationMs).length > 0,
   [reviewMode, riskyIds.length, draft, vocabularyLines, qaSettings, mediaDurationMs]);
-  const readiness = useMemo(() => exportReadiness(draft, issues), [draft, issues]);
   const pendingCorrections = profile?.correctionEvents.filter((event) => event.status === 'pending').length || 0;
   const activeJobs = jobs.filter((job) => ['queued', 'running'].includes(job.status));
   const currentProjectAnyActiveJob = project ? activeJobs.find((job) => job.projectId === project.id) : undefined;
@@ -1886,6 +1963,7 @@ export default function App() {
       const items = await api.jobs();
       if (!ownsRead()) return;
       appliedJobRead.current = read;
+      lastSuccessfulJobRead.current = read;
       settleFeedback();
       items.filter((job) => ['queued', 'running', 'interrupted'].includes(job.status))
         .forEach((job) => trackedJobIds.current.add(job.id));
@@ -1935,10 +2013,9 @@ export default function App() {
         if (job.id !== id || job !== requestedJob && Date.parse(job.updatedAt) >= Date.parse(updated.updatedAt)) return job;
         return updated;
       }));
+      return true;
     } catch {
-      setError(action === 'cancel'
-        ? 'Could not confirm the stop request. Check Activity and try again.'
-        : 'Could not confirm the resume request. Check Activity and try again.');
+      return false;
     } finally {
       pendingJobActionIds.current.delete(id);
       setPendingJobActions((current) => {
@@ -1951,6 +2028,7 @@ export default function App() {
   };
 
   const closeActivity = () => {
+    setBlockedSwitch(null);
     const pending = pendingJobResult.current;
     if (pending) {
       pending.request.abort();
@@ -1961,6 +2039,10 @@ export default function App() {
       // proposal read that follows a completed project read.
       operationRevision.current += 1;
       proposalRead.current += 1;
+    }
+    if (projectAwaitingJobCheck && jobLoadState.loaded && !jobLoadState.loading && !jobLoadState.error) {
+      const reviewedRead = lastSuccessfulJobRead.current;
+      setUncertainJobs((items) => items.filter((item) => item.key !== mediaKey || item.afterRead >= reviewedRead));
     }
     setShowJobs(false);
   };
@@ -1976,15 +2058,16 @@ export default function App() {
     }
     const intent = requestNavigation();
     pendingJobResult.current?.request.abort();
+    const trigger = document.activeElement;
     const pending = { id: job.id, request: new AbortController() };
     pendingJobResult.current = pending;
     setOpeningJobId(job.id);
+    setBlockedSwitch(null);
     let ticket = intent.ticket;
     let navigationRevision = intent.revision;
     setError('');
     try {
-      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)
-        || pendingJobResult.current !== pending) return;
+      if (!await saveBeforeSwitch('activity', job.id, () => isCurrentOperation(intent) && pendingJobResult.current === pending)) return;
       ticket = beginNavigation();
       navigationRevision = operationRevision.current;
       projectOpen.current = pending.request;
@@ -1997,7 +2080,7 @@ export default function App() {
         || operationRevision.current !== navigationRevision || !projectScope.current.isCurrent(ticket)) return;
       if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
         || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-        setNotice('Newer edits arrived while the result was loading. They are kept here; open the result again when you are ready.');
+        setBlockedSwitch({ surface: 'activity', id: job.id });
         return;
       }
       // The GET is settled. Applying it may perform further proposal reads;
@@ -2012,8 +2095,10 @@ export default function App() {
           isCurrent: () => pendingJobResult.current === pending && operationRevision.current === navigationRevision,
         }) || !projectScope.current.isCurrent(ticket)
           || pendingJobResult.current !== pending || operationRevision.current !== navigationRevision) return;
-        setNotice('Regeneration preview opened. Current captions remain untouched until you approve it.');
       } else setNotice(compatibilityTranscriptionNotice(target) || (job.resultExport ? 'Export project opened. Compare the video with current content in Activity.' : 'Completed caption job opened.'));
+      if ((job.proposalId || target.id !== project?.id) && (document.activeElement === trigger || document.activeElement === document.body)) {
+        activityResultFocus.current = { ticket, comparison: Boolean(job.proposalId) };
+      }
       setShowJobs(false);
       handledJobVersions.current.set(job.id, jobObservation(job));
     } catch (reason) {
@@ -2112,6 +2197,12 @@ export default function App() {
       setNotice('AI options changed while preparing this request. Start again with the saved choice.');
       return null;
     }
+    if (uncertainJobs.some((item) => item.key === intent.key && item.captionJob === captionJob)) {
+      openActivityFromNotice();
+      void refreshJobs({ feedback: true });
+      return null;
+    }
+    const submittingControl = document.activeElement;
     const ownsPreparation = captionJob && !generationPreparation.current;
     const submittedViewRevision = proposalViewRevision.current;
     const submittedActivityRevision = jobsViewRevision.current;
@@ -2129,14 +2220,23 @@ export default function App() {
       const observed = mergeJobSnapshot(jobItems.current, [job])[0];
       setJobs((current) => [observed, ...current.filter((item) => item.id !== job.id)]);
       if (isCurrentOperation(intent)) {
-        if (openQueue && jobsViewRevision.current === submittedActivityRevision) setShowJobs(true);
+        if (openQueue && jobsViewRevision.current === submittedActivityRevision) setShowJobs(true, job.id);
         if (observed.status === 'queued' || observed.status === 'running') setNotice(message);
       }
       return observed;
     } catch (reason) {
-      if (isCurrentOperation(intent)) setError(reason instanceof ApiRequestError
-        ? reason.message
-        : 'The request outcome could not be confirmed. Check Activity for accepted work before starting another request.');
+      const current = isCurrentOperation(intent);
+      if (reason instanceof ApiRequestError) {
+        if (current) setError(reason.message);
+      } else {
+        // The server can accept the job before this tab navigates or loses the reply.
+        const receipt = { key: intent.key, title: project?.title || 'this project', captionJob,
+          afterRead: jobReadGeneration.current, dismissed: false };
+        setUncertainJobs((items) => [...items.filter((item) => item.key !== intent.key || item.captionJob !== captionJob), receipt]);
+        void refreshJobs({ feedback: current });
+        if (current && openQueue && jobsViewRevision.current === submittedActivityRevision && !document.querySelector('[aria-modal="true"]')
+          && (document.activeElement === submittingControl || document.activeElement === document.body)) openActivityFromNotice();
+      }
       return null;
     } finally {
       if (ownsPreparation) { generationPreparation.current = false; setGenerationPreparing(false); }
@@ -2207,6 +2307,13 @@ export default function App() {
       : caption), undefined, 'timing');
   };
 
+  const closeComparison = () => {
+    if (document.activeElement === document.body || document.activeElement?.closest('.workspace-inspector')) {
+      document.querySelector<HTMLElement>('.workspace-tools-menu > summary')?.focus();
+    }
+    setProposal(null);
+  };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
@@ -2227,12 +2334,14 @@ export default function App() {
       // shortcuts must never become a bare playback or approval action.
       if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey && !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       if (event.key === 'Escape') {
-        if (proposal) { setProposal(null); return; }
+        if (proposal) { closeComparison(); return; }
         if (showGuide) { setShowGuide(false); return; }
         if (showCorrections || showProfile || showFindReplace || showHistory || showJobs || showUpdates) {
-          setShowCorrections(false); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
+          closeCorrections(); setShowProfile(false); setShowFindReplace(false); closeHistory(); setShowJobs(false); setShowUpdates(false); return;
         }
         if (workspaceTool) {
+          const closeTool = target?.closest('.workspace-inspector')?.querySelector<HTMLButtonElement>('[data-workspace-close]');
+          if (closeTool) { closeTool.click(); return; }
           cancelPlayback();
           setWorkspaceTool(null);
           setReviewMode(false);
@@ -2298,18 +2407,26 @@ export default function App() {
       element.currentTime = Math.max(0, Math.min(timeMs / 1000, Number.isFinite(element.duration) ? element.duration : timeMs / 1000));
       setTime(element.currentTime);
     }
-    if (queuedSeekMs == null || !media.current) return;
-    const preRoll = profile?.preferences.reviewPreRollMs ?? 450;
-    media.current.currentTime = Math.max(0, queuedSeekMs - preRoll) / 1000;
-    media.current.play().catch(() => {});
-    setQueuedSeekMs(null);
+    playCorrectionAudio(element, mediaKey);
   };
+  function playCorrectionAudio(element: HTMLMediaElement, key: string) {
+    const clip = correctionPlayback.current;
+    if (!clip || clip.key !== key || element.readyState < 1) return;
+    correctionPlayback.current = null;
+    if (Number.isFinite(element.duration) && clip.recordedStartMs >= element.duration * 1000) {
+      element.pause();
+      setNotice('The correction starts beyond the end of the current media. Its recorded audio is unavailable.');
+      return;
+    }
+    timingPreviewCancel.current = playTimingRange(element, { startMs: clip.startMs, endMs: clip.endMs, loop: false },
+      () => setError('Playback could not start. Use the media controls to listen to the correction.'));
+  }
   const changePlaybackRate = (rate: number) => {
     setPlaybackRate(rate);
     if (media.current) media.current.playbackRate = rate;
   };
 
-  const openRecentProject = async (id: string): Promise<boolean> => {
+  const openRecentProject = async (id: string, reviewRecovery = false): Promise<boolean> => {
     const initiatingControl = document.activeElement;
     if (!profile || busy || mediaMutationInFlight.current) return false;
     const uploadReminder = captureUploadRecoveryForProject(id);
@@ -2336,8 +2453,12 @@ export default function App() {
         }
         publishContextProject(value, contextObservation);
         applyProject(value);
+        if (reviewRecovery) refreshUnfinishedRecoveries();
+        if (showAllProjects) libraryOrigin.current = id;
         clearUploadRecoveryForProject(id, uploadReminder);
-        projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
+        projectNavigationFocus.complete(focusRequest, () =>
+          (reviewRecovery ? document.querySelector<HTMLElement>('.unfinished-recovery summary') : null)
+          || document.querySelector<HTMLElement>('[data-project-entry-focus]'));
         focusCompleted = true;
         return true;
       }
@@ -2353,6 +2474,24 @@ export default function App() {
     }
     return false;
   };
+
+  useEffect(() => {
+    const destination = new URL(window.location.href);
+    if (destination.searchParams.get('reloadSavedProject') !== '1') return;
+    const fragment = new URLSearchParams(destination.hash.slice(1));
+    reopenAfterReload.current = fragment.get('project');
+    destination.searchParams.delete('reloadSavedProject');
+    destination.hash = fragment.get('anchor') || '';
+    window.history.replaceState(window.history.state, '', destination.href);
+  }, []);
+  useEffect(() => {
+    const id = reopenAfterReload.current;
+    if (!id || !profile) return;
+    reopenAfterReload.current = null;
+    if (operationRevision.current || project || showAllProjects || showProfile || showGuide || showJobs || showUpdates || showCorrections) return;
+    if (document.activeElement === document.body) document.querySelector<HTMLElement>('.empty-stage .dropzone')?.focus({ preventScroll: true });
+    void openRecentProject(id, true);
+  }, [profile, project, showAllProjects, showProfile, showGuide, showJobs, showUpdates, showCorrections]);
 
   const checkUploadAttempt = async (attemptId: string): Promise<UploadRecoveryResult> => {
     const ticket = projectScope.current.capture();
@@ -2543,28 +2682,49 @@ export default function App() {
     if (result.mediaReplacement) setMediaUndoNotice({ key, checkpoint: result.mediaReplacement });
     return true;
   };
-  const reportMediaMutationFailure = async (reason: unknown, target: CaptionProject, editRevision: number, contextRevision: number, ticket: ProjectTicket) => {
+  function cancelMediaSourceRead() {
+    mediaSourceRequest.current?.abort();
+    mediaSourceRequest.current = null;
+    setCheckingMediaSource(false);
+  }
+  const checkSavedMediaSource = async (check: MediaSourceCheck) => {
+    if (mediaSourceRequest.current || !projectScope.current.isCurrent(check.ticket)) return;
+    const request = new AbortController();
+    mediaSourceRequest.current = request;
+    setCheckingMediaSource(true);
+    try {
+      const fresh = await api.get(check.target.id, request.signal);
+      if (request.signal.aborted || fresh.id !== check.target.id || !projectScope.current.isCurrent(check.ticket)) return;
+      setUnconfirmedSource(null);
+      if (projectMediaKey(fresh) === check.ticket.key) {
+        setMediaMutationError('The saved project still uses the previous source. You can try the media change again.');
+      } else {
+        publishMediaReplacement(fresh, check.target, check.editRevision, check.contextRevision, check.ticket);
+        setNotice('The saved source changed. Studio reopened it with its saved captions. Replacement backups are available in Tools → Undo media replacement.');
+      }
+    } catch {
+      // Keep the unresolved operation, including drafts typed since submission.
+      // Only a successful project read can release the next media change.
+    } finally {
+      if (mediaSourceRequest.current === request) {
+        mediaSourceRequest.current = null;
+        setCheckingMediaSource(false);
+      }
+    }
+  };
+  const reportMediaMutationFailure = (reason: unknown, target: CaptionProject, editRevision: number, contextRevision: number, ticket: ProjectTicket) => {
     if (!projectScope.current.isCurrent(ticket)) return;
     const message = reason instanceof Error ? reason.message : 'The media change failed.';
     if (reason instanceof ApiRequestError && reason.status >= 400 && reason.status < 500) {
       setMediaMutationError(`${message} This media change was not applied.`);
       return;
     }
-    // A disconnected response is not proof of cancellation. Reconcile the saved
-    // source before offering another operation; never retry a mutation blindly.
-    try {
-      const fresh = await api.get(target.id);
-      if (!projectScope.current.isCurrent(ticket)) return;
-      if (projectMediaKey(fresh) !== ticket.key) {
-        publishMediaReplacement(fresh, target, editRevision, contextRevision, ticket);
-        setNotice('Studio reloaded the saved project after an interrupted response. Check the current source. Replacement backups are available in Tools → Undo media replacement.');
-      } else setMediaMutationError(`${message} The saved project still uses the previous source. You can close this dialog and review it before trying again.`);
-    } catch {
-      setMediaMutationError(`${message} Studio could not confirm the saved source. Close this dialog and reopen the project before trying again.`);
-    }
+    const check = { target, ticket, editRevision, contextRevision };
+    setUnconfirmedSource(check);
+    void checkSavedMediaSource(check);
   };
   const submitMediaReplacement = async (mode: MediaReplacementMode, audioChangeConfirmation?: string) => {
-    if (!project || !pendingMediaReplacement || mediaMutationInFlight.current) return;
+    if (!project || !pendingMediaReplacement || mediaMutationInFlight.current || unconfirmedSource) return;
     if (currentProjectAnyActiveJob) { setMediaMutationError('Wait for the active processing job to finish before replacing media.'); return; }
     const pending = pendingMediaReplacement;
     if (!projectScope.current.isCurrent(pending.ticket)) { setPendingMediaReplacement(null); return; }
@@ -2612,7 +2772,7 @@ export default function App() {
       setPendingMediaReplacement({ ...pending, ticket, audioConfirmation: undefined });
       wordBatchController.current?.abort();
       setProposal(null);
-      setQueuedSeekMs(null);
+      correctionPlayback.current = null;
       setBusy(mode === 'preserve' ? 'Checking replacement audio…' : 'Replacing media…');
       setMediaMutationStatus(mode === 'preserve' ? 'Uploading and checking the audio locally…' : 'Saving replacement and backup…');
       submitted = true;
@@ -2631,7 +2791,7 @@ export default function App() {
         if (editRevision === draftEditRevision.current && contextRevision === accuracyDraft.current.editRevision && !dirtyRef.current) {
           setPendingMediaReplacement({ ...pending, ticket, audioConfirmation: { ...reason.preserveAudioConfirmation, basis: submittedBasis, editRevision, contextRevision } });
         } else setMediaMutationError('The project changed during the audio check. Check the replacement again before accepting existing times. This media change was not applied.');
-      } else if (submitted) await reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
+      } else if (submitted) reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
       else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : 'Save current work before replacing media.');
     } finally {
       mediaMutationInFlight.current = false;
@@ -2640,7 +2800,7 @@ export default function App() {
     }
   };
   const restoreMediaBackup = async (checkpoint: MediaReplacementCheckpoint) => {
-    if (!project || mediaMutationInFlight.current) return;
+    if (!project || mediaMutationInFlight.current || unconfirmedSource) return;
     if (currentProjectAnyActiveJob) { setMediaMutationError('Wait for the active processing job to finish before restoring media.'); return; }
     if (replacementEditRecoveries.length >= MAX_REPLACEMENT_EDIT_RECOVERIES) {
       setMediaMutationError('Copy or dismiss an earlier edit recovery before restoring media.');
@@ -2672,7 +2832,7 @@ export default function App() {
       ticket = projectScope.current.capture();
       wordBatchController.current?.abort();
       setProposal(null);
-      setQueuedSeekMs(null);
+      correctionPlayback.current = null;
       setBusy('Restoring previous media…');
       setMediaMutationStatus('Restoring previous media and saved project…');
       submitted = true;
@@ -2684,7 +2844,7 @@ export default function App() {
         }
       }
     } catch (reason) {
-      if (submitted) await reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
+      if (submitted) reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
       else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : 'Could not restore this backup.');
     } finally {
       mediaMutationInFlight.current = false;
@@ -2693,7 +2853,7 @@ export default function App() {
     }
   };
   const deleteMediaBackup = async (checkpoint: MediaReplacementCheckpoint) => {
-    if (!project || mediaMutationInFlight.current) return;
+    if (!project || mediaMutationInFlight.current || unconfirmedSource) return;
     const target = project;
     const ticket = projectScope.current.capture();
     mediaMutationInFlight.current = true;
@@ -2745,10 +2905,12 @@ export default function App() {
     }
   }
   const generate = async () => {
-    if (!project || generationModelWrite.current || generationPreparation.current) return;
-    if (!llmSettings?.configured) {
-      setError('Connect AI in Settings → AI connection before generating captions.');
-      openSettings('ai');
+    if (!project || busy || currentProjectActiveJob || generationModelWrite.current || generationPreparation.current || mediaMutationInFlight.current) return;
+    if (generationNeedsCheck) { openActivityFromNotice(); void refreshJobs({ feedback: true }); return; }
+    if (llmSettings?.configured === false) { openSettings('ai'); return; }
+    if (health?.timing.configured === false) { openSettings('doctor'); void runDoctor(); return; }
+    if (!llmSettings || !health) {
+      if (generationSetupFailed) setStartupAttempt((attempt) => attempt + 1);
       return;
     }
     generationPreparation.current = true;
@@ -2831,15 +2993,22 @@ export default function App() {
     }
   };
 
-  async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true): Promise<boolean> {
+  async function saveBeforeSwitch(surface: 'activity' | 'corrections', id: string, owns: () => boolean) {
+    let reason: string | undefined;
+    const saved = await saveUnfinishedChanges(true, owns, (message) => { reason = message; });
+    if (!owns()) return false;
+    if (!saved) setBlockedSwitch({ surface, id, reason });
+    return saved;
+  }
+  async function saveUnfinishedChanges(silent = true, isCurrentIntent: () => boolean = () => true, explain: (message: string) => void = setNotice): Promise<boolean> {
     if (!isCurrentIntent()) return false;
     if (!project) return true;
     if (currentAppearanceSave().conflict) {
-      setNotice('The saved appearance changed. Download your edits and reload the saved project to compare.');
+      explain('The saved appearance changed. Download your edits and reload the saved project to compare.');
       return false;
     }
     if (compositionInProgress.current) {
-      setNotice('Finish the current text input before saving or leaving.');
+      explain('Finish the current text input before saving or leaving.');
       return false;
     }
     const ticket = projectScope.current.capture();
@@ -2851,12 +3020,12 @@ export default function App() {
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (conflictedSave.current?.key === ticket.key) return false;
     if (pending !== saveQueue.current || compositionInProgress.current) {
-      setNotice('Changes are still being saved or entered. Wait for them to finish before leaving.');
+      explain('Changes are still being saved or entered. Wait for them to finish before leaving.');
       return false;
     }
     if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
       || appearanceRevision !== currentAppearanceSave().revision) {
-      setNotice('Newer changes arrived while saving. Your project is still open; save again when you are ready.');
+      explain('Newer changes arrived while saving. Your project is still open; save again when you are ready.');
       return false;
     }
     if (dirtyRef.current && !await saveDraft(silent, 'manual-save', true)) return false;
@@ -2867,12 +3036,12 @@ export default function App() {
     if (!await flushCaptionAppearanceSaves(project.id, project.media)) return false;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-      setNotice('Newer appearance changes arrived while saving. Your project is still open; continue when you are ready.');
+      explain('Newer appearance changes arrived while saving. Your project is still open; continue when you are ready.');
       return false;
     }
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
       || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) {
-      setNotice('Newer changes are still unsaved. Save them before leaving.');
+      explain('Newer changes are still unsaved. Save them before leaving.');
       return false;
     }
     return true;
@@ -3109,7 +3278,7 @@ export default function App() {
     }
   };
   const applyStyle = () => {
-    if (!project || !profile) return;
+    if (!project || !profile || busy || currentProjectActiveJob || groupingInFlight.current) return;
     const style = profile.styles.find((item) => item.id === 'my-tiktok-style') || profile.styles[0];
     if (!style) return;
     setMaxChars(style.maxChars);
@@ -3211,7 +3380,7 @@ export default function App() {
         mode !== 'reject',
       );
       if (published === 'stale') return;
-      setProposal(null);
+      closeComparison();
       if (published === 'applied') setNotice(mode === 'reject' ? 'Proposal discarded. Current captions were kept.' : `Regeneration applied: ${mode.replace('-', ' ')}.`);
     } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not apply regeneration'); }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
@@ -3567,7 +3736,19 @@ export default function App() {
     } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Correction action failed'); }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
+  function cancelCorrectionRead() {
+    setBlockedSwitch(null);
+    correctionRequest.current?.abort();
+    correctionRequest.current = null;
+    setOpeningCorrection(null);
+    setCorrectionReadError(null);
+  }
+  function closeCorrections() {
+    cancelCorrectionRead();
+    setShowCorrections(false);
+  }
   const openCorrectionEvent = async (event: CorrectionEvent) => {
+    if (correctionRequest.current) return;
     if (mediaMutationInFlight.current) {
       setNotice('Wait for the media change to finish before opening another project.');
       return;
@@ -3577,32 +3758,53 @@ export default function App() {
       return;
     }
     const intent = requestNavigation();
-    let ticket = intent.ticket;
+    const request = new AbortController();
+    correctionRequest.current = request;
+    setOpeningCorrection(event.id);
+    setBlockedSwitch(null);
+    setCorrectionReadError(null);
+    const ownsRead = () => correctionRequest.current === request && !request.signal.aborted && isCurrentOperation(intent);
     try {
-      if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
-      ticket = beginNavigation();
-      setShowCorrections(false); setBusy('Opening correction audio…');
+      if (!await saveBeforeSwitch('corrections', event.id, ownsRead)) return;
       const readRevision = draftEditRevision.current;
       const contextRevision = accuracyDraft.current.editRevision;
       const appearanceRevision = currentAppearanceSave().revision;
-      const contextObservation = accuracyDraft.current.capture(ticket);
-      const target = await api.get(event.projectId);
-      if (!projectScope.current.isCurrent(ticket)) return;
-      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
-        || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-        setNotice('Newer edits arrived while the correction was loading. They are kept here; open the correction again when you are ready.');
+      const target = await api.get(event.projectId, request.signal);
+      if (!ownsRead()) return;
+      if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
+        || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || appearanceRevision !== currentAppearanceSave().revision
+        || currentAppearanceSave().status !== 'saved') {
+        setBlockedSwitch({ surface: 'corrections', id: event.id });
         return;
       }
-      const switchingProject = project?.id !== target.id;
-      if (switchingProject) queuedCaption.current = event.captionId;
-      publishContextProject(target, contextObservation);
+      const ticket = beginNavigation();
+      publishContextProject(target, accuracyDraft.current.capture(ticket));
       applyProject(target);
-      ticket = projectScope.current.capture();
-      setReviewMode(true);
-      if (!switchingProject) { setSelectionAnchor(event.captionId); setSelectionEnd(event.captionId); }
-      setQueuedSeekMs(event.startMs);
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not open correction project'); }
-    finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
+      const key = projectMediaKey(target);
+      const captionId = target.captions.find((caption) => caption.id === event.captionId)?.id;
+      if (captionId) {
+        if (key !== intent.key) queuedCaption.current = captionId;
+        setSelectionAnchor(captionId);
+        setSelectionEnd(captionId);
+      } else setNotice('The original caption is no longer in this project.');
+      setWorkspaceTool(null);
+      setReviewMode(false);
+      correctionDestination.current = { ticket: projectScope.current.capture(), captionId };
+      correctionPlayback.current = {
+        key, recordedStartMs: event.startMs,
+        startMs: Math.max(0, event.startMs - (profile?.preferences.reviewPreRollMs ?? 450)),
+        endMs: event.endMs + (profile?.preferences.reviewPostRollMs ?? 300),
+      };
+      setShowCorrections(false);
+      if (key === intent.key && media.current) playCorrectionAudio(media.current, key);
+    } catch (reason) {
+      if (ownsRead()) setCorrectionReadError({ id: event.id, message: reason instanceof Error ? reason.message : 'Could not open the saved project. Try Review audio again.' });
+    } finally {
+      if (correctionRequest.current === request) {
+        correctionRequest.current = null;
+        setOpeningCorrection(null);
+      }
+    }
   };
 
   const openSettings = (tab: SettingsTab = 'ai') => {
@@ -3616,7 +3818,7 @@ export default function App() {
     setDoctor(null);
     setDoctorError('');
     setDoctorLoadState('idle');
-    try { setHealth(await api.health()); } catch { /* settings remain usable even if health refresh fails */ }
+    await refreshSystemHealth();
     return next;
   };
   const saveLlmSettings = async (input: SaveLlmSettingsInput) => refreshAiHealth(await api.saveLlmSettings(input));
@@ -3660,7 +3862,12 @@ export default function App() {
     setBusy('Running system checks…');
     try {
       const report = await api.doctor();
-      if (doctorRequest.current === request) { setDoctor(report); setDoctorLoadState('ready'); }
+      if (doctorRequest.current !== request) return;
+      const confirmed = await refreshSystemHealth(() => doctorRequest.current === request);
+      if (doctorRequest.current !== request) return;
+      setDoctor(report);
+      if (!confirmed) setDoctorError('The checks finished, but Studio could not confirm caption setup.');
+      setDoctorLoadState(confirmed ? 'ready' : 'error');
     } catch (reason) {
       if (doctorRequest.current === request) {
         setDoctorError(reason instanceof Error ? reason.message : 'System check failed.');
@@ -3672,9 +3879,18 @@ export default function App() {
     }
   };
   const applyTopicPack = (pack: TopicPack) => {
-    if (!project || busy) return;
+    if (!project || busy) return false;
     editAccuracyFields({ description: pack.description, vocabulary: uniqueLines(profile?.defaultVocabulary, pack.vocabulary).join('\n') });
-    setShowProfile(false); setNotice(`Applied topic pack: ${pack.name}`);
+    setShowProfile(false);
+    if (proposal) {
+      setNotice(`Applied “${pack.name}”. Review the project context in Accuracy after this comparison.`);
+      return false;
+    }
+    cancelPlayback();
+    setReviewMode(false);
+    setWorkspaceTool('accuracy');
+    setNotice(`Applied topic pack: ${pack.name}`);
+    return true;
   };
   const setAutoLoop = async (enabled: boolean) => {
     await saveProfilePreferences({ autoLoopReview: enabled });
@@ -3782,7 +3998,7 @@ export default function App() {
   const timing = project?.transcript?.timing;
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
-  const showGenerationAccuracy = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
+  const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const savedContext = project?.transcriptionContext;
   const hasSavedContext = Boolean(savedContext?.description?.trim() || savedContext?.vocabulary?.some((term) => term.trim()));
   const usedFallback = timing?.engine === 'faster-whisper-local';
@@ -3792,7 +4008,18 @@ export default function App() {
     : null;
   const timingConfigured = health?.timing.configured ?? true;
 
+  const generationSetupFailed = (!health && startupErrors.includes('System status')) || (!llmSettings && startupErrors.includes('AI connection'));
+  const generationSetupMissing = llmSettings?.configured === false || health?.timing.configured === false;
+  const checkingGenerationSetup = !generationSetupMissing && (!llmSettings || !health) && !generationSetupFailed;
+  const generationPending = Boolean(busy || currentProjectActiveJob || generationPreparing || generationModelSaving || mediaMutationStatus);
+  const generationNeedsCheck = uncertainJobs.some((item) => item.key === mediaKey && item.captionJob);
+  const generationLabel = currentProjectActiveJob ? 'Caption job in progress' : generationPreparing ? 'Submitting…' : generationNeedsCheck ? 'Check Activity'
+    : llmSettings?.configured === false ? 'Connect AI' : health?.timing.configured === false ? 'Open System check'
+    : generationSetupFailed ? 'Retry setup checks' : checkingGenerationSetup ? 'Checking setup…'
+    : legacy ? 'Queue rebuild' : 'Generate captions';
+
   const openReviewWorkspace = () => {
+    if (!draft.length) return;
     setWorkspaceTool('review');
     setReviewMode(true);
     const id = riskyIds[0] || selection.ids[0] || draft[0]?.id;
@@ -3800,7 +4027,7 @@ export default function App() {
   };
   const openWorkspaceFromGuide = (tool: 'accuracy' | 'review' | 'export') => {
     if (!project) return;
-    guideWorkspaceFocus.current = { ticket: viewTicket, tool, previous: document.activeElement };
+    workspaceEntryFocus.current = { ticket: viewTicket, tool, fromGuide: true, previous: document.activeElement };
     accuracyDescriptionFocus.current = null;
     setShowGuide(false);
     cancelPlayback();
@@ -3808,6 +4035,9 @@ export default function App() {
     else { setReviewMode(false); setWorkspaceTool(tool); }
   };
   const chooseWorkspaceTool = (tool: Exclude<WorkspaceTool, null>) => {
+    if (tool !== workspaceTool && !proposal && window.matchMedia('(max-width: 1199px)').matches) {
+      workspaceEntryFocus.current = { ticket: viewTicket, tool, previous: document.activeElement };
+    }
     accuracyDescriptionFocus.current = null;
     cancelPlayback();
     if (tool === 'timeline') setRequestedTimingMode('caption');
@@ -3829,10 +4059,35 @@ export default function App() {
     chooseWorkspaceTool('accuracy');
     if (workspaceTool === 'accuracy') restoreInlineAccuracyFocus();
   };
+  const requestWordControl = (tool: 'timeline' | 'appearance', captionId?: string) => {
+    const request = projectNavigationFocus.capture();
+    setWordControlEntry(request ? { tool, captionId, ticket: viewTicket, request } : null);
+  };
+  const focusWordControl = (target: HTMLElement | null) => {
+    if (!target || !wordControlEntry) return;
+    const entry = wordControlEntry;
+    setWordControlEntry(null);
+    const workbench = target.closest<HTMLElement>('.editor-workbench');
+    const preview = workbench?.querySelector<HTMLElement>('.stage-column');
+    const reveal = workbench && preview && getComputedStyle(preview).position === 'sticky' ? (control: HTMLElement) => {
+      const section = control.closest('.word-timing-panel, .appearance-word-details') ?? control;
+      const previewBottom = workbench.getBoundingClientRect().top + parseFloat(getComputedStyle(preview).top) + preview.getBoundingClientRect().height;
+      workbench.scrollTop += section.getBoundingClientRect().top - previewBottom - 8;
+    } : undefined;
+    projectNavigationFocus.complete(entry.request, () => {
+      if (!target.isConnected || !projectScope.current.isCurrent(entry.ticket)) return null;
+      if (entry.tool === 'appearance') {
+        const disclosure = target.closest('details');
+        if (disclosure) disclosure.open = true;
+      }
+      return target;
+    }, reveal);
+  };
   const openWordTiming = (id?: string, wordId?: string) => {
     cancelPlayback();
     setReviewMode(false);
     const target = draftRef.current.find((caption) => caption.id === id) || selection.captions[0] || draftRef.current[0];
+    requestWordControl('timeline', target?.id);
     if (target) { setSelectionAnchor(target.id); setSelectionEnd(target.id); editor.current?.revealCaption(target.id); }
     setWordTimingFocus(target && wordId ? { captionId: target.id, wordId } : null);
     setRequestedTimingMode('words');
@@ -3862,7 +4117,11 @@ export default function App() {
     setReviewMode(false);
     setExportVisit({ ticket: viewTicket, session: exportSession });
     setExportRepair({ ticket: viewTicket, target });
-    exportRepairFocus.current = true;
+    exportRepairFocus.current = target.focus !== 'font';
+    if (target.focus === 'font') {
+      const request = projectNavigationFocus.capture();
+      if (request) setExportFontFocus({ request, ticket: viewTicket });
+    }
     if (caption) {
       setSelectionAnchor(caption.id); setSelectionEnd(caption.id);
       const atMs = Math.max(0, Math.min(caption.startMs, mediaDurationMs ? mediaDurationMs - 1 : caption.startMs));
@@ -3982,27 +4241,74 @@ export default function App() {
     onReloadProject: () => void reloadSavedProject(),
   };
 
+  function returnToEdits(surface: 'activity' | 'corrections') {
+    returnToEditsFocus.current = { surface, ticket: projectScope.current.capture() };
+    if (surface === 'activity') closeActivity();
+    else closeCorrections();
+  }
+  function takeEditsFocus(surface: 'activity' | 'corrections') {
+    const intent = returnToEditsFocus.current;
+    if (!intent || intent.surface !== surface) return null;
+    returnToEditsFocus.current = null;
+    if (!projectScope.current.isCurrent(intent.ticket)) return null;
+    return document.querySelector<HTMLElement>('.save-failure .toast-action:not(:disabled)')
+      || document.querySelector<HTMLElement>('.save-action:not(:disabled)')
+      || document.querySelector<HTMLElement>('[data-project-entry-focus]');
+  }
+  const blockedSaveMessage = blockedSwitch?.reason || (saveNeedsComparison ? 'The saved project changed. Review your current edits before switching.'
+    : saveFailed ? 'Your current edits could not be saved.' : 'Finish saving your current edits before switching projects.');
+
+  // Keep the Activity dialog and its focused control mounted while a result opens its project.
+  const activity = <JobManager key="activity" open={showJobs} entryJobId={activityEntryId}
+    uncertainProject={projectAwaitingJobCheck ? project?.title : undefined} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} getResultFocusTarget={() => {
+      const edits = takeEditsFocus('activity');
+      if (edits) return edits;
+      const next = activityResultFocus.current;
+      activityResultFocus.current = null;
+      if (!next || !projectScope.current.isCurrent(next.ticket)) return null;
+      return document.querySelector<HTMLElement>(next.comparison ? '.workspace-inspector:not([hidden]) .inspector-heading' : '[data-project-entry-focus]');
+    }} blockedSave={blockedSwitch?.surface === 'activity' ? { id: blockedSwitch.id, message: blockedSaveMessage } : undefined}
+    onReturnToEdits={() => returnToEdits('activity')} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => actOnJob(id, 'resume')} onCancel={(id) => actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>;
+
+  const corrections = profile && <CorrectionInbox key="corrections" profile={profile} open={showCorrections} busy={!!busy}
+    openingId={openingCorrection} readError={correctionReadError} onClose={closeCorrections} onFilterChange={cancelCorrectionRead}
+    blockedSave={blockedSwitch?.surface === 'corrections' ? { id: blockedSwitch.id, message: blockedSaveMessage } : undefined}
+    onReturnToEdits={() => returnToEdits('corrections')} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction} getAudioFocusTarget={() => {
+      const edits = takeEditsFocus('corrections');
+      if (edits) return edits;
+      const next = correctionDestination.current;
+      correctionDestination.current = null;
+      if (!next || !projectScope.current.isCurrent(next.ticket)) return null;
+      const row = next.captionId && document.querySelector<HTMLElement>(`[data-caption-id="${CSS.escape(next.captionId)}"]`);
+      return row || mediaPreviewFocus.current;
+    }}/>;
+  const sourceCheck = unconfirmedSource ? {
+    previousName: unconfirmedSource.target.media.originalName,
+    checking: checkingMediaSource,
+    run: () => void checkSavedMediaSource(unconfirmedSource),
+  } : undefined;
   const overlays = <>
     {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError}
-      preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
+      sourceCheck={sourceCheck} preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
       onModeChange={() => { setPendingMediaReplacement((current) => current ? { ...current, audioConfirmation: undefined } : current); setMediaMutationError(''); }}
-      onCancel={() => { if (!mediaMutationInFlight.current) setPendingMediaReplacement(null); }} onReplace={(mode, confirmation) => void submitMediaReplacement(mode, confirmation)}/>}
+      onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); setPendingMediaReplacement(null); } }} onReplace={(mode, confirmation) => void submitMediaReplacement(mode, confirmation)}/>}
     {showMediaBackups && <RestoreMediaDialog checkpoints={mediaBackups} loading={mediaBackupsLoading} working={mediaMutationStatus} error={mediaMutationError}
-      onCancel={() => { if (!mediaMutationInFlight.current) { mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
+      sourceCheck={sourceCheck} onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
-    {profile && <CorrectionInbox profile={profile} open={showCorrections} busy={!!busy} onClose={() => setShowCorrections(false)} onOpenEvent={openCorrectionEvent} onAction={handleCorrectionAction}/>}
+
     <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
-      loadFailed={startupErrors.includes('Preferences') || startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
+      profileLoadFailed={startupErrors.includes('Preferences')} aiLoadFailed={startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
       onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} loadState={historyLoadState} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
-    <JobManager open={showJobs} jobs={jobs} loadState={jobLoadState} pendingActions={pendingJobActions} openingJobId={openingJobId} project={project ? { ...project, captions: draft } : undefined} appearanceReconciliation={reconciledAppearance} onClose={closeActivity} onRefresh={(feedback) => void refreshJobs({ feedback })} onResume={(id) => void actOnJob(id, 'resume')} onCancel={(id) => void actOnJob(id, 'cancel')} onOpen={(job) => void openJobResult(job)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
     <NewUserGuide
       open={showGuide}
       project={project}
-      llmConfigured={Boolean(llmSettings?.configured)}
-      timingConfigured={timingConfigured}
+      llmConfigured={llmSettings?.configured}
+      timingConfigured={health?.timing.configured}
+      generationPending={generationPending}
+      hasCaptions={draft.length > 0}
       issueCount={riskyIds.length}
       onClose={() => setShowGuide(false)}
       onConnect={() => { setShowGuide(false); openSettings('ai'); }}
@@ -4025,14 +4331,19 @@ export default function App() {
     {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
-    {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
+    {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true, currentProjectToastJob.id)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
+    {uncertainJob && !showJobs && <div className="toast error" role="alert">
+      <span>Studio lost the reply for {uncertainJob.title}. Check Activity before starting another job.</span>
+      <button className="toast-action" onClick={() => openActivityFromNotice()}>Open Activity</button>
+      <button aria-label="Dismiss job notice" onClick={() => setUncertainJobs((items) => items.map((item) => item === uncertainJob ? { ...item, dismissed: true } : item))}><X size={14}/></button>
+    </div>}
     {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
     {jobNotification && !showJobs && <div className={`toast processing-notice ${jobNotification.error ? 'error' : 'notice'}`} role={jobNotification.error ? 'alert' : 'status'}>
       <span><strong>{jobNotification.projectTitle}.</strong> {jobNotification.message}</span>
-      <button className="toast-action" onClick={openNotifiedActivity}>Open Activity</button>
+      <button className="toast-action" onClick={() => { openActivityFromNotice(jobNotification.id); dismissJobNotification(); }}>Open Activity</button>
       <button aria-label="Dismiss processing notice" onClick={dismissJobNotification}><X size={14}/></button>
     </div>}
-    {saveFailed && unfinishedChanges && <div className="toast error save-failure" role="alert"><span><strong>{saveNeedsComparison ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveNeedsComparison
+    {saveFailed && unfinishedChanges && !showJobs && !showCorrections && <div className="toast error save-failure" role="alert"><span><strong>{saveNeedsComparison ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveNeedsComparison
       ? <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void reloadSavedProject()}>Reload saved project</button>
       : <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button>}<button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
     {recoveryStorageError && unfinishedChanges && <div className="toast error recovery-storage-error" role="status"><span>{recoveryStorageError}</span>{!saveFailed && <button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button>}</div>}
@@ -4057,37 +4368,39 @@ export default function App() {
   </ToastStack>;
 
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
-  if (!project) return <main className={showAllProjects ? 'project-library-page' : undefined}>
+  if (!project) return <main className={showAllProjects ? 'project-library-page' : undefined}
+    onPointerDownCapture={releaseLibraryReturn} onKeyDownCapture={releaseLibraryReturn} onWheelCapture={releaseLibraryReturn}>
     <div className="home-tools">
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
       <button onClick={() => setShowGuide(true)} data-tooltip="Open guide"><HelpCircle size={16}/>Guide</button>
       {jobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity{activeJobs.length > 0 && <b>{activeJobs.length}</b>}</button>}
-      {pendingCorrections > 0 && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections<b>{pendingCorrections}</b></button>}
+      {Boolean(profile?.correctionEvents.length) && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections{pendingCorrections > 0 && <b>{pendingCorrections}</b>}</button>}
       <button onClick={() => setShowUpdates(true)} data-tooltip="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
-      <button className={llmSettings?.configured ? '' : 'setup-needed'} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings<span className={`connection-dot ${llmSettings?.configured ? 'ready' : 'missing'}`}/></button>
+      <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
-      {!showFirstRun && llmSettings && !llmSettings.configured && <div className="ai-setup-banner"><div className="ai-setup-banner-icon"><KeyRound size={20}/></div><div><strong>Connect AI</strong><span>Enter your key in Settings. Saved securely for this Windows account.</span></div><button className="primary" onClick={() => openSettings('ai')}>Set up AI</button></div>}
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? 'Preferences could not load. Retry startup below to enable uploads.' : 'Loading preferences before you can upload.'
           : busy && busy !== 'Uploading…' ? 'Wait for the current task to finish before uploading.' : ''}
-        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={Boolean(llmSettings?.configured)} timingConfigured={timingConfigured} projectCount={projects.length} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : undefined}/>
+        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmConfigured={llmSettings?.configured} timingConfigured={health?.timing.configured} onConnect={() => openSettings('ai')} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>Set up AI for caption generation</button> : undefined}/>
     </div>
-    {health && !timingConfigured && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready. Open Settings → System check.</span></div>}
+    {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready.</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>Open System check</button></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
     {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">Loading preferences…</div>}
     {showAllProjects ? <ProjectLibrary
-      projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
+      focusHeadingOnMount={!libraryOrigin.current} projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
       loading={!startupLoaded.current.has('Projects') && !startupErrors.includes('Projects')}
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
       refreshing={projectListState.refreshing} refreshError={projectListState.error} refresh={() => void refreshProjects()}
       openingProjectId={openingProjectId} onOpen={(id) => void openRecentProject(id)}
-      onBack={() => changeProjectListView(false)} onRetry={() => setStartupAttempt((value) => value + 1)}
+      onBack={() => changeProjectListView(false)} onCreate={() => changeProjectListView(false, 'upload')} onRetry={() => setStartupAttempt((value) => value + 1)}
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
     /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{projectListState.error} Last loaded projects are shown.</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>Refresh projects</button></div>}
     {statusToasts}
+    {activity}
+    {corrections}
     {overlays}
   </main>;
 
@@ -4097,7 +4410,7 @@ export default function App() {
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
-        <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
+        <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} disabled={!draft.length && !reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
           pendingCorrections={pendingCorrections}
@@ -4124,23 +4437,25 @@ export default function App() {
       tool={proposal ? 'proposal' : workspaceTool}
       title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
-      onClose={proposal ? () => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
-      getCloseFocusTarget={!proposal && workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
+      onClose={proposal ? () => { closeComparison(); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
+      getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
       preview={
         <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label="Media preview">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} recoveryFocusTarget={mediaPreviewFocus} onElementChange={setMediaElement}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
-            onRetry={() => { setProposal(null); setQueuedSeekMs(null); setProposalLoop(false); setReviewMode(false); }}/>
-          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+            onRetry={() => { setProposal(null); correctionPlayback.current = null; setProposalLoop(false); setReviewMode(false); }}/>
+          {isVideo && <NativeCaptionPreview ref={nativeCaptionPreview} onChooseFont={proposal ? undefined : (trigger) => {
+            cancelPlayback(); media.current?.pause(); setReviewMode(false);
+            setFontFocusTrigger(trigger); setWorkspaceTool('appearance');
+          }} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
       }
       toolbar={!proposal && (
         <div className="workspace-tool-strip">
-            {(!showGenerationAccuracy || draft.length > 0) && <nav aria-label="Caption workspace tools">
-              {hasHybrid && <button className={workspaceTool === 'review' ? 'active' : ''} aria-pressed={workspaceTool === 'review'} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b>{riskyIds.length}</b>}</button>}
+            {(!showGeneration || draft.length > 0) && <nav aria-label="Caption workspace tools">
               {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
-              {!showGenerationAccuracy && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span><small>optional</small></button>}
+              {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span></button>}
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
               {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
               {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
@@ -4160,7 +4475,6 @@ export default function App() {
           editedText={proposalEditedText}
           accuracyHint={proposalAccuracyHint}
           refinementJob={refinementJob}
-          onClose={() => { setProposal(null); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); }}
           onPreviewMode={setProposalPreviewMode}
           onLoop={setProposalLoop}
           onReplay={replayProposal}
@@ -4213,6 +4527,12 @@ export default function App() {
           />}
 
           {workspaceTool === 'appearance' && isVideo && draft.length > 0 && <CaptionAppearanceWorkspace key={mediaKey} project={project} captions={draft}
+            onHighlightControlReady={wordControlEntry?.tool === 'appearance' ? focusWordControl : undefined}
+            fontFocusTrigger={fontFocusTrigger} onFontFocusHandled={() => setFontFocusTrigger(null)}
+            onExportFontReady={exportFontFocus?.ticket === viewTicket ? (target) => {
+              projectNavigationFocus.complete(exportFontFocus.request, () => target);
+              setExportFontFocus(null);
+            } : undefined}
             initialAppearance={previewAppearance}
             profileImportRevision={profileImportRevision}
             flushSave={flushAppearanceSave}
@@ -4238,6 +4558,7 @@ export default function App() {
             initialZoom={profile?.preferences.waveformZoom || 2}
             initialEditMode={requestedTimingMode}
             wordTimingFocus={wordTimingFocus}
+            onWordControlReady={wordControlEntry?.tool === 'timeline' && wordControlEntry.captionId === selection.ids[0] ? focusWordControl : undefined}
             onSeek={seek}
             onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
             onTimingChange={(before, after, guards, gestureBasis) => {
@@ -4267,8 +4588,12 @@ export default function App() {
             onNextWordTimingIssue={highlighting && wordHighlightSummary.exceptions.some(({ id }) => id !== selection.ids[0])
               ? () => reviewRemainingWordHighlights(selection.ids[0]) : undefined}
             syncDisabled={Boolean(busy || currentProjectActiveJob || wordPreparation.running || !timingConfigured)}
-            highlightEnabled={previewAppearance.highlightMode === 'word'}
-            onOpenAppearance={() => chooseWorkspaceTool('appearance')}
+            onOpenAppearance={isVideo ? () => {
+              requestWordControl('appearance');
+              cancelPlayback();
+              setReviewMode(false);
+              setWorkspaceTool('appearance');
+            } : undefined}
             onEditCaptionText={() => { if (selection.ids[0]) editor.current?.focusCaption(selection.ids[0]); }}
             onWordPreview={(ownerId, change) => {
               if (change && projectScope.current.isCurrent(viewTicket) && timingTransactionMatches(draftRef.current, change)) {
@@ -4287,7 +4612,8 @@ export default function App() {
             onPreferenceChange={(value) => void saveWaveformPreference(value)}
           />}
 
-          {workspaceTool === 'review' && hasHybrid && <div className="review-card review-active">
+          {workspaceTool === 'review' && !draft.length && <p className="muted-copy">No captions to review.</p>}
+          {workspaceTool === 'review' && draft.length > 0 && <div className="review-card review-active">
             {!riskyIds.length && draft.length > 0 && <ReviewCompletion reviewed={reviewedFlags} exportDisabled={Boolean(busy)}
               onShowAll={() => {
                 const returnTo = document.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]');
@@ -4296,10 +4622,9 @@ export default function App() {
               }}
               onExport={() => chooseWorkspaceTool('export')}/>}
             {riskyIds.length > 0 && <>
-            <div className="review-score"><ListChecks size={22}/><div><strong>{readiness}% export readiness</strong><span>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</span></div></div>
-            <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b><span>{selection.captions.length} selected · {selection.captions.filter((caption) => caption.approved).length} approved</span></div>
+            <div className="review-score"><ListChecks size={22}/><strong>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</strong></div>
+            <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b>{selection.captions.length > 1 && <span>{selection.captions.length} selected</span>}</div>
             </>}
-            <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
             {riskyIds.length > 0 && <div className="review-actions review-primary-actions">
               <div className="review-nav-actions">
                 <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
@@ -4308,10 +4633,13 @@ export default function App() {
                 <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
               </div>
               <div className="review-decision-actions">
-                <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
+                {project.transcript?.tokens?.length && project.transcript.timing
+                  ? <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
+                  : <button onClick={() => selection.ids[0] && editor.current?.focusCaption(selection.ids[0])} disabled={!selection.ids.length}>Edit text</button>}
                 <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
               </div>
             </div>}
+            <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
             <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
           </div>}
 
@@ -4326,12 +4654,13 @@ export default function App() {
               <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
             </div>
             {hasHybrid && generationOptions}
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}><RefreshCw size={15}/>Preview full regeneration</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed || generationNeedsCheck ? generationLabel : 'Preview full regeneration'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
           </div>}
 
-          {!hasHybrid && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
-            <Captions size={28}/><div><strong>{legacy ? 'Rebuild with local timing' : 'Ready to generate captions'}</strong><span>{legacy ? 'Older timing detected. Rebuild with current timing.' : 'Create Khmer text aligned to the audio.'}</span>{!timingConfigured && <em>Local timing is not ready. Open Settings → System check.</em>}</div>
-            {showGenerationAccuracy && <div className="generation-accuracy">
+          {showGeneration && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
+            <Captions size={28} aria-hidden="true"/><div><strong>{generationSetupMissing ? 'Finish caption setup' : legacy ? 'Rebuild with local timing' : 'Captions from audio'}</strong><span>{llmSettings?.configured === false ? 'Connect AI to transcribe this audio.' : health?.timing.configured === false ? 'Set up Khmer timing to align captions with the audio.' : legacy ? 'Rebuild this project’s older timing from the audio.' : 'Create Khmer text aligned to the audio.'}</span></div>
+            <button className="primary" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}>{currentProjectActiveJob || generationPreparing ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured === false ? <KeyRound size={18}/> : <Captions size={18}/>} {generationLabel}</button>
+            <div className="generation-accuracy">
               <div className="generation-accuracy-copy">
                 <BookOpenText size={18} aria-hidden="true"/>
                 <div>
@@ -4350,9 +4679,8 @@ export default function App() {
               }}>
                 {hasSavedContext ? 'Edit context' : 'Add context'} <ChevronRight size={14} aria-hidden="true"/>
               </button>
-            </div>}
+            </div>
             {generationOptions}
-            <button className="primary" disabled={!!currentProjectActiveJob || !timingConfigured || generationModelSaving} onClick={() => void generate()}>{currentProjectActiveJob ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured ? <Captions size={18}/> : <KeyRound size={18}/>} {!llmSettings?.configured ? 'Connect AI' : legacy ? 'Queue rebuild' : 'Generate captions'}</button>
           </div>}
 
           {workspaceTool === 'details' && hasHybrid && <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
@@ -4380,13 +4708,15 @@ export default function App() {
                 {groupingApplying ? 'Applying grouping…' : 'Apply grouping'}</button>
               <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>Clean Khmer spacing</button>
               <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? 'Saving grouping preset…' : 'Save grouping preset'}</button>
-              {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying}>Apply saved grouping</button> : null}
+              {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying || !!currentProjectActiveJob}>Apply saved grouping</button> : null}
             </div>
           </div>}
         </>}
     </EditorLayout>
 
     {statusToasts}
+    {activity}
+    {corrections}
     {overlays}
   </main>;
 }

@@ -57,6 +57,32 @@ async function settled(page: Page, succeeds: boolean) {
     await expect(layout(page)).toBeDisabled();
   }
 }
+test('retrying video support retains keyboard focus while settings return', async ({ page }) => {
+  const gate = deferred();
+  let rechecks = 0;
+  await page.route('**/api/video-export/*/capabilities*', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('refresh') !== '1')
+      return route.fulfill({ status: 503, json: { error: 'Video tools could not be checked.' } });
+    rechecks++;
+    await gate.promise;
+    return route.fallback();
+  });
+  try {
+    await openProject(page);
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(page.getByText('Video export check failed', { exact: true })).toBeVisible();
+    const support = checks(page).getByRole('button', { name: 'Recheck video export support', exact: true });
+    await activate(page, support);
+    await expect(support).toHaveAttribute('aria-busy', 'true');
+    await visibleFocus(support);
+    await page.keyboard.press('Enter');
+    gate.release();
+    await expect(page.getByLabel('Resolution', { exact: true })).toBeVisible();
+    await visibleFocus(support);
+    expect(rechecks).toBe(1);
+  } finally { gate.release(); }
+});
+
 async function failedAppearance(page: Page) {
   await openProject(page);
   let attempt: { succeeds: boolean; gate: ReturnType<typeof deferred> } | null = null;
@@ -81,7 +107,7 @@ async function failedAppearance(page: Page) {
   await page.getByRole('group', { name: 'Export type', exact: true }).getByRole('button', { name: /Captions file/ }).click();
   await page.getByLabel('Caption destination', { exact: true }).selectOption('premiere');
   await page.locator('.handoff-advanced > summary').click();
-  await page.getByRole('button', { name: /^ASS ASS/ }).click();
+  await page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ }).click();
   await expect(retry(page)).toBeEnabled();
   await remember(page);
   return {
@@ -107,7 +133,7 @@ for (const width of [1440, 390]) test(`appearance-load Retry keeps a visible key
         if (initial === 0) await page.screenshot({ path: info.outputPath(`export-appearance-retry-focus-${width}.png`), animations: 'disabled' });
         gate.release(); await settled(page, succeeds); await visibleFocus(heading(page));
         await expect(page.getByLabel('Caption destination', { exact: true })).toHaveValue('premiere');
-        await expect(page.getByRole('button', { name: /^ASS ASS/ })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ })).toHaveAttribute('aria-pressed', 'true');
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
         await unchanged(page, before);
       } finally { gate.release(); }

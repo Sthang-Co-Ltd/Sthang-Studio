@@ -133,6 +133,22 @@ for (const width of [1440, 390]) test(`unavailable optional storage explains the
   expect(state.requests.filter((request) => request.method === 'POST' && /\/jobs(?:\/|$)/.test(request.path))).toEqual([]);
 });
 
+test('preset name stays visible through an appearance repair and output switches for this visit only', async ({ page }) => {
+  await openProject(page); await openExport(page); await chooseVideo(page);
+  const manager = page.locator('.export-preset-tools > summary');
+  const name = page.getByLabel('Save video export preset as', { exact: true });
+  await manager.press('Enter'); await name.fill('Interview broadcast draft');
+  await page.getByRole('button', { name: 'Edit appearance', exact: true }).press('Enter');
+  await page.getByRole('button', { name: 'Back to export', exact: true }).press('Enter');
+  await expect(name).toBeVisible(); await expect(name).toHaveValue('Interview broadcast draft');
+  await captions(page).click(); await video(page).click();
+  await expect(name).toBeVisible(); await expect(name).toHaveValue('Interview broadcast draft');
+  expect(await stored(page)).not.toContain('Interview broadcast draft');
+  await page.reload(); await openRecent(page); await openExport(page);
+  await expect(name).toBeHidden(); await manager.press('Enter'); await expect(name).toHaveValue('');
+  noAutomaticWork([state]);
+});
+
 test('a delayed profile read cannot replace choices persisted by another tab', async ({ page, context }) => {
   await openProject(page); const gate = deferred(); const entered = deferred();
   const lastUsed: VideoExportSettings = { resolution: '720p', frameRate: 25, quality: 'smaller', codec: 'h264', encoder: 'auto' };

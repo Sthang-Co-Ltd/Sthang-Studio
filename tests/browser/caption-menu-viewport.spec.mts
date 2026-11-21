@@ -153,14 +153,51 @@ test('scrolling the mobile workbench updates an open menu and dismisses before i
   await expectEvidencePreserved(page);
 });
 
+test('a short phone can open row actions while the normal preview stays visible', async ({ page }) => {
+  await openEditor(page, { width: 390, height: 667 });
+  await placeTrigger(page, 'bottom');
+  await trigger(page).click();
+  await expect(menu(page)).toBeVisible();
+  await expectUsableFocus(page);
+  await expect(page.locator('.media-stage')).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(trigger(page)).toBeFocused();
+  await expectEvidencePreserved(page);
+});
+
+test('one click opens the first row menu flush with the bottom of a short phone screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openProject(page);
+  const first = page.getByLabel('More actions for caption 1', { exact: true });
+  await first.scrollIntoViewIfNeeded();
+  const workbench = page.locator('.editor-workbench');
+  await first.evaluate((button) => {
+    button.closest<HTMLElement>('.editor-workbench')!.scrollTop += button.getBoundingClientRect().bottom - innerHeight;
+  });
+  expect(await first.evaluate((button) => Math.abs(button.getBoundingClientRect().bottom - innerHeight))).toBeLessThanOrEqual(2);
+  const before = await workbench.evaluate((node) => node.scrollTop);
+  await first.click();
+  const firstMenu = page.getByRole('menu', { name: 'Caption 1 actions', exact: true });
+  await expect(firstMenu).toBeVisible();
+  await expectUsableFocus(page, 1);
+  expect(await workbench.evaluate((node) => node.scrollTop)).toBeGreaterThan(before);
+  await page.keyboard.press('Escape');
+  await expect(first).toBeFocused();
+});
+
 test('opening the visible first mobile row reveals one complete action once without changing Follow', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 390, height: 740 });
   const first = page.getByLabel('More actions for caption 1', { exact: true });
   const firstMenu = page.getByRole('menu', { name: 'Caption 1 actions', exact: true });
   const workbench = page.locator('.editor-workbench');
+  // Place the row at the edge of the real scrollport after the responsive reflow.
+  await first.evaluate((button) => {
+    const bench = button.closest<HTMLElement>('.editor-workbench')!;
+    bench.scrollTop += button.getBoundingClientRect().bottom - bench.getBoundingClientRect().bottom + 8;
+  });
   const before = await workbench.evaluate((node) => node.scrollTop);
   const captionsBefore = structuredClone(state.projects[0].captions);
   await page.evaluate(() => {
@@ -168,14 +205,18 @@ test('opening the visible first mobile row reveals one complete action once with
   });
   // Match the real first-open case: its trigger is visible, but a complete
   // 44px menu action does not yet fit beneath it within the phone viewport.
-  expect(await first.evaluate((node) => innerHeight - node.getBoundingClientRect().bottom - 8)).toBeLessThan(58);
+  expect(await first.evaluate((node) => innerHeight - node.getBoundingClientRect().bottom)).toBeCloseTo(8, 0);
+  expect(await first.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return node.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+  })).toBe(true);
   await first.click();
   await expect(firstMenu).toBeVisible();
   await expectUsableFocus(page, 1);
   const shift = await workbench.evaluate((node, before) => node.scrollTop - before, before);
   expect(shift).toBeGreaterThan(0);
   expect(shift).toBeLessThanOrEqual(60);
-  await expect(page.locator('.panel-tools').getByRole('button', { name: 'Following', exact: true })).toBeVisible();
+  await expect(page.locator('.panel-tools').getByRole('button', { name: 'Follow playback', exact: true, pressed: true })).toBeVisible();
   expect(await firstMenu.getByRole('menuitem').first().evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
   await page.screenshot({ path: info.outputPath('caption-menu-mobile-opening-reveal.png') });
 

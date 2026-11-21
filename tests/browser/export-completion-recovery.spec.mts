@@ -169,11 +169,11 @@ for (const width of [1440, 390]) test(`a lost initial export response explains u
     submissions++; state.jobs = [queuedVideo('lost-export-ack')]; await route.abort('failed');
   });
   await openProject(page); await requestRender(page);
-  const error = page.getByRole('alert').filter({ hasText: 'The request outcome could not be confirmed.' });
-  await expect(error).toContainText('Check Activity for accepted work before starting another request.');
+  const error = page.getByRole('alert').filter({ hasText: 'Studio lost the reply' });
+  await expect(error).toContainText('Check Activity before starting another job.');
   expect(submissions).toBe(1);
-  await observeJobs(page);
-  const activity = await openActivity(page);
+  await error.getByRole('button', { name: 'Open Activity' }).click();
+  const activity = page.getByRole('dialog', { name: 'Activity', exact: true });
   await expect(activity.getByRole('article')).toHaveCount(1);
   await expect(activity.locator('.job-state')).toHaveText('Waiting');
   await activity.getByRole('button', { name: 'Close Activity', exact: true }).click();

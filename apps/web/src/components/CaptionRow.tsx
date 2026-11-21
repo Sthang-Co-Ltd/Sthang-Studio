@@ -68,6 +68,7 @@ export const CaptionRow = memo(function CaptionRow({
   return <div
     ref={rowRef}
     data-caption-id={caption.id}
+    role="group" tabIndex={-1} aria-label={`Caption ${index + 1}`}
     className={`caption-row ${active ? 'active' : ''} ${selected ? 'selected-range' : ''} ${caption.approved ? 'approved' : ''} ${destructiveLocked ? 'locked' : ''}`}
     onFocusCapture={(event) => send({ type: 'focus', target: event.nativeEvent.target })}
     onClick={(event) => send({ type: 'click', extend: event.shiftKey })}

@@ -31,7 +31,6 @@ interface Props {
   disabled: boolean;
   syncDisabled: boolean;
   loop: boolean;
-  highlightEnabled: boolean;
   onSelectWord(id: string): void;
   onChange(before: CaptionSegment, after: CaptionSegment): boolean;
   onApplyEdgeRepair(repair: CaptionEdgeRepair): boolean;
@@ -40,12 +39,13 @@ interface Props {
   onCandidatePreview(basis: CaptionSegment, preview: CaptionSegment | null, repair?: CaptionEdgeRepair): void;
   onPreview(range: TimingPlaybackRange): void;
   onStopPreview(): void;
-  onOpenAppearance(): void;
+  onOpenAppearance?(): void;
+  onWordControlReady?(target: HTMLElement): void;
   onEditText(): void;
 }
 
-export function WordTimingPanel({ caption, captionContext, selectedWordId, playheadMs, stepMs, disabled, syncDisabled, loop, highlightEnabled,
-  onSelectWord, onChange, onApplyEdgeRepair, onSync, onNextWordTimingIssue, onCandidatePreview, onPreview, onStopPreview, onOpenAppearance, onEditText }: Props) {
+export function WordTimingPanel({ caption, captionContext, selectedWordId, playheadMs, stepMs, disabled, syncDisabled, loop,
+  onSelectWord, onChange, onApplyEdgeRepair, onSync, onNextWordTimingIssue, onCandidatePreview, onPreview, onStopPreview, onOpenAppearance, onWordControlReady, onEditText }: Props) {
   const [candidate, setCandidate] = useState<WordTimingCandidate | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
@@ -53,6 +53,10 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   const panel = useRef<HTMLDivElement>(null);
   const syncButton = useRef<HTMLButtonElement>(null);
   const selectedWordButton = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const target = syncButton.current && !syncButton.current.disabled ? syncButton.current : panel.current;
+    if (target) onWordControlReady?.(target);
+  }, [onWordControlReady]);
   const actionFocus = useRef<{ from: Element; target: 'sync' | 'word' } | null>(null);
   const currentCaption = useRef(caption);
   currentCaption.current = caption;
@@ -248,13 +252,13 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
   return <div ref={panel} className="word-timing-panel" role="group" aria-label="Word timing controls" tabIndex={-1}>
     <div className="word-timing-head">
       <div><strong>{validCandidate && !repair ? 'Proposed word timing' : 'Words in this caption'}</strong>
-        {attention === 'needs-attention' && <p className="timing-hint">{marked ? 'Words without usable timing keep the normal color.' : 'Word highlighting stays off until every word has usable timing.'}</p>}</div>
+        {onOpenAppearance && attention === 'needs-attention' && <p className="timing-hint">{marked ? 'Words without usable timing keep the normal color.' : 'Word highlighting stays off until every word has usable timing.'}</p>}</div>
       <button ref={syncButton} title="Align the current caption text to audio without changing the wording" disabled={syncDisabled || syncing || caption.timingLocked || disabled} onClick={() => void sync()}>
         {syncing ? <LoaderCircle size={15} className="spin"/> : <RefreshCw size={15}/>} {syncing ? 'Syncing…' : 'Sync words'}
       </button>
       {syncing && <button onClick={cancelSync}>Cancel sync</button>}
     </div>
-    <div className="word-timing-links"><button onClick={onEditText}>Edit caption text</button><button onClick={onOpenAppearance}>{highlightEnabled ? 'Highlight settings' : 'Enable word highlighting…'}</button>
+    <div className="word-timing-links"><button onClick={onEditText}>Edit caption text</button>{onOpenAppearance && <button onClick={onOpenAppearance}>Word highlighting settings</button>}
       {onNextWordTimingIssue && <button onClick={onNextWordTimingIssue}>Next timing issue</button>}
     </div>
     {repair ? <section className="word-timing-candidate" aria-label="Suggested caption timing">

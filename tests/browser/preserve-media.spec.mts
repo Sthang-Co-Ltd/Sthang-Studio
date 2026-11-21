@@ -259,6 +259,124 @@ test('preserve submits a revision-bound snapshot once, blocks interruption while
   } finally { gate.resolve(); }
 });
 
+for (const savedSource of ['previous', 'replacement'] as const) {
+  test(`an interrupted replacement can recheck the ${savedSource} source without submitting again`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await installFixture(page);
+    const original = state.projects[0];
+    state.profile.preferences.autosaveDelayMs = 60_000;
+    await openProject(page);
+    let submissions = 0;
+    let checks = 0;
+    let sourceAvailable = false;
+    await page.route('**/api/projects/landscape/replace-media', async (route) => {
+      submissions++;
+      if (savedSource === 'replacement') {
+        state.projects[0] = { ...original, media: { ...original.media, filename: 'regraded.mp4', url: '/media/regraded.mp4' } };
+      }
+      await route.abort('failed');
+    });
+    await page.route('**/api/projects/landscape', async (route) => {
+      if (route.request().method() === 'GET' && submissions > 0) {
+        checks++;
+        if (!sourceAvailable) return route.fulfill({ status: 503, json: { error: 'Project temporarily unavailable.' } });
+      }
+      await route.fallback();
+    });
+
+    const dialog = await submitReplacement(page, 'preserve');
+    const check = dialog.getByRole('button', { name: 'Check saved source', exact: true });
+    const replace = dialog.getByRole('button', { name: 'Replace and keep captions', exact: true });
+    await expect(check).toBeEnabled();
+    await expect(check).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+    await expect(dialog.getByRole('button', { name: /^Replace and keep/, disabled: false })).toHaveCount(0);
+    const firstCheckCount = checks;
+    expect(firstCheckCount).toBeGreaterThan(0);
+    await check.click();
+    await expect.poll(() => checks).toBe(firstCheckCount + 1);
+    await expect(check).toBeEnabled();
+    await expect(dialog.getByRole('button', { name: /^Replace and keep/, disabled: false })).toHaveCount(0);
+
+    if (savedSource === 'replacement') {
+      await page.getByLabel('Caption 1 text', { exact: true }).fill('A late edit to the previous source');
+    }
+    sourceAvailable = true;
+    await check.click();
+    await expect.poll(() => checks).toBe(firstCheckCount + 2);
+    if (savedSource === 'replacement') {
+      await expect(dialog).toHaveCount(0);
+      await expect(page.locator('video')).toHaveAttribute('src', '/media/regraded.mp4');
+      await expect(page.getByRole('button', { name: 'Copy recovery', exact: true })).toBeVisible();
+    } else {
+      await expect(replace).toBeEnabled();
+      await expect(check).toHaveCount(0);
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(page.locator('video')).toHaveAttribute('src', original.media.url);
+    }
+    expect(submissions).toBe(1);
+    await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(original.captions[0].text);
+  });
+}
+
+test('closing an unresolved restore retains its read-only check when backups reopen', async ({ page }) => {
+  const f = await fixture(page);
+  f.replacements.push({ id: 'saved-before-replace', mode: 'preserve', createdAt: f.original.createdAt, previousOriginalName: 'previous.mp4' });
+  await openProject(page);
+  let restores = 0;
+  let sourceAvailable = false;
+  const oldRead = deferred();
+  const oldReadStarted = deferred();
+  const oldReadEnded = deferred();
+  let delayRead = false;
+  await page.route('**/api/projects/landscape/media-replacements/*/restore', (route) => {
+    restores++;
+    return route.abort('failed');
+  });
+  await page.route('**/api/projects/landscape', async (route) => {
+    if (restores && delayRead) {
+      delayRead = false;
+      oldReadStarted.resolve();
+      await oldRead.promise;
+      const stale = { ...f.original, media: { ...f.original.media, filename: 'stale.mp4', url: '/media/stale.mp4' } };
+      try { await route.fulfill({ json: stale }); } finally { oldReadEnded.resolve(); }
+      return;
+    }
+    if (restores && !sourceAvailable) return route.fulfill({ status: 503, json: { error: 'Project temporarily unavailable.' } });
+    await route.fallback();
+  });
+  const openBackups = async () => {
+    await page.getByLabel('Open project tools', { exact: true }).click();
+    await page.getByRole('menuitem', { name: /^Undo media replacement/ }).click();
+  };
+  const dialog = page.getByRole('dialog', { name: 'Undo media replacement', exact: true });
+  const restore = dialog.getByRole('button', { name: 'Restore selected backup', exact: true });
+  const check = dialog.getByRole('button', { name: 'Check saved source', exact: true });
+  await openBackups();
+  await restore.click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Restore previous media', exact: true }).click();
+  await expect(check).toBeEnabled();
+  await expect(restore).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Delete backup' })).toHaveCount(0);
+  delayRead = true;
+  try {
+    await check.click();
+    await oldReadStarted.promise;
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await openBackups();
+  } finally { oldRead.resolve(); }
+  await oldReadEnded.promise;
+  await expect(page.locator('video')).toHaveAttribute('src', f.original.media.url);
+  await expect(check).toBeEnabled();
+  await expect(restore).toHaveCount(0);
+  sourceAvailable = true;
+  await check.click();
+  await expect(restore).toBeEnabled();
+  await expect(check).toHaveCount(0);
+  expect(restores).toBe(1);
+  expect(f.state.projects[0]).toEqual(f.original);
+});
+
 test('audio mismatch leaves source, draft, approval and undo state intact without silently resetting', async ({ page }) => {
   const f = await fixture(page);
   f.fail(422, 'The audio is different or no longer aligned with the reviewed captions.');

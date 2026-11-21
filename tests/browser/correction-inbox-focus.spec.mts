@@ -1,6 +1,6 @@
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
 import type { CorrectionEvent } from '../../packages/shared/src/index.js';
-import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, createSyntheticWav, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
 
 const test = base.extend({
@@ -179,4 +179,95 @@ for (const laterAction of ['focus', 'filter', 'close and reopen'] as const) test
     expect(decisions).toHaveLength(1);
     expect(await page.locator('video').evaluate((video: HTMLVideoElement) => video.paused)).toBe(true);
   } finally { gate.release(); }
+});
+
+for (const width of [390, 1440]) test(`returning to correction history keeps a failed read retryable and plays its recorded excerpt at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+  const project = state.projects[1];
+  const wav = createSyntheticWav(170, 220, 8000);
+  project.media = { ...project.media, originalName: 'Interview.wav', filename: 'interview.wav', mimeType: 'audio/wav', url: '/media/interview.wav' };
+  project.captions = Array.from({ length: 84 }, (_, index) => ({
+    ...project.captions[0], id: `interview-${index + 1}`, text: `កម្ពុជា · Interview ${index + 1}`,
+    startMs: index * 2000, endMs: index * 2000 + 1800,
+  }));
+  state.profile.correctionEvents = Array.from({ length: 38 }, (_, index) => ({
+    ...correction(1), id: `event-${index}`, projectId: project.id, projectTitle: project.title,
+    captionId: 'interview-61', correctedText: `កម្ពុជា · Correction ${index}`,
+    startMs: 120000, endMs: 120500, status: 'ignored', createdAt: new Date(1760000000000 - index * 2000).toISOString(),
+  }));
+  await page.route('**/media/interview.wav', (route) => {
+    const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range || '');
+    if (!range) return route.fulfill({ contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes' }, body: wav });
+    const start = Number(range[1]);
+    const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
+    return route.fulfill({ status: 206, contentType: 'audio/wav',
+      headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${wav.length}` }, body: wav.subarray(start, end + 1) });
+  });
+  let fail = true;
+  await page.route('**/api/projects/' + project.id, (route) => fail && route.request().method() === 'GET'
+    ? route.fulfill({ status: 503, json: { error: 'The saved project could not be read.' } }) : route.fallback());
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Corrections', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Correction Inbox' });
+  await expect(dialog.getByRole('button', { name: 'History (38)' })).toHaveAttribute('aria-pressed', 'true');
+  const card = dialog.getByRole('article').filter({ has: page.getByText('កម្ពុជា · Correction 17', { exact: true }) });
+  const listen = card.getByRole('button', { name: 'Review audio' });
+  await activate(listen);
+  await expect(card.getByRole('alert')).toContainText('The saved project could not be read.');
+  await expect(listen).toBeFocused();
+  await page.screenshot({ path: info.outputPath('history-read-retry.png'), animations: 'disabled' });
+  fail = false;
+  const selected = page.getByRole('group', { name: 'Caption 61', exact: true });
+  const player = page.locator('.media-stage audio');
+  for (const alreadyOpen of [false, true]) {
+    if (alreadyOpen) {
+      await openInbox(page);
+      await player.evaluate((element: HTMLAudioElement) => { element.currentTime = 5; });
+    }
+    await activate(listen);
+    await expect(dialog).toBeHidden();
+    await expect(selected).toBeFocused();
+    await expect(selected).toHaveClass(/selected-range/);
+    await expect.poll(() => selected.evaluate((row) => {
+      const text = row.querySelector('textarea')!.getBoundingClientRect();
+      const hit = document.elementFromPoint(text.left + text.width / 2, text.top + text.height / 2);
+      return row.contains(hit);
+    })).toBe(true);
+    await expect.poll(() => player.evaluate((element: HTMLAudioElement) => element.paused && Math.abs(element.currentTime - 120.6) < 0.05)).toBe(true);
+  }
+  await page.screenshot({ path: info.outputPath('focused-correction.png'), animations: 'disabled' });
+});
+
+test('closing Correction Inbox withdraws a pending request to open another project', async ({ page }) => {
+  state.profile.correctionEvents[0].projectId = state.projects[1].id;
+  await openProject(page);
+  const gate = deferred();
+  let requested = false;
+  await page.route('**/api/projects/' + state.projects[1].id, async (route) => {
+    requested = true;
+    await gate.promise;
+    await route.fallback().catch(() => {});
+  });
+  try {
+    const dialog = await openInbox(page);
+    await activate(card(dialog, 1).getByRole('button', { name: 'Review audio' }));
+    await expect.poll(() => requested).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    gate.release();
+    await expect(page.getByLabel('Open project tools', { exact: true })).toBeFocused();
+    await expect(page.locator('.media-stage video')).toHaveAttribute('src', /landscape/);
+  } finally { gate.release(); }
+});
+
+test('a correction beyond the current source explains why no excerpt can play', async ({ page }) => {
+  const event = state.profile.correctionEvents[0];
+  Object.assign(event, { captionId: 'removed-caption', startMs: 120000, endMs: 120500 });
+  await openProject(page);
+  const dialog = await openInbox(page);
+  await activate(card(dialog, 1).getByRole('button', { name: 'Review audio' }));
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('The correction starts beyond the end of the current media. Its recorded audio is unavailable.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Media preview' })).toBeFocused();
+  expect(await page.locator('.media-stage video').evaluate((video: HTMLVideoElement) => video.paused)).toBe(true);
 });

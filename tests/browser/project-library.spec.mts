@@ -113,7 +113,7 @@ test('all three sorts paginate deterministically and preserve the chosen view on
   await openButton(page, state.projects[30]).click();
   await expect(page.locator('.project-title strong')).toHaveText(ARCHIVED_TITLE);
   await page.getByLabel('Back to projects', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeFocused();
+  await expect(openButton(page, state.projects[30])).toBeFocused();
   await expect(sort).toHaveValue('title');
   await expect(openButtons(page)).toHaveCount(7);
   await expect(openButton(page, state.projects[30])).toBeVisible();
@@ -179,7 +179,7 @@ test('Back to projects flushes caption and Accuracy edits and retains query, cre
   await page.getByLabel('Caption 1 text', { exact: true }).fill(savedCaption);
   await page.getByLabel('Back to projects', { exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeFocused();
+  await expect(openButton(page, item)).toBeFocused();
   await expect.poll(() => item.captions[0].text).toBe(savedCaption);
   await expect.poll(() => item.transcriptionContext?.description).toBe(savedAccuracy);
   await expect(search).toHaveValue('Project');
@@ -192,6 +192,74 @@ test('Back to projects flushes caption and Accuracy edits and retains query, cre
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(savedCaption);
   await page.getByRole('button', { name: /^Accuracy/ }).click();
   await expect(page.getByLabel('What is this clip about?', { exact: true })).toHaveValue(savedAccuracy);
+});
+
+test('returning on a phone reveals the same project after a refreshed edit moves it to another results page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await fixtureLibrary(page);
+  const item = state.projects[29];
+  await showLibrary(page);
+  const search = page.getByRole('searchbox', { name: 'Search projects' });
+  const sort = page.getByRole('combobox', { name: 'Sort projects' });
+  await search.fill('Project');
+  await page.getByRole('button', { name: 'Next page' }).click();
+  await openButton(page, item).click();
+  const field = page.getByLabel('Caption 1 text', { exact: true });
+  await expect(field).toHaveValue(item.captions[0].text);
+
+  // Another client edited this project while it was open. The new title and
+  // position arrive through the ordinary library refresh on return.
+  item.title = 'Project café — ខ្មែរ revised';
+  item.updatedAt = new Date(Date.parse(state.projects[13].updatedAt) + 1000).toISOString();
+  await page.getByLabel('Back to projects', { exact: true }).click();
+  const returned = openButton(page, item);
+  await expect(returned).toBeFocused();
+  await expect(returned).toBeInViewport({ ratio: 1 });
+  await expect.poll(() => returned.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+  })).toBe(true);
+  await expect(search).toHaveValue('Project');
+  await expect(sort).toHaveValue('updated');
+  await expect(openButtons(page)).toHaveCount(24);
+
+  // A later return can also find that the original project has been removed.
+  await returned.click();
+  await expect(field).toHaveValue(item.captions[0].text);
+  state.projects = state.projects.filter((project) => project.id !== item.id);
+  await page.getByLabel('Back to projects', { exact: true }).click();
+  await expect(resultCountHeading(page)).toHaveText('30 projects');
+  await expect(returned).toHaveCount(0);
+  const fallback = page.locator('.project-library :is(h1, h2):focus');
+  await expect(fallback).toBeInViewport();
+  await expect(search).toHaveValue('Project');
+  await expect(sort).toHaveValue('updated');
+});
+
+test('a late library refresh preserves a new search and its keyboard focus after returning', async ({ page }) => {
+  const state = await fixtureLibrary(page);
+  const item = state.projects[29];
+  await showLibrary(page);
+  await page.getByRole('button', { name: 'Next page' }).click();
+  await openButton(page, item).click();
+  await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(item.captions[0].text);
+  const gate = deferred();
+  await page.route(/\/api\/projects\?summary=1$/, async (route) => {
+    await gate.promise;
+    await route.fulfill({ json: state.projects.map(summarizeProject) });
+  });
+  try {
+    await page.getByLabel('Back to projects', { exact: true }).click();
+    await expect(openButton(page, item)).toBeFocused();
+    const search = page.getByRole('searchbox', { name: 'Search projects' });
+    await search.fill('Vintage');
+    item.updatedAt = '2027-01-01T00:00:00.000Z';
+    gate.resolve();
+    await expect(page.getByText('Project list loaded.')).toBeVisible();
+    await expect(search).toBeFocused();
+    await expect(openButtons(page)).toHaveCount(1);
+    await expect(openButton(page, state.projects[30])).toBeVisible();
+  } finally { gate.resolve(); }
 });
 
 test('failed project detail read keeps results available, exposes the error, and allows retry', async ({ page }) => {

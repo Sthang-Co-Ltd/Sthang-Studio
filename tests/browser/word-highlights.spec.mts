@@ -1,7 +1,7 @@
 import { stubHighlightRoutes } from './word-highlight-routes.mjs';
 import { test, expect, type Page } from '@playwright/test';
 import { buildCaptionWordTiming, type CaptionProject, type CaptionSegment, type TimedToken } from '../../packages/shared/src/index.js';
-import { cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
+import { cleanFixtures, createSyntheticWav, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
@@ -43,7 +43,13 @@ async function selectWord(page: Page, index: number, text: string) {
 test('caption moves stop at the next caption and translate owned words exactly once', async ({ page }) => {
   await openTiming(page, false);
   await page.getByLabel('Timing nudge step').selectOption('100');
-  for (let index = 0; index < 5; index++) await page.getByRole('button', { name: 'Move later', exact: true }).click();
+  const later = page.getByRole('button', { name: 'Move later', exact: true });
+  for (const end of ['00:02.600', '00:02.700', '00:02.800']) {
+    await expect(later).toBeEnabled();
+    await later.click();
+    await expect(page.getByLabel('Fine timing end', { exact: true })).toHaveValue(end);
+  }
+  await expect(later).toBeDisabled();
   await expect.poll(() => first().endMs).toBe(2800);
   expect(first().startMs).toBe(500);
   expect(first().wordTiming!.words[0].startMs).toBe(500);
@@ -51,7 +57,8 @@ test('caption moves stop at the next caption and translate owned words exactly o
   expect(project().captions[1].startMs).toBe(2800);
   await page.locator('.timing-options > summary').click();
   await page.getByLabel('Allow overlaps', { exact: true }).check();
-  await page.getByRole('button', { name: 'Move later', exact: true }).click();
+  await expect(later).toBeEnabled();
+  await later.click();
   await expect.poll(() => first().endMs).toBe(2900);
   await expect(page.locator('.fine-timing')).toContainText('This caption overlaps another.');
 });
@@ -399,12 +406,16 @@ test('temporary Khmer composition does not destroy the original word timings', a
   await expect(page.locator('.timing-mode-switch')).toContainText('Timing ready');
 });
 
-test('spoken-word highlight setting saves and links directly to the word editor', async ({ page }) => {
+test('word timing opens the highlight control without enabling it and returns after the explicit edit', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 667 });
   await stubHighlightRoutes(page, project());
-  await openProject(page);
-  await page.getByRole('button', { name: /^Appearance$/i }).click();
-  await expandAppearanceSection(page, 'words');
+  await openTiming(page);
+  await page.getByRole('button', { name: 'Word highlighting settings', exact: true }).press('Enter');
   const toggle = page.getByRole('button', { name: 'Highlight spoken word', exact: true });
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Back to projects' })).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('.appearance-word-details > summary')).toBeInViewport({ ratio: 1 });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();
   await expect.poll(() => project().captionAppearance?.highlightMode).toBe('word');
@@ -412,6 +423,20 @@ test('spoken-word highlight setting saves and links directly to the word editor'
   await page.getByRole('button', { name: 'Edit word timing', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.word-timing-panel')).toBeVisible();
+});
+
+test('audio projects offer word timing without linking to an empty video appearance workspace', async ({ page }) => {
+  project().media = { ...project().media, filename: 'speech.wav', originalName: 'speech.wav', mimeType: 'audio/wav', url: '/media/speech.wav' };
+  await page.route('**/media/speech.wav', (route) => route.fulfill({ contentType: 'audio/wav', body: createSyntheticWav(4, 440) }));
+  await page.goto('/');
+  await page.getByRole('button', { name: /Audit landscape/ }).click();
+  await expect(page.locator('.media-stage audio')).toBeVisible();
+  await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
+  await page.getByRole('button', { name: 'Word timing', exact: true }).click();
+  const controls = page.getByRole('group', { name: 'Word timing controls', exact: true });
+  await expect(controls.getByRole('button', { name: 'Edit caption text', exact: true })).toBeVisible();
+  await expect(controls.getByRole('button', { name: /highlight/i })).toHaveCount(0);
+  await expect(controls.getByRole('button', { name: 'Sync words', exact: true })).toBeEnabled();
 });
 
 test('Apply counts spoken cues and preserves legacy export guidance', async ({ page }) => {
@@ -537,6 +562,34 @@ test('word time entry displays the same 10 ms value that is saved', async ({ pag
   await expect.poll(() => first().wordTiming!.words[3].startMs).toBe(1500);
   await start.press('Escape');
   await expect(start).toHaveValue('00:01.500');
+});
+
+test('Review protects a hidden approved neighbor until both captions are visible for merging', async ({ page }) => {
+  first().approved = false;
+  first().timingQuality = 'low';
+  project().captions.push({ id: 'last-flag', text: 'Check the last caption', startMs: 3650, endMs: 3950, timingQuality: 'low' });
+  const before = structuredClone(project().captions);
+  await openProject(page);
+  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await expect(page.locator('[data-caption-id="c2"]')).toHaveCount(0);
+  await expect(page.getByLabel('Caption 3 text', { exact: true })).toBeVisible();
+  const more = page.getByLabel('More actions for caption 1', { exact: true });
+  await more.press('ArrowDown');
+  const merge = page.getByRole('menuitem', { name: /^Merge with next/i });
+  await expect(merge).toBeDisabled();
+  await expect(merge).toContainText(/caption 2/i);
+  await expect(merge).toContainText(/Show all captions/i);
+  await page.keyboard.press('Escape');
+  expect(project().captions).toEqual(before);
+  const review = page.getByRole('complementary', { name: 'Review workspace', exact: true });
+  await review.locator('summary').filter({ hasText: 'Playback, focus' }).click();
+  await review.getByRole('button', { name: 'Show all captions', exact: true }).click();
+  await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveValue(before[1].text);
+  await more.press('ArrowDown');
+  await merge.press('Enter');
+  await expect.poll(() => project().captions.length).toBe(2);
+  expect(project().captions[0].text).toBe(before[0].text + ' ' + before[1].text);
+  expect(project().captions[1]).toEqual(before[2]);
 });
 
 test('splitting and merging preserve complete owned words and their timing', async ({ page }) => {

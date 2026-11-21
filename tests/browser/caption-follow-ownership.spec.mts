@@ -21,7 +21,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 const list = (page: Page) => page.locator('.caption-list');
-const follow = (page: Page) => page.locator('.caption-panel .panel-tool').filter({ hasText: /Follow/ });
+const follow = (page: Page) => page.locator('.caption-panel').getByRole('button', { name: 'Follow playback', exact: true });
 const row = (page: Page, index: number) => page.locator(`[data-caption-id="follow-${index}"]`);
 const selection = (page: Page) => page.locator('.caption-row.selected-range').evaluateAll((rows) =>
   rows.map((item) => item.getAttribute('data-caption-id')));
@@ -73,9 +73,9 @@ for (const width of [1440, 390]) test(`resuming Follow during native playback re
   await page.setViewportSize({ width, height: 900 });
   await openProject(page);
   await rememberNativeNodes(page);
-  await expect(follow(page)).toHaveText('Following');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'true');
   await follow(page).click(); // Pause automatic list following.
-  await expect(follow(page)).toHaveText('Follow');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'false');
   await row(page, 0).locator('.row-index').click();
   await expect.poll(() => selection(page)).toEqual(['follow-0']);
   await list(page).evaluate((node) => { node.scrollTop = 0; });
@@ -84,7 +84,7 @@ for (const width of [1440, 390]) test(`resuming Follow during native playback re
   await expect.poll(() => selection(page)).toEqual(['follow-0']);
 
   await follow(page).click(); // Resume Follow: scrolling is allowed, reselection is not.
-  await expect(follow(page)).toHaveText('Following');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => list(page).evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
   await expect.poll(() => playheadCueIsVisible(page)).toBe(true);
   await expect.poll(() => selection(page)).toEqual(['follow-0']);
@@ -105,7 +105,7 @@ test('rapid Follow on then off yields to a newer manual caption selection', asyn
   await openProject(page);
   await rememberNativeNodes(page);
   await follow(page).click(); // Default Following → paused.
-  await expect(follow(page)).toHaveText('Follow');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'false');
   await setPlayhead(page, 2600);
   await page.clock.install();
   // Install alone advances with real time; freeze until we deliberately flush
@@ -113,9 +113,9 @@ test('rapid Follow on then off yields to a newer manual caption selection', asyn
   await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 200);
 
   await follow(page).click(); // An old implementation queued a 0ms stale jump here.
-  await expect(follow(page)).toHaveText('Following');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'true');
   await follow(page).click(); // The creator pauses before any queued jump is due.
-  await expect(follow(page)).toHaveText('Follow');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'false');
   await row(page, 2).locator('.row-index').click(); // Newer explicit selection wins.
   await expect.poll(() => selection(page)).toEqual(['follow-2']);
   const before = await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
@@ -124,7 +124,7 @@ test('rapid Follow on then off yields to a newer manual caption selection', asyn
   expect(await selection(page)).toEqual(['follow-2']);
   expect(await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeCloseTo(before, 3);
   expect(await list(page).evaluate((node) => node.scrollTop)).toBe(scrollBefore);
-  await expect(follow(page)).toHaveText('Follow');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'false');
   await expectNativeNodes(page);
   expect(state.projects[0].captions).toHaveLength(18);
 });
@@ -140,7 +140,7 @@ test('resuming Follow leaves an owned Review tight loop and its selection intact
   await expect(review).toBeVisible();
   await expect.poll(() => selection(page)).toEqual(['follow-0']);
   await follow(page).click();
-  await expect(follow(page)).toHaveText('Follow');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'false');
   await page.locator('video').evaluate((video: HTMLVideoElement) => {
     video.playbackRate = 0.5;
     const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
@@ -160,7 +160,7 @@ test('resuming Follow leaves an owned Review tight loop and its selection intact
   const beforeFollow = await loopSeeks();
 
   await follow(page).click();
-  await expect(follow(page)).toHaveText('Following');
+  await expect(follow(page)).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => selection(page)).toEqual(['follow-0']);
   // A Review-owned loop seeks back on reaching this cue's tail. The old Follow
   // action reselected the cue, released that owner and silently ended looping.

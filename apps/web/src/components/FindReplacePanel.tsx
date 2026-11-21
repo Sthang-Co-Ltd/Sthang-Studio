@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
-import { Replace, Search, ShieldPlus, X } from 'lucide-react';
+import { Replace, Search, X } from 'lucide-react';
 import { applyReplacementPlan, planReplacement, type MatchMode } from '../find-replace';
 import { findPreviewDiff } from '../find-preview-diff';
 import { useModalFocus } from '../use-modal-focus';
@@ -148,14 +148,12 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
       <div className="modal-head"><div><Search size={18}/><div><strong id="find-replace-title">Find & Correct Everywhere</strong><span>Preview every occurrence. Locked text stays unchanged.</span></div></div><button aria-label="Close find and correct" onClick={close}><X size={17}/></button></div>
       {!glossary && <>
       <div className="find-grid">
-        <label><span>Find</span><input ref={find} value={query} aria-invalid={Boolean(preview.error) || undefined} aria-describedby={preview.error ? patternErrorId : undefined} onChange={(event) => { queryRevision.current += 1; openingSelection.current = null; setQuery(event.target.value); }} placeholder="ថេរ៉ា or GPT-4o Mini"/></label>
-        <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Terra or GPT 5.6 Luna"/></label>
+        <label><span>Find</span><input ref={find} value={query} aria-invalid={Boolean(preview.error) || undefined} aria-describedby={preview.error ? patternErrorId : undefined} onChange={(event) => { queryRevision.current += 1; openingSelection.current = null; setQuery(event.target.value); }} placeholder="Word or phrase"/></label>
+        <label><span>Replace with</span><input value={replacement} onChange={(event) => setReplacement(event.target.value)} placeholder="Blank removes matches"/></label>
+      </div>
+      <div className="find-grid find-match-options">
         <label><span>Match</span><select value={mode} onChange={(event) => setMode(event.target.value as MatchMode)}><option value="literal">Case-sensitive text</option><option value="case-insensitive">Ignore Latin case</option><option value="regex">Regular expression</option></select></label>
         <label><span>Scope</span><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option value="project">Entire project</option><option value="selection" disabled={!selectedIds.length}>Selected captions ({selectedIds.length})</option></select></label>
-      </div>
-      <div className="replace-memory">
-        <ShieldPlus size={16}/><div><strong>Remember this correction?</strong><span>Save reusable aliases in a project or global glossary. Use protected terms for distinct names.</span></div>
-        <select aria-label="Remember this correction" value={remember} disabled={mode === 'regex'} title={mode === 'regex' ? 'Regex patterns cannot be saved as glossary rules.' : undefined} onChange={(event) => setRemember(event.target.value as typeof remember)}><option value="none">Do not remember</option><option value="project">Add to project glossary</option><option value="global">Add to global glossary</option></select>
       </div>
       <div className="find-summary" aria-live="polite"><b>{preview.count}</b><span>match{preview.count === 1 ? '' : 'es'} in {preview.entries.length} caption{preview.entries.length === 1 ? '' : 's'} · {preview.changed} will change</span>{preview.locked > 0 && <em>{preview.locked} protected by text locks</em>}</div>
       <div ref={previewList} className="find-preview">
@@ -175,6 +173,10 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
         {!preview.entries.length && <div className="review-empty" id={preview.error ? patternErrorId : undefined} role={preview.error ? 'alert' : undefined}>{preview.error || (query ? 'No matches found.' : 'Enter text to find matches.')}</div>}
       </div>
       {pageCount > 1 && <nav className="find-preview-pages" aria-label="Replacement preview pages"><button disabled={currentPage === 0} onClick={() => changePage(currentPage - 1)}>Previous matches</button><span role="status" aria-live="polite" aria-atomic="true">Page {currentPage + 1} of {pageCount} · Captions {currentPage * 30 + 1}–{Math.min((currentPage + 1) * 30, preview.entries.length)} of {preview.entries.length}</span><button disabled={currentPage === pageCount - 1} onClick={() => changePage(currentPage + 1)}>Next matches</button></nav>}
+      <div className="replace-memory find-rule-choice">
+        <label htmlFor={patternErrorId + '-remember'}>Remember this correction</label>
+        <select id={patternErrorId + '-remember'} value={remember} disabled={mode === 'regex'} title={mode === 'regex' ? 'Regex patterns cannot be saved as glossary rules.' : undefined} onChange={(event) => setRemember(event.target.value as typeof remember)}><option value="none">Do not remember</option><option value="project">Add to project glossary</option><option value="global">Add to global glossary</option></select>
+      </div>
       {error && <div className="inline-form-error">{error}</div>}
       </>}
       {glossary && <div className="find-glossary-result" tabIndex={-1}>
@@ -186,7 +188,7 @@ export function FindReplacePanel({ open, captions, selectedIds, initialSearch, o
         {glossary ? <>
           {glossary.status !== 'saving' && <button onClick={() => { setGlossary(null); setError(''); requestAnimationFrame(() => find.current?.focus()); }}>{glossary.status === 'failed' ? 'Continue without saving glossary' : 'New correction'}</button>}
           <button className="primary" disabled={glossary.status !== 'failed'} aria-busy={glossary.status === 'saving' || undefined} onClick={() => void saveGlossary(glossary)}>{glossary.status === 'saving' ? 'Saving glossary…' : glossary.status === 'saved' ? 'Glossary saved' : 'Retry glossary save'}</button>
-        </> : <button className="primary" onClick={() => void apply()} disabled={!preview.changed || Boolean(preview.error)}><Replace size={15}/>Replace editable matches</button>}
+        </> : <button className="primary" onClick={() => void apply()} disabled={!preview.changed || Boolean(preview.error)}><Replace size={15}/>{!replacement && preview.changed > 0 ? 'Remove matching text' : 'Replace editable matches'}</button>}
       </div>
     </section>
   </div>;

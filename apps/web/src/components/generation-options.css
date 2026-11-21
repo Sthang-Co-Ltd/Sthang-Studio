@@ -25,5 +25,5 @@
 .generation-accuracy>button:hover{border-color:#7a8898;background:#2b3038}
 .generation-accuracy>button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .transcribe-card>.generation-accuracy+.generation-options{margin-top:0}
-.transcribe-card>.generation-options+.primary{grid-column:1/-1;justify-content:center}
+.transcribe-card>.primary{grid-column:1/-1;justify-content:center}
 @media(max-width:620px){.generation-options>summary,.generation-options select,.transcribe-card .generation-accuracy>button{min-height:44px}}

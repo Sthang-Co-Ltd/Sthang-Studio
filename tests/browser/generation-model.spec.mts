@@ -37,6 +37,158 @@ async function options(page: Page) {
   return page.getByRole('combobox', { name: 'Caption model', exact: true });
 }
 
+for (const missingKey of [true, false]) {
+  const actionName = missingKey ? 'Connect AI' : 'Open System check';
+  test(`generation setup opens ${actionName} when timing is unavailable without submitting a job`, async ({ page }) => {
+    state.projects[0].transcript = null;
+    state.projects[0].captions = [];
+    const [healthResponse, settingsResponse] = await Promise.all([
+      page.waitForResponse('**/api/health'),
+      page.waitForResponse('**/api/system/llm-settings'),
+      page.goto('/'),
+    ]);
+    const health = await healthResponse.json();
+    const settings = { ...await settingsResponse.json(), configured: !missingKey };
+    await page.route('**/api/health', (route) => route.fulfill({ json: {
+      ...health, llm: settings, timing: { ...health.timing, configured: false },
+    } }));
+    await page.route('**/api/system/llm-settings', (route) => route.fulfill({ json: settings }));
+    await page.route('**/api/system/doctor', (route) => route.fulfill({ json: {
+      generatedAt: '2026-01-01T00:00:00.000Z', engineVersion: 'synthetic', overall: 'warning', checks: [],
+      environment: { platform: 'Synthetic Windows', node: 'test', appRoot: 'Synthetic app', apiPort: 1, webOrigin: 'http://127.0.0.1' },
+    } }));
+    await page.reload();
+    const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    const workspace = page.getByRole('complementary', { name: 'Generate captions workspace' });
+    await expect(workspace.getByText('Ready to generate captions', { exact: true })).toHaveCount(0);
+    await workspace.getByRole('button', { name: actionName, exact: true }).press('Enter');
+    if (missingKey) await expect(dialog.getByLabel('API key', { exact: true })).toBeVisible();
+    else await expect(dialog.locator('#system-check-status')).toBeAttached();
+    await dialog.getByRole('button', { name: 'Close settings' }).click();
+    await expect(page.locator('.toast.error')).toHaveCount(0);
+    expect(submissions).toHaveLength(0);
+  });
+}
+
+async function mockCaptionSetup(page: Page) {
+  const setup = { key: false, timing: false, healthUnavailable: false, rejectKey: false, saves: 0 };
+  const settings = () => ({ provider: 'gemini', configured: setup.key, keySource: setup.key ? 'secure-store' : 'none', model: 'synthetic',
+    fallbackModel: '', maskedKey: null, canForgetSecureKey: setup.key, secureStorageAvailable: true, secureStorageLabel: 'Fixture storage', environmentFallbackAvailable: false, updatedAt: null });
+  await page.route('**/api/health', (route) => route.fulfill(setup.healthUnavailable ? { status: 503, json: { error: 'Status unavailable' } }
+    : { json: { ok: true, engineVersion: 'fixture', llm: settings(), timing: { configured: setup.timing } } }));
+  await page.route('**/api/system/llm-settings/test', (route) => route.fulfill(setup.rejectKey ? { status: 401, json: { error: 'The fixture key was rejected.' } }
+    : { json: { ok: true, level: 'success', provider: 'gemini', model: 'synthetic', latencyMs: 1, message: 'Connection checked.' } }));
+  await page.route('**/api/system/llm-settings', (route) => {
+    if (route.request().method() === 'PUT') { setup.key = true; setup.saves++; }
+    return route.fulfill({ json: settings() });
+  });
+  await page.route('**/api/system/doctor', (route) => route.fulfill({ json: { generatedAt: '2026-01-01T00:00:00.000Z', engineVersion: 'fixture',
+    overall: setup.timing ? 'ok' : 'error', checks: [{ id: 'kfa', label: 'Khmer timing', status: setup.timing ? 'ok' : 'error', detail: setup.timing ? 'Ready' : 'Setup required' }],
+    environment: { platform: 'Fixture', node: 'test', appRoot: 'Fixture', apiPort: 1, webOrigin: 'http://127.0.0.1' } } }));
+  return setup;
+}
+
+test('caption setup advances from a rejected key through a repaired timing check without starting a job', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  const setup = await mockCaptionSetup(page);
+  await initialProject(page);
+  const action = page.locator('.transcribe-card button.primary');
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await expect(action).toHaveText('Connect AI');
+  await action.press('Enter');
+  await dialog.getByLabel('API key', { exact: true }).fill('synthetic-key');
+  const save = dialog.getByRole('button', { name: 'Test & save', exact: true });
+  setup.rejectKey = true;
+  await save.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('The fixture key was rejected.');
+  await expect(save).toBeFocused();
+  expect(setup.saves).toBe(0);
+  setup.rejectKey = false;
+  await save.press('Enter');
+  await expect(dialog.getByText(/AI settings saved securely/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close settings' }).press('Enter');
+  await expect(action).toHaveText('Open System check');
+  await expect(action).toBeFocused();
+  await action.press('Enter');
+  await expect(dialog.getByText('Setup needs attention', { exact: true })).toBeVisible();
+  setup.timing = true;
+  setup.healthUnavailable = true;
+  await dialog.getByRole('button', { name: 'Run checks', exact: true }).press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('could not confirm caption setup');
+  await expect(action).toHaveText('Retry setup checks');
+  const retry = dialog.getByRole('button', { name: 'Retry system check', exact: true });
+  await expect(retry).toBeFocused();
+  setup.healthUnavailable = false;
+  await retry.press('Enter');
+  await expect(dialog.getByText('System checks passed', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close settings' }).press('Enter');
+  await expect(action).toHaveText('Generate captions');
+  await expect(action).toBeFocused();
+  await expect(action).toBeEnabled();
+  expect(setup.saves).toBe(1);
+  expect(submissions).toHaveLength(0);
+});
+
+test('late startup and key-save health reads cannot reverse a newer timing check', async ({ page }) => {
+  const setup = await mockCaptionSetup(page);
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let hold = true, started = 0, finished = 0;
+  await page.route('**/api/health', async (route) => {
+    if (!hold) return route.fallback();
+    started++;
+    await pending;
+    await route.fulfill({ json: { ok: true, engineVersion: 'fixture', timing: { configured: false } } });
+    finished++;
+  });
+  try {
+    await initialProject(page);
+    const action = page.locator('.transcribe-card button.primary');
+    const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+    await expect.poll(() => started).toBeGreaterThan(0);
+    const startupReads = started;
+    await action.press('Enter');
+    await dialog.getByLabel('API key', { exact: true }).fill('synthetic-key');
+    await dialog.getByRole('button', { name: 'Test & save', exact: true }).press('Enter');
+    await expect.poll(() => started).toBeGreaterThan(startupReads);
+    hold = false;
+    setup.timing = true;
+    await dialog.getByRole('button', { name: 'System check', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Run checks', exact: true }).click();
+    await expect(dialog.getByText('System checks passed', { exact: true })).toBeVisible();
+    release();
+    await expect.poll(() => finished).toBe(started);
+    await dialog.getByRole('button', { name: 'Close settings' }).click();
+    await expect(action).toHaveText('Generate captions');
+    await expect(action).toBeEnabled();
+    expect(submissions).toHaveLength(0);
+  } finally { release(); }
+});
+
+test('generation stays unavailable while submission is pending and while the accepted job is queued', async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let attempts = 0;
+  await page.route('**/api/jobs/transcribe', async (route) => {
+    attempts++;
+    await pending;
+    await route.fallback();
+  });
+  await initialProject(page);
+  const primary = page.locator('.transcribe-card button.primary');
+  try {
+    await primary.click();
+    await expect.poll(() => attempts).toBe(1);
+    await expect(primary).toBeDisabled();
+    await expect(primary).not.toHaveText('Generate captions');
+  } finally { release(); }
+  await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
+  await expect(primary).toBeDisabled();
+  await expect(primary).not.toHaveText('Generate captions');
+  expect(submissions).toHaveLength(1);
+});
+
 test('optional Accuracy entry reflects saved project context', async ({ page }, info) => {
   await page.route('**/api/projects/landscape/context', (route) => {
     const { transcriptionContext } = route.request().postDataJSON();

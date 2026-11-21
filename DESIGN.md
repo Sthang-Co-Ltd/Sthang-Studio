@@ -72,10 +72,10 @@ collapse them into unexplained icon-only buttons at narrower widths.
 
 ### Editor
 
-The video and caption list are the persistent core. Advanced workspaces appear one at a time:
+The video and caption list are the persistent core. Review opens from the project header. The tool strip opens one specialist workspace at a time.
 
 ```text
-Review · Fine timing · Accuracy · Caption grouping · Appearance · Details
+Fine timing · Accuracy · Caption grouping · Appearance · Details
 ```
 
 Use the refined A desktop layout at widths of 1200px and above: default preview
@@ -85,7 +85,7 @@ compact drag/keyboard custom order. Within that popover, keep a clear lifted
 proxy, drop target and actual-panel outline; commit positions on drop. Left/Right buttons
 and arrow-key handles provide the same result, with spoken order feedback.
 The actual panel headers expose a grip and draggable title at supported desktop
-widths. Keep Close tool, Current, Following and Add caption as independent actions.
+widths. Keep Close tool, Current, Follow playback and Add caption as independent actions.
 Start dragging after a small movement threshold. The actual panel follows the
 pointer above its neighbours; they slide into a provisional insertion order when
 the pointer crosses a neighbour's midpoint. Use a vacant-slot outline, stable
@@ -135,16 +135,15 @@ when adjacent; with Preview in the middle it uses the caption column only and
 the inspector retains full height. Timing controls stay in the inspector. Layout
 geometry changes cancel any pending timing drag before moving its canvas.
 A narrower window keeps the canonical preview-first order and uses a vertically
-scrollable arrangement with a consistent preview height across tools. Keep media
-visible while reaching lower controls. Do not use a blocking modal for a task
+scrollable arrangement. Keep a compact preview above an open tool, bring its
+heading into view on entry, and give an empty caption list only the space it needs. Do not use a blocking modal for a task
 that requires watching or replaying the video.
 
 When no advanced workspace is selected, do not reserve a blank tool canvas beneath the media. Let the media surface use the available left-column height; only allocate extra vertical space when a workspace actually has content to show.
 
 ### Generate caption AI options
 
-Keep **AI options** in the Generate captions card, immediately before its primary
-action. Its collapsed summary shows the current choice. A labeled native
+Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary shows the current choice. A labeled native
 **Caption model** selector in current source offers **Automatic**, **Gemini 3.8 Flash**,
 **Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
 this project and leaves global settings unchanged. Existing projects start with
@@ -300,8 +299,8 @@ export warnings retain their warning treatment. Appearance remains a summary and
 navigation action. This facelift does not change defaults, saved choices, export
 checks, snapshots, rendering or file workflows, and is not public-release evidence.
 
-For editable caption handoff, **Captions file** opens one compact
-destination selector, a short import guide, and **Download SRT**. Keep advanced
+For editable caption handoff, **Captions file** puts **Download SRT** before
+the destination selector and its import instructions. Keep advanced
 formats behind a labeled disclosure. Show what each format retains and what the
 destination must style again; a word-per-cue file must never be labeled a portable
 full-sentence highlight effect. Explain CapCut mobile's manual Desktop/Web sync
@@ -1058,6 +1057,11 @@ retargeted from native controls. Exact Ctrl/Command Save and Find remain availab
 
 ### Guide navigation and caption import (source-only)
 
+Open a completed comparison from Activity at its heading. Put the preview switch
+and wording ahead of the decision buttons, then offer optional refinement. Keep job
+progress visible when refinement is collapsed. An unavailable saved preview font
+links to the font picker in Appearance and leaves the saved choice with the user.
+
 Quick guide is a nonmodal companion. Focus its Close control on explicit opening,
 allow Tab to leave for the editor, and return focus to a connected launcher only
 while the guide owns the interaction. Escape respects composition and foreground
@@ -1166,7 +1170,9 @@ Profile import uses one structural file check in the picker and server replaceme
 path. Reject missing or mistyped core sections before any profile write or privacy
 reset. Keep startup loading, patch semantics, legacy optional fields and deeper
 normalization under their existing rules. Invalid-file recovery preserves local
-form drafts and lets the user choose the corrected file again.
+form drafts and lets the user choose the corrected file again. For a valid file,
+show the backup name and the scope of replacement before offering **Keep current**
+and **Replace profile**. A retry applies to the file the user already confirmed.
 
 An acknowledged import invalidates profile reads in mounted Export and Appearance
 workspaces. Refresh their preset catalogs and reconcile removed selection IDs;
@@ -1177,8 +1183,8 @@ catalog, and import refresh does not start a font scan or reapply appearance.
 Explicit Recent/All projects Open may hand focus to the persistent Project details
 control after the new editor commits. Its accessible description identifies the
 project even when the compact header is shown. Failure may restore its own
-reenabled Open control. Back to Home continues at upload; returning to All projects
-keeps the existing collection focus. Arm these handoffs only while the initiating
+reenabled Open control. Back to Home continues at upload. Returning to All projects
+focuses the original project even if its refreshed summary moves it to another page. Arm these handoffs only while the initiating
 control still owns focus after any required save, cancel them on newer interaction,
 and yield to guides and dialogs. Background project publication never arms one.
 

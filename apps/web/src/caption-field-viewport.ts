@@ -26,15 +26,35 @@ export function captionFieldViewport(field: HTMLElement, list: HTMLElement, work
   return { box, listBox, top, bottom };
 }
 
-/** Finish an owned focus reveal without moving the caption list or its Follow state. */
+/** Align the saved wording inside the part of the caption list below the sticky preview. */
+export function revealFocusedCaptionRow(row: HTMLElement, list: HTMLElement, workbench: HTMLElement) {
+  const text = row.querySelector('textarea');
+  if (document.activeElement !== row || !text || !list.contains(row)) return;
+  const { box, top, bottom } = captionFieldViewport(text, list, workbench);
+  if (bottom <= top || box.top >= top && box.bottom <= bottom) return;
+  const offset = box.top - top - Math.max(0, (bottom - top - box.height) / 2);
+  list.scrollBy({ top: offset, behavior: 'instant' });
+}
+
+/** Reveal a focused editor inside the list and beneath the sticky preview. */
 export function revealFocusedCaptionField(field: HTMLElement, list: HTMLElement, workbench: HTMLElement) {
   if (document.activeElement !== field || !field.isConnected || !workbench.isConnected
     || field.closest('.caption-list') !== list || !workbench.contains(field)
     || !/auto|scroll/.test(getComputedStyle(workbench).overflowY)) return;
-  const { box, listBox, top, bottom } = captionFieldViewport(field, list, workbench);
-  // Native scrolling rounds to pixels; a fractional border overlap must not
-  // prevent revealing a field that is already inside the list.
-  if (bottom <= top || box.top < listBox.top - 1 || box.bottom > listBox.bottom + 1) return;
-  const shift = box.bottom > bottom ? box.bottom - bottom + 8 : box.top < top ? box.top - top - 8 : 0;
+  let viewport = captionFieldViewport(field, list, workbench);
+  const { box, listBox } = viewport;
+  if (box.bottom <= listBox.top || box.top >= listBox.bottom) return;
+  // Native focus can leave the top or bottom of a textarea clipped by the
+  // list. Reveal that edge before accounting for the sticky preview outside it.
+  const clip = box.top < listBox.top - 1 ? box.top - listBox.top
+    : box.bottom > listBox.bottom + 1 ? box.bottom - listBox.bottom : 0;
+  if (clip) {
+    list.scrollBy({ top: clip, behavior: 'instant' });
+    viewport = captionFieldViewport(field, list, workbench);
+  }
+  const { top, bottom } = viewport;
+  if (bottom <= top) return;
+  const shift = viewport.box.bottom > bottom ? viewport.box.bottom - bottom + 8
+    : viewport.box.top < top ? viewport.box.top - top - 8 : 0;
   if (shift) workbench.scrollBy({ top: shift, behavior: 'instant' });
 }

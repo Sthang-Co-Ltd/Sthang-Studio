@@ -117,8 +117,7 @@ export function WorkspaceToolsMenu({
         <button role="menuitem" onClick={() => run(onHistory)}><History size={16}/><span><b>History</b><small>Restore an earlier checkpoint</small></span></button>
       </div>
       <div className="tools-menu-section">
-        <span>Activity</span>
-        <button role="menuitem" onClick={() => run(onJobs)}><ListTodo size={16}/><span><b>Processing jobs</b><small>{activeJobs ? `${activeJobs} currently active` : 'Progress and recovery'}</small></span>{activeJobs > 0 && <em>{activeJobs}</em>}</button>
+        <button role="menuitem" onClick={() => run(onJobs)}><ListTodo size={16}/><span><b>Activity</b><small>Processing jobs</small></span>{activeJobs > 0 && <em>{activeJobs} active</em>}</button>
         <button role="menuitem" onClick={() => run(onCorrections)}><BookOpenCheck size={16}/><span><b>Correction inbox</b><small>Approve what Studio should remember</small></span>{pendingCorrections > 0 && <em>{pendingCorrections}</em>}</button>
       </div>
       <div className="tools-menu-section">

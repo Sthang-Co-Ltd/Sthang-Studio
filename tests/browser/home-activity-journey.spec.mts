@@ -37,6 +37,71 @@ async function visibleActivity(page: Page, width: number) {
   return button;
 }
 
+test('first-run setup reports readiness with no projects and keeps known setup actions during a partial outage', async ({ page }, info) => {
+  state.projects = [];
+  // The shared fixture dismisses first-run help on every navigation. Model a fresh
+  // install for this test regardless of the order Playwright runs init scripts.
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      if (this === localStorage && key === 'sthang:first-run-dismissed:v1') return null;
+      return getItem.call(this, key);
+    };
+  });
+  const [health, settings] = await Promise.all([
+    page.waitForResponse('**/api/health'),
+    page.waitForResponse('**/api/system/llm-settings'),
+    page.goto('/'),
+  ]);
+  const ready = page.getByText('Studio ready', { exact: true });
+  const connect = page.getByRole('button', { name: /^Connect AI\b/ });
+  const timing = page.getByRole('button', { name: /^Set up Khmer timing\b/ });
+  await expect(ready).toBeVisible();
+  await expect(connect).toHaveCount(0);
+  await expect(timing).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('home-ready.png') });
+
+  const healthy = await health.json();
+  const configured = await settings.json();
+  let unavailable: 'timing' | 'ai' = 'timing';
+  const failed = { status: 503, json: { error: 'Synthetic startup failure' } };
+  await page.route('**/api/health', (route) => route.fulfill(unavailable === 'timing' ? failed
+    : { json: { ...healthy, timing: { ...healthy.timing, configured: false } } }));
+  await page.route('**/api/system/llm-settings', (route) => route.fulfill(unavailable === 'ai' ? failed
+    : { json: { ...configured, configured: false } }));
+
+  await page.reload();
+  await expect(page.getByRole('status').filter({ hasText: 'Could not load: System status' })).toBeVisible();
+  await expect(connect).toBeEnabled();
+  await expect(timing).toHaveCount(0);
+  await expect(ready).toHaveCount(0);
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await expect(dialog).toBeHidden();
+  await connect.press('Enter');
+  await expect(dialog.getByLabel('API key', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(connect).toBeFocused();
+
+  unavailable = 'ai';
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole('status').filter({ hasText: 'Could not load: AI connection' })).toBeVisible();
+  await expect(timing).toBeEnabled();
+  await expect(connect).toHaveCount(0);
+  await expect(ready).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('home-setup-mobile.png') });
+  await page.route('**/api/system/doctor', (route) => route.fulfill({ json: {
+    overall: 'ok', generatedAt: stamp, engineVersion: 'synthetic',
+    checks: [{ id: 'media', label: 'Synthetic media tools', status: 'ok', detail: 'Media check completed.' }],
+    environment: { platform: 'Synthetic Windows', node: 'test', appRoot: 'synthetic', apiPort: 1, webOrigin: 'synthetic' },
+  } }));
+  await timing.press('Enter');
+  await expect(dialog.getByText('Media check completed.', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Run checks', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(timing).toBeFocused();
+});
+
 for (const width of [1440, 390]) test(`Home keeps terminal Activity reachable after dismissal, with keyboard return and a real download at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 1000 });
   state.jobs = [running('home-export', 'export-video'), running('home-caption', 'transcribe')];

@@ -6,6 +6,7 @@ import { Download, FileUp, HeartPulse, KeyRound, PackagePlus, Play, Save, Shield
 import { uniqueContextLines } from '../accuracy-context-draft';
 import { CopyReportButton } from './CopyReportButton';
 import { AiSettingsPanel } from './AiSettingsPanel';
+import { useStudioConfirm } from './ConfirmationDialog';
 import { ContributorSettings } from './ContributorSettings';
 import { useModalFocus } from '../use-modal-focus';
 import { useSurfacePresence } from '../use-surface-presence';
@@ -19,7 +20,8 @@ interface ProfileDoctorProps {
   initialTab: SettingsTab;
   llmSettings: LlmSettingsStatus | null;
   profile: AppProfile | null;
-  loadFailed: boolean;
+  aiLoadFailed: boolean;
+  profileLoadFailed: boolean;
   onRetryLoad(): void;
   doctor: SystemDoctorReport | null;
   doctorLoadState: 'idle' | 'loading' | 'ready' | 'error';
@@ -30,7 +32,7 @@ interface ProfileDoctorProps {
   onSave(patch: Partial<AppProfile>, feedback?: 'toast' | 'inline'): Promise<AppProfile | null>;
   onImport(profile: AppProfile): Promise<boolean>;
   onRunDoctor(): void;
-  onApplyPack(pack: TopicPack): void;
+  onApplyPack(pack: TopicPack): boolean;
   onSaveLlm(input: SaveLlmSettingsInput): Promise<LlmSettingsStatus>;
   onTestLlm(input: { apiKey?: string; model?: string }): Promise<LlmConnectionTest>;
   onForgetLlm(): Promise<LlmSettingsStatus>;
@@ -45,7 +47,8 @@ export function ProfileDoctor({
   initialTab,
   llmSettings,
   profile,
-  loadFailed,
+  aiLoadFailed,
+  profileLoadFailed,
   onRetryLoad,
   doctor,
   doctorLoadState,
@@ -82,12 +85,21 @@ export function ProfileDoctor({
   const contextKey = useRef('');
   contextKey.current = JSON.stringify(currentContext);
   const importRef = useRef<HTMLInputElement | null>(null);
+  const importButton = useRef<HTMLButtonElement | null>(null);
+  const focusAppliedPack = useRef(false);
+  const { confirm, confirmationDialog } = useStudioConfirm();
   const topicPacksHeading = useRef<HTMLElement | null>(null);
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
-  useModalFocus(open, dialog, onClose);
+  useModalFocus(open, dialog, onClose, undefined, () => {
+    if (!focusAppliedPack.current) return null;
+    focusAppliedPack.current = false;
+    return document.querySelector<HTMLElement>('.workspace-inspector:not([hidden]) #accuracy-context-description');
+  });
 
   useEffect(() => { if (profile && !glossaryEdited.current) setGlossary(profile.defaultVocabulary.join('\n')); }, [profile?.defaultVocabulary]);
+  const unavailableSection = tab === 'ai' ? !llmSettings : tab !== 'doctor' && !profile;
+  const loadFailed = tab === 'ai' ? aiLoadFailed : profileLoadFailed;
   useEffect(() => { if (!loadFailed) retryLoadPending.current = false; }, [loadFailed]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
@@ -174,19 +186,32 @@ export function ProfileDoctor({
       if (mounted.current) setWorking('');
     }
   };
-  const importFile = async (file?: File) => {
+  const importFile = async (file?: File, retryTrigger?: HTMLButtonElement) => {
     if (!file || pending.current || busy) return;
-    pending.current = true; setWorking('import'); setRetryImport(null); setImportFeedback({ error: false, message: '' });
+    pending.current = true;
     let parsed: AppProfile;
     try {
       const value = JSON.parse(await file.text());
       if (!isProfileImport(value)) throw new Error('invalid');
       parsed = value as AppProfile;
     } catch {
+      setRetryImport(null);
       setImportFeedback({ error: true, message: 'This file is not a readable Studio profile. Choose a JSON file created by Export profile. Your settings and drafts are unchanged.' });
-      pending.current = false; setWorking(''); return;
+      pending.current = false; return;
     }
     try {
+      if (!mounted.current || !importRef.current?.closest('[aria-modal="true"]')) return;
+      if (file !== retryImport && !await confirm({
+        title: 'Replace your saved profile?',
+        message: `“${file.name}” will replace your saved vocabulary, correction history and rules, topic packs, presets, and preferences. You’ll need to opt in again to share usage data or contribute Khmer captions.`,
+        confirmLabel: 'Replace profile', cancelLabel: 'Keep current', tone: 'warning',
+      })) return;
+      if (!mounted.current || !importRef.current?.closest('[aria-modal="true"]')) return;
+      if (retryTrigger && document.activeElement === retryTrigger) {
+        importButton.current?.focus({ preventScroll: true });
+        importButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      }
+      setWorking('import'); setRetryImport(null); setImportFeedback({ error: false, message: '' });
       if (!await onImport(parsed)) throw new Error('import');
       if (mounted.current) setImportFeedback({ error: false, message: glossaryEdited.current ? 'Profile imported. Your unsaved glossary text is still in the form.' : 'Profile imported.' });
     } catch {
@@ -200,13 +225,17 @@ export function ProfileDoctor({
   return <div className="modal-backdrop profile-settings-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
     <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="settings-title" tabIndex={-1} className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong id="settings-title">Settings</strong><span>Manage AI, your profile, privacy, and system checks.</span></div>
+        <div><strong id="settings-title">Settings</strong></div>
         <button className="icon-btn" aria-label="Close settings" onClick={onClose}><X size={18}/></button>
       </div>
-      {!profile || !llmSettings ? <div className="modal-empty settings-availability">
-        <KeyRound size={28} aria-hidden="true"/>
+      <div className="modal-tabs settings-tabs" role="group" aria-label="Settings sections">
+        <button aria-pressed={tab === 'ai'} className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button>
+        <button aria-pressed={tab === 'profile'} className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button>
+        <button aria-pressed={tab === 'privacy'} className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button>
+        <button aria-pressed={tab === 'doctor'} className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button>
+      </div>
+      {unavailableSection && <div className="modal-empty settings-availability">
         <strong role={loadFailed ? 'alert' : 'status'}>{loadFailed ? 'Could not load settings' : 'Loading settings…'}</strong>
-        <span>{loadFailed ? 'Your current work is kept. Retry loading to continue.' : 'Reading your preferences and AI connection settings.'}</span>
         {loadFailed && <button type="button" onClick={() => {
           if (retryLoadPending.current) return;
           retryLoadPending.current = true;
@@ -214,25 +243,27 @@ export function ProfileDoctor({
           dialog.current?.focus({ preventScroll: true });
           onRetryLoad();
         }}>Retry settings</button>}
-      </div> : <>
-      <div className="modal-tabs settings-tabs"><button className={tab === 'ai' ? 'selected' : ''} onClick={() => setTab('ai')}><KeyRound size={14}/>AI connection</button><button className={tab === 'profile' ? 'selected' : ''} onClick={() => setTab('profile')}><UserRound size={14}/>Profile</button><button className={tab === 'privacy' ? 'selected' : ''} onClick={() => setTab('privacy')}><ShieldCheck size={14}/>Privacy</button><button className={tab === 'doctor' ? 'selected' : ''} onClick={() => setTab('doctor')}><HeartPulse size={14}/>System check</button></div>
+      </div>}
 
-      {tab === 'ai' ? <AiSettingsPanel settings={llmSettings} onSave={onSaveLlm} onTest={onTestLlm} onForget={onForgetLlm}/> : tab === 'profile' ? <div className="profile-body">
+      {tab === 'ai' && llmSettings && <AiSettingsPanel settings={llmSettings} onSave={onSaveLlm} onTest={onTestLlm} onForget={onForgetLlm}/>}
+      {tab === 'profile' && profile && <div className="profile-body">
         <div className="profile-stats"><div><b>{profile.defaultVocabulary.length}</b><span>global terms</span></div><div><b>{profile.correctionRules.length}</b><span>approved rules</span></div><div><b>{profile.correctionEvents.length}</b><span>correction events</span></div><div><b>{profile.topicPacks.length}</b><span>topic packs</span></div></div>
         <label className="context-field"><span id="profile-glossary-label">Global protected vocabulary</span><textarea rows={9} value={glossary} aria-labelledby="profile-glossary-label" aria-describedby={glossaryFeedback.message ? 'profile-glossary-feedback' : undefined} onChange={(event) => { glossaryEdited.current = true; glossaryRevision.current++; setGlossary(event.target.value); setGlossaryFeedback({ error: false, message: '' }); }} placeholder={'GPT 5.6 Luna\nTerra | ថេរ៉ា\nCapCut'}/></label>
         {glossaryFeedback.message && <p id="profile-glossary-feedback" className="profile-form-feedback" role={glossaryFeedback.error ? 'alert' : 'status'}>{glossaryFeedback.message}</p>}
-        <div className="profile-actions"><button disabled={busy || Boolean(working)} aria-busy={working === 'glossary' || undefined} onClick={() => void saveGlossary()}><Save size={15}/>{working === 'glossary' ? 'Saving glossary…' : 'Save glossary'}</button><a href="/api/profile/export" download><Download size={15}/>Export profile</a><button disabled={busy || Boolean(working)} onClick={() => importRef.current?.click()}><FileUp size={15}/>{working === 'import' ? 'Importing…' : 'Import profile'}</button><input ref={importRef} hidden type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; void importFile(file); }}/></div>
-        {importFeedback.message && <div className="profile-form-feedback profile-import-feedback" role={importFeedback.error ? 'alert' : 'status'}><span>{importFeedback.message}</span>{importFeedback.error && <>{retryImport && <button disabled={busy || Boolean(working)} onClick={() => void importFile(retryImport)}>Retry import</button>}<button disabled={busy || Boolean(working)} onClick={() => importRef.current?.click()}>Choose another profile</button></>}</div>}
+        <div className="profile-actions"><button disabled={busy || Boolean(working)} aria-busy={working === 'glossary' || undefined} onClick={() => void saveGlossary()}><Save size={15}/>{working === 'glossary' ? 'Saving glossary…' : 'Save glossary'}</button><a href="/api/profile/export" download><Download size={15}/>Export profile</a><button ref={importButton} aria-disabled={busy || Boolean(working) || undefined} aria-busy={working === 'import' || undefined} onClick={() => { if (!busy && !pending.current) importRef.current?.click(); }}><FileUp size={15}/>{working === 'import' ? 'Importing…' : 'Import profile'}</button><input ref={importRef} hidden type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; void importFile(file); }}/></div>
+        {importFeedback.message && <div className="profile-form-feedback profile-import-feedback" role={importFeedback.error ? 'alert' : 'status'}><span>{importFeedback.message}</span>{importFeedback.error && <>{retryImport && <button disabled={busy || Boolean(working)} onClick={(event) => void importFile(retryImport, event.currentTarget)}>Retry import</button>}<button disabled={busy || Boolean(working)} onClick={() => importRef.current?.click()}>Choose another profile</button></>}</div>}
 
         <div className="topic-pack-section">
           <div className="section-title"><div><strong ref={topicPacksHeading} className="topic-packs-heading" role="heading" aria-level={3} tabIndex={-1}>Topic packs</strong><span>Reuse the current context and vocabulary in other projects.</span></div></div>
-          {currentContext && <div className="pack-create"><input aria-label="Topic pack name" aria-describedby={packFeedback.message ? 'profile-pack-feedback' : undefined} maxLength={80} value={packName} onChange={(event) => { packRevision.current++; setPackName(event.target.value); setPackFeedback({ error: false, message: '' }); }} placeholder="Example: AI / Coding"/><button disabled={!packName.trim() || busy || Boolean(working)} aria-busy={working === 'pack' || undefined} onClick={() => void createPack()}><PackagePlus size={15}/>{working === 'pack' ? 'Saving topic pack…' : 'Save context as pack'}</button></div>}
+          {currentContext && <div className="pack-create"><label><span>Topic pack name</span><input aria-describedby={packFeedback.message ? 'profile-pack-feedback' : undefined} maxLength={80} value={packName} onChange={(event) => { packRevision.current++; setPackName(event.target.value); setPackFeedback({ error: false, message: '' }); }} placeholder="Example: AI / Coding"/></label><button disabled={!packName.trim() || busy || Boolean(working)} aria-busy={working === 'pack' || undefined} onClick={() => void createPack()}><PackagePlus size={15}/>{working === 'pack' ? 'Saving topic pack…' : 'Save context as pack'}</button></div>}
           {packFeedback.message && <p id="profile-pack-feedback" className="profile-form-feedback" role={packFeedback.error ? 'alert' : 'status'}>{packFeedback.message}</p>}
           {packDeleteFeedback.message && <p className="profile-form-feedback" role={packDeleteFeedback.error ? 'alert' : 'status'}>{packDeleteFeedback.message}</p>}
           {!currentContext && profile.topicPacks.length > 0 && <p id="profile-pack-apply-help" className="muted-copy">Open a project to apply a topic pack.</p>}
-          <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} terms · {pack.description || 'No description'}</span></div><button disabled={!currentContext || busy || Boolean(working)} aria-describedby={!currentContext ? 'profile-pack-apply-help' : undefined} onClick={() => onApplyPack(pack)}><Play size={14}/>Apply</button><button disabled={busy || Boolean(working)} className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={(event) => void removePack(pack.id, event.currentTarget)}><Trash2 size={14}/></button></div>)}</div>
+          <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} term{pack.vocabulary.length === 1 ? '' : 's'} · {pack.description || 'No description'}</span></div><button disabled={!currentContext || busy || Boolean(working)} aria-label={`Apply ${pack.name}`} aria-describedby={!currentContext ? 'profile-pack-apply-help' : undefined} onClick={() => { focusAppliedPack.current = onApplyPack(pack); }}><Play size={14}/>Apply</button><button disabled={busy || Boolean(working)} className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={(event) => void removePack(pack.id, event.currentTarget)}><Trash2 size={14}/></button></div>)}</div>
         </div>
-      </div> : tab === 'privacy' ? <ContributorSettings profile={profile} busy={busy} onSave={(patch) => onSave(patch, 'inline')}/> : <div className="doctor-body">
+      </div>}
+      {tab === 'privacy' && profile && <ContributorSettings profile={profile} busy={busy} onSave={(patch) => onSave(patch, 'inline')}/>}
+      {tab === 'doctor' && <div className="doctor-body">
         <ProjectStoragePanel status={storageStatus} checking={storageChecking} error={storageError} onRecheck={onRecheckStorage}/>
         <div className="doctor-intro"><HeartPulse size={24}/><div><strong>System check</strong><span>Checks the app, media tools, caption timing, AI connection, and local storage. The report excludes your API key.</span></div><button className="primary" aria-disabled={busy || doctorLoading || undefined} aria-busy={doctorLoading || undefined} aria-describedby={`system-check-status${doctorLoadState === 'error' ? ' system-check-error' : ''}`} onClick={() => { if (!busy && !doctorLoading) onRunDoctor(); }}>{doctorLoading ? 'Running checks…' : doctorLoadState === 'error' ? 'Retry system check' : 'Run checks'}</button></div>
         <p id="system-check-status" className="profile-form-feedback" role="status" aria-live="polite" aria-atomic="true">{doctorLoading ? `Checking system…${doctor ? ' The last loaded report remains below.' : ''}` : doctorLoadState === 'ready' ? 'System check complete.' : ''}</p>
@@ -245,7 +276,7 @@ export function ProfileDoctor({
           </div>)}</div>
         </>}
       </div>}
-      </>}
+      {confirmationDialog}
     </section>
   </div>;
 }

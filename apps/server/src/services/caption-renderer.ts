@@ -11,11 +11,15 @@ export async function fontCapabilities() {
   return discoverCaptionFonts();
 }
 
+export class CaptionFontUnavailableError extends Error {
+  readonly code = 'font-unavailable';
+}
+
 /** Reject a changed typeface/weight rather than quietly restyling a creator's work. */
 export function requireCaptionFont(fonts: VideoExportFontCapability[], appearance: CaptionAppearance) {
   const font = fonts.find((item) => item.name === appearance.fontFamily && item.available);
-  if (!font) throw new Error(`The saved font “${appearance.fontFamily}” is unavailable. Choose an available font in Appearance; your saved choice has not been changed.`);
-  if (appearance.bold && !font.boldAvailable) throw new Error(`Bold “${appearance.fontFamily}” is unavailable. Turn off Bold or choose a font with an installed bold face in Appearance.`);
+  if (!font) throw new CaptionFontUnavailableError(`The saved font “${appearance.fontFamily}” is unavailable. Choose an available font in Appearance; your saved choice has not been changed.`);
+  if (appearance.bold && !font.boldAvailable) throw new CaptionFontUnavailableError(`Bold “${appearance.fontFamily}” is unavailable. Turn off Bold or choose a font with an installed bold face in Appearance.`);
   return font;
 }
 

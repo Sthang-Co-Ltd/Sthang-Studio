@@ -964,7 +964,9 @@ test('failed replacement keeps old media and edits typed while the request is pe
     await expect.poll(() => requested).toBe(true);
     await field.fill('Keep this edit after replacement failure');
     release();
-    await expect(page.getByRole('alert')).toContainText('Synthetic replacement failure');
+    const dialog = page.getByRole('dialog', { name: 'Replace media', exact: true });
+    await expect(dialog.getByRole('alert')).toHaveText('The saved project still uses the previous source. You can try the media change again.');
+    await expect(dialog.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
     await expect(field).toHaveValue('Keep this edit after replacement failure');
     await expect(page.locator('.project-title')).toContainText('autosave pending');
@@ -1343,6 +1345,11 @@ test('failed dirty-caption save blocks correction navigation', async ({ page }) 
   await page.getByRole('button', { name: 'Review audio', exact: true }).click();
   await expect.poll(() => saveCalls).toBe(2);
   expect(saveSources).toEqual(['text-edit', 'manual-save']);
+  const inbox = page.getByRole('dialog', { name: 'Correction Inbox', exact: true });
+  await expect(inbox.getByRole('alert')).toContainText('Your current edits could not be saved.');
+  expect(targetReads).toBe(0);
+  await inbox.getByRole('button', { name: 'Return to edits', exact: true }).click();
+  await expect(inbox).toBeHidden();
   const failure = page.getByRole('alert').filter({ hasText: "Couldn't save changes" });
   await expect(failure).toContainText('Synthetic correction pre-save failure');
   await expect(failure.getByRole('button', { name: 'Retry save', exact: true })).toBeEnabled();
@@ -1352,7 +1359,7 @@ test('failed dirty-caption save blocks correction navigation', async ({ page }) 
   await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
   await expect(page.locator('.project-title')).toContainText("Couldn't save changes");
   await expect(page.locator('video')).toHaveAttribute('src', '/media/landscape.mp4');
-  await page.keyboard.press('Escape');
+  await expect(failure.getByRole('button', { name: 'Retry save', exact: true })).toBeFocused();
   // Save failures must outlive the ordinary 4.2-second notice lifetime.
   await page.waitForTimeout(4600);
   await expect(failure).toBeVisible();

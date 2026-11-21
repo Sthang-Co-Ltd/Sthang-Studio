@@ -351,7 +351,7 @@ for (const focusEntry of ['pointer', 'keyboard'] as const) test('5,000-row mobil
       workbenchScroll: workbench.scrollTop, focused: document.activeElement === node };
   }), { message: 'The recovery footer must keep the already-focused caption visible.' }).toMatchObject({ visible: true })
     .catch(error => { throw new Error(`Focused caption geometry: ${JSON.stringify({ beforeFooter, afterFooter: visibilityGeometry })}`, { cause: error }); });
-  await expect(page.locator('.caption-panel .panel-head-copy')).toContainText('Follow paused');
+  await expect(page.getByRole('button', { name: 'Follow playback', pressed: false })).toBeVisible();
   // The mobile recovery footer is in the layout, with its action reachable by
   // keyboard and pointer without crossing the sticky video or browser edge.
   await expect.poll(() => downloadAction.evaluate((node: HTMLButtonElement) => {

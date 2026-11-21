@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ClipboardPaste,
@@ -28,6 +28,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   const [model, setModel] = useState(settings.model);
   const [fallbackModel, setFallbackModel] = useState(settings.fallbackModel);
   const [showKey, setShowKey] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(settings.configured);
   const [working, setWorking] = useState<'save' | 'test' | 'forget' | 'paste' | ''>('');
   const [result, setResult] = useState<LlmConnectionTest | null>(null);
   const [message, setMessage] = useState('');
@@ -38,16 +39,23 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   const pending = useRef(false);
   const keyInput = useRef<HTMLInputElement>(null);
   const pasteButton = useRef<HTMLButtonElement>(null);
+  const feedbackTrigger = useRef<HTMLButtonElement | null>(null);
   const { confirm, confirmationDialog } = useStudioConfirm();
   const pasteShortcut = navigator.platform.toLowerCase().includes('mac') ? 'Command+V' : 'Ctrl+V';
   useEffect(() => () => { lifetime.current++; }, []);
+  useLayoutEffect(() => {
+    const trigger = feedbackTrigger.current;
+    if ((error || message || result) && trigger && document.activeElement === trigger) {
+      trigger.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
+  }, [error, message, result]);
 
   useEffect(() => {
     if (!edited.current.model) setModel(settings.model);
     if (!edited.current.fallback) setFallbackModel(settings.fallbackModel);
   }, [settings.model, settings.fallbackModel]);
 
-  const resetFeedback = () => { setError(''); setMessage(''); setResult(null); };
+  const resetFeedback = () => { feedbackTrigger.current = null; setError(''); setMessage(''); setResult(null); };
 
   const pasteKey = async () => {
     if (pending.current) return;
@@ -76,9 +84,10 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     }
   };
 
-  const save = async () => {
+  const save = async (trigger: HTMLButtonElement) => {
     if (pending.current) return;
     resetFeedback();
+    feedbackTrigger.current = trigger;
     if (!settings.configured && !apiKey.trim()) {
       setError('Paste a Gemini API key before saving.');
       return;
@@ -110,13 +119,14 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     }
   };
 
-  const test = async () => {
+  const test = async (trigger: HTMLButtonElement) => {
     if (pending.current) return;
     pending.current = true;
     const owner = lifetime.current;
     const revision = JSON.stringify(revisions.current);
     const current = () => lifetime.current === owner && JSON.stringify(revisions.current) === revision;
     resetFeedback();
+    feedbackTrigger.current = trigger;
     setWorking('test');
     try {
       const next = await onTest({ apiKey: apiKey.trim() || undefined, model: model.trim() });
@@ -165,9 +175,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
         <strong>{settings.configured ? 'Gemini key available' : 'Connect Gemini to generate captions'}</strong>
-        <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'Add a Gemini API key to generate captions.'}</span>
+        <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'You can import media and edit captions before connecting.'}</span>
       </div>
-      <div className={`ai-status-pill ${settings.configured ? 'ready' : 'setup'}`}>{settings.configured ? 'Configured' : 'Setup needed'}</div>
     </div>
 
     <div className="ai-settings-grid">
@@ -195,15 +204,15 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
         <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'Your operating-system account protects the saved key. Profile exports exclude it.' : 'Set a server environment variable on this platform.'}</span></div></div>
       </section>
 
-      <section className="ai-settings-section">
-        <div className="ai-section-title"><div><strong>Models</strong><span>Use the defaults or enter another Gemini model ID.</span></div></div>
+      <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>
+        <summary>Model settings</summary>
         <div className="ai-model-grid">
           <label><span>Primary model</span><input list="gemini-model-options" value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>
           <label><span>Fallback model <em>optional</em></span><input list="gemini-model-options" value={fallbackModel} onChange={(event) => { revisions.current.fallback++; edited.current.fallback = true; setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
           <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-4-hydrogen"/><option value="gemini-3.6-flash"/></datalist>
         </div>
-        <p className="ai-model-help">Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Gemini 4 Hydrogen is also an option. These caption models use low thinking. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p>
-      </section>
+        <details className="ai-model-help"><summary>About these models</summary><p>Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Gemini 4 Hydrogen is also an option. These caption models use low thinking. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p></details>
+      </details>
     </div>
 
     {result && <div className={`ai-test-result ${result.level}`} role="status">
@@ -215,8 +224,8 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     <div className="ai-settings-actions">
       {settings.canForgetSecureKey && <button className="danger-quiet" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'forget' || undefined} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}Forget saved key</button>}
       <span>{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'No settings saved yet'}</span>
-      <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={() => void test()}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
-      <button className="primary" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={() => void save()}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
+      <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={(event) => void test(event.currentTarget)}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
+      <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={(event) => void save(event.currentTarget)}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
     </div>
     {confirmationDialog}
   </div>;

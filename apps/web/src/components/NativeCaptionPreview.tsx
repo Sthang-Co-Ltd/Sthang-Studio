@@ -21,6 +21,7 @@ interface Props {
   focusKey: string;
   focusIndices: number[];
   fontRevision?: number;
+  onChooseFont?: (trigger: HTMLButtonElement) => void;
 }
 
 type ImageFrame = CaptionPreviewFrame & { width: number; height: number; appearance: CaptionAppearance; resolution: VideoResolutionPreset };
@@ -28,7 +29,7 @@ interface PreviewSession {
   signature: string;
   cache: Map<string, ImageFrame>;
   pending: Set<string>;
-  error: string;
+  error: { message: string; code: string } | null;
   blockedCueKey: string | null;
   retries: number;
   prefetchBlockedKey: string | null;
@@ -129,7 +130,7 @@ export interface NativeCaptionPreviewHandle {
   prepareReplay(startMs: number, endMs: number, signal: AbortSignal): Promise<boolean>;
 }
 
-export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, recoveryFocusTarget, mediaElement, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0 }, ref) {
+export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, recoveryFocusTarget, mediaElement, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0, onChooseFont }, ref) {
   const normalizedAppearance = useMemo(() => normalizeCaptionAppearance(appearance), [appearance]);
   const highlightWords = normalizedAppearance.highlightMode === 'word';
   const motionPreset = normalizedAppearance.motionPreset;
@@ -290,7 +291,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       activeRequest.current?.cancel();
       activeRequest.current = null;
       if (session.current?.signature !== signature) {
-        session.current = { signature, cache: new Map(), pending: new Set(), error: '', blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
+        session.current = { signature, cache: new Map(), pending: new Set(), error: null, blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
       }
       const current = session.current;
       const selected = captionPreviewReplayStates(states, startMs, endMs);
@@ -302,7 +303,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       signal.addEventListener('abort', cancel, { once: true });
       let timedOut = false;
       const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 20_000);
-      current.error = '';
+      current.error = null;
       current.blockedCueKey = null;
       redraw();
       try {
@@ -350,7 +351,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             ? 'Preparing the effect preview was interrupted. Try Replay effect again.'
             : normalized.message);
         if (session.current === current) {
-          current.error = error.message;
+          current.error = { message: error.message, code: timedOut ? '' : normalized.code };
           current.blockedCueKey = normalized.code === 'CAPTION_OVERFLOW' ? state?.key || '' : null;
         }
         throw error;
@@ -371,7 +372,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       replayPreparation.current = null;
     }
     if (session.current?.signature !== signature) {
-      session.current = { signature, cache: new Map(), pending: new Set(), error: '', blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
+      session.current = { signature, cache: new Map(), pending: new Set(), error: null, blockedCueKey: null, retries: 0, prefetchBlockedKey: null };
     }
     const current = session.current;
     const playback = media.current;
@@ -423,7 +424,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     }
     if (index < 0 && liveTimeMs >= (states.at(-1)?.endMs ?? 0)) return;
     if (current.blockedCueKey !== null && current.blockedCueKey !== currentState?.key) {
-      current.error = '';
+      current.error = null;
       current.blockedCueKey = null;
       // The newly selected cue may already be cached, so no fetch completion
       // would otherwise repaint this ref-only warning change while paused.
@@ -588,7 +589,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
               current.retries += 1;
               return;
             }
-            current.error = error.message;
+            current.error = error;
             current.blockedCueKey = error.code === 'CAPTION_OVERFLOW' ? currentState?.key || '' : null;
           }
         } finally {
@@ -636,7 +637,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
       }
     }
-    current.error = ''; current.blockedCueKey = null; current.retries = 0; redraw();
+    current.error = null; current.blockedCueKey = null; current.retries = 0; redraw();
   };
 
   return <>
@@ -653,7 +654,9 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
     </div>}
     {image && !exactImage && !error && <div className="native-preview-refining">{transform ? 'Interactive preview · refining layout…' : 'Updating caption appearance…'}</div>}
     {state?.key && (!image || error) && <div className={`native-preview-status ${error ? 'error' : ''}`} role="status">
-      <span>{error || 'Preparing caption preview…'}</span>{error && <button type="button" onClick={(event) => retry(event.currentTarget)}>Retry preview</button>}
+      <span>{error?.message || 'Preparing caption preview…'}</span>
+      {error?.code === 'font-unavailable' && onChooseFont && <button type="button" onClick={(event) => onChooseFont(event.currentTarget)}>Choose another font</button>}
+      {error && <button type="button" onClick={(event) => retry(event.currentTarget)}>Retry preview</button>}
     </div>}
   </>;
 });

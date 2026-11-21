@@ -119,6 +119,7 @@ test('profile import handles invalid files and same-file retry inline while pres
   expect(imports).toBe(0); expect(browserDialogs).toBe(0);
   const imported = { ...state.profile, defaultVocabulary: ['Imported term'] };
   await selectFile(JSON.stringify(imported));
+  await page.getByRole('button', { name: 'Replace profile', exact: true }).click();
   await expect(settings(page).getByRole('button', { name: 'Retry import', exact: true })).toBeEnabled();
   await expect(glossary(page)).toHaveValue('Keep draft កម្ពុជា');
   await expect(packName(page)).toHaveValue('Keep pack name');

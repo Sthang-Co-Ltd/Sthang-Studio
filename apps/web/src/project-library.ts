@@ -32,7 +32,7 @@ function compareIdentity(a: CaptionProjectSummary, b: CaptionProjectSummary): nu
   return titleOrder.compare(a.title, b.title) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-export function selectProjectLibrary(projects: readonly CaptionProjectSummary[], view: ProjectLibraryView) {
+export function selectProjectLibrary(projects: readonly CaptionProjectSummary[], view: ProjectLibraryView, locateId?: string) {
   const query = normalizeProjectSearch(view.query);
   const matches = projects.filter((project) => !query || normalizeProjectSearch(project.title).includes(query));
   matches.sort((a, b) => {
@@ -42,7 +42,8 @@ export function selectProjectLibrary(projects: readonly CaptionProjectSummary[],
   });
   const pages = Math.max(1, Math.ceil(matches.length / PROJECT_LIBRARY_PAGE_SIZE));
   const requestedPage = Number.isFinite(view.page) ? Math.trunc(view.page) : 1;
-  const page = Math.max(1, Math.min(pages, requestedPage));
+  const index = locateId ? matches.findIndex((item) => item.id === locateId) : -1;
+  const page = index >= 0 ? Math.floor(index / PROJECT_LIBRARY_PAGE_SIZE) + 1 : Math.max(1, Math.min(pages, requestedPage));
   const offset = (page - 1) * PROJECT_LIBRARY_PAGE_SIZE;
   return {
     items: matches.slice(offset, offset + PROJECT_LIBRARY_PAGE_SIZE),

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Keep the playhead in view when zooming Fine timing. Use the arrow keys to seek
+  on the waveform or to pan its separate time-range slider.
+- Return directly to interrupted jobs in Activity and check whether a request
+  was accepted after losing its reply. Export retains an unfinished preset name
+  across appearance edits and preserves a custom bitrate when reselecting quality.
+  The missing-font action takes you to the font picker in Appearance.
+- When a project switch is blocked by unsaved edits, return to the edits from
+  Activity or the Correction inbox. Reloading a conflict opens the same project
+  so you can compare your draft with the saved captions.
+- After repairing caption setup, run System check to refresh the Generate captions
+  action. Studio offers a retry if it cannot confirm the repair.
+
+- Return to the same project in a large library and replay a saved correction at
+  its recorded time, including from History after the inbox is clear.
+- Review the scope of a profile import before replacing settings. After an
+  interrupted media replacement, check which source was saved before retrying.
+
 - Fix Studio setup and the restart after an update on Windows PCs that block running programs from the current folder.
 
 - Apply word highlights in one local pass from Appearance. Follow saved caption

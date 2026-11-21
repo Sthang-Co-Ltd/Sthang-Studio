@@ -28,7 +28,7 @@ async function advancedFormats(page: Page) {
 }
 async function assMode(page: Page) {
   await captionsMode(page); await advancedFormats(page);
-  await page.getByRole('button', { name: /^ASS ASS/ }).click();
+  await page.getByRole('group', { name: 'Advanced caption format' }).getByRole('button', { name: /^ASS\b/ }).click();
 }
 function deferred() {
   let resolve!: () => void;
@@ -225,6 +225,9 @@ test('long issue lists have keyboard pagination and readable mobile touch contro
   state.projects[0].transcript!.tokens = [];
   await openExport(page); await captionsMode(page); await showIssues(page);
   await expect(checks(page).locator('.export-check-item')).toHaveCount(8);
+  const firstIssue = checks(page).locator('.export-check-item').first();
+  await expect(firstIssue.locator('.export-check-title strong')).toContainText('timing needs a careful listen');
+  await expect(firstIssue.getByText('Review suggestion', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next issues', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Check before export' })).toBeFocused();

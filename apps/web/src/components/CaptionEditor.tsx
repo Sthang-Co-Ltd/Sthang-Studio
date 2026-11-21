@@ -122,8 +122,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   useLayoutEffect(() => { liveRowAction.current = committedRowAction; });
   const wordsNeedingReview = useMemo(() => new Set(highlightEnabled ? captions.filter((caption) => highlightAttention(caption) === 'needs-attention').map((caption) => caption.id) : []), [captions, highlightEnabled]);
   const issueMap = useMemo(() => new Map(issues.map((issue) => [issue.captionId, issue])), [issues]);
+  const reviewIncludes = (caption: CaptionSegment) => issueMap.has(caption.id) && !caption.approved;
   const visible = useMemo(
-    () => reviewMode ? captions.filter((caption) => issueMap.has(caption.id) && !caption.approved) : captions,
+    () => reviewMode ? captions.filter(reviewIncludes) : captions,
     [captions, issueMap, reviewMode],
   );
   useLayoutEffect(() => {
@@ -217,7 +218,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
         if (bounds.height > 0 && bounds.left < popup.right && bounds.right > popup.left) bottom = Math.min(bottom, bounds.top - 8);
       }
       const above = Math.max(0, buttonBox.top - top - 8);
-      const below = Math.max(0, bottom - buttonBox.bottom - 8);
+      const below = bottom - buttonBox.bottom - 8;
       const up = below < menu.scrollHeight && above > below;
       const height = Math.floor(up ? above : below);
       const first = menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
@@ -365,7 +366,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   }));
 
   useEffect(() => {
-    if (!followPlayback || !active) return;
+    // A newly mounted editor can still have a Follow effect queued for time zero
+    // after the Correction Inbox has handed focus to its recorded caption.
+    if (!followPlayback || !active || document.activeElement?.hasAttribute('data-caption-id')) return;
     reveal(active, 'smooth', false);
   }, [active, followPlayback]);
 
@@ -523,6 +526,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const first = captions[index];
     const second = captions[index + 1];
     if (!first || !second || first.textLocked || first.timingLocked || second.textLocked || second.timingLocked) return;
+    if (reviewMode && !reviewIncludes(second)) return;
     const merged = mergeCaptionsForEditing(first, second, crypto.randomUUID());
     if (!merged) return;
     preserveViewport(first.id, merged.id, () => {
@@ -581,6 +585,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       if (!caption) return false;
       switch (event.type) {
         case 'focus':
+          // A correction handoff selects the row before starting its excerpt.
+          // Keep the recorded caption in place while surrounding speech plays.
+          if (event.target === rows.current[id]) { setFollowPlayback(false); return; }
           if (pointerActionFocus.current === event.target) { pointerActionFocus.current = null; return; }
           onSelect(id, false); return;
         case 'click': onSelect(id, event.extend); onSeek(caption.startMs); return;
@@ -634,8 +641,10 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
         const index = captionIndexMap.get(caption.id) ?? -1;
         const issue = issueMap.get(caption.id);
         const destructiveLocked = caption.textLocked || caption.timingLocked;
+        const nextCaption = captions[index + 1];
+        const hiddenNeighbor = reviewMode && nextCaption && !reviewIncludes(nextCaption);
         const nextLocked = captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked;
-        const mergeHint = destructiveLocked && nextLocked ? 'Unlock both captions first' : destructiveLocked ? 'Unlock this caption first' : nextLocked ? 'Unlock the next caption first' : '';
+        const mergeHint = hiddenNeighbor ? `Show all captions to merge with caption ${index + 2}` : destructiveLocked && nextLocked ? 'Unlock both captions first' : destructiveLocked ? 'Unlock this caption first' : nextLocked ? 'Unlock the next caption first' : '';
         return <CaptionRow key={caption.id} caption={caption} index={index}
           active={active === caption.id} selected={selected.has(caption.id)} reviewMode={reviewMode}
           lower={neighborLimits.get(caption.id)?.lower ?? 0} upper={neighborLimits.get(caption.id)?.upper ?? durationMs}
@@ -657,7 +666,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
               <button role="menuitem" data-menu-label="Move earlier" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'earlier' }); }}><span className="menu-micro">−100 ms</span><span className="caption-action-copy">Move earlier{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
               <button role="menuitem" data-menu-label="Move later" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'later' }); }}><span className="menu-micro">+100 ms</span><span className="caption-action-copy">Move later{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
               <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'split' }); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
-              {index < captions.length - 1 && <button role="menuitem" data-menu-label="Merge with next" disabled={destructiveLocked || nextLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'merge' }); }}><Combine size={14}/><span className="caption-action-copy">Merge with next{mergeHint && <small>{mergeHint}</small>}</span></button>}
+              {index < captions.length - 1 && <button role="menuitem" data-menu-label="Merge with next" disabled={Boolean(hiddenNeighbor || destructiveLocked || nextLocked)} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'merge' }); }}><Combine size={14}/><span className="caption-action-copy">Merge with next{mergeHint && <small>{mergeHint}</small>}</span></button>}
               <div className="caption-menu-divider"/>
               <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'remove' }); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
             </div>}
@@ -667,16 +676,16 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     openMenuId, menuPresence.present, menuPresence.value, menuPresence.open, menuPlacement.up, menuPlacement.height,
     hasWordTiming, registerRow, registerText, dispatchRowAction]);
 
-  return <div className="caption-panel">
+  return <div className="caption-panel" data-empty={captions.length === 0 || undefined}>
     <div className="panel-head">
       <div className="panel-head-copy">
         <PanelHeaderGrip pane="captions">{reviewMode ? 'Review queue' : 'Captions'}</PanelHeaderGrip>
-        <span>{visible.length} shown · {captions.length} total · {followPlayback ? 'Following playback' : 'Follow paused'}</span>
+        <span>{reviewMode ? `${visible.length} to review` : `${captions.length} caption${captions.length === 1 ? '' : 's'}`}</span>
       </div>
       <div className="panel-tools">
         <button className="panel-tool" data-tooltip="Jump to the caption at the playhead" data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
-        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>{followPlayback ? 'Following' : 'Follow'}</span></button>
-        <button className="icon-btn" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={17}/></button>
+        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} aria-pressed={followPlayback} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>Follow playback</span></button>
+        <button className="panel-tool" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={15}/><span>Add</span></button>
       </div>
     </div>
     <div
@@ -686,7 +695,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onTouchMove={pauseFollowForBrowsing}
       onScroll={() => { snapshotReviewViewport(); if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
-      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'No captions yet. Add one to start.'}</div>}
+      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'Use Add to write a caption manually.'}</div>}
       {renderedRows}
     </div>
   </div>;

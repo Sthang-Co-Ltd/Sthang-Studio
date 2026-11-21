@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
 });
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
 const glossary = (page: Page) => settings(page).getByLabel('Global protected vocabulary', { exact: true });
-const tools = (page: Page) => page.getByRole('navigation', { name: 'Caption workspace tools', exact: true });
+const review = (page: Page) => page.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
 function deferred() {
   let release!: () => void;
   const promise = new Promise<void>((resolve) => { release = resolve; });
@@ -70,7 +70,7 @@ test('a delayed Settings glossary receipt keeps a newer Review preference and Fi
     await settings(page).getByRole('button', { name: 'Save glossary', exact: true }).click();
     await expect.poll(() => glossaryWrites).toBe(1);
     await closeProfile(page);
-    await tools(page).getByRole('button', { name: /^Review/ }).click();
+    await review(page).click();
     await page.getByRole('checkbox', { name: 'Auto-play next', exact: true }).check();
     await expect.poll(() => state.profile.preferences.autoPlayNextReview).toBe(true);
     await rememberCorrection(page);
@@ -143,7 +143,7 @@ test('independent Review preferences send only their changed keys and survive re
   });
   try {
     await openProject(page);
-    await tools(page).getByRole('button', { name: /^Review/ }).click();
+    await review(page).click();
     const autoplay = page.getByRole('checkbox', { name: 'Auto-play next', exact: true });
     await autoplay.check();
     await expect.poll(() => writes.length).toBe(1);
@@ -178,6 +178,7 @@ test('a delayed profile import preserves newer raw Accuracy text while importing
   try {
     await openProject(page); await openProfile(page);
     await settings(page).locator('input[type=file]').setInputFiles({ name: 'studio-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(imported)) });
+    await page.getByRole('button', { name: 'Replace profile', exact: true }).click();
     await expect.poll(() => imports).toBe(1);
     await closeProfile(page);
     const accuracy = await openAccuracy(page);

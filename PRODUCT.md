@@ -94,13 +94,13 @@ existing flagged queue, decisions and playback rules.
 
 Reordering requires browser support for matching visual and keyboard reading
 order; unsupported browsers retain the canonical order and working resizing.
-Smaller screens keep preview first, retain the desktop preference, use the same
-preview height across tools, and retain access to the
-caption list and tool controls through scrolling. Appearance starts with Looks,
+Smaller screens keep preview first and retain the desktop preference. Current source
+uses a compact preview while a tool is open so its controls are easier to reach.
+The caption list and tools remain available through scrolling. Appearance starts with Looks,
 font, color, size and position; Motion, word highlighting, saved presets and
 additional styling use labeled disclosures. Existing saved settings, native
 preview/export behavior and all editing actions retain their existing meaning.
-These controls are included in the verified 0.89.0 packages and signed offers.
+The desktop arrangement controls shipped in the verified 0.89.0 packages and signed offers.
 
 ## Caption appearance contract
 
@@ -510,7 +510,8 @@ Search includes projects beyond the current page and preserves Khmer text.
 Reopening fetches the current saved project through the existing navigation,
 save-conflict, and unfinished-draft recovery protections. A later project choice
 or a return to Home cancels ownership of an earlier pending read. The collection's
-search, ordering and page remain in the current tab while its editor is open.
+search and ordering remain in the current tab while its editor is open. On
+return, focus follows that project to its current page when it still matches.
 Listing/searching uses existing local metadata and does not load every caption
 body, start processing, or transfer searches to a provider. Returning to Home or
 All projects, bringing that collection back to the foreground, and explicit
@@ -709,6 +710,10 @@ available from Windows source folders containing spaces, without reloading the
 editor or discarding its draft. Explicit Retry keeps keyboard focus on the
 persistent Close tool control while loading, including below the mobile preview.
 
+Importing media, editing captions manually and downloading SRT are available before AI setup.
+The empty project library offers Create a project, which focuses the file picker. Users
+open Settings or Quick guide when they need them.
+
 Home explains when preferences or another task prevent importing, and shows
 Uploading only for an actual media import. Settings opens its existing sheet
 while startup data loads, offers Retry settings after failure, and keeps the
@@ -720,7 +725,8 @@ Optional startup-notice dismissal still closes after a failed local marker attem
 closing does not select or change either privacy choice.
 
 Find & Correct selects its prefilled query once on opening and identifies invalid
-regular expressions on the editable Find field. Project History guards duplicate
+regular expressions on the editable Find field. A blank replacement previews removal
+and names it on the action. Text locks protect matching captions. Project History guards duplicate
 refresh requests while preserving the visible entries and keyboard focus.
 Accuracy's Save globally confirms the submitted glossary against the saved result.
 Partial saves explain how to retry, preserve the full draft, and never claim every
@@ -785,7 +791,10 @@ saving a preset does not apply grouping to captions.
 
 Correction Inbox decisions retain keyboard position through pending, success and
 failure. A resolved Pending item advances to a surviving correction, or the
-Pending filter when none remain; History keeps the resolved card available.
+Pending filter when none remain. History keeps the resolved card available
+from Home after every decision is complete. Review audio keeps a failed project
+read on its original card. Success reveals the saved caption and plays its
+recorded excerpt with the configured surrounding audio.
 Export preset retries and confirmed deletions move focus to the persistent
 Manage presets control before their temporary actions disappear. Later responses
 preserve newer focus and form edits.
@@ -838,8 +847,10 @@ responses. Profile import keeps newer raw Accuracy drafts, while imported defaul
 remain available through the profile. Reopened Settings shows newer acknowledged
 glossary choices rather than an earlier save's snapshot.
 
-Profile import checks the required sections of a Studio profile file before
-replacing saved settings. Incomplete or mistyped sections leave the current profile,
+Profile import checks the required sections and asks whether to replace this
+computer’s profile. The confirmation names the file, the settings and correction
+data it replaces, and the effect on optional sharing. Keeping the current profile
+sends no import request. After a failed import, Retry uses the same confirmed file. Incomplete or mistyped sections leave the current profile,
 privacy choices and form drafts intact. Older exports may omit newer optional
 appearance and video-output fields; existing normalization still applies.
 
@@ -893,8 +904,12 @@ Video export consumes the reviewed saved look without rewriting it. A newer save
 look discovered during preparation requires reopening Export to review it.
 
 Failed or interrupted background processing names its project in a nonmodal notice.
-Open Activity is deliberate and returns keyboard focus to a persistent control on
-close. A completed job whose result cannot be read stays completed; Open result
+Open Activity from a job notice reveals and focuses that specific job, even deep
+in a full history. Closing Activity returns focus to a persistent control.
+Interrupted job submissions offer a read of Activity. On the same media, a lost
+reply remains checkable when the user dismisses its notice or visits another
+project. A failed Resume or Cancel reports its outcome on the originating job.
+A completed job whose result cannot be read stays completed; Open result
 retries loading without requesting generation again. Background completion keeps
 newer captions, Accuracy edits and deliberate Activity visits authoritative.
 Open result shows pending feedback and ignores repeated activation. Closing

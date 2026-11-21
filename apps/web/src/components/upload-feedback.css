@@ -9,6 +9,7 @@
 .upload-recovery strong{font-size:14px}
 .upload-recovery p{margin:8px 0 0;color:var(--muted)}
 .upload-recovery .upload-recovery-filename{color:inherit}
+.empty-stage .dropzone.recovering-upload{min-height:44px;height:auto;padding:9px 12px;border:0;box-shadow:none;background:transparent}.empty-stage .recovering-upload strong{font-size:13px;color:var(--muted);font-weight:500}.upload-recovery-actions .upload-recovery-primary{background:var(--accent);border-color:var(--accent);color:#131710;font-weight:650}
 .upload-recovery-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .upload-recovery-actions button{min-height:44px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:#171a20;text-align:left;cursor:pointer}
 .upload-recovery-actions button:disabled,.upload-recovery-actions button[aria-disabled=true]{cursor:default;opacity:.55}
