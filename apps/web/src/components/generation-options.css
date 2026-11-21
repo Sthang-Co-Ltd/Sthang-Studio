@@ -67,12 +67,33 @@
 .generation-options fieldset:enabled .generation-model-choice:hover { background: #2b2f35; }
 .generation-options fieldset:disabled .generation-model-choice { opacity: .65; cursor: default; }
 .generation-options summary:focus-visible,
+.generation-options .generation-model-apply:focus-visible,
 .generation-model-choice:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 @media (forced-colors: active) {
   .generation-model-choice:has(:checked) { border-color: Highlight; }
 }
 .generation-options p{margin:0;color:#aab4bf;font-size:13px;line-height:1.6}
 .generation-options [role=status]{color:#aab4bf;font-size:12px;min-height:18px}
+.generation-options .generation-options-footer {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.generation-options .generation-model-apply {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #555f6d;
+  border-radius: 8px;
+  background: #20252c;
+  color: #edf1f5;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.generation-model-apply[aria-disabled=false]:hover { background: #2b3038; }
+.generation-options .generation-model-apply[aria-disabled=true] { color: #aab4bf; border-color: #3d444d; cursor: default; }
 .transcribe-card>.generation-options{grid-column:1/-1}
 .transcribe-card>.generation-accuracy{grid-column:1/-1;display:flex;flex-flow:row wrap;align-items:center;gap:8px 12px;padding:10px 12px;border:1px solid #3d444d;border-radius:10px;background:#191c20}
 .transcribe-card .generation-accuracy-copy{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:8px;flex:1 1 180px;min-width:0;color:#d9dde3}
@@ -84,4 +105,4 @@
 .generation-accuracy>button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .transcribe-card>.generation-accuracy+.generation-options{margin-top:0}
 .transcribe-card>.primary{grid-column:1/-1;justify-content:center}
-@media(max-width:620px){.generation-options>summary,.generation-options .generation-model-choice,.transcribe-card .generation-accuracy>button{min-height:44px}}
+@media(max-width:620px){.generation-options>summary,.generation-options .generation-model-choice,.generation-options .generation-model-apply,.transcribe-card .generation-accuracy>button{min-height:44px}}

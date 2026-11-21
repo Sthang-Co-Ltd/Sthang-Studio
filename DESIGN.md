@@ -143,7 +143,7 @@ When no advanced workspace is selected, do not reserve a blank tool canvas benea
 
 ### Generate caption AI options
 
-Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary pairs the selected model name with its mark.
+Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary pairs the saved model name with its mark.
 Opening it exposes one native **Caption model** radio group. A wand identifies **Automatic**, and the Gemini mark accompanies **Gemini 3.8 Flash**,
 **Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
 this project and leaves global settings unchanged. Existing projects start with
@@ -156,11 +156,11 @@ control in the generation workflow; AI connection settings may explain that poli
 
 For projects with captions, expose the same options in Accuracy beside full
 regeneration. Expand options after a model-related generation failure. Keep the
-selector disabled while its save or generation admission is pending, show saving
-state, and retain the previous saved choice with a shared error toast on failure.
-When a focused picker changes, move focus to the persistent **AI options** summary
-before saving disables the picker. Reveal that target immediately and leave newer
-focus alone when the save settles; Tab can return to the picker once it is ready.
+selector disabled while its save or generation admission is pending. Arrow keys
+move through the radio group and select a draft. **Apply model** saves that draft
+for the project. The summary and generation actions use the last saved model.
+Keep Apply focusable during the save and leave focus where the user moves it.
+On failure, show the shared error toast and keep the draft available for retry.
 Use a full-width bordered disclosure row with the current choice, a right-hand
 chevron, and clear hover and keyboard-focus states so AI options reads as a control.
 Preserve labeled keyboard focus and 44px mobile controls. Details continues to

@@ -1431,7 +1431,7 @@ export default function App() {
   const generationOptions = project ? <GenerationOptions key={mediaKey} value={project.generationModel}
     disabled={!!busy || !!currentProjectActiveJob || !!mediaMutationStatus || generationPreparing} saving={generationModelSaving}
     expandAfterError={latestCaptionJob?.status === 'failed' && /google|gemini|model|safety/i.test(latestCaptionJob.error || '')}
-    onChange={saveGenerationModel}/> : null;
+    onApply={saveGenerationModel}/> : null;
 
   const selection = useCaptionSelection(draft, selectionAnchor, selectionEnd, time * 1000);
   const selectionIntent = useRef({ ids: [] as string[], startMs: 0, endMs: 0 });

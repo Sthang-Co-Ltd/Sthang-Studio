@@ -44,8 +44,9 @@ Everything else is secondary and should appear progressively, at the moment it b
 ## Project caption model choice
 
 Current source exposes a collapsed **AI options** disclosure with Automatic,
-Gemini 3.8 Flash, Gemini 4 Hydrogen, and Gemini 3.6 Flash. The choice saves locally for this project;
-it does not change Settings or another project. Automatic uses the configured
+Gemini 3.8 Flash, Gemini 4 Hydrogen, and Gemini 3.6 Flash. **Apply model** saves the
+selected choice locally for this project. The summary and new caption jobs use the
+last saved choice. Automatic uses the configured
 primary/fallback policy. An explicit model uses only that model for new generation,
 range regeneration, Alternative take, and Deep Verify. Exact-word local realignment
 still makes no AI request. Details retains the actual model that produced wording.

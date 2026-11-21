@@ -37,6 +37,7 @@ const modelNames = {
 } as const;
 type ModelId = keyof typeof modelNames;
 const modelGroup = (page: Page) => page.getByRole('group', { name: 'Caption model', exact: true });
+const applyModel = (page: Page) => page.getByRole('button', { name: 'Apply model', exact: true });
 const radio = (group: Locator, id: ModelId) => group.getByRole('radio', { name: modelNames[id], exact: true });
 const modelRow = (group: Locator, id: ModelId) => group.locator('label').filter({ hasText: modelNames[id] });
 async function expectModelMark(container: Locator, id: ModelId) {
@@ -377,7 +378,8 @@ test('Generate offers all four choices, saves Hydrogen per project, survives reo
     await expect(radio(group, value)).toBeChecked();
     await expect(group.locator('.generation-model-check')).toHaveCount(1);
     await expect(modelRow(group, value).locator('.generation-model-check')).toBeVisible();
-    await expect(page.getByRole('status').filter({ hasText: 'Saved for this project' })).toBeVisible();
+    await applyModel(page).click();
+    await expectSummaryModel(page, value);
   }
   await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
@@ -393,18 +395,25 @@ test('Generate offers all four choices, saves Hydrogen per project, survives reo
   expect(state.requests.filter((r) => r.path === '/api/system/llm-settings' && r.method !== 'GET')).toEqual([]);
 });
 
-test('Generate waits for the choice save and submits Hydrogen exactly', async ({ page }) => {
+test('Generate waits for Apply and submits saved Hydrogen with a different draft', async ({ page }) => {
   const { transcript, captions } = state.projects[0];
   await initialProject(page); const group = await options(page);
   let release!: () => void; hold = new Promise<void>((resolve) => { release = resolve; });
   await modelRow(group, 'gemini-4-hydrogen').click();
+  await applyModel(page).click();
   await expect(group.getByRole('radio', { disabled: true })).toHaveCount(4);
+  await expectSummaryModel(page, 'automatic');
   await expect(page.getByRole('button', { name: 'Generate captions', exact: true })).toBeDisabled();
   expect(submissions).toHaveLength(0);
-  release(); await expect(radio(group, 'gemini-4-hydrogen')).toBeEnabled();
+  release();
+  await expectSummaryModel(page, 'gemini-4-hydrogen');
+  await modelRow(group, 'gemini-3.6-flash').click();
+  await expect(radio(group, 'gemini-3.6-flash')).toBeChecked();
+  await expectSummaryModel(page, 'gemini-4-hydrogen');
   await page.getByRole('button', { name: 'Generate captions', exact: true }).click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0].generationModel).toBe('gemini-4-hydrogen');
+  expect(modelWrites).toHaveLength(1);
   await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
   Object.assign(state.projects[0], { transcript, captions });
   state.jobs = [{ ...state.jobs[0], status: 'completed', stage: 'complete', progress: 100, resultProjectId: 'landscape' }];
@@ -417,34 +426,49 @@ test('Generate waits for the choice save and submits Hydrogen exactly', async ({
   await expect(toolbarAccuracy).toBeFocused();
 });
 
-test('failed option save restores the saved choice and keeps captions intact', async ({ page }) => {
+test('failed Apply preserves captions and the saved summary and can retry the same draft', async ({ page }) => {
   const captions = structuredClone(state.projects[0].captions);
   await openProject(page); await page.getByRole('button', { name: /^Accuracy/ }).click();
   const group = await options(page); failure = true;
   await modelRow(group, 'gemini-3.8-flash').click();
-  await expect(radio(group, 'automatic')).toBeEnabled(); await expect(radio(group, 'automatic')).toBeChecked();
+  await applyModel(page).click();
   await expect(page.getByText('Could not save AI options. Try again.', { exact: true })).toBeVisible();
-  await page.locator('.generation-options > summary').click();
-  await expect(group).toBeHidden();
+  await expect(radio(group, 'gemini-3.8-flash')).toBeChecked();
   await expectSummaryModel(page, 'automatic');
   expect(state.projects[0].captions).toEqual(captions); expect(state.projects[0].generationModel).toBeUndefined();
+  failure = false;
+  await applyModel(page).click();
+  await expectSummaryModel(page, 'gemini-3.8-flash');
+  expect(modelWrites.map((write) => write.generationModel)).toEqual(['gemini-3.8-flash', 'gemini-3.8-flash']);
 });
 
-test('full regeneration uses Hydrogen and locks the choice while prerequisite captions save', async ({ page }) => {
+test('full regeneration waits for Apply, uses saved Hydrogen, and locks the choice during the caption save', async ({ page }) => {
   await openProject(page); await page.getByRole('button', { name: /^Accuracy/ }).click();
-  const group = await options(page); await modelRow(group, 'gemini-4-hydrogen').click();
-  await expect(radio(group, 'gemini-4-hydrogen')).toBeEnabled();
+  const group = await options(page);
+  const regenerate = page.getByRole('button', { name: 'Preview full regeneration', exact: true });
+  let releaseModel!: () => void;
+  hold = new Promise<void>((resolve) => { releaseModel = resolve; });
+  await modelRow(group, 'gemini-4-hydrogen').click();
+  await applyModel(page).click();
+  await expect(regenerate).toBeDisabled();
+  await expectSummaryModel(page, 'automatic');
+  expect(submissions).toHaveLength(0);
+  releaseModel();
+  await expectSummaryModel(page, 'gemini-4-hydrogen');
+  await modelRow(group, 'gemini-3.8-flash').click();
+  await expect(radio(group, 'gemini-3.8-flash')).toBeChecked();
   let release!: () => void; const barrier = new Promise<void>((r) => { release = r; }); let entered = false;
   await page.route('**/api/projects/landscape/captions', async (route) => {
     entered = true; await barrier; const body = route.request().postDataJSON(); state.projects[0].captions = body.captions;
     return route.fulfill({ json: { project: state.projects[0], correctionsCreated: 0 } });
   });
   await page.getByLabel('Caption 1 text', { exact: true }).fill('Edited Khmer wording');
-  await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+  await regenerate.click();
   await expect.poll(() => entered).toBe(true);
   await expect(group.getByRole('radio', { disabled: true })).toHaveCount(4); expect(submissions).toHaveLength(0);
   release(); await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0].generationModel).toBe('gemini-4-hydrogen');
+  expect(modelWrites).toHaveLength(1);
 });
 
 test('a model-related failure reveals AI options and the selector remains usable on small screens', async ({ page }, info) => {
@@ -454,7 +478,9 @@ test('a model-related failure reveals AI options and the selector remains usable
   const group = modelGroup(page);
   const hydrogen = radio(group, 'gemini-4-hydrogen');
   const row = modelRow(group, 'gemini-4-hydrogen');
-  await row.click(); await expect(hydrogen).toBeEnabled();
+  await row.click();
+  await applyModel(page).click();
+  await expectSummaryModel(page, 'gemini-4-hydrogen');
   await page.screenshot({ path: info.outputPath('generation-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 320, height: 844 });
   await row.scrollIntoViewIfNeeded();
@@ -487,7 +513,9 @@ test('a delayed completed-job response cannot undo a newer saved model choice', 
   await expect.poll(() => reading).toBe(true);
   const flash = radio(group, 'gemini-3.6-flash');
   await expect(flash).toBeEnabled();
-  await modelRow(group, 'gemini-3.6-flash').click(); await expect(flash).toBeEnabled();
+  await modelRow(group, 'gemini-3.6-flash').click();
+  await applyModel(page).click();
+  await expectSummaryModel(page, 'gemini-3.6-flash');
   release(); await expect(page.getByText('Background caption generation completed.', { exact: true })).toBeVisible();
   await expect(flash).toBeChecked();
   await page.getByRole('button', { name: 'Generate captions', exact: true }).click();
