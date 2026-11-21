@@ -15,10 +15,10 @@ The approved publication of those original choices and Resume behavior in the
 Generate captions → AI options in current source offers Automatic, Gemini 3.8 Flash,
 Gemini 4 Hydrogen, and Gemini 3.6 Flash. The same disclosure appears in Accuracy for full regeneration after
 captions exist. Its closed row shows the saved model name and icon. Open it and
-use the arrow keys or click a model to select a draft. The wand identifies
-Automatic, and the Gemini mark identifies each named model. Choose **Apply model**
-to save the selection for this project. Generate and Regenerate use the last
-saved choice. If saving fails, choose **Apply model** again to retry.
+use the arrow keys or click a model to select a draft. The lime Mosaic mark
+identifies Automatic, and the Gemini mark identifies each named model. Choose
+**Apply model** to save the selection for this project. Generate and Regenerate
+use the last saved choice. If saving fails, choose **Apply model** again to retry.
 Global AI connection settings are independent. Older projects default to Automatic.
 
 Automatic follows the configured global primary/fallback policy, including its

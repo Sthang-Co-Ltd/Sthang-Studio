@@ -144,10 +144,12 @@ When no advanced workspace is selected, do not reserve a blank tool canvas benea
 ### Generate caption AI options
 
 Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary pairs the saved model name with its mark.
-Opening it exposes one native **Caption model** radio group. A wand identifies **Automatic**, and the Gemini mark accompanies **Gemini 3.8 Flash**,
-**Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
-this project and leaves global settings unchanged. Existing projects start with
-Automatic. Model names are appropriate in this explicit configuration disclosure.
+Opening it exposes one native **Caption model** radio group. The lime Mosaic mark
+identifies **Automatic** and matches the dimensions of the Gemini mark beside
+**Gemini 3.8 Flash**, **Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**. A short
+explanation says the choice applies only to this project and leaves global
+settings unchanged. Existing projects start with Automatic. Model names are
+appropriate in this explicit configuration disclosure.
 
 Hydrogen is an optional development addition to the choices published in 0.89.
 Keep Automatic on the configured primary/fallback policy, with 3.8/3.6 as the

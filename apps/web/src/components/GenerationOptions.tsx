@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CaptionGenerationModel } from '@kcs/shared';
-import { Check, ChevronDown, WandSparkles } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import './generation-options.css';
 
 const labels = {
@@ -12,7 +12,12 @@ const labels = {
 
 function ModelMark({ model }: { model: CaptionGenerationModel }) {
   return model === 'automatic'
-    ? <WandSparkles aria-hidden="true" className="generation-model-mark" data-model-family="automatic" size={18} />
+    ? <svg aria-hidden="true" className="generation-model-mark" data-model-family="automatic"
+        width={18} height={18} viewBox="0 0 24 24" fill="currentColor">
+        <rect x={1} y={1} width={10} height={22} rx={2} />
+        <rect x={13} y={1} width={10} height={10} rx={2} />
+        <rect x={13} y={13} width={10} height={10} rx={2} />
+      </svg>
     : <img alt="" className="generation-model-mark" data-model-family="gemini" src="/providers/gemini.png" width={18} height={18} />;
 }
 
