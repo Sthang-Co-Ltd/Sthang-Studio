@@ -33,7 +33,7 @@ export function WordHighlightPreparation({ view, enabled, actionFocusTarget }: {
   view: WordHighlightPreparationView; enabled: boolean; actionFocusTarget: RefObject<HTMLElement | null>;
 }) {
   const act = (event: MouseEvent<HTMLButtonElement>, action: () => void) => {
-    if (document.activeElement === event.currentTarget && actionFocusTarget.current?.isConnected) {
+    if ((document.activeElement === event.currentTarget || document.activeElement === document.body) && actionFocusTarget.current?.isConnected) {
       actionFocusTarget.current.focus({ preventScroll: true });
       actionFocusTarget.current.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     }

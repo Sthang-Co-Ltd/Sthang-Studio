@@ -98,6 +98,73 @@ for (const width of [1440, 390]) for (const scope of ['Review', 'Comparison'] as
   await expect(media(page)).toBeFocused(); await sameEvidence(page, before, selection);
 });
 
+test('the selected Review caption keeps replaying while typing and after committing the edit', async ({ page }) => {
+  const replay = await openScope(page, 'Review');
+  const field = page.getByLabel('Caption 1 text', { exact: true });
+  const wording = 'កែសម្រួល CapCut';
+  const focusSeeks = () => page.evaluate(() =>
+    (window as any).__reviewOwnershipSeeks.filter((time: number) => Math.abs(time - .1) < .05).length as number);
+  await media(page).evaluate((video: HTMLVideoElement) => { video.playbackRate = 1; });
+  await replay.click();
+  await expect.poll(focusSeeks).toBeGreaterThanOrEqual(1);
+
+  await field.click();
+  await field.fill(wording);
+  const duringEdit = await focusSeeks();
+  await expect.poll(focusSeeks, { timeout: 8000 }).toBeGreaterThanOrEqual(duringEdit + 2);
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue(wording);
+  expect(await selected(page)).toEqual(['c1']);
+
+  await field.press('Tab');
+  await expect.poll(() => state.projects[0].captions[0].text).toBe(wording);
+  const afterSave = await focusSeeks();
+  await expect.poll(focusSeeks, { timeout: 8000 }).toBeGreaterThanOrEqual(afterSave + 2);
+  expect(await selected(page)).toEqual(['c1']);
+});
+
+test('the active Review row and its menu keep the loop, while editing another row pauses at that caption', async ({ page }) => {
+  const replay = await openScope(page, 'Review');
+  await media(page).evaluate((video: HTMLVideoElement) => { video.playbackRate = 1; });
+  const seeksAt = (seconds: number) => page.evaluate((target) =>
+    (window as any).__reviewOwnershipSeeks.filter((time: number) => Math.abs(time - target) < .05).length as number, seconds);
+  await replay.click();
+  await expect.poll(() => seeksAt(.1)).toBeGreaterThan(0);
+  await page.locator('[data-caption-id="c1"] .row-index').click();
+  await page.getByLabel('More actions for caption 1', { exact: true }).click();
+  const menu = page.getByRole('menu', { name: 'Caption 1 actions', exact: true });
+  await expect(menu).toBeVisible();
+  const loops = await seeksAt(.1);
+  await expect.poll(() => seeksAt(.1), { timeout: 8000 }).toBeGreaterThanOrEqual(loops + 2);
+  await menu.getByRole('menuitem').first().press('Escape');
+  const next = page.getByLabel('Caption 2 text', { exact: true });
+  await next.click();
+  await expect(next).toBeFocused();
+  expect(await selected(page)).toEqual(['c2']);
+  await expect.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.paused && !video.seeking && video.currentTime)).toBeCloseTo(1.2, 2);
+  await replay.click();
+  await expect.poll(() => seeksAt(1.1), { timeout: 8000 }).toBeGreaterThanOrEqual(2);
+});
+
+test('one-pass Review uses the edited timestamp and stops at the selected range after a row click', async ({ page }) => {
+  const replay = await openScope(page, 'Review');
+  await review(page).getByLabel('Tight loop', { exact: true }).uncheck();
+  await expect.poll(() => state.profile.preferences.autoLoopReview).toBe(false);
+  const start = page.getByLabel('Caption 1 start time', { exact: true });
+  await start.fill('00:00.500');
+  await media(page).evaluate(() => { (window as any).__reviewOwnershipSeeks = []; });
+  await start.press('Enter');
+  // Inspect the first native seek, before a later tick can correct an obsolete start.
+  await expect.poll(() => page.evaluate(() => (window as any).__reviewOwnershipSeeks[0])).toBeCloseTo(.4, 1);
+  const pausedAt = () => media(page).evaluate((video: HTMLVideoElement) => video.paused && !video.seeking ? video.currentTime : -1);
+  await expect.poll(pausedAt, { timeout: 8000 }).toBeCloseTo(1.1, 2);
+  await replay.click();
+  await expect.poll(() => media(page).evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+  await page.locator('[data-caption-id="c1"] .row-index').click();
+  await expect.poll(pausedAt, { timeout: 8000 }).toBeCloseTo(1.1, 2);
+  expect(await selected(page)).toEqual(['c1']);
+});
+
 async function holdReviewNavigation(page: Page) {
   await page.evaluate(() => {
     const schedule = window.setTimeout.bind(window); const clear = window.clearTimeout.bind(window);

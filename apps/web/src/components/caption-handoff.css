@@ -39,11 +39,8 @@
 .handoff-overlap-warning span { color: #c5ba96; font-size: 12px; line-height: 1.45; }
 
 .handoff-advanced { overflow: hidden; }
-.handoff-advanced > summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; cursor: pointer; font-size: 13px; font-weight: 650; list-style: none; }
-.handoff-advanced > summary::-webkit-details-marker { display: none; }
+.handoff-advanced > summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; cursor: pointer; font-size: 13px; font-weight: 650; }
 .handoff-advanced > summary span { margin-left: auto; color: #8f99a5; font-size: 12px; font-weight: 400; }
-.handoff-advanced > summary::after { content: '▾'; color: #aeb7c2; font-size: 13px; }
-.handoff-advanced[open] > summary::after { transform: rotate(180deg); }
 .handoff-advanced[open] > summary { border-bottom: 1px solid #2d333c; }
 .handoff-advanced-body { display: grid; gap: 11px; padding: 12px; }
 .handoff-word-readiness { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #303841; border-radius: 9px; background: #0c1116; }

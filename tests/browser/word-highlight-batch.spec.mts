@@ -88,8 +88,10 @@ test('one Apply publishes eligible candidates by reference and offers ranked rev
   await controls(page).getByRole('button', { name: 'Review remaining (2)' }).click();
   await expect(page.getByRole('button', { name: 'Word timing', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.timing-caption-text')).toContainText('Second caption');
+  await expect(page.getByRole('slider', { name: 'Waveform playhead' })).toHaveAttribute('aria-valuenow', '800');
   await page.getByRole('button', { name: 'Next timing issue', exact: true }).click();
   await expect(page.locator('.timing-caption-text')).toContainText('Locked caption');
+  await expect(page.getByRole('slider', { name: 'Waveform playhead' })).toHaveAttribute('aria-valuenow', '2300');
   expect(routes.chunks).toHaveLength(1);
   await appearance(page);
   await undo(page).click();
@@ -98,6 +100,53 @@ test('one Apply publishes eligible candidates by reference and offers ranked rev
   expect(project.captions).toEqual(before);
   expect(project.wordHighlightFollow?.enabled).toBe(false);
   await expect(controls(page).getByRole('button', { name: 'Apply to all captions', exact: true })).toBeVisible();
+});
+
+test('Sync remaining opens the still-unresolved caption in the waveform and caption edge controls', async ({ page }) => {
+  const { project, routes } = await batchFixture(page);
+  project.captions[2] = baseCue('c3', 'Third caption', 2340);
+  project.captions[3] = { ...baseCue('c4', 'Locked caption', 3300), timingLocked: true };
+  routes.terminal.add('c2').add('c3');
+  await openProject(page);
+  await appearance(page);
+  await toggle(page).click();
+  const sync = controls(page).getByRole('button', { name: 'Sync remaining', exact: true });
+  await expect(sync).toBeEnabled();
+
+  // The first issue is fixed by the retry. Its original position in the queue is stale.
+  routes.terminal.delete('c2');
+  await seek(page, 150);
+  await sync.click();
+  const edges = page.getByRole('button', { name: 'Caption edges', exact: true });
+  await expect(edges).toHaveAttribute('aria-pressed', 'true');
+  await expect(edges).toBeFocused();
+  await expect(page.locator('[data-caption-id="c3"]')).toHaveClass(/selected-range/);
+  await expect(page.locator('.timing-caption-text')).toHaveText('Third caption');
+  await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:02.340');
+  await expect(page.getByRole('slider', { name: 'Waveform playhead' })).toHaveAttribute('aria-valuenow', '2340');
+  await expect(page.getByRole('slider', { name: 'Scroll timing waveform' })).toHaveValue('1400');
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.paused && Math.round(video.currentTime * 1000))).toBe(2340);
+  expect(routes.chunks[1]).toEqual(['c2', 'c3']);
+});
+
+test('a delayed Sync remaining keeps the newer workspace choice', async ({ page }) => {
+  const { routes } = await batchFixture(page);
+  routes.terminal.add('c2');
+  await openProject(page);
+  await appearance(page);
+  await toggle(page).click();
+  const sync = controls(page).getByRole('button', { name: 'Sync remaining', exact: true });
+  await expect(sync).toBeEnabled();
+  const held = routes.holdCandidates = deferredHighlight();
+  try {
+    await sync.click();
+    await expect.poll(() => routes.chunks.length).toBe(2);
+    await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
+    await appearance(page);
+    held.release();
+    await expect(sync).toBeEnabled();
+    await expect(page.locator('.fine-timing')).toHaveCount(0);
+  } finally { held.release(); }
 });
 
 for (const action of ['Cancel', 'Off'] as const) test(`${action} revokes the running pass and keeps saved timing`, async ({ page }) => {

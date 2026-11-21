@@ -1,0 +1,62 @@
+:root {
+  --dropdown-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6' fill='none' stroke='%23b7bec8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* The field stays a native select, including its picker and keyboard behavior.
+   High Contrast uses the operating system's own arrow and colors. */
+@media (forced-colors: none) {
+  :root select:not([multiple]):is(:not([size]), [size="1"]) {
+    appearance: none;
+    background-image: var(--dropdown-chevron);
+    background-repeat: no-repeat;
+    background-size: 16px 16px;
+    background-position: right 10px center;
+    padding-inline-end: 34px;
+    text-overflow: ellipsis;
+  }
+  :root select:dir(rtl):not([multiple]):is(:not([size]), [size="1"]) {
+    background-position: left 10px center;
+  }
+}
+
+/* Framed or full-row disclosures use a trailing chevron. Inline help
+   disclosures keep their native leading marker. */
+:root :is(.appearance-option-group, .ai-model-settings, .regen-candidates,
+          .advanced-review-tools, .handoff-advanced) > summary {
+  position: relative;
+  list-style: none;
+  padding-inline-end: 34px;
+}
+
+:is(.appearance-option-group, .ai-model-settings, .regen-candidates,
+    .advanced-review-tools, .handoff-advanced) > summary::-webkit-details-marker {
+  display: none;
+}
+
+:is(.appearance-option-group, .ai-model-settings, .regen-candidates,
+    .advanced-review-tools, .handoff-advanced) > summary::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 10px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 16px;
+  height: 16px;
+  background-color: #b7bec8;
+  -webkit-mask: var(--dropdown-chevron) center / contain no-repeat;
+  mask: var(--dropdown-chevron) center / contain no-repeat;
+  pointer-events: none;
+}
+
+:is(.appearance-option-group, .ai-model-settings, .regen-candidates,
+    .advanced-review-tools, .handoff-advanced)[open] > summary::after {
+  rotate: 180deg;
+}
+
+@media (forced-colors: active) {
+  :is(.appearance-option-group, .ai-model-settings, .regen-candidates,
+      .advanced-review-tools, .handoff-advanced) > summary::after {
+    forced-color-adjust: none;
+    background-color: ButtonText;
+  }
+}

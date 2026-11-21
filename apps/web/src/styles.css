@@ -317,10 +317,7 @@ body{color:var(--text);caret-color:var(--accent)}
 .review-actions button,.review-actions label{min-height:36px;height:36px;font-size:13px;padding-inline:10px}
 .review-actions .regenerate-range{margin-left:auto}
 .advanced-review-tools{grid-column:1/-1;border-top:1px solid #252b33;padding-top:8px}
-.advanced-review-tools>summary{width:max-content;list-style:none;color:#9aa4ae;font-size:13px;cursor:pointer;padding:6px 0}
-.advanced-review-tools>summary::-webkit-details-marker{display:none}
-.advanced-review-tools>summary::after{content:'  ›';color:#d7ff4f}
-.advanced-review-tools[open]>summary::after{content:'  ⌄'}
+.advanced-review-tools>summary{width:max-content;max-width:100%;color:#9aa4ae;font-size:13px;cursor:pointer;padding:6px 0}
 .advanced-review-tools .review-actions{margin-top:4px}
 .advanced-review-tools .shortcut-strip{margin-top:8px}
 .control-title strong em{font-style:normal;color:#7f8993;font-size:11px;font-weight:500;margin-left:4px}

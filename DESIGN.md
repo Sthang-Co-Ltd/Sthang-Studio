@@ -143,8 +143,8 @@ When no advanced workspace is selected, do not reserve a blank tool canvas benea
 
 ### Generate caption AI options
 
-Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary shows the current choice. A labeled native
-**Caption model** selector in current source offers **Automatic**, **Gemini 3.8 Flash**,
+Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary pairs the saved model name with its mark.
+Opening it exposes one native **Caption model** radio group. A wand identifies **Automatic**, and the Gemini mark accompanies **Gemini 3.8 Flash**,
 **Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
 this project and leaves global settings unchanged. Existing projects start with
 Automatic. Model names are appropriate in this explicit configuration disclosure.
@@ -156,11 +156,11 @@ control in the generation workflow; AI connection settings may explain that poli
 
 For projects with captions, expose the same options in Accuracy beside full
 regeneration. Expand options after a model-related generation failure. Keep the
-selector disabled while its save or generation admission is pending, show saving
-state, and retain the previous saved choice with a shared error toast on failure.
-When a focused picker changes, move focus to the persistent **AI options** summary
-before saving disables the picker. Reveal that target immediately and leave newer
-focus alone when the save settles; Tab can return to the picker once it is ready.
+selector disabled while its save or generation admission is pending. Arrow keys
+move through the radio group and select a draft. **Apply model** saves that draft
+for the project. The summary and generation actions use the last saved model.
+Keep Apply focusable during the save and leave focus where the user moves it.
+On failure, show the shared error toast and keep the draft available for retry.
 Use a full-width bordered disclosure row with the current choice, a right-hand
 chevron, and clear hover and keyboard-focus states so AI options reads as a control.
 Preserve labeled keyboard focus and 44px mobile controls. Details continues to
@@ -467,10 +467,12 @@ and checked/total progress with **Cancel** in the same disclosure. One result
 line distinguishes individually lit captions, measured groups, partially lit
 captions, and plain captions. Unsupported spans keep their normal color.
 
-**Review remaining** opens the highest-priority exception in Fine Timing without
-starting playback. **Next timing issue** follows the same order. **Sync remaining**
-retries unlocked exceptions. Keep **Undo** reachable when the effect is off, and
-keep explicit actions’ focus on the persistent summary when the action disappears.
+**Review remaining** and **Next timing issue** seek to the selected exception and
+open **Word timing** with playback paused. **Sync remaining** retries unlocked
+exceptions. If attention is still needed, open **Caption edges** for the most
+urgent remaining caption unless the user has moved on. Keep **Undo** reachable
+when the effect is off. Explicit actions that keep Appearance open return focus
+to the persistent summary when their button disappears.
 An armed project responds to saved wording or cue changes after a short delay.
 Background work preserves playback and focus.
 For Khmer word-boundary mismatches, display trusted KFA acoustic evidence without
