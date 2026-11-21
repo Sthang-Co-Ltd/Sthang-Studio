@@ -143,8 +143,8 @@ When no advanced workspace is selected, do not reserve a blank tool canvas benea
 
 ### Generate caption AI options
 
-Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary shows the current choice. A labeled native
-**Caption model** selector in current source offers **Automatic**, **Gemini 3.8 Flash**,
+Place the primary Generate action before optional Accuracy context and **AI options**. Its collapsed summary pairs the selected model name with its mark.
+Opening it exposes one native **Caption model** radio group. A wand identifies **Automatic**, and the Gemini mark accompanies **Gemini 3.8 Flash**,
 **Gemini 4 Hydrogen**, and **Gemini 3.6 Flash**, with a short explanation that the choice applies only to
 this project and leaves global settings unchanged. Existing projects start with
 Automatic. Model names are appropriate in this explicit configuration disclosure.
@@ -467,10 +467,12 @@ and checked/total progress with **Cancel** in the same disclosure. One result
 line distinguishes individually lit captions, measured groups, partially lit
 captions, and plain captions. Unsupported spans keep their normal color.
 
-**Review remaining** opens the highest-priority exception in Fine Timing without
-starting playback. **Next timing issue** follows the same order. **Sync remaining**
-retries unlocked exceptions. Keep **Undo** reachable when the effect is off, and
-keep explicit actions’ focus on the persistent summary when the action disappears.
+**Review remaining** and **Next timing issue** seek to the selected exception and
+open **Word timing** with playback paused. **Sync remaining** retries unlocked
+exceptions. If attention is still needed, open **Caption edges** for the most
+urgent remaining caption unless the user has moved on. Keep **Undo** reachable
+when the effect is off. Explicit actions that keep Appearance open return focus
+to the persistent summary when their button disappears.
 An armed project responds to saved wording or cue changes after a short delay.
 Background work preserves playback and focus.
 For Khmer word-boundary mismatches, display trusted KFA acoustic evidence without

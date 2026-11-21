@@ -44,13 +44,14 @@ interface WaveformEditorProps {
   playbackRate: number;
   initialMode: 'waveform' | 'spectrum';
   initialZoom: number;
-  initialEditMode?: 'caption' | 'words';
+  editMode: 'caption' | 'words';
+  onEditModeChange(mode: 'caption' | 'words'): void;
   wordTimingFocus?: { captionId: string; wordId: string } | null;
   onSyncWords(caption: CaptionSegment, signal?: AbortSignal): Promise<WordTimingSyncResult | null>;
   onNextWordTimingIssue?(): void;
   syncDisabled: boolean;
   onOpenAppearance?(): void;
-  onWordControlReady?(target: HTMLElement): void;
+  onTimingControlReady?(target: HTMLElement): void;
   onEditCaptionText(): void;
   onWordPreview(ownerId: string, preview: CaptionTimingTransaction | null): void;
   onSeek(ms: number): void;
@@ -178,13 +179,14 @@ export function WaveformEditor({
   playbackRate,
   initialMode,
   initialZoom,
-  initialEditMode = 'caption',
+  editMode,
+  onEditModeChange,
   onSyncWords,
   wordTimingFocus,
   onNextWordTimingIssue,
   syncDisabled,
   onOpenAppearance,
-  onWordControlReady,
+  onTimingControlReady,
   onEditCaptionText,
   onWordPreview,
   onSeek,
@@ -202,6 +204,7 @@ export function WaveformEditor({
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
+  const captionEdgesButton = useRef<HTMLButtonElement>(null);
   const canvasHost = useRef<HTMLDivElement | null>(null);
   const samplesRef = useRef<Float32Array | null>(null);
   const [durationMs, setDurationMs] = useState(0);
@@ -219,7 +222,6 @@ export function WaveformEditor({
   const [hover, setHover] = useState<WaveformHover | null>(null);
   const [allowOverlap, setAllowOverlap] = useState(false);
   const [sharedBoundary, setSharedBoundary] = useState(false);
-  const [editMode, setEditMode] = useState<'caption' | 'words'>(initialEditMode);
   const [selectedWordId, setSelectedWordId] = useState<string | null>(null);
   const [wordCandidate, setWordCandidate] = useState<{ ownerId: string; preview: CaptionTimingTransaction } | null>(null);
   const [showReferenceWords, setShowReferenceWords] = useState(false);
@@ -315,14 +317,6 @@ export function WaveformEditor({
     setViewStartMs(view.startMs);
   };
 
-  useEffect(() => {
-    if (!selectedCaption || !durationMs) return;
-    const identity = `${memoryKey}:${selectedCaption.id}`;
-    if (focusIdentity.current === identity) return;
-    focusIdentity.current = identity;
-    focusCaption(selectedCaption);
-  }, [memoryKey, selectedCaption?.id, durationMs]);
-
   useEffect(() => () => onStopPreview(), []);
   useEffect(() => { dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null); }, [timingDock]);
   useEffect(() => setHover(null), [selectedCaption?.id, editMode, viewStartMs, viewDurationMs]);
@@ -344,7 +338,9 @@ export function WaveformEditor({
   useEffect(() => {
     if (wordTimingFocus?.captionId === selectedCaption?.id) setSelectedWordId(wordTimingFocus?.wordId ?? null);
   }, [wordTimingFocus, selectedCaption?.id]);
-  useEffect(() => { setEditMode(initialEditMode); }, [initialEditMode]);
+  useLayoutEffect(() => {
+    if (editMode === 'caption' && captionEdgesButton.current) onTimingControlReady?.(captionEdgesButton.current);
+  }, [editMode, timingDock, onTimingControlReady]);
 
   useEffect(() => {
     setMode(initialMode);
@@ -514,6 +510,15 @@ export function WaveformEditor({
       setViewStartMs(clamp(playheadMs - viewDurationMs * 0.4, 0, Math.max(0, durationMs - viewDurationMs)));
     }
   }, [playheadMs, follow, durationMs, viewDurationMs, viewStartMs]);
+
+  // A new caption owns the viewport even when the previous playhead was being followed.
+  useEffect(() => {
+    if (!selectedCaption || !durationMs) return;
+    const identity = `${memoryKey}:${selectedCaption.id}`;
+    if (focusIdentity.current === identity) return;
+    focusIdentity.current = identity;
+    focusCaption(selectedCaption);
+  }, [memoryKey, selectedCaption?.id, durationMs]);
 
   const timeToX = (value: number) => (value - viewStartMs) / viewDurationMs * width;
   const xToTime = (value: number) => clamp(viewStartMs + value / width * viewDurationMs, 0, durationMs);
@@ -866,8 +871,8 @@ export function WaveformEditor({
   const waveform = <div className="timing-waveform-surface">
     <div className="timing-waveform-toolbar">
       <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
-        <button aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('caption'); }}>Caption edges</button>
-        <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); setEditMode('words'); }}>Word timing</button>
+        <button ref={captionEdgesButton} aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); onEditModeChange('caption'); }}>Caption edges</button>
+        <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); onEditModeChange('words'); }}>Word timing</button>
         {editMode === 'words' && wordAttention !== 'not-applicable' && <span className="timing-hint">
           {wordAttention === 'ok' ? 'Timing ready' : markedWordTiming ? 'Words without usable timing keep the normal color.' : 'Word timing needs review'}
         </span>}
@@ -1060,7 +1065,7 @@ export function WaveformEditor({
         setWordCandidate(change ? { ownerId: basis.id, preview: change } : null);
         onWordPreview(basis.id, change);
       }}
-      onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText} onWordControlReady={onWordControlReady}/>}
+      onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText} onWordControlReady={onTimingControlReady}/>}
     {editMode === 'words' && <div className="timing-move-controls"><label>Step<select aria-label="Word nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}
     <details className="timing-options"><summary>Snapping, playback speed and display</summary>
       <div className="timing-options-controls">

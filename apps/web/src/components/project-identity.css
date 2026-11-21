@@ -1,5 +1,6 @@
 .project-title .project-name-button{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;min-height:22px;padding:0;border:0;border-radius:4px;background:transparent;color:#eef1f4;font:inherit;text-align:left;cursor:pointer}
 .project-name-button svg{flex:none;color:#9ca7b4}
+.project-name-button[aria-expanded=true] svg{rotate:180deg}
 .project-title .project-name-button:hover{color:#e3f4ab}
 .project-name-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .project-title .project-name-compact{display:none}

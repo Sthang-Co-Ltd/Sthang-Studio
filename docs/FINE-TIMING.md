@@ -171,9 +171,11 @@ and needs separate confirmed times for word-by-word SRT or VTT. Standard SRT
 keeps the caption text and cue times.
 
 Appearance counts individual, grouped, partial, and plain captions. Choose
-**Review remaining** to open the most urgent issue in **Fine Timing**. Use
-**Next timing issue** to navigate there or **Sync remaining** to retry unlocked
-exceptions. **Sync words** checks one caption through the same local flow while
+**Review remaining** to open the most urgent issue in **Word timing**. Use
+**Next timing issue** to move to the next affected caption. **Sync remaining**
+retries unlocked captions. If any still need attention and you stay in Appearance,
+Studio pauses at the first remaining issue and opens its **Caption edges**.
+**Sync words** checks one caption through the same local flow while
 the project follows edits. The unarmed Fine Timing workflow still offers the
 separately confirmed caption-edge repair described above.
 

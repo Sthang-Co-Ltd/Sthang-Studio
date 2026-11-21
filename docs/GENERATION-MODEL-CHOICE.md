@@ -14,7 +14,10 @@ The approved publication of those original choices and Resume behavior in the
 
 Generate captions → AI options in current source offers Automatic, Gemini 3.8 Flash,
 Gemini 4 Hydrogen, and Gemini 3.6 Flash. The same disclosure appears in Accuracy for full regeneration after
-captions exist. The choice is saved in the local project, independent of global
+captions exist. Its closed row shows the chosen name and icon. Open it to see all
+four choices, with a check beside the current selection. The wand identifies
+Automatic, and the Gemini mark identifies each named model.
+The choice is saved in the local project, independent of global
 AI connection settings. Missing choices in older projects mean Automatic.
 
 Automatic follows the configured global primary/fallback policy, including its

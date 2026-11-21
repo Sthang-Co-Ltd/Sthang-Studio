@@ -31,6 +31,13 @@ The unreleased Sthang contribution and analytics relay Workers use Cloudflare's
 Worker/D1/R2 capabilities directly and add no Studio application npm runtime
 dependency.
 
+## Model artwork
+
+The caption model picker uses the Google Gemini mark to identify Gemini models.
+Google owns the Gemini name and mark. Studio bundles the unmodified
+[Google for Developers artwork](https://developers.google.com/static/focus/images/gemini-icon-2025_72.png)
+in `apps/web/public/providers/gemini.png`.
+
 ## Browser interface fonts
 
 The interface stylesheet requests **Plus Jakarta Sans** (Plus Jakarta Sans Project

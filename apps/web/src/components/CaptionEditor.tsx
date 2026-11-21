@@ -53,7 +53,7 @@ interface CaptionEditorProps {
   onNotice?(message: string): void;
   onChange(captions: CaptionSegment[], preferredSelectionId?: string, reason?: DraftChangeReason): void;
   onSeek(ms: number): void;
-  onSelect(id: string, extend: boolean): void;
+  onSelect(id: string, extend: boolean, seekMs?: number): void;
   onTextCommit(): void;
   onEditCommit?(): void;
   onReviewComplete?(): void;
@@ -540,7 +540,10 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (!caption || caption.timingLocked) return;
     const result = planCaptionTimingEdit(captions, caption.id, 'move', delta, mediaLimit, {}, preparedTiming);
     if (result.limited) onNotice?.(result.limited);
-    if (result.after.length) onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
+    if (result.after.length) {
+      onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
+      onEditCommit?.();
+    }
   };
 
   const add = (trigger: HTMLButtonElement) => {
@@ -590,7 +593,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
           if (event.target === rows.current[id]) { setFollowPlayback(false); return; }
           if (pointerActionFocus.current === event.target) { pointerActionFocus.current = null; return; }
           onSelect(id, false); return;
-        case 'click': onSelect(id, event.extend); onSeek(caption.startMs); return;
+        case 'click': onSelect(id, event.extend, caption.startMs); return;
         case 'timeFocus': setFollowPlayback(false); return;
         case 'editing': onEditingChange?.(event.editing); return;
         case 'timeCommit': {

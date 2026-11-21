@@ -61,5 +61,6 @@ export function useProjectNavigationFocus() {
     else target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   }, [completion, release]);
   useLayoutEffect(() => () => release(), [release]);
-  return { capture, complete, cancel };
+  const isCurrent = (request: ProjectNavigationFocusRequest | null) => Boolean(request && pending.current?.request === request);
+  return { capture, complete, cancel, isCurrent };
 }

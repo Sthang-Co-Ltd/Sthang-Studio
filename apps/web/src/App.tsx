@@ -2260,16 +2260,33 @@ export default function App() {
     media.current.play().catch(() => {});
   };
   const playReviewSelection = (pass: ReviewPlaybackPass = 'focus') => {
-    if (!media.current || !selection.captions.length || !projectScope.current.isCurrent(viewTicket)) return;
+    // A queued post-edit replay must use the committed timing of its selection.
+    const range = selectionIntent.current;
+    if (!media.current || !range.ids.length || !projectScope.current.isCurrent(viewTicket)) return;
     reviewPlaybackPass.current = pass;
-    armReviewPlayback('review', selection.startMs - reviewLeadMs(pass));
+    armReviewPlayback('review', range.startMs - reviewLeadMs(pass));
     media.current.play().catch(() => {});
   };
   const replaySelection = () => playReviewSelection('focus');
   const replaySelectionWithContext = () => playReviewSelection('context');
-  const selectCaption = (id: string, extend: boolean) => {
-    cancelPlayback();
-    if (reviewMode) reviewPlaybackPass.current = 'focus';
+  const selectCaption = (id: string, extend: boolean, seekMs?: number) => {
+    const owner = reviewPlaybackOwner.current;
+    const sameReviewCaption = reviewMode && !extend && selection.ids.length === 1 && selection.ids[0] === id;
+    if (sameReviewCaption && seekMs === undefined) return;
+    if (reviewMode) {
+      reviewPlaybackPass.current = 'focus';
+      if (owner?.active && owner.kind === 'review' && owner.media === media.current) {
+        if (sameReviewCaption && seekMs !== undefined) {
+          armReviewPlayback('review', seekMs);
+          return;
+        }
+        // Selecting another row ends the previous audition at the new editing target.
+        owner.media.pause();
+        seekMs ??= draftRef.current.find((caption) => caption.id === id)?.startMs;
+      }
+    }
+    if (seekMs === undefined) cancelPlayback();
+    else seek(seekMs);
     if (extend && selectionAnchor) setSelectionEnd(id);
     else { setSelectionAnchor(id); setSelectionEnd(id); }
   };
@@ -2305,6 +2322,7 @@ export default function App() {
     updateDraft(draftRef.current.map((caption) => selected.has(caption.id)
       ? { ...caption, startMs: caption.startMs + safeDelta, endMs: caption.endMs + safeDelta, timingSource: 'manual', timingQuality: 'medium', approved: false }
       : caption), undefined, 'timing');
+    if (reviewMode) schedulePlayback(replaySelection);
   };
 
   const closeComparison = () => {
@@ -2393,9 +2411,14 @@ export default function App() {
     }
     const autoLoop = profile?.preferences.autoLoopReview ?? true;
     const reviewPostRoll = reviewTailMs(reviewPlaybackPass.current);
-    if (reviewMode && autoLoop && owner?.active && owner.media === element && owner.kind === 'review'
+    if (reviewMode && owner?.active && owner.media === element && owner.kind === 'review'
       && selection.captions.length && !element.paused && element.currentTime * 1000 >= selection.endMs + reviewPostRoll) {
-      playReviewSelection('focus');
+      if (autoLoop) playReviewSelection('focus');
+      else {
+        cancelPlayback();
+        element.pause();
+        element.currentTime = (selection.endMs + reviewPostRoll) / 1000;
+      }
     }
   };
   const onLoadedMetadata = (element: HTMLMediaElement) => {
@@ -4059,8 +4082,7 @@ export default function App() {
     chooseWorkspaceTool('accuracy');
     if (workspaceTool === 'accuracy') restoreInlineAccuracyFocus();
   };
-  const requestWordControl = (tool: 'timeline' | 'appearance', captionId?: string) => {
-    const request = projectNavigationFocus.capture();
+  const requestWordControl = (tool: 'timeline' | 'appearance', captionId?: string, request = projectNavigationFocus.capture()) => {
     setWordControlEntry(request ? { tool, captionId, ticket: viewTicket, request } : null);
   };
   const focusWordControl = (target: HTMLElement | null) => {
@@ -4083,12 +4105,21 @@ export default function App() {
       return target;
     }, reveal);
   };
+  const selectTimingCaption = (caption: CaptionSegment) => {
+    setSelectionAnchor(caption.id);
+    setSelectionEnd(caption.id);
+    const atMs = Math.max(0, Math.min(caption.startMs, mediaDurationMs ? mediaDurationMs - 1 : caption.startMs));
+    if (media.current && media.current.readyState > 0) seek(atMs);
+    else retainedMediaSeek.current = { key: mediaKey, timeMs: atMs };
+    setTime(atMs / 1000);
+  };
   const openWordTiming = (id?: string, wordId?: string) => {
     cancelPlayback();
+    media.current?.pause();
     setReviewMode(false);
     const target = draftRef.current.find((caption) => caption.id === id) || selection.captions[0] || draftRef.current[0];
     requestWordControl('timeline', target?.id);
-    if (target) { setSelectionAnchor(target.id); setSelectionEnd(target.id); editor.current?.revealCaption(target.id); }
+    if (target) { selectTimingCaption(target); editor.current?.revealCaption(target.id); }
     setWordTimingFocus(target && wordId ? { captionId: target.id, wordId } : null);
     setRequestedTimingMode('words');
     setWorkspaceTool('timeline');
@@ -4122,13 +4153,7 @@ export default function App() {
       const request = projectNavigationFocus.capture();
       if (request) setExportFontFocus({ request, ticket: viewTicket });
     }
-    if (caption) {
-      setSelectionAnchor(caption.id); setSelectionEnd(caption.id);
-      const atMs = Math.max(0, Math.min(caption.startMs, mediaDurationMs ? mediaDurationMs - 1 : caption.startMs));
-      if (media.current && media.current.readyState > 0) seek(atMs);
-      else retainedMediaSeek.current = { key: mediaKey, timeMs: atMs };
-      setTime(atMs / 1000);
-    }
+    if (caption) selectTimingCaption(caption);
     if (target.kind === 'word-timing' || target.kind === 'timing') {
       setRequestedTimingMode(target.kind === 'word-timing' ? 'words' : 'caption');
       setWorkspaceTool('timeline');
@@ -4216,6 +4241,29 @@ export default function App() {
   }, [project, viewTicket, wordHighlightArmed, highlighting, highlightAvailability, dirty, textComposing, wordBatch.status]);
 
   const hasWordBatchUndo = Boolean(wordBatchUndo && projectScope.current.isCurrent(wordBatchUndo.ticket));
+  const syncRemainingHighlights = async () => {
+    const navigation = projectNavigationFocus.capture();
+    const ids = wordHighlightSummary.exceptions.map(({ id }) => id);
+    const result = await startWordHighlightPreparation('follow', ids, undefined, true);
+    if (result && projectNavigationFocus.isCurrent(navigation) && projectScope.current.isCurrent(viewTicket)
+      && currentWorkspaceTool.current === 'appearance' && !dirtyRef.current && !currentProposal.current) {
+      const remaining = wordHighlightCoverage(draftRef.current).exceptions[0];
+      const caption = remaining && draftRef.current.find(({ id }) => id === remaining.id);
+      if (caption) {
+        cancelPlayback();
+        media.current?.pause();
+        setReviewMode(false);
+        selectTimingCaption(caption);
+        editor.current?.revealCaption(caption.id);
+        setWordTimingFocus(null);
+        setRequestedTimingMode('caption');
+        setWorkspaceTool('timeline');
+        requestWordControl('timeline', caption.id, navigation);
+        return;
+      }
+    }
+    projectNavigationFocus.cancel(navigation);
+  };
   const wordPreparation: WordHighlightPreparationView = {
     ...wordBatch,
     running: wordBatchRunning.current,
@@ -4232,7 +4280,7 @@ export default function App() {
     },
     onStart: () => {
       if (!wordHighlightArmed) void startWordHighlightPreparation('apply');
-      else void startWordHighlightPreparation('follow', wordHighlightSummary.exceptions.map(({ id }) => id), undefined, true);
+      else void syncRemainingHighlights();
     },
     onCancel: revokeWordHighlights,
     onReview: () => reviewRemainingWordHighlights(),
@@ -4556,9 +4604,10 @@ export default function App() {
             playbackRate={playbackRate}
             initialMode={profile?.preferences.waveformMode || 'waveform'}
             initialZoom={profile?.preferences.waveformZoom || 2}
-            initialEditMode={requestedTimingMode}
+            editMode={requestedTimingMode}
+            onEditModeChange={setRequestedTimingMode}
             wordTimingFocus={wordTimingFocus}
-            onWordControlReady={wordControlEntry?.tool === 'timeline' && wordControlEntry.captionId === selection.ids[0] ? focusWordControl : undefined}
+            onTimingControlReady={wordControlEntry?.tool === 'timeline' && wordControlEntry.captionId === selection.ids[0] ? focusWordControl : undefined}
             onSeek={seek}
             onSelect={(id) => { selectCaption(id, false); editor.current?.revealCaption(id); }}
             onTimingChange={(before, after, guards, gestureBasis) => {

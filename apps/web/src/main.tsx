@@ -10,6 +10,7 @@ import './components/find-preview-diff.css';
 import './components/form-recovery.css';
 import './components/guide-shortcuts.css';
 import './components/export-graphite.css';
+import './dropdown-indicators.css';
 
 const root = document.getElementById('root')!;
 createRoot(root).render(

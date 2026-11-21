@@ -10,7 +10,8 @@ let failure: boolean;
 let hold: ReturnType<typeof deferred> | null;
 const disclosure = (page: Page) => page.locator('.generation-options');
 const summary = (page: Page) => disclosure(page).locator(':scope > summary');
-const picker = (page: Page) => page.getByRole('combobox', { name: 'Caption model', exact: true });
+const picker = (page: Page) => page.getByRole('group', { name: 'Caption model', exact: true });
+const selectedChoice = (page: Page) => picker(page).getByRole('radio', { checked: true });
 function deferred() { let release!: () => void; const promise = new Promise<void>((resolve) => { release = resolve; }); return { promise, release }; }
 test.beforeEach(async ({ page }) => {
   state = await installFixture(page); writes = []; failure = false; hold = null;
@@ -30,15 +31,16 @@ async function openOptions(page: Page) {
   await expect(disclosure(page)).toBeVisible();
   await summary(page).focus(); await page.keyboard.press('Enter');
   await expect(picker(page)).toBeVisible();
-  await page.keyboard.press('Tab'); await expect(picker(page)).toBeFocused();
+  await page.keyboard.press('Tab'); await expect(selectedChoice(page)).toBeFocused();
   await page.evaluate(() => { document.querySelector('video')?.pause(); (window as any).__generationFocusNodes = [document.querySelector('video'), document.querySelector('.caption-list')]; });
 }
 async function chooseWithKeyboard(page: Page) {
-  await expect(picker(page)).toHaveValue('automatic');
+  await expect(selectedChoice(page)).toHaveValue('automatic');
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].generationModel).toBe('gemini-3.8-flash');
-  await expect(picker(page)).toBeDisabled();
+  await expect(picker(page).getByRole('radio', { disabled: true })).toHaveCount(4);
+  await expect(selectedChoice(page)).toHaveValue('gemini-3.8-flash');
   await expect(summary(page)).toBeFocused();
   await expect(disclosure(page).getByRole('status')).toHaveText('Saving choice…');
 }
@@ -69,11 +71,11 @@ for (const width of [1440, 390]) for (const result of ['success', 'failure'] as 
       await page.keyboard.press('r');
       expect(await page.locator('video').evaluate((node: HTMLVideoElement) => node.paused && node.currentTime)).toBe(time);
       await page.screenshot({ path: info.outputPath(`model-focus-pending-${result}-${width}.png`), animations: 'disabled' });
-      hold.release(); await expect(picker(page)).toBeEnabled();
-      await expect(picker(page)).toHaveValue(result === 'success' ? 'gemini-3.8-flash' : 'automatic');
+      hold.release(); await expect(selectedChoice(page)).toBeEnabled();
+      await expect(selectedChoice(page)).toHaveValue(result === 'success' ? 'gemini-3.8-flash' : 'automatic');
       await expect(summary(page)).toBeFocused();
       if (result === 'failure') await expect(page.getByRole('alert').filter({ hasText: 'Synthetic AI options save failure.' })).toBeVisible();
-      await page.keyboard.press('Tab'); await expect(picker(page)).toBeFocused();
+      await page.keyboard.press('Tab'); await expect(selectedChoice(page)).toBeFocused();
       expect(writes).toHaveLength(1); await keptEvidence(page, before);
     } finally { hold.release(); }
   });
@@ -86,8 +88,8 @@ test('model-save completion leaves newer caption editing and its draft focused',
     await chooseWithKeyboard(page);
     const caption = page.getByLabel('Caption 1 text', { exact: true });
     await caption.fill('Newer caption draft កម្ពុជា');
-    hold.release(); await expect(picker(page)).toBeEnabled();
-    await expect(picker(page)).toHaveValue('gemini-3.8-flash');
+    hold.release(); await expect(selectedChoice(page)).toBeEnabled();
+    await expect(selectedChoice(page)).toHaveValue('gemini-3.8-flash');
     await expect(caption).toBeFocused(); await expect(caption).toHaveValue('Newer caption draft កម្ពុជា');
     expect(writes).toHaveLength(1); await keptEvidence(page, before);
   } finally { hold.release(); }
@@ -101,11 +103,19 @@ test('closing AI options during a failed save stays closed without a late focus 
     await chooseWithKeyboard(page);
     await page.keyboard.press('Enter'); await expect(disclosure(page)).not.toHaveAttribute('open');
     await expect(summary(page)).toBeFocused();
+    const mark = summary(page).locator('.generation-model-mark');
+    await expect(mark).toBeVisible();
+    await expect(mark).toHaveAttribute('data-model-family', 'gemini');
+    await expect(summary(page)).toContainText('Gemini 3.8 Flash');
     hold.release();
     await expect(page.getByRole('alert').filter({ hasText: 'Synthetic AI options save failure.' })).toBeVisible();
     await expect(disclosure(page)).not.toHaveAttribute('open'); await expect(summary(page)).toBeFocused();
+    await expect(mark).toBeVisible();
+    await expect(mark).toHaveAttribute('data-model-family', 'automatic');
+    await expect(summary(page)).toContainText('Automatic');
     await page.keyboard.press('Enter'); await page.keyboard.press('Tab');
-    await expect(picker(page)).toBeFocused(); await expect(picker(page)).toBeEnabled(); await expect(picker(page)).toHaveValue('automatic');
+    await expect(selectedChoice(page)).toBeFocused(); await expect(selectedChoice(page)).toBeEnabled();
+    await expect(selectedChoice(page)).toHaveValue('automatic');
     expect(writes).toHaveLength(1); await keptEvidence(page, before);
   } finally { hold.release(); }
 });
