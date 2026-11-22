@@ -12,13 +12,38 @@ function declarations(selector) {
     .map(([, , body]) => body).join(';');
 }
 
-test('English UI loads Jakarta through the existing provider and inherits it in form controls', () => {
-  const url = new URL(css.match(/@import url\('([^']+)'\)/)[1]);
-  assert.equal(url.origin, 'https://fonts.googleapis.com');
-  assert.deepEqual(url.searchParams.getAll('family'), [
-    'Noto Sans Khmer:wght@400;500;600;700', 'Plus Jakarta Sans:wght@400..800',
+test('Studio bundles variable interface fonts and form controls inherit Jakarta', () => {
+  assert.match(css, /^@import '\.\/interface-fonts\.css';/);
+  assert.doesNotMatch(css, /@import\s+(?:url\(\s*)?['"]?https?:\/\//i);
+  const fontCss = fs.readFileSync(new URL('interface-fonts.css', web), 'utf8');
+  const faces = [...fontCss.matchAll(/@font-face\s*\{([^{}]*)\}/g)].map(([, body]) => body);
+  const expected = new Map([
+    ['Plus Jakarta Sans', { pkg: 'plus-jakarta-sans', max: 800 }],
+    ['Noto Sans Khmer', { pkg: 'noto-sans-khmer', max: 700 }],
   ]);
-  assert.equal(url.searchParams.get('display'), 'swap');
+  const families = new Set();
+  for (const face of faces) {
+    const family = face.match(/font-family:\s*'([^']+)';/)?.[1];
+    assert.ok(expected.has(family), `Unexpected family ${family}`);
+    families.add(family);
+    const { pkg, max } = expected.get(family);
+    const range = face.match(/font-weight:\s*(\d+)\s+(\d+);/);
+    assert.ok(range && Number(range[1]) <= 400 && Number(range[2]) >= max, family);
+    assert.match(face, /font-display:\s*swap;/);
+    const urls = [...face.matchAll(/url\(([^)]+)\)/g)].map(([, url]) => url);
+    assert.ok(urls.length, family);
+    for (const url of urls) {
+      assert.match(url, new RegExp(`^'@fontsource-variable/${pkg}/files/[^/]+\\.woff2'$`));
+    }
+  }
+  assert.deepEqual(families, new Set(expected.keys()));
+  for (const entry of fs.readdirSync(web, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const path = `${entry.parentPath}/${entry.name}`;
+    assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /fonts\.(?:googleapis|gstatic)\.com/i, path);
+  }
+  const server = fs.readFileSync(new URL('../apps/server/src/index.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(server, /fonts\.(?:googleapis|gstatic)\.com/i);
   assert.match(declarations(':root'), /font-family:'Plus Jakarta Sans','Noto Sans Khmer',system-ui,sans-serif/);
   for (const selector of ['button', 'a', 'input', 'textarea', 'select']) {
     assert.match(declarations(selector), /font:inherit/);

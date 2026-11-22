@@ -17,17 +17,13 @@ consent boundaries remain unchanged. Availability still requires release approva
 This document describes the behavior of the application itself. It is not a
 substitute for the privacy terms of third-party services you choose to use.
 
-## Browser interface font requests
+## Interface fonts
 
-The existing interface stylesheet loads fonts from Google Fonts
-(`fonts.googleapis.com` and `fonts.gstatic.com`). Current source requests Plus
-Jakarta Sans for English interface text and Noto Sans Khmer for Khmer text.
-Loading the interface can therefore send ordinary HTTPS request metadata,
-including IP address and browser information, to Google independently of the
-optional analytics/Contributor choices. These font requests do not include
-caption text, project files, source media, or creator-added font files. The
-interface uses system fallbacks when the hosted fonts are unavailable; local
-native caption preview/export uses the project's separately selected font.
+Studio bundles Plus Jakarta Sans and Noto Sans Khmer with the app and loads
+them from the local Studio server. Loading the interface sends no font requests
+to Google or any other external host. The interface fonts are separate from the
+caption font catalog. Caption preview and export use the project's selected
+font.
 
 ## What stays on your computer
 

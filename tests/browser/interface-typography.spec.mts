@@ -3,14 +3,25 @@ import { cleanFixtures, installFixture, openProject, prepareFixtures } from './f
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
-test.beforeEach(async ({ page }) => { await installFixture(page); });
+let googleFontRequests: string[];
+test.beforeEach(async ({ page }) => {
+  googleFontRequests = [];
+  page.on('request', (request) => {
+    const { hostname } = new URL(request.url());
+    if (hostname === 'fonts.googleapis.com' || hostname === 'fonts.gstatic.com') {
+      googleFontRequests.push(hostname);
+    }
+  });
+  await installFixture(page);
+});
+test.afterEach(() => { expect(googleFontRequests).toEqual([]); });
 
-// The isolated fixture blocks hosted requests. This checks the CSS cascade and
-// offline layout, not successful loading or glyph metrics of the hosted face.
+// Wait for the bundled faces before measuring the responsive layout.
 for (const width of [1440, 390, 375, 320]) {
   test(`interface font cascade keeps Khmer caption editing separate at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await openProject(page);
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.locator('html')).toHaveCSS('font-family', /^"Plus Jakarta Sans", "Noto Sans Khmer", system-ui, sans-serif$/);
     await expect(page.getByLabel('Open project tools', { exact: true })).toHaveCSS('font-family', /^"Plus Jakarta Sans",/);
     await expect(page.locator('.caption-row textarea').first()).toHaveCSS('font-family', /^"Noto Sans Khmer", "Plus Jakarta Sans", sans-serif$/);
@@ -73,27 +84,21 @@ for (const width of [1440, 390, 375, 320]) {
   });
 }
 
-// Hosted font requests remain blocked. This separate qualification loads the
-// exact licensed fixture through the owned frontend, then verifies actual glyph
-// usage in Chromium. It does not claim Google Fonts endpoint availability.
+// Verify that Chromium renders glyphs from the bundled interface fonts.
 for (const width of [1440, 375, 320]) {
   test(`loaded Plus Jakarta face and major interfaces at ${width}px`, async ({ page }, testInfo) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width, height: 1000 });
     const evidence: Array<{ surface: string; fonts: unknown }> = [];
-    const loadFace = async () => {
-      const result = await page.evaluate(async () => {
-        const face = new FontFace('Plus Jakarta Sans', 'url("/__interface-font/plus-jakarta-sans.ttf")', { weight: '200 800', style: 'normal' });
-        await face.load();
-        document.fonts.add(face);
+    const checkJakartaWeights = async () => {
+      const weights = await page.evaluate(async () => {
         await document.fonts.ready;
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        return { status: face.status, weights: [400, 500, 600, 700, 800].map((weight) => document.fonts.check(`${weight} 16px "Plus Jakarta Sans"`, 'Studio Export Review')) };
+        return [400, 500, 600, 650, 700, 800].map((weight) => document.fonts.check(`${weight} 16px "Plus Jakarta Sans"`, 'Studio Export Review'));
       });
-      expect(result.status).toBe('loaded');
-      expect(result.weights).toEqual([true, true, true, true, true]);
+      expect(weights).toEqual([true, true, true, true, true, true]);
     };
-    const capture = async (surface: string, selector: string) => {
+    const capture = async (surface: string, selector: string, family = /Plus Jakarta Sans/) => {
       await expect(page.locator(selector).first()).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
       const session = await page.context().newCDPSession(page);
@@ -105,7 +110,7 @@ for (const width of [1440, 375, 320]) {
         const { nodeId } = await session.send('DOM.querySelector', { nodeId: root.nodeId, selector });
         expect(nodeId).toBeGreaterThan(0);
         ({ fonts } = await session.send('CSS.getPlatformFontsForNode', { nodeId }));
-        expect(fonts.some((font) => font.isCustomFont && font.glyphCount > 0 && /Plus Jakarta Sans/.test(font.familyName))).toBe(true);
+        expect(fonts.some((font) => font.isCustomFont && font.glyphCount > 0 && family.test(font.familyName))).toBe(true);
       } finally { await session.detach(); }
       evidence.push({ surface, fonts });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -113,10 +118,10 @@ for (const width of [1440, 375, 320]) {
     };
     await page.goto('/');
     await expect(page.getByRole('button', { name: /Audit landscape/ })).toBeVisible();
-    await loadFace();
+    await checkJakartaWeights();
     await capture('home', 'h1');
     await openProject(page);
-    await loadFace();
+    await checkJakartaWeights();
     await capture('editor', '.header-actions > button > span');
     const controls = await page.locator('.header-actions > button, .workspace-tools-menu > summary').evaluateAll((items) => items.map((item) => {
       const rect = item.getBoundingClientRect();
@@ -131,6 +136,10 @@ for (const width of [1440, 375, 320]) {
     await capture('tools', '.workspace-tools-menu > summary > span');
     await page.getByRole('menuitem', { name: /Correct everywhere/ }).click();
     await capture('correct-everywhere', '.find-replace-modal .modal-head strong');
+    await page.getByLabel('Find', { exact: true }).fill('CapCut');
+    const captionPreview = '.find-preview-row .find-preview-copy p';
+    await expect(page.locator(captionPreview).first()).toHaveText(/[\u1780-\u17ff]/u);
+    await capture('khmer-caption', captionPreview, /Noto Sans Khmer/);
     await page.keyboard.press('Escape');
     await expect(page.locator('.find-replace-modal')).toHaveCount(0);
     await page.getByLabel('Open project tools', { exact: true }).click();
@@ -142,7 +151,7 @@ for (const width of [1440, 375, 320]) {
     await expect(page.getByRole('button', { name: 'Approve & next', exact: true })).toBeVisible();
     await capture('review', '.review-approve-next');
     await openProject(page);
-    await loadFace();
+    await checkJakartaWeights();
     await page.getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
     await capture('appearance', '#caption-appearance-workspace-title');

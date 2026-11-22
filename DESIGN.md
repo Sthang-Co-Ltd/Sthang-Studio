@@ -32,9 +32,9 @@ existing primary headings and Khmer-friendly caption leading; do not scale nativ
 video-caption text with the interface. Responsive controls retain their labeled
 44px touch targets.
 
-The existing Google Fonts stylesheet supplies the interface fonts with
-`display=swap`; system fallbacks remain usable when it is unavailable. See
-`PRIVACY.md` and `THIRD_PARTY_NOTICES.md` for the hosted-font boundary and licenses.
+Studio bundles the interface fonts with the app. With `font-display: swap`,
+system fallbacks display while the faces load. See [Privacy](PRIVACY.md) for
+font delivery and [Third-Party Notices](THIRD_PARTY_NOTICES.md) for the licenses.
 
 ## Hierarchy
 
