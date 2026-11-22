@@ -695,7 +695,7 @@ test('a delayed obsolete appearance cannot replace native pixels after a backwar
     await route.fallback().catch(() => {});
   });
   try {
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await page.getByLabel('Word highlight color').fill(BLUE);
     await expect.poll(() => held).toBe(true);
     await seek(page, 250);
@@ -805,7 +805,7 @@ for (const change of ['same-index seek', 'rate change', 'deadline'] as const) {
     try {
       await openProject(page);
       await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');
-      await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+      await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
       await page.locator('video').evaluate(async (video: HTMLVideoElement) => { video.muted = true; await video.play(); });
       await page.getByLabel('Word highlight color').fill(BLUE);
       await expect.poll(() => held?.actionDone, { timeout: 8000 }).toBe(true);
@@ -889,7 +889,7 @@ test('changing review focus inside overlapping captions hides old native focus b
   configure(state, [cue('focus-a', ['first'], 200, 2400), cue('focus-b', ['second'], 200, 2400)]
     .map((caption) => ({ ...caption, timingQuality: 'low' as const })));
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await page.locator('[data-caption-id="focus-a"] .row-index').click();
   await seek(page, 500);
   await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');

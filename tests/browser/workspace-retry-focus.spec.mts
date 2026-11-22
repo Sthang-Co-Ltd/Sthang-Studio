@@ -116,7 +116,7 @@ test('Close tool remains usable during a retry and late loading does not reopen 
     await gate.promise; await route.fallback(); completed = true;
   });
   try {
-    const appearance = page.getByRole('button', { name: 'Appearance', exact: true });
+    const appearance = page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true });
     await appearance.click(); await retry(page).focus(); await page.keyboard.press('Enter');
     await expect.poll(() => requests).toBe(2); await visibleFocus(closeTool(page));
     await page.keyboard.press('Enter');

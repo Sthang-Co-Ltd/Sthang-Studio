@@ -18,7 +18,7 @@ function deferred() {
   return { promise, release };
 }
 async function appearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Exact size', { exact: true })).toBeEnabled();
 }
 async function changeSize(page: Page, value: number) {
@@ -61,7 +61,7 @@ for (const width of [1440, 390]) test(`failed appearance remains protected acros
   await page.getByRole('region', { name: 'Recent projects', exact: true }).getByRole('button', { name: /Audit landscape/ }).click();
   await appearance(page);
   await expect(page.getByLabel('Exact size', { exact: true })).toHaveValue('90');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('button', { name: /Render captioned video/ })).toBeEnabled();
   expect(state.projects[0].captions).toEqual(captions);
 });

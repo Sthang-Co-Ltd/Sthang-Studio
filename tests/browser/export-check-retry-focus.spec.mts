@@ -69,7 +69,7 @@ test('retrying video support retains keyboard focus while settings return', asyn
   });
   try {
     await openProject(page);
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect(page.getByText('Video export check failed', { exact: true })).toBeVisible();
     const support = checks(page).getByRole('button', { name: 'Recheck video export support', exact: true });
     await activate(page, support);
@@ -102,7 +102,7 @@ async function failedAppearance(page: Page) {
     finally { done.release(); }
   };
   await page.route('**/api/projects/landscape/appearance', handler);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByLabel('Resolution', { exact: true }).selectOption('720p');
   await page.getByRole('group', { name: 'Export type', exact: true }).getByRole('button', { name: /Captions file/ }).click();
   await page.getByLabel('Caption destination', { exact: true }).selectOption('premiere');
@@ -181,12 +181,12 @@ test('Retry in Appearance retains its separate navigation and repair focus', asy
   await page.setViewportSize({ width: 390, height: 1000 });
   await openProject(page); await remember(page);
   const before = JSON.stringify({ projects: state.projects, jobs: state.jobs });
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   state.appearanceFailure = true;
   await page.getByLabel(/^Size /).fill('90');
   await expect(page.getByText('Appearance could not be saved', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const recover = checks(page).getByRole('button', { name: 'Retry in Appearance', exact: true });
   await expect(recover).toBeEnabled();
   await activate(page, recover);

@@ -49,7 +49,7 @@ selected choice locally for this project. The summary and new caption jobs use t
 last saved choice. Automatic uses the configured
 primary/fallback policy. An explicit model uses only that model for new generation,
 range regeneration, Alternative take, and Deep Verify. Exact-word local realignment
-still makes no AI request. Details retains the actual model that produced wording.
+still makes no AI request. Technical details retains the actual model that produced wording.
 
 Each new persisted caption job snapshots its effective model pair at admission.
 Resume retains that pair; changing the project choice affects a new job, not an

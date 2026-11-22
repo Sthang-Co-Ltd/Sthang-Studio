@@ -54,7 +54,7 @@ async function openActivity(page: Page, fromHome = false) {
   return activity;
 }
 async function requestRender(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Render captioned video', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Render captioned video', exact: true }).click();
   const confirmation = page.getByRole('alertdialog');

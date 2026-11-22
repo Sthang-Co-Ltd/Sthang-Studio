@@ -36,7 +36,7 @@ test.beforeEach(async ({ page }) => {
 });
 async function openAppearance(page: Page, enabled = false) {
   project().captionAppearance!.highlightMode = enabled ? 'word' : 'off';
-  await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.evaluate(() => { document.querySelector('video')?.pause(); (window as any).__appearanceActionNodes = [document.querySelector('video'), document.querySelector('.caption-list')]; });
 }

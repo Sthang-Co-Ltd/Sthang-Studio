@@ -309,7 +309,7 @@ test('a long captioned video filename keeps its completion toast within the 390p
     return route.fulfill({ status: 202, json: { ...completed, lastUsedSettingsSaved: true } });
   });
   await openProject(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: 'Render captioned video', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Render anyway', exact: true }).click();
 

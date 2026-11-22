@@ -59,24 +59,34 @@ separate from this operational icon system.
 
 ### Project header
 
-Only frequent actions remain visible:
+The project header carries the stage rail, followed by **Tools** and **Save**.
 
 ```text
-Review · Tools · Save · Export
+Captions · Review · Appearance · Export
 ```
 
-**Export** opens one focused output workspace. It does not immediately download a
-file because Studio now has two legitimate output paths: editable SRT and finished
-captioned video. Less-used actions live in the labeled **Tools** menu. Never
-collapse them into unexplained icon-only buttons at narrower widths.
+Exactly one stage is current. Selecting it again keeps it open. **Captions**
+returns to caption editing and **Appearance** is available on video projects.
+**Export** keeps its lime fill and adds an inset ring when current. It opens the
+output workspace for editable SRT and finished captioned video.
+
+At 1200px and above, center the rail between the project identity and the
+right-aligned Tools and Save actions. From 621 to 1199px, the rail can share a row
+with Tools and Save when they fit. At 620px and below, the rail uses a full-width
+row of equal text-only buttons at least 44px tall, above Tools and Save. At 380px
+and below, use two columns. Keep every stage label visible at every width.
 
 ### Editor
 
-The video and caption list are the persistent core. Review opens from the project header. The tool strip opens one specialist workspace at a time.
+The video and caption list are the persistent core. Review is a stage in the
+project header. The Captions stage owns a strip that opens one specialist
+workspace at a time.
 
 ```text
-Fine timing · Accuracy · Caption grouping · Appearance · Details
+Fine timing · Accuracy · Caption grouping
 ```
+
+**Technical details** lives in the **Tools** menu under **Project and setup**.
 
 Use the refined A desktop layout at widths of 1200px and above: default preview
 left, complete caption-list pane in the middle, and one optional inspector right.
@@ -165,8 +175,8 @@ Keep Apply focusable during the save and leave focus where the user moves it.
 On failure, show the shared error toast and keep the draft available for retry.
 Use a full-width bordered disclosure row with the current choice, a right-hand
 chevron, and clear hover and keyboard-focus states so AI options reads as a control.
-Preserve labeled keyboard focus and 44px mobile controls. Details continues to
-show the model that actually generated the saved wording.
+Preserve labeled keyboard focus and 44px mobile controls. Technical details
+shows the model that actually generated the saved wording.
 
 ### Caption appearance workspace
 
@@ -174,11 +184,11 @@ Caption appearance is **project editing state**, not an export setting. Creators
 should be able to decide how their captions look while watching the actual video,
 before they reach Export.
 
-- Show **Appearance** as a labeled editor workspace once a video project has
-  captions to judge.
+- Show **Appearance** as a labeled stage on video projects and enable it once
+  there are captions to judge.
 - Keep the real video evidence visible. The editor caption overlay should reflect
   the current project appearance while the creator works across Review, Fine
-  timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
+  timing, Accuracy, Caption grouping, Appearance, and Technical details. Appearance is the
   focused place for changing the look, not a temporary styling mode.
 - Treat only a decoded frame for the current settings as layout-locked.
   The preview is rendered as native transparent RGBA PNG frames by the exact same
@@ -706,7 +716,7 @@ Prefer:
   followed by precise data disclosure.
 - “Verified corrections” only after corpus verification, not after upload.
 
-Technical details remain available in **Details**, diagnostics, export Advanced,
+Technical details remain available in **Tools**, diagnostics, export Advanced,
 and privacy explanations where the provider/storage distinction is material to a
 user's choice.
 

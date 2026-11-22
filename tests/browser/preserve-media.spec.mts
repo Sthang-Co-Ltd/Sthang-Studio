@@ -6,6 +6,11 @@ import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtur
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
+async function openTechnicalDetails(page: Page) {
+  await page.getByLabel('Open project tools', { exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Technical details/ }).click();
+}
+
 test('alignment warning can be dismissed without verifying timing and returns when the project reopens', async ({ page }, testInfo) => {
   const state = await installFixture(page);
   const alignment = { state: 'unverified-audio-change' as const, acceptedAt: '2026-11-05T00:00:00.000Z', sourceRevision: state.projects[0].updatedAt };
@@ -31,7 +36,7 @@ test('alignment warning can be dismissed without verifying timing and returns wh
   await page.locator('header .back').click();
   await openProject(page);
   await expect(warning).toBeVisible();
-  await page.getByRole('button', { name: 'Details', exact: true }).click();
+  await openTechnicalDetails(page);
   await expect(page.locator('.timing-card')).toContainText('Previous audio timing evidence');
   expect(state.projects[0].mediaAlignment).toEqual(alignment);
 });
@@ -446,7 +451,7 @@ test('accepted audio difference submits once and keeps reviewed words, locks and
     expect(f.state.projects[0].captionAppearance).toEqual(before.captionAppearance);
     expect(f.state.projects[0].transcript).toEqual(before.transcript);
     expect(f.state.projects[0].mediaAlignment?.state).toBe('unverified-audio-change');
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('region', { name: 'Word highlight results', exact: true })
       .getByRole('status')).toHaveText('Highlighting 3 captions');
@@ -455,7 +460,7 @@ test('accepted audio difference submits once and keeps reviewed words, locks and
     await expect(page.locator('video')).toHaveAttribute('src', '/media/regraded.mp4');
     await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(before.captions[0].text);
     await expect(page.getByRole('note').filter({ hasText: 'Audio alignment not verified.' })).toContainText('Existing caption and word times were kept');
-    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    await openTechnicalDetails(page);
     const details = page.locator('.timing-card');
     await expect(details).toContainText('Previous audio timing evidence');
     await expect(details).toContainText('These measurements belong to the previous audio');
@@ -472,9 +477,8 @@ test('accepted audio difference submits once and keeps reviewed words, locks and
     expect(f.state.projects[0].captions).toEqual(before.captions);
     expect(f.state.projects[0].mediaAlignment).toBeUndefined();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/rollback-fresh.mp4');
-    const detailsButton = page.getByRole('button', { name: 'Details', exact: true });
-    await expect(detailsButton).toHaveAttribute('aria-pressed', 'false');
-    await detailsButton.click();
+    await expect(page.getByRole('complementary', { name: 'Technical details workspace', exact: true })).toBeHidden();
+    await openTechnicalDetails(page);
     await expect(page.locator('.timing-card')).toContainText('KFA Khmer alignment active');
     await expect(page.locator('.timing-card')).not.toContainText('Previous audio timing evidence');
     noGeneration(f.state);
@@ -649,7 +653,7 @@ test('active processing prevents opening media replacement', async ({ page }) =>
 test('preserve replacement retains the open Review workspace and its decision target', async ({ page }) => {
   const f = await fixture(page);
   await openProject(page);
-  const review = page.locator('.header-actions').getByRole('button', { name: /^Review/ });
+  const review = page.locator('.stage-rail').getByRole('button', { name: /^Review/ });
   await review.click();
   await seek(page, 1500);
   await expect(review).toHaveAttribute('aria-pressed', 'true');

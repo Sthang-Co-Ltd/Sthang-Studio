@@ -37,7 +37,7 @@ async function openMedia(page: Page, kind: 'video' | 'audio', workspace: 'Review
       element.pause(); element.currentTime = 0.5; element.dispatchEvent(new Event('timeupdate'));
     });
   } else await openProject(page);
-  if (workspace === 'Review') await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  if (workspace === 'Review') await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   else {
     await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
     await expect(page.locator('.fine-timing')).toBeVisible();

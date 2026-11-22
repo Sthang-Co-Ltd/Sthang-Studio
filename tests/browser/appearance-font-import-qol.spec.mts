@@ -34,7 +34,7 @@ function deferred() {
 }
 async function openAppearance(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(font(page)).toBeEnabled();
   await expect(font(page)).not.toHaveAttribute('aria-busy', 'true');
 }

@@ -32,7 +32,7 @@ function deferred() {
   return { promise, release };
 }
 async function appearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(size(page)).toBeEnabled();
   await expect(page.locator('.appearance-save-state')).toContainText('Saved automatically');
 }
@@ -199,7 +199,7 @@ for (const width of [1440, 390]) test(`an appearance draft survives restart and 
   expect(writes.slice(before)).toHaveLength(2);
   expect(writes[before + 1].expectedAppearance.fontSize1080).toBe(94);
   await sameEditor(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.clock.runFor(100);
   const render = page.getByRole('button', { name: /Render captioned video/ });
   await expect(render).toBeEnabled();
@@ -249,7 +249,7 @@ test('a delayed initial Appearance read cannot replace the explicitly restored f
   const before = writes.length;
   const held = await heldProjectRead(page, 'landscape', true);
   try {
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await held.started;
     await restoreWithKeyboard(page);
     await expect(size(page)).toHaveValue('94');

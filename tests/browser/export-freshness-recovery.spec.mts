@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 
 for (const format of ['srt', 'vtt'] as const) test(`plain ${format.toUpperCase()} keeps downloads and history appearance recovery after a failed read`, async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByLabel(/^Size /).fill('90');
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(90);
@@ -34,7 +34,7 @@ for (const format of ['srt', 'vtt'] as const) test(`plain ${format.toUpperCase()
     if (failReads) return route.fulfill({ status: 503, json: { error: 'Synthetic comparison read failure' } });
     return route.fulfill({ json: state.projects[0] });
   });
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: /Captions file/ }).click();
   if (format === 'vtt') {
     await page.locator('.handoff-advanced summary').click();
@@ -58,12 +58,12 @@ for (const format of ['srt', 'vtt'] as const) test(`plain ${format.toUpperCase()
 
 test('plain caption mode exposes saved-appearance repair beside history', async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   state.appearanceFailure = true;
   await page.getByLabel(/^Size /).fill('90');
   await expect(page.getByText('Appearance could not be saved', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: /Captions file/ }).click();
   const history = page.locator('.export-history'); await history.locator('summary').click();
   await expect(history.getByText(/Freshness unknown/)).toHaveCount(1);

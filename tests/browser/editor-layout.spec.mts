@@ -39,8 +39,17 @@ test('preview and full caption list survive every tool switch without changing m
   await page.evaluate(() => { (window as any).__layoutMedia = document.querySelector('video'); (window as any).__layoutCaptions = document.querySelector('.caption-panel'); });
   const preview = (await page.locator('.media-stage').boundingBox())!;
   expect(preview.height).toBeGreaterThan(650);
-  for (const name of ['Fine timing', 'Appearance', 'Accuracy', 'Caption grouping', 'Details', 'Export']) {
-    await page.getByRole('button', { name: name === 'Accuracy' ? /^Accuracy/ : name, exact: name !== 'Accuracy' }).click();
+  const rail = page.locator('.stage-rail');
+  for (const name of ['Fine timing', 'Appearance', 'Accuracy', 'Caption grouping', 'Technical details', 'Export']) {
+    if (name === 'Technical details') {
+      await page.getByLabel('Open project tools', { exact: true }).click();
+      await page.getByRole('menuitem', { name: /^Technical details/ }).click();
+    } else if (name === 'Appearance' || name === 'Export') {
+      await rail.getByRole('button', { name, exact: true }).click();
+    } else {
+      if (name === 'Accuracy') await rail.getByRole('button', { name: 'Captions', exact: true }).click();
+      await page.getByRole('button', { name: name === 'Accuracy' ? /^Accuracy/ : name, exact: name !== 'Accuracy' }).click();
+    }
     await expect(page.locator('.workspace-inspector')).toBeVisible();
     const current = (await page.locator('.media-stage').boundingBox())!;
     expect(Math.abs(current.height - preview.height), name).toBeLessThan(1);
@@ -57,7 +66,7 @@ test('preview and full caption list survive every tool switch without changing m
 
 test('portrait appearance uses a large preview and one inspector with all caption rows available', async ({ page }) => {
   await portraitProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   for (const selector of ['.appearance-motion-disclosure', '.appearance-word-details', '.appearance-more', '.appearance-presets-disclosure']) await expect(page.locator(selector)).not.toHaveAttribute('open');
   await expect(page.getByLabel(/^Size /)).toBeInViewport({ ratio: 1 });
@@ -92,7 +101,7 @@ test('docked waveform stays wide and redraws after switching to the smaller-scre
 
 test('pane resizing works with pointer and keyboard, persists locally, and can be reset', async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   const divider = page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true });
   const initial = (await page.locator('.media-stage').boundingBox())!.width;
   await divider.focus();
@@ -134,8 +143,17 @@ test('browsing a long caption list keeps its position and follow choice across t
   await expect(page.locator('.caption-panel').getByRole('button', { name: 'Follow playback', exact: true, pressed: false })).toBeVisible();
   const top = await list.evaluate((element) => element.scrollTop);
   expect(top).toBeGreaterThan(100);
-  for (const name of ['Appearance', 'Fine timing', 'Details']) {
-    await page.getByRole('button', { name, exact: true }).click();
+  const rail = page.locator('.stage-rail');
+  for (const name of ['Appearance', 'Fine timing', 'Technical details']) {
+    if (name === 'Technical details') {
+      await page.getByLabel('Open project tools', { exact: true }).click();
+      await page.getByRole('menuitem', { name: /^Technical details/ }).click();
+    } else if (name === 'Appearance') {
+      await rail.getByRole('button', { name, exact: true }).click();
+    } else {
+      await rail.getByRole('button', { name: 'Captions', exact: true }).click();
+      await page.getByRole('button', { name, exact: true }).click();
+    }
     await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(top);
     await expect(page.locator('.caption-panel').getByRole('button', { name: 'Follow playback', exact: true, pressed: false })).toBeVisible();
     expect(await page.locator('.caption-row').count()).toBe(20);
@@ -207,7 +225,7 @@ test('phone workspace tools reveal the focused inspector and Close returns to th
   const workbench = page.locator('.editor-workbench');
   const back = page.getByRole('button', { name: 'Back to Home' });
   const tools = [
-    { title: 'Review', trigger: page.locator('.header-actions').getByRole('button', { name: /^Review\b/ }) },
+    { title: 'Review', trigger: page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ }) },
     { title: 'Caption grouping', trigger: page.getByRole('navigation', { name: 'Caption workspace tools' }).getByRole('button', { name: 'Caption grouping' }) },
   ];
   for (const { title, trigger } of tools) {

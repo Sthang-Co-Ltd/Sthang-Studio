@@ -436,7 +436,7 @@ test('a pending own appearance save completes before the caption revision check 
     } finally { await response.dispose(); }
   });
   try {
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
     await page.getByLabel(/^Size /).fill('88');
     await page.getByLabel(/^Size /).blur();
@@ -475,7 +475,7 @@ test('a restored caption draft accepts an unrelated Appearance revision without 
   await notice.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(captionField(page)).toHaveValue(local);
 
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByLabel(/^Size /).fill('88');
   await page.getByLabel(/^Size /).blur();

@@ -5,6 +5,7 @@ import {
   BookOpenCheck,
   HelpCircle,
   History,
+  Info,
   KeyRound,
   ListTodo,
   SlidersHorizontal,
@@ -20,6 +21,8 @@ interface WorkspaceToolsMenuProps {
   pendingCorrections: number;
   llmConfigured: boolean;
   replaceDisabled: boolean;
+  technicalDetailsAvailable?: boolean;
+  onTechnicalDetails?: () => void;
   onGuide(): void;
   onCorrect(): void;
   onHistory(): void;
@@ -36,6 +39,8 @@ export function WorkspaceToolsMenu({
   pendingCorrections,
   llmConfigured,
   replaceDisabled,
+  technicalDetailsAvailable,
+  onTechnicalDetails,
   onGuide,
   onCorrect,
   onHistory,
@@ -122,6 +127,7 @@ export function WorkspaceToolsMenu({
       </div>
       <div className="tools-menu-section">
         <span>Project and setup</span>
+        {technicalDetailsAvailable && onTechnicalDetails && <button role="menuitem" onClick={() => run(onTechnicalDetails)}><Info size={16}/><span><b>Technical details</b><small>Timing and model information</small></span></button>}
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>Replace media</b><small>{replaceDisabled ? 'Finish current work first' : 'Choose whether to keep reviewed captions'}</small></span></button>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onUndoMedia)}><RotateCcw size={16}/><span><b>Undo media replacement</b><small>Restore or manage saved source backups</small></span></button>
         <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Guide</b></span></button>

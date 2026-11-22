@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
 });
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
 const glossary = (page: Page) => settings(page).getByLabel('Key terms for all projects', { exact: true });
-const review = (page: Page) => page.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
+const review = (page: Page) => page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ });
 function deferred() {
   let release!: () => void;
   const promise = new Promise<void>((resolve) => { release = resolve; });

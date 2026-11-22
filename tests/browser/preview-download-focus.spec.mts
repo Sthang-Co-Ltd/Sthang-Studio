@@ -101,7 +101,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 640 
   await page.setViewportSize(viewport);
   state.projects[0].captionAppearance = { ...state.projects[0].captionAppearance!, fontFamily: 'Missing export font' };
   await openProject(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const resolution = page.getByLabel('Resolution', { exact: true });
   await resolution.selectOption('720p');
   const repair = page.getByRole('button', { name: 'Choose an available font', exact: true });
@@ -117,7 +117,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 640 
 
 for (const outcome of ['failed lookup', 'no compatible fonts', 'new pointer input', 'window blur'] as const) test(`delayed Export font repair respects ${outcome}`, async ({ page }) => {
   state.projects[0].captionAppearance = { ...state.projects[0].captionAppearance!, fontFamily: 'Missing export font' };
-  await openProject(page); await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const repair = page.getByRole('button', { name: 'Choose an available font', exact: true });
   await expect(repair).toBeVisible();
   const gate = deferred(); const started = deferred();
@@ -167,7 +167,7 @@ for (const width of [1440, 390]) for (const format of ['srt', 'vtt'] as const) {
       const file = serializeCaptionFile({ captions: current.captions, appearance: current.captionAppearance }, format as SharedCaptionFileFormat);
       await route.fulfill({ contentType: file.mimeType, headers: { 'Content-Disposition': `attachment; filename="captions${file.extension}"` }, body: Buffer.from(file.text, 'utf8') });
     });
-    await openProject(page); await page.getByRole('button', { name: 'Export', exact: true }).click(); await output(page).click();
+    await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click(); await output(page).click();
     await expect(page.getByLabel('Caption destination', { exact: true })).toHaveValue('capcut-desktop');
     await remember(page); const before = JSON.stringify({ projects: state.projects, jobs: state.jobs });
     if (format === 'vtt') { await page.locator('.handoff-advanced > summary').click(); await page.getByRole('button', { name: /^WebVTT/ }).click(); }

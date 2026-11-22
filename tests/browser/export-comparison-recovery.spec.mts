@@ -37,7 +37,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function openHistory(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const history = page.locator('.export-history');
   await history.locator('summary').click();
   return history;

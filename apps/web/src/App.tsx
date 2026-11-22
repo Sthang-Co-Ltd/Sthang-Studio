@@ -38,7 +38,6 @@ import {
   FolderOpen,
   Group,
   HelpCircle,
-  Info,
   KeyRound,
   Keyboard,
   Languages,
@@ -167,6 +166,7 @@ function withCaptionWordTimings(project: CaptionProject): CaptionProject {
 }
 
 type WorkspaceTool = 'review' | 'timeline' | 'accuracy' | 'rhythm' | 'appearance' | 'details' | 'export' | null;
+type Stage = 'captions' | 'review' | 'appearance' | 'export';
 
 interface PendingCaptionImport {
   filename: string;
@@ -3556,7 +3556,7 @@ export default function App() {
       if (ownsUndoFocus) {
         // No caption was restored. The persistent Review entry stays clear of
         // the preview and the replacement notice without moving the editor.
-        document.querySelector<HTMLButtonElement>('.header-actions > button[aria-pressed]')?.focus({ preventScroll: true });
+        document.querySelector<HTMLButtonElement>('.stage-rail [data-stage="review"]')?.focus({ preventScroll: true });
       }
       setReviewUndo(null);
       setNotice('No approval was changed. These captions were edited or removed after approval; your newer changes are kept.');
@@ -4020,6 +4020,8 @@ export default function App() {
   const hasHybrid = Boolean(project?.transcript?.tokens?.length && timing && (timing.engine === 'kfa-local' || timing.engine === 'faster-whisper-local'));
   const legacy = Boolean(project?.transcript && !hasHybrid);
   const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
+  const stage: Stage = workspaceTool === 'review' || workspaceTool === 'appearance' || workspaceTool === 'export'
+    ? workspaceTool : 'captions';
   const savedContext = project?.transcriptionContext;
   const hasSavedContext = Boolean(savedContext?.description?.trim() || savedContext?.vocabulary?.some((term) => term.trim()));
   const usedFallback = timing?.engine === 'faster-whisper-local';
@@ -4079,6 +4081,12 @@ export default function App() {
   const toggleAccuracyToolbar = () => {
     chooseWorkspaceTool('accuracy');
     if (workspaceTool === 'accuracy') restoreInlineAccuracyFocus();
+  };
+  const selectStage = (next: Stage) => {
+    if (next === stage) return;
+    if (next === 'captions') {
+      if (workspaceTool) chooseWorkspaceTool(workspaceTool);
+    } else chooseWorkspaceTool(next);
   };
   const requestWordControl = (tool: 'timeline' | 'appearance', captionId?: string, request = projectNavigationFocus.capture()) => {
     setWordControlEntry(request ? { tool, captionId, ticket: viewTicket, request } : null);
@@ -4456,12 +4464,19 @@ export default function App() {
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
-        <button className={reviewMode ? 'selected-tool' : ''} data-tooltip="Review captions worth checking" aria-pressed={reviewMode} disabled={!draft.length && !reviewMode} onClick={() => chooseWorkspaceTool('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
+        <nav className="stage-rail" aria-label="Project stages">
+          <button type="button" data-stage="captions" aria-pressed={stage === 'captions'} disabled={Boolean(proposal)} onClick={() => selectStage('captions')}><Captions size={16}/><span>Captions</span></button>
+          <button type="button" data-stage="review" data-tooltip="Review captions worth checking" aria-pressed={stage === 'review'} disabled={!draft.length && !reviewMode} onClick={() => selectStage('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
+          {isVideo && <button type="button" data-stage="appearance" aria-pressed={stage === 'appearance'} disabled={!draft.length || Boolean(proposal)} onClick={() => selectStage('appearance')}><Palette size={16}/><span>Appearance</span></button>}
+          <button type="button" className="primary" data-stage="export" data-workspace-trigger="export" data-tooltip="Export SRT or a finished captioned video" aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>Export</span></button>
+        </nav>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
           pendingCorrections={pendingCorrections}
           llmConfigured={Boolean(llmSettings?.configured)}
           replaceDisabled={Boolean(currentProjectAnyActiveJob || busy)}
+          technicalDetailsAvailable={hasHybrid}
+          onTechnicalDetails={() => chooseWorkspaceTool('details')}
           onGuide={() => setShowGuide(true)}
           onCorrect={() => setShowFindReplace(true)}
           onHistory={() => void openHistory()}
@@ -4473,7 +4488,6 @@ export default function App() {
           onUpdates={() => setShowUpdates(true)}
         />
         <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveNeedsComparison} title={saveNeedsComparison ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption, Accuracy and appearance changes' : 'All changes saved'} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
-        <button className={`primary ${draft.length ? '' : 'disabled'}`} data-workspace-trigger="export" data-tooltip="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
 
@@ -4481,7 +4495,7 @@ export default function App() {
 
     <EditorLayout
       tool={proposal ? 'proposal' : workspaceTool}
-      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
+      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Technical details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
       onClose={proposal ? () => { closeComparison(); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
@@ -4497,17 +4511,15 @@ export default function App() {
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
         </div>
       }
-      toolbar={!proposal && (
+      toolbar={!proposal && stage === 'captions' ? (
         <div className="workspace-tool-strip">
             {(!showGeneration || draft.length > 0) && <nav aria-label="Caption workspace tools">
               {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
               {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span></button>}
               {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
-              {isVideo && draft.length > 0 && <button className={workspaceTool === 'appearance' ? 'active' : ''} aria-pressed={workspaceTool === 'appearance'} onClick={() => chooseWorkspaceTool('appearance')}><Palette size={16}/><span>Appearance</span></button>}
-              {hasHybrid && <button className={workspaceTool === 'details' ? 'active' : ''} aria-pressed={workspaceTool === 'details'} onClick={() => chooseWorkspaceTool('details')}><Info size={16}/><span>Details</span></button>}
             </nav>}
           </div>
-      )}
+      ) : null}
       captions={
         <CaptionEditor ref={editor} captions={draft} durationMs={mediaDurationMs} highlightEnabled={previewAppearance.highlightMode === 'word'} onWordTiming={openWordTiming} onNotice={setNotice}
         active={active?.id || null} playheadMs={time * 1000} selectedIds={selection.ids} issues={issues} reviewMode={reviewMode} onChange={updateDraft} onSeek={seek} onSelect={selectCaption} onTextCommit={() => void saveDraft(true, 'text-edit', true)} onEditCommit={() => { if (reviewMode && selection.captions.length) schedulePlayback(replaySelection); }} onReviewComplete={() => { cancelPlayback(); media.current?.pause(); }} onEditingChange={setTextEditing}/>
@@ -4663,7 +4675,7 @@ export default function App() {
           {workspaceTool === 'review' && draft.length > 0 && <div className="review-card review-active">
             {!riskyIds.length && draft.length > 0 && <ReviewCompletion reviewed={reviewedFlags} exportDisabled={Boolean(busy)}
               onShowAll={() => {
-                const returnTo = document.querySelector<HTMLButtonElement>('.header-actions button[aria-pressed="true"]');
+                const returnTo = document.querySelector<HTMLButtonElement>('.stage-rail button[aria-pressed="true"]');
                 chooseWorkspaceTool('review');
                 requestAnimationFrame(() => returnTo?.focus({ preventScroll: true }));
               }}

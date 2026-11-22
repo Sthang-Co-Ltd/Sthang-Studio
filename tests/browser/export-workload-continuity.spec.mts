@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => { state = await installFixture(page); await 
 const checks = (page: Page) => page.getByRole('region', { name: 'Check before export' });
 const passed = { status: 'passed', width: 640, height: 360, issues: [] };
 async function openExport(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByLabel('Resolution', { exact: true })).toBeEnabled();
 }
 
@@ -22,7 +22,7 @@ test('ordinary Appearance and Export returns reuse prerequisites after a font mu
     if (url.pathname.endsWith('/capabilities')) supportReads.push(url.search);
   });
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.locator('.appearance-font-file-input').setInputFiles({ name: 'Synthetic.ttf', mimeType: 'font/ttf', buffer: Buffer.from('owned synthetic font') });
   await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Creator Khmer');

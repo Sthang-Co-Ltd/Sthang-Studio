@@ -57,7 +57,7 @@ test('mobile notice dismissal returns to a caption under the sticky preview with
     id: `focus-notice-${index + 1}`, text: `កម្ពុជា ${index + 1}`,
     startMs: 100 + index * 300, endMs: 350 + index * 300, approved: false }));
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
   await page.getByRole('button', { name: 'Lock text', exact: true }).click();
   const notice = page.locator('[data-toast-timer="notice"]');

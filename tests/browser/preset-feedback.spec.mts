@@ -16,7 +16,7 @@ const picker = (page: Page) => page.getByLabel('Preset', { exact: true });
 
 async function openPresets(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await expandAppearanceSection(page, 'presets');
   await page.getByText('Manage presets', { exact: true }).click();

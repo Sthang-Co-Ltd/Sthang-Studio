@@ -70,7 +70,7 @@ async function openImport(page: Page) {
     (window as any).__importQolNodes = nodes;
     return nodes.every(Boolean);
   })).toBe(true);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await captionOutput(page).click();
   await page.locator('.handoff-advanced > summary').click();
   await page.locator('.handoff-restore input[type=file]').setInputFiles(file());

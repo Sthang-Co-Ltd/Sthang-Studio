@@ -117,7 +117,7 @@ test('native arrangement dismissal is semantic immediately and early drag retain
 
 test('press feedback leaves neighboring actions fixed and disabled Save remains inert', async ({ page }) => {
   await openProject(page);
-  const exportButton = page.getByRole('button', { name: 'Export', exact: true });
+  const exportButton = page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true });
   const before = await save(page).boundingBox();
   const box = (await exportButton.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();

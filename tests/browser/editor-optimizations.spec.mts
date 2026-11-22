@@ -193,7 +193,7 @@ test('Review row approval on filtered list correctly targets the original captio
   await openProject(page);
 
   // Open Review workspace
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(page.locator('.review-card')).toBeVisible();
 
   // In review mode, unapproved caption c2 is the first visible row in the queue (index 02)

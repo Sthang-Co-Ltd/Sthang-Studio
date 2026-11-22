@@ -96,7 +96,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await field.fill(caption);
     await field.press('Tab');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     // Video blockers (such as a missing font) expand these checks automatically.
     // Exercise the same transition on machines where the video font is installed.
     const videoIssues = page.locator('.export-check-details');

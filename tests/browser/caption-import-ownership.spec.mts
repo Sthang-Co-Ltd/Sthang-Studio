@@ -77,7 +77,7 @@ async function openImport(page: Page) {
       reveal.call(this, options);
     };
   });
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await captionsMode(page).click();
   await page.locator('.handoff-advanced > summary').click();
 }

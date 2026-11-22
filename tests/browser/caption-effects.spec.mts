@@ -11,7 +11,7 @@ const panel = (page: Page) => page.locator('.caption-appearance-workspace');
 const look = (page: Page, label: string) => page.getByRole('group', { name: 'Caption looks' }).getByRole('button', { name: new RegExp(`^${label}`) });
 async function openEffects(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(panel(page)).toBeVisible();
   await expect(panel(page).getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await expandAppearanceSection(page, 'motion');
@@ -60,8 +60,8 @@ test('native glow produces different pixels and survives leaving and reopening A
   await expect.poll(() => current().captionAppearance?.glowEnabled).toBe(true);
   await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');
   await expect.poll(() => page.locator('.native-caption-image').getAttribute('src')).not.toBe(original);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(look(page, 'Soft Glow')).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -164,7 +164,7 @@ test('Review focus remains visible at a selected fade boundary without changing 
   state.native = true;
   current().captionAppearance = normalizeCaptionAppearance({ ...current().captionAppearance, motionPreset: 'fade' });
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await seek(page, 150);
   await expect(page.locator('.native-caption-focus')).toHaveCount(0);
   await seek(page, 200);

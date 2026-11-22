@@ -134,7 +134,7 @@ test('review keeps context on entry, tight replay, separate focus artwork and na
   state.projects[0].captions[0].startMs = 600;
   state.projects[0].captions[0].endMs = 1100;
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeCloseTo(0.15, 2);
   await seek(page, 800);
   const image = page.locator('.native-caption-image');

@@ -11,7 +11,7 @@ const panel = (page: Page) => page.locator('.caption-appearance-workspace');
 const motion = (page: Page, name: string) => page.getByRole('group', { name: 'Caption motion' }).getByRole('button', { name, exact: true });
 async function appearance(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(panel(page)).toBeVisible();
   await expect(panel(page).getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await expandAppearanceSection(page, 'motion');
@@ -85,11 +85,11 @@ test('new motions survive preset save, workspace reopen and export with versione
   await motion(page, 'None').click();
   await panel(page).getByLabel('Preset', { exact: true }).selectOption(preset.id);
   await expect.poll(() => current().captionAppearance?.motionPreset).toBe('soft-pop');
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expandAppearanceSection(page, 'motion');
   await expect(motion(page, 'Soft Pop')).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.locator('.export-appearance-copy')).toContainText('Soft Pop');
   expect(createCaptionData({ captions: current().captions, appearance: current().captionAppearance }).version).toBe(3);
 });

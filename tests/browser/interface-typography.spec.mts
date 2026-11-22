@@ -39,7 +39,7 @@ for (const width of [1440, 390, 375, 320]) {
       expect(rowFit.textWidth).toBeGreaterThan(rowFit.rowWidth * 0.8);
     }
     const editorFit = await page.evaluate(() => {
-      const elements = [...document.querySelectorAll('.header-actions > button, .workspace-tools-menu > summary, .caption-row:first-child .time-stack input, .caption-row:first-child textarea')];
+      const elements = [...document.querySelectorAll('.stage-rail > button, .header-actions > button, .workspace-tools-menu > summary, .caption-row:first-child .time-stack input, .caption-row:first-child textarea')];
       return elements.map((element) => {
         const rect = element.getBoundingClientRect();
         return { left: rect.left, right: rect.right, width: rect.width, height: rect.height,
@@ -122,8 +122,8 @@ for (const width of [1440, 375, 320]) {
     await capture('home', 'h1');
     await openProject(page);
     await checkJakartaWeights();
-    await capture('editor', '.header-actions > button > span');
-    const controls = await page.locator('.header-actions > button, .workspace-tools-menu > summary').evaluateAll((items) => items.map((item) => {
+    await capture('editor', '.stage-rail > button > span');
+    const controls = await page.locator('.stage-rail > button, .header-actions > button, .workspace-tools-menu > summary').evaluateAll((items) => items.map((item) => {
       const rect = item.getBoundingClientRect();
       return { left: rect.left, right: rect.right, width: rect.width, height: rect.height, fits: item.scrollWidth <= item.clientWidth + 1 };
     }).filter((item) => item.width > 0 && item.height > 0));
@@ -147,12 +147,12 @@ for (const width of [1440, 375, 320]) {
     await expect(page.getByRole('dialog', { name: 'Activity', exact: true })).toBeVisible();
     await capture('activity', '#activity-title');
     await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
-    await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
     await expect(page.getByRole('button', { name: 'Approve & next', exact: true })).toBeVisible();
     await capture('review', '.review-approve-next');
     await openProject(page);
     await checkJakartaWeights();
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
     await capture('appearance', '#caption-appearance-workspace-title');
     await testInfo.attach(`actual-font-evidence-${width}`, { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });

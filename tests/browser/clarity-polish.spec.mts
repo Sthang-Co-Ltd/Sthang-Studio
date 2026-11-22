@@ -65,7 +65,7 @@ test('full names are readable on Home and inspectable without saving, remounting
   await expect(recentName).toHaveText(name);
   expect(await recentName.evaluate((node) => node.scrollHeight <= node.clientHeight + 1 && node.scrollWidth <= node.clientWidth + 1)).toBe(true);
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByLabel('Caption 1 text', { exact: true }).fill('Unfinished កម្ពុជា');
   // Settle the deliberately failed blur save before measuring the disclosure.

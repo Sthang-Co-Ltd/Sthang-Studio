@@ -697,7 +697,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onTouchMove={pauseFollowForBrowsing}
       onScroll={() => { snapshotReviewViewport(); if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
-      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'Use Add to write a caption manually.'}</div>}
+      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : <>No captions yet. Use <b>Generate captions</b> to create them from the audio, or <b>Add</b> to write one yourself.</>}</div>}
       {renderedRows}
     </div>
   </div>;

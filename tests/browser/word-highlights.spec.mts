@@ -455,7 +455,7 @@ test('Apply counts spoken cues and preserves legacy export guidance', async ({ p
   await whitespaceRow.getByRole('textbox', { name: 'Caption 5 text' }).click();
   await expect(whitespaceRow.getByRole('button', { name: 'Review word timing' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.locator('.export-warnings')).toContainText('2 captions will remain plain because word timing needs review.');
   await page.getByRole('button', { name: /Captions file/ }).click();
   const advanced = page.getByText('Advanced caption formats', { exact: false }).filter({ has: page.getByText('For compatible editors and backups') });
@@ -491,7 +491,7 @@ test('marked group and partial timing show visual readiness without promoting gr
   await openProject(page);
   await page.getByRole('button', { name: /^Appearance$/i }).click();
   await expect(page.getByRole('region', { name: 'Word highlight results' })).toContainText('1 with words lit together · 1 partly');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.locator('.export-warnings')).toContainText('Words without usable timing keep the normal color in 1 caption.');
   await page.getByRole('button', { name: /Captions file/ }).click();
   await page.locator('summary').filter({ hasText: 'Advanced caption formats' }).click();
@@ -570,7 +570,7 @@ test('Review protects a hidden approved neighbor until both captions are visible
   project().captions.push({ id: 'last-flag', text: 'Check the last caption', startMs: 3650, endMs: 3950, timingQuality: 'low' });
   const before = structuredClone(project().captions);
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(page.locator('[data-caption-id="c2"]')).toHaveCount(0);
   await expect(page.getByLabel('Caption 3 text', { exact: true })).toBeVisible();
   const more = page.getByLabel('More actions for caption 1', { exact: true });

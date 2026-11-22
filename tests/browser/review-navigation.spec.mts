@@ -33,7 +33,7 @@ const approveRow = (page: Page, id: string) => row(page, id).getByRole('button',
 
 async function openReview(page: Page) {
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(review(page)).toBeVisible();
   await expect(row(page, 'ux-1')).toHaveClass(/selected-range/);
   await page.locator('video').evaluate((video: HTMLVideoElement) => video.pause());

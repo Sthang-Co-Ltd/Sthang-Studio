@@ -1040,7 +1040,7 @@ test('timing cleanup applies normally and cannot overwrite newer timing, lock, a
   };
   try {
     await openProject(page);
-    await page.locator('header').getByRole('button', { name: /^Review/ }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
     await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
     await invokeTimingCleanup();
     await expect(page.getByLabel('Caption 1 start time', { exact: true })).toHaveValue('00:00.125');
@@ -1522,7 +1522,7 @@ test('selection regeneration does not submit after navigation invalidates its pe
   try {
     await openProject(page);
     await page.getByLabel('Caption 1 text', { exact: true }).fill('Dirty caption before selection regeneration');
-    await page.getByRole('button', { name: /^Review/ }).first().click();
+    await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
     await page.getByRole('button', { name: 'Improve…', exact: true }).click();
     await expect.poll(() => saving).toBe(true);
     await page.getByLabel('Back to Home', { exact: true }).click();
@@ -1547,7 +1547,7 @@ test('captioned-video export does not submit after navigation during its warning
     await route.fulfill({ status: 202, json: job });
   });
   await openProject(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: /Captioned video/ }).click();
   await page.getByRole('button', { name: 'Render captioned video', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Render with review warnings?');
@@ -1624,7 +1624,7 @@ for (const scope of ['full', 'selection'] as const) {
         await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
         await page.getByRole('button', { name: 'Improve all captions', exact: true }).click();
       } else {
-        await page.getByRole('button', { name: /^Review/ }).first().click();
+        await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
         await page.getByRole('button', { name: 'Improve…', exact: true }).click();
       }
       await expect.poll(() => captionWrites.length).toBeGreaterThan(0);

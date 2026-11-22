@@ -20,7 +20,7 @@ test('Review explains the selected caption and keeps other rows quiet', async ({
     context.font = `${style.fontSize} ${style.fontFamily}`;
     return style.fontSize === '13px' && context.measureText('00:00.200').width <= input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
   })).toBe(true);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review\b/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ }).click();
   const reasons = page.locator('.review-reasons');
   await expect(page.getByRole('heading', { level: 2, name: 'Review queue panel', exact: true })).toBeVisible();
   await expect(reasons.getByText('Timing may be off', { exact: true })).toBeVisible();
@@ -35,7 +35,7 @@ test('phone Review keeps approval in view while keyboard scrolling reads the rea
   await page.setViewportSize({ width: 390, height: 844 });
   await installFixture(page);
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review\b/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ }).click();
   await expect(page.getByRole('button', { name: 'Approve & next', exact: true })).toBeInViewport({ ratio: 1 });
   const reasons = page.getByRole('list', { name: 'Review reasons', exact: true });
   await page.getByRole('button', { name: 'Close tool', exact: true }).press('Tab');
@@ -49,7 +49,7 @@ for (const width of [1280, 390]) test(`Render remains visible and leaves keyboar
   await page.setViewportSize({ width, height: width === 1280 ? 720 : 844 });
   await installFixture(page);
   await openProject(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const render = page.getByRole('button', { name: 'Render captioned video', exact: true });
   await expect(render).toBeEnabled();
   const headings = ['Preview panel', 'Captions panel', 'Export panel'];

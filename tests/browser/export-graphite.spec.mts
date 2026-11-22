@@ -6,7 +6,7 @@ test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
 let state: FixtureState;
 test.beforeEach(async ({ page }) => { state = await installFixture(page); });
 async function openExport(page: Page) {
-  await openProject(page); await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByLabel('Resolution', { exact: true })).toBeEnabled();
 }
 async function widePanel(page: Page) {

@@ -15,7 +15,7 @@ const feedback = (input: Locator) => field(input).locator('.appearance-number-fe
 
 async function openAppearance(page: Page, more = false) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   if (more) await page.getByText('More appearance', { exact: true }).click();
 }

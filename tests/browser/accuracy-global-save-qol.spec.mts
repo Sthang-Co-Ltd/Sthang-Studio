@@ -165,7 +165,7 @@ test('a late global response keeps newer raw vocabulary and a later saved Review
     await doubleActivate(page);
     await expect.poll(() => writes.length).toBe(1);
     await vocabulary(page).fill('  Newer term  \n\nMixed កម្ពុជា  ');
-    const review = page.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
+    const review = page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ });
     await review.click();
     await page.getByRole('checkbox', { name: 'Auto-play next', exact: true }).check();
     await expect.poll(() => state.profile.preferences.autoPlayNextReview).toBe(true);
