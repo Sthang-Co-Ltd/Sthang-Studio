@@ -1136,6 +1136,8 @@ export default function App() {
 
   useToastTimeout('notice', notice, 4200, () => setNotice(''));
   useToastTimeout('review-undo', reviewUndo, 6500, () => setReviewUndo(null));
+  const latestProjectUndo = projectBin.undo.at(-1) ?? null;
+  useToastTimeout('project-undo', latestProjectUndo?.instanceId, 6500, () => { if (latestProjectUndo) projectBin.dismissUndo(latestProjectUndo.instanceId); });
 
   useEffect(() => {
     if (!project) return;
@@ -4462,7 +4464,7 @@ export default function App() {
       {projectBin.notice.reviewStorage && <button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button>}
       <button aria-label="Dismiss project notice" onClick={projectBin.dismissNotice}><X size={14}/></button>
     </div>}
-    {projectBin.undo.map((move) => <div key={move.instanceId} className="toast notice" role="status">
+    {latestProjectUndo && [latestProjectUndo].map((move) => <div key={move.instanceId} className="toast notice" role="status" data-toast-timer="project-undo">
       <span>Moved “{move.title}” to Recently deleted.</span>
       {canRestore(move.restoreUntil) && <button className="toast-action" disabled={Boolean(projectBin.pendingId)}
         onClick={() => void undoProjectMove(move)}>Undo</button>}

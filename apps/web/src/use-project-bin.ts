@@ -92,7 +92,8 @@ export function useProjectBin({
     try {
       const receipt = await api.moveProjectToBin(project.id);
       onRemove(project.id);
-      setUndo((moves) => [...moves, { ...receipt, title: project.title }]);
+      // One short-lived Undo, like Review: a newer move replaces the older offer.
+      setUndo([{ ...receipt, title: project.title }]);
       void refresh();
       return true;
     } catch (error) {

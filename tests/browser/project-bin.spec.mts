@@ -103,6 +103,17 @@ test('keyboard More moves a project, hands off focus, and Undo restores it', asy
   expect(saved.status()).toBe(200);
 });
 
+test('only the latest move offers Undo, and the offer closes on its own', async ({ page, studio }) => {
+  await library(page);
+  await move(page, first);
+  await move(page, second);
+  const offers = page.locator('[data-toast-timer="project-undo"]');
+  await expect(offers).toHaveCount(1);
+  await expect(offers).toContainText(`Moved “${second}” to Recently deleted.`);
+  await page.mouse.move(1, 1);
+  await expect(offers).toHaveCount(0, { timeout: 12_000 });
+});
+
 test('Recently deleted shows dates, restores, and confirms permanent deletion', async ({ page, studio }) => {
   await library(page);
   await move(page, first);
