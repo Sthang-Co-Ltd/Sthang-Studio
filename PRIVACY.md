@@ -62,22 +62,21 @@ storage is unavailable.
 
 Browser-compatible playback copies stay in the project-scoped local media-preview
 cache. Preparation is cancellable, creates no cloud transfer, and does not replace
-the source used for caption generation or video export. Media replacement/deletion
+the source used for caption generation or video export. Media replacement or permanent project removal
 invalidates the copy; bounded cache eviction can also remove and later rebuild it.
 Current source refreshes the exact open compatible copy's local cache lease with
 a HEAD request every 30 seconds; it expires after two minutes without a refresh. This uses only the
 existing local preview API and makes no cloud request. Closed/sleeping tabs do
 not reserve storage indefinitely. Rebuilds publish a new local file while an
 open player keeps its previous copy. In-flight file responses retain their exact
-copy until the response closes; media replacement/deletion ends those responses
-before removing the project cache. Project deletion also waits for preparation
-and preview metadata reads before removing the saved record or original media,
-and blocks new preview access until deletion cleanup finishes. If this preview
-drain cannot finish, the project, original and previously completed playback copy
-remain available for retry; cancellation can still remove its own unfinished
-preparation files. The [deletion ordering evidence](docs/PREVIEW-DELETION-ORDERING-20261118.md)
-distinguishes that guarantee from later filesystem failures. This describes
-current source behavior, not proof of a released package.
+copy until the response closes. Media replacement and permanent removal end
+those responses before removing the project cache. Permanent removal also waits
+for preview preparation and metadata reads, and blocks new preview access until
+cleanup finishes. If Studio cannot finish closing the preview, the project stays
+in Recently deleted and can still be restored within its deadline. Previously
+completed playback copies and the original remain on disk. Cancellation may
+remove unfinished preparation files. If cleanup fails after permanent removal
+starts, Studio keeps the project record for retry and disables Restore.
 
 Runtime data lives under the installation's local directories and is excluded
 from Git by `.gitignore`.
@@ -112,6 +111,8 @@ aggregate admission limits. Valid copies expire after seven days and are removed
 when recovery is next inspected or written. A successful save clears that page's
 acknowledged copy; explicit discard removes the selected copy. Newer copies from
 other tabs are retained. Invalid or unsupported records are ignored, not imported.
+Browser-held drafts follow these rules independently of Recently deleted and
+permanent project removal.
 When several copies exist, the Recovery draft selector previews them without
 discarding another copy. Only the selected exact copy is restored, downloaded or
 discarded. Returning to earlier caption wording while a save is pending, or after
@@ -174,10 +175,10 @@ caption/transcript state, appearance, and history so the creator can explicitly
 restore that version. Recovery data remains in ignored project runtime storage;
 removing a recovery removes that snapshot and its retained source. When directory
 durability cannot be confirmed (including Windows), separate retired History
-entries may remain until project deletion. Deleting
-one backup is not a purge of all prior captions or History; project deletion
-removes the project-scoped recovery and History data. These snapshots consume
-local disk space and are not cloud backups.
+entries may remain until permanent project removal. Removing one backup removes
+that snapshot and its retained source. Permanent project removal also removes the
+project's other recovery snapshots and History. These snapshots consume local
+disk space.
 Accepted edits arriving after media submission can also appear in an editor-session
 Copy recovery notice, including exact raw Accuracy description/vocabulary and
 caption data bound to the previous source. Copying is explicit; this notice is not
@@ -576,8 +577,8 @@ lazy and is loaded only when the KFA fallback is actually needed.
 
 Current Studio builds may migrate the former monolithic project/history JSON
 layout into per-project atomic files to reduce repeated disk I/O. Existing project
-data is preserved during migration; the legacy project source/history files are
-not silently discarded as part of the migration itself.
+data is preserved during migration. Preserved pre-migration backups have their
+own lifetime and may still contain project data after permanent removal.
 
 ## Update checks (Windows and installed Apple Silicon bootstrap)
 
@@ -626,9 +627,24 @@ credential under the Studio state root). Use the application's available
 delete/forget/privacy actions and remove local runtime folders deliberately when
 you no longer need them.
 
-Deleting a local project removes unsent contribution candidates tied to that
-project, but it does not silently revoke contribution data that was already sent.
-Use **Privacy → Request deletion** for contributor-wide remote corpus deletion.
+Moving a project to **Recently deleted** keeps it and its files on this computer.
+You can restore it for seven days. Its existing local `/media` URL can still
+serve Studio's copy of the source during that time. After the deadline, Studio
+permanently removes the project the next time its cleanup runs. It checks at
+startup and every six hours while running. **Delete now** starts removal
+immediately. If local storage prevents cleanup, Studio keeps the project record
+and retries unfinished removal.
+
+Permanent removal covers the project record, Studio's copy of the source media,
+caches and playback previews, History and recovery snapshots, proposals, jobs,
+unsent Contributor clips, and the project's Correction inbox entries. Studio
+keeps a source file if it is shared with another saved project or its ownership
+cannot be verified. Exports saved to the exports folder, browser-held drafts,
+preserved migration backups, and saved key terms keep their own lifetimes.
+
+Moving a project to Recently deleted discards its unsent Contributor clips.
+Already-submitted contributions follow the existing withdrawal process. Use
+**Privacy → Request deletion** for contributor-wide remote corpus deletion.
 
 For security reporting, see `SECURITY.md`.
 
@@ -638,8 +654,8 @@ Source development also keeps bounded local export receipts: one SHA-256 content
 fingerprint, format, schema version and preparation timestamp per output format,
 under that project's existing local history directory. Receipts contain no copy
 of caption text, media, filenames or credentials. New completed video jobs retain
-their own content fingerprint in the existing local job history. Local project
-deletion removes its receipt file through the existing history cleanup. These
+their own content fingerprint in the existing local job history. Permanent project
+removal clears the receipt file through the existing History cleanup. These
 records are not sent to a provider or analytics service. They compare project
 content; they cannot verify where a browser saved a download or identify edits
 made to an exported file outside Studio.

@@ -42,6 +42,7 @@ export async function createProjectFromUpload(uploaded: UploadedMedia, input: { 
     }
     const source: CreationSource = { name: uploaded.originalname, size: uploaded.size, mimeType: uploaded.mimetype || 'application/octet-stream', lastModified };
     return await store.withProjectWrite(id, async (current, persist) => {
+      if (store.isHiddenByBin(id)) throw new ProjectCreationError('This upload belongs to a project in Recently deleted.', 'project_binned', 409, 'not-created');
       if (current) {
         const attempt = (current as CreationProject).creationAttempt;
         if (!supplied || attempt?.id !== id || JSON.stringify(attempt.source) !== JSON.stringify(source)) {

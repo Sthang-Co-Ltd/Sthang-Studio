@@ -86,10 +86,11 @@ function normalizeState(value: unknown): ContributionState {
   };
 }
 
-async function loadUnsafe() {
+async function loadUnsafe(strict = false) {
   try {
     return normalizeState(JSON.parse(await fs.readFile(config.contributionStateFile, 'utf8')));
-  } catch {
+  } catch (error) {
+    if (strict && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return { ...EMPTY_STATE, candidates: [] };
   }
 }
@@ -108,13 +109,13 @@ async function readState() {
   return loadUnsafe();
 }
 
-async function mutateState<T>(operation: (state: ContributionState) => Promise<T> | T): Promise<T> {
+async function mutateState<T>(operation: (state: ContributionState) => Promise<T> | T, strict = false): Promise<T> {
   let resolveResult!: (value: T | PromiseLike<T>) => void;
   let rejectResult!: (reason?: unknown) => void;
   const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
   const task = stateQueue.then(async () => {
     try {
-      const state = await loadUnsafe();
+      const state = await loadUnsafe(strict);
       const value = await operation(state);
       await saveUnsafe(state);
       resolveResult(value);
@@ -193,10 +194,6 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 9000
   } finally {
     clearTimeout(timeout);
   }
-}
-
-async function uploadCandidate(state: ContributionState, candidate: ContributionCandidate) {
-  return jobAdmission.runForProject(candidate.projectId, () => uploadCandidateForMedia(state, candidate));
 }
 
 async function uploadCandidateForMedia(state: ContributionState, candidate: ContributionCandidate) {
@@ -311,11 +308,11 @@ async function recoverStaleUploads() {
   });
 }
 
-async function claimQueuedCandidate() {
+async function claimQueuedCandidate(candidateId: string) {
   return mutateState((state) => {
     if (!state.active || state.withdrawalPending) return null;
     ensureIdentity(state);
-    const candidate = state.candidates.find((item) => item.status === 'queued');
+    const candidate = state.candidates.find((item) => item.id === candidateId && item.status === 'queued');
     if (!candidate) return null;
     candidate.status = 'uploading';
     candidate.attempts += 1;
@@ -362,28 +359,32 @@ async function syncPendingInternal() {
     if ((profile.preferences.khmerContributionConsent || 'unset') !== 'granted' || !initial.active) return;
 
     for (let index = 0; index < 8; index += 1) {
-      const claimed = await claimQueuedCandidate();
-      if (!claimed) break;
-      let uploaded: { receiptId: string } | null = null;
-      try {
-        uploaded = await uploadCandidate(claimed.state, claimed.candidate);
-      } catch (error) {
-        await settleUploadFailure(claimed.candidate.id);
-        throw error;
-      }
-      if (!uploaded) {
+      const queued = (await readState()).candidates.find((item) => item.status === 'queued');
+      if (!queued) break;
+      // Keep admission through settlement so moving a project to the bin cannot
+      // race a claimed clip or discard a receipt that just arrived.
+      await jobAdmission.runForProject(queued.projectId, async () => {
+        const claimed = await claimQueuedCandidate(queued.id);
+        if (!claimed) return;
+        let uploaded: { receiptId: string } | null;
+        try {
+          uploaded = await uploadCandidateForMedia(claimed.state, claimed.candidate);
+        } catch (error) {
+          await settleUploadFailure(claimed.candidate.id);
+          throw error;
+        }
         await mutateState((state) => {
-          state.candidates = state.candidates.filter((item) => item.id !== claimed.candidate.id);
+          const candidate = state.candidates.find((item) => item.id === claimed.candidate.id);
+          if (!candidate || candidate.status !== 'uploading') return;
+          if (!uploaded) {
+            state.candidates = state.candidates.filter((item) => item.id !== candidate.id);
+            return;
+          }
+          candidate.status = 'submitted';
+          candidate.receiptId = uploaded.receiptId;
+          candidate.submittedAt = new Date().toISOString();
+          Object.assign(candidate, minimizeRemoteCandidate(candidate));
         });
-        continue;
-      }
-      await mutateState((state) => {
-        const candidate = state.candidates.find((item) => item.id === claimed.candidate.id);
-        if (!candidate || candidate.status !== 'uploading') return;
-        candidate.status = 'submitted';
-        candidate.receiptId = uploaded.receiptId;
-        candidate.submittedAt = new Date().toISOString();
-        Object.assign(candidate, minimizeRemoteCandidate(candidate));
       });
     }
 
@@ -447,11 +448,22 @@ export const contributionStore = {
   syncPending,
 
   async removeProject(projectId: string) {
-    await mutateState((state) => {
+    await mutateState(async (state) => {
+      const candidateIds = new Set(state.candidates.filter((item) => item.projectId === projectId).map((item) => item.id));
+      if (candidateIds.size) {
+        const names = await fs.readdir(config.contributionTempDir).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        });
+        for (const name of names) {
+          const match = /^([A-Za-z0-9_-]+)\.\d+\.[a-f0-9]{8}\.wav$/u.exec(name);
+          if (match && candidateIds.has(match[1])) await fs.rm(path.join(config.contributionTempDir, name), { force: true });
+        }
+      }
       state.candidates = state.candidates
         .filter((item) => item.projectId !== projectId || !['queued', 'rejected'].includes(item.status))
         .map((item) => item.projectId === projectId && item.status !== 'queued' ? minimizeRemoteCandidate(item) : item);
-    });
+    }, true);
   },
 
   async requestWithdrawal() {

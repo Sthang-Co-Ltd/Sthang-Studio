@@ -108,6 +108,6 @@ test('projection follows published appearance and media while a failed save keep
   const replaced = await store.upsert({ ...saved, media: { ...saved.media, filename: 'new-source.wav', size: 999, url: '/media/new-source.wav' } });
   cancelScheduledProjectPrewarm(source.id);
   assert.deepEqual(await (await fetch(`${baseUrl}/${source.id}/appearance`)).json(), projection(replaced));
-  await store.remove(source.id);
+  await store.moveToBin(source.id);
   assert.equal((await fetch(`${baseUrl}/${source.id}/appearance`)).status, 404);
 });

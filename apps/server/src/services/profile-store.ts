@@ -319,17 +319,19 @@ async function initializeMissingProfile() {
   return task;
 }
 
-async function load(): Promise<AppProfile> {
+async function load(strict = false): Promise<AppProfile> {
   let serialized: string;
   try {
     serialized = await fs.readFile(config.profileFile, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return structuredClone(await initializeMissingProfile());
+    if (strict) throw error;
     return structuredClone(initialProfile(true));
   }
   try {
     return structuredClone(normalizeProfile(JSON.parse(serialized)));
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     // A malformed existing profile is prior-use evidence, but do not overwrite it
     // merely to show the introduction. A later explicit profile write can repair it.
     return structuredClone(initialProfile(true));
@@ -357,9 +359,10 @@ type ProfileMutationOutcome<T> =
 
 function queueProfileMutation<T>(
   mutation: (current: AppProfile) => Promise<ProfileMutationOutcome<T>> | ProfileMutationOutcome<T>,
+  strict = false,
 ): Promise<T> {
   const run = async (): Promise<T> => {
-    const current = await load();
+    const current = await load(strict);
     const cloned = structuredClone(current);
     const outcome = await mutation(cloned);
     if ('save' in outcome && outcome.save === false) {
@@ -431,7 +434,7 @@ function ruleFromEvent(event: CorrectionEvent): CorrectionRule {
 }
 
 export const profileStore = {
-  get: load,
+  get: () => load(),
 
   async setLastVideoExportSettings(value: unknown): Promise<AppProfile> {
     const input = structuredClone(value);
@@ -578,11 +581,20 @@ export const profileStore = {
     });
   },
 
-  async actOnCorrection(id: string, action: 'remember-global' | 'add-project' | 'ignore') {
+  async removeProjectCorrectionEvents(projectId: string) {
     return queueProfileMutation((current) => {
+      const correctionEvents = current.correctionEvents.filter((event) => event.projectId !== projectId);
+      if (correctionEvents.length === current.correctionEvents.length) return { save: false, result: undefined };
+      return { next: { ...current, correctionEvents }, result: () => undefined };
+    }, true);
+  },
+
+  async actOnCorrection(id: string, action: 'remember-global' | 'add-project' | 'ignore', beforeDecision?: (event: CorrectionEvent) => Promise<void>) {
+    return queueProfileMutation(async (current) => {
       const index = current.correctionEvents.findIndex((event) => event.id === id);
       if (index < 0) throw new Error('Correction event not found.');
       const event = current.correctionEvents[index];
+      await beforeDecision?.(event);
       const now = new Date().toISOString();
       const nextEvents = [...current.correctionEvents];
       let nextVocabulary = current.defaultVocabulary;

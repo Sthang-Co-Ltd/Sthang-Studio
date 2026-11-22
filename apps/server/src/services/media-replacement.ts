@@ -146,21 +146,27 @@ async function syncDirectory(directory: string) {
   const handle = await fs.open(directory, 'r');
   try { await handle.sync(); } finally { await handle.close(); }
 }
-async function readSnapshot(projectId: string, id: string) {
+async function readSnapshot(projectId: string, id: string, strict = false) {
   const directory = recoveryPath(projectId, id);
-  const stat = await fs.lstat(directory).catch(() => null);
+  const stat = await fs.lstat(directory).catch((error: NodeJS.ErrnoException) => {
+    if (strict && error.code !== 'ENOENT') throw error;
+    return null;
+  });
   if (!stat?.isDirectory() || stat.isSymbolicLink()) return null;
-  const snapshot = await fs.readFile(path.join(directory, 'snapshot.json'), 'utf8').then((value) => JSON.parse(value) as RecoverySnapshot).catch(() => null);
+  const snapshot = await fs.readFile(path.join(directory, 'snapshot.json'), 'utf8').then((value) => JSON.parse(value) as RecoverySnapshot).catch((error: NodeJS.ErrnoException) => {
+    if (strict && error.code !== 'ENOENT') throw error;
+    return null;
+  });
   if (!snapshot || snapshot.version !== 1 || snapshot.id !== id || snapshot.project?.id !== projectId
     || !Array.isArray(snapshot.history) || snapshot.sourceFile !== 'source' || !/^[a-f0-9]{64}$/.test(snapshot.sourceSha256)) return null;
   return snapshot;
 }
-async function snapshots(projectId: string) {
+async function snapshots(projectId: string, strict = false) {
   const names = await fs.readdir(recoveryRoot(projectId)).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return [] as string[];
     throw error;
   });
-  const values = await Promise.all(names.filter((name) => /^[A-Za-z0-9_-]{1,100}$/.test(name)).map((id) => readSnapshot(projectId, id)));
+  const values = await Promise.all(names.filter((name) => /^[A-Za-z0-9_-]{1,100}$/.test(name)).map((id) => readSnapshot(projectId, id, strict)));
   return values.filter((value): value is RecoverySnapshot => Boolean(value)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 async function ensureRecoveryCapacity(projectId: string) {
@@ -239,7 +245,8 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
           await syncFile(stagedPath);
           if (await hashFile(stagedPath, options.signal) !== recovered.sourceSha256) throw new MediaReplacementError('The restored media could not be verified. Your current project was kept.', 409, 'MEDIA_RECOVERY_INVALID');
           stagedMedia = { ...recovered.project.media, filename, url: `/media/${encodeURIComponent(filename)}` };
-          target = { ...structuredClone(recovered.project), id: current.id, createdAt: current.createdAt, media: stagedMedia, pipelineCache: undefined, updatedAt: nextRevision(current) };
+          target = { ...structuredClone(recovered.project), id: current.id, title: current.title, deletion: undefined,
+            createdAt: current.createdAt, media: stagedMedia, pipelineCache: undefined, updatedAt: nextRevision(current) };
           history = recovered.history;
         } else {
           if (!uploaded) throw new MediaReplacementError('Choose a replacement video or audio file.', 400, 'MEDIA_REPLACEMENT_INPUT');
@@ -342,8 +349,8 @@ export function createMediaReplacementService(overrides: Partial<MediaReplacemen
       if (!await deps.store.has(projectId)) throw new MediaReplacementError('Project not found', 404, 'MEDIA_PROJECT_NOT_FOUND');
       return (await snapshots(projectId)).map(summary);
     },
-    async clearRetiredMediaSources(projectId: string) {
-      for (const recovery of await snapshots(projectId)) await fs.rm(sourcePath(recovery.project.media.filename), { force: true });
+    async clearRetiredMediaSources(projectId: string, removeUpload: (filename: string) => Promise<void>) {
+      for (const recovery of await snapshots(projectId, true)) await removeUpload(recovery.project.media.filename);
     },
     async discardMediaReplacement(projectId: string, id: string, options: MediaReplacementOptions) {
       return deps.jobAdmission.changeProjectMedia(projectId, () => deps.hasActiveJobs(projectId), () => deps.store.withProjectWrite(projectId, async (current) => {

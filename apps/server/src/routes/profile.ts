@@ -3,7 +3,7 @@ import type { CaptionProject } from '@kcs/shared';
 import { profileStore, VideoExportPresetConflictError, VideoExportPresetNotFoundError } from '../services/profile-store.js';
 import { contributionStore } from '../services/contribution-store.js';
 import { resetAnalyticsIdentity } from '../services/analytics.js';
-import { store } from '../services/store.js';
+import { ProjectBinError, store } from '../services/store.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 
 const router = Router();
@@ -78,31 +78,37 @@ router.post('/import', async (req, res) => {
 });
 
 router.post('/corrections/:id/action', async (req, res) => {
+  const action = req.body?.action;
   try {
-    const action = String(req.body?.action || '') as 'remember-global' | 'add-project' | 'ignore';
-    if (!['remember-global', 'add-project', 'ignore'].includes(action)) {
+    if (action !== 'remember-global' && action !== 'add-project' && action !== 'ignore') {
       return res.status(400).json({ error: 'Unknown correction action.' });
     }
 
-    const result = await profileStore.actOnCorrection(req.params.id, action);
-    let project: CaptionProject | null = null;
-
-    if (action === 'add-project') {
-      project = await store.withProjectWrite(result.event.projectId, async (current, persist) => {
-        if (!current) return null;
+    if (action !== 'add-project') {
+      const result = await profileStore.actOnCorrection(req.params.id, action);
+      return res.json({ profile: result.profile, project: null });
+    }
+    const queued = (await profileStore.get()).correctionEvents.find((event) => event.id === req.params.id);
+    if (!queued) return res.status(404).json({ error: 'Correction event not found.' });
+    const result = await store.withProjectWrite(queued.projectId, async (current, persist) => {
+      if (!current) throw new ProjectBinError(store.isHiddenByBin(queued.projectId) ? 'project_binned' : 'not_found');
+      let project: CaptionProject | undefined;
+      const decision = await profileStore.actOnCorrection(req.params.id, action, async (event) => {
+        if (event.projectId !== current.id) throw new ProjectBinError('not_found');
         const context = normalizeTranscriptionContext(current.transcriptionContext);
-        context.vocabulary = profileStore.addVocabularyLine(context.vocabulary, result.event.suggestedVocabularyLine);
-        return persist({
+        context.vocabulary = profileStore.addVocabularyLine(context.vocabulary, event.suggestedVocabularyLine);
+        project = await persist({
           ...current,
           transcriptionContext: context,
           updatedAt: new Date().toISOString(),
         });
       });
-      if (!project) return res.status(404).json({ error: 'The correction project no longer exists.' });
-    }
-
-    res.json({ profile: result.profile, project });
+      return { profile: decision.profile, project };
+    });
+    res.json(result);
   } catch (error) {
+    if (error instanceof ProjectBinError) return res.status(error.code === 'project_binned' ? 409 : 404).json({ error: error.message, code: error.code });
+    if (action === 'add-project') return res.status(500).json({ error: 'Studio could not save the project correction.' });
     res.status(400).json({ error: error instanceof Error ? error.message : 'Correction action failed' });
   }
 });

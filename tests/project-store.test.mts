@@ -174,7 +174,8 @@ test('normalized-audio cache accepts detached metadata with identical fingerprin
 });
 
 test('deletion and queued appearance writes cannot recreate a removed project', async () => {
-  await Promise.all([store.remove(original.id), store.setCaptionAppearance(original.id, DEFAULT_CAPTION_APPEARANCE)]);
+  const [{ instanceId }] = await Promise.all([store.moveToBin(original.id), store.setCaptionAppearance(original.id, DEFAULT_CAPTION_APPEARANCE)]);
+  await store.purgeBinnedProject(original.id, { instanceId }, (run) => run(), async () => {});
   assert.equal(await store.get(original.id), null);
   assert.equal(await store.has(original.id), false);
   assert.equal(await store.getMedia(original.id), null);
