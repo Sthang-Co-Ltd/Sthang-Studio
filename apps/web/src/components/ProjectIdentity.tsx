@@ -58,7 +58,7 @@ export function ProjectIdentity({ title, filename, status }: { title: string; fi
     <button ref={trigger} type="button" className="project-name-button" aria-label="Project details" aria-describedby={`${id}-name`} aria-haspopup="dialog" data-project-entry-focus
       aria-expanded={open} aria-controls={open ? id : undefined} data-tooltip={open ? undefined : `${title}\n${filename}`}
       onClick={() => setOpen((value) => !value)}>
-      <strong id={`${id}-name`}>{title}</strong><span className="project-name-compact">Project details</span><ChevronDown size={16} aria-hidden="true"/>
+      <strong id={`${id}-name`}>{title}</strong><span className="project-name-compact" aria-hidden="true"><span>{title}</span></span><ChevronDown size={16} aria-hidden="true"/>
     </button>
     <span className="project-file-status">{filename} · {status}</span>
     {open && createPortal(<section ref={panel} id={id} role="dialog" aria-labelledby={`${id}-heading`} className="project-name-dialog" style={position}>

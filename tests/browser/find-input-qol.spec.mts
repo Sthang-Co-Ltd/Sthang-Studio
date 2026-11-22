@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
 });
 
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+const panel = (page: Page) => page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
 const find = (page: Page) => panel(page).getByLabel('Find', { exact: true });
 const replacement = (page: Page) => panel(page).getByLabel('Replace with', { exact: true });
 const apply = (page: Page) => panel(page).getByRole('button', { name: 'Replace editable matches', exact: true });

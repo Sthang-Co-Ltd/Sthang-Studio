@@ -77,7 +77,7 @@ for (const width of [1440, 390]) test(`500-caption layout findings survive repai
   await size.fill('58'); await size.press('Enter');
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await expect(checks(page)).toContainText('previous snapshot');
   const previous = checks(page).locator('.export-check-item').filter({ hasText: 'Previous layout finding' });
   await expect(previous).toHaveCount(2);
@@ -103,13 +103,13 @@ test('support recheck invalidation survives an unchanged repair return and anoth
   await checks(page).getByRole('button', { name: 'Check layout', exact: true }).click();
   await expect(checks(page)).toContainText('Layout fits the checked frame');
   await page.getByRole('button', { name: 'Recheck video export support', exact: true }).click();
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await page.getByRole('button', { name: 'Edit appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await expect(checks(page)).not.toContainText('Layout fits the checked frame');
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click(); await openExport(page);
-  await expect(checks(page)).toContainText('Full layout has not been checked');
+  await expect(checks(page)).toContainText('Layout check (optional)');
 });

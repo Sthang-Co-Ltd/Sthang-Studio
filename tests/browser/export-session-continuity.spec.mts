@@ -29,7 +29,7 @@ async function openRecent(page: Page, id = 'landscape') {
   await expect(page.getByRole('button', { name: 'Project details', exact: true })).toHaveAccessibleDescription(new RegExp(`Audit ${id}`));
 }
 async function home(page: Page) {
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toBeVisible();
 }
 async function openAdvanced(page: Page) {

@@ -156,7 +156,7 @@ for (const width of [1440, 390]) test(`exact lost-ACK recovery and deliberate Op
     expect(await mounted!.evaluate((node) => node === document.querySelector('.media-stage video'))).toBe(true);
     await expect(page.locator('video')).toHaveAttribute('src', `/media/${uploadedId}.mp4`);
     expect(posts).toBe(1);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(page.getByRole('button', { name: 'bounded-import Not generated yet', exact: true })).toBeVisible();
   } finally {
     gate.release();

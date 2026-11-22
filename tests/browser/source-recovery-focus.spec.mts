@@ -103,7 +103,7 @@ test('manual preparation and cancellation hand off now and preserve newer field 
     await action(page, 'Cancel preparation').focus(); await page.keyboard.press('Enter');
     await expect.poll(() => deletes).toBe(1); await visibleFocus(stage(page));
     await page.keyboard.press('Control+f');
-    const find = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+    const find = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
     const query = find.getByLabel('Find', { exact: true });
     await query.fill('Newer modal query');
     cancelled.release(); await expect(action(page, 'Prepare playback')).toBeEnabled();

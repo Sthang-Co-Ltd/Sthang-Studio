@@ -8,7 +8,7 @@ test.afterAll(cleanFixtures);
 let state: FixtureState;
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
 const heading = (page: Page) => settings(page).getByRole('heading', { name: 'Topic packs', exact: true });
-const glossary = (page: Page) => settings(page).getByLabel('Global protected vocabulary', { exact: true });
+const glossary = (page: Page) => settings(page).getByLabel('Key terms for all projects', { exact: true });
 const packName = (page: Page) => settings(page).getByLabel('Topic pack name', { exact: true });
 const remove = (page: Page, name: string) => settings(page).getByRole('button', { name: 'Delete topic pack ' + name, exact: true });
 function deferred() {
@@ -69,7 +69,7 @@ for (const width of [1440, 390]) test('topic delete focus at ' + width, async ({
     await expect(heading(page)).toBeFocused();
     await visibleHeading(heading(page));
     await expect(settings(page).getByText('Deleting topic pack “Target context”…', { exact: true })).toBeVisible();
-    await expect(settings(page).getByRole('button', { name: 'Save glossary', exact: true })).toBeDisabled();
+    await expect(settings(page).getByRole('button', { name: 'Save key terms', exact: true })).toBeDisabled();
     await expect(settings(page).getByRole('button', { name: 'Save context as pack', exact: true })).toBeDisabled();
     await page.screenshot({ path: info.outputPath('packs-pending-' + width + '.png'), animations: 'disabled' });
     await packName(page).fill('Newer pack draft');
@@ -125,7 +125,7 @@ for (const failure of ['request', 'receipt'] as const) test('topic delete ' + fa
       const root = button.closest('[role="dialog"]')!;
       const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button'));
       button.focus(); button.click(); button.click();
-      buttons.find((item) => item.textContent?.trim() === 'Save glossary')?.click();
+      buttons.find((item) => item.textContent?.trim() === 'Save key terms')?.click();
       buttons.find((item) => item.textContent?.trim() === 'Save context as pack')?.click();
     });
     await expect.poll(() => writes.length).toBe(1);

@@ -268,7 +268,7 @@ test('newer appearance and project switches reject stale preview responses', asy
   await page.getByLabel(/^Size /).fill('96');
   await expect.poll(() => state.requests.filter((r) => r.path.endsWith('/preview')).at(-1)?.body.appearance.fontSize1080).toBe(96);
   await expect(page.locator('.native-caption-image')).toBeVisible();
-  await page.getByRole('button', { name: /Back to projects/ }).click();
+  await page.getByRole('button', { name: /Back to Home/ }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
   await seek(page, 500);

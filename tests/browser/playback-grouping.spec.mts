@@ -158,7 +158,7 @@ for (const decision of ['cancel', 'navigate'] as const) {
       if (decision === 'navigate') {
         // The modal traps physical focus. Exercise the real Home handler as an
         // external navigation request while its confirmation remains unresolved.
-        await page.getByLabel('Back to projects', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await page.getByLabel('Back to Home', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
         await confirmation.getByRole('button', { name: 'Save and regroup', exact: true }).click();
       } else {
         await confirmation.getByRole('button', { name: 'Cancel', exact: true }).last().click();
@@ -168,7 +168,7 @@ for (const decision of ['cancel', 'navigate'] as const) {
         await expect(controls.getByRole('button', { name: 'Apply grouping', exact: true })).toBeEnabled();
         await expect(field).toHaveValue(corrected);
         await expect(page.locator('.save-action')).toBeDisabled();
-        await page.getByLabel('Back to projects', { exact: true }).click();
+        await page.getByLabel('Back to Home', { exact: true }).click();
       }
       const home = page.getByRole('button', { name: /Audit landscape/ });
       await expect.soft(home).toBeVisible();
@@ -198,7 +198,7 @@ test('regrouping intent: navigation after queuing cancels before API dispatch', 
     // can dispatch. Both clicks execute the actual component handlers.
     button.click();
     queueMicrotask(() => {
-      const home = document.querySelector<HTMLButtonElement>('button[aria-label="Back to projects"]');
+      const home = document.querySelector<HTMLButtonElement>('button[aria-label="Back to Home"]');
       if (!home) throw new Error('Home action is missing at queued cancellation.');
       home.click();
     });
@@ -222,7 +222,7 @@ test('old proposal image and loop do not follow a switch to another video', asyn
   await expect(page.locator('.preview-version-badge')).toBeVisible();
   await seek(page, 500);
   await expect(page.locator('.native-caption-image')).toHaveAttribute('alt', 'OLD PROJECT PREVIEW');
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
   await expect(page.locator('.preview-version-badge')).toHaveCount(0);
@@ -253,7 +253,7 @@ test('a delayed Activity proposal response cannot replace newer navigation', asy
     const aborted = await cancelled;
     expect(aborted.failure()?.errorText).toBe('net::ERR_ABORTED');
     expect(await aborted.response()).toBeNull();
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     // An aborted read has no browser response. Drain its delayed route handler
     // before checking that its attempted delivery cannot replace newer navigation.
@@ -916,7 +916,7 @@ test('separate replacement recoveries are retained instead of silently overwriti
     state.projects[0].captions = [{
       id: 'c-new', startMs: 300, endMs: 1300, text: 'NEW MEDIA CAPTION', textLocked: false, timingLocked: false, approved: false,
     }];
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit landscape/ }).click();
     const secondField = page.getByLabel('Caption 1 text', { exact: true });
     await expect(secondField).toHaveValue('NEW MEDIA CAPTION');
@@ -1190,7 +1190,7 @@ test('a delayed History list from another project cannot replace the current pro
     const firstHistory = await history(page);
     await expect.poll(() => landscapeReads).toBe(1);
     await firstHistory.getByRole('button', { name: 'Close history', exact: true }).click();
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(page.locator('.project-title strong')).toHaveText('Audit second');
     const secondHistory = await history(page);
@@ -1307,9 +1307,9 @@ test('saving accuracy context cannot publish stale caption text over newer input
   });
   try {
     await openProject(page);
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
-    await page.getByLabel('What is this clip about?', { exact: true }).fill('Context saved while captions keep changing');
-    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+    await page.getByLabel('What is this video about?', { exact: true }).fill('Context saved while captions keep changing');
+    await page.getByRole('button', { name: 'Save for this project', exact: true }).click();
     await expect.poll(() => requested).toBe(true);
     const field = page.getByLabel('Caption 1 text', { exact: true });
     await field.fill('Newer caption while context save is pending');
@@ -1345,7 +1345,7 @@ test('failed dirty-caption save blocks correction navigation', async ({ page }) 
   await page.getByRole('button', { name: 'Review audio', exact: true }).click();
   await expect.poll(() => saveCalls).toBe(2);
   expect(saveSources).toEqual(['text-edit', 'manual-save']);
-  const inbox = page.getByRole('dialog', { name: 'Correction Inbox', exact: true });
+  const inbox = page.getByRole('dialog', { name: 'Correction inbox', exact: true });
   await expect(inbox.getByRole('alert')).toContainText('Your current edits could not be saved.');
   expect(targetReads).toBe(0);
   await inbox.getByRole('button', { name: 'Return to edits', exact: true }).click();
@@ -1487,10 +1487,10 @@ test('full regeneration does not submit after Home invalidates its pending prere
   try {
     await openProject(page);
     await page.getByLabel('Caption 1 text', { exact: true }).fill('Dirty caption before full regeneration');
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
-    await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+    await page.getByRole('button', { name: 'Improve all captions', exact: true }).click();
     await expect.poll(() => saving).toBe(true);
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     release();
     await expect(page.getByRole('button', { name: /Audit landscape/ })).toBeVisible();
     await page.getByRole('button', { name: /Audit landscape/ }).click();
@@ -1525,7 +1525,7 @@ test('selection regeneration does not submit after navigation invalidates its pe
     await page.getByRole('button', { name: /^Review/ }).first().click();
     await page.getByRole('button', { name: 'Improve…', exact: true }).click();
     await expect.poll(() => saving).toBe(true);
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     release();
     await expect(page.getByRole('button', { name: /Audit second/ })).toBeVisible();
     await page.getByRole('button', { name: /Audit second/ }).click();
@@ -1551,7 +1551,7 @@ test('captioned-video export does not submit after navigation during its warning
   await page.getByRole('button', { name: /Captioned video/ }).click();
   await page.getByRole('button', { name: 'Render captioned video', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Render with review warnings?');
-  await page.getByLabel('Back to projects', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+  await page.getByLabel('Back to Home', { exact: true }).evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByRole('button', { name: /Audit landscape/ })).toBeVisible();
   await page.getByRole('button', { name: 'Render anyway', exact: true }).click();
   await page.waitForTimeout(50);
@@ -1576,8 +1576,8 @@ test('unchanged full-regeneration session still submits exactly once after savin
   });
   await openProject(page);
   await page.getByLabel('Caption 1 text', { exact: true }).fill('Legitimate dirty caption before regeneration');
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
-  await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+  await page.getByRole('button', { name: 'Improve all captions', exact: true }).click();
   await expect.poll(() => jobCalls).toBe(1);
   expect(saveCalls).toBe(1);
   expect(jobCalls).toBe(1);
@@ -1621,8 +1621,8 @@ for (const scope of ['full', 'selection'] as const) {
       const field = page.getByLabel('Caption 1 text', { exact: true });
       await field.fill(text);
       if (scope === 'full') {
-        await page.getByRole('button', { name: /^Accuracy/ }).click();
-        await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+        await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+        await page.getByRole('button', { name: 'Improve all captions', exact: true }).click();
       } else {
         await page.getByRole('button', { name: /^Review/ }).first().click();
         await page.getByRole('button', { name: 'Improve…', exact: true }).click();
@@ -1677,15 +1677,15 @@ test('Home cancels regeneration while a held caption save succeeds but Accuracy 
   });
   try {
     await openProject(page);
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
-    const context = page.getByLabel('What is this clip about?', { exact: true });
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+    const context = page.getByLabel('What is this video about?', { exact: true });
     const caption = page.getByLabel('Caption 1 text', { exact: true });
     await context.fill(contextText);
     await caption.fill(captionText);
-    await page.getByRole('button', { name: 'Preview full regeneration', exact: true }).click();
+    await page.getByRole('button', { name: 'Improve all captions', exact: true }).click();
     await expect.poll(() => captionWrites).toBeGreaterThan(0);
     expect(jobCalls).toBe(0);
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     release();
 
     const failure = page.getByRole('alert').filter({ hasText: "Couldn't save changes" });
@@ -1731,17 +1731,17 @@ test('the latest Home request saves reverted Accuracy input once after an older 
   });
   try {
     await openProject(page);
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
-    const description = page.getByLabel('What is this clip about?', { exact: true });
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+    const description = page.getByLabel('What is this video about?', { exact: true });
     await description.fill(submitted.description);
-    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await page.getByRole('button', { name: 'Save for this project', exact: true }).click();
     await expect.poll(() => contextWrites.length).toBe(1);
     await description.fill(baseline.description);
 
     // Both requests wait on B. The obsolete first request must not enqueue A
     // and make the latest request reject its otherwise-complete queue drain.
-    await page.getByLabel('Back to projects', { exact: true }).click();
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     await expect(description).toHaveValue(baseline.description);
     await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
     expect(contextWrites).toEqual([submitted]);
@@ -1757,9 +1757,9 @@ test('the latest Home request saves reverted Accuracy input once after an older 
 
     await page.getByRole('button', { name: /Audit landscape/ }).click();
     await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');
-    if (!await description.isVisible()) await page.getByRole('button', { name: /^Accuracy/ }).click();
+    if (!await description.isVisible()) await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     await expect(description).toHaveValue(baseline.description);
-    await expect(page.getByLabel('Exact terms to preserve', { exact: true })).toHaveValue(baseline.vocabulary.join('\n'));
+    await expect(page.getByLabel('Key terms', { exact: true })).toHaveValue(baseline.vocabulary.join('\n'));
     await expect(page.locator('.save-action')).toBeDisabled();
     expect(contextWrites).toEqual([submitted, baseline]);
     await page.screenshot({ path: testInfo.outputPath('accuracy-navigation-reopened.png'), fullPage: true });

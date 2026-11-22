@@ -205,7 +205,7 @@ test('phone workspace tools reveal the focused inspector and Close returns to th
   }));
   await expect(page.locator('.caption-list')).toBeVisible();
   const workbench = page.locator('.editor-workbench');
-  const back = page.getByRole('button', { name: 'Back to projects' });
+  const back = page.getByRole('button', { name: 'Back to Home' });
   const tools = [
     { title: 'Review', trigger: page.locator('.header-actions').getByRole('button', { name: /^Review\b/ }) },
     { title: 'Caption grouping', trigger: page.getByRole('navigation', { name: 'Caption workspace tools' }).getByRole('button', { name: 'Caption grouping' }) },

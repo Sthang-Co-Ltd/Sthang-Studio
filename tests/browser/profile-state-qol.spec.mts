@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
 });
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
-const glossary = (page: Page) => settings(page).getByLabel('Global protected vocabulary', { exact: true });
+const glossary = (page: Page) => settings(page).getByLabel('Key terms for all projects', { exact: true });
 const review = (page: Page) => page.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
 function deferred() {
   let release!: () => void;
@@ -40,7 +40,7 @@ async function closeProfile(page: Page) {
 }
 async function rememberCorrection(page: Page) {
   await page.keyboard.press('Control+f');
-  const find = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+  const find = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
   await find.getByLabel('Find', { exact: true }).fill('old');
   await find.getByLabel('Replace with', { exact: true }).fill('new!');
   await find.getByLabel('Remember this correction', { exact: true }).selectOption('global');
@@ -67,7 +67,7 @@ test('a delayed Settings glossary receipt keeps a newer Review preference and Fi
   try {
     await openProject(page); await openProfile(page);
     await glossary(page).fill('Submitted earlier glossary');
-    await settings(page).getByRole('button', { name: 'Save glossary', exact: true }).click();
+    await settings(page).getByRole('button', { name: 'Save key terms', exact: true }).click();
     await expect.poll(() => glossaryWrites).toBe(1);
     await closeProfile(page);
     await review(page).click();

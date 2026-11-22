@@ -81,6 +81,7 @@ import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './compone
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { ReplaceMediaDialog, RestoreMediaDialog } from './components/ReplaceMediaDialog';
 import { analyzeCaptions, QA_PROFILES, resolveQaProfile } from './review';
+import { formatTimestamp } from './timestamp';
 import { captionTextForEditing } from './caption-text';
 import { useCaptionSelection } from './hooks/useCaptionSelection';
 import { reconcileCaptionSelection } from './caption-selection-validity';
@@ -151,7 +152,7 @@ const RegenerationReviewDock = deferWorkspace(() => import('./components/Regener
 
 const modes: Array<{ id: CaptionMode; label: string; desc: string }> = [
   { id: 'dynamic', label: 'Dynamic', desc: 'Fast TikTok rhythm' },
-  { id: 'word', label: 'Word', desc: 'One timed token at a time' },
+  { id: 'word', label: 'Word', desc: 'One word at a time' },
   { id: 'phrase', label: 'Phrase', desc: 'Natural short phrases' },
   { id: 'single-line', label: 'Line', desc: 'Longer single-line groups' },
 ];
@@ -231,11 +232,7 @@ const EMPTY_WORD_HIGHLIGHT_SUMMARY = wordHighlightCoverage([]);
 const uniqueLines = uniqueContextLines;
 
 function rangeLabel(startMs: number, endMs: number) {
-  const fmt = (ms: number) => {
-    const seconds = ms / 1000;
-    return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
-  };
-  return `${fmt(startMs)}–${fmt(endMs)}`;
+  return `${formatTimestamp(startMs)} – ${formatTimestamp(endMs)}`;
 }
 
 function selectionIntentKey(value: { ids: string[]; startMs: number; endMs: number }) {
@@ -1032,11 +1029,11 @@ export default function App() {
       || (submittedViewRevision === undefined ? Boolean(currentProposal.current) : proposalViewRevision.current !== submittedViewRevision))) {
       setNotice(currentProposal.current
         ? 'A new take is ready. Your current comparison is kept; open the result from Activity.'
-        : 'Regeneration preview ready. Open it from Activity when you are ready.');
+        : 'Improved captions ready. Open it from Activity when you are ready.');
       return false;
     }
     if (automatic && (dirtyRef.current || (media.current && !media.current.paused))) {
-      setNotice('Regeneration preview ready. Open it from Activity when you are ready.');
+      setNotice('Improved captions ready. Open it from Activity when you are ready.');
       return false;
     }
     cancelPlayback();
@@ -1434,6 +1431,7 @@ export default function App() {
     onApply={saveGenerationModel}/> : null;
 
   const selection = useCaptionSelection(draft, selectionAnchor, selectionEnd, time * 1000);
+  const selectedReviewReasons = issueMap.get(selection.captions[0]?.id)?.reasons;
   const selectionIntent = useRef({ ids: [] as string[], startMs: 0, endMs: 0 });
   selectionIntent.current = { ids: [...selection.ids], startMs: selection.startMs, endMs: selection.endMs };
 
@@ -2152,7 +2150,7 @@ export default function App() {
             void loadProposal(job.projectId, job.proposalId, ticket, true, submittedViewRevision)
               .then((opened) => { if (opened && projectScope.current.isCurrent(ticket)) {
                 if (jobsViewRevision.current === activityRevision) setShowJobs(false);
-                setNotice('Regeneration preview ready. Review it before applying.');
+                setNotice('Improved captions ready. Review it before applying.');
               } })
               .catch(reportResultReadFailure);
           } else if (job.resultProjectId) {
@@ -2371,7 +2369,7 @@ export default function App() {
         }
         return;
       }
-      if (typing || !project || target?.matches('[data-media-preview-focus]') || target?.closest('button, select, summary, [role="button"], [role="slider"], [role="combobox"]')) return;
+      if (typing || !project || target?.matches('[data-media-preview-focus]') || target?.closest('button, select, summary, .review-reasons, [role="button"], [role="slider"], [role="combobox"]')) return;
       if (event.altKey) {
         event.preventDefault(); shiftSelection(event.key === 'ArrowLeft' ? -50 : 50);
       } else if (event.key === ' ') {
@@ -3325,7 +3323,7 @@ export default function App() {
     const requestContext = contextPayload();
     if (selected.endMs - selected.startMs > 90_000) {
       const confirmed = await confirmInStudio({
-        title: 'Build a long regeneration preview?',
+        title: 'Improve a long caption range?',
         message: 'This selection is over 90 seconds, so comparing another take may take noticeably longer. Your current captions stay untouched until you approve the result.',
         confirmLabel: 'Build preview',
       });
@@ -3345,7 +3343,7 @@ export default function App() {
     await startJob(
       intent,
       () => api.startRegenerationJob(targetProject.id, selected.startMs, selected.endMs, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, targetProject.generationModel ?? 'automatic'),
-      `Regeneration preview queued for ${rangeLabel(selected.startMs, selected.endMs)}.`,
+      `Improving captions for ${rangeLabel(selected.startMs, selected.endMs)}.`,
     );
   };
 
@@ -3538,7 +3536,7 @@ export default function App() {
       ? wrapped
         ? `Approved. Returning to ${remaining.length} earlier skipped review item${remaining.length === 1 ? '' : 's'}.`
         : 'Approved. Moved to the next review item.'
-      : 'Review complete — all flagged captions are approved.';
+      : 'Review complete. All flagged captions are approved.';
     setReviewUndo({ items: undoItems, restoreSelectionId, message });
 
     if (nextId) moveToReviewCaption(nextId, profile?.preferences.autoPlayNextReview ?? true);
@@ -4379,7 +4377,7 @@ export default function App() {
     {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
-    {currentProjectToastJob && !showJobs && <button className="job-toast" onClick={() => setShowJobs(true, currentProjectToastJob.id)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}% · open activity</span></div></button>}
+    {currentProjectToastJob && !showJobs && <button className="job-toast" aria-label={`Open Activity: ${currentProjectToastJob.message}`} onClick={() => setShowJobs(true, currentProjectToastJob.id)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}%</span></div></button>}
     {uncertainJob && !showJobs && <div className="toast error" role="alert">
       <span>Studio lost the reply for {uncertainJob.title}. Check Activity before starting another job.</span>
       <button className="toast-action" onClick={() => openActivityFromNotice()}>Open Activity</button>
@@ -4422,8 +4420,8 @@ export default function App() {
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
       <button onClick={() => setShowGuide(true)} data-tooltip="Open guide"><HelpCircle size={16}/>Guide</button>
       {jobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity{activeJobs.length > 0 && <b>{activeJobs.length}</b>}</button>}
-      {Boolean(profile?.correctionEvents.length) && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Corrections{pendingCorrections > 0 && <b>{pendingCorrections}</b>}</button>}
-      <button onClick={() => setShowUpdates(true)} data-tooltip="Review signed Studio updates"><RefreshCw size={16}/>Updates</button>
+      {Boolean(profile?.correctionEvents.length) && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Correction inbox{pendingCorrections > 0 && <b>{pendingCorrections}</b>}</button>}
+      <button onClick={() => setShowUpdates(true)} data-tooltip="Open Updates"><RefreshCw size={16}/>Updates</button>
       <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
@@ -4444,7 +4442,7 @@ export default function App() {
       onBack={() => changeProjectListView(false)} onCreate={() => changeProjectListView(false, 'upload')} onRetry={() => setStartupAttempt((value) => value + 1)}
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
-    /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong><button className="view-all-projects" disabled={!!busy} onClick={() => changeProjectListView(true)}>View all projects</button></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
+    /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{projectListState.error} Last loaded projects are shown.</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>Refresh projects</button></div>}
     {statusToasts}
     {activity}
@@ -4454,7 +4452,7 @@ export default function App() {
 
   return <main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
-      <button className="back" aria-label="Back to projects" data-tooltip="Back to projects" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
+      <button className="back" aria-label="Back to Home" data-tooltip="Back to Home" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
@@ -4475,7 +4473,7 @@ export default function App() {
           onUpdates={() => setShowUpdates(true)}
         />
         <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveNeedsComparison} title={saveNeedsComparison ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption, Accuracy and appearance changes' : 'All changes saved'} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
-        <button className={`primary ${draft.length ? '' : 'disabled'} ${workspaceTool === 'export' ? 'selected-tool' : ''}`} data-workspace-trigger="export" data-tooltip="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
+        <button className={`primary ${draft.length ? '' : 'disabled'}`} data-workspace-trigger="export" data-tooltip="Export SRT or a finished captioned video" aria-pressed={workspaceTool === 'export'} disabled={!draft.length || !!busy} onClick={() => chooseWorkspaceTool('export')}><FileOutput size={16}/><span>Export</span></button>
       </div>
     </header>
 
@@ -4673,6 +4671,7 @@ export default function App() {
             {riskyIds.length > 0 && <>
             <div className="review-score"><ListChecks size={22}/><strong>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</strong></div>
             <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b>{selection.captions.length > 1 && <span>{selection.captions.length} selected</span>}</div>
+            {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label="Review reasons">{selectedReviewReasons.map(({ code, label, hint }, index) => <li key={`${code}:${index}`}><strong>{label}</strong> <span>{hint}</span></li>)}</ul>}
             </>}
             {riskyIds.length > 0 && <div className="review-actions review-primary-actions">
               <div className="review-nav-actions">
@@ -4693,17 +4692,17 @@ export default function App() {
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">
-            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span id="accuracy-context-help">Help recognize names, brands, versions, and Khmer-English speech. Full-context transcription uses the topic description; experimental transcription-only mode uses selected terms as hints.</span></div>
+            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span id="accuracy-context-help">Help Studio recognize names, brands, versions, and Khmer-English speech.</span></div>
             <div className="context-field">
-              <span><label htmlFor="accuracy-context-description">What is this clip about?</label></span>
-              <textarea id="accuracy-context-description" aria-describedby="accuracy-context-help" rows={3} value={contextDescription} onChange={(event) => editAccuracyFields({ description: event.target.value })} placeholder="Example: This video compares GPT 5.6 Luna and Terra. Preserve the exact model names."/>
+              <span><label htmlFor="accuracy-context-description">What is this video about?</label></span>
+              <textarea id="accuracy-context-description" aria-describedby="accuracy-context-help" rows={3} value={contextDescription} onChange={(event) => editAccuracyFields({ description: event.target.value })} placeholder="Example: A weekend street-food and café review in Phnom Penh, trying iced coffee and grilled pork rice."/>
             </div>
             <div className="context-field">
-              <span><label htmlFor="accuracy-context-vocabulary">Exact terms to preserve</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
-              <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'GPT 5.6 Luna\nGPT 5.6 Terra\nTerra | ថេរ៉ា\nOpenAI\nCapCut'}/>
+              <span><label htmlFor="accuracy-context-vocabulary">Key terms</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
+              <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'CapCut | ខេបខាត់\nTikTok | តិកតុក\nបាយសាច់ជ្រូក\nសៀមរាប'}/>
             </div>
             {hasHybrid && generationOptions}
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving globally…' : 'Save globally'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed || generationNeedsCheck ? generationLabel : 'Preview full regeneration'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving to all projects…' : 'Save to all projects'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for this project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed || generationNeedsCheck ? generationLabel : 'Improve all captions'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
           </div>}
 
           {showGeneration && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
@@ -4738,7 +4737,7 @@ export default function App() {
             {project.transcript?.contextMode && project.transcript.contextMode !== 'full' && <div className="inline-warning"><TriangleAlert size={16}/><span>{compatibilityTranscriptionNotice(project)}</span></div>}
             {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align {audioAlignmentUnverified ? 'the previous audio' : 'this clip'}, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
             {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>Text and canonical timing no longer fully match. Lock reviewed captions before regrouping.</span></div>}
-            <div className="timing-metrics" aria-label={audioAlignmentUnverified ? 'Timing measurements from the previous audio' : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>review</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>
+            <div className="timing-metrics" aria-label={audioAlignmentUnverified ? 'Timing measurements from the previous audio' : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>uncertain words</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>
             {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>Local checkpoints let interrupted jobs resume without repeating completed work.</span></div>}
           </div>}
 
@@ -4750,9 +4749,9 @@ export default function App() {
             <label className="slider"><span>Target maximum characters <b>{maxChars}</b></span>
               <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
                 aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
-            <p id="grouping-limit-help">{groupingMode === 'word' ? 'Word mode shows one timed token per caption.' : 'Character target, not word count. Speech rhythm and protected phrases may take priority.'}</p>
+            <p id="grouping-limit-help">{groupingMode === 'word' ? 'Word mode shows one timed token per caption.' : 'Characters per caption. Speech rhythm can override it.'}</p>
             <div className="preset-actions">
-              <span>Using {modes.find((mode) => mode.id === project.mode)?.label || project.mode}. Apply grouping to update captions; locks stay intact and History keeps the previous version.</span>
+              <span>Current grouping: {modes.find((mode) => mode.id === project.mode)?.label || project.mode}. Locked captions stay as they are. History keeps the previous version.</span>
               <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
                 {groupingApplying ? 'Applying grouping…' : 'Apply grouping'}</button>
               <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>Clean Khmer spacing</button>

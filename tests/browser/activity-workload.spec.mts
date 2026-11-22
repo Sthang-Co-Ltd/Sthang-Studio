@@ -165,7 +165,7 @@ test('leaving Activity for a newer destination retires a delayed result read', a
   try {
     await dialog.getByRole('button', { name: 'Open result', exact: true }).click(); await started.promise;
     await dialog.getByRole('button', { name: 'Close Activity', exact: true }).click();
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     const recent = page.getByRole('region', { name: 'Recent projects', exact: true }).getByRole('button', { name: /Audit landscape/ });
     await expect(recent).toBeVisible();
     gate.release();

@@ -839,7 +839,7 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
 
     // Navigation must retain this editor until the submitted History write is
     // reconciled. A clean Ctrl+S must not create an old-snapshot write meanwhile.
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     await expect(page.locator('.project-title strong')).toHaveText('Navigation Clean Save Authority');
     await expect(page.locator('video')).toHaveAttribute('src', '/media/disk-history-navigation-clean.mp4');
     await expect(field).toHaveValue('BEFORE NAVIGATION RESTORE');
@@ -871,7 +871,7 @@ test('clean Ctrl+S cannot reverse a committed restore after leaving the editor s
     await expect(page.locator('.project-title strong')).toHaveText('Serialized Save Ack Race');
     await expect(otherField).toHaveValue('OTHER PROJECT BARRIER EDIT');
 
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     await page.getByRole('button', { name: /Navigation Clean Save Authority/ }).click();
     const reopenedField = page.getByLabel('Caption 1 text', { exact: true });
     await expect(reopenedField).toHaveValue('NAVIGATION HISTORY SNAPSHOT');
@@ -953,7 +953,7 @@ for (const groupingCase of groupingCases) {
       expect(regroupBodies).toHaveLength(0);
 
       if (scenario.leave === 'save') {
-        await page.getByLabel('Back to projects', { exact: true }).click();
+        await page.getByLabel('Back to Home', { exact: true }).click();
         mark('home-requested-before-save-response');
         await expect(field).toHaveValue(corrected);
         await expect(page.locator('.project-title strong')).toHaveText(scenario.title);
@@ -977,7 +977,7 @@ for (const groupingCase of groupingCases) {
           expectedMedia: { filename: original.media.filename, size: original.media.size } }]);
         if (scenario.leave === 'regroup') {
           // An already admitted write cannot be unsent. Home must drain its ACK.
-          await page.getByLabel('Back to projects', { exact: true }).click();
+          await page.getByLabel('Back to Home', { exact: true }).click();
           mark('home-requested-after-regroup-dispatch');
           await expect(page.locator('.project-title strong')).toHaveText(scenario.title);
         }
@@ -985,7 +985,7 @@ for (const groupingCase of groupingCases) {
         if (scenario.leave === 'finished') {
           await expect(field).toHaveValue('TIMED WORDING');
           await expect(page.getByRole('button', { name: 'Apply grouping', exact: true })).toBeEnabled();
-          await page.getByLabel('Back to projects', { exact: true }).click();
+          await page.getByLabel('Back to Home', { exact: true }).click();
         }
         await expect(homeCard).toBeVisible();
       }

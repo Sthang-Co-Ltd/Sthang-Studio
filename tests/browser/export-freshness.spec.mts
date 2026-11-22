@@ -67,7 +67,7 @@ test('a delayed history response cannot publish into a different project', async
   });
   try {
     await openProject(page); await page.getByRole('button', { name: /^Export$/ }).click(); await entered;
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await page.getByRole('button', { name: /^Export$/ }).click();
     const history = page.locator('.export-history'); await history.locator('summary').click();
@@ -88,8 +88,8 @@ test('Activity identifies exact old render content and keeps legacy video downlo
   await openProject(page); await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
   const activity = page.getByRole('dialog', { name: 'Activity', exact: true });
-  await expect(activity).toContainText('this video contains earlier content');
-  await expect(activity).toContainText('this earlier export has no receipt');
+  await expect(activity).toContainText('This video contains earlier content');
+  await expect(activity).toContainText('This earlier export has no receipt');
   await expect(activity.getByRole('button', { name: 'Download video', exact: true })).toHaveCount(2);
 });
 
@@ -150,7 +150,7 @@ test('actual appearance A to B to A compares both Export and Activity against th
   await editAppearanceSize(page, 90); // B, through the real Appearance control
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(90);
   const activity = await openActivity(page); // Direct entry: do not visit Export first.
-  await expect(activity.getByText(/this video contains earlier content/)).toHaveCount(1);
+  await expect(activity.getByText(/This video contains earlier content/)).toHaveCount(1);
   await activity.getByRole('button', { name: 'Close Activity' }).click();
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   const history = page.locator('.export-history');
@@ -161,15 +161,15 @@ test('actual appearance A to B to A compares both Export and Activity against th
   await expect(history.getByText('Matches open project content.', { exact: true })).toHaveCount(2);
   await openActivity(page);
   await expect(activity.getByText('Matches open project content.', { exact: true })).toHaveCount(1);
-  await expect(activity.getByText(/this video contains earlier content/)).toHaveCount(1);
+  await expect(activity.getByText(/This video contains earlier content/)).toHaveCount(1);
   await activity.getByRole('button', { name: 'Close Activity' }).click();
   await editAppearanceSize(page, originalSize); // A again
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(originalSize);
   await openActivity(page);
   await expect(activity.getByText('Matches open project content.', { exact: true })).toHaveCount(1);
-  await expect(activity.getByText(/this video contains earlier content/)).toHaveCount(1);
+  await expect(activity.getByText(/This video contains earlier content/)).toHaveCount(1);
   // The original A receipt matches again; B is the stale job.
-  await expect(activity.locator('.job-list article').nth(0)).toContainText('this video contains earlier content');
+  await expect(activity.locator('.job-list article').nth(0)).toContainText('This video contains earlier content');
   await expect(activity.locator('.job-list article').nth(1)).toContainText('Matches open project content.');
   await activity.getByRole('button', { name: 'Close Activity' }).click();
   await page.getByRole('button', { name: 'Export', exact: true }).click();
@@ -261,7 +261,7 @@ test('a delayed appearance response cannot supply a different project or media c
     await page.getByRole('button', { name: 'Export', exact: true }).click(); await started;
     await page.locator('.export-history summary').click();
     await expect(page.locator('.export-history').getByText(/Freshness unknown/)).toHaveCount(1);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     const secondReceipt = { version: 1, format: 'video', preparedAt: '2026-01-01T00:00:00Z',
       fingerprint: createHash('sha256').update(exportContentBasis(state.projects[1], 'video')).digest('hex') } as const;

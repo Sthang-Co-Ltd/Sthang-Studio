@@ -8,7 +8,7 @@ let state:FixtureState; let errors:string[];
 test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
 test.beforeEach(async ({ page }) => { errors=[]; page.on('pageerror',(error) => errors.push(error.message)); state=await installFixture(page); await page.setViewportSize({ width:2048,height:1041 }); });
 test.afterEach(() => expect(errors).toEqual([]));
-const grip = (page:Page,pane:Pane) => page.locator(`.refined-editor > ${selectors[pane]}`).getByRole('button',{ name:/^Drag .+ panel header to reorder$/ });
+const grip = (page:Page,pane:Pane) => page.locator(`.refined-editor > ${selectors[pane]}`).getByRole('button',{ name:/^.+ panel$/ });
 async function actualOrder(page:Page):Promise<Pane[]> {
   return page.locator('.refined-editor').evaluate((root) => [['preview','.stage-column'],['captions','.caption-panel'],['inspector','.workspace-inspector']]
     .map(([id,selector]) => ({ id,node:root.querySelector(`:scope > ${selector}`)! }))
@@ -69,11 +69,11 @@ test('header keys preserve focus and expose playback controls without triggering
 });
 
 test('header accessible names track the visible tool and Review titles',async ({ page }) => {
-  await openEditor(page); await expect(grip(page,'inspector')).toHaveAccessibleName('Drag Appearance panel header to reorder');
+  await openEditor(page); await expect(grip(page,'inspector')).toHaveAccessibleName('Appearance panel');
   await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
-  await expect(grip(page,'inspector')).toHaveAccessibleName('Drag Fine timing panel header to reorder');
+  await expect(grip(page,'inspector')).toHaveAccessibleName('Fine timing panel');
   await page.getByRole('button',{ name:/^Review(?: \d+)?$/ }).first().click();
-  await expect(grip(page,'captions')).toHaveAccessibleName('Drag Review queue panel header to reorder');
+  await expect(grip(page,'captions')).toHaveAccessibleName('Review queue panel');
   await expect(grip(page,'captions')).toContainText('Review queue');
 });
 

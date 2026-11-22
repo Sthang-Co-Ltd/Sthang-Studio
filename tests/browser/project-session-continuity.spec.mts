@@ -79,7 +79,7 @@ for (const width of [1440, 390]) for (const owner of ['Search', 'Sort', 'Setting
         await page.getByRole('button', { name: 'Settings', exact: true }).click();
         const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
         await settings.getByRole('button', { name: 'Profile', exact: true }).click();
-        target = settings.getByLabel('Global protected vocabulary', { exact: true }); await target.fill('Newer Settings text កម្ពុជា');
+        target = settings.getByLabel('Key terms for all projects', { exact: true }); await target.fill('Newer Settings text កម្ពុជា');
       }
       gate.release();
       await expect(refresh(page)).not.toHaveAttribute('aria-busy', 'true');
@@ -134,7 +134,7 @@ for (const width of [1440, 390]) test(`a delayed metadata refresh cannot undo a 
       { id: 'new-cue', text: 'New saved cue', startMs: 3400, endMs: 3900, approved: false }], updatedAt: '2026-03-01T00:00:00Z' };
     await page.getByRole('button', { name: 'Open Audit landscape', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Project details', exact: true })).toHaveAccessibleDescription(/Newer opened project/);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeVisible();
     gate.release(); await expect(refresh(page)).not.toHaveAttribute('aria-busy', 'true'); await rendered(page);
     await expect(page.getByRole('button', { name: 'Open Newer opened project កម្ពុជា', exact: true })).toContainText('4 captions');
@@ -153,6 +153,6 @@ test('returning to Home refreshes metadata while focus during active editing nev
   await expect(field).toHaveValue(before); await expect(field).toBeFocused();
   expect(state.requests.filter((request) => request.path === '/api/projects/landscape').length).toBe(readsBefore);
   expect(await page.evaluate(() => (window as any).__projectSessionNodes.every((node: Element, index: number) => node === document.querySelector(index ? '.caption-list' : 'video')))).toBe(true);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Recent projects', exact: true }).getByRole('button', { name: /Audit other-tab/ })).toBeVisible();
 });

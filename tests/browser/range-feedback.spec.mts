@@ -31,7 +31,7 @@ for (const key of ['Enter', 'Tab'] as const) test(`typed values explain maximum 
   const originalPosition = await position.inputValue();
   await commit(size, '999', key);
   await expect(size).toHaveValue('120');
-  await expect(feedback(size)).toHaveText('Adjusted to 120 px — the maximum.');
+  await expect(feedback(size)).toHaveText('Adjusted to 120 px: the maximum.');
   await expect(feedback(size)).toHaveAttribute('role', 'status');
   const described = (await size.getAttribute('aria-describedby'))!.split(' ');
   expect(described).toContain(await feedback(size).getAttribute('id'));
@@ -39,12 +39,12 @@ for (const key of ['Enter', 'Tab'] as const) test(`typed values explain maximum 
   await expect(position).toHaveValue(originalPosition);
   await expect(feedback(position)).toHaveCount(0);
   await commit(size, '999', key);
-  await expect(feedback(size)).toHaveText('Adjusted to 120 px — the maximum.');
+  await expect(feedback(size)).toHaveText('Adjusted to 120 px: the maximum.');
   await commit(position, '-20', key);
   await expect(position).toHaveValue('3');
-  await expect(feedback(position)).toHaveText('Adjusted to 3 % — the minimum.');
+  await expect(feedback(position)).toHaveText('Adjusted to 3 %: the minimum.');
   await commit(position, '-20', key);
-  await expect(feedback(position)).toHaveText('Adjusted to 3 % — the minimum.');
+  await expect(feedback(position)).toHaveText('Adjusted to 3 %: the minimum.');
   await expect(size).toHaveValue('120');
 });
 
@@ -54,7 +54,7 @@ test('step rounding stays one undoable edit and Undo or Redo does not revive old
   const original = await outline.inputValue();
   await commit(outline, '2.26');
   await expect(outline).toHaveValue('2.5');
-  await expect(feedback(outline)).toHaveText('Rounded to 2.5 px — nearest 0.5 px step.');
+  await expect(feedback(outline)).toHaveText('Rounded to 2.5 px: nearest 0.5 px step.');
   await page.locator('.appearance-history').getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(outline).toHaveValue(original);
   await expect(feedback(outline)).toHaveCount(0);
@@ -118,7 +118,7 @@ test.describe('mobile feedback', () => {
     const outline = exact(page, 'outline');
     await commit(outline, '2.26');
     const status = feedback(outline);
-    await expect(status).toHaveText('Rounded to 2.5 px — nearest 0.5 px step.');
+    await expect(status).toHaveText('Rounded to 2.5 px: nearest 0.5 px step.');
     await status.evaluate((node) => node.scrollIntoView({ block: 'end', behavior: 'instant' }));
     expect(await status.evaluate((node) => ({
       readable: parseFloat(getComputedStyle(node).fontSize) >= 12,

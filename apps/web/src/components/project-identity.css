@@ -18,7 +18,8 @@
   .workspace-identity .project-title.inspectable-project-title{display:flex;min-width:0}
   .project-title .project-name-button{min-height:44px}
   .project-title .project-name-button strong,.project-title .project-file-status{display:none}
-  .project-title .project-name-compact{display:inline;max-width:none;font-size:13px;color:inherit;white-space:nowrap}
+  .project-title .project-name-compact{display:block;min-width:0;font-size:13px;color:inherit}
+  .project-name-compact>span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .project-name-dialog-head>button{width:44px;height:44px}
 }
 @media(forced-colors:active){.project-name-dialog{border:1px solid CanvasText;background:Canvas;color:CanvasText}.project-name-dialog-head{background:Canvas}}

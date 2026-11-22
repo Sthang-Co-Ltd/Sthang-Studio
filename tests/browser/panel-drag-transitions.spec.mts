@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(errors).toEqual([]));
 const pane = (page:Page,id:Pane) => page.locator(`.refined-editor > ${selectors[id]}`);
-const grip = (page:Page,id:Pane) => pane(page,id).getByRole('button',{ name:/^Drag .+ panel header to reorder$/ });
+const grip = (page:Page,id:Pane) => pane(page,id).getByRole('button',{ name:/^.+ panel$/ });
 const saved = (page:Page) => page.evaluate(() => localStorage.getItem('sthang:editor-layout:v2'));
 async function setup(page:Page,order:Pane[]) {
   await page.addInitScript((order) => localStorage.setItem('sthang:editor-layout:v2',JSON.stringify({ preview:.36,inspector:.28,order })),order);

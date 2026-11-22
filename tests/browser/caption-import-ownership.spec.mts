@@ -147,7 +147,7 @@ test('a delayed preview yields to newer Accuracy navigation and its context draf
   const gate = deferred(); previewGate = gate;
   try {
     await chooseFile(page);
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     const context = page.locator('#accuracy-context-description');
     await context.fill('Newer context កម្ពុជា');
     gate.release();

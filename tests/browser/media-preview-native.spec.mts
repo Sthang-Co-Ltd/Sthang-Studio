@@ -188,7 +188,7 @@ test('real long compatible copy presents frames, preserves a pending edit and pl
     const warm = [];
     const beforeWarm = requests.length;
     for (let sample = 0; sample < 3; sample++) {
-      await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+      await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
       warm.push(await waitForCopyFrame(await beginOpen()));
       await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(draft);
     }

@@ -37,7 +37,8 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
   const pages = Math.max(1, Math.ceil(issues.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
   const visible = issues.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
-    .map((issue) => ({ ...issue, reasons: issue.reasons.filter((reason) => reason !== issue.title) }));
+    .map((issue) => ({ ...issue, reasons: issue.titleIsFirstReason
+      ? issue.reasons.slice(1) : issue.reasons.filter((reason) => reason !== issue.title) }));
   const blockers = issues.filter((issue) => issue.severity === 'blocker').length;
   const suggestions = issues.length - blockers;
   useEffect(() => { if (blockers > 0) setIssuesExpanded(true); }, [blockers]);
@@ -68,13 +69,14 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
       <div role="status">
         <strong>{layoutState === 'passed' ? <><Check size={15}/>Layout fits the checked frame</>
           : layoutState === 'checking' ? <><LoaderCircle className="spin" size={15}/>Checking all caption layouts…</>
-            : layoutState === 'stale' ? 'Layout changed — check again'
+            : layoutState === 'stale' ? 'Layout changed. Check again.'
               : layoutState === 'blocked' ? 'Layout needs attention'
                 : layoutState === 'error' ? 'Layout check did not finish'
-                  : 'Full layout has not been checked'}</strong>
+                  : 'Layout check (optional)'}</strong>
         <span>{layoutMessage || (layoutState === 'passed'
           ? 'Checked the current captions, appearance and resolution. The final export checks its own snapshot again.'
-          : 'Check the whole project at this output resolution, including captions that overlap. This runs locally when you ask.')}</span>
+          : layoutState === 'unchecked' || !layoutState ? 'Checks that every caption fits at this resolution, including overlaps.'
+            : 'Check the whole project at this output resolution, including captions that overlap. This runs locally when you ask.')}</span>
       </div>
       {layoutState === 'checking'
         ? <button type="button" onClick={onCancelLayout}>Cancel check</button>

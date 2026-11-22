@@ -50,7 +50,7 @@ function jobLabel(job: ProcessingJob) {
   if (job.type === 'transcribe') return 'Generate captions';
   if (job.type === 'export-video') return 'Export captioned video';
   if (job.type === 'refine-proposal') return 'Refine regenerated captions';
-  return 'Regenerate selected captions';
+  return 'Improve selected captions';
 }
 
 function icon(job: ProcessingJob) {

@@ -414,7 +414,7 @@ test('word timing opens the highlight control without enabling it and returns af
   const toggle = page.getByRole('button', { name: 'Highlight spoken word', exact: true });
   await expect(toggle).toBeFocused();
   await expect(toggle).toBeInViewport();
-  await expect(page.getByRole('button', { name: 'Back to projects' })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole('button', { name: 'Back to Home' })).toBeInViewport({ ratio: 1 });
   await expect(page.locator('.appearance-word-details > summary')).toBeInViewport({ ratio: 1 });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();

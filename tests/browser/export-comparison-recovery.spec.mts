@@ -174,7 +174,7 @@ test('a delayed comparison from another project cannot publish into the current 
   await openHistory(page);
   await expect.poll(() => page.evaluate(() => (window as any).__comparisonDigest.releases.length)).toBeGreaterThan(0);
   try {
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.evaluate(() => { (window as any).__comparisonDigest.hold = false; });
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(page.locator('.media-stage video')).toBeVisible();

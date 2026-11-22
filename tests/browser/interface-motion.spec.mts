@@ -49,7 +49,7 @@ for (const menu of ['tools', 'row']) test(`${menu} menu never consumes the topmo
   if (menu === 'tools') await tools(page).click();
   else await page.getByLabel('More actions for caption 1', { exact: true }).click();
   await page.keyboard.press('Control+f');
-  const dialog = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);

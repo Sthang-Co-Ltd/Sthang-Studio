@@ -607,7 +607,7 @@ it must not invent a second consent contract.
 ## Accessibility floor
 
 Product dialogs share focus entry, forward/reverse Tab containment, topmost-only
-Escape dismissal and return focus to a connected opener. Find & Correct starts in
+Escape dismissal and return focus to a connected opener. Correct everywhere starts in
 Find; destructive confirmations start on the safe decision. Updates and the privacy
 introduction start on their dialog root so async disabled controls and consent
 choices do not steal initial focus. Busy guards remain authoritative. Composition
@@ -631,7 +631,7 @@ Escape cannot close it; leaving that field clears stale composition ownership.
 - Update availability and release notes use the same restrained side-sheet
   language. The updater may surface a calm notice, but must never open itself or
   cover active caption work automatically.
-- Keep **Check for updates** in secondary Home/Tools surfaces. Download and
+- Keep **Updates** in secondary Home/Tools surfaces. Download and
   install remain distinct labeled actions, and unsafe active work must be
   explained before those actions can proceed.
 - In source builds, a failed update recheck always offers **Check again**, even
@@ -857,7 +857,7 @@ locking prerequisite in visible text. Fine timing names missing or locked
 adjoining-caption prerequisites beside the affected edge, with accessible
 descriptions. Explanations must not unlock, save, or otherwise alter a caption.
 
-Find & Correct highlights changed grapheme spans in its existing Before/After
+Correct everywhere highlights changed grapheme spans in its existing Before/After
 preview, using distinct underlines and restrained colors. Exact text, whitespace,
 locks and replacement rules remain owned by the replacement plan; preview markup
 never changes the applied edit. Bound comparison work to visible rows, and retain
@@ -890,7 +890,7 @@ not evidence of a public release.
 
 ### Correction recovery and value feedback (source-only)
 
-Find & Correct applies a replacement once, then saves the optional glossary rule
+Correct everywhere applies a replacement once, then saves the optional glossary rule
 as a separate step. A failed glossary save keeps the applied caption edits and
 offers **Retry glossary save** for the captured rule and scope only. Repeated
 activation must not repeat the replacement. Confirm success only when the rule
@@ -940,8 +940,8 @@ form, retain drafts and support retrying the same file. Local file validation
 expects an exported Studio profile; server normalization and privacy rules remain
 authoritative. These form drafts are not new persistent recovery storage.
 
-Accuracy's **Save globally** owns a captured normalized glossary and its receipt.
-Guard repeated submission synchronously, show **Saving globally…**, and compare
+Accuracy's **Save to all projects** owns a captured normalized glossary and its receipt.
+Guard repeated submission synchronously, show **Saving to all projects…**, and compare
 the acknowledged vocabulary before reporting success. Keep the full raw draft on
 partial or failed saves; distinguish newer edits from the earlier saved glossary.
 Publish only the vocabulary field while its starting state is still current, so a
@@ -994,7 +994,7 @@ changed. Keep successful comparisons for other formats and ignore late results
 for an old content basis. Activity's completed-video comparison uses the same
 failure and retry distinction; downloading remains independently available.
 
-Quick guide includes a collapsed Keyboard shortcuts section, grouped into editing
+Guide includes a collapsed Keyboard shortcuts section, grouped into editing
 and playback versus Review-only actions. Show Command/Option on macOS and Ctrl/Alt
 on Windows. The guide uses one scrollable body below its persistent header;
 shortcut help does not change key handling or add another workspace.
@@ -1066,7 +1066,7 @@ and wording ahead of the decision buttons, then offer optional refinement. Keep 
 progress visible when refinement is collapsed. An unavailable saved preview font
 links to the font picker in Appearance and leaves the saved choice with the user.
 
-Quick guide is a nonmodal companion. Focus its Close control on explicit opening,
+Guide is a nonmodal companion. Focus its Close control on explicit opening,
 allow Tab to leave for the editor, and return focus to a connected launcher only
 while the guide owns the interaction. Escape respects composition and foreground
 dialogs or menus. Hand off focus before opening Settings; Accuracy receives its
@@ -1148,9 +1148,9 @@ submitted mode and character target only after they are confirmed in the respons
 preserve newer control values and unrelated newer profile preferences. Save and
 Apply grouping remain separate actions.
 
-Correction Inbox decisions focus their named card at activation. If it disappears
+Correction inbox decisions focus their named card at activation. If it disappears
 from Pending after success, hand off to the next surviving card, then the previous
-one, or the persistent Pending filter. History retains its resolved card; failure
+one, or the persistent Pending filter. Resolved retains its resolved card; failure
 restores the available initiating action. Invalidate the handoff when the user
 changes focus, filter, or dialog visibility. Reveal the chosen target instantly.
 

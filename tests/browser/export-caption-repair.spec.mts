@@ -108,7 +108,7 @@ test('native overlap results identify both captions, preserve plain SRT, and bec
   await page.getByLabel(/^Size /).fill('58');
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await expect(checks(page)).toContainText('Previous layout finding · recheck needed');
   expect(state.jobs).toHaveLength(0);
 });
@@ -119,11 +119,11 @@ test('successful checks become stale after caption and resolution edits', async 
   await page.getByRole('button', { name: 'Check layout', exact: true }).click();
   await expect(checks(page)).toContainText('Layout fits the checked frame');
   await page.getByLabel('Caption 1 text', { exact: true }).fill('New ខ្មែរ wording');
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await page.getByRole('button', { name: 'Recheck layout', exact: true }).click();
   await expect(checks(page)).toContainText('Layout fits the checked frame');
   await page.getByLabel('Resolution', { exact: true }).selectOption('720p');
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
 });
 
 test('late native replies after edit or explicit cancellation cannot claim a clean result', async ({ page }) => {
@@ -169,9 +169,9 @@ test('leaving Export cancels pending native work and new editor visits reset cho
     await page.getByRole('button', { name: 'Edit appearance', exact: true }).click();
     finish.resolve(); await settled.promise;
     await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-    await expect(checks(page)).toContainText('Full layout has not been checked');
+    await expect(checks(page)).toContainText('Layout check (optional)');
     await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('720p');
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('source');
@@ -226,7 +226,7 @@ test('long issue lists have keyboard pagination and readable mobile touch contro
   await openExport(page); await captionsMode(page); await showIssues(page);
   await expect(checks(page).locator('.export-check-item')).toHaveCount(8);
   const firstIssue = checks(page).locator('.export-check-item').first();
-  await expect(firstIssue.locator('.export-check-title strong')).toContainText('timing needs a careful listen');
+  await expect(firstIssue.locator('.export-check-title strong')).toContainText('Timing may be off');
   await expect(firstIssue.getByText('Review suggestion', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next issues', exact: true }).focus();
   await page.keyboard.press('Enter');
@@ -380,7 +380,7 @@ for (const reply of ['failure', 'old appearance'] as const) {
       await entered.promise;
       await assMode(page);
       await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
-      await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+      await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
       await page.getByRole('button', { name: /Audit second/ }).click();
       await page.getByRole('button', { name: 'Export', exact: true }).click();
       await assMode(page);

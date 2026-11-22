@@ -15,7 +15,7 @@ for (const width of [1440, 390, 375, 320]) {
     await expect(page.getByLabel('Open project tools', { exact: true })).toHaveCSS('font-family', /^"Plus Jakarta Sans",/);
     await expect(page.locator('.caption-row textarea').first()).toHaveCSS('font-family', /^"Noto Sans Khmer", "Plus Jakarta Sans", sans-serif$/);
     await expect(page.locator('.time-stack input').first()).toHaveCSS('font-family', /monospace/);
-    await expect(page.locator('.time-stack input').first()).toHaveCSS('font-size', '11px');
+    await expect(page.locator('.time-stack input').first()).toHaveCSS('font-size', '13px');
     await expect(page.locator('.caption-row textarea').first()).toHaveCSS('font-size', width <= 620 ? '14px' : '15px');
     const rowFit = await page.locator('.caption-row').first().evaluate((row) => {
       const text = row.querySelector('.caption-text-cell')!.getBoundingClientRect();

@@ -11,7 +11,7 @@ export async function openAccuracy(page: Page) {
   }
   await expect(workspace).toBeVisible();
   return {
-    description: workspace.getByLabel('What is this clip about?', { exact: true }),
-    vocabulary: workspace.getByLabel('Exact terms to preserve', { exact: true }),
+    description: workspace.getByLabel('What is this video about?', { exact: true }),
+    vocabulary: workspace.getByLabel('Key terms', { exact: true }),
   };
 }

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from 'react';
+import { formatTimestamp } from '../timestamp';
 import type {
   ProcessingJob,
   RegenerationApplyMode,
@@ -41,11 +42,6 @@ interface Props {
   onAccuracyHint(value: string): void;
   onApply(mode: RegenerationApplyMode, editedText?: string): void;
   onRefine(input: RegenerationRefinementInput): void;
-}
-
-function fmt(ms: number) {
-  const seconds = Math.max(0, ms) / 1000;
-  return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, '0')}`;
 }
 
 function naturalText(captions: RegenerationProposal['proposedCaptions']) {
@@ -113,7 +109,7 @@ export function RegenerationReviewDock({
       <div className="regen-title-icon"><RefreshCw size={17}/></div>
       <div className="regen-title-copy">
         <div><span>Pass {proposal.passNumber}</span><em>{strategyLabel(proposal)}</em></div>
-        <p>{fmt(proposal.startMs)}–{fmt(proposal.endMs)} · Preview each version against the video before accepting.</p>
+        <p>{formatTimestamp(proposal.startMs)} – {formatTimestamp(proposal.endMs)} · Preview each version against the video before accepting.</p>
       </div>
     </div>
 
@@ -140,7 +136,7 @@ export function RegenerationReviewDock({
     </div>
 
     {change && <button className="regen-change-focus" onClick={() => { onSeek(Math.max(0, change.startMs - 350)); onReplay(change.startMs); }} title="Play this changed caption">
-      <span>{fmt(change.startMs)}–{fmt(change.endMs)}</span>
+      <span>{formatTimestamp(change.startMs)} – {formatTimestamp(change.endMs)}</span>
       <b>{change.confidence} confidence</b>
       {change.protectedByLock && <em><LockKeyhole size={11}/>protected</em>}
       <Play size={13}/>
@@ -179,7 +175,7 @@ export function RegenerationReviewDock({
     <details className="regen-refine-options">
       <summary>Refine this proposal</summary>
       <div className="regen-refine-card">
-      <label className="regen-hint"><span>Accuracy hint <i>optional</i></span><input value={accuracyHint} onChange={(event) => onAccuracyHint(event.target.value)} placeholder={'Example: The exact model name is “GPT 5.6 Luna”. Preserve Terra in Latin script.'}/></label>
+      <label className="regen-hint"><span>Accuracy hint <i>optional</i></span><input value={accuracyHint} onChange={(event) => onAccuracyHint(event.target.value)} placeholder={'Example: Write “CapCut” in Latin letters, and the dish as “បាយសាច់ជ្រូក”.'}/></label>
       <div className="regen-refine-actions">
         <button disabled={working} onClick={() => refine('alternative', false)} title="Try another suggestion"><RefreshCw size={14}/>Try another take</button>
         <button className="baseline-action" disabled={working || !editedText.trim()} onClick={() => refine('alternative', true)} title="Build the next suggestion from this wording"><Check size={14}/>Use as baseline & refine</button>

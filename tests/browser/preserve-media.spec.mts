@@ -162,8 +162,8 @@ test('Accuracy fields keep native labels and exact accessible names across edits
   const fields = await openAccuracy(page);
   const assertFieldContract = async (description: string, vocabulary: string, count: number) => {
     for (const [field, name, value] of [
-      [fields.description, 'What is this clip about?', description],
-      [fields.vocabulary, 'Exact terms to preserve', vocabulary],
+      [fields.description, 'What is this video about?', description],
+      [fields.vocabulary, 'Key terms', vocabulary],
     ] as const) {
       // Both label and role lookup must remain exact when React updates the
       // textarea's text content. A prefix locator would hide the original bug.
@@ -182,7 +182,7 @@ test('Accuracy fields keep native labels and exact accessible names across edits
       expect(association.id).not.toBe('');
       expect(association.labels).toEqual([{ htmlFor: association.id, text: name, controlMatches: true, containsField: false }]);
     }
-    await expect(fields.description).toHaveAccessibleDescription(/^Help recognize names, brands, versions, and Khmer-English speech\. Full-context transcription uses the topic description; experimental transcription-only mode uses selected terms as hints\.$/);
+    await expect(fields.description).toHaveAccessibleDescription('Help Studio recognize names, brands, versions, and Khmer-English speech.');
     await expect(fields.vocabulary).toHaveAccessibleDescription(new RegExp(`^${count} terms One term per line\\.`));
     await expect(page.locator('.accuracy-card .context-field b')).toHaveText(String(count));
   };
@@ -192,7 +192,7 @@ test('Accuracy fields keep native labels and exact accessible names across edits
   await fields.description.fill(edited.description);
   await fields.vocabulary.fill(edited.vocabulary);
   await assertFieldContract(edited.description, edited.vocabulary, 2);
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
   await expect(fields.description).toHaveCount(0);
   await openAccuracy(page);
   await assertFieldContract(edited.description, edited.vocabulary, 2);
@@ -202,9 +202,9 @@ test('Accuracy fields keep native labels and exact accessible names across edits
   await assertFieldContract('', '', 0);
   // The visible native labels must focus their own fields, not merely provide
   // an aria-label override that happens to satisfy a test locator.
-  await page.locator('.accuracy-card label').filter({ hasText: /^What is this clip about\?$/ }).click();
+  await page.locator('.accuracy-card label').filter({ hasText: /^What is this video about\?$/ }).click();
   await expect(fields.description).toBeFocused();
-  await page.locator('.accuracy-card label').filter({ hasText: /^Exact terms to preserve$/ }).click();
+  await page.locator('.accuracy-card label').filter({ hasText: /^Key terms$/ }).click();
   await expect(fields.vocabulary).toBeFocused();
   expect(f.state.projects[0].transcriptionContext).toEqual(f.original.transcriptionContext);
   noGeneration(f.state);
@@ -242,7 +242,7 @@ test('preserve submits a revision-bound snapshot once, blocks interruption while
     await expect.poll(() => f.requests.length).toBe(1);
     expect(f.requests[0]).toEqual({ mode: 'preserve', expectedMedia: { filename: f.original.media.filename, size: f.original.media.size }, expectedUpdatedAt: f.original.updatedAt });
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Back to projects', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Back to Home', exact: true })).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeVisible();
     gate.resolve();
@@ -860,7 +860,7 @@ test('newer Accuracy edits survive their older context acknowledgment and a late
     const fields = await openAccuracy(page);
     await fields.description.fill('First submitted description');
     await fields.vocabulary.fill('FirstBrand | first alias');
-    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await page.getByRole('button', { name: 'Save for this project', exact: true }).click();
     await expect.poll(() => writes.length).toBe(1);
     await fields.description.fill('Newer unsaved description');
     await fields.vocabulary.fill('NewerBrand | newer alias');
@@ -910,14 +910,14 @@ for (const destination of ['another project', 'a new source in the same project'
       const oldFields = await openAccuracy(page);
       await oldFields.description.fill('Old-source submitted description');
       await oldFields.vocabulary.fill('OldBrand | old alias');
-      await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+      await page.getByRole('button', { name: 'Save for this project', exact: true }).click();
       await expect.poll(() => writes.length).toBe(1);
       expect(writes[0]).toEqual({
         transcriptionContext: { description: 'Old-source submitted description', vocabulary: ['OldBrand | old alias'] },
         expectedMedia: { filename: f.original.media.filename, size: f.original.media.size },
         expectedUpdatedAt: f.original.updatedAt,
       });
-      await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+      await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
       // Home drains the existing write before leaving. The old source, raw
       // Accuracy fields and unload protection stay owned by this editor meanwhile.
       await expect(page.locator('.project-title strong')).toHaveText('Audit landscape');

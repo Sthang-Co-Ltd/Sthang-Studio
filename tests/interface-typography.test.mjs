@@ -50,7 +50,7 @@ test('operational type roles preserve readable controls, timecodes and caption s
   assert.match(declarations('.context-field textarea'), /font-size:13px/);
   assert.match(declarations('.modal-head strong'), /font-size:14px/);
   assert.match(declarations('.quality-dot'), /font:700 10px/);
-  assert.match(declarations('.time-stack input'), /width:86px;font-size:11px/);
+  assert.match(declarations('.time-stack input'), /width:96px;font-size:13px/);
   assert.match(declarations('.caption-row textarea'), /font-size:15px;line-height:1\.7/);
   assert.match(css, /@media\(max-width:420px\)\{[\s\S]*?\.caption-row \.caption-text-cell\{grid-column:1\/-1;grid-row:2\}/);
 });

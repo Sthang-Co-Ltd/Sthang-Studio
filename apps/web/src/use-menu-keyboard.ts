@@ -55,7 +55,8 @@ export function useMenuKeyboard(openKey: string | null, menu: RefObject<HTMLElem
         search.current = { text, time: now };
         const prefix = [...text].every((letter) => letter === text[0]) ? text[0] : text;
         const candidates = [...enabled.slice(index + 1), ...enabled.slice(0, index + 1)];
-        next = candidates.find((item) => (item.getAttribute('data-menu-label') || item.textContent || '').trim().toLocaleLowerCase().startsWith(prefix));
+        next = candidates.find((item) => (item.getAttribute('data-menu-label') || item.textContent || '').trim().toLocaleLowerCase().startsWith(prefix)
+          || item.dataset.menuTypeaheadAlias?.startsWith(prefix));
       } else return;
       event.preventDefault(); event.stopPropagation();
       focus(next);

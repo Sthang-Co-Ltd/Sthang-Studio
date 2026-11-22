@@ -35,7 +35,7 @@ async function expectNoOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 }
 
-test('manual captions open from Quick guide for text editing and approval without a transcript', async ({ page }) => {
+test('manual captions open from Guide for text editing and approval without a transcript', async ({ page }) => {
   const project = state.projects[0];
   project.transcript = null;
   project.captions = [{
@@ -44,7 +44,7 @@ test('manual captions open from Quick guide for text editing and approval withou
   }];
   await openProject(page);
   await page.getByLabel('Open project tools', { exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Guide', exact: true }).click();
   const guide = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true });
   await expect(guide.getByText('Captions added', { exact: true })).toBeVisible();
   await expect(guide.getByRole('button', { name: /Captions added|Generate captions/i })).toHaveCount(0);

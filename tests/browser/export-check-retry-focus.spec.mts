@@ -165,11 +165,11 @@ test('appearance-load Retry respects its exact trigger and newer editor or modal
             await page.getByLabel('Open project tools', { exact: true }).click();
             await page.getByRole('menuitem', { name: /^Settings/ }).click();
             await dialog.getByRole('button', { name: 'Profile', exact: true }).click();
-            await dialog.getByLabel('Global protected vocabulary', { exact: true }).focus();
+            await dialog.getByLabel('Key terms for all projects', { exact: true }).focus();
           }
         }
         gate.release(); await settled(page, succeeds);
-        if (succeeds) await expect(dialog.getByLabel('Global protected vocabulary', { exact: true })).toBeFocused();
+        if (succeeds) await expect(dialog.getByLabel('Key terms for all projects', { exact: true })).toBeFocused();
         else await expect(editor).toBeFocused();
         await unchanged(page, before);
       } finally { gate.release(); }

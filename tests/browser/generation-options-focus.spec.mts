@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
 });
 async function openOptions(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
   await expect(disclosure(page)).toBeVisible();
   await summary(page).focus(); await page.keyboard.press('Enter');
   await expect(picker(page)).toBeVisible();
@@ -162,14 +162,14 @@ test('leaving during Apply preserves navigation focus and the next project’s s
   hold = deferred();
   try {
     await applyWithKeyboard(page);
-    const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+    const back = page.getByRole('button', { name: 'Back to Home', exact: true });
     await back.press('Enter');
     await expect(back).toBeFocused();
     await expect(disclosure(page).getByRole('status')).toHaveText('Saving choice…');
     hold.release();
     await expect(page.locator('.empty-stage .dropzone')).toBeFocused();
     await page.getByRole('button', { name: /Audit second/ }).click();
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     await summary(page).press('Enter');
     await expect(summary(page)).toBeFocused();
     await expect(selectedChoice(page)).toBeEnabled();

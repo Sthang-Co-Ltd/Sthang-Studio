@@ -34,7 +34,7 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(errors).toEqual([]));
 
-const header = (page: Page) => page.locator('.stage-column').getByRole('button', { name: 'Drag Preview panel header to reorder', exact: true });
+const header = (page: Page) => page.locator('.stage-column').getByRole('button', { name: 'Preview panel', exact: true });
 const popup = (page: Page) => page.getByRole('region', { name: 'Arrange panels', exact: true });
 const popupGrip = (page: Page) => popup(page).getByRole('button', { name: 'Drag Preview panel to reorder', exact: true });
 const divider = (page: Page) => page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true });
@@ -174,7 +174,7 @@ test('header Escape', async ({ page }) => {
     // A real foreground dialog owns its plain Escape while capture stays live.
     await page.getByLabel('Caption 1 text', { exact: true }).focus();
     await page.keyboard.press('Control+f');
-    const dialog = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
     await expect(dialog).toBeVisible(); await expect(dialog.getByLabel('Find', { exact: true })).toBeFocused();
     await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
     await expect(page.locator('.editor-pane-floating')).toHaveCount(1);

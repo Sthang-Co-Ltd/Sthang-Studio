@@ -196,8 +196,8 @@ async function heldRead(page: Page, snapshot: CaptionProject) {
   return { started: started.promise, release: gate.release, finished: finished.promise, request: () => request };
 }
 async function accuracy(page: Page) {
-  if (await page.getByRole('button', { name: /^Accuracy/ }).getAttribute('aria-pressed') !== 'true') await page.getByRole('button', { name: /^Accuracy/ }).click();
-  return { description: page.getByLabel('What is this clip about?', { exact: true }), vocabulary: page.getByLabel('Exact terms to preserve', { exact: true }) };
+  if (await page.getByRole('button', { name: 'Accuracy', exact: true }).getAttribute('aria-pressed') !== 'true') await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+  return { description: page.getByLabel('What is this video about?', { exact: true }), vocabulary: page.getByLabel('Key terms', { exact: true }) };
 }
 
 for (const width of [1440, 390]) test('a pending caption save protects a return to its old wording through ACK, restart and explicit recovery at ' + width + 'px', async ({ page }, info) => {
@@ -385,7 +385,7 @@ test('a field-specific Restore still yields to newer raw Accuracy typing during 
   const held = await heldRead(page, structuredClone(f.state.projects[0]));
   try {
     await restore(page); await held.started;
-    const field = page.getByLabel('What is this clip about?', { exact: true });
+    const field = page.getByLabel('What is this video about?', { exact: true });
     const newer = '  Newer raw Khmer context ខ្មែរ\n\n';
     await field.fill(newer); await expect(field).toBeFocused();
     held.release(); await held.finished;

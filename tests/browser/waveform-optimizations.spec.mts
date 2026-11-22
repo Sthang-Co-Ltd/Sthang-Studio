@@ -211,7 +211,7 @@ test('Waveform pending work: project identity and audio change while pending can
   expect(pendingHooksA.publishedSpectrumCount).toBe(0);
 
   // 2. Switch to project 2 (second: 880 Hz tone) BEFORE project 1 runs
-  await page.getByLabel('Back to projects').click();
+  await page.getByLabel('Back to Home').click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.locator('.media-stage video')).toBeVisible();
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
@@ -260,7 +260,7 @@ test('Waveform pending work: project identity and audio change while pending can
   expect(hooksAfterDeadline.publishedSpectra.length).toBe(1);
 
   // 4. Navigate back to project 1 and deliberately run a fresh project 1 spectrum task
-  await page.getByLabel('Back to projects').click();
+  await page.getByLabel('Back to Home').click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(page.locator('.media-stage video')).toBeVisible();
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);

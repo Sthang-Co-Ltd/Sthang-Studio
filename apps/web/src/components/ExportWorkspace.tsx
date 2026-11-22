@@ -166,6 +166,18 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const [presetError, setPresetError] = useState('');
   const [presetNotice, setPresetNotice] = useState('');
   const [lastUsedError, setLastUsedError] = useState('');
+  const measureFinalize = useCallback((footer: HTMLDivElement | null) => {
+    const workspace = footer?.closest<HTMLElement>('.export-workspace');
+    if (!footer || !workspace) return;
+    const measure = () => workspace.style.setProperty('--export-finalize-height', `${footer.offsetHeight}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(footer);
+    return () => {
+      observer.disconnect();
+      workspace.style.removeProperty('--export-finalize-height');
+    };
+  }, []);
   const acceptedExportInVisit = useRef(false);
   const importRevision = useRef(profileImportRevision);
   importRevision.current = profileImportRevision;
@@ -541,7 +553,19 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
     ? (lastUsedSettings ? LAST_USED_PRESET_ID : '')
     : currentPreset?.id || '';
 
-  return <div className="export-workspace export-graphite">
+  return <div className="export-workspace export-graphite" onFocusCapture={(event) => {
+    const target = event.target;
+    const footer = event.currentTarget.querySelector('.export-finalize');
+    if (!footer || footer.contains(target)) return;
+    requestAnimationFrame(() => {
+      if (document.activeElement !== target || !footer.isConnected) return;
+      const controlRect = target.getBoundingClientRect();
+      const footerRect = footer.getBoundingClientRect();
+      if (controlRect.top < footerRect.bottom && controlRect.bottom + 4 > footerRect.top) {
+        target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      }
+    });
+  }}>
     <div className="export-mode-switch" role="group" aria-label="Export type">
       <button ref={videoOutput} aria-pressed={outputMode === 'video'} disabled={!videoProject} onClick={() => setOutputMode('video')}><Film size={16}/><span>Captioned video</span><small>MP4 · keeps styling</small></button>
       <button ref={captionOutput} aria-pressed={outputMode === 'captions'} onClick={() => setOutputMode('captions')}><FileText size={16}/><span>Captions file</span><small>SRT · editable subtitles</small></button>
@@ -589,7 +613,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
           } : undefined}/>)}
 
     {outputMode === 'video' && <>
-      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''} · keep editing while this snapshot renders</span><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
+      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeExportJob.progress}%{elapsedLabel(activeExportJob) ? ` · ${elapsedLabel(activeExportJob)}` : ''}</span><small>You can keep editing while it renders.</small><div className="export-active-progress" aria-label={`${activeExportJob.progress}% complete`}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
       {loadingCapabilities && <div className="export-status" role="status"><LoaderCircle className="spin" size={16}/>Checking video export support…</div>}
       {capabilityError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Video export check failed</strong><span>{capabilityError}</span></div></div>}
       {actionError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>Export needs attention</strong><span>{actionError}</span></div></div>}
@@ -634,7 +658,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
                 </label>
                 <button type="button" disabled={!presetName.trim() || loadingProfile || Boolean(profileLoadError) || savingPreset} aria-busy={Boolean(presetSaveAction) || undefined} onClick={() => void savePreset()}><Save size={14}/>{presetSaveAction ? presetSaveAction === 'update' ? 'Updating…' : 'Saving…' : matchingPresetName ? 'Update preset' : 'Save preset'}</button>
                 {managedPreset && <div className="export-preset-delete"><span>Delete saved preset: <b>{managedPreset.name}</b></span><button type="button" className="danger-quiet" disabled={loadingProfile || Boolean(profileLoadError) || savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
-                <p className="export-preset-hint">Saved presets include video quality and advanced output settings. Caption appearance stays with each project. Saving an existing name updates that preset. Managing a preset does not change the current video settings.</p>
+                <p className="export-preset-hint">Presets save video settings only. Caption appearance stays with each project.</p>
               </div>
             </details>
           </div>
@@ -715,12 +739,12 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
         {capabilities.warnings.length > 0 && <div className="export-warnings" aria-label="Video export notices">{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={14}/><span>{warning}</span></div>)}</div>}
 
-        <div className="export-finalize">
+        <div className="export-source-note"><ShieldCheck size={17}/><span>Your source video is never changed. Studio checks the finished file.</span></div>
+        <div className="export-finalize" ref={measureFinalize}>
           <div className="export-summary-line" aria-live="polite">
             <span><Film size={14}/><b>{resolution ? `${resolution.width}×${resolution.height}` : 'Source'}</b>{resolution?.upscaled ? ' · Upscaled' : ''} · {frameRateLabel(settings.frameRate, source?.frameRate || 0)} · {settings.codec.toUpperCase()}{settings.encoder !== 'auto' ? ` · ${settings.encoder.toUpperCase()} encoder` : ''}{settings.customBitrateMbps ? ` · ${settings.customBitrateMbps} Mbps custom` : ''}</span>
             <span><HardDrive size={14}/>≈ <b>{bytes(estimatedBytes)}</b> · {bytes(capabilities.availableDiskBytes)} free</span>
           </div>
-          <div className="export-source-note"><ShieldCheck size={17}/><span>Your source stays unchanged. Studio renders from a snapshot of your captions, appearance and settings, then verifies the file.</span></div>
           <button className="primary" disabled={exportBlocked} onClick={() => void startExport()}>{startingExport ? <LoaderCircle className="spin" size={16}/> : <Film size={16}/>} {activeExportJob ? 'Export already running' : startingExport ? 'Starting…' : 'Render captioned video'}</button>
         </div>
       </>}

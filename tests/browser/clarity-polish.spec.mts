@@ -10,7 +10,7 @@ const name = 'Audit landscape — ការកែសម្រួលចំណង�
 const file = 'ប្រភពវីដេអូ_' + 'long_source_filename_'.repeat(7) + '.mp4';
 const details = (page: Page) => page.getByRole('button', { name: 'Project details', exact: true });
 const namePanel = (page: Page) => page.getByRole('dialog', { name: 'Project details', exact: true });
-const findPanel = (page: Page) => page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+const findPanel = (page: Page) => page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
 async function find(page: Page, query: string, replacement: string) {
   await page.keyboard.press('Control+f');
   await findPanel(page).getByLabel('Find', { exact: true }).fill(query);
@@ -200,7 +200,7 @@ test.describe('touch names', () => {
     state.projects[0].title = name; state.projects[0].media.originalName = file;
     await openProject(page);
     const label = details(page).locator('.project-name-compact');
-    await expect(label).toHaveText('Project details');
+    await expect(label).toHaveText(name);
     expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     await details(page).tap();
     await expect(namePanel(page).locator('dd').last()).toHaveText(file);

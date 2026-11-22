@@ -32,9 +32,9 @@ test('cached Khmer, combining clusters, CRLF and blank-line metrics equal fresh 
     check([caption]);
   }
   caption.text = 'a\r\nb\r\nc';
-  assert.equal(check([caption])[0].reasons.includes('3 lines; target ≤ 2'), true);
+  assert.equal(check([caption])[0].reasons.some((reason) => reason.code === 'too-many-lines' && reason.hint === '3 lines (target: 2 or fewer).'), true);
   caption.text = '';
-  assert.equal(check([caption])[0].reasons.includes('Empty caption'), true);
+  assert.equal(check([caption])[0].reasons.some((reason) => reason.code === 'empty' && reason.label === 'No text'), true);
 });
 
 test('cached text never caches timing, approval, provenance, vocabulary, QA or media decisions', () => {
@@ -42,19 +42,19 @@ test('cached text never caches timing, approval, provenance, vocabulary, QA or m
   check([caption]);
   caption.approved = true;
   let issues = check([caption]);
-  assert.equal(issues.some((issue) => issue.reasons.includes('Khmer + English entity check')), false);
+  assert.equal(issues.some((issue) => issue.reasons.some((reason) => reason.code === 'mixed-language')), false);
   caption.approved = false;
   issues = check([caption]);
-  assert.equal(issues.some((issue) => issue.reasons.includes('Khmer + English entity check')), true);
+  assert.equal(issues.some((issue) => issue.reasons.some((reason) => reason.code === 'mixed-language')), true);
   caption.startMs = -10; caption.endMs = 80; caption.timingQuality = 'low'; caption.timingSource = 'interpolated';
   issues = check([caption], ['Canonical | alias'], { ...settings, maxCps: 2, maxCharsPerLine: 3, maxLines: 1 }, 50);
   const reasons = issues.flatMap((issue) => issue.reasons);
-  for (const expected of ['Weak/interpolated timing', 'Starts before the media', 'Ends after the media', 'Alias “alias” should probably display as “Canonical”']) {
-    assert.equal(reasons.includes(expected), true, expected);
+  for (const expected of ['Timing may be off', 'Starts before the video', 'Ends after the video', 'Use “Canonical” for “alias”']) {
+    assert.equal(reasons.some((reason) => reason.label === expected), true, expected);
   }
-  assert.equal(reasons.some((reason) => reason.startsWith('Fast reading speed')), true);
-  assert.equal(reasons.some((reason) => reason.startsWith('Line is')), true);
-  assert.equal(check([caption], [], settings, 5000).some((issue) => issue.reasons.some((reason) => reason.startsWith('Alias'))), false);
+  assert.equal(reasons.some((reason) => reason.code === 'fast-reading'), true);
+  assert.equal(reasons.some((reason) => reason.code === 'long-line'), true);
+  assert.equal(check([caption], [], settings, 5000).some((issue) => issue.reasons.some((reason) => reason.code === 'key-term-alias')), false);
 });
 
 test('neighbor changes and reordered duplicate IDs retain original issue ordering and reasons', () => {
@@ -62,14 +62,36 @@ test('neighbor changes and reordered duplicate IDs retain original issue orderin
   check(captions);
   captions[0].endMs = 850;
   let issues = check(captions);
-  assert.equal(issues.find((issue) => issue.captionId === 'later')!.reasons.includes('Overlaps the previous caption'), true);
+  assert.equal(issues.find((issue) => issue.captionId === 'later')!.reasons.some((reason) => reason.code === 'overlap'), true);
   captions[0].endMs = 730;
   issues = check(captions);
-  assert.equal(issues.find((issue) => issue.captionId === 'later')!.reasons.includes('Gap is 20 ms; QA target is 45 ms'), true);
+  assert.equal(issues.find((issue) => issue.captionId === 'later')!.reasons.some((reason) => reason.code === 'small-gap' && reason.hint === 'Starts only 20 ms after the previous caption (target: at least 45 ms).'), true);
   captions[0].text = 'different';
   issues = check(captions);
-  assert.equal(issues.find((issue) => issue.captionId === 'later')?.reasons.includes('Duplicates the previous caption'), false);
+  assert.equal(issues.find((issue) => issue.captionId === 'later')?.reasons.some((reason) => reason.code === 'duplicate'), false);
   check([captions[2], captions[1], captions[0]]);
+});
+
+test('review reasons identify the check and what to do, including distinct aliases', () => {
+  const first = cue('first', 'Earlier caption', 0, 1600);
+  const second = { ...cue('second', 'ខ្មែរ cap cut capkut', 1400, 3000), timingQuality: 'low' as const };
+  const reasons = analyzeCaptions([first, second], ['CapCut | cap cut | capkut'])[0].reasons;
+  assert.deepEqual(reasons.filter(({ code }) => ['timing-estimated', 'mixed-language', 'key-term-alias', 'overlap'].includes(code)), [
+    { code: 'timing-estimated', label: 'Timing may be off', hint: 'Play it and check that the caption matches the voice.' },
+    { code: 'mixed-language', label: 'Check English words', hint: 'Khmer and English are mixed. Check that names and English words are spelled right.' },
+    { code: 'key-term-alias', label: 'Use “CapCut” for “cap cut”', hint: 'Your key terms say “cap cut” should be written “CapCut”.' },
+    { code: 'key-term-alias', label: 'Use “CapCut” for “capkut”', hint: 'Your key terms say “capkut” should be written “CapCut”.' },
+    { code: 'overlap', label: 'Overlaps previous', hint: 'It starts before the previous caption ends.' },
+  ]);
+});
+
+test('duplicate IDs retain distinct reading speeds and de-duplicate an identical legacy measurement', () => {
+  const captions = [cue('same', 'abcd', 0, 100), cue('same', 'abcdef', 1000, 1100), cue('same', 'wxyz', 2000, 2100)];
+  const reasons = analyzeCaptions(captions, [])[0].reasons.filter(({ code }) => code === 'fast-reading');
+  assert.deepEqual(reasons.map(({ hint }) => hint), [
+    'About 40 characters per second (target: 20 or fewer). Viewers may not finish reading it.',
+    'About 60 characters per second (target: 20 or fewer). Viewers may not finish reading it.',
+  ]);
 });
 
 test('warm single-cue changes in a heavy project resegment only changed text', (t) => {

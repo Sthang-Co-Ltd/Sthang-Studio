@@ -17,6 +17,7 @@ export interface ExportCheckIssue {
   severity: 'blocker' | 'advisory';
   title: string;
   reasons: string[];
+  titleIsFirstReason?: boolean;
   remedy: string;
   captionIds: string[];
   repair: ExportRepairKind;
@@ -53,15 +54,14 @@ export function buildExportCaptionIssues(input: {
   for (const issue of reviewIssues) {
     if (!indices.has(issue.captionId) || issue.severity === 'info') continue;
     const previous = captions[(indices.get(issue.captionId) ?? 0) - 1];
-    const overlap = Boolean(previous && issue.reasons.includes('Overlaps the previous caption'));
+    const overlap = Boolean(previous && issue.reasons.some((reason) => reason.code === 'overlap'));
     if (overlap) issues.push({ id: `overlap:${previous.id}:${issue.captionId}`, severity: 'advisory', title: 'Overlapping captions',
       reasons: ['These captions overlap in the source timeline. Some destination editors cannot keep overlapping cues.'],
       remedy: 'Check both captions in Fine timing. Keep an intentional overlap, or adjust their shared boundary without shifting later speech.',
       captionIds: [previous.id, issue.captionId], repair: 'timing' });
-    const reasons = issue.reasons.filter((reason) => !overlap || reason !== 'Overlaps the previous caption')
-      .map((reason) => reason === 'Weak/interpolated timing' ? 'The timing needs a careful listen against the source.' : reason);
+    const reasons = issue.reasons.filter((reason) => !overlap || reason.code !== 'overlap').map((reason) => reason.label);
     if (reasons.length) issues.push({ id: `review:${issue.captionId}`, severity: 'advisory', title: reasons[0],
-      reasons, remedy: 'Listen to this caption and check its wording, duration and nearby captions. Export keeps your chosen text and timing.',
+      reasons, titleIsFirstReason: true, remedy: 'Listen to this caption and check its wording, duration and nearby captions. Export keeps your chosen text and timing.',
       captionIds: [issue.captionId], repair: 'caption' });
   }
 

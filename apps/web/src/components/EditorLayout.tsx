@@ -187,6 +187,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   return <div ref={workbench} className={`editor-workbench ${captionListFocused ? 'caption-list-focused' : ''}`}
     onFocusCapture={(event) => { trackCaptionFocus(event.target); finishNativeCaptionFocus(event.target); }}
     onBlurCapture={(event) => { cancelNativeFocusReveal(); trackCaptionFocus(event.relatedTarget); }}>
+    <span id="panel-reorder-hint" hidden>Use Left or Right arrow, Home or End to move this panel.</span>
     <div className={`editor-toolbar${toolbar ? '' : ' editor-toolbar-empty'}`}>{toolbar}<div className="editor-layout-controls" data-editor-layout-control>
       <PanelArrangement order={order} open={open} supported={supported} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing}
         onChange={arrange} onBegin={() => beginReorder('popover')}
@@ -199,7 +200,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         style={{ '--editor-columns': tracks, '--editor-preview-column': column('preview'), '--editor-captions-column': column('captions'), '--editor-inspector-column': column('inspector'),
           '--editor-preview-order': panes.indexOf('preview') * 2, '--editor-captions-order': panes.indexOf('captions') * 2, '--editor-inspector-order': panes.indexOf('inspector') * 2,
           '--editor-dock-start': dockStart, '--editor-dock-end': dockEnd, '--editor-inspector-row': docked && middle ? '1 / -1' : '1' } as CSSProperties}>
-        <div className="stage-column"><div className="editor-preview-label"><PanelHeaderGrip pane="preview">Preview</PanelHeaderGrip><span>Fit to frame</span></div>{preview}</div>
+        <div className="stage-column"><div className="editor-preview-label"><PanelHeaderGrip pane="preview">Preview</PanelHeaderGrip></div>{preview}</div>
         {divider(0)}
         {captions}
         {divider(1)}

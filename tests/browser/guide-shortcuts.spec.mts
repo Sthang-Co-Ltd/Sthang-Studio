@@ -2,13 +2,13 @@ import { test, expect } from '@playwright/test';
 import { cleanFixtures, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
 
-for (const [platform, width] of [['Win32', 1440], ['Win32', 390], ['MacIntel', 820]] as const) test(`Quick guide exposes scoped ${platform} shortcuts at ${width}px`, async ({ page }, info) => {
+for (const [platform, width] of [['Win32', 1440], ['Win32', 390], ['MacIntel', 820]] as const) test(`Guide exposes scoped ${platform} shortcuts at ${width}px`, async ({ page }, info) => {
   await installFixture(page);
   await page.addInitScript((platform) => Object.defineProperty(navigator, 'platform', { value: platform }), platform);
   await page.setViewportSize({ width, height: 900 });
   await openProject(page);
   const before = await page.getByLabel('Caption 1 text', { exact: true }).inputValue();
-  await page.getByLabel('Open project tools', { exact: true }).click(); await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).click();
+  await page.getByLabel('Open project tools', { exact: true }).click(); await page.getByRole('menuitem', { name: 'Guide', exact: true }).click();
   const guide = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true });
   const shortcuts = guide.locator('.guide-shortcuts');
   await expect(shortcuts).not.toHaveAttribute('open', '');

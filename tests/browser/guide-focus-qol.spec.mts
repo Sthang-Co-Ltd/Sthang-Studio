@@ -21,7 +21,7 @@ async function openGuide(page: Page) {
   await tools(page).focus();
   await tools(page).press('Enter');
   await page.keyboard.press('q');
-  const item = page.getByRole('menuitem', { name: 'Quick guide', exact: true });
+  const item = page.getByRole('menuitem', { name: 'Guide', exact: true });
   await expect(item).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(guide(page)).toBeVisible();
@@ -93,7 +93,7 @@ for (const width of [1440, 390]) {
       await expect(guide(page)).toBeVisible();
     }
     await page.keyboard.press('Control+f');
-    const find = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+    const find = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
     await expect(find).toBeVisible(); await expect(guide(page)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(find).toBeHidden(); await expect(guide(page)).toBeVisible();
@@ -141,7 +141,7 @@ for (const width of [1440, 390]) {
       await expect(guide(page)).toHaveCount(0);
       const workspace = page.getByRole('complementary', { name: `${destination.name} workspace`, exact: true });
       await expect(workspace).toBeVisible();
-      if (destination.field) await expect(page.getByLabel('What is this clip about?', { exact: true })).toBeFocused();
+      if (destination.field) await expect(page.getByLabel('What is this video about?', { exact: true })).toBeFocused();
       else await expect(workspace.getByRole('group', { name: `${destination.name} workspace`, exact: true })).toBeFocused();
       await expect.poll(() => page.evaluate(() => (window as any).__guideReveals.length)).toBeGreaterThan(0);
       expect(await page.evaluate(() => (window as any).__guideReveals.every((options: ScrollIntoViewOptions) => options.behavior === 'instant' && options.block === 'nearest' && options.inline === 'nearest'))).toBe(true);

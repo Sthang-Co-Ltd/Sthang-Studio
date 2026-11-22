@@ -107,7 +107,7 @@ for (const width of [1440, 390]) test(`lost upload acknowledgement survives ${wi
   if (width === 1440) {
     await page.getByRole('region', { name: 'Recent projects', exact: true }).getByRole('button', { name: /Audit second/ }).click();
     await opened(page); expect((await records(page)).map((record) => record.id)).toEqual([uploadedId]);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(recovery(page)).toContainText('An earlier upload needs checking.');
   }
   await page.getByRole('button', { name: 'All projects', exact: true }).click();

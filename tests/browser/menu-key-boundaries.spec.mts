@@ -320,7 +320,7 @@ for (const width of [1440, 390]) test(`project details keeps unrelated chords at
     await page.keyboard.press('Enter'); await expect(close).toBeFocused();
     expect(await dispatch(page, { key: 'f', [modifier]: true })).toBe(true);
     await expect(panel).toHaveCount(0);
-    const find = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+    const find = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
     await expect(find).toBeVisible(); await expect(find.getByLabel('Find', { exact: true })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(find).toHaveCount(0); await expect(trigger).toBeFocused();

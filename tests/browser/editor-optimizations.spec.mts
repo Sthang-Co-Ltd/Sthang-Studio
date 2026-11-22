@@ -198,7 +198,7 @@ test('Review row approval on filtered list correctly targets the original captio
 
   // In review mode, unapproved caption c2 is the first visible row in the queue (index 02)
   const visibleRow = page.locator('.caption-row').first();
-  await expect(visibleRow.locator('.row-index')).toHaveText('02');
+  await expect(visibleRow.locator('.row-index')).toHaveText('2');
 
   // Click row approve on c2
   await visibleRow.locator('.row-approve').click();
@@ -208,7 +208,7 @@ test('Review row approval on filtered list correctly targets the original captio
 
   // Now, the review list displays remaining unapproved caption c3 (original index 03)
   const nextVisibleRow = page.locator('.caption-row').first();
-  await expect(nextVisibleRow.locator('.row-index')).toHaveText('03');
+  await expect(nextVisibleRow.locator('.row-index')).toHaveText('3');
 
   // Mutate caption text on this row to trigger an array change event
   const c3Textarea = nextVisibleRow.locator('textarea');

@@ -75,7 +75,7 @@ for (const width of [1440, 390]) test(`hints remain inside a ${width}px viewport
   await page.setViewportSize({ width, height: 800 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openProject(page);
-  const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+  const back = page.getByRole('button', { name: 'Back to Home', exact: true });
   await back.hover();
   const tip = page.getByRole('tooltip');
   await expect(tip).toBeVisible();

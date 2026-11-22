@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { Check, X } from 'lucide-react';
 import type { HandoffRestorePreview } from '../caption-handoff-client';
+import { formatTimestamp } from '../timestamp';
 import './caption-restore-review.css';
 
 export interface CaptionRestoreReviewState {
@@ -22,7 +23,6 @@ export function CaptionRestoreReview({ review, busy, importBlockedReason, onRead
   const blockedReasonId = useId();
   useEffect(() => { if (heading.current) onReady(heading.current); }, [review.filename, onReady]);
   const captions = review.preview.candidate.captions;
-  const stamp = (ms: number) => `${(ms / 1000).toFixed(3)} s`;
   return <section className="caption-restore-review" aria-labelledby="caption-restore-title">
     <h3 id="caption-restore-title" ref={heading} tabIndex={-1}>Review caption import</h3>
     <p className="caption-restore-filename">{review.filename}</p>
@@ -30,7 +30,7 @@ export function CaptionRestoreReview({ review, busy, importBlockedReason, onRead
     <p>Use this file with the same source footage and playback speed. Caption times start at zero; the file does not contain or identify the source video.</p>
     <div className="caption-restore-samples" aria-label="Caption import preview">
       {captions.slice(0, 4).map((caption, index) => <div key={index}>
-        <span>{stamp(caption.startMs)} → {stamp(caption.endMs)}</span>
+        <span>{formatTimestamp(caption.startMs)} – {formatTimestamp(caption.endMs)}</span>
         <p>{caption.text}</p>
       </div>)}
       {captions.length > 4 && <p>{captions.length - 4} more captions not shown.</p>}

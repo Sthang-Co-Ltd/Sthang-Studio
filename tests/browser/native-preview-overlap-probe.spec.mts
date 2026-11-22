@@ -83,7 +83,7 @@ test('repeated paused seeks report exact native presentation inside two overlapp
         mode: node.getAttribute('data-preview-mode'), key: node.getAttribute('data-paint-key'),
       }))),
     });
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   }
   const failures = results.filter(({ presented }) => !presented);
   const summary = { repetitions: results.length, presentationFailures: failures.length,

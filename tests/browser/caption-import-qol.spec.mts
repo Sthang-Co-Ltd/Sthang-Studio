@@ -161,7 +161,7 @@ test('a late import response never takes focus from newer Accuracy editing', asy
     await replace(page).click();
     await expect.poll(() => restoreCalls).toBe(1);
     await expect(captionOutput(page)).toBeFocused();
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     const context = page.locator('#accuracy-context-description');
     await context.fill('Newer context draft កម្ពុជា');
     gate.release();

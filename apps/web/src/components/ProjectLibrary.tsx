@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
-import { ArrowUpRight, ChevronLeft, ChevronRight, FolderOpen, LoaderCircle, RefreshCw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FolderOpen, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import type { CaptionProjectSummary } from '@kcs/shared';
 import { selectProjectLibrary, type ProjectLibrarySort, type ProjectLibraryView } from '../project-library';
 import '../project-library.css';
@@ -107,7 +107,7 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
 
     {ready && <>
       <div className="project-library-refresh">
-        <span role="status" aria-live="polite" aria-atomic="true">{refreshing ? 'Refreshing projects…' : refreshError
+        <span className={!refreshing && !refreshError && result.total ? 'sthang-sr-only' : undefined} role="status" aria-live="polite" aria-atomic="true">{refreshing ? 'Refreshing projects…' : refreshError
           ? `${refreshError} Last loaded projects are shown; this list may be out of date.` : result.total ? 'Project list loaded.' : ''}</span>
         <button type="button" aria-disabled={refreshing || undefined} aria-busy={refreshing || undefined}
           onClick={() => { if (!refreshing) refresh(); }}>
@@ -128,14 +128,13 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
           return <li key={project.id}>
             <button type="button" className="project-library-item" data-library-project={project.id} aria-label={`Open ${project.title}`} aria-describedby={descriptionId}
               aria-busy={opening} disabled={disabled || opening} onClick={() => onOpen(project.id)}>
-              <span className="project-library-item-icon"><FolderOpen size={21} aria-hidden="true"/></span>
               <span className="project-library-item-content"><strong className="project-library-item-title" title={project.title}>{project.title}</strong>
                 <span className="project-library-item-meta" id={descriptionId}>
                   <span>{project.captionCount ? `${project.captionCount} ${project.captionCount === 1 ? 'caption' : 'captions'}` : 'Not generated yet'}</span>
                   <ProjectDate label="Edited" value={project.updatedAt}/><ProjectDate label="Created" value={project.createdAt}/>
                 </span>
               </span>
-              <span className="project-library-open">{opening ? <><LoaderCircle className="spin" size={16} aria-hidden="true"/>Opening…</> : <>{project.captionCount ? 'Continue editing' : 'Open project'}<ArrowUpRight size={16} aria-hidden="true"/></>}</span>
+              <span className="project-library-open">{opening ? <><LoaderCircle className="spin" size={16} aria-hidden="true"/>Opening…</> : <>{project.captionCount ? 'Continue editing' : 'Open project'}<ChevronRight size={16} aria-hidden="true"/></>}</span>
             </button>
           </li>;
         })}</ul>}

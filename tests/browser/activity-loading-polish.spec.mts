@@ -134,7 +134,7 @@ test('a late first-open chunk never replaces a newer tool on mobile', async ({ p
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await loading.evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
     await page.screenshot({ path: info.outputPath('loading-mobile.png') });
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     await expect(page.getByRole('complementary', { name: 'Accuracy workspace' })).toBeVisible();
     gate.resolve();
     await expect(loading).toHaveCount(0);

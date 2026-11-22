@@ -339,7 +339,7 @@ test('leaving a hung Restore releases the next project recovery and its late com
   await failLook(page);
   state.appearanceFailure = false;
   await reloadAndReopen(page);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await appearance(page);
   state.appearanceFailure = true;
@@ -348,7 +348,7 @@ test('leaving a hung Restore releases the next project recovery and its late com
   await expect.poll(async () => (await copies(page)).some((entry) => entry.draft.projectId === 'second' && entry.draft.appearance?.fontSize1080 === 91)).toBe(true);
   state.appearanceFailure = false;
   await reloadAndReopen(page, 'second');
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(notice(page)).toBeVisible();
 
@@ -358,7 +358,7 @@ test('leaving a hung Restore releases the next project recovery and its late com
   let second: Awaited<ReturnType<typeof heldProjectRead>> | undefined;
   try {
     await restoreWithKeyboard(page); await first.started;
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(notice(page)).toBeVisible();
     for (const name of ['Restore draft', 'Download draft', 'Discard draft']) {

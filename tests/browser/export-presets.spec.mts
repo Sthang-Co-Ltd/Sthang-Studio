@@ -127,7 +127,7 @@ test('last-used settings persist only after an accepted render and survive anoth
   await expect.poll(() => state.profile.lastVideoExportSettings).toEqual(chosen);
   expect(lastUsedWrites()).toHaveLength(0);
 
-  await page.getByRole('button', { name: /Back to projects/ }).click();
+  await page.getByRole('button', { name: /Back to Home/ }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await expectExportChoices(page, chosen);
@@ -233,7 +233,7 @@ test('a late profile response from a previous project cannot reset the next proj
   try {
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await expect.poll(hold.received).toBe(true);
-    await page.getByRole('button', { name: /Back to projects/ }).click();
+    await page.getByRole('button', { name: /Back to Home/ }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await expectExportChoices(page, chosen);

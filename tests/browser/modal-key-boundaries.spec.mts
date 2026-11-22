@@ -8,7 +8,7 @@ test.afterAll(cleanFixtures);
 let state: FixtureState;
 let keyRemovals: number;
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
-const findDialog = (page: Page) => page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+const findDialog = (page: Page) => page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
 const confirmation = (page: Page) => page.getByRole('alertdialog', { name: 'Forget saved key?', exact: true });
 const keyInput = (page: Page) => settings(page).locator('.ai-key-field input');
 const forget = (page: Page) => settings(page).getByRole('button', { name: 'Forget saved key', exact: true });
@@ -73,7 +73,7 @@ for (const width of [1440, 390]) test('Settings key boundaries ' + width, async 
   await openProject(page);
   await openSettings(page);
   await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
-  const field = settings(page).getByLabel('Global protected vocabulary', { exact: true });
+  const field = settings(page).getByLabel('Key terms for all projects', { exact: true });
   const first = settings(page).getByRole('button', { name: 'Close settings', exact: true });
   const last = settings(page).getByLabel('Topic pack name', { exact: true });
   await field.fill('Draft កម្ពុជា');

@@ -19,9 +19,9 @@ test.beforeEach(async ({ page }) => {
   state.projects[0].transcriptionContext = { description: 'Keep this context កម្ពុជា', vocabulary: ['Project term'] };
   await page.emulateMedia({ reducedMotion: 'reduce' });
 });
-const save = (page: Page) => page.getByRole('button', { name: 'Save globally', exact: true });
+const save = (page: Page) => page.getByRole('button', { name: 'Save to all projects', exact: true });
 const feedback = (page: Page) => page.locator('#accuracy-global-glossary-feedback');
-const vocabulary = (page: Page) => page.getByLabel('Exact terms to preserve', { exact: true });
+const vocabulary = (page: Page) => page.getByLabel('Key terms', { exact: true });
 function deferred() {
   let release!: () => void;
   const promise = new Promise<void>((resolve) => { release = resolve; });
@@ -93,7 +93,7 @@ for (const limit of ['long term', 'long list'] as const) test(`global glossary r
   await expect(feedback(page)).toHaveText('Some glossary terms were not saved. Your text is kept. Shorten the list or long terms, then try again.');
   await expect(vocabulary(page)).toHaveValue(raw);
   await expect(vocabulary(page)).toHaveAttribute('aria-describedby', /accuracy-global-glossary-feedback/);
-  await expect(page.getByLabel('What is this clip about?', { exact: true })).toHaveValue('Keep this context កម្ពុជា');
+  await expect(page.getByLabel('What is this video about?', { exact: true })).toHaveValue('Keep this context កម្ពុជា');
   await expect(save(page)).toBeEnabled();
   await expect(page.getByText('Global glossary saved.', { exact: true })).toHaveCount(0);
   expect(writes).toBe(1);
@@ -124,7 +124,7 @@ test('failed global saving guards duplicate activation, keeps raw input and retr
     await start(page);
     await vocabulary(page).fill('  Submitted term  \nSubmitted term\n\nខ្មែរ ');
     await doubleActivate(page);
-    const pending = page.getByRole('button', { name: 'Saving globally…', exact: true });
+    const pending = page.getByRole('button', { name: 'Saving to all projects…', exact: true });
     await expect(pending).toBeDisabled();
     await expect(pending).toHaveAttribute('aria-busy', 'true');
     await expect.poll(() => writes.length).toBe(1);
@@ -180,7 +180,7 @@ test('a late global response keeps newer raw vocabulary and a later saved Review
     await expect(page.getByRole('checkbox', { name: 'Auto-play next', exact: true })).toBeChecked();
     await openAccuracy(page);
     await expect(vocabulary(page)).toHaveValue('  Newer term  \n\nMixed កម្ពុជា  ');
-    await expect(page.getByLabel('What is this clip about?', { exact: true })).toHaveValue('Keep this context កម្ពុជា');
+    await expect(page.getByLabel('What is this video about?', { exact: true })).toHaveValue('Keep this context កម្ពុជា');
   } finally { gate.release(); }
 });
 
@@ -228,7 +228,7 @@ test('an older global-save response cannot replace a newer acknowledged Find glo
     await save(page).click();
     await expect.poll(() => writes).toBe(1);
     await page.keyboard.press('Control+f');
-    const find = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+    const find = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
     await find.getByLabel('Find', { exact: true }).fill('old');
     await find.getByLabel('Replace with', { exact: true }).fill('new!');
     await find.getByLabel('Remember this correction', { exact: true }).selectOption('global');
@@ -244,7 +244,7 @@ test('an older global-save response cannot replace a newer acknowledged Find glo
     await page.getByRole('menuitem', { name: /^Settings/ }).click();
     const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
     await settings.getByRole('button', { name: 'Profile', exact: true }).click();
-    await expect(settings.getByLabel('Global protected vocabulary', { exact: true })).toHaveValue(/new! \| old/);
+    await expect(settings.getByLabel('Key terms for all projects', { exact: true })).toHaveValue(/new! \| old/);
     expect(state.profile.defaultVocabulary).toContain('new! | old');
     expect(writes).toBe(2);
   } finally { gate.release(); }

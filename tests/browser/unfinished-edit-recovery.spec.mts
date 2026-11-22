@@ -79,11 +79,11 @@ function recoveryNotice(page: Page) {
 }
 
 async function openAccuracy(page: Page) {
-  const button = page.getByRole('button', { name: /^Accuracy/ });
+  const button = page.getByRole('button', { name: 'Accuracy', exact: true });
   if (await button.getAttribute('aria-pressed') !== 'true') await button.click();
   return {
-    description: page.getByLabel('What is this clip about?', { exact: true }),
-    vocabulary: page.getByLabel('Exact terms to preserve', { exact: true }),
+    description: page.getByLabel('What is this video about?', { exact: true }),
+    vocabulary: page.getByLabel('Key terms', { exact: true }),
   };
 }
 
@@ -209,7 +209,7 @@ test('clean sessions and normalized Accuracy fields do not install an unload gua
   await fields.vocabulary.fill('  SavedBrand | saved alias  \n\n');
   await expect(page.locator('.save-action')).toBeDisabled();
   expect(await hasUnloadGuard(page)).toBe(false);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(recoveryNotice(page)).toHaveCount(0);
@@ -485,7 +485,7 @@ test('Accuracy-only edits block failed navigation and recover independently of s
   await fields.vocabulary.fill(vocabulary);
   await expectCapturedWhileFocused(page, fields.vocabulary, 'កំពង់ផែ');
   expect(await hasUnloadGuard(page)).toBe(true);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: "Couldn't save changes" })).toBeVisible();
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeVisible();
   await expect(fields.description).toHaveValue(description);
@@ -707,7 +707,7 @@ test('a delayed Accuracy acknowledgment retains newer context in the editor and 
     await openProject(page);
     const fields = await openAccuracy(page);
     await fields.description.fill('First submitted Accuracy description');
-    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await page.getByRole('button', { name: 'Save for this project', exact: true }).click();
     await expect.poll(() => f.contextWrites.length).toBe(1);
     const newer = 'Newer Accuracy description typed during its older save';
     await fields.description.fill(newer);
@@ -735,7 +735,7 @@ test('reverting Accuracy to its old baseline during a pending save stays protect
     await openProject(page);
     const fields = await openAccuracy(page);
     await fields.description.fill(submitted);
-    await page.getByRole('button', { name: 'Save for project', exact: true }).click();
+    await page.getByRole('button', { name: 'Save for this project', exact: true }).click();
     await expect.poll(() => f.contextWrites.length).toBe(1);
     await fields.description.fill(baseline);
     await expect(fields.description).toBeFocused();
@@ -748,7 +748,7 @@ test('reverting Accuracy to its old baseline during a pending save stays protect
     }), baseline)).toBe(true);
     expect(await hasUnloadGuard(page)).toBe(true);
     expect(f.contextWrites).toHaveLength(1);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeVisible();
     await expect(fields.description).toHaveValue(baseline);
     expect(f.contextWrites).toHaveLength(1);
@@ -850,7 +850,7 @@ test('a failed recovery check from a previous project cannot surface its error o
     await recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true }).click();
     await expect.poll(() => canonicalReads).toBe(1);
     const staleCancelled = page.waitForEvent('requestfailed', { predicate: (request) => request === staleRequest });
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     const cancelled = await staleCancelled;
     expect(cancelled.failure()?.errorText).toBe('net::ERR_ABORTED');
     expect(await cancelled.response()).toBeNull();
@@ -883,7 +883,7 @@ test('a failed recovery check from a previous project cannot surface its error o
     expect(f.contextWrites).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath('recovery-check-failed-other-project.png'), fullPage: true });
 
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toBeVisible();
     expect(f.state.projects[1].captions[0].text).toBe(secondText);
     expect(secondContextWrites).toHaveLength(1);

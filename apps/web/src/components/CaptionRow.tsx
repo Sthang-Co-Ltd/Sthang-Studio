@@ -1,6 +1,6 @@
 import { memo, useCallback, type ReactNode } from 'react';
 import type { CaptionSegment } from '@kcs/shared';
-import { AudioLines, Check, CheckCircle2, CircleAlert, Clock3, LockKeyhole, MoreHorizontal, PencilLine } from 'lucide-react';
+import { AudioLines, CheckCircle2, CircleAlert, Clock3, LockKeyhole, MoreHorizontal, PencilLine } from 'lucide-react';
 import type { ReviewSeverity } from '../review';
 import { MIN_CAPTION_MS } from '../timing-edit';
 import { TimestampInput } from './TimestampInput';
@@ -31,7 +31,6 @@ interface Props {
   upper: number | undefined;
   wordNeedsReview: boolean;
   issueSeverity: ReviewSeverity | undefined;
-  issueCount: number;
   firstReason: string | undefined;
   secondReason: string | undefined;
   thirdReason: string | undefined;
@@ -44,7 +43,8 @@ interface Props {
 
 const qualityIcon = (caption: CaptionSegment) => caption.timingSource === 'manual'
   ? <PencilLine size={12}/>
-  : caption.timingQuality === 'high' ? <Check size={12}/> : caption.timingQuality === 'medium' ? <AudioLines size={12}/> : <CircleAlert size={12}/>;
+  : caption.timingQuality === 'high' ? <svg className="quality-precise-mark" viewBox="0 0 12 12" width={12} height={12} aria-hidden="true"><circle cx={6} cy={6} r={3}/></svg>
+    : caption.timingQuality === 'medium' ? <AudioLines size={12}/> : <CircleAlert size={12}/>;
 const qualityTitle = (caption: CaptionSegment) => caption.timingSource === 'manual'
   ? 'Timing manually edited'
   : caption.timingQuality === 'high' ? 'Timing looks precise'
@@ -55,7 +55,7 @@ const qualityTitle = (caption: CaptionSegment) => caption.timingSource === 'manu
  */
 export const CaptionRow = memo(function CaptionRow({
   caption, index, active, selected, reviewMode, lower, upper, wordNeedsReview,
-  issueSeverity, issueCount, firstReason, secondReason, thirdReason, menuOpen, menu,
+  issueSeverity, firstReason, secondReason, thirdReason, menuOpen, menu,
   registerRow, registerText, dispatch,
 }: Props) {
   if (typeof window !== 'undefined' && import.meta.env?.DEV) {
@@ -74,7 +74,7 @@ export const CaptionRow = memo(function CaptionRow({
     onClick={(event) => send({ type: 'click', extend: event.shiftKey })}
   >
     <span className={`quality-dot quality-${caption.timingSource === 'manual' ? 'manual' : caption.timingQuality || 'medium'}`} role="img" aria-label={qualityTitle(caption)} title={qualityTitle(caption)}>{qualityIcon(caption)}</span>
-    <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
+    <span className="row-index">{index + 1}</span>
     <div className="time-stack">
       <TimestampInput valueMs={caption.startMs} label={`Caption ${index + 1} start time`}
         minMs={lower} maxMs={caption.endMs - MIN_CAPTION_MS} disabled={caption.timingLocked}
@@ -100,8 +100,11 @@ export const CaptionRow = memo(function CaptionRow({
         {wordNeedsReview && selected && <button type="button" onClick={(event) => { event.stopPropagation(); send({ type: 'wordTiming' }); }}>Review word timing</button>}
       </div>
       {issueSeverity && <div className={`risk-reasons risk-${issueSeverity} ${selected ? 'expanded' : ''}`}>
-        <span>{selected ? firstReason : `Review suggested · ${issueCount}`}</span>
-        {selected && [secondReason, thirdReason].filter((reason): reason is string => reason !== undefined).map((reason) => <span key={reason}>{reason}</span>)}
+        {selected ? <>
+          <span>{firstReason}</span>
+          {secondReason && <span>{secondReason}</span>}
+          {thirdReason && <span>{thirdReason}</span>}
+        </> : <span>Review suggested</span>}
       </div>}
     </div>
     <div className="row-actions" data-caption-menu={caption.id}
