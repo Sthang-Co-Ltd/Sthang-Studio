@@ -70,6 +70,7 @@ test('header keys preserve focus and expose playback controls without triggering
 
 test('header accessible names track the visible tool and Review titles',async ({ page }) => {
   await openEditor(page); await expect(grip(page,'inspector')).toHaveAccessibleName('Appearance panel');
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
   await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
   await expect(grip(page,'inspector')).toHaveAccessibleName('Fine timing panel');
   await page.getByRole('button',{ name:/^Review(?: \d+)?$/ }).first().click();
@@ -127,8 +128,13 @@ test('height-only resize, breakpoint, Reset, tool close and tool change safely c
   await page.setViewportSize({ width:2048,height:1041 }); await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
   await grip(page,'preview').press('End'); await start(); await page.getByRole('button',{ name:'Reset layout',exact:true }).focus(); await page.keyboard.press('Enter'); await page.mouse.up(); await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
   await start(); await page.getByRole('button',{ name:'Close tool',exact:true }).focus(); await page.keyboard.press('Enter'); await page.mouse.up(); await expect.poll(() => actualOrder(page)).toEqual(['preview','captions']);
-  await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await start(); await page.getByRole('button',{ name:'Fine timing',exact:true }).focus(); await page.keyboard.press('Enter'); await page.mouse.up();
-  await expect(page.locator('.editor-pane-floating')).toHaveCount(0); await expect.poll(() => actualOrder(page)).toEqual(orders[0]); await expect(grip(page,'inspector')).toContainText('Fine timing');
+  await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await start();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).focus();
+  await page.keyboard.press('Enter'); await page.mouse.up();
+  await expect(page.locator('.editor-pane-floating')).toHaveCount(0);
+  await expect(page.locator('.workspace-inspector')).toBeHidden();
+  await page.getByRole('button',{ name:'Appearance',exact:true }).click();
+  await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
 });
 
 test('direct dragging closes an open Arrange popup and competing popup/resize/second-pointer actions cannot override it',async ({ page }) => {

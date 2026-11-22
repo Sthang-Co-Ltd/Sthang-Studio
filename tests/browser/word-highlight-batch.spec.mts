@@ -141,6 +141,7 @@ test('a delayed Sync remaining keeps the newer workspace choice', async ({ page 
   try {
     await sync.click();
     await expect.poll(() => routes.chunks.length).toBe(2);
+    await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
     await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
     await appearance(page);
     held.release();

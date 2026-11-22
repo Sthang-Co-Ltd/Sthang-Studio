@@ -110,7 +110,9 @@ for(const panels of [2,3]) for(const phase of ['landing','cancel']) for(const ac
 });
 
 test('an inspector regrab preserves its fractional anchor while its height is settling',async ({ page },info) => {
-  await setup(page,orders[0]); await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
+  await setup(page,orders[0]);
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
+  await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
   await begin(page,'inspector','preview'); await page.mouse.up();
   const paused=await pane(page,'inspector').evaluate((node) => {

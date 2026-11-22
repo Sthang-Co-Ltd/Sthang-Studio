@@ -91,6 +91,8 @@ for (const width of [1440, 390]) test(`Recent project entry and Back to Home pro
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(state.projects[0].captions[0].text);
   await page.screenshot({ path: info.outputPath(`project-entry-focus-${width}.png`) });
   await entry(page).press('Tab');
+  await expect(page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(page.locator('.stage-rail').getByRole('button', { name: /^Review/ })).toBeFocused();
   const back = page.getByRole('button', { name: 'Back to Home', exact: true });
   await back.focus(); await back.press('Enter');
