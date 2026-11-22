@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { summarizeProject, type CaptionAppearance, type CaptionProject, type CaptionProjectAppearance, type ProjectStorageStatus } from '@kcs/shared';
+import { randomUUID } from 'node:crypto';
+import { summarizeProject, type CaptionAppearance, type CaptionProject, type CaptionProjectAppearance, type ProjectDeletion, type ProjectStorageStatus } from '@kcs/shared';
 import { config } from '../config.js';
 import { cancelScheduledProjectPrewarm, scheduleProjectMediaPrewarm } from './prewarm.js';
-import { isLoadableProject, readMigrationMarker, readStorageJson, scanProjectStorage, storageStatusFromScan } from './project-storage.js';
+import { isLoadableProject, isProjectDeletion, PROJECT_RESTORE_WINDOW_MS, readMigrationMarker, readStorageJson, scanProjectStorage, storageStatusFromScan } from './project-storage.js';
 import { beginProjectLoadingPhase, endProjectLoadingPhase } from './project-loading-observer.js';
 
 const projectDir = path.join(path.dirname(config.dataFile), 'projects');
@@ -11,6 +12,9 @@ const orderFile = path.join(projectDir, 'order.json');
 const migrationMarker = path.join(projectDir, '.per-project-v1');
 const legacyBackup = path.join(path.dirname(config.dataFile), 'projects.legacy-v0.7.json');
 const projects = new Map<string, CaptionProject>();
+const binned = new Map<string, CaptionProject & { deletion: ProjectDeletion }>();
+const invalidBinRecords = new Map<string, CaptionProject>();
+const disputedIds = new Set<string>();
 let order: string[] = [];
 let initializePromise: Promise<void> | null = null;
 let orderWriteQueue: Promise<void> = Promise.resolve();
@@ -37,11 +41,17 @@ async function withStorageMutation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export class ProjectDeletionBlockedError extends Error {
-  readonly code = 'PROJECT_STORAGE_RECOVERY_REQUIRED';
-  constructor() {
-    super('Project deletion is paused while saved project migration needs recovery. Back up Studio data, review Saved projects in System check, recover the saved files, then restart Studio before deleting.');
-  }
+const binErrors = {
+  not_found: 'Project not found.',
+  project_binned: 'This project is in Recently deleted.',
+  storage_blocked: 'Studio could not verify saved project storage for this operation. Check Saved projects and restart Studio before trying again.',
+  instance_mismatch: 'This deletion has changed. Refresh Recently deleted and try again.',
+  purging: 'Permanent removal has already started for this project.',
+  expired: 'The restore deadline has passed for this project.',
+};
+
+export class ProjectBinError extends Error {
+  constructor(readonly code: keyof typeof binErrors) { super(binErrors[code]); }
 }
 
 function safeId(id: string) {
@@ -52,6 +62,61 @@ function safeId(id: string) {
 
 function projectFile(id: string) {
   return path.join(projectDir, `${safeId(id)}.json`);
+}
+
+function knownRecord(id: string) {
+  return projects.get(id) ?? binned.get(id) ?? invalidBinRecords.get(id);
+}
+
+function knownRecordCount() { return projects.size + binned.size + invalidBinRecords.size; }
+
+function isHiddenByBin(id: string) { return binned.has(id) || invalidBinRecords.has(id); }
+
+type StorageScan = Awaited<ReturnType<typeof scanProjectStorage>>;
+
+function noteDisputedRecords(scan: StorageScan) {
+  const seen = new Set<string>();
+  for (const { name, project } of scan.entries) {
+    if (!project) {
+      const id = name.slice(0, -5);
+      disputedIds.add(id);
+      continue;
+    }
+    if (seen.has(project.id) || name !== `${project.id}.json` || !/^[A-Za-z0-9_-]{1,100}$/.test(project.id)
+      || (project.deletion !== undefined && !isProjectDeletion(project.deletion))) disputedIds.add(project.id);
+    seen.add(project.id);
+  }
+}
+
+async function hasRegularRecordFile(id: string) {
+  return fs.lstat(projectFile(id)).then((stat) => stat.isFile(), () => false);
+}
+
+function assertLifecycleStorage(id: string) {
+  if (migrationDeletionBlocked || disputedIds.has(id) || !/^[A-Za-z0-9_-]{1,100}$/.test(id) || id.toLowerCase() === 'order') {
+    throw new ProjectBinError('storage_blocked');
+  }
+}
+
+async function inspectLifecycleRecord(project: CaptionProject) {
+  const { id } = project;
+  assertLifecycleStorage(id);
+  if (await readMigrationMarker(migrationMarker) !== 'present') {
+    migrationDeletionBlocked = true;
+    startupNeedsRestart = true;
+    storageStatus = { ...storageStatus, migrationPending: true, restartRequired: true };
+    throw new ProjectBinError('storage_blocked');
+  }
+  const scan = await scanProjectStorage(projectDir);
+  assertLifecycleStorage(id);
+  const matches = scan.entries.filter((entry) => entry.project?.id === id || entry.name.toLowerCase() === `${id}.json`.toLowerCase());
+  if (scan.directoryUnreadable || matches.length !== 1 || matches[0].name !== `${id}.json`
+    || JSON.stringify(matches[0].project) !== JSON.stringify(project) || !await hasRegularRecordFile(id)) {
+    disputedIds.add(id);
+    throw new ProjectBinError('storage_blocked');
+  }
+  assertLifecycleStorage(id);
+  return scan;
 }
 
 async function atomicWrite(filePath: string, value: string) {
@@ -109,14 +174,53 @@ function queueOrderUpdate(transform: (current: string[]) => string[], retainOnFa
 
 async function loadProjectFiles() {
   const scan = await scanProjectStorage(projectDir);
+  noteDisputedRecords(scan);
+  const now = Date.now();
   const publishing = beginProjectLoadingPhase('publication');
   try {
   for (const entry of scan.entries) if (entry.project) {
-    projects.set(entry.project.id, entry.project);
-    publishedProjectIds.add(entry.project.id);
+    let project = entry.project;
+    const { id } = project;
+    if (project.deletion !== undefined && !disputedIds.has(id)) {
+      if (!await hasRegularRecordFile(id) || scan.entries.some((other) => other !== entry && other.name.toLowerCase() === entry.name.toLowerCase())) {
+        disputedIds.add(id);
+      } else {
+        const deletion = project.deletion;
+        const changed = deletion.recordUpdatedAt !== project.updatedAt;
+        const future = Date.parse(deletion.binnedAt) > now + 24 * 60 * 60 * 1000;
+        if (changed || future) {
+          const corrected = { ...project, deletion: changed ? undefined : {
+            ...deletion, binnedAt: new Date(now).toISOString(), restoreUntil: new Date(now + PROJECT_RESTORE_WINDOW_MS).toISOString(),
+          } };
+          try {
+            await atomicWrite(projectFile(id), `${JSON.stringify(corrected)}\n`);
+            project = entry.project = corrected;
+            console.warn(changed
+              ? '[project bin] Recovered an edited project from Recently deleted.'
+              : '[project bin] Corrected a future deletion deadline.');
+          } catch {
+            disputedIds.add(id);
+            console.warn('[project bin] Could not correct a saved deletion marker. Files were kept.');
+          }
+        }
+      }
+    }
+    // A disputed duplicate with a deletion marker must stay visible in the bin
+    // and must never become active because a second file lacks that marker.
+    if (isProjectDeletion(project.deletion)) {
+      projects.delete(id);
+      invalidBinRecords.delete(id);
+      binned.set(id, { ...project, deletion: project.deletion });
+    } else if (!binned.has(id) && project.deletion !== undefined) {
+      projects.delete(id);
+      invalidBinRecords.set(id, project);
+    } else if (!isHiddenByBin(id)) {
+      projects.set(id, project);
+    }
+    publishedProjectIds.add(id);
   }
-  storageStatus = storageStatusFromScan(scan, projects.size);
-  if (storageStatus.directoryUnreadable || storageStatus.unreadableProjectCount || storageStatus.duplicateProjectCount) {
+  storageStatus = storageStatusFromScan(scan, knownRecordCount());
+  if (storageStatus.directoryUnreadable || storageStatus.unreadableProjectCount || disputedIds.size) {
     startupNeedsRestart = true;
     storageStatus.restartRequired = true;
   }
@@ -138,7 +242,7 @@ function missingProjectCount(scan: Awaited<ReturnType<typeof scanProjectStorage>
 
 function newestMissingIds() {
   const ordered = new Set(order);
-  return [...projects.values()]
+  return [...projects.values(), ...binned.values(), ...invalidBinRecords.values()]
     .filter((project) => !ordered.has(project.id))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .map((project) => project.id);
@@ -151,7 +255,8 @@ async function initialize() {
   const marker = await readMigrationMarker(migrationMarker);
   const markerExists = marker !== 'missing';
   const scan = await loadProjectFiles();
-  const unreadableFiles = new Set(scan.entries.filter((entry) => !entry.project).map((entry) => entry.name));
+  const physicalNames = new Set(scan.entries.map((entry) => entry.name.toLowerCase()));
+  const unreadableFiles = scan.entries.some((entry) => !entry.project);
   if (marker === 'unreadable') { storageStatus.migrationPending = true; migrationDeletionBlocked = true; startupNeedsRestart = true; storageStatus.restartRequired = true; }
 
   const orderRead = await readStorageJson(orderFile);
@@ -176,21 +281,24 @@ async function initialize() {
     const legacy = legacyRead.state === 'ok' && Array.isArray(legacyRead.value) ? legacyRead.value : [];
     storageStatus.legacyUnreadable = legacyRead.state === 'unreadable'
       || (legacyRead.state === 'ok' && (!Array.isArray(legacyRead.value) || !legacy.every(isLoadableProject)));
-    let migrationSafe = !storageStatus.legacyUnreadable && !storageStatus.directoryUnreadable && !unreadableFiles.size && !orderReadFault;
+    let migrationSafe = !storageStatus.legacyUnreadable && !storageStatus.directoryUnreadable && !unreadableFiles && !orderReadFault;
     const legacyIds: string[] = [];
     if (Array.isArray(legacy) && legacy.length) {
       if (migrationSafe) await fs.copyFile(config.dataFile, legacyBackup, 1).catch(async (error: NodeJS.ErrnoException) => {
         if (error.code !== 'EEXIST' || !await fs.stat(legacyBackup).then((stat) => stat.isFile()).catch(() => false)) migrationSafe = false;
       });
       for (const project of legacy) {
-        if (!isLoadableProject(project) || unreadableFiles.has(path.basename(projectFile(project.id)))) continue;
+        if (!isLoadableProject(project)) continue;
+        const filename = path.basename(projectFile(project.id));
+        if (physicalNames.has(filename.toLowerCase()) && !knownRecord(project.id)) continue;
         legacyIds.push(project.id);
-        if (projects.has(project.id)) continue;
+        if (knownRecord(project.id)) continue;
         const stored = structuredClone(project);
         if (migrationSafe) {
           await atomicWrite(projectFile(project.id), `${JSON.stringify(stored)}\n`);
           publishedProjectIds.add(project.id);
-          scan.entries.push({ name: path.basename(projectFile(project.id)), project: stored });
+          scan.entries.push({ name: filename, project: stored });
+          physicalNames.add(filename.toLowerCase());
           storageStatus.readableProjectCount++;
         }
         projects.set(project.id, stored);
@@ -211,7 +319,7 @@ async function initialize() {
     await atomicWrite(migrationMarker, 'Sthang Studio per-project storage v1\n');
     finishMissingCheck();
     if (legacyIds.length) {
-      console.log(`[project store] Migrated/reconciled ${projects.size} project(s) to per-project storage; legacy source preserved.`);
+      console.log(`[project store] Migrated/reconciled ${knownRecordCount()} project(s) to per-project storage; legacy source preserved.`);
     }
     return;
   }
@@ -243,11 +351,11 @@ async function persistProject(stored: CaptionProject, recoverCreationOrder = fal
 
 async function publishProject(stored: CaptionProject, recoverCreationOrder = false) {
   const previous = projects.get(stored.id);
-  // A timestamp is the public optimistic content revision. Future-job model
-  // preferences have their own compare-and-set and must not expire proposals.
+  // A timestamp is the public optimistic content revision. The future-job model
+  // and title have separate compare-and-set checks and must preserve proposals.
   // Every other change still advances the revision, even within one clock tick.
   if (previous && (!Number.isFinite(Date.parse(stored.updatedAt)) || Date.parse(stored.updatedAt) <= Date.parse(previous.updatedAt))
-    && JSON.stringify({ ...stored, generationModel: undefined }) !== JSON.stringify({ ...previous, generationModel: undefined })) {
+    && JSON.stringify({ ...stored, generationModel: undefined, title: undefined }) !== JSON.stringify({ ...previous, generationModel: undefined, title: undefined })) {
     stored.updatedAt = new Date(Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1)).toISOString();
   }
   const mediaChanged = !previous
@@ -270,6 +378,70 @@ async function publishProject(stored: CaptionProject, recoverCreationOrder = fal
   return structuredClone(stored);
 }
 
+async function publishDeletion(project: CaptionProject, deletion?: ProjectDeletion) {
+  return withStorageMutation(async () => {
+    const { id } = project;
+    const next = { ...project };
+    delete next.deletion;
+    if (deletion) next.deletion = deletion;
+    const durable = await atomicWrite(projectFile(id), `${JSON.stringify(next)}\n`);
+    durableProjectWrites.set(id, durable);
+    if (deletion) {
+      projects.delete(id);
+      binned.set(id, { ...next, deletion });
+      cancelScheduledProjectPrewarm(id);
+    } else {
+      binned.delete(id);
+      projects.set(id, next);
+    }
+    return structuredClone(next);
+  });
+}
+
+function requireBinned(id: string, instanceId?: string) {
+  if (!binned.has(id) && !invalidBinRecords.has(id) && !disputedIds.has(id)) throw new ProjectBinError('not_found');
+  assertLifecycleStorage(id);
+  const project = binned.get(id);
+  if (!project) throw new ProjectBinError('not_found');
+  if (instanceId !== undefined && project.deletion.instanceId !== instanceId) throw new ProjectBinError('instance_mismatch');
+  return project;
+}
+
+function uploadNameKey(filename: string) { return filename.replace(/[. ]+$/u, '').toLowerCase(); }
+
+function mayRemoveUpload(id: string, filename: string, scan: StorageScan) {
+  const key = uploadNameKey(filename);
+  if (!key || key !== filename.toLowerCase() || filename === '.' || filename === '..'
+    || /[<>:"/\\|?*\x00-\x1f\x7f]/u.test(filename)
+    || /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu.test(filename)) return false;
+  const references = (project: CaptionProject) => project.id !== id && uploadNameKey(project.media.filename) === key;
+  return !scan.entries.some(({ project }) => project && references(project))
+    && ![...projects.values(), ...binned.values(), ...invalidBinRecords.values()].some(references);
+}
+
+async function beginPurge(id: string, { instanceId, expiredBy }: { instanceId?: string; expiredBy?: number }) {
+  const project = requireBinned(id, instanceId);
+  if (expiredBy !== undefined && expiredBy <= Date.parse(project.deletion.restoreUntil)) throw new ProjectBinError('expired');
+  const scan = await inspectLifecycleRecord(project);
+  if (!project.deletion.purgeStartedAt) {
+    await publishDeletion(project, { ...project.deletion, purgeStartedAt: new Date().toISOString() });
+  }
+  return { filename: project.media.filename, ownsUpload: (filename: string) => mayRemoveUpload(id, filename, scan) };
+}
+
+async function finishPurge(id: string) {
+  // Clear the order reference before unlinking the retry record. A failure here
+  // leaves that record discoverable by a subsequent filesystem scan on restart.
+  await inspectLifecycleRecord(requireBinned(id));
+  await withStorageMutation(async () => {
+    await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
+    await fs.rm(projectFile(id), { force: true });
+    binned.delete(id);
+    durableProjectWrites.delete(id);
+    publishedProjectIds.delete(id);
+  });
+}
+
 async function recheckProjectStorage() {
   // Per-project writes remain independent. A scan may be published only when
   // none of its awaited reads overlapped a file/reference/index mutation.
@@ -277,7 +449,7 @@ async function recheckProjectStorage() {
     if (activeStorageMutations) break;
     const generation = storageMutationGeneration;
     const scan = await scanProjectStorage(projectDir);
-    const next = storageStatusFromScan(scan, projects.size);
+    const next = storageStatusFromScan(scan, knownRecordCount());
     const index = await readStorageJson(orderFile);
     next.orderUnreadable = index.state === 'unreadable' || (index.state === 'ok' && (!Array.isArray(index.value) || !index.value.every((id) => typeof id === 'string')));
     const marker = await readMigrationMarker(migrationMarker);
@@ -291,12 +463,13 @@ async function recheckProjectStorage() {
     // Discard the entire candidate before touching any sticky recovery state.
     // There is no await between validation and synchronous publication below.
     if (activeStorageMutations || generation !== storageMutationGeneration) continue;
+    noteDisputedRecords(scan);
     // A read-only recheck cannot establish a safe migration transition for the
     // running objects. Once blocked, only a known-safe restart can unlock it.
     if (next.migrationPending) migrationDeletionBlocked = true;
     if (next.unreadableProjectCount || next.missingProjectCount || next.duplicateProjectCount || next.directoryUnreadable
       || next.orderUnreadable || next.legacyUnreadable || next.migrationPending) startupNeedsRestart = true;
-    next.restartRequired = startupNeedsRestart || orderReadFault || scan.entries.some((entry) => entry.project && !projects.has(entry.project.id));
+    next.restartRequired = startupNeedsRestart || orderReadFault || disputedIds.size > 0 || scan.entries.some((entry) => entry.project && !knownRecord(entry.project.id));
     storageStatus = next;
     return;
   }
@@ -306,10 +479,14 @@ async function recheckProjectStorage() {
 }
 
 export const store = {
+  initialize: ensureInitialized,
+  isHiddenByBin,
+  migrationBlocksDeletion() { return migrationDeletionBlocked; },
+
   async storageStatus(recheck = false): Promise<ProjectStorageStatus> {
     await ensureInitialized();
     if (recheck) await recheckProjectStorage();
-    return { ...storageStatus, loadedProjectCount: projects.size };
+    return { ...storageStatus, loadedProjectCount: knownRecordCount() };
   },
   /** False after a committed write whose directory flush is unavailable. */
   latestWriteIsDurable(id: string) { return durableProjectWrites.get(id) !== false; },
@@ -363,6 +540,8 @@ export const store = {
     const snapshot = structuredClone(project);
     await ensureInitialized();
     return queueProjectWrite(snapshot.id, async () => {
+      if (isHiddenByBin(snapshot.id)) throw new ProjectBinError('project_binned');
+      if (snapshot.deletion !== undefined) throw new Error('Use the project bin to change deletion state');
       // Caption/transcript operations own their fields, not appearance. They may have
       // started before a concurrent appearance save; never restore that older look.
       const current = projects.get(snapshot.id);
@@ -388,7 +567,9 @@ export const store = {
       const persist = async (next: CaptionProject, options?: { restoreAppearance?: boolean; updateGenerationModel?: boolean; recoverCreationOrder?: boolean }) => {
         if (next.id !== id) throw new Error('Project write cannot change project id');
         if (persisted) throw new Error('Project write already persisted');
+        if (isHiddenByBin(id)) throw new ProjectBinError('project_binned');
         const snapshot = structuredClone(next);
+        if (snapshot.deletion !== undefined) throw new Error('Use the project bin to change deletion state');
         const published = projects.get(id);
         if (published && !options?.restoreAppearance) snapshot.captionAppearance = published.captionAppearance;
         if (published && !options?.updateGenerationModel) {
@@ -413,19 +594,63 @@ export const store = {
     });
   },
 
-  async remove(id: string) {
+  async listBinned() {
+    await ensureInitialized();
+    return [...binned.values(), ...invalidBinRecords.values()].map((project) => {
+      const deletion = isProjectDeletion(project.deletion) ? project.deletion : null;
+      return { id: project.id, title: project.title, captionCount: project.captions.length,
+        binnedAt: deletion?.binnedAt ?? '', restoreUntil: deletion?.restoreUntil ?? '', instanceId: deletion?.instanceId ?? '',
+        purging: migrationDeletionBlocked || disputedIds.has(project.id) || Boolean(deletion?.purgeStartedAt) };
+    }).sort((a, b) => (Date.parse(b.binnedAt) || 0) - (Date.parse(a.binnedAt) || 0));
+  },
+
+  async listPurgeCandidates(now: number) {
+    await ensureInitialized();
+    return [...binned.values()].filter(({ id, deletion }) => !disputedIds.has(id)
+      && (deletion.purgeStartedAt || now > Date.parse(deletion.restoreUntil)))
+      .map(({ id, deletion }) => ({ id, instanceId: deletion.instanceId, started: Boolean(deletion.purgeStartedAt) }));
+  },
+
+  async moveToBin(id: string, now?: number, afterPublished?: () => Promise<void>) {
     await ensureInitialized();
     return queueProjectWrite(id, async () => {
-      // Legacy data remains authoritative on restart until migration finishes.
-      // Removing even a disk-backed record could resurrect it without its media.
-      if (migrationDeletionBlocked) throw new ProjectDeletionBlockedError();
-      return withStorageMutation(async () => {
-        cancelScheduledProjectPrewarm(id);
-        await fs.rm(projectFile(id), { force: true });
-        projects.delete(id);
-        durableProjectWrites.delete(id);
-        await queueOrderUpdate((current) => current.filter((projectId) => projectId !== id));
-        publishedProjectIds.delete(id);
+      const project = projects.get(id);
+      if (!project) throw new ProjectBinError('not_found');
+      await inspectLifecycleRecord(project);
+      const binnedAt = now ?? Date.now();
+      const deletion = { instanceId: randomUUID(), binnedAt: new Date(binnedAt).toISOString(),
+        restoreUntil: new Date(binnedAt + PROJECT_RESTORE_WINDOW_MS).toISOString(), recordUpdatedAt: project.updatedAt };
+      if (!isProjectDeletion(deletion)) throw new ProjectBinError('storage_blocked');
+      await publishDeletion(project, deletion);
+      await afterPublished?.();
+      return { id, instanceId: deletion.instanceId, restoreUntil: deletion.restoreUntil };
+    });
+  },
+
+  async restoreFromBin(id: string, instanceId: string, now?: number, beforePublish?: () => Promise<void>) {
+    await ensureInitialized();
+    return queueProjectWrite(id, async () => {
+      const project = requireBinned(id, instanceId);
+      if (project.deletion.purgeStartedAt) throw new ProjectBinError('purging');
+      const deadline = Date.parse(project.deletion.restoreUntil);
+      if ((now ?? Date.now()) > deadline) throw new ProjectBinError('expired');
+      await inspectLifecycleRecord(project);
+      await beforePublish?.();
+      if ((now ?? Date.now()) > deadline) throw new ProjectBinError('expired');
+      return summarizeProject(await publishDeletion(project));
+    });
+  },
+
+  async purgeBinnedProject(id: string, options: { instanceId?: string; expiredBy?: number },
+    drain: (operation: () => Promise<void>) => Promise<void>,
+    cleanup: (ownership: Awaited<ReturnType<typeof beginPurge>>) => Promise<void>) {
+    await ensureInitialized();
+    return queueProjectWrite(id, async () => {
+      await inspectLifecycleRecord(requireBinned(id, options.instanceId));
+      await drain(async () => {
+        const ownership = await beginPurge(id, options);
+        await cleanup(ownership);
+        await finishPurge(id);
       });
     });
   },

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, localTimingConfigured } from './config.js';
 import projects from './routes/projects.js';
+import projectBin from './routes/project-bin.js';
 import profile from './routes/profile.js';
 import system from './routes/system.js';
 import jobs from './routes/jobs.js';
@@ -19,6 +20,7 @@ import { publicLlmSettings, resolveGeminiSettings } from './services/llm-setting
 import { prewarmLocalTiming } from './services/local-timing.js';
 import { contributionStore } from './services/contribution-store.js';
 import { captureAnalytics } from './services/analytics.js';
+import { startProjectBinSweep } from './services/project-purge.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -77,6 +79,7 @@ app.use(express.json({ limit: '8mb' }));
 app.use('/media', express.static(config.uploadDir));
 app.use('/exports', express.static(config.exportDir, { index: false, dotfiles: 'deny' }));
 app.use('/api/projects', projects);
+app.use('/api/project-bin', projectBin);
 app.use('/api/profile', profile);
 app.use('/api/system', system);
 app.use('/api/jobs', jobs);
@@ -168,6 +171,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 app.listen(config.port, '127.0.0.1', () => {
+  startProjectBinSweep();
   void captureAnalytics('studio_started');
   // Retry queued contribution work once at startup. No continuous polling is introduced.
   windowlessDelay(() => contributionStore.syncPending(), 1500);

@@ -48,7 +48,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/events', (req, res) => {
+router.get('/events', async (req, res) => {
+  await store.initialize();
   // Do not establish an apparently healthy empty SSE cache after a failed load.
   // The ordinary GET/Retry path can reload a repaired history before reconnect.
   if (!jobStore.historyIsAvailable()) return unavailableHistory(res, new JobHistoryUnavailableError());
@@ -143,7 +144,11 @@ router.post('/:id/resume', async (req, res) => {
 });
 
 router.post('/:id/cancel', async (req, res) => {
-  try { res.json(await jobStore.cancel(req.params.id)); }
+  try {
+    const job = await jobStore.cancel(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    res.json(job);
+  }
   catch (error) { res.status(jobErrorStatus(error)).json({ error: error instanceof Error ? error.message : 'Cancel failed' }); }
 });
 

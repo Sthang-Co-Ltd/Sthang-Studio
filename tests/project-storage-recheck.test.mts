@@ -32,6 +32,7 @@ function probe(name: string, operation: string) {
     const { cancelScheduledProjectPrewarm } = await import('./apps/server/src/services/prewarm.ts');
     await store.list();
     const save = async (id) => { const value = await store.upsert(project(id)); cancelScheduledProjectPrewarm(id); return value; };
+    const purge = (instanceId) => store.purgeBinnedProject('good', { instanceId }, run => run(), async () => {});
     const barrier = () => { let release; const promise = new Promise(resolve => { release = resolve; }); return { promise, release }; };
     ${operation}
     console.log('RESULT:' + JSON.stringify(result));
@@ -82,6 +83,7 @@ test('recheck retries a directory snapshot taken before a real new-project save 
 
 test('recheck retries a snapshot overlapping a legitimate removal and its index update', () => {
   const result = probe('delete-after-snapshot', `
+    const { instanceId } = await store.moveToBin('good');
     const entered = barrier(), release = barrier();
     const readdir = fs.readdir;
     let scans = 0;
@@ -92,7 +94,7 @@ test('recheck retries a snapshot overlapping a legitimate removal and its index 
     };
     const pending = store.storageStatus(true);
     await entered.promise;
-    await store.remove('good');
+    await purge(instanceId);
     release.release();
     const status = await pending;
     fs.readdir = readdir;
@@ -103,7 +105,7 @@ test('recheck retries a snapshot overlapping a legitimate removal and its index 
   assert.equal(result.names.includes('good.json'), false);
   assert.deepEqual(result.index, []);
   assert.deepEqual(result.ids, []);
-  assert.equal(result.scans, 2);
+  assert.equal(result.scans, 5, 'two recheck scans plus three purge ownership scans');
   for (const status of [result.status, result.later]) {
     assert.equal(status.readableProjectCount, 0);
     assert.equal(status.missingProjectCount, 0);
@@ -252,13 +254,14 @@ test('a failed mutation beginning and ending during the scan still invalidates t
 
 test('a removal during project reads discards the stale loaded identity', () => {
   const result = probe('delete-during-read', `
+    const { instanceId } = await store.moveToBin('good');
     const readFile = fs.readFile, readdir = fs.readdir;
     let scans = 0, removed = false;
     fs.readdir = async (...args) => { if (String(args[0]) === directory) scans++; return readdir(...args); };
     fs.readFile = async (...args) => {
       const contents = await readFile(...args);
       if (!removed && String(args[0]) === path.join(directory, 'good.json')) {
-        removed = true; await store.remove('good');
+        removed = true; await purge(instanceId);
       }
       return contents;
     };
@@ -267,7 +270,7 @@ test('a removal during project reads discards the stale loaded identity', () => 
     const result = { status, scans, ids: (await store.list()).map(p => p.id) };
   `);
   assert.deepEqual(result.ids, []);
-  assert.equal(result.scans, 2);
+  assert.equal(result.scans, 5, 'two recheck scans plus three purge ownership scans');
   assert.equal(result.status.readableProjectCount, 0);
   assert.equal(result.status.unreadableProjectCount, 0);
   assert.equal(result.status.missingProjectCount, 0);
@@ -312,7 +315,7 @@ test('a discarded migration candidate cannot latch deletion blocking or restart 
     const status = await store.storageStatus(true);
     fs.readFile = readFile; fs.readdir = readdir;
     let deletionBlocked = false;
-    try { await store.remove('good'); } catch { deletionBlocked = true; }
+    try { await store.moveToBin('good'); } catch { deletionBlocked = true; }
     const result = { status, scans, deletionBlocked, later: await store.storageStatus(true) };
   `);
   assert.equal(result.scans, 2);
@@ -387,6 +390,7 @@ test('a mutation that starts during the scan and remains active prevents snapsho
 for (const failure of ['remove-file', 'remove-index']) {
   test(`${failure} failure releases mutation tracking and preserves genuine recovery evidence`, () => {
     const result = probe(failure, `
+      const { instanceId } = await store.moveToBin('good');
       const entered = barrier(), release = barrier();
       const rename = fs.rename, rm = fs.rm;
       fs.rm = async (...args) => {
@@ -401,7 +405,7 @@ for (const failure of ['remove-file', 'remove-index']) {
         }
         return rename(...args);
       };
-      const pending = store.remove('good').then(() => false, () => true);
+      const pending = purge(instanceId).then(() => false, () => true);
       await entered.promise;
       let unavailable = false;
       try { await store.storageStatus(true); } catch { unavailable = true; }
@@ -410,18 +414,18 @@ for (const failure of ['remove-file', 'remove-index']) {
       fs.rename = rename; fs.rm = rm;
       const result = { unavailable, failed, during, status: await store.storageStatus(true),
         names: await fs.readdir(directory), index: await fs.readFile(path.join(directory, 'order.json'), 'utf8'),
-        ids: (await store.list()).map(p => p.id) };
+        ids: (await store.list()).map(p => p.id), bin: await store.listBinned() };
     `);
     assert.equal(result.unavailable, true);
     assert.equal(result.failed, true);
     assert.equal(result.during.restartRequired, false);
-    assert.equal(result.index, '["good"]', 'failed deletion must preserve the exact index bytes');
-    const removed = failure === 'remove-index';
-    assert.equal(result.names.includes('good.json'), !removed);
-    assert.deepEqual(result.ids, removed ? [] : ['good']);
-    assert.equal(result.status.missingProjectCount, removed ? 1 : 0);
+    assert.deepEqual(JSON.parse(result.index), failure === 'remove-index' ? ['good'] : []);
+    assert.equal(result.names.includes('good.json'), true);
+    assert.deepEqual(result.ids, []);
+    assert.equal(result.bin[0].purging, true, 'both failures keep a durable retry record');
+    assert.equal(result.status.missingProjectCount, 0);
     assert.equal(result.status.unreadableProjectCount, 0);
-    assert.equal(result.status.restartRequired, removed);
+    assert.equal(result.status.restartRequired, false);
   });
 }
 

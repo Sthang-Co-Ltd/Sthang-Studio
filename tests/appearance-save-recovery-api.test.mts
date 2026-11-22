@@ -152,7 +152,8 @@ test('replaced media cannot reuse an appearance receipt even when the target loo
 
 test('a delayed appearance recovery cannot recreate a deleted project', async () => {
   const project = await seed('appearance-deleted-project');
-  await store.remove(project.id);
+  const { instanceId } = await store.moveToBin(project.id);
+  await store.purgeBinnedProject(project.id, { instanceId }, (run) => run(), async () => {});
   const response = await request(project, { ...DEFAULT_CAPTION_APPEARANCE, fontSize1080: 92 }, DEFAULT_CAPTION_APPEARANCE);
   assert.equal(response.status, 404);
   assert.equal(await store.get(project.id), null);
