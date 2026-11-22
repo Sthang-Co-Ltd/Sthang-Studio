@@ -20,7 +20,7 @@ const tools = (page: Page) => page.getByLabel('Open project tools', { exact: tru
 async function openGuide(page: Page) {
   await tools(page).focus();
   await tools(page).press('Enter');
-  await page.keyboard.press('q');
+  await page.keyboard.press('g');
   const item = page.getByRole('menuitem', { name: 'Guide', exact: true });
   await expect(item).toBeFocused();
   await page.keyboard.press('Enter');

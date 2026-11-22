@@ -1029,11 +1029,11 @@ export default function App() {
       || (submittedViewRevision === undefined ? Boolean(currentProposal.current) : proposalViewRevision.current !== submittedViewRevision))) {
       setNotice(currentProposal.current
         ? 'A new take is ready. Your current comparison is kept; open the result from Activity.'
-        : 'Improved captions ready. Open it from Activity when you are ready.');
+        : 'Improved captions ready. Open them from Activity when you are ready.');
       return false;
     }
     if (automatic && (dirtyRef.current || (media.current && !media.current.paused))) {
-      setNotice('Improved captions ready. Open it from Activity when you are ready.');
+      setNotice('Improved captions ready. Open them from Activity when you are ready.');
       return false;
     }
     cancelPlayback();
@@ -2150,7 +2150,7 @@ export default function App() {
             void loadProposal(job.projectId, job.proposalId, ticket, true, submittedViewRevision)
               .then((opened) => { if (opened && projectScope.current.isCurrent(ticket)) {
                 if (jobsViewRevision.current === activityRevision) setShowJobs(false);
-                setNotice('Improved captions ready. Review it before applying.');
+                setNotice('Improved captions ready. Review them before applying.');
               } })
               .catch(reportResultReadFailure);
           } else if (job.resultProjectId) {
@@ -3325,7 +3325,7 @@ export default function App() {
       const confirmed = await confirmInStudio({
         title: 'Improve a long caption range?',
         message: 'This selection is over 90 seconds, so comparing another take may take noticeably longer. Your current captions stay untouched until you approve the result.',
-        confirmLabel: 'Build preview',
+        confirmLabel: 'Improve captions',
       });
       if (!confirmed
         || !isCurrentOperation(intent)

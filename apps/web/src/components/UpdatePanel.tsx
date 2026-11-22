@@ -43,7 +43,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
         onNotice(`Sthang Studio ${next.offer.version} is available. Open Updates to review it.`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Studio could not check update status. Your installed version is unchanged.';
+      const message = error instanceof Error ? error.message : 'Studio could not check for updates. Your installed version is unchanged.';
       setCheckError(message);
       if (options.surfaceError) onError(message);
     } finally {

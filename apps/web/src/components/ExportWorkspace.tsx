@@ -166,18 +166,6 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
   const [presetError, setPresetError] = useState('');
   const [presetNotice, setPresetNotice] = useState('');
   const [lastUsedError, setLastUsedError] = useState('');
-  const measureFinalize = useCallback((footer: HTMLDivElement | null) => {
-    const workspace = footer?.closest<HTMLElement>('.export-workspace');
-    if (!footer || !workspace) return;
-    const measure = () => workspace.style.setProperty('--export-finalize-height', `${footer.offsetHeight}px`);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(footer);
-    return () => {
-      observer.disconnect();
-      workspace.style.removeProperty('--export-finalize-height');
-    };
-  }, []);
   const acceptedExportInVisit = useRef(false);
   const importRevision = useRef(profileImportRevision);
   importRevision.current = profileImportRevision;
@@ -740,7 +728,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
         {capabilities.warnings.length > 0 && <div className="export-warnings" aria-label="Video export notices">{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={14}/><span>{warning}</span></div>)}</div>}
 
         <div className="export-source-note"><ShieldCheck size={17}/><span>Your source video is never changed. Studio checks the finished file.</span></div>
-        <div className="export-finalize" ref={measureFinalize}>
+        <div className="export-finalize">
           <div className="export-summary-line" aria-live="polite">
             <span><Film size={14}/><b>{resolution ? `${resolution.width}×${resolution.height}` : 'Source'}</b>{resolution?.upscaled ? ' · Upscaled' : ''} · {frameRateLabel(settings.frameRate, source?.frameRate || 0)} · {settings.codec.toUpperCase()}{settings.encoder !== 'auto' ? ` · ${settings.encoder.toUpperCase()} encoder` : ''}{settings.customBitrateMbps ? ` · ${settings.customBitrateMbps} Mbps custom` : ''}</span>
             <span><HardDrive size={14}/>≈ <b>{bytes(estimatedBytes)}</b> · {bytes(capabilities.availableDiskBytes)} free</span>
