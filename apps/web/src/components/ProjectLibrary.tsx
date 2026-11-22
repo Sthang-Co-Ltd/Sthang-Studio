@@ -1,7 +1,13 @@
-import { useEffect, useId, useMemo, useRef } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, FolderOpen, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import type { CaptionProjectSummary } from '@kcs/shared';
 import { selectProjectLibrary, type ProjectLibrarySort, type ProjectLibraryView } from '../project-library';
+import { canRestore, type useProjectBin } from '../use-project-bin';
+import { useProjectNavigationFocus } from '../use-project-navigation-focus';
+import { type StudioConfirmOptions } from './ConfirmationDialog';
+import { ProjectMoreMenu } from './ProjectMoreMenu';
+import { ProjectRenameDialog } from './ProjectRename';
+import type { BinnedProject } from '../api';
 import '../project-library.css';
 
 interface ProjectLibraryProps {
@@ -20,6 +26,11 @@ interface ProjectLibraryProps {
   onBack: () => void;
   onCreate: () => void;
   onRetry: () => void;
+  bin: ReturnType<typeof useProjectBin>;
+  showBin: boolean;
+  onShowBin(value: boolean): void;
+  onRename(id: string, title: string, expectedTitle: string): Promise<void>;
+  confirm(options: StudioConfirmOptions): Promise<boolean>;
   storageUnavailable?: boolean;
   onReviewStorage?: () => void;
 }
@@ -31,7 +42,7 @@ function ProjectDate({ label, value }: { label: string; value: string }) {
   return <span>{label} <time dateTime={date.toISOString()} title={date.toLocaleString()}>{dateFormatter.format(date)}</time></span>;
 }
 
-export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onCreate, onRetry, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
+export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onCreate, onRetry, bin, showBin, onShowBin, onRename, confirm, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {
   const ids = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
@@ -39,10 +50,32 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
   const retry = useRef<HTMLButtonElement>(null);
   const pageFocusPending = useRef(false);
   const retryFocusPending = useRef(false);
+  const binEntry = useRef<HTMLButtonElement>(null);
+  const screenFocus = useRef(false);
+  const [rename, setRename] = useState<CaptionProjectSummary | null>(null);
+  const navigationFocus = useProjectNavigationFocus();
+  const [deadlineTick, setDeadlineTick] = useState(0);
   const result = useMemo(() => selectProjectLibrary(projects, view), [projects, view]);
   const ready = !loading && !loadFailed;
 
   useEffect(() => { if (focusHeadingOnMount) heading.current?.focus({ preventScroll: true }); }, [focusHeadingOnMount]);
+  useLayoutEffect(() => {
+    if (!screenFocus.current) return;
+    screenFocus.current = false;
+    (showBin ? heading.current : binEntry.current)?.focus({ preventScroll: true });
+  }, [showBin]);
+  useEffect(() => {
+    if (!showBin) return;
+    const nextDeadline = bin.items.reduce((next, item) => !item.purging && canRestore(item.restoreUntil)
+      ? Math.min(next, Date.parse(item.restoreUntil)) : next, Infinity);
+    if (nextDeadline === Infinity) return;
+    const timer = window.setTimeout(() => {
+      if (document.activeElement instanceof HTMLButtonElement && document.activeElement.dataset.binRestore
+        && !canRestore(document.activeElement.dataset.restoreUntil || '')) heading.current?.focus();
+      setDeadlineTick((value) => value + 1);
+    }, Math.min(nextDeadline - Date.now() + 1, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [bin.items, showBin, deadlineTick]);
   useEffect(() => {
     if (pageFocusPending.current) {
       pageFocusPending.current = false;
@@ -69,12 +102,100 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
     onViewChange({ ...view, page });
   };
 
+  const move = async (project: CaptionProjectSummary, index: number) => {
+    const focus = navigationFocus.capture();
+    const adjacent = [result.items[index + 1], result.items[index - 1]];
+    if (await bin.move(project)) navigationFocus.complete(focus, () => {
+      for (const item of adjacent) {
+        const target = item && document.querySelector<HTMLElement>(`[data-library-project="${CSS.escape(item.id)}"]`);
+        if (target) return target;
+      }
+      const visible = document.querySelectorAll<HTMLElement>('.project-library-item:not(:disabled)');
+      return visible[visible.length - 1] || resultHeading.current;
+    });
+    else navigationFocus.cancel(focus);
+  };
+
+  const changeBinView = (value: boolean) => {
+    screenFocus.current = true;
+    onShowBin(value);
+    if (value) void bin.refresh();
+  };
+
+  const changeBinnedProject = async (item: BinnedProject, remove: boolean, control: HTMLButtonElement) => {
+    const next = bin.items.slice(bin.items.indexOf(item) + 1);
+    let focus = remove ? null : navigationFocus.capture(control);
+    if (remove) {
+      await bin.remove(item, () => confirm({
+        title: `Delete “${item.title}” now?`,
+        message: "Its captions, History and Studio's copy of the source video are removed from this computer. Exported files are kept. This can't be undone.",
+        confirmLabel: 'Delete now',
+      }), () => {
+        // Give the confirmation's own return-focus cleanup a stable target.
+        heading.current?.focus();
+        focus = navigationFocus.capture(heading.current);
+      });
+    } else {
+      const restored = await bin.restore(item);
+      if (!restored && control.isConnected && document.activeElement === control) {
+        navigationFocus.cancel(focus);
+        return;
+      }
+    }
+    navigationFocus.complete(focus, () => {
+      for (const row of next) {
+        const target = document.querySelector<HTMLElement>(`[data-bin-restore="${CSS.escape(row.instanceId)}"]`);
+        if (target) return target;
+      }
+      return heading.current;
+    });
+  };
+
+  if (showBin) return <section className="project-library" aria-labelledby={`${ids}-bin`}>
+    <header className="project-library-header">
+      <button type="button" className="project-library-back" onClick={() => changeBinView(false)}><ChevronLeft size={16} aria-hidden="true"/>Back to All projects</button>
+      <div className="project-library-heading"><h1 id={`${ids}-bin`} ref={heading} tabIndex={-1}>Recently deleted</h1></div>
+    </header>
+    <p className="project-bin-intro">Restore a project until the date shown. After that, Studio removes it for good the next time it runs. Deleted projects still use disk space until then.</p>
+    {bin.status === 'error' && <div className="project-library-empty" role="alert"><h2>Could not load Recently deleted.</h2>
+      <button type="button" onClick={() => { heading.current?.focus(); void bin.refresh(); }}>Try again</button></div>}
+    {bin.status === 'loading' && <p className="project-bin-intro" role="status">Loading Recently deleted…</p>}
+    {bin.status === 'ready' && !bin.items.length && <div className="project-library-empty"><h2>Nothing in Recently deleted.</h2></div>}
+    {bin.items.length > 0 && <ul className="project-library-results" aria-label="Deleted projects">
+      {bin.items.map((item) => <li key={item.instanceId} className="project-bin-row">
+        <div className="project-library-item-content">
+          <strong className="project-library-item-title">{item.title}</strong>
+          <div className="project-library-item-meta">
+            <span>{item.captionCount} {item.captionCount === 1 ? 'caption' : 'captions'}</span>
+            <ProjectDate label="Deleted" value={item.binnedAt}/><ProjectDate label="Restore until" value={item.restoreUntil}/>
+          </div>
+        </div>
+        {item.purging ? <div className="project-bin-actions">
+          <span>Removing… If this doesn't clear, review storage.</span>
+          <button className="project-library-action" type="button" onClick={onReviewStorage}>Review storage</button>
+        </div> : <div className="project-bin-actions">
+          {!bin.expiredInstances.has(item.instanceId) && canRestore(item.restoreUntil) && <button className="project-library-action project-bin-restore" type="button"
+            data-bin-restore={item.instanceId} data-restore-until={item.restoreUntil} aria-disabled={bin.status !== 'ready' || Boolean(bin.pendingId) || undefined}
+            onClick={(event) => { if (bin.status === 'ready' && !bin.pendingId) void changeBinnedProject(item, false, event.currentTarget); }}>Restore</button>}
+          <button className="project-library-action project-bin-delete" type="button" aria-disabled={bin.status !== 'ready' || Boolean(bin.pendingId) || undefined}
+            onClick={(event) => { if (bin.status === 'ready' && !bin.pendingId) void changeBinnedProject(item, true, event.currentTarget); }}>Delete now</button>
+        </div>}
+      </li>)}
+    </ul>}
+  </section>;
+
   return <section className="project-library" aria-labelledby={`${ids}-title`}>
     <header className="project-library-header">
       <button type="button" className="project-library-back" onClick={onBack}><ChevronLeft size={16} aria-hidden="true"/>Back to Home</button>
       <div className="project-library-heading">
         <h1 id={`${ids}-title`} ref={heading} tabIndex={-1}>All projects</h1>
-        <span className="project-library-local"><FolderOpen size={16} aria-hidden="true"/>Saved on this computer</span>
+        <div className="project-library-heading-actions">
+          <span className="project-library-local"><FolderOpen size={16} aria-hidden="true"/>Saved on this computer</span>
+          <button ref={binEntry} type="button" className="project-library-action" onClick={() => changeBinView(true)}
+            aria-description={bin.items.length ? `${bin.items.length} ${bin.items.length === 1 ? 'project' : 'projects'}` : undefined}>
+            Recently deleted{bin.items.length > 0 && <span className="project-bin-count" aria-hidden="true">{bin.items.length}</span>}
+          </button>
+        </div>
       </div>
     </header>
 
@@ -125,9 +246,9 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
         : <ul className="project-library-results" aria-label="Project results">{result.items.map((project, index) => {
           const opening = openingProjectId === project.id;
           const descriptionId = `${ids}-project-${index}`;
-          return <li key={project.id}>
+          return <li key={project.id} className="project-library-row">
             <button type="button" className="project-library-item" data-library-project={project.id} aria-label={`Open ${project.title}`} aria-describedby={descriptionId}
-              aria-busy={opening} disabled={disabled || opening} onClick={() => onOpen(project.id)}>
+              aria-busy={opening} disabled={disabled || opening || bin.pendingId === project.id} onClick={() => onOpen(project.id)}>
               <span className="project-library-item-content"><strong className="project-library-item-title" title={project.title}>{project.title}</strong>
                 <span className="project-library-item-meta" id={descriptionId}>
                   <span>{project.captionCount ? `${project.captionCount} ${project.captionCount === 1 ? 'caption' : 'captions'}` : 'Not generated yet'}</span>
@@ -136,6 +257,8 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
               </span>
               <span className="project-library-open">{opening ? <><LoaderCircle className="spin" size={16} aria-hidden="true"/>Opening…</> : <>{project.captionCount ? 'Continue editing' : 'Open project'}<ChevronRight size={16} aria-hidden="true"/></>}</span>
             </button>
+            <ProjectMoreMenu id={project.id} title={project.title} disabled={disabled || opening || Boolean(bin.pendingId)}
+              onRename={() => setRename(project)} onMove={() => void move(project, index)}/>
           </li>;
         })}</ul>}
       {result.pages > 1 && <nav className="project-library-pagination" aria-label="Project pages">
@@ -144,5 +267,8 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
         <button type="button" disabled={result.page === result.pages} onClick={() => changePage(result.page + 1)}>Next page<ChevronRight size={16} aria-hidden="true"/></button>
       </nav>}
     </>}
+    {rename && <ProjectRenameDialog title={rename.title} onClose={() => setRename(null)}
+      onRename={(title, expectedTitle) => onRename(rename.id, title, expectedTitle)}
+      returnFocus={() => document.querySelector<HTMLElement>(`[data-library-more="${CSS.escape(rename.id)}"]`) || resultHeading.current}/>}
   </section>;
 }

@@ -181,8 +181,21 @@ export interface CorrectionActionResponse {
   project: CaptionProject | null;
 }
 
+export interface ProjectBinReceipt {
+  id: string;
+  instanceId: string;
+  restoreUntil: string;
+}
+
+export interface BinnedProject extends ProjectBinReceipt {
+  title: string;
+  captionCount: number;
+  binnedAt: string;
+  purging: boolean;
+}
+
 export class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string, readonly retryable?: boolean) {
+  constructor(message: string, readonly status: number, readonly code?: string, readonly retryable?: boolean, readonly title?: string) {
     super(message);
     this.name = 'ApiRequestError';
   }
@@ -218,7 +231,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       throw new MediaAudioMismatchError(message, { token: confirmation.token, expiresAt: confirmation.expiresAt });
     }
     throw new ApiRequestError(message, res.status, typeof body?.code === 'string' ? body.code : undefined,
-      typeof body?.retryable === 'boolean' ? body.retryable : undefined);
+      typeof body?.retryable === 'boolean' ? body.retryable : undefined,
+      body?.code === 'title_conflict' && typeof body.title === 'string' ? body.title : undefined);
   }
   return res.status === 204 ? undefined as T : res.json();
 }
@@ -296,6 +310,19 @@ export const api = {
   forgetLlmKey: () => request<LlmSettingsStatus>('/api/system/llm-settings/key', { method: 'DELETE' }),
   list: () => request<CaptionProject[]>('/api/projects'),
   listSummaries: (signal?: AbortSignal) => request<CaptionProjectSummary[]>('/api/projects?summary=1', { signal }),
+  listProjectBin: (signal?: AbortSignal) => request<{ items: BinnedProject[] }>('/api/project-bin', { signal, cache: 'no-store' }),
+  moveProjectToBin: (projectId: string) => request<ProjectBinReceipt>('/api/project-bin', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId }),
+  }),
+  restoreBinnedProject: (id: string, instanceId: string) => request<CaptionProjectSummary>(`/api/project-bin/${encodeURIComponent(id)}/restore`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId }),
+  }),
+  deleteBinnedProject: (id: string, instanceId: string) => request<void>(`/api/project-bin/${encodeURIComponent(id)}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId }),
+  }),
+  renameProject: (id: string, title: string, expectedTitle: string) => request<{ id: string; title: string }>(`/api/projects/${encodeURIComponent(id)}/title`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, expectedTitle }),
+  }),
   get: (id: string, signal?: AbortSignal) => request<CaptionProject>(`/api/projects/${encodeURIComponent(id)}`, { signal }),
   getAppearance: (id: string, signal?: AbortSignal) => request<CaptionProjectAppearance>(`/api/projects/${encodeURIComponent(id)}/appearance`, { signal, cache: 'no-store' }),
   create: (file: File, title: string, creationAttemptId?: string) => {

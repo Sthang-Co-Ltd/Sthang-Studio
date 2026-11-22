@@ -71,7 +71,8 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { JobManager } from './components/JobManager';
 import { jobObservation, mergeJobSnapshot } from './processing-jobs';
 import { ProjectLibrary } from './components/ProjectLibrary';
-import { DEFAULT_PROJECT_LIBRARY_VIEW, selectProjectLibrary, type ProjectLibraryView } from './project-library';
+import { DEFAULT_PROJECT_LIBRARY_VIEW, normalizeProjectSearch, selectProjectLibrary, type ProjectLibraryView } from './project-library';
+import { canRestore, useProjectBin } from './use-project-bin';
 import { captureProjectCollectionBasis, reconcileProjectCollection } from './project-collection';
 import { WorkspaceToolsMenu } from './components/WorkspaceToolsMenu';
 import { UpdatePanel } from './components/UpdatePanel';
@@ -271,7 +272,9 @@ export default function App() {
   }, []);
   const [projectListState, setProjectListState] = useState({ refreshing: false, error: '' });
   const projectListRequest = useRef<AbortController | null>(null);
+  const projectsBinnedDuringRead = useRef(new Set<string>());
   const [showAllProjects, setShowAllProjects] = useState(false);
+  const [showProjectBin, setShowProjectBin] = useState(false);
   // Keep the collection position while its editor is open, without persisting
   // project names or searches outside this tab's existing local project flow.
   const [projectLibraryView, setProjectLibraryView] = useState<ProjectLibraryView>(DEFAULT_PROJECT_LIBRARY_VIEW);
@@ -294,6 +297,7 @@ export default function App() {
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const projectOpen = useRef<AbortController | null>(null);
   const [project, setProject] = useState<CaptionProject | null>(null);
+  const projectTitleAck = useRef<{ id: string; title: string } | null>(null);
   const reopenAfterReload = useRef<string | null>(null);
   const [dismissedAlignmentNotice, setDismissedAlignmentNotice] = useState<string | null>(null);
   useEffect(() => { setDismissedAlignmentNotice(null); }, [project?.id]);
@@ -641,18 +645,20 @@ export default function App() {
     }
   }, [project, showAllProjects]);
 
-  async function refreshProjects(options: { startup?: boolean; isCurrent?(): boolean } = {}) {
-    if (projectListRequest.current && !options.startup) return;
+  async function refreshProjects(options: { startup?: boolean; replaceRead?: boolean; isCurrent?(): boolean } = {}) {
+    if (projectListRequest.current && !options.startup && !options.replaceRead) return;
     projectListRequest.current?.abort();
     const request = new AbortController();
     projectListRequest.current = request;
+    const binnedDuringRead = new Set<string>();
+    projectsBinnedDuringRead.current = binnedDuringRead;
     const basis = captureProjectCollectionBasis(projectItems.current);
     const owns = () => !request.signal.aborted && projectListRequest.current === request && options.isCurrent?.() !== false;
     setProjectListState((current) => ({ ...current, refreshing: true }));
     try {
       const items = await api.listSummaries(request.signal);
       if (!owns()) return;
-      const next = reconcileProjectCollection(projectItems.current, items, basis);
+      const next = reconcileProjectCollection(projectItems.current, items, basis).filter((item) => !binnedDuringRead.has(item.id));
       const origin = libraryReturnId.current;
       const active = document.activeElement;
       if (origin && active === libraryReturnTarget(origin)) {
@@ -676,6 +682,69 @@ export default function App() {
         projectListRequest.current = null;
         if (options.isCurrent?.() !== false) setProjectListState((current) => ({ ...current, refreshing: false }));
       }
+    }
+  }
+  const projectBin = useProjectBin({
+    active: showAllProjects && !project,
+    onRead: (items) => {
+      const binned = new Set(items.map((item) => item.id));
+      if (projectListRequest.current) for (const id of binned) projectsBinnedDuringRead.current.add(id);
+      if (projectItems.current.some((item) => binned.has(item.id))) {
+        setProjects((activeItems) => activeItems.filter((item) => !binned.has(item.id)));
+      }
+    },
+    onRemove: (id) => {
+      setProjects((items) => items.filter((item) => item.id !== id));
+      void refreshProjects({ replaceRead: true });
+    },
+    onRestore: (restored) => {
+      setProjects((items) => [restored, ...items.filter((item) => item.id !== restored.id)]);
+      void refreshProjects({ replaceRead: true });
+    },
+    onRefreshProjects: () => refreshProjects({ replaceRead: true }),
+    onNotice: setNotice,
+  });
+
+  async function undoProjectMove(move: typeof projectBin.undo[number]) {
+    const focus = projectNavigationFocus.capture();
+    const restored = await projectBin.restore(move);
+    if (restored && projectNavigationFocus.isCurrent(focus)) {
+      if (showAllProjects) {
+        setShowProjectBin(false);
+        setProjectLibraryView((view) => {
+          const query = normalizeProjectSearch(restored.title).includes(normalizeProjectSearch(view.query)) ? view.query : '';
+          const next = { ...view, query };
+          return { ...next, page: selectProjectLibrary(projectItems.current, next, restored.id).page };
+        });
+      }
+      const selector = showAllProjects ? 'data-library-project' : 'data-recent-project';
+      projectNavigationFocus.complete(focus, () => document.querySelector<HTMLElement>(`[${selector}="${CSS.escape(restored.id)}"]`));
+    } else projectNavigationFocus.cancel(focus);
+  }
+
+  function retainProjectTitle<T extends { id: string; title: string }>(item: T): T {
+    const ack = projectTitleAck.current;
+    return ack?.id === item.id && item.title !== ack.title ? { ...item, title: ack.title } : item;
+  }
+
+  async function renameProject(id: string, title: string, expectedTitle: string, editing = false) {
+    const ticket = projectScope.current.capture();
+    const publishTitle = (savedTitle: string) => {
+      if (editing && projectScope.current.isCurrent(ticket)) {
+        projectTitleAck.current = { id, title: savedTitle };
+        setProject((current) => current?.id === id ? { ...current, title: savedTitle } : current);
+      }
+      setProjects((items) => items.map((item) => item.id === id ? { ...item, title: savedTitle } : item));
+    };
+    try {
+      const result = await api.renameProject(id, title, expectedTitle);
+      publishTitle(result.title);
+      if (!editing) setProjectLibraryView((view) => ({ ...view, page: selectProjectLibrary(projectItems.current, view, id).page }));
+      setNotice(`Renamed to “${result.title}”.`);
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.code === 'title_conflict' && error.title !== undefined) publishTitle(error.title);
+      if (error instanceof ApiRequestError && error.status === 404) void refreshProjects({ replaceRead: true });
+      throw error;
     }
   }
   const previousCollectionScreen = useRef({ projectId: project?.id, all: showAllProjects });
@@ -891,7 +960,7 @@ export default function App() {
   }
   function rememberSavedCaptions(next: CaptionProject, ownsCaptions = true) {
     if (projectMediaKey(next) !== projectScope.current.capture().key) return;
-    const normalized = retainGenerationModel(withCaptionWordTimings(next));
+    const normalized = retainProjectTitle(retainGenerationModel(withCaptionWordTimings(next)));
     savedProject.current = { ...normalized, transcriptionContext: accuracyDraft.current.saved };
     if (ownsCaptions && conflictedSave.current?.key !== projectMediaKey(next)) {
       const previous = ordinarySaveBasis.current;
@@ -1016,6 +1085,7 @@ export default function App() {
     libraryOrigin.current = null;
     releaseLibraryReturn();
     returnToHomeControl.current = allProjects ? null : returnTo;
+    setShowProjectBin(false);
     setShowAllProjects(allProjects);
   }
   async function loadProposal(projectId: string, proposalId: string, ticket: ProjectTicket, automatic = false, submittedViewRevision?: number,
@@ -1161,7 +1231,8 @@ export default function App() {
   }, [proposal?.id, mediaKey]);
 
   const applyProject = (next: CaptionProject, replaceDraft = true, options: { preserveSelection?: boolean; reuseUnchangedDraft?: boolean; preservePlayback?: boolean } = {}) => {
-    next = withCaptionWordTimings(next);
+    if (projectTitleAck.current?.id !== next.id) projectTitleAck.current = null;
+    next = retainProjectTitle(withCaptionWordTimings(next));
     projectOpen.current?.abort();
     projectOpen.current = null;
     setOpeningProjectId(null);
@@ -1345,7 +1416,7 @@ export default function App() {
     return ack && ack.key === projectMediaKey(next) && ack.key === projectScope.current.capture().key
       ? { ...next, generationModel: ack.value } : next;
   }
-  const retainAccuracyContext = (next: CaptionProject): CaptionProject => retainGenerationModel(accuracyDraft.current.retainProject(next));
+  const retainAccuracyContext = (next: CaptionProject): CaptionProject => retainProjectTitle(retainGenerationModel(accuracyDraft.current.retainProject(next)));
   const publishContextProject = (next: CaptionProject, observation: AccuracyObservation, acknowledgement = false, mutation = acknowledgement, ownsContext = mutation) => {
     const ticket = projectScope.current.capture();
     if (ticket.key !== projectMediaKey(next)
@@ -1364,7 +1435,7 @@ export default function App() {
       return { ...current, transcriptionContext: next.transcriptionContext, updatedAt: next.updatedAt };
     });
     setProjects((items) => [
-      summarizeProject({ ...next, captions: draftRef.current }),
+      summarizeProject(retainProjectTitle({ ...next, captions: draftRef.current })),
       ...items.filter((item) => item.id !== next.id),
     ]);
     captureUnfinishedRecovery();
@@ -1634,7 +1705,7 @@ export default function App() {
           else {
             const acknowledged = retainAccuracyContext(result.project);
             setProject((current) => current?.id === result.project.id ? { ...acknowledged, captions: draftRef.current } : current);
-            setProjects((items) => [summarizeProject(result.project), ...items.filter((item) => item.id !== result.project.id)]);
+            setProjects((items) => [summarizeProject(acknowledged), ...items.filter((item) => item.id !== result.project.id)]);
             setAutosaveState('pending');
           }
           captureUnfinishedRecovery();
@@ -2473,6 +2544,7 @@ export default function App() {
           return false;
         }
         publishContextProject(value, contextObservation);
+        projectTitleAck.current = null;
         applyProject(value);
         if (reviewRecovery) refreshUnfinishedRecoveries();
         if (showAllProjects) libraryOrigin.current = id;
@@ -2550,6 +2622,10 @@ export default function App() {
       focusCompleted = true;
       return { state: 'opened' };
     } catch (reason) {
+      if (reason instanceof ApiRequestError && reason.code === 'project_binned') {
+        void refreshProjects({ replaceRead: true });
+        return { state: 'not-created', message: 'This upload matches a project in Recently deleted. Restore it there, or upload the file again.' };
+      }
       if (reason instanceof ApiRequestError && (reason.code === 'PROJECT_CREATE_NOT_APPLIED' || reason.code === 'PROJECT_CREATE_ATTEMPT_MISMATCH')) {
         // Upload owns the persistent, actionable alert for this exact attempt.
         // A second global toast repeats it and can cover the next Home action.
@@ -4382,6 +4458,16 @@ export default function App() {
     : unfinishedChanges ? 'Save your current edits before restoring this draft.' : '';
 
   const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <ToastStack onLayoutChange={handleToastLayoutChange}>
+    {projectBin.notice && <div className="toast error" role="alert"><span>{projectBin.notice.message}</span>
+      {projectBin.notice.reviewStorage && <button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button>}
+      <button aria-label="Dismiss project notice" onClick={projectBin.dismissNotice}><X size={14}/></button>
+    </div>}
+    {projectBin.undo.map((move) => <div key={move.instanceId} className="toast notice" role="status">
+      <span>Moved “{move.title}” to Recently deleted.</span>
+      {canRestore(move.restoreUntil) && <button className="toast-action" disabled={Boolean(projectBin.pendingId)}
+        onClick={() => void undoProjectMove(move)}>Undo</button>}
+      <button aria-label="Dismiss move notice" onClick={() => projectBin.dismissUndo(move.instanceId)}><X size={14}/></button>
+    </div>)}
     {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
     {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
     {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
@@ -4418,7 +4504,7 @@ export default function App() {
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
     {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
-    {notice && <div className="toast notice" data-toast-timer="notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
+    {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
   </ToastStack>;
 
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
@@ -4450,7 +4536,8 @@ export default function App() {
       onBack={() => changeProjectListView(false)} onCreate={() => changeProjectListView(false, 'upload')} onRetry={() => setStartupAttempt((value) => value + 1)}
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
-    /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} disabled={!!busy || !profile} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
+      bin={projectBin} showBin={showProjectBin} onShowBin={setShowProjectBin} onRename={renameProject} confirm={confirmInStudio}
+    /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
     {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{projectListState.error} Last loaded projects are shown.</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>Refresh projects</button></div>}
     {statusToasts}
     {activity}
@@ -4461,7 +4548,8 @@ export default function App() {
   return <main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label="Back to Home" data-tooltip="Back to Home" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
-      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}/></div>
+      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}
+        onRename={(title, expectedTitle) => renameProject(project.id, title, expectedTitle, true)}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
         <nav className="stage-rail" aria-label="Project stages">

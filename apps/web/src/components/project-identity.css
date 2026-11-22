@@ -12,6 +12,10 @@
 .project-name-dialog dl{margin:0;padding:0 14px 16px}
 .project-name-dialog dt{color:#acbac9;font-size:12px;margin-top:10px}
 .project-name-dialog dd{margin:3px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:'Noto Sans Khmer','Plus Jakarta Sans',sans-serif;user-select:text}
+.project-name-edit,.project-name-actions{padding:0 14px 14px}
+.project-name-actions{display:flex;justify-content:flex-end}
+.project-name-actions button{min-height:44px;padding:0 14px;border-radius:8px;color:#e5e8eb;cursor:pointer}
+.project-name-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .recent button>span:first-child{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.65}
 @media(max-width:620px){
   .workspace-identity>.studio-brand.studio-brand-compact{min-width:0}

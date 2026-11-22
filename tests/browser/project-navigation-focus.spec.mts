@@ -129,7 +129,9 @@ for (const width of [1440, 390]) test(`a failed library Open returns to its reen
     const back = page.getByRole('button', { name: 'Back to Home', exact: true });
     await back.focus(); await back.press('Enter');
     await visibleFocus(open);
-    await expect(page.getByRole('list', { name: 'Project results', exact: true }).getByRole('button')).toHaveCount(2);
+    const results = page.getByRole('list', { name: 'Project results', exact: true });
+    await expect(results.getByRole('button', { name: /^Open / })).toHaveCount(2);
+    await expect(results.getByRole('button', { name: /^More actions for / })).toHaveCount(2);
     expect(reads).toBe(2);
   } finally { gate.release(); }
 });

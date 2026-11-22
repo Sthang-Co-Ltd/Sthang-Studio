@@ -858,6 +858,14 @@ preserves editor geometry and drafts, and returns focus on dismissal. Hover/focu
 hints also expose the names; small screens retain a labeled Project details
 control. Recent-project titles wrap within their existing cards. Never hide a
 full name behind a pointer-only native title.
+
+**Rename** replaces the name row with a selected **Project name** input and
+**Save** and **Cancel**. Enter saves. Escape from the name input cancels the
+edit and returns focus to **Rename**. Elsewhere, Escape dismisses Project
+details. A name conflict shows the current saved name and keeps the name the
+creator typed for a deliberate second Save. Publishing a name updates the header,
+hint and project summary without replacing the editor's caption, appearance or
+Accuracy drafts.
 Project details accepts only plain Escape and the exact Ctrl/Command+F handoff.
 Menus similarly ignore composing keys and unrelated modifier combinations for
 opening, navigation, dismissal and Tab. Preserve Shift+Tab and uppercase typeahead.
@@ -1386,6 +1394,30 @@ and mixed-language content. Keyboard focus, explicit labels and mobile touch
 targets follow the existing interface rules. Returning from the editor retains
 the collection view in this tab; a pending open must not win after a newer
 navigation choice. Keep the saved-project/conflict/recovery workflow intact.
+
+Each row has a separate, labeled **More** button. Its menu offers **Rename…**
+and **Move to Recently deleted** with arrow keys, Home, End and typeahead.
+Escape returns focus to **More**. The **Rename project** dialog opens with its
+**Project name** selected. Enter saves, Escape cancels, and dismissal returns
+focus to **More** when the row still matches the current library view.
+
+Moving is immediate and offers **Undo** in the shared toast stack. Move focus to
+the next Open button, the previous one when necessary, or the results heading
+when there are no rows. Undo restores the project and focuses its Open button
+when the library is still in use. A confirmed move or restore replaces any
+pending collection read so an older list cannot put the item back.
+
+**Recently deleted** stays visible even with zero active projects and shows a
+count when entries exist. **Back to All projects** returns focus to that button.
+Explain that projects can be restored until the date shown, Studio removes
+expired items the next time it runs, and deleted projects still use disk space.
+Show the title, caption count, **Deleted** date and **Restore until** date.
+**Restore** moves focus to the next available Restore button or the heading.
+**Delete now** requires confirmation and explains that captions, History and
+Studio's source copy are removed and exported files are kept. For removal in
+progress, show “Removing… If this doesn't clear, review storage.” with
+**Review storage**. A failed load offers **Try again**. Keep the labeled row
+actions at least 44px high on phones.
 
 Refresh collection metadata when returning to Home/All projects, on foreground
 return while that collection is visible, and through **Refresh projects**. Retain

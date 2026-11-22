@@ -508,6 +508,17 @@ Home keeps a compact six-project recent list beside the upload workflow. A label
 name search, last-edited/created/name ordering, and bounded 24-project pages.
 Search includes projects beyond the current page and preserves Khmer text.
 
+Rename a project from **More** in All projects or **Rename** in the editor's
+**Project details**. Renaming changes the saved name while preserving caption
+revisions and unfinished edits. If another window saves a name first, Studio
+shows that name and lets the creator choose whether to save again.
+
+**Move to Recently deleted** removes a project from the active and recent lists
+and offers **Undo**. Projects in **Recently deleted** can be restored for seven
+days. After the deadline Studio removes them the next time it runs. **Delete
+now** asks for confirmation before permanently removing the project, its
+captions, History and Studio's copy of its source media. Exported files are kept.
+
 Reopening fetches the current saved project through the existing navigation,
 save-conflict, and unfinished-draft recovery protections. A later project choice
 or a return to Home cancels ownership of an earlier pending read. The collection's
