@@ -141,7 +141,7 @@ test('review keeps context on entry, tight replay, separate focus artwork and na
   await expect(image).toBeVisible();
   const pixels = await image.getAttribute('src');
   await expect(page.locator('.native-caption-focus')).toBeVisible();
-  await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+  await page.getByText('More review options', { exact: true }).click();
   const reviewFocusControl = page.locator('label.review-focus-mode-control[for="review-focus-mode-select"]');
   await expect(reviewFocusControl).toBeVisible();
   await expect(reviewFocusControl.locator('#review-focus-mode-select')).toBeVisible();

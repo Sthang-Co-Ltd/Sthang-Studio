@@ -49,7 +49,7 @@ test('manual captions open from Guide for text editing and approval without a tr
   await expect(guide.getByText('Captions added', { exact: true })).toBeVisible();
   await expect(guide.getByRole('button', { name: /Captions added|Generate captions/i })).toHaveCount(0);
   await guide.getByRole('button', { name: /Review flagged captions/ }).press('Enter');
-  await review(page).getByRole('button', { name: 'Edit text', exact: true }).press('Enter');
+  await review(page).getByRole('group', { name: 'Caption text', exact: true }).getByRole('button', { name: 'Edit text', exact: true }).press('Enter');
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeFocused();
   await expect(approve(page)).toBeEnabled();
   await approve(page).click();

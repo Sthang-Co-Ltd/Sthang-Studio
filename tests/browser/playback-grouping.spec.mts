@@ -1041,7 +1041,7 @@ test('timing cleanup applies normally and cannot overwrite newer timing, lock, a
   try {
     await openProject(page);
     await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
-    await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+    await page.getByText('More review options', { exact: true }).click();
     await invokeTimingCleanup();
     await expect(page.getByLabel('Caption 1 start time', { exact: true })).toHaveValue('00:00.125');
 
