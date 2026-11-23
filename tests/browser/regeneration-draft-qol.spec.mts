@@ -7,10 +7,13 @@ const test = base.extend({ context: async ({ context }, use) => { await use(cont
 test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
 let state: FixtureState;
 let actions: Array<{ mode: string; editedText?: string }>;
-const dock = (page: Page) => page.getByRole('region', { name: 'Live regeneration review', exact: true });
+const dock = (page: Page) => page.getByRole('region', { name: 'Caption comparison', exact: true });
 const wording = (page: Page) => dock(page).getByLabel('Edit proposed caption wording', { exact: true });
 const hint = (page: Page) => dock(page).getByRole('textbox', { name: /Accuracy hint/ });
-const refine = (page: Page) => dock(page).locator('summary').filter({ hasText: 'Refine this proposal' });
+const refine = (page: Page) => dock(page).locator('summary').filter({ hasText: 'Try another way' });
+const usePart = (page: Page) => dock(page).getByRole('button', { name: 'Use part', exact: true });
+const useText = (page: Page) => dock(page).getByRole('menuitem', { name: 'Use text only', exact: true });
+const useTiming = (page: Page) => dock(page).getByRole('menuitem', { name: 'Use timing only', exact: true });
 const revisedWording = 'ពាក្យថ្មី កម្ពុជា Newer wording';
 const revisedHint = 'Keep Khmer names កម្ពុជា in this newer hint';
 function proposal(id = 'q-main', text = 'សំណើ Khmer proposal', passNumber = 1): RegenerationProposal {
@@ -116,24 +119,29 @@ for (const [width, mode] of [[1440, 'all'], [390, 'text-only']] as const) {
   test(`blank proposal wording cannot accept hidden text and a Khmer correction remains exact at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 }); await openComparison(page);
     const before = structuredClone(state.projects[0].captions);
-    const full = dock(page).getByRole('button', { name: 'Accept edited proposal', exact: true });
-    const text = dock(page).getByRole('button', { name: 'Accept text only', exact: true });
+    const full = dock(page).getByRole('button', { name: 'Use edited version', exact: true });
+    const text = useText(page);
     for (const empty of ['', ' \n\t ']) {
       await wording(page).fill(empty);
       await expect(wording(page)).toHaveAttribute('aria-invalid', 'true');
       const description = await wording(page).getAttribute('aria-describedby');
-      await expect(page.locator(`[id="${description}"]`)).toHaveText('Enter wording before accepting text or the full proposal.');
+      await expect(page.locator(`[id="${description}"]`)).toHaveText('Enter wording before using the text or the whole proposal.');
+      await usePart(page).click();
       await expect(full).toBeDisabled(); await expect(text).toBeDisabled();
       await full.evaluate((button: HTMLButtonElement) => button.click()); await text.evaluate((button: HTMLButtonElement) => button.click());
       expect(actions).toEqual([]);
       await expect(dock(page).getByRole('button', { name: 'Keep current', exact: true })).toBeEnabled();
-      await expect(dock(page).getByRole('button', { name: 'Accept timing only', exact: true })).toBeEnabled();
+      await expect(useTiming(page)).toBeEnabled();
+      await page.keyboard.press('Escape');
     }
     await full.scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath(`blank-proposal-${width}.png`), animations: 'disabled' });
     await wording(page).fill(revisedWording);
     await expect(wording(page)).not.toHaveAttribute('aria-invalid');
-    await expect(full).toBeEnabled(); await expect(text).toBeEnabled();
+    await expect(full).toBeEnabled();
+    await usePart(page).click();
+    await expect(text).toBeEnabled();
+    if (mode === 'all') await page.keyboard.press('Escape');
     await (mode === 'all' ? full : text).click();
     await expect(dock(page)).toHaveCount(0);
     await visibleFocus(page.getByLabel('Open project tools', { exact: true }));
@@ -149,7 +157,8 @@ test('empty wording preserves deliberate Keep current and timing-only decisions'
   await expect(dock(page)).toHaveCount(0);
   expect(actions).toEqual([{ mode: 'reject' }]);
   await openInitialComparison(page); await wording(page).fill('   ');
-  await dock(page).getByRole('button', { name: 'Accept timing only', exact: true }).click();
+  await usePart(page).click();
+  await useTiming(page).click();
   await expect(dock(page)).toHaveCount(0);
   expect(actions).toEqual([{ mode: 'reject' }, { mode: 'timing-only' }]);
   await keptEvidence(page, before);
@@ -210,10 +219,16 @@ test('mobile keyboard entry reveals proposal wording with the normal preview and
   await expect(page.locator('.toast-stack > *')).toHaveCount(0);
   expect(actions).toEqual([]); await keptEvidence(page, before);
   await page.screenshot({ path: info.outputPath('proposal-wording-normal-preview-390.png'), animations: 'disabled' });
-  for (const name of ['Keep current', 'Accept text only', 'Accept timing only', 'Accept edited proposal']) {
-    await page.keyboard.press('Tab');
-    await expect(dock(page).getByRole('button', { name, exact: true })).toBeFocused();
-  }
+  await page.keyboard.press('Tab');
+  await expect(dock(page).getByRole('button', { name: 'Keep current', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(usePart(page)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(useText(page)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(useTiming(page)).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dock(page).getByRole('button', { name: 'Use edited version', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(refine(page)).toBeFocused();
   await page.keyboard.press('Enter');
@@ -240,7 +255,7 @@ for (const { width, field, phase } of editCases) {
     });
     try {
       await refine(page).click();
-      await dock(page).getByRole('button', { name: 'Realign exact wording', exact: true }).click();
+      await dock(page).getByRole('button', { name: 'Re-time my edited words', exact: true }).click();
       await expect(dock(page)).toContainText('Synthetic refinement running');
       const fieldNode = field === 'wording' ? wording(page) : hint(page);
       const value = field === 'wording' ? revisedWording : revisedHint;
@@ -259,7 +274,6 @@ for (const { width, field, phase } of editCases) {
       await expect(fieldNode).toBeFocused(); await expect(fieldNode).toHaveValue(value);
       await visibleFocus(fieldNode);
       if (width === 390) await visibleStage(page);
-      await expect(dock(page)).toContainText('Pass 1');
       await expect(wording(page)).toHaveValue(field === 'wording' ? revisedWording : 'សំណើ Khmer proposal');
       await expect(hint(page)).toHaveValue(field === 'hint' ? revisedHint : 'Initial hint');
       expect(actions).toEqual([]); await keptEvidence(page, before);
@@ -267,7 +281,7 @@ for (const { width, field, phase } of editCases) {
       const panel = await activity(page);
       await panel.locator('article').filter({ hasText: 'New take ready' }).getByRole('button', { name: 'Open result', exact: true }).click();
       await expect(wording(page)).toHaveValue('សំណើថ្មី New completed take');
-      await expect(dock(page)).toContainText('Pass 2');
+      await expect(dock(page).getByText('Re-timed your wording', { exact: true })).toBeVisible();
       await keptEvidence(page, before);
     } finally { gate.release(); }
   });
@@ -283,13 +297,13 @@ test('an unchanged submitted comparison still opens its completed refinement aut
     const queued = job('unchanged-refinement'); state.jobs = [queued, ...state.jobs]; await route.fulfill({ status: 202, json: queued });
   });
   await page.route('**/regeneration-proposals/q-next', (route) => route.fulfill({ json: proposal('q-next', 'សំណើថ្មី New completed take', 2) }));
-  await dock(page).getByRole('button', { name: 'Realign exact wording', exact: true }).click();
+  await dock(page).getByRole('button', { name: 'Re-time my edited words', exact: true }).click();
   await refine(page).click();
   await expect(hint(page)).toBeHidden();
   await expect(dock(page).getByText('Synthetic refinement running', { exact: true })).toBeVisible();
   expect(submitted).toMatchObject({ editedText: revisedWording, accuracyHint: revisedHint, strategy: 'manual-realign' });
   state.jobs = state.jobs.map((item) => item.id === 'unchanged-refinement' ? { ...item, status: 'completed', stage: 'complete', progress: 100, proposalId: 'q-next', updatedAt: '2026-01-02', completedAt: '2026-01-02' } : item);
   await expect(wording(page)).toHaveValue('សំណើថ្មី New completed take');
-  await expect(dock(page)).toContainText('Pass 2');
+  await expect(dock(page).getByText('Re-timed your wording', { exact: true })).toBeVisible();
   expect(actions).toEqual([]); await keptEvidence(page, before);
 });

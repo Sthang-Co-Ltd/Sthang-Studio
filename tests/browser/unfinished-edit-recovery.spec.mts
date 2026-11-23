@@ -644,7 +644,7 @@ test('an unrelated full-project reply cannot rebase recovered edits onto another
   await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
   await page.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).click();
-  const dock = page.getByRole('region', { name: 'Live regeneration review', exact: true });
+  const dock = page.getByRole('region', { name: 'Caption comparison', exact: true });
   await expect(dock).toBeVisible();
   await recoveryNotice(page).getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(captionA).toHaveValue(recoveredA);

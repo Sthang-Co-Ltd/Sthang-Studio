@@ -18,7 +18,7 @@ evidence of an updated public package or website.
 
 During regeneration comparison, notices and persistent save-recovery actions use
 a bounded footer outside the editor panes. They must not obscure Keep current
-or Accept actions. Small-screen comparison temporarily compacts the preview
+or the Use part and Use proposed buttons. Small-screen comparison temporarily compacts the preview
 while messages are present; the video remains available and an empty stack
 reserves no space. `tests/browser/stale-save-conflicts.spec.mts` covers desktop
 and mobile decision hit targets together with the guarded accepted-result save
