@@ -142,7 +142,7 @@ export function WorkspaceToolsMenu({
         <button type="button" role="menuitem" disabled={!layoutWide || !arrangeSupported} onClick={() => run((anchor) => {
           if (anchor) onArrangePanels(anchor);
         })}>
-          <PanelsTopLeft size={16}/><span><b>Arrange panels…</b><small>{arrangeSupported ? 'Choose where the preview, captions and tool sit' : 'Update your browser to rearrange panels'}</small></span>
+          <PanelsTopLeft size={16}/><span><b>Arrange panels…</b><small>{arrangeSupported ? 'Choose where each panel sits' : 'Update your browser to rearrange panels'}</small></span>
         </button>
         <button type="button" role="menuitem" disabled={!layoutWide} onClick={() => run(onResetLayout)}>
           <RotateCcw size={16}/><span><b>Reset layout</b><small>Restore default panel sizes and order</small></span>

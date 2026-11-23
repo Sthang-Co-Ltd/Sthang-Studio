@@ -30,6 +30,7 @@
 .refined-editor .panel-head{display:flex;flex-wrap:wrap;gap:8px;height:auto;min-height:68px;flex:none;padding:10px 12px}
 .refined-editor .panel-head-copy{flex:1 1 7rem;min-width:0}
 .refined-editor .panel-tools{margin-left:auto;max-width:100%;flex-wrap:wrap}
+@media(min-width:1200px){.refined-editor .panel-head>.panel-head-copy{flex-basis:max-content}}
 .refined-editor .caption-list{padding:4px 8px;overscroll-behavior:contain}
 .refined-editor .caption-row{border-radius:0;border:0;border-bottom:1px solid #232b32;padding:10px 4px;min-height:76px;box-shadow:none;grid-template-columns:20px 22px 96px minmax(0,1fr) 80px;gap:6px}
 .refined-editor .row-actions{width:80px}

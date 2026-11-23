@@ -262,6 +262,34 @@ test('Layout is desktop-only and its popover anchors and restores focus to Tools
   }
 });
 
+test('Tools menu items contain wrapped descriptions at wide desktop sizes', async ({ page }) => {
+  await openProject(page);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1200, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    const menu = await openLayoutTools(page);
+    const description = menu.getByRole('menuitem', { name: /^Arrange panels/ }).locator('small');
+    await expect(description).toHaveText('Choose where each panel sits');
+
+    const items = menu.locator('.tools-menu-section > button');
+    const readItems = () => items.evaluateAll((buttons) => buttons.map((button) => {
+      const { top, bottom, height } = button.getBoundingClientRect();
+      return { top, bottom, height, scrollHeight: button.scrollHeight, clientHeight: button.clientHeight };
+    }));
+    const original = await readItems();
+    await description.evaluate((node) => { node.textContent = Array(4).fill(node.textContent).join(' '); });
+    const wrapped = await readItems();
+    expect(wrapped.some((item, index) => item.height > original[index].height)).toBe(true);
+    for (const boxes of [original, wrapped]) {
+      for (const [index, item] of boxes.entries()) {
+        expect(item.scrollHeight).toBeLessThanOrEqual(item.clientHeight + 1);
+        if (index > 0) expect(item.top).toBeGreaterThanOrEqual(boxes[index - 1].bottom);
+      }
+    }
+    await description.evaluate((node) => { node.textContent = 'Choose where each panel sits'; });
+    await page.keyboard.press('Escape');
+  }
+});
+
 test('landscape enlargement fits captions to the minimum and temporarily yields to editing or narrow widths', async ({ page }) => {
   await openProject(page);
   await rememberNodes(page);
@@ -275,6 +303,26 @@ test('landscape enlargement fits captions to the minimum and temporarily yields 
   expect(enlarged.preview.width).toBeGreaterThan(initial.preview.width);
   expect(Math.abs(enlarged.preview.width - (space - enlarged.inspector.width - 360))).toBeLessThanOrEqual(2);
   expect(Math.abs(enlarged.captions.width - 360)).toBeLessThanOrEqual(2);
+  const captions = page.locator('.caption-panel');
+  const title = captions.locator('.panel-head-copy strong');
+  const count = captions.locator('.panel-head-copy > span');
+  await expect(title).toHaveText('Review queue');
+  await expect(count).toHaveText('2 to review');
+  for (const text of [title, count]) {
+    await expect(text).toBeVisible();
+    const { scrollWidth, clientWidth } = await text.evaluate((node) => ({ scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+  }
+  const head = await captions.evaluate((pane) => {
+    const bounds = pane.getBoundingClientRect();
+    const copy = pane.querySelector('.panel-head-copy')!.getBoundingClientRect();
+    return [...pane.querySelectorAll('.panel-tools > button')].map((tool) => {
+      const rect = tool.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.left >= bounds.left && rect.right <= bounds.right
+        && rect.top >= copy.bottom && rect.bottom <= bounds.bottom;
+    });
+  });
+  expect(head).toEqual([true, true, true]);
   expect(enlarged.inspector.width).toBe(initial.inspector.width);
   await expect(page.getByRole('separator', { name: /^Resize/ })).toHaveCount(0);
   expect((await saved(page)).enlargePreview).toBe(true);
@@ -336,6 +384,7 @@ test('enlarging cancels a captured divider without persisting its draft widths',
   expect((await paneBounds(page)).inspector.width).toBe(initial.inspector.width);
   await enlarge(page).click();
   expect(await paneBounds(page)).toEqual(initial);
+  expect(await saved(page)).toEqual({ preview: .36, inspector: .28, order: editOrder });
 });
 
 for (const width of [390, 900]) test(`preview-first scrolling and sticky offsets at ${width}px`, async ({ page }) => {

@@ -161,6 +161,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
     resetLayout: reset,
   }));
   function toggleEnlarge() {
+    finishResize(false);
     const next = { ...current.current };
     if (next.enlargePreview) delete next.enlargePreview;
     else next.enlargePreview = true;
