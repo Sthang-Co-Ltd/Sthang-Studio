@@ -172,7 +172,7 @@ test('Review focus remains visible at a selected fade boundary without changing 
   await expect(page.locator('.native-caption-focus')).toBeVisible();
   expect(state.requests.some((request) => request.path.endsWith('/preview') && request.body.focusIndices?.length === 1)).toBe(true);
   const captionPaint = await page.locator('.native-caption-image').getAttribute('src');
-  await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+  await page.getByText('More review options', { exact: true }).click();
   await page.getByLabel('Review focus', { exact: true }).selectOption('off');
   await expect(page.locator('.native-caption-focus')).toHaveCount(0);
   await expect(page.locator('.native-caption-surface')).toHaveAttribute('data-preview-mode', 'exact');

@@ -41,7 +41,7 @@ async function openScope(page: Page, scope: Scope) {
   if (scope === 'Review') {
     await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
     await expect(review(page)).toBeVisible();
-    await review(page).getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+    await review(page).getByText('More review options', { exact: true }).click();
     await expect(review(page).getByLabel('Tight loop', { exact: true })).toBeChecked();
   } else {
     await page.getByLabel('Open project tools', { exact: true }).click();

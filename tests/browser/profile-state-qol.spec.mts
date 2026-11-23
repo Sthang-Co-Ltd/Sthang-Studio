@@ -147,7 +147,7 @@ test('independent Review preferences send only their changed keys and survive re
     const autoplay = page.getByRole('checkbox', { name: 'Auto-play next', exact: true });
     await autoplay.check();
     await expect.poll(() => writes.length).toBe(1);
-    await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+    await page.getByText('More review options', { exact: true }).click();
     const focus = page.getByLabel('Review focus', { exact: true });
     await focus.selectOption('off');
     await expect.poll(() => writes.length).toBe(2);

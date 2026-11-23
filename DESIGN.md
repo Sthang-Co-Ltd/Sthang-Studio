@@ -429,7 +429,12 @@ the actual download remains disabled. Plain SRT remains independently available.
 
 ### Review decisions
 
-Review is a sequential queue, not a freeform editing surface. Keep navigation and decisions visually distinct:
+The Review decision card shows the remaining count, the selected caption's
+position and time range, its exact text, the reasons it was flagged, and the
+decision bar. **Edit text** uses the same focus and reveal behavior as **E** to
+open the selected caption's existing field in the list. The card reflects the
+live draft. On wide desktops, the decision bar stays visible while the inspector
+scrolls. Keep navigation and decisions visually distinct.
 
 ```text
 Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
@@ -443,7 +448,9 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - Auto-advance is scoped to Review mode only. Normal timeline editing must never jump after an approval/edit.
 - Treat surrounding audio as **context**, not as part of every loop. The first pass on a newly entered review item may use the configured pre/post-roll; subsequent loops and Replay use a tight focus window around the selected caption.
 - After a text or timing edit is committed in Review, replay the selected caption with the tight focus pass so the user can verify the change immediately.
-- Keep **Play with context** available under advanced Review controls for deliberate re-checking of neighboring speech.
+- **More review options** contains **Review profile**, playback and focus settings,
+  locks, timing cleanup, and shortcuts. **Play with context** stays there for
+  deliberate re-checking of neighboring speech.
 
 ### Fine Timing and word highlighting
 
