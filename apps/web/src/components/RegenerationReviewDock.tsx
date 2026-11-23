@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { formatTimestamp } from '../timestamp';
 import type {
   ProcessingJob,
@@ -9,6 +9,7 @@ import type {
 } from '@kcs/shared';
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -22,9 +23,9 @@ import {
   Repeat2,
   ListChecks,
   ScanText,
-  X,
 } from 'lucide-react';
 import { captionTextForEditing } from '../caption-text';
+import { useMenuKeyboard } from '../use-menu-keyboard';
 
 interface Props {
   proposal: RegenerationProposal;
@@ -48,11 +49,11 @@ function naturalText(captions: RegenerationProposal['proposedCaptions']) {
   return captionTextForEditing(captions);
 }
 
-function strategyLabel(proposal: RegenerationProposal) {
-  if (proposal.strategy === 'deep-verify') return 'Deep verification';
-  if (proposal.strategy === 'manual-realign') return 'Exact wording realignment';
-  if (proposal.strategy === 'alternative') return proposal.acceptedBaselineText ? 'Baseline refinement' : 'Alternative take';
-  return 'Initial proposal';
+function takeLabel(proposal: RegenerationProposal): string | null {
+  if (proposal.strategy === 'deep-verify') return 'Checked more carefully';
+  if (proposal.strategy === 'manual-realign') return 'Re-timed your wording';
+  if (proposal.strategy === 'alternative') return proposal.acceptedBaselineText ? 'Built on your wording' : 'Another take';
+  return null;
 }
 
 export function RegenerationReviewDock({
@@ -82,6 +83,40 @@ export function RegenerationReviewDock({
   const textChanges = proposal.changes.filter((item) => item.textChanged).length;
   const timingChanges = proposal.changes.filter((item) => item.timingChanged).length;
   const working = busy || Boolean(refinementJob && ['queued', 'running'].includes(refinementJob.status));
+  const textDisabled = working || wordingEmpty || (!textChanges && !edited);
+  const timingDisabled = working || !timingChanges;
+  const partialDisabled = textDisabled && timingDisabled;
+  const [partialOpen, setPartialOpen] = useState(false);
+  const partialMenuId = useId();
+  const partialRoot = useRef<HTMLDivElement>(null);
+  const partialTrigger = useRef<HTMLButtonElement>(null);
+  const partialMenu = useRef<HTMLDivElement>(null);
+  const showPartialMenu = partialOpen && !partialDisabled;
+  const keyboard = useMenuKeyboard(showPartialMenu ? partialMenuId : null, partialMenu, () => partialTrigger.current, () => setPartialOpen(false));
+  const take = takeLabel(proposal);
+  const locks = proposal.lockedCaptionsPreserved;
+  const summary = [
+    textChanges > 0 && `${textChanges} text change${textChanges === 1 ? '' : 's'}`,
+    timingChanges > 0 && `${timingChanges} timing change${timingChanges === 1 ? '' : 's'}`,
+    !textChanges && !timingChanges && 'Same as the current captions',
+    locks > 0 && `${locks} locked caption${locks === 1 ? '' : 's'} kept`,
+  ].filter(Boolean).join(' · ');
+  const changeRange = change ? `${formatTimestamp(change.startMs)} – ${formatTimestamp(change.endMs)}` : '';
+
+  useEffect(() => {
+    if (!showPartialMenu) return;
+    const outside = (event: Event) => {
+      if (event.target instanceof Node && !partialRoot.current?.contains(event.target)) setPartialOpen(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('focusin', outside);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('focusin', outside);
+    };
+  }, [showPartialMenu]);
+
+  useEffect(() => { if (partialDisabled) setPartialOpen(false); }, [partialDisabled]);
 
   useEffect(() => {
     setChangeIndex(0);
@@ -104,12 +139,18 @@ export function RegenerationReviewDock({
     });
   };
 
-  return <section className="regeneration-dock" aria-label="Live regeneration review">
+  const selectPart = (action: () => void) => {
+    partialTrigger.current?.focus({ preventScroll: true });
+    setPartialOpen(false);
+    action();
+  };
+
+  return <section className="regeneration-dock" aria-label="Caption comparison">
     <div className="regen-dock-head">
       <div className="regen-title-icon"><RefreshCw size={17}/></div>
       <div className="regen-title-copy">
-        <div><span>Pass {proposal.passNumber}</span><em>{strategyLabel(proposal)}</em></div>
-        <p>{formatTimestamp(proposal.startMs)} – {formatTimestamp(proposal.endMs)} · Preview each version against the video before accepting.</p>
+        <div><strong>{formatTimestamp(proposal.startMs)} – {formatTimestamp(proposal.endMs)}</strong>{take && <span>{take}</span>}</div>
+        <p>Play both versions against the video, then choose.</p>
       </div>
     </div>
 
@@ -118,27 +159,20 @@ export function RegenerationReviewDock({
         <button className={previewMode === 'current' ? 'selected' : ''} aria-pressed={previewMode === 'current'} onClick={() => onPreviewMode('current')}>Current</button>
         <button className={previewMode === 'proposed' ? 'selected' : ''} aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>Proposed</button>
       </div>
-      <button onClick={() => onReplay()}><Play size={14}/>Replay range</button>
-      <button className={loop ? 'selected' : ''} aria-pressed={loop} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>{loop ? 'Looping' : 'Loop'}</button>
-      {proposal.changes.length > 0 && <div className="regen-change-nav">
+      <button onClick={() => onReplay()}><Play size={14}/>Replay</button>
+      <button className={loop ? 'selected' : ''} aria-pressed={loop} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>Loop</button>
+      {proposal.changes.length > 1 && <div className="regen-change-nav">
         <button onClick={() => selectChange(changeIndex - 1)} disabled={changeIndex === 0} aria-label="Previous proposed change"><ChevronLeft size={14}/></button>
         <span>Change {changeIndex + 1} of {proposal.changes.length}</span>
         <button onClick={() => selectChange(changeIndex + 1)} disabled={changeIndex >= proposal.changes.length - 1} aria-label="Next proposed change"><ChevronRight size={14}/></button>
       </div>}
     </div>
 
-    <div className="regen-summary">
-      <span><b>{proposal.unchangedCount}</b> unchanged</span>
-      <span><b>{textChanges}</b> text change{textChanges === 1 ? '' : 's'}</span>
-      <span><b>{timingChanges}</b> timing change{timingChanges === 1 ? '' : 's'}</span>
-      <span><b>{proposal.lockedCaptionsPreserved}</b> locks preserved</span>
-      {proposal.acceptedBaselineText && <span className="baseline-chip"><Check size={11}/>Built on accepted wording</span>}
-    </div>
+    <p className="regen-summary">{summary}</p>
 
-    {change && <button className="regen-change-focus" onClick={() => { onSeek(Math.max(0, change.startMs - 350)); onReplay(change.startMs); }} title="Play this changed caption">
-      <span>{formatTimestamp(change.startMs)} – {formatTimestamp(change.endMs)}</span>
-      <b>{change.confidence} confidence</b>
-      {change.protectedByLock && <em><LockKeyhole size={11}/>protected</em>}
+    {change && <button className="regen-change-focus" onClick={() => { onSeek(Math.max(0, change.startMs - 350)); onReplay(change.startMs); }} aria-label={`Play this change, ${changeRange}`}>
+      <span>{changeRange}</span>
+      {change.protectedByLock && <em><LockKeyhole size={11}/>Locked</em>}
       <Play size={13}/>
     </button>}
 
@@ -157,41 +191,55 @@ export function RegenerationReviewDock({
           aria-describedby={wordingHelpId}
           rows={Math.max(3, Math.min(7, Math.ceil(editedText.length / 58)))}
         />
-        <small id={wordingHelpId} aria-live="polite"><PencilLine size={11}/>{wordingEmpty ? 'Enter wording before accepting text or the full proposal.' : 'Edit the wording before accepting or realigning it.'}</small>
+        <small id={wordingHelpId} aria-live="polite"><PencilLine size={11}/>{wordingEmpty ? 'Enter wording before using the text or the whole proposal.' : 'You can edit the wording before using it.'}</small>
       </article>
     </div>
 
     {edited && !wordingEmpty && <div className="regen-honesty-note warning">
-      <Lightbulb size={15}/><span><b>Wording edited.</b> Accepting now keeps the proposal’s timing. Open <b>Refine this proposal</b> to realign the edited wording first.</span>
+      <Lightbulb size={15}/><span><b>Wording edited.</b> Using it now keeps the proposal's timing. To fit the timing to your words first, open <b>Try another way</b> and choose <b>Re-time my edited words</b>.</span>
     </div>}
 
     <div className="regen-apply-actions">
-      <button disabled={working} onClick={() => onApply('reject')}><X size={14}/>Keep current</button>
-      <button disabled={working || wordingEmpty || (!textChanges && !edited)} onClick={() => onApply('text-only', editedText)}><FileText size={14}/>Accept text only</button>
-      <button disabled={working || !timingChanges} onClick={() => onApply('timing-only')}><Clock3 size={14}/>Accept timing only</button>
-      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}><Check size={14}/>{edited ? 'Accept edited proposal' : 'Accept proposed range'}</button>
+      <button disabled={working} onClick={() => onApply('reject')}>Keep current</button>
+      <div ref={partialRoot} className="regen-part" onKeyDown={keyboard.onKeyDown}>
+        <button ref={partialTrigger} type="button" disabled={partialDisabled} aria-haspopup="menu"
+          aria-expanded={showPartialMenu} aria-controls={showPartialMenu ? partialMenuId : undefined}
+          onClick={() => setPartialOpen(!partialOpen)} onKeyDown={(event) => {
+            if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229
+              || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.getModifierState('AltGraph')) return;
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            event.preventDefault();
+            keyboard.openAt(event.key === 'ArrowDown' ? 'first' : 'last', partialMenuId);
+            setPartialOpen(true);
+          }}>Use part<ChevronDown size={14} aria-hidden="true"/></button>
+        {showPartialMenu && <div ref={partialMenu} id={partialMenuId} className="regen-part-menu" role="menu" aria-label="Use part of the proposal">
+          <button type="button" role="menuitem" tabIndex={-1} disabled={textDisabled} onClick={() => selectPart(() => onApply('text-only', editedText))}><FileText size={14}/>Use text only</button>
+          <button type="button" role="menuitem" tabIndex={-1} disabled={timingDisabled} onClick={() => selectPart(() => onApply('timing-only'))}><Clock3 size={14}/>Use timing only</button>
+        </div>}
+      </div>
+      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}>{edited ? 'Use edited version' : 'Use proposed'}</button>
     </div>
 
     <details className="regen-refine-options">
-      <summary>Refine this proposal</summary>
+      <summary>Try another way</summary>
       <div className="regen-refine-card">
       <label className="regen-hint"><span>Accuracy hint <i>optional</i></span><input value={accuracyHint} onChange={(event) => onAccuracyHint(event.target.value)} placeholder={'Example: Write “CapCut” in Latin letters, and the dish as “បាយសាច់ជ្រូក”.'}/></label>
       <div className="regen-refine-actions">
-        <button disabled={working} onClick={() => refine('alternative', false)} title="Try another suggestion"><RefreshCw size={14}/>Try another take</button>
-        <button className="baseline-action" disabled={working || !editedText.trim()} onClick={() => refine('alternative', true)} title="Build the next suggestion from this wording"><Check size={14}/>Use as baseline & refine</button>
-        <button disabled={working} onClick={() => refine('deep-verify', edited)} title="Compare extra attempts and keep the strongest suggestion"><ScanText size={14}/>Deep verify</button>
-        <button disabled={working || !editedText.trim()} onClick={() => refine('manual-realign', true)} title="Keep your exact wording and refresh its timing"><PencilLine size={14}/>Realign exact wording</button>
+        <button disabled={working} onClick={() => refine('alternative', false)} title="Ask for a fresh suggestion"><RefreshCw size={14}/>Another take</button>
+        <button className="baseline-action" disabled={working || !editedText.trim()} onClick={() => refine('alternative', true)} title="Start the next suggestion from the wording above"><Check size={14}/>Build on this wording</button>
+        <button disabled={working} onClick={() => refine('deep-verify', edited)} title="Try several times and keep the strongest version"><ScanText size={14}/>Check more carefully</button>
+        <button disabled={working || !editedText.trim()} onClick={() => refine('manual-realign', true)} title="Keep your exact words and fit their timing to the audio"><PencilLine size={14}/>Re-time my edited words</button>
       </div>
-      <div className="regen-baseline-help"><Check size={13}/><span>You can compare the next take before accepting it.</span></div>
+      <div className="regen-baseline-help"><Check size={13}/><span>You can compare the next version before using it.</span></div>
       </div>
     </details>
 
     {refinementJob && ['queued', 'running'].includes(refinementJob.status) && <div className="regen-job-progress">
-      <LoaderCircle className="spin" size={15}/><div><strong>{refinementJob.message}</strong><span>{refinementJob.progress}% · Review this proposal while the next pass runs.</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
+      <LoaderCircle className="spin" size={15}/><div><strong>{refinementJob.message}</strong><span>{refinementJob.progress}% · You can keep comparing while the next version is prepared.</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
     </div>}
 
     {proposal.candidates && proposal.candidates.length > 1 && <details className="regen-candidates">
-      <summary><ListChecks size={14}/>How Deep Verify chose this proposal</summary>
+      <summary><ListChecks size={14}/>How Studio chose this version</summary>
       <div>{proposal.candidates.map((candidate) => <article key={candidate.id} className={candidate.selected ? 'selected' : ''}>
         <div><strong>{candidate.label}</strong>{candidate.selected && <span>Selected</span>}</div>
         <p>{candidate.text}</p>

@@ -575,7 +575,7 @@ test('discarding a proposal cannot lend a foreign caption revision to an ordinar
   await other.getByLabel('Open project tools', { exact: true }).click();
   await other.getByRole('menuitem', { name: /Processing jobs/ }).click();
   await other.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).click();
-  const dock = other.getByRole('region', { name: 'Live regeneration review', exact: true });
+  const dock = other.getByRole('region', { name: 'Caption comparison', exact: true });
   await expect(dock).toBeVisible();
   let failedWrites = 0;
   let failWrites = true;
@@ -638,7 +638,7 @@ test(`accepting a caption mutation keeps newer typing but prevents its stale ful
   await other.getByLabel('Open project tools', { exact: true }).click();
   await other.getByRole('menuitem', { name: /Processing jobs/ }).click();
   await other.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).click();
-  const dock = other.getByRole('region', { name: 'Live regeneration review', exact: true });
+  const dock = other.getByRole('region', { name: 'Caption comparison', exact: true });
   await expect(dock).toBeVisible();
   let failedWrites = 0;
   await other.route(`**/api/projects/${original.id}/captions`, async (route) => {
@@ -652,7 +652,7 @@ test(`accepting a caption mutation keeps newer typing but prevents its stale ful
   await expect.poll(() => failedWrites).toBe(1);
   await saveCaption(page, name, 'ACCEPTED SECOND CAPTION FROM COMMITTED RESULT', 2);
   const canonical = await disk(name);
-  const accept = dock.getByRole('button', { name: 'Accept proposed range', exact: true });
+  const accept = dock.getByRole('button', { name: 'Use proposed', exact: true });
   await expect(other.locator('.save-failure')).toBeVisible();
   for (const decision of await dock.locator('.regen-apply-actions button:enabled').all()) {
     await decision.scrollIntoViewIfNeeded();

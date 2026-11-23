@@ -1157,8 +1157,15 @@ Comparison card headers must not inherit the outer app header's stacking level;
 keep them beneath the sticky video and verify its bottom controls remain exposed.
 
 When proposed wording is empty, mark the editable field invalid and associate a
-nearby explanation. Disable Accept text only and full-proposal acceptance until
-wording is present. Keep current and Accept timing only remain distinct decisions.
+nearby explanation. Disable **Use text only** and the full decision (**Use
+proposed** or **Use edited version**) until wording is present. **Keep current**
+and **Use timing only** remain available when their usual conditions are met.
+
+**Compare captions** shows the range, a plain change summary, and Current and
+Proposed previews. **Keep current** sits on the left and the lime **Use proposed**
+action sits on the right. **Use part** opens upward for text-only and timing-only
+decisions. **Try another way** holds the optional accuracy hint and the four
+refinement actions.
 
 Save grouping preset has independent pending feedback and a synchronous duplicate
 guard that survives closing/reopening the grouping workspace. Acknowledge the
