@@ -66,9 +66,13 @@ cannot raise it. See [model choice and request policy](docs/GENERATION-MODEL-CHO
 
 On wide desktops, the editor keeps a large media preview, the full caption-list
 pane and one optional tool inspector side by side. Opening or switching a tool
-does not reduce the preview's allocated size or remount the media or caption list.
-The contained picture retains its aspect ratio. **Arrange panels** offers preview
-left/middle/right presets and all six orders through drag or keyboard controls.
+preserves the normal preview width and the media and caption-list instances.
+The contained picture retains its aspect ratio. In the current source, Review,
+Appearance and Compare start with the tool beside the preview and remember their
+own pane order. Captions and Export share the editing order. The Captions tool
+strip is the only stage toolbar. At widths of 1200px and above,
+**Tools → Layout → Arrange panels…** offers preview left/middle/right presets and
+all six orders through drag or keyboard controls.
 The grip and title in each panel header also reorder directly, without opening
 Arrange panels. Header arrow keys and Home/End offer the same ordering, with
 visible focus and spoken feedback; adjacent header action buttons stay independent.
@@ -76,9 +80,9 @@ During a header drag, the real panel follows the pointer and its neighbours
 slide aside at their midpoints to preview insertion. A marked vacant slot shows
 the destination. This draft order is saved only on a valid drop; cancellation
 restores the committed arrangement.
-The chosen desktop order survives closing/reopening the tool; moving the two
-remaining panes retains the hidden tool's slot. Closing tools preserves preview
-width, and the caption list absorbs the freed space.
+A chosen desktop order is restored when the editor returns to that layout mode.
+Moving the two remaining panes retains the hidden tool's editing slot. Closing
+tools restores the normal preview width, and captions absorb the freed space.
 
 Fine timing docks its waveform beneath captions and the inspector when those
 panes are adjacent. With the preview in the middle, it docks beneath captions
@@ -87,8 +91,11 @@ the media or caption list. Layout changes cancel pending timing drags before new
 geometry can turn them into caption edits.
 
 Pane dividers resize their actual neighboring panes with pointer or keyboard.
-Their proportions and the three allowlisted pane IDs are optional local browser
-preferences, with **Reset layout** restoring both. Caption and
+For landscape or square video, **Enlarge preview** in Review, Appearance and
+Compare narrows captions to their 360px minimum on wide desktops. Dividers are
+hidden while enlarged. The proportional sizes, pane orders and enlargement choice
+are local browser preferences. **Tools → Layout → Reset layout** restores the
+defaults and clears the enlargement choice. Caption and
 tool scrolling are independent; the ordinary generated-caption view reserves no
 empty inspector. **Close tool** returns to video and captions. Review keeps its
 existing flagged queue, decisions and playback rules.

@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { openLayoutTools } from './editor-layout-tools.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 let state: FixtureState;
@@ -226,7 +227,8 @@ test('optional Accuracy entry reflects saved project context', async ({ page }, 
   const close = accuracy.getByRole('button', { name: 'Close tool', exact: true });
   const toolbarAccuracy = page.getByRole('button', { name: 'Accuracy', exact: true });
   await expect(toolbarAccuracy).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Reset layout', exact: true })).toBeVisible();
+  await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Reset layout/ })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(generate.getByText('Optional', { exact: true })).toBeVisible();
   await expect(generate.getByRole('button', { name: 'Generate captions', exact: true })).toBeEnabled();
   const row = generate.locator('.generation-accuracy');

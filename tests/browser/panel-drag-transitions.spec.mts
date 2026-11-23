@@ -16,7 +16,7 @@ const grip = (page:Page,id:Pane) => pane(page,id).getByRole('button',{ name:/^.+
 const saved = (page:Page) => page.evaluate(() => localStorage.getItem('sthang:editor-layout:v2'));
 async function setup(page:Page,order:Pane[]) {
   await page.addInitScript((order) => localStorage.setItem('sthang:editor-layout:v2',JSON.stringify({ preview:.36,inspector:.28,order })),order);
-  await openProject(page); await page.getByRole('button',{ name:'Appearance',exact:true }).click();
+  await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
   await page.evaluate(() => { (window as any).__transitionVideo=document.querySelector('video'); (window as any).__transitionList=document.querySelector('.caption-list'); });
 }
 async function begin(page:Page,source:Pane,target:Pane) {
@@ -61,12 +61,12 @@ for(const order of orders) test(`all drag sources survive 3/2/3 transitions with
     await keyActivate(page,'Close tool'); await page.mouse.up();
     await assertClean(page,order.filter((id) => id!=='inspector')); expect(await saved(page)).toBe(original);
     expect((await pane(page,'preview').boundingBox())!.width).toBe(previewWidth);
-    await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await assertClean(page,order);
+    await page.getByRole('button',{ name:'Export',exact:true }).click(); await assertClean(page,order);
   }
   for(const source of ['preview','captions'] as Pane[]) {
     await page.getByRole('button',{ name:'Close tool',exact:true }).click();
     await begin(page,source,source==='preview' ? 'captions' : 'preview');
-    await keyActivate(page,'Appearance'); await page.mouse.up();
+    await keyActivate(page,'Export'); await page.mouse.up();
     await assertClean(page,order); expect(await saved(page)).toBe(original);
     expect((await pane(page,'preview').boundingBox())!.width).toBe(previewWidth);
   }
@@ -74,7 +74,7 @@ for(const order of orders) test(`all drag sources survive 3/2/3 transitions with
   await begin(page,'preview','captions'); await page.mouse.up();
   const swapped=order.map((id) => id==='preview' ? 'captions' : id==='captions' ? 'preview' : id) as Pane[];
   await assertClean(page,swapped.filter((id) => id!=='inspector'));
-  await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await assertClean(page,swapped);
+  await page.getByRole('button',{ name:'Export',exact:true }).click(); await assertClean(page,swapped);
 });
 
 for(const panels of [2,3]) for(const phase of ['landing','cancel']) for(const action of ['drag','click','toggle']) test(`${panels} panels: regrab during ${phase}, then ${action}, retains anchor and state`,async ({ page }) => {
@@ -100,13 +100,13 @@ for(const panels of [2,3]) for(const phase of ['landing','cancel']) for(const ac
     const moved=(await grip(page,'preview').boundingBox())!;
     expect(moved.x-before.x).toBeCloseTo(18,0); expect(moved.y-before.y).toBeCloseTo(14,0);
     await page.keyboard.press('Escape');
-  } else if(action==='toggle') await keyActivate(page,panels===2 ? 'Appearance' : 'Close tool');
+  } else if(action==='toggle') await keyActivate(page,panels===2 ? 'Export' : 'Close tool');
   await page.mouse.up();
   const full:Pane[]=phase==='landing' ? panels===2 ? ['captions','preview','inspector'] : ['captions','inspector','preview'] : orders[0];
   const open=action==='toggle' ? panels===2 : panels===3;
   await assertClean(page,full.filter((id) => open || id!=='inspector'));
   expect(await saved(page)).toBe(original);
-  if(!open) { await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await assertClean(page,full); }
+  if(!open) { await page.getByRole('button',{ name:'Export',exact:true }).click(); await assertClean(page,full); }
 });
 
 test('an inspector regrab preserves its fractional anchor while its height is settling',async ({ page },info) => {

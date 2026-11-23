@@ -1,5 +1,12 @@
 export type EditorPane = 'preview' | 'captions' | 'inspector';
-export interface EditorLayoutPreference { preview: number; inspector: number; order: EditorPane[] }
+export type EditorLayoutMode = 'edit' | 'judge';
+export interface EditorLayoutPreference {
+  preview: number;
+  inspector: number;
+  order: EditorPane[];
+  judgeOrder?: EditorPane[];
+  enlargePreview?: true;
+}
 export const EDITOR_LAYOUT_KEY = 'sthang:editor-layout:v2';
 export const LEGACY_EDITOR_LAYOUT_KEY = 'sthang:editor-layout:v1';
 export const EDITOR_LAYOUT_CHANGE = 'sthang:editor-layout-change';
@@ -8,14 +15,37 @@ export const PANE_LABELS = { preview: 'Preview', captions: 'Captions', inspector
 export const PANE_MINIMUMS = { preview: 320, captions: 360, inspector: 360 };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
+export function editorArrangementSupported() {
+  return CSS.supports('reading-flow', 'source-order') && CSS.supports('reading-order', '1')
+    && typeof HTMLElement.prototype.showPopover === 'function';
+}
+
+function validEditorOrder(order: unknown): order is EditorPane[] {
+  return Array.isArray(order) && order.length === 3 && new Set(order).size === 3
+    && order.every((pane) => DEFAULT_EDITOR_LAYOUT.order.includes(pane));
+}
+
 export function parseEditorLayout(raw: string | null, legacy = false): EditorLayoutPreference | null {
   try {
     const value = JSON.parse(raw || 'null');
     if (!value || ![value.preview, value.inspector].every((item) => typeof item === 'number' && Number.isFinite(item) && item > 0 && item < 1)) return null;
     const order = legacy ? DEFAULT_EDITOR_LAYOUT.order : value.order;
-    if (!Array.isArray(order) || order.length !== 3 || new Set(order).size !== 3 || !order.every((pane) => DEFAULT_EDITOR_LAYOUT.order.includes(pane))) return null;
-    return { preview: value.preview, inspector: value.inspector, order: [...order] };
+    if (!validEditorOrder(order)) return null;
+    const preference: EditorLayoutPreference = { preview: value.preview, inspector: value.inspector, order: [...order] };
+    if (!legacy && validEditorOrder(value.judgeOrder)) preference.judgeOrder = [...value.judgeOrder];
+    if (!legacy && value.enlargePreview === true) preference.enlargePreview = true;
+    return preference;
   } catch { return null; }
+}
+
+/** Move Tool beside Preview while preserving Preview's position. */
+export function deriveJudgeOrder(order: EditorPane[]): EditorPane[] {
+  if (Math.abs(order.indexOf('preview') - order.indexOf('inspector')) === 1) return order;
+  return order.map((pane) => pane === 'preview' ? pane : pane === 'captions' ? 'inspector' : 'captions');
+}
+
+export function effectiveEditorOrder(preference: EditorLayoutPreference, mode: EditorLayoutMode): EditorPane[] {
+  return mode === 'judge' ? preference.judgeOrder ?? deriveJudgeOrder(preference.order) : preference.order;
 }
 
 export function visibleEditorPanes(order: EditorPane[], open: boolean) {
@@ -32,12 +62,13 @@ export function moveEditorPane(order: EditorPane[], open: boolean, pane: EditorP
   return order.map((item) => !open && item === 'inspector' ? item : next[index++]);
 }
 
-export function editorGeometry(width: number, open: boolean, preference: EditorLayoutPreference) {
+export function editorGeometry(width: number, open: boolean, preference: EditorLayoutPreference, enlarged = false) {
   // The preview uses the same basis with two or three panes, avoiding a size jump
   // when a tool opens. Caption space absorbs the closed inspector and its divider.
   const space = Math.max(1040, width - 16);
-  const preview = clamp(Math.round(space * preference.preview), 320, space - 720);
-  const inspector = clamp(Math.round(space * preference.inspector), 360, space - preview - 360);
+  const normalPreview = clamp(Math.round(space * preference.preview), 320, space - 720);
+  const inspector = clamp(Math.round(space * preference.inspector), 360, space - normalPreview - 360);
+  const preview = enlarged && open ? Math.max(normalPreview, space - inspector - PANE_MINIMUMS.captions) : normalPreview;
   return { space, widths: { preview, inspector, captions: space - preview - (open ? inspector : -8) } };
 }
 

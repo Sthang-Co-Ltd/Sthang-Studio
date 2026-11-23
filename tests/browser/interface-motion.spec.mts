@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openPanelArrangement } from './editor-layout-tools.mjs';
 import { webSourceIdentity } from '../../scripts/web-runtime-identity.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
@@ -86,15 +87,14 @@ for (const reduced of [false, true]) test(`sheet dismissal releases focus and ra
 test('native arrangement dismissal is semantic immediately and early drag retains viewport coordinates', async ({ page }) => {
   await page.setViewportSize({ width: 2048, height: 1041 });
   await openProject(page);
-  const trigger = page.getByRole('button', { name: 'Arrange panels', exact: true });
   const panel = page.getByRole('region', { name: 'Arrange panels', exact: true });
   for (let count = 0; count < 3; count++) {
-    await trigger.evaluate((node: HTMLElement) => node.click());
+    await openPanelArrangement(page);
     await expect(panel).toBeVisible();
     await panel.getByLabel('Close panel arrangement', { exact: true }).evaluate((node: HTMLElement) => node.click());
     await expect(panel).toHaveCount(0);
   }
-  await trigger.evaluate((node: HTMLElement) => node.click());
+  await openPanelArrangement(page);
   await expect(panel).toBeVisible();
   // Keep the content mid-entrance while checking the real ghost's positioning.
   await page.locator('.editor-arrange-content').evaluate((node) => {
