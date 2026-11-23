@@ -45,7 +45,7 @@ import {
   ListTodo,
   LoaderCircle,
   LockKeyhole,
-  Palette,
+  Palette, PencilLine,
   Play,
   RotateCcw,
   RefreshCw,
@@ -4783,25 +4783,20 @@ export default function App() {
                 {selection.captions[0]?.text || (selection.captions.length ? 'This caption has no text.' : 'Select a caption to review.')}
               </p>
               <button type="button" className="review-caption-edit" aria-keyshortcuts="E" onClick={() => selection.ids[0] && editor.current?.focusCaption(selection.ids[0])} disabled={!selection.ids.length}>
-                <svg className="lucide lucide-pencil-line" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M13 21h8"/><path d="m15 5 4 4"/>
-                  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
-                </svg>
+                <PencilLine size={15} aria-hidden="true"/>
                 Edit text
               </button>
             </div>
             {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label="Review reasons">{selectedReviewReasons.map(({ code, label, hint }, index) => <li key={`${code}:${index}`}><strong>{label}</strong> <span>{hint}</span></li>)}</ul>}
-            <div className="review-actions review-primary-actions">
-              <div className="review-nav-actions">
-                <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
-                <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>Replay</button>
-                <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>Skip</button>
-                <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
-              </div>
-              <div className="review-decision-actions">
-                {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>}
-                <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
-              </div>
+            <div className="review-actions review-nav-actions">
+              <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
+              <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>Replay</button>
+              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>Skip</button>
+              <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
+            </div>
+            <div className="review-actions review-decision-actions">
+              {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>}
+              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
             </div>
             <details className="advanced-review-tools">
               <summary>More review options</summary>

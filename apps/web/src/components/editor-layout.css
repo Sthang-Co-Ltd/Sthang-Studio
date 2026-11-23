@@ -51,7 +51,7 @@
 .inspector-content .review-card>*{grid-column:1;min-width:0}
 .inspector-content .review-card-head{display:grid;gap:6px}
 .inspector-content .review-selection{text-align:left;font-size:13px;line-height:1.5}
-.inspector-content .review-caption{display:grid;gap:10px;padding:12px;border:1px solid #2d343d;border-radius:12px;background:var(--panel)}
+.inspector-content .review-caption{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px;border:1px solid #2d343d;border-radius:12px;background:var(--panel)}
 .inspector-content .review-caption-text{margin:0;color:#eef2f6;font:18px/1.7 'Noto Sans Khmer','Plus Jakarta Sans',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}
 .inspector-content .review-caption-empty{color:var(--muted)}
 .inspector-content .review-caption-edit{justify-self:end;display:flex;align-items:center;gap:6px;min-height:36px;padding:0 10px;border:1px solid #303641;border-radius:8px;background:#161a20;font-size:13px;cursor:pointer}
@@ -61,17 +61,13 @@
 .inspector-content .qa-profile-control{margin:6px 0 12px;padding:0;border:0}
 .inspector-content .qa-profile-control label{color:#b7bec8;font-size:13px;text-transform:none;letter-spacing:normal}
 .inspector-content .qa-profile-control span{color:#9aa4ae;font-size:13px}
-.inspector-content .review-primary-actions{display:flex;flex-direction:column;align-items:stretch;gap:12px}
 .inspector-content .review-nav-actions{display:flex;flex-wrap:wrap}
-.inspector-content .review-decision-actions{display:flex;justify-content:flex-end;flex-wrap:wrap}
+.inspector-content .review-decision-actions{position:sticky;bottom:0;z-index:1;justify-content:flex-end;margin-left:0;padding:10px 0;border-top:1px solid #2d343d;background:#0f1216}
 .inspector-content .review-decision-actions .review-approve-next:only-child{grid-column:1/-1;justify-self:end;width:auto}
 .inspector-content .advanced-review-tools>summary{width:auto}
 .inspector-content .shortcut-strip{white-space:normal;line-height:1.6}
-@media(min-width:1200px){
-  .inspector-content .review-primary-actions{position:sticky;bottom:0;z-index:1;padding:10px 0;border-top:1px solid #2d343d;background:#0f1216}
-}
 @media(max-width:1199px){
-  .inspector-content .review-caption-edit,.inspector-content .review-actions button,.inspector-content .review-primary-actions label{min-height:44px}
+  .inspector-content .review-caption-edit,.inspector-content .review-actions button,.inspector-content .review-nav-actions label{min-height:44px}
   .inspector-content .advanced-review-tools>summary{min-height:44px;padding-block:12px}
 }
 .inspector-content .accuracy-actions,.inspector-content .accuracy-help,.inspector-content .preset-actions{flex-wrap:wrap;min-width:0}
