@@ -7,8 +7,10 @@ test.afterAll(cleanFixtures);
 
 const review = (page: Page) => page.getByRole('complementary', { name: 'Review workspace', exact: true });
 const cardText = (page: Page) => review(page).locator('.review-caption-text');
-const actions = (page: Page) => review(page).locator('.review-primary-actions');
-const decision = (page: Page, name: string) => actions(page).getByRole('button', { name, exact: true });
+const actions = (page: Page) => review(page).locator('.review-decision-actions');
+const decision = (page: Page, name: string) => review(page).locator('.review-nav-actions, .review-decision-actions').getByRole('button', { name, exact: true });
+const editText = (page: Page) => review(page).getByRole('button', { name: 'Edit text', exact: true });
+const longCaption = 'Repeat this caption. '.repeat(30).slice(0, 600);
 const field = (page: Page) => page.getByRole('textbox', { name: 'Caption 1 text', exact: true });
 const captionWrites = (state: FixtureState) => state.requests.filter(({ path, method }) =>
   path === '/api/projects/landscape/captions' && method === 'PUT').map(({ body }) => body);
@@ -38,7 +40,7 @@ test('the card presents exact Khmer text, position, reasons and decisions in ord
   await expect(review(page).getByRole('list', { name: 'Review reasons' })).toBeVisible();
   await expect(actions(page)).toBeVisible();
   expect(await review(page).evaluate((root) => {
-    const parts = ['.review-card-head', '.review-caption', '.review-reasons', '.review-primary-actions'];
+    const parts = ['.review-card-head', '.review-caption', '.review-reasons', '.review-nav-actions'];
     return parts.map((selector) => Array.from(root.querySelector('.review-active')!.children).indexOf(root.querySelector(selector)!));
   })).toEqual([0, 1, 2, 3]);
 
@@ -62,6 +64,10 @@ test('the card presents exact Khmer text, position, reasons and decisions in ord
   }));
   expect(geometry.scrollable).toBe(false);
   expect(geometry.gap).toBeGreaterThan(0);
+  const textBox = (await cardText(page).boundingBox())!;
+  const editBox = (await editText(page).boundingBox())!;
+  expect(Math.abs(editBox.y - textBox.y)).toBeLessThanOrEqual(8);
+  expect(editBox.x).toBeGreaterThanOrEqual(textBox.x + textBox.width);
   await capture(page, 'review-1440x900.png');
 });
 
@@ -163,10 +169,34 @@ test('a range begins with the first caption and reports additional selections', 
   await expect(cardText(page)).toHaveText(state.projects[0].captions[0].text);
 });
 
+test('Review navigation and decisions keep their keyboard order', async ({ page }) => {
+  const state = await installFixture(page);
+  state.projects[0].captions[2].timingQuality = 'low';
+  await openProject(page);
+  await enterReview(page);
+  await page.getByRole('group', { name: 'Caption 2', exact: true }).locator('.row-index').click();
+
+  const previous = decision(page, 'Previous');
+  await expect(previous).toBeEnabled();
+  await expect(decision(page, 'Skip')).toBeEnabled();
+  await previous.focus();
+  await expect(previous).toBeFocused();
+  for (const control of [
+    decision(page, 'Replay'),
+    decision(page, 'Skip'),
+    review(page).getByRole('checkbox', { name: 'Auto-play next', exact: true }),
+    decision(page, 'Improve…'),
+    decision(page, 'Approve & next'),
+  ]) {
+    await page.keyboard.press('Tab');
+    await expect(control).toBeFocused();
+  }
+});
+
 test('long content leaves the desktop decision bar fully visible at scroll zero', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   const state = await installFixture(page);
-  const wording = 'Repeat this caption. '.repeat(30).slice(0, 600);
+  const wording = longCaption;
   state.projects[0].captions[0].text = wording;
   await openProject(page);
   await enterReview(page);
@@ -181,6 +211,24 @@ test('long content leaves the desktop decision bar fully visible at scroll zero'
       && node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
   })).toBe(true);
   await capture(page, 'review-1366x768.png');
+
+  const positions = () => actions(page).evaluate((bar) => {
+    const navigation = bar.previousElementSibling!;
+    return {
+      scroll: bar.closest('.inspector-content')!.scrollTop,
+      previous: navigation.querySelector('button:first-child')!.getBoundingClientRect().top,
+      skip: navigation.querySelector('button:nth-child(3)')!.getBoundingClientRect().top,
+      bottom: bar.getBoundingClientRect().bottom,
+    };
+  });
+  const before = await positions();
+  await review(page).locator('.inspector-content').evaluate((port) => port.scrollTo({ top: 24, behavior: 'instant' }));
+  const after = await positions();
+  expect(after.scroll).toBe(24);
+  expect(after.previous).toBeCloseTo(before.previous - after.scroll, 0);
+  expect(after.skip).toBeCloseTo(before.skip - after.scroll, 0);
+  expect(after.bottom).toBeCloseTo(before.bottom, 0);
+  await expect(decision(page, 'Approve & next')).toBeInViewport({ ratio: 1 });
 });
 
 test('phone content and all card buttons fit without covering the list or preview', async ({ page }) => {
@@ -188,9 +236,10 @@ test('phone content and all card buttons fit without covering the list or previe
   await installFixture(page);
   await openProject(page);
   await enterReview(page);
+  await expect(decision(page, 'Approve & next')).toBeInViewport({ ratio: 1 });
+  await capture(page, 'review-390x844.png');
   await cardText(page).evaluate((node) => node.scrollIntoView({ block: 'center' }));
   await expect(cardText(page)).toBeInViewport();
-  await capture(page, 'review-390x844.png');
   await review(page).getByText('More review options', { exact: true }).click();
   for (const button of await review(page).locator('.review-active').getByRole('button').all()) {
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -208,4 +257,35 @@ test('phone content and all card buttons fit without covering the list or previe
       clearsList: bar.top >= list.bottom,
     };
   })).toEqual({ fits: true, clearsPreview: true, clearsList: true });
+});
+
+test('phone long-caption entry pins decisions only while the card is on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await installFixture(page);
+  state.projects[0].captions[0].text = longCaption;
+  await openProject(page);
+  await enterReview(page);
+
+  const approve = decision(page, 'Approve & next');
+  await expect(approve).toBeInViewport({ ratio: 1 });
+  const card = review(page).locator('.review-card.review-active');
+  const workbench = page.locator('.editor-workbench');
+  await workbench.evaluate((port) => port.scrollTo({ top: 0, behavior: 'instant' }));
+  await expect(page.locator('.caption-list')).toBeInViewport();
+  expect((await card.boundingBox())!.y).toBeGreaterThanOrEqual(844);
+  await expect(actions(page)).not.toBeInViewport();
+
+  await card.evaluate((node) => {
+    const port = node.closest('.editor-workbench')!;
+    const bounds = port.getBoundingClientRect();
+    const target = bounds.top + port.clientHeight * 0.45;
+    port.scrollTo({ top: port.scrollTop + node.getBoundingClientRect().top - target, behavior: 'instant' });
+  });
+  const cardBox = (await card.boundingBox())!;
+  expect(cardBox.y).toBeLessThan(844);
+  expect(cardBox.y + cardBox.height).toBeGreaterThan(844);
+  const rowBox = (await actions(page).boundingBox())!;
+  expect(rowBox.y + rowBox.height).toBeCloseTo(844, 0);
+  await expect(approve).toBeInViewport({ ratio: 1 });
+  await capture(page, 'review-390x844-long-mid-scroll.png');
 });
