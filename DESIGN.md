@@ -433,8 +433,11 @@ The Review decision card shows the remaining count, the selected caption's
 position and time range, its exact text, the reasons it was flagged, and the
 decision bar. **Edit text** uses the same focus and reveal behavior as **E** to
 open the selected caption's existing field in the list. The card reflects the
-live draft. On wide desktops, the decision bar stays visible while the inspector
-scrolls. Keep navigation and decisions visually distinct.
+live draft. At every width, the decision row (**Improve…** and **Approve & next**)
+stays pinned to the bottom of the visible area while any part of the card is in
+view; it never covers the caption list or the preview. Previous, Replay and Skip
+scroll with the card. In Review the card sits beside the preview (see Editor).
+Keep navigation and decisions visually distinct.
 
 ```text
 Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
