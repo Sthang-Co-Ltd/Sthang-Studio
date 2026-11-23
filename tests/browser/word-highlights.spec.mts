@@ -582,7 +582,7 @@ test('Review protects a hidden approved neighbor until both captions are visible
   await page.keyboard.press('Escape');
   expect(project().captions).toEqual(before);
   const review = page.getByRole('complementary', { name: 'Review workspace', exact: true });
-  await review.locator('summary').filter({ hasText: 'Playback, focus' }).click();
+  await review.locator('summary').filter({ hasText: 'More review options' }).click();
   await review.getByRole('button', { name: 'Show all captions', exact: true }).click();
   await expect(page.getByLabel('Caption 2 text', { exact: true })).toHaveValue(before[1].text);
   await more.press('ArrowDown');

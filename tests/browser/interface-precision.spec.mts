@@ -41,7 +41,16 @@ for (const width of [2048, 1024, 390]) test(`precision controls preserve the evi
   await page.screenshot({ path: info.outputPath(`appearance-${width}.png`) });
   await tools(page).click();
   const menu = page.getByRole('menu', { name: 'Project tools' });
-  await expect(menu.getByRole('menuitem')).toHaveCount(10);
+  await expect(menu.getByRole('menuitem')).toHaveCount(width >= 1200 ? 12 : 10);
+  const arrangePanels = menu.getByRole('menuitem', { name: /^Arrange panels…/ });
+  const resetLayout = menu.getByRole('menuitem', { name: /^Reset layout/ });
+  if (width >= 1200) {
+    await expect(arrangePanels).toBeVisible();
+    await expect(resetLayout).toBeVisible();
+  } else {
+    await expect(arrangePanels).toHaveCount(0);
+    await expect(resetLayout).toHaveCount(0);
+  }
   // Presentation scales during entry; hit-target geometry is measured at rest.
   await expect.poll(() => menu.evaluate((node) => node.getAnimations().length)).toBe(0);
   const box = (await menu.boundingBox())!;
@@ -190,6 +199,9 @@ test('locked row menu skips disabled actions and structural actions restore conn
 });
 
 test('menu typing in Fine timing never auditions, nudges or invokes timing Undo', async ({ page }) => {
+  const layoutKey = 'sthang:editor-layout:v2';
+  const savedLayout = JSON.stringify({ preview: .4, inspector: .28, order: ['preview', 'captions', 'inspector'] });
+  await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), { key: layoutKey, value: savedLayout });
   await openProject(page);
   await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
@@ -197,12 +209,13 @@ test('menu typing in Fine timing never auditions, nudges or invokes timing Undo'
   const playhead = await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
   await tools(page).click();
   await page.keyboard.press('r');
-  await expect(page.getByRole('menuitem', { name: /^Replace media/ })).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: /^Reset layout/ })).toBeFocused();
   await page.keyboard.press('Alt+ArrowRight'); await page.keyboard.press('Control+z');
   expect(state.projects[0].captions).toEqual(before);
   expect(await page.locator('video').evaluate((video: HTMLVideoElement) => ({ paused: video.paused, time: video.currentTime }))).toEqual({ paused: true, time: playhead });
   await page.keyboard.press('Escape');
   await expect(page.locator('.timing-waveform-surface')).toBeVisible();
+  expect(await page.evaluate((key) => localStorage.getItem(key), layoutKey)).toBe(savedLayout);
 });
 
 for (const key of ['Alt+ArrowRight', 'Control+z', 'Meta+z', 'r']) test(`History restore confirmation blocks timing shortcut ${key}`, async ({ page }) => {
