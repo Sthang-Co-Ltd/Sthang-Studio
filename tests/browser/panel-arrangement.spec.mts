@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openLayoutTools, openPanelArrangement, resetEditorLayout } from './editor-layout-tools.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 let state: FixtureState;
@@ -9,11 +10,6 @@ const orders: Pane[][] = [['preview','captions','inspector'],['preview','inspect
 test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
 test.beforeEach(async ({ page }) => { runtimeErrors=[]; page.on('pageerror',(error) => runtimeErrors.push(error.message)); state = await installFixture(page); await page.setViewportSize({ width: 2048, height: 1041 }); });
 test.afterEach(() => expect(runtimeErrors).toEqual([]));
-async function arrange(page: Page) {
-  const panel = page.getByRole('region', { name: 'Arrange panels', exact: true });
-  if (!await panel.isVisible()) await page.getByRole('button', { name: 'Arrange panels', exact: true }).click();
-  await expect(panel).toBeVisible(); return panel;
-}
 async function actualOrder(page: Page): Promise<Pane[]> {
   return page.locator('.refined-editor').evaluate((root) => [ ['preview','.stage-column'], ['captions','.caption-panel'], ['inspector','.workspace-inspector'] ]
     .map(([id,selector]) => ({ id, node: root.querySelector(`:scope > ${selector}`)! }))
@@ -21,7 +17,7 @@ async function actualOrder(page: Page): Promise<Pane[]> {
     .sort((a,b) => a.node.getBoundingClientRect().left - b.node.getBoundingClientRect().left).map(({ id }) => id)) as Promise<Pane[]>;
 }
 async function setOrder(page: Page, next: Pane[]) {
-  const panel = await arrange(page);
+  const panel = await openPanelArrangement(page);
   for (let index = 0; index < next.length; index++) {
     let visible = await actualOrder(page);
     while (visible.indexOf(next[index]) > index) {
@@ -44,7 +40,7 @@ async function assertTraversal(page:Page,order:Pane[]) {
 }
 
 test('all six orders preserve mounted evidence and survive three/two/three panes without gaps', async ({ page }) => {
-  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.evaluate(() => { (window as any).__paneMedia = document.querySelector('video'); (window as any).__paneCaptions = document.querySelector('.caption-panel'); });
   for (const order of orders) {
     await setOrder(page,order);
@@ -56,7 +52,7 @@ test('all six orders preserve mounted evidence and survive three/two/three panes
     await assertTraversal(page,order.filter((pane) => pane !== 'inspector'));
     expect(Math.abs((await page.locator('.media-stage').boundingBox())!.width - before.width)).toBeLessThan(1);
     expect(await page.locator('.editor-divider:visible').count()).toBe(1);
-    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect.poll(() => actualOrder(page)).toEqual(order);
     expect(Math.abs((await page.locator('.media-stage').boundingBox())!.width - before.width)).toBeLessThan(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -64,16 +60,16 @@ test('all six orders preserve mounted evidence and survive three/two/three panes
 });
 
 test('two-pane movement keeps Tool position, persists after reload, and Reset restores both sizes and order', async ({ page }) => {
-  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await setOrder(page,['preview','inspector','captions']);
   await page.getByRole('button', { name: 'Close tool', exact: true }).click();
   await setOrder(page,['captions','preview']);
-  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect.poll(() => actualOrder(page)).toEqual(['captions','inspector','preview']);
   await assertTraversal(page,['captions','inspector','preview']);
-  await page.reload(); await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.reload(); await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect.poll(() => actualOrder(page)).toEqual(['captions','inspector','preview']);
-  await page.getByRole('button', { name: 'Reset layout', exact: true }).click();
+  await resetEditorLayout(page);
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sthang:editor-layout:v2')!));
   expect(saved).toEqual({ preview:.36,inspector:.28,order:orders[0] });
@@ -100,7 +96,7 @@ test('waveform dock avoids the preview and keyboard traversal follows every visu
 });
 
 test('adjacent Preview–Tool resizing changes both neighbors and leaves Captions fixed', async ({ page }) => {
-  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await setOrder(page,['preview','inspector','captions']);
   const widths = () => page.locator('.refined-editor').evaluate((root) => ['.stage-column','.workspace-inspector','.caption-panel'].map((selector) => root.querySelector(selector)!.getBoundingClientRect().width));
   const before = await widths();
@@ -110,8 +106,8 @@ test('adjacent Preview–Tool resizing changes both neighbors and leaves Caption
 
 test('dragging provides tactile feedback, commits once, and Escape/outside/lost capture cancel cleanly', async ({ page }, info) => {
   await page.emulateMedia({ reducedMotion:'reduce' });
-  await openProject(page); await page.getByRole('button', { name:'Appearance',exact:true }).click();
-  const panel = await arrange(page); const grip = panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true });
+  await openProject(page); await page.getByRole('button', { name:'Export',exact:true }).click();
+  const panel = await openPanelArrangement(page); const grip = panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true });
   const source = (await grip.boundingBox())!; const destination = (await panel.getByRole('button',{ name:'Drag Tool panel to reorder',exact:true }).boundingBox())!;
   await page.screenshot({ path:info.outputPath('arrange-panels.png'),fullPage:true });
   async function begin() { await page.mouse.move(source.x+source.width/2,source.y+source.height/2); await page.mouse.down(); await page.mouse.move(destination.x+destination.width/2,destination.y+destination.height/2,{ steps:5 }); await expect(page.locator('.editor-panel-ghost')).toBeVisible(); }
@@ -131,8 +127,8 @@ test('dragging provides tactile feedback, commits once, and Escape/outside/lost 
 });
 
 test('breakpoint changes cancel captured gestures and returning to desktop restores the last committed order', async ({ page }) => {
-  await openProject(page); await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await setOrder(page,['captions','inspector','preview']);
-  const panel = await arrange(page); const grip = (await panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true }).boundingBox())!;
+  await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click(); await setOrder(page,['captions','inspector','preview']);
+  const panel = await openPanelArrangement(page); const grip = (await panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true }).boundingBox())!;
   await page.mouse.move(grip.x+20,grip.y+20); await page.mouse.down(); await page.mouse.move(grip.x-80,grip.y+20);
   await page.setViewportSize({ width:1100,height:900 }); await page.mouse.up();
   await expect(panel).toBeHidden(); await expect(page.locator('.editor-panel-ghost')).toHaveCount(0);
@@ -148,7 +144,7 @@ test('breakpoint changes cancel captured gestures and returning to desktop resto
 test('layout keyboard shortcuts and a geometry change during timing drag never alter caption times', async ({ page }) => {
   await openProject(page); await page.getByRole('button',{ name:'Fine timing',exact:true }).click(); await expect(page.locator('.waveform-loading')).toHaveCount(0);
   const before = structuredClone(state.projects[0].captions);
-  const panel = await arrange(page); const grip = panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true });
+  const panel = await openPanelArrangement(page); const grip = panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true });
   await grip.focus(); await page.keyboard.press('Alt+ArrowRight'); await page.keyboard.press('Control+z'); await page.keyboard.press('r');
   expect(state.projects[0].captions).toEqual(before); expect(await page.locator('video').evaluate((node:HTMLVideoElement) => node.paused)).toBe(true);
   await grip.press('ArrowRight'); await expect.poll(() => actualOrder(page)).toEqual(['captions','preview','inspector']); await expect(grip).toBeFocused();
@@ -156,7 +152,7 @@ test('layout keyboard shortcuts and a geometry change during timing drag never a
   const canvas = (await page.locator('.waveform-data-canvas').boundingBox())!;
   await page.mouse.move(canvas.x+canvas.width*.15,canvas.y+155); await page.mouse.down();
   await expect(page.locator('.waveform-canvas-wrap')).toHaveClass(/dragging/);
-  await page.getByRole('button',{ name:'Arrange panels',exact:true }).focus(); await page.keyboard.press('Enter');
+  await openPanelArrangement(page, true);
   await panel.getByRole('button',{ name:'Preview right',exact:true }).focus(); await page.keyboard.press('Enter');
   await expect(page.locator('.waveform-canvas-wrap')).not.toHaveClass(/dragging/);
   await page.mouse.move(canvas.x+canvas.width*.3,canvas.y+155); await page.mouse.up();
@@ -164,7 +160,7 @@ test('layout keyboard shortcuts and a geometry change during timing drag never a
 });
 
 test('reordering keeps a playing video alive and preserves caption text/selection without remounting', async ({ page }) => {
-  await openProject(page); await page.getByRole('button',{ name:'Appearance',exact:true }).click();
+  await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
   const text = page.getByLabel('Caption 2 text',{ exact:true }); await text.fill('Unfinished caption wording');
   await text.evaluate((node:HTMLTextAreaElement) => node.setSelectionRange(3,9));
   await page.locator('video').evaluate(async (node:HTMLVideoElement) => { node.loop=true; (window as any).__playingPaneVideo=node; (window as any).__unexpectedPauses=0; node.addEventListener('pause',() => (window as any).__unexpectedPauses++); await node.play(); });
@@ -182,14 +178,14 @@ test('unsupported reading-flow keeps a truthful canonical order while retaining 
     localStorage.setItem('sthang:editor-layout:v2',JSON.stringify({ preview:.36,inspector:.28,order:['captions','inspector','preview'] }));
     const supports = CSS.supports.bind(CSS); CSS.supports = ((...args:string[]) => args[0] === 'reading-flow' ? false : (supports as any)(...args)) as typeof CSS.supports;
   });
-  await openProject(page); await page.getByRole('button',{ name:'Appearance',exact:true }).click();
-  await expect.poll(() => actualOrder(page)).toEqual(orders[0]); await expect(page.getByRole('button',{ name:'Arrange panels',exact:true })).toBeDisabled();
+  await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
+  await expect.poll(() => actualOrder(page)).toEqual(orders[0]); await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Arrange panels/ })).toBeDisabled();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sthang:editor-layout:v2')!).order)).toEqual(['captions','inspector','preview']);
 });
 
 test('two-finger touch cancellation cannot commit a second conflicting gesture', async ({ page }) => {
-  await openProject(page); await page.getByRole('button',{ name:'Appearance',exact:true }).click();
-  const panel=await arrange(page);
+  await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
+  const panel=await openPanelArrangement(page);
   const first=(await panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true }).boundingBox())!;
   const last=(await panel.getByRole('button',{ name:'Drag Tool panel to reorder',exact:true }).boundingBox())!;
   const cdp=await page.context().newCDPSession(page);
@@ -209,8 +205,8 @@ for (const missing of ['reading-order','popover']) test(`missing ${missing} leav
     if(missing === 'popover') Object.defineProperty(HTMLElement.prototype,'showPopover',{ configurable:true,value:undefined });
     else { const supports=CSS.supports.bind(CSS); CSS.supports=((...args:string[]) => args[0] === 'reading-order' ? false : (supports as any)(...args)) as typeof CSS.supports; }
   },missing);
-  await openProject(page); await page.getByRole('button',{ name:'Appearance',exact:true }).click();
-  await expect(page.getByRole('button',{ name:'Arrange panels',exact:true })).toBeDisabled();
+  await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
+  await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Arrange panels/ })).toBeDisabled();
   await expect(page.getByRole('region',{ name:'Arrange panels',exact:true })).toBeHidden();
   await page.getByRole('separator',{ name:'Resize Preview and Captions',exact:true }).press('ArrowRight');
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]);

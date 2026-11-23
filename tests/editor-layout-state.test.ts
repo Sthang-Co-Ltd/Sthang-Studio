@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_EDITOR_LAYOUT, editorGeometry, editorResizeBounds, moveEditorPane, parseEditorLayout, PANE_MINIMUMS, resizeEditorBoundary, visibleEditorPanes, type EditorPane } from '../apps/web/src/editor-layout-state.js';
+import { DEFAULT_EDITOR_LAYOUT, deriveJudgeOrder, editorGeometry, editorResizeBounds, effectiveEditorOrder, moveEditorPane, parseEditorLayout, PANE_MINIMUMS, resizeEditorBoundary, visibleEditorPanes, type EditorPane } from '../apps/web/src/editor-layout-state.js';
 
 const orders: EditorPane[][] = [['preview','captions','inspector'],['preview','inspector','captions'],['captions','preview','inspector'],['inspector','preview','captions'],['captions','inspector','preview'],['inspector','captions','preview']];
 test('all pane orders survive three/two/three transitions and two-pane swaps keep the hidden Tool slot', () => {
@@ -46,4 +46,39 @@ test('legacy widths migrate without mutating input and malformed or unbounded da
   for (const raw of [null,'{bad','null','[]','{"preview":1,"inspector":0.3,"order":["preview","captions","inspector"]}', ...[
     ['preview','preview','inspector'],['captions','inspector'],['preview','captions','other'],['preview','captions','inspector','captions'],
   ].map((order) => JSON.stringify({ preview:.36,inspector:.28,order }))]) assert.equal(parseEditorLayout(raw),null);
+});
+
+test('judging order keeps the preview slot and honors a separate saved order', () => {
+  const expected = [orders[1], orders[1], orders[2], orders[3], orders[4], orders[4]];
+  for (const [index, order] of orders.entries()) {
+    assert.deepEqual(deriveJudgeOrder(order), expected[index]);
+    assert.deepEqual(effectiveEditorOrder({ ...DEFAULT_EDITOR_LAYOUT, order }, 'judge'), expected[index]);
+    const preference = { ...DEFAULT_EDITOR_LAYOUT, order, judgeOrder: orders[5] };
+    assert.equal(effectiveEditorOrder(preference, 'edit'), order);
+    assert.equal(effectiveEditorOrder(preference, 'judge'), orders[5]);
+  }
+});
+
+test('optional judging preferences round-trip and invalid optional fields are dropped independently', () => {
+  const json = JSON.stringify(DEFAULT_EDITOR_LAYOUT);
+  assert.equal(JSON.stringify(parseEditorLayout(json)), json);
+  const valid = { ...DEFAULT_EDITOR_LAYOUT, judgeOrder: orders[5], enlargePreview: true };
+  assert.deepEqual(parseEditorLayout(JSON.stringify(valid)), valid);
+  assert.deepEqual(parseEditorLayout(JSON.stringify(valid), true), DEFAULT_EDITOR_LAYOUT);
+  assert.deepEqual(parseEditorLayout(JSON.stringify({ ...valid, judgeOrder: ['preview'] })),
+    { ...DEFAULT_EDITOR_LAYOUT, enlargePreview: true });
+  assert.deepEqual(parseEditorLayout(JSON.stringify({ ...valid, enlargePreview: 'true' })),
+    { ...DEFAULT_EDITOR_LAYOUT, judgeOrder: orders[5] });
+});
+
+test('enlargement retains the tool width and uses only space available above the caption minimum', () => {
+  for (const width of [1176, 1440, 2048]) {
+    const normal = editorGeometry(width, true, DEFAULT_EDITOR_LAYOUT);
+    const enlarged = editorGeometry(width, true, DEFAULT_EDITOR_LAYOUT, true);
+    assert.equal(enlarged.widths.inspector, normal.widths.inspector);
+    assert.equal(enlarged.widths.captions, PANE_MINIMUMS.captions);
+    assert.ok(enlarged.widths.preview >= normal.widths.preview);
+    assert.deepEqual(editorGeometry(width, false, DEFAULT_EDITOR_LAYOUT, true),
+      editorGeometry(width, false, DEFAULT_EDITOR_LAYOUT));
+  }
 });

@@ -9,9 +9,10 @@
 .editor-toolbar{flex:none;min-height:54px;display:flex;align-items:center;gap:16px;padding:8px 12px;border-bottom:1px solid var(--line);background:#0c0f12}
 .editor-toolbar .workspace-tool-strip{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;min-width:0;flex:1}
 .editor-toolbar .workspace-tool-strip nav{justify-content:flex-start;gap:6px;flex-wrap:wrap}
-.editor-reset-layout,.inspector-heading button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;border:1px solid #303740;border-radius:8px;background:#13181d;color:#bdc6cf;font-size:12px;padding:7px 10px;cursor:pointer}
-.editor-reset-layout:hover,.inspector-heading button:hover{background:#1b2229;color:#f5f5f5}
-.editor-reset-layout:focus-visible,.inspector-heading button:focus-visible,.editor-divider:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.editor-enlarge-preview,.inspector-heading button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;border:1px solid #303740;border-radius:8px;background:#13181d;color:#bdc6cf;font-size:12px;padding:7px 10px;cursor:pointer}
+.editor-enlarge-preview:hover,.inspector-heading button:hover{background:#1b2229;color:#f5f5f5}
+.editor-enlarge-preview[aria-pressed=true]{border-color:var(--accent);background:#202917;color:#e6f4c1}
+.editor-enlarge-preview:focus-visible,.inspector-heading button:focus-visible,.editor-divider:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .inspector-heading:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .editor-workbench .refined-editor{min-height:0;min-width:0;flex:1;margin:12px;display:grid;grid-template-columns:var(--editor-columns);grid-template-rows:minmax(0,1fr);overflow:hidden;reading-flow:source-order}
 .refined-editor> .stage-column{grid-column:var(--editor-preview-column);order:var(--editor-preview-order);reading-order:var(--editor-preview-order);grid-row:1/-1;display:flex;flex-direction:column;padding:0;overflow:hidden;min-height:0;min-width:0;border:1px solid #2d343d;border-radius:12px;background:#090c0f}
@@ -29,6 +30,7 @@
 .refined-editor .panel-head{display:flex;flex-wrap:wrap;gap:8px;height:auto;min-height:68px;flex:none;padding:10px 12px}
 .refined-editor .panel-head-copy{flex:1 1 7rem;min-width:0}
 .refined-editor .panel-tools{margin-left:auto;max-width:100%;flex-wrap:wrap}
+@media(min-width:1200px){.refined-editor .panel-head>.panel-head-copy{flex-basis:max-content}}
 .refined-editor .caption-list{padding:4px 8px;overscroll-behavior:contain}
 .refined-editor .caption-row{border-radius:0;border:0;border-bottom:1px solid #232b32;padding:10px 4px;min-height:76px;box-shadow:none;grid-template-columns:20px 22px 96px minmax(0,1fr) 80px;gap:6px}
 .refined-editor .row-actions{width:80px}
@@ -141,7 +143,7 @@
   .editor-workbench{overflow:auto}
   .editor-workbench .refined-editor,.editor-workbench .refined-editor.inspector-open,.editor-workbench .refined-editor.timing-layout.inspector-open{display:flex;flex-direction:column;overflow:visible;flex:none;gap:12px;min-height:0;reading-flow:normal}
   .refined-editor>.stage-column,.refined-editor>.caption-panel,.refined-editor>.workspace-inspector{order:0}
-  .editor-divider,.editor-layout-controls{display:none}
+  .editor-divider,.editor-enlarge-preview{display:none}
   .refined-editor>.stage-column{min-height:0;flex:none;position:sticky;top:60px;z-index:5}
   .refined-editor .stage-column .media-stage{height:var(--mobile-preview-height);min-height:0;flex:none}
   .refined-editor>.caption-panel{min-height:320px;height:50dvh;flex:none}
@@ -158,8 +160,8 @@
      Its margin must not add the same sticky exclusion to the outer padding. */
   .workspace.refined-workspace .editor-workbench.caption-list-focused :is(.inspector-content :is(button,input,textarea,select,summary,canvas,.word-timing-panel,.appearance-save-state),.inspector-content .export-checks h3,.inspector-content .caption-restore-review h3,[data-workspace-close]){scroll-margin-top:0}
   .editor-toolbar{align-items:flex-start;min-height:60px;position:sticky;top:0;z-index:8}
-  .editor-toolbar.editor-toolbar-empty,.editor-toolbar:has(.workspace-tool-strip:empty){display:none}
-  .editor-toolbar.editor-toolbar-empty+.refined-editor>.stage-column,.editor-toolbar:has(.workspace-tool-strip:empty)+.refined-editor>.stage-column{top:0}
+  .editor-toolbar:has(.workspace-tool-strip:empty){display:none}
+  .editor-workbench:not(:has(>.editor-toolbar))>.refined-editor>.stage-column,.editor-toolbar:has(.workspace-tool-strip:empty)+.refined-editor>.stage-column{top:0}
   .editor-toolbar .workspace-tool-strip{overflow-x:auto}
   .editor-toolbar .workspace-tool-strip nav{flex-wrap:nowrap;width:max-content}
 }
@@ -192,10 +194,6 @@
   .inspector-content .timing-history{margin-left:0}
 }
 /* Arrangement stays in its own native top-layer popover; media never moves in the DOM. */
-.editor-layout-controls{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
-.editor-arrange-trigger{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #303740;border-radius:8px;background:#13181d;color:#cbd3dc;font-size:13px;padding:7px 10px;cursor:pointer}
-.editor-arrange-trigger:hover:not(:disabled){background:#202831;color:#f5f5f5}
-.editor-arrange-trigger:disabled{opacity:.55;cursor:not-allowed}
 .editor-arrange-popover{display:none;position:fixed;inset:auto 12px auto auto;top:var(--arrange-top,120px);margin:0;width:min(430px,calc(100vw - 24px));max-height:calc(100dvh - var(--arrange-top,120px) - 12px);overflow:auto;padding:16px;border:1px solid #46515f;border-radius:12px;background:#11171d;color:#eef2f6;font-family:inherit;z-index:40}
 .editor-arrange-popover:popover-open{display:block}
 .editor-arrange-popover::backdrop{background:transparent;pointer-events:none}
@@ -223,12 +221,12 @@
 .editor-arrange-panel.is-drop-target{outline:2px solid var(--accent);outline-offset:2px;background:#26351c}
 .editor-panel-ghost{position:fixed;pointer-events:none;display:flex;align-items:center;justify-content:center;width:128px;gap:6px;padding:12px 16px;border-radius:8px;background:var(--accent);color:#141b08;font-size:13px;font-weight:700;box-shadow:0 12px 28px #0008;z-index:50;transform:rotate(-2deg)}
 .editor-arrange-status{min-height:20px;font-size:12px;line-height:1.6;color:#c1cfad;margin-top:14px}
-.editor-arrange-popover button:focus-visible,.editor-arrange-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.editor-arrange-popover button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .refined-editor.is-resizing{cursor:col-resize;user-select:none}
 .refined-editor.is-resizing .editor-divider:focus span{height:60px;background:var(--accent);width:4px;left:2px}
 .refined-editor[data-reorder-source=preview]>.stage-column,.refined-editor[data-reorder-source=captions]>.caption-panel,.refined-editor[data-reorder-source=inspector]>.workspace-inspector{outline:1px dashed #b0c38c;outline-offset:-5px}
 .refined-editor[data-reorder-target=preview]>.stage-column,.refined-editor[data-reorder-target=captions]>.caption-panel,.refined-editor[data-reorder-target=inspector]>.workspace-inspector{outline:2px solid var(--accent);outline-offset:-4px}
-@media(max-width:1199px){.editor-layout-controls{display:none}.editor-arrange-popover:popover-open{display:none}}
+@media(max-width:1199px){.editor-arrange-popover:popover-open{display:none}}
 @media(prefers-reduced-motion:reduce){.editor-arrange-panel{transition:none}.editor-panel-ghost{transform:none}}
 /* Direct header grips share the existing local pane-order controller. */
 .editor-pane-grip{display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px;max-width:100%;padding:4px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:grab;touch-action:none;user-select:none}

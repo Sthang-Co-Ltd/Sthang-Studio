@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openLayoutTools, toolsButton } from './editor-layout-tools.mjs';
 import { cleanFixtures, createSyntheticWav, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'Project stages', exact: true });
@@ -31,7 +32,9 @@ test('the current stage owns the inspector and Captions owns its tools', async (
   await expectStage(page, 'review');
   await expect(page.getByRole('heading', { name: 'Review panel', exact: true })).toBeVisible();
   await expect(strip(page)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Arrange panels', exact: true })).toBeVisible();
+  await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Arrange panels/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(toolsButton(page)).toBeFocused();
   await stage(page, 'review').click();
   await expectStage(page, 'review');
   await expect(inspector(page)).toBeVisible();

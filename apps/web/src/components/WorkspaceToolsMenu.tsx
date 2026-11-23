@@ -8,6 +8,7 @@ import {
   Info,
   KeyRound,
   ListTodo,
+  PanelsTopLeft,
   SlidersHorizontal,
   RefreshCw,
   Replace,
@@ -23,6 +24,9 @@ interface WorkspaceToolsMenuProps {
   replaceDisabled: boolean;
   technicalDetailsAvailable?: boolean;
   onTechnicalDetails?: () => void;
+  arrangeSupported: boolean;
+  onArrangePanels(anchor: HTMLElement): void;
+  onResetLayout(): void;
   onGuide(): void;
   onCorrect(): void;
   onHistory(): void;
@@ -41,6 +45,9 @@ export function WorkspaceToolsMenu({
   replaceDisabled,
   technicalDetailsAvailable,
   onTechnicalDetails,
+  arrangeSupported,
+  onArrangePanels,
+  onResetLayout,
   onGuide,
   onCorrect,
   onHistory,
@@ -54,6 +61,14 @@ export function WorkspaceToolsMenu({
   const details = useRef<HTMLDetailsElement | null>(null);
   const popover = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [layoutWide, setLayoutWide] = useState(() => window.matchMedia('(min-width: 1200px)').matches);
+  useLayoutEffect(() => {
+    const query = window.matchMedia('(min-width: 1200px)');
+    const update = () => setLayoutWide(query.matches);
+    query.addEventListener('change', update);
+    update();
+    return () => query.removeEventListener('change', update);
+  }, []);
   const openRef = useRef(open); openRef.current = open;
   const presence = useSurfacePresence(open ? 'tools' : null, popover, 'menu');
   const menuId = useId();
@@ -92,10 +107,11 @@ export function WorkspaceToolsMenu({
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, []);
-  const run = (action: () => void) => {
-    details.current?.querySelector('summary')?.focus();
+  const run = (action: (anchor: HTMLElement | null | undefined) => void) => {
+    const anchor = details.current?.querySelector('summary');
+    anchor?.focus();
     setOpen(false);
-    action();
+    action(anchor);
   };
   const attentionCount = activeJobs + pendingCorrections + (llmConfigured ? 0 : 1);
 
@@ -120,6 +136,17 @@ export function WorkspaceToolsMenu({
         <span>Edit and review</span>
         <button role="menuitem" aria-keyshortcuts="Control+F Meta+F" onClick={() => run(onCorrect)}><Search size={16}/><span><b>Correct everywhere</b><small>Find and correct repeated wording</small></span><kbd aria-hidden="true">{navigator.platform.toLowerCase().includes('mac') ? '⌘ F' : 'Ctrl F'}</kbd></button>
         <button role="menuitem" onClick={() => run(onHistory)}><History size={16}/><span><b>History</b><small>Restore an earlier checkpoint</small></span></button>
+      </div>
+      <div className="tools-menu-section tools-menu-layout">
+        <span>Layout</span>
+        <button type="button" role="menuitem" disabled={!layoutWide || !arrangeSupported} onClick={() => run((anchor) => {
+          if (anchor) onArrangePanels(anchor);
+        })}>
+          <PanelsTopLeft size={16}/><span><b>Arrange panels…</b><small>{arrangeSupported ? 'Choose where each panel sits' : 'Update your browser to rearrange panels'}</small></span>
+        </button>
+        <button type="button" role="menuitem" disabled={!layoutWide} onClick={() => run(onResetLayout)}>
+          <RotateCcw size={16}/><span><b>Reset layout</b><small>Restore default panel sizes and order</small></span>
+        </button>
       </div>
       <div className="tools-menu-section">
         <button role="menuitem" onClick={() => run(onJobs)}><ListTodo size={16}/><span><b>Activity</b><small>Processing jobs</small></span>{activeJobs > 0 && <em>{activeJobs} active</em>}</button>

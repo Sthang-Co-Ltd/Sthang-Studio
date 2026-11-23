@@ -57,7 +57,8 @@ import {
 import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
 import { Upload, type UploadRecoveryResult, type UploadResult } from './components/Upload';
 import { captureUploadRecoveryForProject, clearUploadRecoveryForProject } from './upload-recovery';
-import { EditorLayout } from './components/EditorLayout';
+import { EditorLayout, type EditorLayoutHandle } from './components/EditorLayout';
+import { editorArrangementSupported, type EditorLayoutMode } from './editor-layout-state';
 import { GenerationOptions } from './components/GenerationOptions';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
@@ -474,6 +475,9 @@ export default function App() {
   const proposalJobRevisions = useRef(new Map<string, number>());
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
+  const editorLayout = useRef<EditorLayoutHandle>(null);
+  const [arrangeSupported] = useState(editorArrangementSupported);
+  const [mediaShape, setMediaShape] = useState<{ key: string; landscape: boolean } | null>(null);
   const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
   const workspaceEntryFocus = useRef<{
     ticket: ProjectTicket; tool: Exclude<WorkspaceTool, null>; fromGuide?: boolean; previous: Element | null;
@@ -2494,6 +2498,9 @@ export default function App() {
   };
   const onLoadedMetadata = (element: HTMLMediaElement) => {
     if (media.current !== element || !projectScope.current.isCurrent(viewTicket)) return;
+    if (element instanceof HTMLVideoElement && element.videoWidth > 0 && element.videoHeight > 0) {
+      setMediaShape({ key: mediaKey, landscape: element.videoWidth >= element.videoHeight });
+    }
     if (Number.isFinite(element.duration)) setLoadedMediaDurationMs(element.duration * 1000);
     if (retainedMediaSeek.current?.key === mediaKey) {
       const timeMs = retainedMediaSeek.current.timeMs;
@@ -4100,6 +4107,8 @@ export default function App() {
   const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const stage: Stage = workspaceTool === 'review' || workspaceTool === 'appearance' || workspaceTool === 'export'
     ? workspaceTool : 'captions';
+  const layoutMode: EditorLayoutMode = proposal || stage === 'review' || stage === 'appearance' ? 'judge' : 'edit';
+  const enlargeAvailable = layoutMode === 'judge' && isVideo && mediaShape?.key === mediaKey && mediaShape.landscape;
   const savedContext = project?.transcriptionContext;
   const hasSavedContext = Boolean(savedContext?.description?.trim() || savedContext?.vocabulary?.some((term) => term.trim()));
   const usedFallback = timing?.engine === 'faster-whisper-local';
@@ -4567,6 +4576,9 @@ export default function App() {
           replaceDisabled={Boolean(currentProjectAnyActiveJob || busy)}
           technicalDetailsAvailable={hasHybrid}
           onTechnicalDetails={() => chooseWorkspaceTool('details')}
+          arrangeSupported={arrangeSupported}
+          onArrangePanels={(anchor) => editorLayout.current?.openArrangement(anchor)}
+          onResetLayout={() => editorLayout.current?.resetLayout()}
           onGuide={() => setShowGuide(true)}
           onCorrect={() => setShowFindReplace(true)}
           onHistory={() => void openHistory()}
@@ -4589,6 +4601,10 @@ export default function App() {
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
       onClose={proposal ? () => { closeComparison(); setNotice('Comparison closed. You can reopen it from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
+      ref={editorLayout}
+      mode={layoutMode}
+      enlargeAvailable={enlargeAvailable}
+      arrangeSupported={arrangeSupported}
       preview={
         <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label="Media preview">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} recoveryFocusTarget={mediaPreviewFocus} onElementChange={setMediaElement}

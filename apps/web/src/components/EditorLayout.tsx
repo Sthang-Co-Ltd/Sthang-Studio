@@ -1,9 +1,9 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { RotateCcw, X } from 'lucide-react';
-import { PanelArrangement } from './PanelArrangement';
+import { createContext, useContext, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react';
+import { Maximize2, X } from 'lucide-react';
+import { PanelArrangement, type PanelArrangementHandle } from './PanelArrangement';
 import { PanelHeaderDragContext, PanelHeaderGrip, usePanelHeaderDrag } from './PanelHeaderGrip';
 import { isFocusPreservingCaptionViewport, revealFocusedCaptionField, revealFocusedCaptionRow } from '../caption-field-viewport';
-import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_CHANGE, EDITOR_LAYOUT_KEY, LEGACY_EDITOR_LAYOUT_KEY, PANE_LABELS, editorGeometry, editorResizeBounds, parseEditorLayout, resizeEditorBoundary, visibleEditorPanes, type EditorLayoutPreference, type EditorPane } from '../editor-layout-state';
+import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_CHANGE, EDITOR_LAYOUT_KEY, LEGACY_EDITOR_LAYOUT_KEY, PANE_LABELS, editorGeometry, editorResizeBounds, effectiveEditorOrder, parseEditorLayout, resizeEditorBoundary, visibleEditorPanes, type EditorLayoutMode, type EditorLayoutPreference, type EditorPane } from '../editor-layout-state';
 import './editor-layout.css';
 
 const TimingDock = createContext<HTMLElement | null>(null);
@@ -14,10 +14,12 @@ function readLayout() {
 }
 function persist(value: EditorLayoutPreference) { try { localStorage.setItem(EDITOR_LAYOUT_KEY, JSON.stringify(value)); } catch { /* Optional local preference. */ } }
 const notifyGeometry = () => window.dispatchEvent(new Event(EDITOR_LAYOUT_CHANGE));
+export interface EditorLayoutHandle { openArrangement(anchor: HTMLElement): void; resetLayout(): void }
 interface Props {
   preview: ReactNode; toolbar: ReactNode; captions: ReactNode; children: ReactNode;
   tool: string | null; title: string; open: boolean; onClose?: () => void;
   getCloseFocusTarget?: (fallback: HTMLButtonElement | null) => HTMLElement | null;
+  mode: EditorLayoutMode; enlargeAvailable: boolean; arrangeSupported: boolean; ref?: Ref<EditorLayoutHandle>;
 }
 interface ResizeGesture {
   pointer: number; handle: HTMLDivElement; x: number; left: EditorPane; right: EditorPane;
@@ -25,7 +27,7 @@ interface ResizeGesture {
 }
 
 /** Content never changes parent or DOM position. Grid and reading flow own the arrangement. */
-export function EditorLayout({ preview, toolbar, captions, children, tool, title, open, onClose, getCloseFocusTarget }: Props) {
+export function EditorLayout({ preview, toolbar, captions, children, tool, title, open, onClose, getCloseFocusTarget, mode, enlargeAvailable, arrangeSupported, ref }: Props) {
   const workbench = useRef<HTMLDivElement | null>(null);
   const [captionListFocused, setCaptionListFocused] = useState(false);
   const captionFocus = useRef(false);
@@ -35,16 +37,18 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1200px)').matches);
   const [preference, setPreference] = useState(readLayout);
   const current = useRef(preference); current.current = preference;
-  const [supported] = useState(() => CSS.supports('reading-flow', 'source-order') && CSS.supports('reading-order', '1') && typeof HTMLElement.prototype.showPopover === 'function');
-  const order = supported ? preference.order : DEFAULT_EDITOR_LAYOUT.order;
+  const order = useMemo(() => arrangeSupported ? effectiveEditorOrder(preference, mode) : DEFAULT_EDITOR_LAYOUT.order, [arrangeSupported, preference, mode]);
   const panes = visibleEditorPanes(order, open);
-  const geometry = editorGeometry(width, open, preference);
+  const enlarged = preference.enlargePreview === true && enlargeAvailable && wide && open;
+  const geometry = editorGeometry(width, open, preference, enlarged);
+  const arrangement = useRef<PanelArrangementHandle>(null);
+  const [resetCount, setResetCount] = useState(0);
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
   const resize = useRef<ResizeGesture | null>(null);
   const [resizing, setResizing] = useState(false);
   const arranging = useRef<'popover' | 'header' | null>(null);
   const [feedback, setFeedback] = useState<{ source: EditorPane | null; target: EditorPane | null }>({ source: null, target: null });
-  const geometryKey = `${width}:${wide}:${open}:${tool}`;
+  const geometryKey = `${width}:${wide}:${open}:${tool}:${mode}:${enlarged}`;
 
   function trackCaptionFocus(target: EventTarget | null) {
     const next = target instanceof Element && Boolean(target.closest('.caption-list')) && Boolean(workbench.current?.contains(target));
@@ -124,10 +128,18 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   }, []);
   useLayoutEffect(() => { finishRef.current(false); notifyGeometry(); }, [geometryKey]);
 
-  function reset() { finishResize(false); notifyGeometry(); update(structuredClone(DEFAULT_EDITOR_LAYOUT), true); }
+  function reset() {
+    finishResize(false);
+    notifyGeometry();
+    update(structuredClone(DEFAULT_EDITOR_LAYOUT), true);
+    setResetCount((count) => count + 1);
+  }
   function arrange(next: EditorPane[]) {
-    if (resize.current || arranging.current || next.every((pane, index) => pane === current.current.order[index])) return false;
-    notifyGeometry(); update({ ...current.current, order: next }, true); return true;
+    if (resize.current || arranging.current || next.every((pane, index) => pane === order[index])) return false;
+    notifyGeometry();
+    update(mode === 'judge' ? { ...current.current, judgeOrder: next } : { ...current.current, order: next }, true);
+    setResetCount(0);
+    return true;
   }
   function beginReorder(owner: 'popover' | 'header') {
     if (resize.current || arranging.current) return false;
@@ -138,10 +150,23 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
     arranging.current = owner; notifyGeometry(); return true;
   }
   function endReorder(owner: 'popover' | 'header') { if (arranging.current === owner) arranging.current = null; }
-  const headerDrag = usePanelHeaderDrag({ grid, enabled: wide && supported, order, open, geometryKey,
+  const headerDrag = usePanelHeaderDrag({ grid, enabled: wide && arrangeSupported, order, open, geometryKey,
     begin: () => beginReorder('header'), end: () => endReorder('header'), change: arrange,
     feedback: (source, target) => setFeedback({ source, target }),
   });
+  useImperativeHandle(ref, () => ({
+    openArrangement(anchor) {
+      if (wide && arrangeSupported && !resize.current && !arranging.current && !headerDrag.pending) arrangement.current?.open(anchor);
+    },
+    resetLayout: reset,
+  }));
+  function toggleEnlarge() {
+    finishResize(false);
+    const next = { ...current.current };
+    if (next.enlargePreview) delete next.enlargePreview;
+    else next.enlargePreview = true;
+    update(next, true);
+  }
   const docked = wide && open && tool === 'timeline';
   const previewIndex = panes.indexOf('preview');
   const middle = previewIndex === 1 && panes.length === 3;
@@ -151,6 +176,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   const tracks = panes.map((pane) => pane === 'captions' ? 'minmax(360px,1fr)' : `${geometry.widths[pane]}px`).join(' 8px ');
 
   function divider(index: number) {
+    if (enlarged) return null;
     const left = panes[index]; const right = panes[index + 1];
     const bounds = right ? editorResizeBounds(geometry, open, left, right) : { minimum: 0, maximum: 0 };
     // React's numeric style serializer adds px to this new integer-only CSS property.
@@ -188,19 +214,16 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
     onFocusCapture={(event) => { trackCaptionFocus(event.target); finishNativeCaptionFocus(event.target); }}
     onBlurCapture={(event) => { cancelNativeFocusReveal(); trackCaptionFocus(event.relatedTarget); }}>
     <span id="panel-reorder-hint" hidden>Use Left or Right arrow, Home or End to move this panel.</span>
-    <div className={`editor-toolbar${toolbar ? '' : ' editor-toolbar-empty'}`}>{toolbar}<div className="editor-layout-controls" data-editor-layout-control>
-      <PanelArrangement order={order} open={open} supported={supported} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing}
-        onChange={arrange} onBegin={() => beginReorder('popover')}
-        onEnd={() => endReorder('popover')} onFeedback={(source, target) => setFeedback({ source, target })}/>
-      <button type="button" className="editor-reset-layout" onClick={reset}><RotateCcw size={14}/>Reset layout</button>
-    </div></div>
+    {toolbar && <div className="editor-toolbar">{toolbar}</div>}
     <PanelHeaderDragContext.Provider value={headerDrag.context}><TimingDock.Provider value={docked ? dock : null}>
       <section ref={grid} className={`editor-grid refined-editor ${open ? 'inspector-open' : 'inspector-closed'} ${tool === 'timeline' ? 'timing-layout' : ''} ${resizing ? 'is-resizing' : ''} ${headerDrag.lifted ? 'is-header-dragging' : ''}`}
         data-preview-position={previewIndex} data-reorder-source={feedback.source ?? undefined} data-reorder-target={feedback.target ?? undefined}
         style={{ '--editor-columns': tracks, '--editor-preview-column': column('preview'), '--editor-captions-column': column('captions'), '--editor-inspector-column': column('inspector'),
           '--editor-preview-order': panes.indexOf('preview') * 2, '--editor-captions-order': panes.indexOf('captions') * 2, '--editor-inspector-order': panes.indexOf('inspector') * 2,
           '--editor-dock-start': dockStart, '--editor-dock-end': dockEnd, '--editor-inspector-row': docked && middle ? '1 / -1' : '1' } as CSSProperties}>
-        <div className="stage-column"><div className="editor-preview-label"><PanelHeaderGrip pane="preview">Preview</PanelHeaderGrip></div>{preview}</div>
+        <div className="stage-column"><div className="editor-preview-label"><PanelHeaderGrip pane="preview">Preview</PanelHeaderGrip>
+          {wide && enlargeAvailable && <button type="button" className="editor-enlarge-preview" data-editor-layout-control aria-pressed={enlarged} onClick={toggleEnlarge}><Maximize2 size={14}/>Enlarge preview</button>}
+        </div>{preview}</div>
         {divider(0)}
         {captions}
         {divider(1)}
@@ -220,6 +243,9 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         <div className="editor-panel-placeholder" hidden={!headerDrag.lifted} aria-hidden="true"><span>{headerDrag.lifted && PANE_LABELS[headerDrag.lifted]}</span></div>
       </section>
     </TimingDock.Provider></PanelHeaderDragContext.Provider>
-    <span className="editor-layout-announcement" role="status" aria-live="polite">{headerDrag.announcement}</span>
+    <PanelArrangement ref={arrangement} mode={mode} order={order} open={open} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing}
+      onChange={arrange} onBegin={() => beginReorder('popover')}
+      onEnd={() => endReorder('popover')} onFeedback={(source, target) => setFeedback({ source, target })}/>
+    <span className="editor-layout-announcement" role="status" aria-live="polite">{headerDrag.announcement}{resetCount > 0 && <span key={resetCount}> Panels reset to the default layout.</span>}</span>
   </div>;
 }
