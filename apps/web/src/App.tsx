@@ -66,6 +66,9 @@ import { CorrectionInbox } from './components/CorrectionInbox';
 import { ProfileDoctor, type SettingsTab } from './components/ProfileDoctor';
 import { storageNeedsAttention, useProjectStorage } from './project-storage';
 import { reconcileProfileAcknowledgement, type ProfilePatch } from './profile-state';
+import { LocaleProvider, messagesFor, translate, type Locale } from './i18n';
+import { InterfaceLanguagePrompt, InterfaceLanguageSwitch } from './i18n/language-controls';
+import { mirrorInterfaceLanguage, readInterfaceLanguage } from './i18n/language-storage';
 import { StudioBrand } from './components/Brand';
 import { FindReplacePanel } from './components/FindReplacePanel';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
@@ -377,6 +380,19 @@ export default function App() {
   const healthRequest = useRef(0);
   const [llmSettings, setLlmSettings] = useState<LlmSettingsStatus | null>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
+  const [bootLanguage] = useState(readInterfaceLanguage);
+  const savedLanguage = profile?.preferences.interfaceLanguage;
+  const interfaceLanguage = savedLanguage ?? bootLanguage ?? 'en';
+  const { t, tn } = useMemo(() => messagesFor(interfaceLanguage), [interfaceLanguage]);
+  const languageSave = useRef<Promise<void> | null>(null);
+  const [languageSaving, setLanguageSaving] = useState(false);
+  useEffect(() => {
+    document.documentElement.lang = interfaceLanguage;
+  }, [interfaceLanguage]);
+  useEffect(() => {
+    // Mirror only a committed profile value, including reconciled PATCH results.
+    if (savedLanguage === 'en' || savedLanguage === 'km') mirrorInterfaceLanguage(savedLanguage);
+  }, [savedLanguage]);
   const [profileImportRevision, setProfileImportRevision] = useState(0);
   const [doctor, setDoctor] = useState<SystemDoctorReport | null>(null);
   const [doctorLoadState, setDoctorLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -1644,6 +1660,26 @@ export default function App() {
       const received = await api.patchProfile({ preferences: patch });
       setProfile((current) => reconcileProfileAcknowledgement(current, expected, received, { preferences: patch }));
     } catch { /* Retain the existing optimistic local preference behavior. */ }
+  };
+
+  const setInterfaceLanguage = async (next: Locale) => {
+    if (!profile || languageSave.current || profile.preferences.interfaceLanguage === next) return;
+    const basis = profile;
+    const patch = { preferences: { interfaceLanguage: next } };
+    setLanguageSaving(true);
+    const save = Promise.resolve().then(async () => {
+      try {
+        const received = await api.patchProfile(patch);
+        setProfile((current) => reconcileProfileAcknowledgement(current, basis, received, patch));
+      } catch {
+        setError(translate('en', 'common.languageSaveFailed'));
+      } finally {
+        languageSave.current = null;
+        setLanguageSaving(false);
+      }
+    });
+    languageSave.current = save;
+    await save;
   };
 
   // Full-project same-media mutations and caption saves share one acknowledgement
@@ -4474,7 +4510,7 @@ export default function App() {
       sourceCheck={sourceCheck} onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
 
-    <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
+    <ProfileDoctor languageSaving={languageSaving} onInterfaceLanguage={setInterfaceLanguage} open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
       profileLoadFailed={startupErrors.includes('Preferences')} aiLoadFailed={startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
       onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
@@ -4556,7 +4592,7 @@ export default function App() {
   </ToastStack>;
 
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
-  if (!project) return <main className={showAllProjects ? 'project-library-page' : undefined}
+  if (!project) return <LocaleProvider locale={interfaceLanguage}><main className={showAllProjects ? 'project-library-page' : undefined}
     onPointerDownCapture={releaseLibraryReturn} onKeyDownCapture={releaseLibraryReturn} onWheelCapture={releaseLibraryReturn}>
     <div className="home-tools">
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
@@ -4565,12 +4601,16 @@ export default function App() {
       {Boolean(profile?.correctionEvents.length) && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Correction inbox{pendingCorrections > 0 && <b>{pendingCorrections}</b>}</button>}
       <button onClick={() => setShowUpdates(true)} data-tooltip="Open Updates"><RefreshCw size={16}/>Updates</button>
       <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
+      {!showAllProjects && <InterfaceLanguageSwitch saving={languageSaving} ready={Boolean(profile)} onChange={setInterfaceLanguage}/>}
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? 'Preferences could not load. Retry startup below to enable uploads.' : 'Loading preferences before you can upload.'
           : busy && busy !== 'Uploading…' ? 'Wait for the current task to finish before uploading.' : ''}
-        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>Set up AI for caption generation</button> : undefined}/>
+        beforeDropzone={<>
+          {profile && savedLanguage === undefined && !showAllProjects && <InterfaceLanguagePrompt saving={languageSaving} onChange={setInterfaceLanguage}/>}
+          {showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>Set up AI for caption generation</button> : undefined}
+        </>}/>
     </div>
     {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready.</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>Open System check</button></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
@@ -4591,9 +4631,9 @@ export default function App() {
     {activity}
     {corrections}
     {overlays}
-  </main>;
+  </main></LocaleProvider>;
 
-  return <main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
+  return <LocaleProvider locale={interfaceLanguage}><main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label="Back to Home" data-tooltip="Back to Home" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}
@@ -4954,5 +4994,5 @@ export default function App() {
     {activity}
     {corrections}
     {overlays}
-  </main>;
+  </main></LocaleProvider>;
 }

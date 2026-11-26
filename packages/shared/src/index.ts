@@ -391,6 +391,7 @@ export interface QaProfileSettings {
 }
 
 export interface AppPreferences {
+  interfaceLanguage?: 'en' | 'km';
   reviewPreRollMs: number;
   reviewPostRollMs: number;
   autoLoopReview: boolean;

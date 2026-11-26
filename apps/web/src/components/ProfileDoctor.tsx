@@ -12,10 +12,14 @@ import { useModalFocus } from '../use-modal-focus';
 import { useSurfacePresence } from '../use-surface-presence';
 import { ProjectStoragePanel } from './ProjectStoragePanel';
 import './contribution.css';
+import { InterfaceLanguageField } from '../i18n/language-controls';
+import type { Locale } from '../i18n';
 
 export type SettingsTab = 'ai' | 'profile' | 'privacy' | 'doctor';
 
 interface ProfileDoctorProps {
+  languageSaving: boolean;
+  onInterfaceLanguage(locale: Locale): void;
   open: boolean;
   initialTab: SettingsTab;
   llmSettings: LlmSettingsStatus | null;
@@ -43,6 +47,8 @@ interface ProfileDoctorProps {
 }
 
 export function ProfileDoctor({
+  languageSaving,
+  onInterfaceLanguage,
   open,
   initialTab,
   llmSettings,
@@ -261,6 +267,7 @@ export function ProfileDoctor({
           {!currentContext && profile.topicPacks.length > 0 && <p id="profile-pack-apply-help" className="muted-copy">Open a project to apply a topic pack.</p>}
           <div className="pack-list">{profile.topicPacks.length === 0 && <span className="muted-copy">No topic packs yet.</span>}{profile.topicPacks.map((pack) => <div className="pack-card" key={pack.id}><div><strong>{pack.name}</strong><span>{pack.vocabulary.length} term{pack.vocabulary.length === 1 ? '' : 's'} · {pack.description || 'No description'}</span></div><button disabled={!currentContext || busy || Boolean(working)} aria-label={`Apply ${pack.name}`} aria-describedby={!currentContext ? 'profile-pack-apply-help' : undefined} onClick={() => { focusAppliedPack.current = onApplyPack(pack); }}><Play size={14}/>Apply</button><button disabled={busy || Boolean(working)} className="danger-quiet" aria-label={`Delete topic pack ${pack.name}`} title={`Delete topic pack ${pack.name}`} onClick={(event) => void removePack(pack.id, event.currentTarget)}><Trash2 size={14}/></button></div>)}</div>
         </div>
+        <InterfaceLanguageField saving={languageSaving} onChange={onInterfaceLanguage}/>
       </div>}
       {tab === 'privacy' && profile && <ContributorSettings profile={profile} busy={busy} onSave={(patch) => onSave(patch, 'inline')}/>}
       {tab === 'doctor' && <div className="doctor-body">

@@ -9,6 +9,7 @@ export interface ReviewReason {
   code: ReviewReasonCode;
   label: string;
   hint: string;
+  params: Record<string, string | number>;
 }
 
 export interface ReviewIssue {
@@ -135,7 +136,8 @@ interface ReviewFinding {
 }
 
 const severityRank: Record<ReviewSeverity, number> = { error: 0, warning: 1, info: 2 };
-const secondsLabel = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+const durationLabel = (ms: number) => (ms / 1000).toFixed(1);
+const secondsLabel = (ms: number) => `${durationLabel(ms)}s`;
 
 function addReason(target: Map<string, ReviewFinding>, captionId: string, severity: ReviewSeverity, legacyKey: string, reason: ReviewReason) {
   const existing = target.get(captionId);
@@ -173,47 +175,59 @@ export function analyzeCaptions(
 
     if (!text) addReason(issues, caption.id, 'error', 'Empty caption', {
       code: 'empty', label: 'No text', hint: 'Type the words, or delete this caption.',
+      params: {},
     });
     if (caption.timingQuality === 'low' || caption.timingSource === 'interpolated') {
       addReason(issues, caption.id, 'error', 'Weak/interpolated timing', {
         code: 'timing-estimated', label: 'Timing may be off', hint: 'Play it and check that the caption matches the voice.',
+        params: {},
       });
     } else if (!caption.approved && (caption.timingQuality === 'medium' || caption.timingSource === 'stt-split')) {
       addReason(issues, caption.id, 'warning', 'Timing deserves a quick listen', {
         code: 'timing-listen', label: 'Listen to check timing', hint: 'The timing is probably right. Play it once to confirm.',
+        params: {},
       });
     }
     if (durationMs < settings.minDurationMs) addReason(issues, caption.id, 'warning', `Shorter than ${settings.minDurationMs} ms`, {
       code: 'too-short', label: 'Very short', hint: `Shown for ${secondsLabel(durationMs)} (minimum: ${secondsLabel(settings.minDurationMs)}). Consider making it longer.`,
+      params: { duration: durationLabel(durationMs), min: durationLabel(settings.minDurationMs) },
     });
     if (durationMs > settings.maxDurationMs) addReason(issues, caption.id, 'warning', `Longer than ${(settings.maxDurationMs / 1000).toFixed(1)} seconds`, {
       code: 'too-long', label: 'Shown too long', hint: `Shown for ${secondsLabel(durationMs)} (maximum: ${secondsLabel(settings.maxDurationMs)}). Consider splitting it.`,
+      params: { duration: durationLabel(durationMs), max: durationLabel(settings.maxDurationMs) },
     });
     if (cps > settings.maxCps) addReason(issues, caption.id, 'warning', `Fast reading speed (${Math.round(cps)} chars/s; target ≤ ${settings.maxCps})`, {
       code: 'fast-reading', label: 'Too fast to read', hint: `About ${Math.round(cps)} characters per second (target: ${settings.maxCps} or fewer). Viewers may not finish reading it.`,
+      params: { cps: Math.round(cps), max: settings.maxCps },
     });
     if (longestLine > settings.maxCharsPerLine) addReason(issues, caption.id, 'warning', `Line is ${longestLine} characters; target ≤ ${settings.maxCharsPerLine}`, {
       code: 'long-line', label: 'Long line', hint: `This line has ${longestLine} characters (target: ${settings.maxCharsPerLine} or fewer).`,
+      params: { length: longestLine, max: settings.maxCharsPerLine },
     });
     if (metrics.lineCount > settings.maxLines) addReason(issues, caption.id, 'warning', `${metrics.lineCount} lines; target ≤ ${settings.maxLines}`, {
       code: 'too-many-lines', label: 'Too many lines', hint: `${metrics.lineCount} lines (target: ${settings.maxLines} or fewer).`,
+      params: { count: metrics.lineCount, max: settings.maxLines },
     });
     if (hasKhmer(text) && hasLatin(text) && !caption.approved) addReason(issues, caption.id, 'info', 'Khmer + English entity check', {
       code: 'mixed-language', label: 'Check English words', hint: 'Khmer and English are mixed. Check that names and English words are spelled right.',
+      params: {},
     });
     if (!caption.approved && /\b(?:GPT|AI|API|LLM|[A-Z]{2,}|[A-Za-z]+[- ]?\d|\d+(?:\.\d+)+)\b/.test(text)) {
       addReason(issues, caption.id, 'info', 'Name, acronym or version number', {
         code: 'name-or-number', label: 'Check names and numbers', hint: 'Contains a name, brand or number. Check that it is exact.',
+        params: {},
       });
     }
     if (/\s{2,}/.test(text)) addReason(issues, caption.id, 'warning', 'Repeated spaces', {
       code: 'extra-spaces', label: 'Extra spaces', hint: 'Remove extra spaces.',
+      params: {},
     });
 
     for (const { canonical, alias } of aliases) {
       if (alias && text.includes(alias) && alias !== canonical) {
         addReason(issues, caption.id, 'error', `Alias “${alias}” should probably display as “${canonical}”`, {
           code: 'key-term-alias', label: `Use “${canonical}” for “${alias}”`, hint: `Your key terms say “${alias}” should be written “${canonical}”.`,
+          params: { canonical, alias },
         });
       }
     }
@@ -221,21 +235,26 @@ export function analyzeCaptions(
     const previous = captions[index - 1];
     if (previous && caption.startMs < previous.endMs) addReason(issues, caption.id, 'error', 'Overlaps the previous caption', {
       code: 'overlap', label: 'Overlaps previous', hint: 'It starts before the previous caption ends.',
+      params: {},
     });
     if (previous) {
       const gap = caption.startMs - previous.endMs;
       if (gap >= 0 && gap < settings.minGapMs) addReason(issues, caption.id, 'info', `Gap is ${gap} ms; QA target is ${settings.minGapMs} ms`, {
         code: 'small-gap', label: 'Tiny gap', hint: `Starts only ${gap} ms after the previous caption (target: at least ${settings.minGapMs} ms).`,
+        params: { gap, min: settings.minGapMs },
       });
       if (previous.text.trim() === text && text) addReason(issues, caption.id, 'warning', 'Duplicates the previous caption', {
         code: 'duplicate', label: 'Same as previous', hint: 'Matches the previous caption. Delete one or merge them.',
+        params: {},
       });
     }
     if (caption.startMs < 0) addReason(issues, caption.id, 'error', 'Starts before the media', {
       code: 'starts-before-media', label: 'Starts before the video', hint: 'Move the start to 00:00.000 or later.',
+      params: {},
     });
     if (mediaDurationMs && caption.endMs > mediaDurationMs + 20) addReason(issues, caption.id, 'error', 'Ends after the media', {
       code: 'ends-after-media', label: 'Ends after the video', hint: 'Move the end earlier so it stays inside the video.',
+      params: {},
     });
   });
 
