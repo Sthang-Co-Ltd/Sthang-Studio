@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, type KeyboardEvent } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { isVideoProject, type CaptionProject } from '@kcs/shared';
 import {
   BookOpenCheck,
   Check,
+  ChevronDown,
   ChevronRight,
   Download,
   HelpCircle,
@@ -10,27 +11,101 @@ import {
   FileUp,
   X,
 } from 'lucide-react';
+import type { LlmConnectionTest, LlmSettingsStatus, SaveLlmSettingsInput } from '../api';
+import { AiSettingsPanel } from './AiSettingsPanel';
 
 interface HomeChecklistProps {
-  llmConfigured?: boolean;
-  timingConfigured?: boolean;
-  onConnect(): void;
+  llmSettings: LlmSettingsStatus | null;
+  timingConfigured: boolean | undefined;
+  onSaveLlm(input: SaveLlmSettingsInput): Promise<LlmSettingsStatus>;
+  onTestLlm(input: { apiKey?: string; model?: string }): Promise<LlmConnectionTest>;
+  onCheckTiming(): Promise<boolean>;
   onOpenDoctor(): void;
   onDismiss(): void;
 }
 
-export function HomeSetupChecklist({ llmConfigured, timingConfigured, onConnect, onOpenDoctor, onDismiss }: HomeChecklistProps) {
-  if (llmConfigured && timingConfigured) return <section className="home-ready-strip" aria-label="Sthang Studio ready">
+export function HomeSetupChecklist({ llmSettings, timingConfigured, onSaveLlm, onTestLlm, onCheckTiming, onOpenDoctor, onDismiss }: HomeChecklistProps) {
+  const id = useId();
+  const [lastKnownTiming, setLastKnownTiming] = useState(timingConfigured);
+  if (typeof timingConfigured === 'boolean' && timingConfigured !== lastKnownTiming) setLastKnownTiming(timingConfigured);
+  const timingReady = timingConfigured ?? lastKnownTiming;
+  const aiReady = llmSettings?.configured;
+  const firstIncomplete = aiReady === false ? 'ai' : timingReady === false ? 'timing' : null;
+  const [expansion, setExpansion] = useState({ firstIncomplete, open: firstIncomplete });
+  if (expansion.firstIncomplete !== firstIncomplete) setExpansion({ firstIncomplete, open: firstIncomplete });
+  const [timingCheck, setTimingCheck] = useState<'idle' | 'checking' | 'incomplete' | 'unavailable'>('idle');
+  const checking = useRef(false);
+  const checkTiming = async () => {
+    if (checking.current) return;
+    checking.current = true;
+    setTimingCheck('checking');
+    const read = await onCheckTiming();
+    checking.current = false;
+    setTimingCheck(read ? 'incomplete' : 'unavailable');
+    if (!read) setExpansion({ firstIncomplete, open: 'timing' });
+  };
+
+  if (aiReady && timingReady) return <section className="home-ready-strip" aria-label="Sthang Studio ready">
     <strong><Check size={16} aria-hidden="true"/>Studio ready</strong>
     <button onClick={onDismiss} aria-label="Dismiss ready status"><X size={14}/></button>
   </section>;
-  if (llmConfigured !== false && timingConfigured !== false) return null;
+  if (aiReady !== false && timingReady !== false) return null;
+  const agent = navigator.userAgent;
+  const timingInstruction = /Windows/i.test(agent)
+    ? <>Khmer timing runs on this computer and needs a one-time setup. Run <strong>Install Sthang Studio.bat</strong> again from your download, or run <strong>setup-local-timing-windows.bat</strong> in the Studio folder. Then choose <strong>Check again</strong>.</>
+    : /Macintosh|Mac OS X/i.test(agent)
+      ? <>Khmer timing runs on this computer and needs a one-time setup. In the Studio folder, run <code>bash ./setup-local-timing-macos.sh</code>. Then choose <strong>Check again</strong>.</>
+      : <>Install the local timing Python dependencies for this computer, then choose <strong>Check again</strong>.</>;
+  const steps = [
+    {
+      id: 'ai', title: 'Connect AI', ready: aiReady,
+      status: aiReady ? 'Done · Gemini key saved' : aiReady === false ? 'Key needed' : 'Status unavailable',
+      body: llmSettings && <AiSettingsPanel variant="inline" settings={llmSettings} onSave={onSaveLlm} onTest={onTestLlm}/>,
+    },
+    {
+      id: 'timing', title: 'Set up Khmer timing', ready: timingReady,
+      status: timingReady ? 'Done · Ready' : timingReady === false ? 'Not set up yet' : 'Status unavailable',
+      body: <>
+        <p className="first-run-timing-status" role="status" aria-live="polite" aria-atomic="true">{
+          timingCheck === 'unavailable' ? 'Studio could not check right now. Try again.'
+            : timingCheck === 'incomplete' ? 'Still not set up. Finish the setup above, then check again. If this keeps happening, restart Studio.'
+              : 'Not set up yet'
+        }</p>
+        <p>{timingInstruction}</p>
+        <div className="first-run-actions">
+          <button type="button" aria-busy={timingCheck === 'checking' || undefined} onClick={() => void checkTiming()}>{timingCheck === 'checking' ? 'Checking…' : 'Check again'}</button>
+          <button type="button" className="first-run-link" onClick={onOpenDoctor}>Open System check</button>
+        </div>
+      </>,
+    },
+  ] as const;
+
   return <section className="first-run-card" aria-label="Getting started">
-    <div className="first-run-heading"><strong>Caption setup</strong><button onClick={onDismiss} aria-label="Dismiss getting started"><X size={15}/></button></div>
-    <div className="first-run-steps">
-      {llmConfigured === false && <button onClick={onConnect}><span><b>Connect AI</b><small>Add your key in Settings.</small></span><ChevronRight size={16} aria-hidden="true"/></button>}
-      {timingConfigured === false && <button onClick={onOpenDoctor}><span><b>Set up Khmer timing</b><small>Open System check for setup instructions.</small></span><ChevronRight size={16} aria-hidden="true"/></button>}
-    </div>
+    <div className="first-run-heading"><h2>Caption setup</h2><button type="button" onClick={onDismiss} aria-label="Dismiss getting started"><X size={15} aria-hidden="true"/>Dismiss</button></div>
+    <ol className="first-run-steps" role="list">
+      {steps.map((step, index) => {
+        const expanded = expansion.open === step.id;
+        const bodyId = id + '-' + step.id;
+        const label = <>
+          <span className="first-run-number" aria-hidden="true">{step.ready ? <Check size={14}/> : index + 1}</span>
+          <b>{step.title}</b>
+          <small>{step.status}</small>
+        </>;
+        return <li key={step.id}>
+          {step.ready === false ? <>
+            <button type="button" className="first-run-step-header" aria-expanded={expanded} aria-controls={bodyId}
+              onClick={() => setExpansion({ firstIncomplete, open: expanded ? null : step.id })}>
+              {label}<ChevronDown size={15} aria-hidden="true"/>
+            </button>
+            <div id={bodyId} className="first-run-step-body" hidden={!expanded}>{step.body}</div>
+          </> : <div className="first-run-step-header">{label}</div>}
+        </li>;
+      })}
+      <li>
+        <div className="first-run-step-header"><span className="first-run-number" aria-hidden="true">3</span><b>Choose a video</b><small>Available now</small></div>
+        <p className="first-run-video">Drop a video below. You can add it now; captions need steps 1 and 2.</p>
+      </li>
+    </ol>
   </section>;
 }
 

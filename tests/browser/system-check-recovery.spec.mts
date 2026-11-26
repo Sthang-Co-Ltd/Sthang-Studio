@@ -1,5 +1,9 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import type { SystemDoctorReport } from '@kcs/shared';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 import { cleanFixtures, installFixture, prepareFixtures } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
 
@@ -33,6 +37,48 @@ async function showSystemCheck(page: Page) {
 async function rendered(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
+
+test('System check shows platform setup and retry guidance from the doctor report', async ({ page }) => {
+  // Execute the service against synthetic probe and storage dependencies so both
+  // platform branches are exercised without inspecting or modifying real state.
+  const source = readFileSync(new URL('../../apps/server/src/services/doctor.ts', import.meta.url), 'utf8');
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
+  const dependencies: Record<string, unknown> = {
+    'node:fs/promises': { mkdir: async () => {}, writeFile: async () => {}, rm: async () => {} },
+    'node:path': path,
+    '../config.js': { rootDir: 'synthetic', config: {
+      ffmpegPath: 'synthetic', ffprobePath: 'synthetic', localTimingPython: 'synthetic',
+      uploadDir: 'synthetic', cacheDir: 'synthetic', dataFile: 'synthetic', historyDir: 'synthetic',
+      proposalDir: 'synthetic', jobsFile: 'synthetic', port: 1, webOrigin: 'http://127.0.0.1',
+    } },
+    './media.js': { runCommand: async () => { throw new Error('Synthetic runtime unavailable'); } },
+    './llm-settings.js': { resolveGeminiSettings: async () => ({ configured: false, secureStorageAvailable: true, secureStorageLabel: 'Synthetic storage' }) },
+    './caption-preview.js': {},
+    './store.js': { store: { storageStatus: async () => ({ unreadableProjectCount: 0, missingProjectCount: 0, duplicateProjectCount: 0, loadedProjectCount: 0, readableProjectCount: 0 }) } },
+  };
+  let doctorReport: SystemDoctorReport;
+  await page.route('**/api/system/doctor', (route) => route.fulfill({ json: doctorReport }));
+  await page.goto('/');
+  await showSystemCheck(page);
+  for (const [platform, copy] of [
+    ['win32', 'Run Install Sthang Studio.bat again from your download, or run setup-local-timing-windows.bat in the Studio folder. Then run the System check again.'],
+    ['darwin', 'In the Studio folder, run bash ./setup-local-timing-macos.sh. Then run the System check again.'],
+  ]) {
+    const service = {} as { runSystemDoctor(): Promise<SystemDoctorReport> };
+    runInNewContext(compiled, {
+      exports: service,
+      require(id: string) {
+        if (!(id in dependencies)) throw new Error('Unmocked doctor dependency: ' + id);
+        return dependencies[id];
+      },
+      process: { platform, arch: 'synthetic', pid: 1, version: 'synthetic' },
+    });
+    doctorReport = await service.runSystemDoctor();
+    expect(doctorReport.checks.find((item) => item.id === 'python')?.fix).toBe(copy);
+    await run(page).click();
+    await expect(settings(page).getByText(copy, { exact: true })).toBeVisible();
+  }
+});
 
 for (const width of [1440, 390]) test(`initial system checks announce progress, guard repeated activation and retain focus at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 });

@@ -30,9 +30,9 @@ async function probe(command: string, args: string[], label: string) {
 export async function runSystemDoctor(): Promise<SystemDoctorReport> {
   const checks: DoctorCheck[] = [];
   const timingSetupFix = process.platform === 'win32'
-    ? 'Run setup-local-timing-windows.bat.'
+    ? 'Run Install Sthang Studio.bat again from your download, or run setup-local-timing-windows.bat in the Studio folder. Then run the System check again.'
     : process.platform === 'darwin'
-      ? 'Run bash ./setup-local-timing-macos.sh.'
+      ? 'In the Studio folder, run bash ./setup-local-timing-macos.sh. Then run the System check again.'
       : 'Install the local timing Python dependencies for this platform.';
 
   checks.push(check('node', 'Node.js runtime', 'ok', process.version));

@@ -76,10 +76,14 @@ test('first-run setup reports readiness with no projects and keeps known setup a
   await expect(timing).toHaveCount(0);
   await expect(ready).toHaveCount(0);
   const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const inlineKey = page.getByRole('region', { name: 'Getting started' }).getByLabel('API key', { exact: true });
   await expect(dialog).toBeHidden();
+  await expect(inlineKey).toBeVisible();
   await connect.press('Enter');
-  await expect(dialog.getByLabel('API key', { exact: true })).toBeVisible();
-  await page.keyboard.press('Escape');
+  await expect(inlineKey).toBeHidden();
+  await connect.press('Enter');
+  await expect(inlineKey).toBeVisible();
+  await expect(dialog).toBeHidden();
   await expect(connect).toBeFocused();
 
   unavailable = 'ai';
@@ -95,11 +99,13 @@ test('first-run setup reports readiness with no projects and keeps known setup a
     checks: [{ id: 'media', label: 'Synthetic media tools', status: 'ok', detail: 'Media check completed.' }],
     environment: { platform: 'Synthetic Windows', node: 'test', appRoot: 'synthetic', apiPort: 1, webOrigin: 'synthetic' },
   } }));
-  await timing.press('Enter');
+  const systemCheck = page.getByRole('button', { name: 'Open System check', exact: true });
+  await expect(timing).toHaveAttribute('aria-expanded', 'true');
+  await systemCheck.press('Enter');
   await expect(dialog.getByText('Media check completed.', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Run checks', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
-  await expect(timing).toBeFocused();
+  await expect(systemCheck).toBeFocused();
 });
 
 for (const width of [1440, 390]) test(`Home keeps terminal Activity reachable after dismissal, with keyboard return and a real download at ${width}px`, async ({ page }, info) => {
