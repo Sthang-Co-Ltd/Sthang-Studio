@@ -1458,6 +1458,14 @@ all caption bodies, replace an active editor, or start processing during a refre
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
 - Review-focus graphics are editor chrome and must never affect SRT export, captioned-video appearance, or source media.
 
+### First caption playback (source-only)
+
+When the open video receives its first generated captions, offer **Watch with
+captions** and **Not now** over the preview. The prompt keeps the native controls
+clear and leaves focus where it was. Playback starts from the beginning on request.
+Playing, seeking, switching stages or tools, or dismissing the prompt clears it.
+The prompt and completion notice use the Review queue's pending count.
+
 ### Export history
 
 Keep collapsed Export history after the primary output controls, preserving the
