@@ -7,6 +7,7 @@ import { cleanFixtures, createSyntheticWav, installFixture, openProject, prepare
 import { openLayoutTools, openPanelArrangement, resetEditorLayout, toolsButton } from './editor-layout-tools.mjs';
 
 const evidence = path.resolve('.codex-tmp/wave2b2');
+const arrangementEvidence = path.resolve('.codex-tmp/wave2b-tools');
 const stage = (page: Page, name: string) => page.locator(`.stage-rail button[data-stage="${name}"]`);
 const mediaBox = (page: Page) => page.locator('.media-stage');
 const toolbar = (page: Page) => page.locator('.editor-toolbar');
@@ -179,11 +180,14 @@ test('judging order persists separately and Reset clears both optional preferenc
   await expect.poll(() => visualOrder(page)).toEqual(remembered);
   await enlarge(page).click();
   expect((await saved(page)).enlargePreview).toBe(true);
-  await resetEditorLayout(page);
+  const resetPanel = await resetEditorLayout(page);
   await expect.poll(() => visualOrder(page)).toEqual(judgeOrder);
   await expect.poll(() => saved(page)).toEqual({ preview: .36, inspector: .28, order: editOrder });
   await expect(page.getByRole('status').filter({ hasText: 'Panels reset to the default layout.' })).toHaveAttribute('aria-live', 'polite');
-  await expect(toolsButton(page)).toBeFocused();
+  await expect(resetPanel).toBeVisible();
+  await expect(resetPanel.getByRole('button', { name: 'Reset layout', exact: true })).toBeFocused();
+  await expect(resetPanel.getByRole('button', { name: 'Preview left', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(resetPanel.getByRole('status')).toHaveText('From left: Preview, Tool, Captions.');
 });
 
 test('derivation preserves the already adjacent custom editing order', async ({ page }) => {
@@ -213,7 +217,7 @@ test('Review Tab order leads from Preview to the decision workspace before capti
   throw new Error('Tab did not reach the Review workspace from Preview.');
 });
 
-test('unsupported Review keeps canonical keyboard order and explains the disabled Arrange item', async ({ page }) => {
+test('unsupported Review keeps canonical order and offers Reset layout', async ({ page }) => {
   await page.addInitScript(() => {
     const supports = CSS.supports.bind(CSS);
     CSS.supports = ((...args: string[]) => args[0] === 'reading-flow' ? false : (supports as any)(...args)) as typeof CSS.supports;
@@ -221,7 +225,24 @@ test('unsupported Review keeps canonical keyboard order and explains the disable
   await openProject(page);
   await stage(page, 'review').click();
   await expect.poll(() => visualOrder(page)).toEqual(editOrder);
-  await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /Update your browser to rearrange panels/ })).toBeDisabled();
+  const initial = await paneBounds(page);
+  await page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true }).press('ArrowRight');
+  await expect.poll(async () => (await paneBounds(page)).preview.width).toBeGreaterThan(initial.preview.width);
+
+  const menu = await openLayoutTools(page);
+  await expect(menu.getByRole('menuitem', { name: 'Arrange panels…', exact: true })).toBeEnabled();
+  const panel = await openPanelArrangement(page);
+  const reset = panel.getByRole('button', { name: 'Reset layout', exact: true });
+  await expect(panel).toContainText("This browser can't reorder panels. Update it to arrange panels; sizes can still be reset.");
+  await expect(panel.getByRole('group', { name: 'Preview position', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: /^Drag .* panel to reorder$/ })).toHaveCount(0);
+  await expect(panel.getByRole('status')).toHaveCount(0);
+  await expect(reset).toBeFocused();
+  await page.screenshot({ path: path.join(arrangementEvidence, 'arrangement-unsupported.png'), animations: 'disabled' });
+  await reset.click();
+  await expect.poll(() => paneBounds(page)).toEqual(initial);
+  await expect(reset).toBeFocused();
+  await expect(panel).toBeVisible();
 });
 
 test('Layout is desktop-only and its popover anchors and restores focus to Tools', async ({ page }) => {
@@ -229,12 +250,16 @@ test('Layout is desktop-only and its popover anchors and restores focus to Tools
   for (const width of [1440, 1200]) {
     await page.setViewportSize({ width, height: 900 });
     const menu = await openLayoutTools(page);
-    await expect(menu.getByText('Layout', { exact: true })).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /^Reset layout/ })).toBeVisible();
-    if (width === 1440) await screenshot(page, 'tools-1440x900');
+    await expect(menu.getByRole('menuitem', { name: 'Arrange panels…', exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Reset layout', exact: true })).toHaveCount(0);
+    if (width === 1440) {
+      await expect.poll(() => menu.evaluate((node) => node.getAnimations().length)).toBe(0);
+      await page.screenshot({ path: path.join(arrangementEvidence, 'tools-1440x900.png') });
+    }
     const panel = await openPanelArrangement(page);
     await expect(panel).toContainText('This arrangement is used in Captions and Export.');
     await expect(panel.getByRole('button', { name: 'Preview left', exact: true })).toBeFocused();
+    if (width === 1440) await page.screenshot({ path: path.join(arrangementEvidence, 'arrangement-supported.png'), animations: 'disabled' });
     const anchor = (await toolsButton(page).boundingBox())!;
     expect((await panel.boundingBox())!.y).toBeCloseTo(anchor.y + anchor.height + 8, 0);
     await page.keyboard.press('Escape');
@@ -247,7 +272,6 @@ test('Layout is desktop-only and its popover anchors and restores focus to Tools
   for (const width of [1199, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const menu = await openLayoutTools(page, true);
-    await expect(menu.getByText('Layout', { exact: true })).toBeHidden();
     await expect(menu.getByRole('menuitem', { name: /^(Arrange panels|Reset layout)/ })).toHaveCount(0);
     const enabled = menu.getByRole('menuitem', { disabled: false });
     const count = await enabled.count();
@@ -267,8 +291,9 @@ test('Tools menu items contain wrapped descriptions at wide desktop sizes', asyn
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1200, height: 800 }]) {
     await page.setViewportSize(viewport);
     const menu = await openLayoutTools(page);
-    const description = menu.getByRole('menuitem', { name: /^Arrange panels/ }).locator('small');
-    await expect(description).toHaveText('Choose where each panel sits');
+    await expect(menu.getByRole('menuitem', { name: 'Arrange panels…', exact: true }).locator('small')).toHaveCount(0);
+    const description = menu.getByRole('menuitem', { name: /^Replace media/ }).locator('small');
+    await expect(description).toHaveText('Choose whether to keep reviewed captions');
 
     const items = menu.locator('.tools-menu-section > button');
     const readItems = () => items.evaluateAll((buttons) => buttons.map((button) => {
@@ -285,7 +310,7 @@ test('Tools menu items contain wrapped descriptions at wide desktop sizes', asyn
         if (index > 0) expect(item.top).toBeGreaterThanOrEqual(boxes[index - 1].bottom);
       }
     }
-    await description.evaluate((node) => { node.textContent = 'Choose where each panel sits'; });
+    await description.evaluate((node) => { node.textContent = 'Choose whether to keep reviewed captions'; });
     await page.keyboard.press('Escape');
   }
 });

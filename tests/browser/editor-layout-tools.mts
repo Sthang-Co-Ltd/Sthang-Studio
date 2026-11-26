@@ -25,8 +25,9 @@ export async function openPanelArrangement(page: Page, keyboard = false) {
 }
 
 export async function resetEditorLayout(page: Page, keyboard = false) {
-  const menu = await openLayoutTools(page, keyboard);
-  const item = menu.getByRole('menuitem', { name: /^Reset layout/ });
+  const panel = await openPanelArrangement(page, keyboard);
+  const item = panel.getByRole('button', { name: 'Reset layout', exact: true });
   if (keyboard) await item.press('Enter');
   else await item.click();
+  return panel;
 }

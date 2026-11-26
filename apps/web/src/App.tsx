@@ -59,7 +59,7 @@ import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, typ
 import { Upload, type UploadRecoveryResult, type UploadResult } from './components/Upload';
 import { captureUploadRecoveryForProject, clearUploadRecoveryForProject } from './upload-recovery';
 import { EditorLayout, type EditorLayoutHandle } from './components/EditorLayout';
-import { editorArrangementSupported, type EditorLayoutMode } from './editor-layout-state';
+import { editorPopoverAvailable, editorReorderSupported, type EditorLayoutMode } from './editor-layout-state';
 import { GenerationOptions } from './components/GenerationOptions';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
@@ -477,7 +477,7 @@ export default function App() {
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
   const editorLayout = useRef<EditorLayoutHandle>(null);
-  const [arrangeSupported] = useState(editorArrangementSupported);
+  const [arrangeSupported] = useState(() => editorReorderSupported() && editorPopoverAvailable());
   const [mediaShape, setMediaShape] = useState<{ key: string; landscape: boolean } | null>(null);
   const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
   const workspaceEntryFocus = useRef<{
@@ -4577,9 +4577,7 @@ export default function App() {
           replaceDisabled={Boolean(currentProjectAnyActiveJob || busy)}
           technicalDetailsAvailable={hasHybrid}
           onTechnicalDetails={() => chooseWorkspaceTool('details')}
-          arrangeSupported={arrangeSupported}
           onArrangePanels={(anchor) => editorLayout.current?.openArrangement(anchor)}
-          onResetLayout={() => editorLayout.current?.resetLayout()}
           onGuide={() => setShowGuide(true)}
           onCorrect={() => setShowFindReplace(true)}
           onHistory={() => void openHistory()}

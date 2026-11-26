@@ -133,6 +133,7 @@ test('layout remains usable when optional layout storage is corrupt or unavailab
   await openProject(page);
   await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await resetEditorLayout(page);
+  await page.keyboard.press('Escape');
   await page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true }).press('ArrowRight');
   await page.getByRole('button', { name: 'Move later', exact: true }).click();
   await expect.poll(() => state.projects[0].captions[0].startMs).toBe(250);

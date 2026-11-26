@@ -71,7 +71,7 @@ The contained picture retains its aspect ratio. In the current source, Review,
 Appearance and Compare start with the tool beside the preview and remember their
 own pane order. Captions and Export share the editing order. The Captions tool
 strip is the only stage toolbar. At widths of 1200px and above,
-**Tools → Layout → Arrange panels…** offers preview left/middle/right presets and
+**Tools → Arrange panels…** offers preview left/middle/right presets and
 all six orders through drag or keyboard controls.
 The grip and title in each panel header also reorder directly, without opening
 Arrange panels. Header arrow keys and Home/End offer the same ordering, with
@@ -94,14 +94,16 @@ Pane dividers resize their actual neighboring panes with pointer or keyboard.
 For landscape or square video, **Enlarge preview** in Review, Appearance and
 Compare narrows captions to their 360px minimum on wide desktops. Dividers are
 hidden while enlarged. The proportional sizes, pane orders and enlargement choice
-are local browser preferences. **Tools → Layout → Reset layout** restores the
-defaults and clears the enlargement choice. Caption and
+are local browser preferences. **Reset layout** in the **Arrange panels…** popover
+restores the defaults and clears the enlargement choice. It remains available in
+the popover when reordering is unsupported. Caption and
 tool scrolling are independent; the ordinary generated-caption view reserves no
 empty inspector. **Close tool** returns to video and captions. Review keeps its
 existing flagged queue, decisions and playback rules.
 
-Reordering requires browser support for matching visual and keyboard reading
-order; unsupported browsers retain the canonical order and working resizing.
+Reordering requires the Popover API and browser support for matching visual and
+keyboard reading order. Other browsers retain the canonical order and working
+resizing. In browsers without the Popover API, double-click a divider to reset the layout.
 Smaller screens keep preview first and retain the desktop preference. Current source
 uses a compact preview while a tool is open so its controls are easier to reach.
 The caption list and tools remain available through scrolling. Appearance starts with Looks,

@@ -179,7 +179,9 @@ test('unsupported reading-flow keeps a truthful canonical order while retaining 
     const supports = CSS.supports.bind(CSS); CSS.supports = ((...args:string[]) => args[0] === 'reading-flow' ? false : (supports as any)(...args)) as typeof CSS.supports;
   });
   await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
-  await expect.poll(() => actualOrder(page)).toEqual(orders[0]); await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Arrange panels/ })).toBeDisabled();
+  await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
+  const panel = await openPanelArrangement(page);
+  await expect(panel.getByRole('button', { name: 'Reset layout', exact: true })).toBeFocused();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sthang:editor-layout:v2')!).order)).toEqual(['captions','inspector','preview']);
 });
 
@@ -189,25 +191,55 @@ test('two-finger touch cancellation cannot commit a second conflicting gesture',
   const first=(await panel.getByRole('button',{ name:'Drag Preview panel to reorder',exact:true }).boundingBox())!;
   const last=(await panel.getByRole('button',{ name:'Drag Tool panel to reorder',exact:true }).boundingBox())!;
   const cdp=await page.context().newCDPSession(page);
+  const reset = panel.getByRole('button', { name: 'Reset layout', exact: true });
   const start={ x:first.x+first.width/2,y:first.y+first.height/2,id:1 };
   const destination={ x:last.x+last.width/2,y:last.y+last.height/2,id:1 };
   await cdp.send('Input.dispatchTouchEvent',{ type:'touchStart',touchPoints:[start] });
+  await expect(reset).toBeDisabled();
   await cdp.send('Input.dispatchTouchEvent',{ type:'touchMove',touchPoints:[destination] });
   await expect(page.locator('.editor-panel-ghost')).toBeVisible();
   await cdp.send('Input.dispatchTouchEvent',{ type:'touchStart',touchPoints:[destination,{ ...start,id:2 }] });
   await cdp.send('Input.dispatchTouchEvent',{ type:'touchCancel',touchPoints:[] });
+  await expect(reset).toBeEnabled();
   await expect(page.locator('.editor-panel-ghost')).toHaveCount(0); await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
   await cdp.detach();
 });
 
-for (const missing of ['reading-order','popover']) test(`missing ${missing} leaves resizing usable and arrangement hidden`,async ({ page }) => {
-  await page.addInitScript((missing) => {
-    if(missing === 'popover') Object.defineProperty(HTMLElement.prototype,'showPopover',{ configurable:true,value:undefined });
-    else { const supports=CSS.supports.bind(CSS); CSS.supports=((...args:string[]) => args[0] === 'reading-order' ? false : (supports as any)(...args)) as typeof CSS.supports; }
-  },missing);
+test('missing reading-order leaves resizing and the reset-only popover usable', async ({ page }) => {
+  await page.addInitScript(() => {
+    const supports = CSS.supports.bind(CSS);
+    CSS.supports = ((...args: string[]) => args[0] === 'reading-order' ? false : (supports as any)(...args)) as typeof CSS.supports;
+  });
   await openProject(page); await page.getByRole('button',{ name:'Export',exact:true }).click();
-  await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Arrange panels/ })).toBeDisabled();
-  await expect(page.getByRole('region',{ name:'Arrange panels',exact:true })).toBeHidden();
+  const panel = await openPanelArrangement(page);
+  await expect(panel.getByRole('button', { name: 'Reset layout', exact: true })).toBeFocused();
+  await expect(panel.getByRole('group', { name: 'Preview position', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.getByRole('separator',{ name:'Resize Preview and Captions',exact:true }).press('ArrowRight');
+  await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
+});
+
+test('missing Popover API keeps the remaining Tools actions and divider reset usable', async ({ page }) => {
+  await page.addInitScript(() => { Reflect.deleteProperty(HTMLElement.prototype, 'showPopover'); });
+  await openProject(page);
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const menu = await openLayoutTools(page, true);
+  await expect(menu.getByRole('menuitem', { name: 'Arrange panels…', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Arrange panels', exact: true })).toBeHidden();
+  await expect(page.locator('.editor-pane-grip')).toHaveCount(0);
+  await expect(menu.getByRole('menuitem').first()).toBeFocused();
+  await page.keyboard.press('a');
+  const activity = menu.getByRole('menuitem', { name: /^Activity/ });
+  await expect(activity).toBeFocused();
+  await activity.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Activity', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const divider = page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true });
+  const initial = await divider.getAttribute('aria-valuenow');
+  await divider.press('ArrowRight');
+  await expect(divider).not.toHaveAttribute('aria-valuenow', initial!);
+  await divider.dblclick();
+  await expect(divider).toHaveAttribute('aria-valuenow', initial!);
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
 });
