@@ -1404,6 +1404,8 @@ Find shortcuts keep their existing editor-wide behavior.
 
 The home screen is an operational launcher, not a marketing landing page. Keep one concise value line, one concise action-oriented supporting sentence, and the upload surface. Once setup is healthy, collapse onboarding status to a compact readiness indicator; do not keep a completed checklist or repeated workflow explanation in prime space.
 
+While setup is incomplete, **Caption setup** guides users through connecting AI, setting up Khmer timing, and choosing a video. Open the first incomplete step by default and show one step's controls at a time. Home uses the same **Test & save** action as Settings. The timing step names the setup files, offers **Check again**, and keeps the last known timing status when a health read fails. The upload surface remains available during setup.
+
 ### All projects
 
 Keep Home's upload flow and six recent projects compact. **All projects** opens a

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ClipboardPaste,
@@ -16,14 +16,17 @@ import {
 import type { LlmConnectionTest, LlmSettingsStatus, SaveLlmSettingsInput } from '../api';
 import { useStudioConfirm } from './ConfirmationDialog';
 
-interface AiSettingsPanelProps {
+type AiSettingsPanelProps = {
   settings: LlmSettingsStatus;
   onSave(input: SaveLlmSettingsInput): Promise<LlmSettingsStatus>;
   onTest(input: { apiKey?: string; model?: string }): Promise<LlmConnectionTest>;
-  onForget(): Promise<LlmSettingsStatus>;
-}
+} & ({ variant?: 'full'; onForget(): Promise<LlmSettingsStatus> }
+  | { variant: 'inline'; onForget?: never });
 
-export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettingsPanelProps) {
+export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 'full' }: AiSettingsPanelProps) {
+  const inline = variant === 'inline';
+  const keyLabelId = useId();
+  const modelOptionsId = useId();
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(settings.model);
   const [fallbackModel, setFallbackModel] = useState(settings.fallbackModel);
@@ -140,7 +143,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
   };
 
   const forget = async () => {
-    if (pending.current) return;
+    if (!onForget || pending.current) return;
     pending.current = true;
     const owner = lifetime.current;
     const accepted = await confirm({ title: 'Forget saved key?', message: 'Remove the API key saved by Studio on this computer. Your Google AI Studio key itself will not be deleted, and any typed replacement stays in this form.', confirmLabel: 'Forget saved key', tone: 'warning' });
@@ -170,25 +173,26 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
       ? 'apps/server/.env or environment'
       : 'No key configured';
 
-  return <div className="ai-settings-body">
+  return <div className={inline ? 'first-run-ai' : 'ai-settings-body'}>
+    {!inline &&
     <div className={`ai-connection-card ${settings.configured ? 'configured' : 'missing'}`}>
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
         <strong>{settings.configured ? 'Gemini key available' : 'Connect Gemini to generate captions'}</strong>
         <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'You can import media and edit captions before connecting.'}</span>
       </div>
-    </div>
+    </div>}
 
-    <div className="ai-settings-grid">
+    <div className={inline ? undefined : 'ai-settings-grid'}>
       <section className="ai-settings-section">
-        <div className="ai-section-title"><div><strong>Gemini API key</strong><span>The key stays behind Studio's local service and is never returned to your browser after saving.</span></div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Get a key <ExternalLink size={13}/></a></div>
+        <div className="ai-section-title"><div><strong>Gemini API key</strong>{!inline && <span>The key stays behind Studio's local service and is never returned to your browser after saving.</span>}</div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Get a key <ExternalLink size={13}/></a></div>
         <label className="ai-key-field">
-          <span id="ai-key-label">{settings.configured ? 'Replace current key' : 'API key'}</span>
+          <span id={keyLabelId}>{settings.configured ? 'Replace current key' : 'API key'}</span>
           <div>
             <KeyRound size={16}/>
             <input
               ref={keyInput}
-              aria-labelledby="ai-key-label"
+              aria-labelledby={keyLabelId}
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(event) => { revisions.current.key++; setApiKey(event.target.value); resetFeedback(); }}
@@ -197,22 +201,22 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
               autoCapitalize="off"
               spellCheck={false}
             />
-            <button type="button" aria-label={showKey ? 'Hide typed key' : 'Show typed key'} title={showKey ? 'Hide typed key' : 'Show typed key'} onClick={() => setShowKey((value) => !value)}>{showKey ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
-            <button ref={pasteButton} type="button" aria-label="Paste from clipboard" title="Paste from clipboard" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'paste' || undefined} onClick={() => void pasteKey()}><ClipboardPaste size={15}/></button>
+            <button type="button" aria-label={showKey ? 'Hide typed key' : 'Show typed key'} title={showKey ? 'Hide typed key' : 'Show typed key'} onClick={() => setShowKey((value) => !value)}>{inline ? (showKey ? 'Hide' : 'Show') : showKey ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
+            <button ref={pasteButton} type="button" aria-label="Paste from clipboard" title="Paste from clipboard" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'paste' || undefined} onClick={() => void pasteKey()}>{inline ? 'Paste' : <ClipboardPaste size={15}/>}</button>
           </div>
         </label>
-        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong><span>{settings.secureStorageAvailable ? 'Your operating-system account protects the saved key. Profile exports exclude it.' : 'Set a server environment variable on this platform.'}</span></div></div>
+        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? 'Your operating-system account protects the saved key. Profile exports exclude it.' : 'Set a server environment variable on this platform.'}</span>}</div></div>
       </section>
 
-      <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>
+      {!inline && <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>
         <summary>Model settings</summary>
         <div className="ai-model-grid">
-          <label><span>Primary model</span><input list="gemini-model-options" value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>
-          <label><span>Fallback model <em>optional</em></span><input list="gemini-model-options" value={fallbackModel} onChange={(event) => { revisions.current.fallback++; edited.current.fallback = true; setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
-          <datalist id="gemini-model-options"><option value="gemini-3.8-flash"/><option value="gemini-4-hydrogen"/><option value="gemini-3.6-flash"/></datalist>
+          <label><span>Primary model</span><input list={modelOptionsId} value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>
+          <label><span>Fallback model <em>optional</em></span><input list={modelOptionsId} value={fallbackModel} onChange={(event) => { revisions.current.fallback++; edited.current.fallback = true; setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
+          <datalist id={modelOptionsId}><option value="gemini-3.8-flash"/><option value="gemini-4-hydrogen"/><option value="gemini-3.6-flash"/></datalist>
         </div>
         <details className="ai-model-help"><summary>About these models</summary><p>Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Gemini 4 Hydrogen is also an option. These caption models use low thinking. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p></details>
-      </details>
+      </details>}
     </div>
 
     {result && <div className={`ai-test-result ${result.level}`} role="status">
@@ -222,9 +226,11 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget }: AiSettin
     {error && <div className="ai-inline-message error" role="alert"><TriangleAlert size={15}/><span>{error}</span></div>}
 
     <div className="ai-settings-actions">
+      {!inline && <>
       {settings.canForgetSecureKey && <button className="danger-quiet" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'forget' || undefined} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}Forget saved key</button>}
       <span>{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'No settings saved yet'}</span>
       <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={(event) => void test(event.currentTarget)}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
+      </>}
       <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={(event) => void save(event.currentTarget)}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
     </div>
     {confirmationDialog}

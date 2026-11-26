@@ -27,13 +27,17 @@ async function probe(command: string, args: string[], label: string) {
   }
 }
 
+export function localTimingSetupFix(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? 'Run Install Sthang Studio.bat again from your download, or run setup-local-timing-windows.bat in the Studio folder. Then run the System check again.'
+    : platform === 'darwin'
+      ? 'In the Studio folder, run bash ./setup-local-timing-macos.sh. Then run the System check again.'
+      : 'Install the local timing Python dependencies for this platform.';
+}
+
 export async function runSystemDoctor(): Promise<SystemDoctorReport> {
   const checks: DoctorCheck[] = [];
-  const timingSetupFix = process.platform === 'win32'
-    ? 'Run setup-local-timing-windows.bat.'
-    : process.platform === 'darwin'
-      ? 'Run bash ./setup-local-timing-macos.sh.'
-      : 'Install the local timing Python dependencies for this platform.';
+  const timingSetupFix = localTimingSetupFix();
 
   checks.push(check('node', 'Node.js runtime', 'ok', process.version));
 
