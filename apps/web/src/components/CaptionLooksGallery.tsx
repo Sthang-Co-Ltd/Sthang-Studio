@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import type { CSSProperties } from 'react';
 import {
   CAPTION_LOOKS,
@@ -67,27 +68,27 @@ function boundedSampleText(value?: string) {
 }
 
 export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, onReset }: Props) {
+  const { t, tr } = useI18n();
   const activeLook = matchingCaptionLook(appearance);
-  const activeLookLabel = CAPTION_LOOKS.find((look) => look.id === activeLook)?.label || 'Custom';
+  const activeLookLabel = CAPTION_LOOKS.find((look) => look.id === activeLook)?.label || t('appearance.looks.custom');
   const sample = boundedSampleText(sampleCaptionText);
 
   return <section className="caption-effects-section appearance-look-section" aria-labelledby="appearance-look-title">
     <div className="caption-effects-section-head">
       <div>
-        <strong id="appearance-look-title">Look</strong>
+        <strong id="appearance-look-title">{t('appearance.looks.title')}</strong>
       </div>
       <button type="button" className="effect-reset-button" onClick={onReset}>
-        <RotateCcw size={14}/>Reset look
-      </button>
+        <RotateCcw size={14}/>{t('appearance.looks.reset')}</button>
     </div>
-    <div className="appearance-look-current" role="status">Current look <b>{activeLookLabel}</b></div>
-    <div className="appearance-look-grid" role="group" aria-label="Caption looks">
+    <div className="appearance-look-current" role="status">{tr('appearance.looks.current', { look: activeLookLabel }, {})}</div>
+    <div className="appearance-look-grid" role="group" aria-label={t('appearance.looks.group')}>
       {CAPTION_LOOKS.map((look) => <button
         key={look.id}
         type="button"
         className="appearance-look-card"
-        title={look.description}
-        aria-description={look.description}
+        title={t(`appearance.looks.description.${look.id}`)}
+        aria-description={t(`appearance.looks.description.${look.id}`)}
         aria-pressed={activeLook === look.id}
         onClick={() => onSelect(look.id)}
       >
@@ -96,10 +97,10 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
         </span>
         <span className="appearance-look-copy">
           <strong>{look.label}</strong>
-          <small>{look.description}</small>
+          <small>{t(`appearance.looks.description.${look.id}`)}</small>
         </span>
       </button>)}
     </div>
-    <details className="appearance-look-help"><summary>About looks</summary><p>Looks change decoration for all captions. Font, weight, size, position, motion and word emphasis stay unchanged. Samples show style only. Check the video for final layout.</p></details>
+    <details className="appearance-look-help"><summary>{t('appearance.looks.about')}</summary><p>{t('appearance.looks.help')}</p></details>
   </section>;
 }

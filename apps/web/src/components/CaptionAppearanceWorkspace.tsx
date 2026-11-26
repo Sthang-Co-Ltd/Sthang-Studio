@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import {
   applyCaptionLook,
@@ -51,13 +52,6 @@ interface Props {
   profileImportRevision?: number;
 }
 
-function saveStateCopy(state: AppearanceSaveState) {
-  if (state === 'saving') return 'Saving appearance…';
-  if (state === 'pending') return 'Saving automatically…';
-  if (state === 'error') return 'Appearance could not be saved';
-  return 'Saved automatically';
-}
-
 function revealAppearanceControl(target: HTMLElement | null | undefined) {
   target?.focus({ preventScroll: true });
   target?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
@@ -86,6 +80,7 @@ export function CaptionAppearanceWorkspace({
   flushSave,
   profileImportRevision = 0,
 }: Props) {
+  const { t, tn, tr } = useI18n();
   const initial = recoverUnsavedCaptionAppearance(project.id, project.media) ?? normalizeCaptionAppearance(initialAppearance ?? project.captionAppearance);
   const [appearance, setAppearance] = useState<CaptionAppearance>(initial);
   const [saveState, setSaveState] = useState<AppearanceSaveState>('saved');
@@ -166,7 +161,7 @@ export function CaptionAppearanceWorkspace({
     } catch (error) {
       if (owns()) {
         setFontDiscoveryFailed(true);
-        setFontReadError(error instanceof Error ? error.message : 'Could not check local Khmer fonts');
+        setFontReadError(error instanceof Error ? error.message : t('appearance.workspace.fontReadError'));
       }
     } finally {
       if (fontReadRequest.current === token) {
@@ -196,7 +191,7 @@ export function CaptionAppearanceWorkspace({
       });
       setPresetsLoaded(true); setPresetReadError('');
     } catch (error) {
-      if (owns()) setPresetReadError(error instanceof Error ? error.message : 'Could not load saved appearance presets');
+      if (owns()) setPresetReadError(error instanceof Error ? error.message : t('appearance.workspace.presetReadError'));
     } finally {
       if (presetReadRequest.current === token) {
         presetReadRequest.current = null;
@@ -308,7 +303,7 @@ export function CaptionAppearanceWorkspace({
       const fresh = await api.getAppearance(project.id);
       if (!owns() || appearanceEditRevision.current !== revision || dirtyRef.current) return;
       if (projectMediaKey(fresh) !== projectMediaKey(project)) {
-        setAppearanceReadError('The source changed. Reopen this project before changing its saved appearance.');
+        setAppearanceReadError(t('appearance.workspace.appearanceSourceChanged'));
         return;
       }
       const next = normalizeCaptionAppearance(fresh.captionAppearance);
@@ -317,7 +312,7 @@ export function CaptionAppearanceWorkspace({
       setAppearance(next);
     } catch {
       if (owns() && appearanceEditRevision.current === revision) {
-        setAppearanceReadError('Could not reload the saved appearance. Your current look is kept.');
+        setAppearanceReadError(t('appearance.workspace.appearanceReadError'));
       }
     } finally {
       if (owns()) { appearanceReadRequest.current = null; setLoadingAppearance(false); }
@@ -444,25 +439,25 @@ export function CaptionAppearanceWorkspace({
   const replayUnavailable = replayDisabled || replayFontUnavailable || explicitReplayTargetMissing;
   const replayIsPreparing = !replayPlaying && (replayPreparing || replayPending);
   const replayUnavailableCopy = loadingFonts && replayFontUnavailable
-    ? 'Checking this Khmer font before replay…'
+    ? t('appearance.workspace.replayCheckingFont')
     : fontDiscoveryFailed && replayFontUnavailable
-      ? 'Could not verify this Khmer font for replay. Your saved choice is unchanged.'
+      ? t('appearance.workspace.replayFontReadError')
       : confirmedFontUnavailable
-        ? 'Choose an available Khmer font to replay.'
+        ? t('appearance.workspace.replayNeedsFont')
         : explicitReplayTargetMissing
-          ? 'Choose a caption with text to replay.'
+          ? t('appearance.workspace.replayNeedsCaption')
             : replayDisabled
-              ? 'Replay is unavailable for the current selection.'
+              ? t('appearance.workspace.replayUnavailable')
               : '';
   const motionPreset = appearance.motionPreset || 'none';
   const motionDescription = motionPreset === 'rise'
-    ? 'The caption rises into its saved position, then fades out.'
+    ? t('appearance.workspace.motionDescription.rise')
     : motionPreset === 'soft-pop'
-      ? 'The caption scales into place, then fades out.'
+      ? t('appearance.workspace.motionDescription.soft-pop')
       : motionPreset === 'fade'
-        ? 'The caption fades in and out.'
-        : 'Captions stay still.';
-  const motionDurationLabel = motionPreset === 'fade' ? 'Fade duration' : 'Motion duration';
+        ? t('appearance.workspace.motionDescription.fade')
+        : t('appearance.workspace.motionDescription.none');
+  const motionDurationLabel = motionPreset === 'fade' ? t('appearance.workspace.fadeDuration') : t('appearance.workspace.motionDuration');
 
   const commitAppearance = (
     next: CaptionAppearance,
@@ -562,7 +557,7 @@ export function CaptionAppearanceWorkspace({
     const font = fonts.find((item) => item.name === appearanceRef.current.fontFamily);
     if (!font || font.boldAvailable) return;
     updateAppearance((current) => ({ ...current, bold: false }), { history: 'none' });
-    setFontNotice(`${font.name} has no Bold face. Switched to Regular; other appearance settings are unchanged.`);
+    setFontNotice(t('appearance.workspace.fontRegularFallback', { font: font.name }));
   }, [loadingFonts, fonts, project.id]);
 
   const chooseFont = (name: string) => {
@@ -573,7 +568,7 @@ export function CaptionAppearanceWorkspace({
     setFontWarnings([]);
     if (chosen && appearanceRef.current.bold && !chosen.boldAvailable) {
       updateAppearance((current) => ({ ...current, fontFamily: name, bold: false }));
-      setFontNotice(`${name} has no Bold face. Switched to Regular; other appearance settings are unchanged.`);
+      setFontNotice(t('appearance.workspace.fontRegularFallback', { font: name }));
       return;
     }
     updateAppearance((current) => ({ ...current, fontFamily: name }));
@@ -605,21 +600,22 @@ export function CaptionAppearanceWorkspace({
       const firstName = result.imported[0];
       const first = firstName ? available.find((font) => font.name === firstName) : undefined;
       if (!first) {
-        if (!result.warnings.length) setFontError('No compatible Khmer font was added. Choose a Regular .ttf or .otf font file.');
+        if (!result.warnings.length) setFontError(t('appearance.workspace.noFontAdded'));
         return;
       }
       const count = result.imported.length;
-      const added = count === 1 ? `Added “${first.name}”` : `Added ${count} Khmer font families`;
       if (fontImportChoiceRevisionRef.current !== choiceRevision) {
-        setFontNotice(`${added}. Your newer appearance choices are kept. Choose the added font from Khmer font when you are ready.`);
+        setFontNotice(tn('appearance.workspace.fontAddedChoicesKept', count, { font: first.name }));
         return;
       }
       setFontQuery('');
       const boldMismatch = appearanceRef.current.bold && !first.boldAvailable;
       updateAppearance((current) => ({ ...current, fontFamily: first.name, ...(boldMismatch ? { bold: false } : {}) }));
-      setFontNotice(`${added}. ${first.name} is selected.${boldMismatch ? ' No Bold face; using Regular. Other settings are unchanged.' : ''}`);
+      setFontNotice(boldMismatch
+        ? tn('appearance.workspace.fontAddedRegular', count, { font: first.name })
+        : tn('appearance.workspace.fontAddedSelected', count, { font: first.name }));
     } catch (error) {
-      if (mountedRef.current && resourceOwnerRef.current === owner) setFontError(error instanceof Error ? error.message : 'Could not add the selected font files');
+      if (mountedRef.current && resourceOwnerRef.current === owner) setFontError(error instanceof Error ? error.message : t('appearance.workspace.fontAddError'));
     } finally {
       fontMutationRef.current = false;
       if (mountedRef.current && resourceOwnerRef.current === owner) setAddingFonts(false);
@@ -632,11 +628,11 @@ export function CaptionAppearanceWorkspace({
     const owns = () => mountedRef.current && resourceOwnerRef.current === owner;
     const selectedHere = appearanceRef.current.fontFamily === font.name;
     const confirmed = await onConfirm({
-      title: `Remove “${font.name}” from Studio?`,
+      title: t('appearance.workspace.removeFontTitle', { font: font.name }),
       message: selectedHere
-        ? 'This project keeps the font name, but preview and captioned-video export need you to add it again or choose another available font.'
-        : 'This removes your Studio copy. Projects using it keep the font name and need an available font before preview or render.',
-      confirmLabel: 'Remove font',
+        ? t('appearance.workspace.removeFontSelected')
+        : t('appearance.workspace.removeFontHelp'),
+      confirmLabel: t('appearance.workspace.removeFont'),
       tone: 'warning',
     });
     if (!confirmed || !owns() || fontMutationRef.current) return;
@@ -658,9 +654,9 @@ export function CaptionAppearanceWorkspace({
       setFontDiscoveryFailed(false);
       setFontsLoaded(true); setFontReadError('');
       setFontError('');
-      setFontNotice(`Removed “${font.name}” from Studio. Fonts installed on your PC are unchanged.`);
+      setFontNotice(t('appearance.workspace.fontRemoved', { font: font.name }));
     } catch (error) {
-      if (owns()) setFontError(error instanceof Error ? error.message : 'Could not remove that font from Studio');
+      if (owns()) setFontError(error instanceof Error ? error.message : t('appearance.workspace.fontRemoveError'));
     } finally {
       fontMutationRef.current = false;
       if (owns()) setRemovingFontId('');
@@ -681,7 +677,7 @@ export function CaptionAppearanceWorkspace({
     setFontQuery('');
     setFontWarnings([]);
     setFontNotice(fallbackToRegular
-      ? `${requested.fontFamily} has no Bold face. This preset uses Regular; other settings are unchanged.`
+      ? t('appearance.workspace.presetRegularFallback', { font: requested.fontFamily })
       : '');
   };
 
@@ -720,10 +716,10 @@ export function CaptionAppearanceWorkspace({
       setSelectedPresetId((current) => JSON.stringify(appearanceRef.current) === appearanceSnapshotKey && current === selectedPresetAtStart ? next.id : current);
       if (presetNameRevisionRef.current === nameRevision && JSON.stringify(appearanceRef.current) === appearanceSnapshotKey) {
         setPresetName((current) => current.trim() === name ? '' : current);
-        setPresetNotice(`${existing ? 'Updated' : 'Saved'} “${next.name}”.`);
+        setPresetNotice(existing ? t('appearance.workspace.presetUpdated', { name: next.name }) : t('appearance.workspace.presetSaved', { name: next.name }));
       }
     } catch (error) {
-      if (owns()) setPresetError(error instanceof Error ? error.message : 'Could not save appearance preset');
+      if (owns()) setPresetError(error instanceof Error ? error.message : t('appearance.workspace.presetSaveError'));
     } finally {
       presetMutationRef.current = false;
       if (mountedRef.current) { setSavingPreset(false); setPresetSaveAction(null); }
@@ -738,9 +734,9 @@ export function CaptionAppearanceWorkspace({
     const targetId = selectedPresetId;
     const target = presets.find((item) => item.id === targetId);
     const confirmed = await onConfirm({
-      title: `Delete “${target?.name || 'Preset'}”?`,
-      message: 'This removes the preset from your profile. Existing projects keep their appearance.',
-      confirmLabel: 'Delete preset',
+      title: t('appearance.workspace.deletePresetTitle', { name: target?.name || t('appearance.workspace.preset') }),
+      message: t('appearance.workspace.deletePresetHelp'),
+      confirmLabel: t('appearance.workspace.deletePreset'),
       tone: 'warning',
     });
     if (!confirmed || !owns() || presetMutationRef.current) return;
@@ -760,9 +756,9 @@ export function CaptionAppearanceWorkspace({
       setPresets(updated.captionAppearances || []);
       setPresetError('');
       setSelectedPresetId((current) => current === targetId ? '' : current);
-      setPresetNotice(`Deleted appearance preset “${target?.name || 'Preset'}”. Current appearance is kept.`);
+      setPresetNotice(t('appearance.workspace.presetDeleted', { name: target?.name || t('appearance.workspace.preset') }));
     } catch (error) {
-      if (owns()) setPresetError(error instanceof Error ? error.message : 'Could not delete appearance preset');
+      if (owns()) setPresetError(error instanceof Error ? error.message : t('appearance.workspace.presetDeleteError'));
     } finally {
       presetMutationRef.current = false;
       if (mountedRef.current) setSavingPreset(false);
@@ -771,19 +767,19 @@ export function CaptionAppearanceWorkspace({
 
   return <section className="caption-appearance-workspace" aria-labelledby="caption-appearance-workspace-title" {...interactionHandlers}>
     <div className="caption-appearance-head">
-      <strong id="caption-appearance-workspace-title" className="appearance-accessible-title">Caption appearance</strong>
+      <strong id="caption-appearance-workspace-title" className="appearance-accessible-title">{t('appearance.workspace.title')}</strong>
       <div ref={saveStatusRef} className={`appearance-save-state ${saveState}`} tabIndex={-1} role="status" aria-live="polite">
-        {saveState === 'saving' || saveState === 'pending' || loadingAppearance ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' || appearanceReadError ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{sharedSaveState.conflict ? 'Saved appearance changed' : saveState === 'saved' && loadingAppearance ? 'Checking saved appearance…' : saveState === 'saved' && appearanceReadError ? 'Current look kept' : saveStateCopy(saveState)}</span>{saveState === 'error' && !sharedSaveState.conflict && <button onClick={() => {
+        {saveState === 'saving' || saveState === 'pending' || loadingAppearance ? <LoaderCircle className="spin" size={14}/> : saveState === 'error' || appearanceReadError ? <TriangleAlert size={14}/> : <CheckCircle2 size={14}/>}<span>{sharedSaveState.conflict ? t('appearance.workspace.appearanceConflict') : saveState === 'saved' && loadingAppearance ? t('appearance.workspace.appearanceChecking') : saveState === 'saved' && appearanceReadError ? t('appearance.workspace.appearanceKept') : t(`appearance.workspace.saveState.${saveState}`)}</span>{saveState === 'error' && !sharedSaveState.conflict && <button onClick={() => {
           if (retrySavePendingRef.current) return;
           retrySavePendingRef.current = true;
           revealAppearanceControl(saveStatusRef.current);
           void persistAppearance({ ...appearanceRef.current }).finally(() => { retrySavePendingRef.current = false; });
-        }}>Retry</button>}
+        }}>{t('appearance.workspace.retry')}</button>}
       </div>
-      <div className="appearance-effect-toolbar" aria-label="Appearance history">
+      <div className="appearance-effect-toolbar" aria-label={t('appearance.workspace.history')}>
       <div className="appearance-history">
-        <button type="button" disabled={!undoAppearance} onClick={undoAppearanceChange}><Undo2 size={14}/>Undo</button>
-        <button type="button" disabled={!redoAppearance} onClick={redoAppearanceChange}><Redo2 size={14}/>Redo</button>
+        <button type="button" disabled={!undoAppearance} onClick={undoAppearanceChange}><Undo2 size={14}/>{t('appearance.undo')}</button>
+        <button type="button" disabled={!redoAppearance} onClick={redoAppearanceChange}><Redo2 size={14}/>{t('appearance.workspace.redo')}</button>
       </div>
     </div>
     </div>
@@ -792,22 +788,22 @@ export function CaptionAppearanceWorkspace({
       if (appearanceReadRequest.current) return;
       revealAppearanceControl(saveStatusRef.current);
       void loadSavedAppearance();
-    }}>Retry saved appearance</button></div>}
+    }}>{t('appearance.workspace.retrySavedAppearance')}</button></div>}
     {presetError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{presetError}</span></div>}
-    {fontReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{fontReadError}. {fontsLoaded ? 'Last checked fonts are still shown.' : 'Your saved font is not yet verified.'} Your current appearance is kept.</span><button ref={fontRetryRef} type="button" disabled={loadingFonts} aria-busy={loadingFonts || undefined} onClick={(event) => {
+    {fontReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{fontsLoaded ? t('appearance.workspace.fontsRetryLoaded', { error: fontReadError }) : t('appearance.workspace.fontsRetryUnavailable', { error: fontReadError })}</span><button ref={fontRetryRef} type="button" disabled={loadingFonts} aria-busy={loadingFonts || undefined} onClick={(event) => {
       if (fontReadRequest.current) return;
       if (document.activeElement === event.currentTarget) readFocus.current = { kind: 'fonts', owner: resourceOwner, button: event.currentTarget };
       void loadFonts(true);
-    }}>{loadingFonts ? 'Checking fonts…' : 'Retry fonts'}</button></div>}
-    {presetReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{presetReadError}. {presetsLoaded ? 'Last loaded presets are still shown.' : 'Saved presets could not be loaded.'} Your current appearance and preset name are kept.</span><button type="button" disabled={loadingPresets} aria-busy={loadingPresets || undefined} onClick={(event) => {
+    }}>{loadingFonts ? t('appearance.workspace.checkingFonts') : t('appearance.workspace.retryFonts')}</button></div>}
+    {presetReadError && <div className="appearance-inline-warning appearance-resource-recovery" role="alert"><TriangleAlert size={15}/><span>{presetsLoaded ? t('appearance.workspace.presetsRetryLoaded', { error: presetReadError }) : t('appearance.workspace.presetsRetryUnavailable', { error: presetReadError })}</span><button type="button" disabled={loadingPresets} aria-busy={loadingPresets || undefined} onClick={(event) => {
       if (presetReadRequest.current) return;
       if (document.activeElement === event.currentTarget) readFocus.current = { kind: 'presets', owner: resourceOwner, button: event.currentTarget };
       void loadPresets();
-    }}>{loadingPresets ? 'Loading presets…' : 'Retry appearance presets'}</button></div>}
-    {fontError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{fontError}. Your current appearance remains unchanged.</span></div>}
+    }}>{loadingPresets ? t('appearance.workspace.loadingPresets') : t('appearance.workspace.retryPresets')}</button></div>}
+    {fontError && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{t('appearance.workspace.fontErrorKept', { error: fontError })}</span></div>}
     {fontWarnings.length > 0 && <div className="appearance-inline-warning" role="status"><TriangleAlert size={15}/><span>{fontWarnings.join(' ')}</span></div>}
     {fontNotice && <div className="appearance-font-notice" role="status"><CheckCircle2 size={15}/><span>{fontNotice}</span></div>}
-    {confirmedFontUnavailable && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span><b>{appearance.fontFamily}</b> is unavailable on this PC. Choose an available Khmer font to preview or render. Your saved font choice is unchanged.</span></div>}
+    {confirmedFontUnavailable && <div className="appearance-inline-warning" role="alert"><TriangleAlert size={15}/><span>{tr('appearance.workspace.fontUnavailable', { font: appearance.fontFamily }, {})}</span></div>}
 
     <CaptionLooksGallery
       appearance={appearance}
@@ -817,35 +813,35 @@ export function CaptionAppearanceWorkspace({
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>Khmer font</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label="Khmer font" value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{appearance.fontFamily} · {loadingFonts ? 'checking local fonts…' : fontDiscoveryFailed ? 'not yet verified' : 'unavailable'}</option>}{addedFontOptions.length > 0 && <optgroup label="Added to Studio">{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={`Installed on this computer (${installedFonts.length})`}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.name}{font.boldAvailable ? '' : ' · regular only'}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>Checking local fonts…</option>}</select><button ref={fontAddRef} type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? 'Adding…' : 'Add font…'}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? `${installedFonts.length} compatible Khmer fonts found on this PC. ` : 'Compatible Khmer fonts on this PC appear here automatically. '}Added .ttf and .otf files stay in Studio.</small></div>
-      <label><span>Text color</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
-      <AppearanceRange key={`fontSize1080:${project.id}:${project.media.filename}`} label="Size" value={appearance.fontSize1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.fontSize1080} min={22} max={120} step={1} unit="px" context="At 1080p" onChange={(value, history) => updateAppearance((current) => ({ ...current, fontSize1080: value }), { history })}/>
-      <AppearanceRange key={`positionBottomPct:${project.id}:${project.media.filename}`} label="Position" value={appearance.positionBottomPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.positionBottomPct} min={3} max={82} step={1} unit="%" context="From bottom" onChange={(value, history) => updateAppearance((current) => ({ ...current, positionBottomPct: value }), { history })}/>
+      <div className="appearance-font-field"><span>{t('appearance.workspace.khmerFont')}</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label={t('appearance.workspace.khmerFont')} value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{loadingFonts ? t('appearance.workspace.fontChecking', { font: appearance.fontFamily }) : fontDiscoveryFailed ? t('appearance.workspace.fontUnverified', { font: appearance.fontFamily }) : t('appearance.workspace.fontUnavailableOption', { font: appearance.fontFamily })}</option>}{addedFontOptions.length > 0 && <optgroup label={t('appearance.workspace.addedToStudio')}>{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.boldAvailable ? font.name : t('appearance.workspace.fontRegularOption', { font: font.name })}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={t('appearance.workspace.installedFonts', { count: installedFonts.length })}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.boldAvailable ? font.name : t('appearance.workspace.fontRegularOption', { font: font.name })}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>{t('appearance.workspace.checkingLocalFonts')}</option>}</select><button ref={fontAddRef} type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? t('appearance.workspace.addingFont') : t('appearance.workspace.addFont')}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? t('appearance.workspace.fontCountHelp', { count: installedFonts.length }) : t('appearance.workspace.fontDiscoveryHelp')}</small></div>
+      <label><span>{t('appearance.workspace.textColor')}</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
+      <AppearanceRange key={`fontSize1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.size')} value={appearance.fontSize1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.fontSize1080} min={22} max={120} step={1} unit="px" context={t('appearance.workspace.at1080p')} onChange={(value, history) => updateAppearance((current) => ({ ...current, fontSize1080: value }), { history })}/>
+      <AppearanceRange key={`positionBottomPct:${project.id}:${project.media.filename}`} label={t('appearance.workspace.position')} value={appearance.positionBottomPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.positionBottomPct} min={3} max={82} step={1} unit="%" context={t('appearance.workspace.fromBottom')} onChange={(value, history) => updateAppearance((current) => ({ ...current, positionBottomPct: value }), { history })}/>
     </div>
 
-    {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>Manage added fonts <b>{addedFonts.length}</b></summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? 'Regular + Bold' : 'Regular only'} · Added to Studio</span></div><button type="button" className="danger-quiet" disabled={addingFonts || Boolean(removingFontId)} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? 'Removing…' : 'Remove'}</button></div>)}</div></details>}
+    {addedFonts.length > 0 && <details className="appearance-font-manager"><summary>{tr('appearance.workspace.manageAddedFonts', { count: addedFonts.length }, {})}</summary><div className="appearance-font-manager-list">{addedFonts.map((font) => <div className="appearance-font-manager-row" key={font.id}><div><strong>{font.name}</strong><span>{font.boldAvailable ? t('appearance.workspace.addedFontRegularBold') : t('appearance.workspace.addedFontRegular')}</span></div><button type="button" className="danger-quiet" disabled={addingFonts || Boolean(removingFontId)} onClick={() => void removeAddedFont(font)}><Trash2 size={14}/>{removingFontId === font.id ? t('appearance.workspace.removingFont') : t('appearance.workspace.remove')}</button></div>)}</div></details>}
 
-    <details className="appearance-motion-disclosure appearance-option-group"><summary>Motion · {motionPreset === 'none' ? 'None' : motionPreset === 'soft-pop' ? 'Soft Pop' : motionPreset === 'rise' ? 'Rise' : 'Fade'}</summary>
+    <details className="appearance-motion-disclosure appearance-option-group"><summary>{t('appearance.workspace.motionSummary', { motion: t(`appearance.workspace.motionName.${motionPreset}`) })}</summary>
     <section className="caption-effects-section appearance-motion-section appearance-option-body" aria-labelledby="appearance-motion-title">
       <div className="caption-effects-section-head">
         <div>
-          <strong id="appearance-motion-title">Motion</strong>
-          <span>Animate whole captions without changing timing or word emphasis.</span>
+          <strong id="appearance-motion-title">{t('appearance.workspace.motion')}</strong>
+          <span>{t('appearance.workspace.motionHelp')}</span>
         </div>
       </div>
       <div className="appearance-motion-controls">
         <div className="appearance-motion-choice">
-          <span>Entrance &amp; exit</span>
-          <div className="appearance-segmented" role="group" aria-label="Caption motion">
-            <button type="button" aria-pressed={motionPreset === 'none'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}>None</button>
-            <button type="button" aria-pressed={motionPreset === 'fade'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'fade' }))}>Fade</button>
-            <button type="button" aria-pressed={motionPreset === 'rise'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'rise' }))}>Rise</button>
-            <button type="button" aria-pressed={motionPreset === 'soft-pop'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'soft-pop' }))}>Soft Pop</button>
+          <span>{t('appearance.workspace.entranceExit')}</span>
+          <div className="appearance-segmented" role="group" aria-label={t('appearance.workspace.captionMotion')}>
+            <button type="button" aria-pressed={motionPreset === 'none'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}>{t('appearance.workspace.motionName.none')}</button>
+            <button type="button" aria-pressed={motionPreset === 'fade'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'fade' }))}>{t('appearance.workspace.motionName.fade')}</button>
+            <button type="button" aria-pressed={motionPreset === 'rise'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'rise' }))}>{t('appearance.workspace.motionName.rise')}</button>
+            <button type="button" aria-pressed={motionPreset === 'soft-pop'} onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'soft-pop' }))}>{t('appearance.workspace.motionName.soft-pop')}</button>
           </div>
           <span className="appearance-motion-selection-note">{motionDescription}</span>
-          {motionPreset !== 'none' && <span className="appearance-motion-selection-note">Very short captions skip motion to stay visible.</span>}
+          {motionPreset !== 'none' && <span className="appearance-motion-selection-note">{t('appearance.workspace.shortCaptionMotion')}</span>}
           {(motionPreset === 'rise' || motionPreset === 'soft-pop') && hasOverlappingCaptions
-            && <span className="appearance-motion-overlap-note">Overlapping captions stay still and fade for readability.</span>}
+            && <span className="appearance-motion-overlap-note">{t('appearance.workspace.overlappingMotion')}</span>}
         </div>
         {motionPreset !== 'none' && <AppearanceRange className="appearance-motion-duration" label={motionDurationLabel}
           value={appearance.motionDurationMs ?? DEFAULT_CAPTION_APPEARANCE.motionDurationMs!} defaultValue={DEFAULT_CAPTION_APPEARANCE.motionDurationMs!}
@@ -864,79 +860,79 @@ export function CaptionAppearanceWorkspace({
           onClick={() => void replayEffect()}
         >
           {replayIsPreparing ? <LoaderCircle className="spin" size={14}/> : <Play size={14}/>}
-          {replayIsPreparing ? 'Preparing…' : 'Replay effect'}
+          {replayIsPreparing ? t('appearance.workspace.preparingReplay') : t('appearance.workspace.replayEffect')}
         </button>}
-        {onCancelReplayEffect && replayIsPreparing && <button type="button" onClick={cancelReplayEffect}>Cancel preparation</button>}
-        {onCancelReplayEffect && replayPlaying && <button type="button" onClick={cancelReplayEffect}>Stop replay</button>}
-        {motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
+        {onCancelReplayEffect && replayIsPreparing && <button type="button" onClick={cancelReplayEffect}>{t('appearance.workspace.cancelReplay')}</button>}
+        {onCancelReplayEffect && replayPlaying && <button type="button" onClick={cancelReplayEffect}>{t('appearance.workspace.stopReplay')}</button>}
+        {motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>{t('appearance.workspace.turnMotionOff')}</button>}
       </div>
-      {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label="Replay target caption"><span>Replay target</span><b>{sampleCaptionText.trim()}</b></div>}
+      {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label={t('appearance.workspace.replayTargetCaption')}><span>{t('appearance.workspace.replayTarget')}</span><b>{sampleCaptionText.trim()}</b></div>}
       {replayUnavailableCopy && <span className="appearance-motion-help unavailable">{replayUnavailableCopy}</span>}
     </section>
 
-    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.running}><summary ref={wordHighlightSummaryRef}>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>
-    <section className="appearance-word-highlight appearance-option-body" aria-label="Spoken word highlight">
+    <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.running}><summary ref={wordHighlightSummaryRef}>{appearance.highlightMode === 'word' ? t('appearance.workspace.highlightOn') : t('appearance.workspace.highlightOff')}</summary>
+    <section className="appearance-word-highlight appearance-option-body" aria-label={t('appearance.workspace.spokenHighlight')}>
       <div className="appearance-word-highlight-head">
-        <p>Color words with usable timing while the full caption stays visible.</p>
-        <button ref={onHighlightControlReady} type="button" aria-label="Highlight spoken word" aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
+        <p>{t('appearance.workspace.highlightHelp')}</p>
+        <button ref={onHighlightControlReady} type="button" aria-label={t('appearance.workspace.highlightToggle')} aria-pressed={appearance.highlightMode === 'word'} className={appearance.highlightMode === 'word' ? 'selected' : ''}
           onClick={() => {
             const enabled = appearanceRef.current.highlightMode !== 'word';
             if (updateAppearance((current) => ({ ...current, highlightMode: enabled ? 'word' : 'off' }))) wordPreparation?.onToggle(enabled);
           }}>
-          {appearance.highlightMode === 'word' ? 'On' : 'Off'}
+          {appearance.highlightMode === 'word' ? t('appearance.workspace.on') : t('appearance.workspace.off')}
         </button>
       </div>
       {appearance.highlightMode === 'word' && <>
-        <label className="appearance-highlight-color"><span>Highlight color</span><input type="color" aria-label="Word highlight color" value={appearance.highlightColor || '#D7FF4F'}
+        <label className="appearance-highlight-color"><span>{t('appearance.workspace.highlightColor')}</span><input type="color" aria-label={t('appearance.workspace.wordHighlightColor')} value={appearance.highlightColor || '#D7FF4F'}
           onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
-        {wordPreparation?.exceptions === 0 && <button type="button" onClick={() => onEditWordTiming()}>Edit word timing</button>}
+        {wordPreparation?.exceptions === 0 && <button type="button" onClick={() => onEditWordTiming()}>{t('appearance.workspace.editWordTiming')}</button>}
       </>}
       {wordPreparation && <WordHighlightPreparation view={wordPreparation} enabled={appearance.highlightMode === 'word'} actionFocusTarget={wordHighlightSummaryRef}/>}
-      {appearance.highlightMode === 'word' && <p className="appearance-highlight-note">Highlights appear in video. SRT carries text and timing only.</p>}
+      {appearance.highlightMode === 'word' && <p className="appearance-highlight-note">{t('appearance.workspace.highlightOutput')}</p>}
     </section>
 
     </details>
 
     <details className="appearance-more appearance-option-group">
-      <summary>More appearance</summary>
+      <summary>{t('appearance.workspace.more')}</summary>
       <div className="appearance-grid appearance-option-body">
-        <div className="toggle-field"><span>Weight</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} title={chosenFont && !chosenFont.boldAvailable ? `${chosenFont.name} includes Regular only.` : undefined} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? 'Bold' : 'Regular'}</button></div>
-        <label><span>Outline color</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
-        <AppearanceRange key={`outlineWidth1080:${project.id}:${project.media.filename}`} label="Outline" value={appearance.outlineWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.outlineWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, outlineWidth1080: value }), { history })}/>
-        <AppearanceRange key={`shadowWidth1080:${project.id}:${project.media.filename}`} label="Shadow" value={appearance.shadowWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.shadowWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, shadowWidth1080: value }), { history })}/>
-        <AppearanceRange key={`maxWidthPct:${project.id}:${project.media.filename}`} label="Max width" value={appearance.maxWidthPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.maxWidthPct} min={45} max={96} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, maxWidthPct: value }), { history })}/>
-        <label><span>Alignment</span><select value={appearance.alignment} onChange={(event) => updateAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-        <div className="toggle-field"><span>Background box</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? 'On' : 'Off'}</button></div>
-        {appearance.backgroundEnabled && <><label><span>Background color</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`backgroundOpacity:${project.id}:${project.media.filename}`} label="Background opacity" value={Number((appearance.backgroundOpacity * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.backgroundOpacity * 100)} min={5} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundOpacity: value / 100 }), { history })}/><AppearanceRange key={`backgroundPadding1080:${project.id}:${project.media.filename}`} label="Box padding" value={appearance.backgroundPadding1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080} min={0} max={28} step={1} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundPadding1080: value }), { history })}/></>}
+        <div className="toggle-field"><span>{t('appearance.workspace.weight')}</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} title={chosenFont && !chosenFont.boldAvailable ? t('appearance.workspace.fontRegularTooltip', { font: chosenFont.name }) : undefined} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? t('appearance.workspace.bold') : t('appearance.workspace.regular')}</button></div>
+        <label><span>{t('appearance.workspace.outlineColor')}</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
+        <AppearanceRange key={`outlineWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.outline')} value={appearance.outlineWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.outlineWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, outlineWidth1080: value }), { history })}/>
+        <AppearanceRange key={`shadowWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.shadow')} value={appearance.shadowWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.shadowWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, shadowWidth1080: value }), { history })}/>
+        <AppearanceRange key={`maxWidthPct:${project.id}:${project.media.filename}`} label={t('appearance.workspace.maxWidth')} value={appearance.maxWidthPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.maxWidthPct} min={45} max={96} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, maxWidthPct: value }), { history })}/>
+        <label><span>{t('appearance.workspace.alignment')}</span><select value={appearance.alignment} onChange={(event) => updateAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">{t('appearance.workspace.left')}</option><option value="center">{t('appearance.workspace.center')}</option><option value="right">{t('appearance.workspace.right')}</option></select></label>
+        <div className="toggle-field"><span>{t('appearance.workspace.backgroundBox')}</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? t('appearance.workspace.on') : t('appearance.workspace.off')}</button></div>
+        {appearance.backgroundEnabled && <><label><span>{t('appearance.workspace.backgroundColor')}</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`backgroundOpacity:${project.id}:${project.media.filename}`} label={t('appearance.workspace.backgroundOpacity')} value={Number((appearance.backgroundOpacity * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.backgroundOpacity * 100)} min={5} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundOpacity: value / 100 }), { history })}/><AppearanceRange key={`backgroundPadding1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.boxPadding')} value={appearance.backgroundPadding1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080} min={0} max={28} step={1} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundPadding1080: value }), { history })}/></>}
         <div className="appearance-glow-group">
-          <div className="toggle-field"><span>Glow</span><button aria-pressed={appearance.glowEnabled === true} className={appearance.glowEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, glowEnabled: !current.glowEnabled }))}>{appearance.glowEnabled ? 'On' : 'Off'}</button></div>
-          {appearance.glowEnabled && <><label><span>Glow color</span><input type="color" value={appearance.glowColor || DEFAULT_CAPTION_APPEARANCE.glowColor} onChange={(event) => updateAppearance((current) => ({ ...current, glowColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`glowWidth1080:${project.id}:${project.media.filename}`} label="Glow width" value={(appearance.glowWidth1080 ?? DEFAULT_CAPTION_APPEARANCE.glowWidth1080!)} defaultValue={DEFAULT_CAPTION_APPEARANCE.glowWidth1080!} min={0} max={16} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowWidth1080: value }), { history })}/><AppearanceRange key={`glowOpacity:${project.id}:${project.media.filename}`} label="Glow opacity" value={Number(((appearance.glowOpacity ?? DEFAULT_CAPTION_APPEARANCE.glowOpacity!) * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.glowOpacity! * 100)} min={0} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowOpacity: value / 100 }), { history })}/></>}
+          <div className="toggle-field"><span>{t('appearance.workspace.glow')}</span><button aria-pressed={appearance.glowEnabled === true} className={appearance.glowEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, glowEnabled: !current.glowEnabled }))}>{appearance.glowEnabled ? t('appearance.workspace.on') : t('appearance.workspace.off')}</button></div>
+          {appearance.glowEnabled && <><label><span>{t('appearance.workspace.glowColor')}</span><input type="color" value={appearance.glowColor || DEFAULT_CAPTION_APPEARANCE.glowColor} onChange={(event) => updateAppearance((current) => ({ ...current, glowColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`glowWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.glowWidth')} value={(appearance.glowWidth1080 ?? DEFAULT_CAPTION_APPEARANCE.glowWidth1080!)} defaultValue={DEFAULT_CAPTION_APPEARANCE.glowWidth1080!} min={0} max={16} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowWidth1080: value }), { history })}/><AppearanceRange key={`glowOpacity:${project.id}:${project.media.filename}`} label={t('appearance.workspace.glowOpacity')} value={Number(((appearance.glowOpacity ?? DEFAULT_CAPTION_APPEARANCE.glowOpacity!) * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.glowOpacity! * 100)} min={0} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowOpacity: value / 100 }), { history })}/></>}
         </div>
       </div>
     </details>
 
-    <details ref={presetDisclosureRef} className="appearance-presets-disclosure appearance-option-group"><summary>Saved presets</summary>
+    <details ref={presetDisclosureRef} className="appearance-presets-disclosure appearance-option-group"><summary>{t('appearance.workspace.savedPresets')}</summary>
     <div className="appearance-preset-bar appearance-option-body">
       <label htmlFor="appearance-preset-select">
-        <span>Preset</span>
-        <select ref={presetPickerRef} id="appearance-preset-select" aria-label="Preset" value={selectedPresetId} disabled={loadingPresets && !presetsLoaded} aria-busy={loadingPresets || undefined} onChange={(event) => applyPreset(event.target.value)}>
-          <option value="">Custom / current project</option>
+        <span>{t('appearance.workspace.preset')}</span>
+        <select ref={presetPickerRef} id="appearance-preset-select" aria-label={t('appearance.workspace.preset')} value={selectedPresetId} disabled={loadingPresets && !presetsLoaded} aria-busy={loadingPresets || undefined} onChange={(event) => applyPreset(event.target.value)}>
+          <option value="">{t('appearance.workspace.currentProject')}</option>
           {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
         </select>
       </label>
       <details className="appearance-preset-tools">
-        <summary>Manage presets</summary>
+        <summary>{t('appearance.workspace.managePresets')}</summary>
         <div className="appearance-preset-tools-body">
-          <label><span>Save current appearance as</span><input value={presetName} maxLength={80} onChange={(event) => { presetNameRevisionRef.current += 1; setPresetName(event.target.value); setPresetNotice(''); }} placeholder="Example: Clean Khmer"/></label>
-          <button disabled={!presetName.trim() || savingPreset} aria-busy={presetSaveAction ? true : undefined} onClick={() => void savePreset()}><Save size={14}/>{presetSaveAction ? presetSaveAction === 'update' ? 'Updating…' : 'Saving…' : matchingPresetName ? 'Update preset' : 'Save preset'}</button>
+          <label><span>{t('appearance.workspace.saveAs')}</span><input value={presetName} maxLength={80} onChange={(event) => { presetNameRevisionRef.current += 1; setPresetName(event.target.value); setPresetNotice(''); }} placeholder={t('appearance.workspace.presetPlaceholder')}/></label>
+          <button disabled={!presetName.trim() || savingPreset} aria-busy={presetSaveAction ? true : undefined} onClick={() => void savePreset()}><Save size={14}/>{presetSaveAction ? presetSaveAction === 'update' ? t('appearance.workspace.updatingPreset') : t('appearance.workspace.savingPreset') : matchingPresetName ? t('appearance.workspace.updatePreset') : t('appearance.workspace.savePreset')}</button>
           {presetNotice && <div className="appearance-preset-notice" role="status"><CheckCircle2 size={14} aria-hidden="true"/><span>{presetNotice}</span></div>}
-          {selectedPresetId && <div className="preset-delete-row"><span>Selected: <b>{currentPreset?.name || 'Preset'}</b></span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>Delete preset</button></div>}
+          {selectedPresetId && <div className="preset-delete-row"><span>{tr('appearance.workspace.selectedPreset', { name: currentPreset?.name || t('appearance.workspace.preset') }, {})}</span><button className="danger-quiet" disabled={savingPreset} onClick={() => void deletePreset()}><Trash2 size={14}/>{t('appearance.workspace.deletePreset')}</button></div>}
         </div>
       </details>
     </div>
     </details>
-    <details className="appearance-preview-details"><summary>About the preview</summary><p>Style captions against your video. Size and position may update before the exact export preview is ready. Compression and display scaling can soften edges.</p></details>
+    <details className="appearance-preview-details"><summary>{t('appearance.workspace.aboutPreview')}</summary><p>{t('appearance.workspace.previewHelp')}</p></details>
 
-    <div className="appearance-workspace-footer"><span>Appearance controls the look of captioned video. SRT carries caption text and cue timing.</span></div>
+    <div className="appearance-workspace-footer"><span>{t('appearance.workspace.outputHelp')}</span></div>
   </section>;
 }
