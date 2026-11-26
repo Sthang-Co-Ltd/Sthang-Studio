@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, TriangleAlert, X } from 'lucide-react';
 import { useModalFocus } from '../use-modal-focus';
@@ -16,6 +17,7 @@ interface PendingConfirmation extends StudioConfirmOptions {
 }
 
 function ConfirmationDialog({ request, onResolve }: { request: PendingConfirmation; onResolve(value: boolean): void }) {
+  const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
@@ -33,14 +35,14 @@ function ConfirmationDialog({ request, onResolve }: { request: PendingConfirmati
       aria-describedby="studio-confirm-message"
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <button className="studio-confirm-close" aria-label="Cancel" title="Cancel" onClick={() => onResolve(false)}><X size={17}/></button>
+      <button className="studio-confirm-close" aria-label={t('common.cancel')} title={t('common.cancel')} onClick={() => onResolve(false)}><X size={17}/></button>
       <div className="studio-confirm-symbol" aria-hidden="true">{warning ? <TriangleAlert size={20}/> : <Check size={20}/>}</div>
       <div className="studio-confirm-copy">
         <strong id="studio-confirm-title">{request.title}</strong>
         <p id="studio-confirm-message">{request.message}</p>
       </div>
       <div className="studio-confirm-actions">
-        <button ref={cancelRef} className="studio-confirm-cancel" onClick={() => onResolve(false)}>{request.cancelLabel || 'Cancel'}</button>
+        <button ref={cancelRef} className="studio-confirm-cancel" onClick={() => onResolve(false)}>{request.cancelLabel || t('common.cancel')}</button>
         <button className="studio-confirm-primary" onClick={() => onResolve(true)}>{request.confirmLabel}</button>
       </div>
     </div>

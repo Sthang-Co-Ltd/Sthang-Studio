@@ -1,0 +1,147 @@
+export const review = {
+  completion: {
+    reviewed: "All flagged captions reviewed",
+    noRisks: "No automatic risks detected",
+    reviewedHelp: "The Review queue is clear. You can check all captions or continue to Export.",
+    noRisksHelp: "There are no flagged captions in this review profile. You can still check the wording against your video.",
+    showAll: "Show all captions",
+    export: "Continue to Export",
+  },
+  card: {
+    remaining: {
+      one: "{count} caption left to review",
+      other: "{count} captions left to review",
+    },
+    selection: "Caption {number} · {range}",
+    moreSelected: "+{count} more selected",
+    noCaptions: "No captions to review.",
+    noSelection: "No selection",
+    captionText: "Caption text",
+    emptyCaption: "This caption has no text.",
+    selectCaption: "Select a caption to review.",
+    editText: "Edit text",
+    reasons: "Review reasons",
+    previous: "Previous",
+    replay: "Replay",
+    skip: "Skip",
+    autoPlayNext: "Auto-play next",
+    improve: "Improve…",
+    approveNext: "Approve & next",
+    moreOptions: "More review options",
+    profile: "Review profile",
+    profileHelp: "Checks reading speed, line length, and timing gaps.",
+    tightLoop: "Tight loop",
+    contextTip: "Include nearby speech",
+    playWithContext: "Play with context",
+    focus: "Review focus",
+    bracketsLabel: "Brackets + label",
+    brackets: "Brackets only",
+    off: "Off",
+    lockedText: "Selected text locked.",
+    lockText: "Lock text",
+    lockedTiming: "Selected timing locked.",
+    lockTiming: "Lock timing",
+    unlocked: "Selected captions unlocked.",
+    unlock: "Unlock",
+    fixTiming: "Fix safe timing",
+    showAll: "Show all captions",
+    shortcuts: "Enter / A approve & next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save",
+  },
+  profile: {
+    "khmer-tiktok-fast": "Khmer TikTok: Fast",
+    "khmer-tiktok-comfortable": "Khmer TikTok: Comfortable",
+    "capcut-srt": "CapCut SRT",
+    accessibility: "Accessibility",
+  },
+  undo: {
+    wrapped: {
+      one: "Approved. Returning to {count} earlier skipped review item.",
+      other: "Approved. Returning to {count} earlier skipped review items.",
+    },
+    partial: "{restored} {skipped}",
+    restoredCount: {
+      one: "Undid approval for {count} caption.",
+      other: "Undid approval for {count} captions.",
+    },
+    skippedCount: {
+      one: "Newer changes to {count} caption were kept.",
+      other: "Newer changes to {count} captions were kept.",
+    },
+    advanced: "Approved. Moved to the next review item.",
+    complete: "Review complete. All flagged captions are approved.",
+    none: "No approval was changed. These captions were edited or removed after approval; your newer changes are kept.",
+    undone: "Approval undone.",
+    action: "Undo",
+    dismiss: "Dismiss approval message",
+  },
+  reason: {
+    empty: {
+      label: "No text",
+      hint: "Type the words, or delete this caption.",
+    },
+    "timing-estimated": {
+      label: "Timing may be off",
+      hint: "Play it and check that the caption matches the voice.",
+    },
+    "timing-listen": {
+      label: "Listen to check timing",
+      hint: "The timing is probably right. Play it once to confirm.",
+    },
+    "too-short": {
+      label: "Very short",
+      hint: "Shown for {duration}s (minimum: {min}s). Consider making it longer.",
+    },
+    "too-long": {
+      label: "Shown too long",
+      hint: "Shown for {duration}s (maximum: {max}s). Consider splitting it.",
+    },
+    "fast-reading": {
+      label: "Too fast to read",
+      hint: "About {cps} characters per second (target: {max} or fewer). Viewers may not finish reading it.",
+    },
+    "long-line": {
+      label: "Long line",
+      hint: "This line has {length} characters (target: {max} or fewer).",
+    },
+    "too-many-lines": {
+      label: "Too many lines",
+      hint: "{count} lines (target: {max} or fewer).",
+    },
+    "mixed-language": {
+      label: "Check English words",
+      hint: "Khmer and English are mixed. Check that names and English words are spelled right.",
+    },
+    "name-or-number": {
+      label: "Check names and numbers",
+      hint: "Contains a name, brand or number. Check that it is exact.",
+    },
+    "extra-spaces": {
+      label: "Extra spaces",
+      hint: "Remove extra spaces.",
+    },
+    "key-term-alias": {
+      label: "Use “{canonical}” for “{alias}”",
+      hint: "Your key terms say “{alias}” should be written “{canonical}”.",
+    },
+    overlap: {
+      label: "Overlaps previous",
+      hint: "It starts before the previous caption ends.",
+    },
+    "small-gap": {
+      label: "Tiny gap",
+      hint: "Starts only {gap} ms after the previous caption (target: at least {min} ms).",
+    },
+    duplicate: {
+      label: "Same as previous",
+      hint: "Matches the previous caption. Delete one or merge them.",
+    },
+    "starts-before-media": {
+      label: "Starts before the video",
+      hint: "Move the start to 00:00.000 or later.",
+    },
+    "ends-after-media": {
+      label: "Ends after the video",
+      hint: "Move the end earlier so it stays inside the video.",
+    },
+  },
+} as const;

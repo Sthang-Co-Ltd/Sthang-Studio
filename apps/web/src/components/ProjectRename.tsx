@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiRequestError } from '../api';
@@ -14,6 +15,7 @@ export function ProjectRenameForm({ title, onRename, onClose, input, busy }: {
   input: RefObject<HTMLInputElement | null>;
   busy: RefObject<boolean>;
 }) {
+  const { t } = useI18n();
   const id = useId();
   const [value, setValue] = useState(title);
   const [expectedTitle, setExpectedTitle] = useState(title);
@@ -29,7 +31,7 @@ export function ProjectRenameForm({ title, onRename, onClose, input, busy }: {
     const normalized = value.trim().replace(/\s+/gu, ' ');
     if (!normalized || Array.from(normalized).length > 120 || /\p{Cc}/u.test(value)) {
       setInvalid(true);
-      setFailure('Enter a project name of 1 to 120 characters without control characters.');
+      setFailure(t('editor.rename.invalid'));
       input.current?.focus();
       return;
     }
@@ -42,10 +44,10 @@ export function ProjectRenameForm({ title, onRename, onClose, input, busy }: {
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === 'title_conflict' && error.title !== undefined) {
         setExpectedTitle(error.title);
-        setFailure(`This project was renamed to “${error.title}” elsewhere. Save again to use your name, or Cancel to keep theirs.`);
+        setFailure(t('editor.rename.conflict', { title: error.title }));
       } else {
         setFailure(error instanceof ApiRequestError && error.status === 404
-          ? 'This project is no longer available.' : 'Studio could not save the project name. Try again.');
+          ? t('editor.rename.missing') : t('editor.rename.failed'));
       }
       input.current?.focus();
     } finally {
@@ -53,7 +55,7 @@ export function ProjectRenameForm({ title, onRename, onClose, input, busy }: {
       setSaving(false);
     }
   }}>
-    <label htmlFor={id}>Project name</label>
+    <label htmlFor={id}>{t('editor.rename.name')}</label>
     <input ref={input} id={id} value={value} readOnly={saving} autoComplete="off" aria-invalid={invalid || undefined}
       aria-describedby={failure ? `${id}-error` : undefined} onChange={(event) => {
         setValue(event.target.value);
@@ -61,8 +63,8 @@ export function ProjectRenameForm({ title, onRename, onClose, input, busy }: {
       }}/>
     {failure && <p id={`${id}-error`} role="alert">{failure}</p>}
     <div className="studio-confirm-actions">
-      <button type="button" className="studio-confirm-cancel" disabled={saving} onClick={onClose}>Cancel</button>
-      <button type="submit" className="studio-confirm-primary" disabled={saving}>Save</button>
+      <button type="button" className="studio-confirm-cancel" disabled={saving} onClick={onClose}>{t('editor.rename.cancel')}</button>
+      <button type="submit" className="studio-confirm-primary" disabled={saving}>{t('editor.rename.save')}</button>
     </div>
   </form>;
 }
@@ -73,6 +75,7 @@ export function ProjectRenameDialog({ title, onRename, onClose, returnFocus }: {
   onClose(): void;
   returnFocus(): HTMLElement | null;
 }) {
+  const { t } = useI18n();
   const id = useId();
   const dialog = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -82,7 +85,7 @@ export function ProjectRenameDialog({ title, onRename, onClose, returnFocus }: {
   return createPortal(<div className="studio-confirm-backdrop" onMouseDown={cancel}>
     <div ref={dialog} className="studio-confirm-dialog project-rename-dialog" role="dialog" aria-modal="true"
       tabIndex={-1} aria-labelledby={id} onMouseDown={(event) => event.stopPropagation()}>
-      <h2 id={id}>Rename project</h2>
+      <h2 id={id}>{t('editor.rename.title')}</h2>
       <ProjectRenameForm title={title} onRename={onRename} onClose={onClose} input={input} busy={busy}/>
     </div>
   </div>, document.body);

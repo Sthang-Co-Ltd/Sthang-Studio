@@ -1,5 +1,6 @@
 import { languageNames, switchPrompt } from './bilingual';
 import { useI18n, type Locale } from './index';
+import './language-controls.css';
 
 interface LanguageControlsProps {
   saving: boolean;
@@ -30,7 +31,7 @@ export function InterfaceLanguagePrompt({ saving, onChange }: LanguageControlsPr
     <p><span lang="km">{switchPrompt.questionKm}</span> <span lang="en">{switchPrompt.questionEn}</span></p>
     <div>
       <button type="button" className="primary" aria-busy={saving || undefined} aria-disabled={saving || undefined} onClick={() => onChange('km')}><span lang="km">{switchPrompt.chooseKm}</span></button>
-      <button type="button" aria-busy={saving || undefined} aria-disabled={saving || undefined} onClick={() => onChange('en')}>{switchPrompt.chooseEn}</button>
+      <button type="button" lang="en" aria-busy={saving || undefined} aria-disabled={saving || undefined} onClick={() => onChange('en')}>{switchPrompt.chooseEn}</button>
     </div>
   </div>;
 }

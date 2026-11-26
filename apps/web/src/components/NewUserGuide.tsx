@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { isVideoProject, type CaptionProject } from '@kcs/shared';
 import {
@@ -25,6 +26,7 @@ interface HomeChecklistProps {
 }
 
 export function HomeSetupChecklist({ llmSettings, timingConfigured, onSaveLlm, onTestLlm, onCheckTiming, onOpenDoctor, onDismiss }: HomeChecklistProps) {
+  const { t, tr } = useI18n();
   const id = useId();
   const [lastKnownTiming, setLastKnownTiming] = useState(timingConfigured);
   if (typeof timingConfigured === 'boolean' && timingConfigured !== lastKnownTiming) setLastKnownTiming(timingConfigured);
@@ -45,43 +47,43 @@ export function HomeSetupChecklist({ llmSettings, timingConfigured, onSaveLlm, o
     if (!read) setExpansion({ firstIncomplete, open: 'timing' });
   };
 
-  if (aiReady && timingReady) return <section className="home-ready-strip" aria-label="Sthang Studio ready">
-    <strong><Check size={16} aria-hidden="true"/>Studio ready</strong>
-    <button onClick={onDismiss} aria-label="Dismiss ready status"><X size={14}/></button>
+  if (aiReady && timingReady) return <section className="home-ready-strip" aria-label={t('setup.home.readyLabel')}>
+    <strong><Check size={16} aria-hidden="true"/>{t('setup.home.ready')}</strong>
+    <button onClick={onDismiss} aria-label={t('setup.home.dismissReady')}><X size={14}/></button>
   </section>;
   if (aiReady !== false && timingReady !== false) return null;
   const agent = navigator.userAgent;
   const timingInstruction = /Windows/i.test(agent)
-    ? <>Khmer timing runs on this computer and needs a one-time setup. Run <strong>Install Sthang Studio.bat</strong> again from your download, or run <strong>setup-local-timing-windows.bat</strong> in the Studio folder. Then choose <strong>Check again</strong>.</>
+    ? tr('setup.home.windows', {}, { b: (text) => <strong>{text}</strong> })
     : /Macintosh|Mac OS X/i.test(agent)
-      ? <>Khmer timing runs on this computer and needs a one-time setup. In the Studio folder, run <code>bash ./setup-local-timing-macos.sh</code>. Then choose <strong>Check again</strong>.</>
-      : <>Install the local timing Python dependencies for this computer, then choose <strong>Check again</strong>.</>;
+      ? tr('setup.home.macos', {}, { b: (text) => <strong>{text}</strong> })
+      : tr('setup.home.other', {}, { b: (text) => <strong>{text}</strong> });
   const steps = [
     {
-      id: 'ai', title: 'Connect AI', ready: aiReady,
-      status: aiReady ? 'Done · Gemini key saved' : aiReady === false ? 'Key needed' : 'Status unavailable',
+      id: 'ai', title: t('setup.home.connect'), ready: aiReady,
+      status: aiReady ? t('setup.home.keySaved') : aiReady === false ? t('setup.home.keyNeeded') : t('setup.home.unknown'),
       body: llmSettings && <AiSettingsPanel variant="inline" settings={llmSettings} onSave={onSaveLlm} onTest={onTestLlm}/>,
     },
     {
-      id: 'timing', title: 'Set up Khmer timing', ready: timingReady,
-      status: timingReady ? 'Done · Ready' : timingReady === false ? 'Not set up yet' : 'Status unavailable',
+      id: 'timing', title: t('setup.home.setUpTiming'), ready: timingReady,
+      status: timingReady ? t('setup.home.timingReady') : timingReady === false ? t('setup.home.timingNotReady') : t('setup.home.unknown'),
       body: <>
         <p className="first-run-timing-status" role="status" aria-live="polite" aria-atomic="true">{
-          timingCheck === 'unavailable' ? 'Studio could not check right now. Try again.'
-            : timingCheck === 'incomplete' ? 'Still not set up. Finish the setup above, then check again. If this keeps happening, restart Studio.'
-              : 'Not set up yet'
+          timingCheck === 'unavailable' ? t('setup.home.checkUnavailable')
+            : timingCheck === 'incomplete' ? t('setup.home.checkIncomplete')
+              : t('setup.home.timingNotReady')
         }</p>
         <p>{timingInstruction}</p>
         <div className="first-run-actions">
-          <button type="button" aria-busy={timingCheck === 'checking' || undefined} onClick={() => void checkTiming()}>{timingCheck === 'checking' ? 'Checking…' : 'Check again'}</button>
-          <button type="button" className="first-run-link" onClick={onOpenDoctor}>Open System check</button>
+          <button type="button" aria-busy={timingCheck === 'checking' || undefined} onClick={() => void checkTiming()}>{timingCheck === 'checking' ? t('setup.home.checking') : t('setup.home.checkAgain')}</button>
+          <button type="button" className="first-run-link" onClick={onOpenDoctor}>{t('setup.home.systemCheck')}</button>
         </div>
       </>,
     },
   ] as const;
 
-  return <section className="first-run-card" aria-label="Getting started">
-    <div className="first-run-heading"><h2>Caption setup</h2><button type="button" onClick={onDismiss} aria-label="Dismiss getting started"><X size={15} aria-hidden="true"/>Dismiss</button></div>
+  return <section className="first-run-card" aria-label={t('setup.home.gettingStarted')}>
+    <div className="first-run-heading"><h2>{t('setup.home.heading')}</h2><button type="button" onClick={onDismiss} aria-label={t('setup.home.dismissGettingStarted')}><X size={15} aria-hidden="true"/>{t('setup.home.dismiss')}</button></div>
     <ol className="first-run-steps" role="list">
       {steps.map((step, index) => {
         const expanded = expansion.open === step.id;
@@ -102,8 +104,8 @@ export function HomeSetupChecklist({ llmSettings, timingConfigured, onSaveLlm, o
         </li>;
       })}
       <li>
-        <div className="first-run-step-header"><span className="first-run-number" aria-hidden="true">3</span><b>Choose a video</b><small>Available now</small></div>
-        <p className="first-run-video">Drop a video below. You can add it now; captions need steps 1 and 2.</p>
+        <div className="first-run-step-header"><span className="first-run-number" aria-hidden="true">3</span><b>{t('setup.home.chooseVideo')}</b><small>{t('setup.home.available')}</small></div>
+        <p className="first-run-video">{t('setup.home.dropVideo')}</p>
       </li>
     </ol>
   </section>;
