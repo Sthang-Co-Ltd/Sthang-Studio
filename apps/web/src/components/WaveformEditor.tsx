@@ -914,7 +914,7 @@ export function WaveformEditor({
             case 'ArrowLeft': case 'ArrowDown': next -= stepMs; break;
             case 'ArrowRight': case 'ArrowUp': next += stepMs; break;
             case 'Home': next = 0; break;
-            case t('timing.end'): next = editLimitMs; break;
+            case 'End': next = editLimitMs; break;
             default: return;
           }
           event.preventDefault();
