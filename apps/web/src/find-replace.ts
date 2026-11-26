@@ -14,7 +14,7 @@ export function planReplacement(captions: CaptionSegment[], query: string, repla
     const pattern = mode === 'regex' ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     regex = new RegExp(pattern, mode === 'case-insensitive' ? 'giu' : 'gu');
   } catch {
-    return { entries, count, locked, changed, error: 'Invalid regular expression. Check the Find pattern.' };
+    return { entries, count, locked, changed, error: 'Invalid regular expression. Check the Find pattern.', errorKey: 'find.invalidPattern' as const };
   }
   for (const caption of captions) {
     if (targetIds && !targetIds.has(caption.id)) continue;
