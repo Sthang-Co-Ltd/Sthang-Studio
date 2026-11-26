@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AppProfile, CorrectionEvent } from '@kcs/shared';
 import { BookOpenCheck, CirclePlay, X, XCircle, FolderPlus, CheckCheck } from 'lucide-react';
@@ -11,6 +12,19 @@ const formatTime = (ms: number) => {
   const total = ms / 1000;
   return `${Math.floor(total / 60)}:${(total % 60).toFixed(1).padStart(4, '0')}`;
 };
+
+const suggestionLabels = {
+  'phonetic-alias': 'inbox.phoneticAlias',
+  'protected-term': 'inbox.protectedTerm',
+  'formatting': 'inbox.formatting',
+  'review': 'inbox.review',
+} as const;
+
+const decisionLabels = {
+  'remembered-global': 'inbox.rememberedGlobal',
+  'added-project': 'inbox.addedProject',
+  'ignored': 'inbox.ignored',
+} as const;
 
 interface CorrectionInboxProps {
   profile: AppProfile;
@@ -28,6 +42,7 @@ interface CorrectionInboxProps {
 }
 
 export function CorrectionInbox({ profile, open, busy, openingId, readError, blockedSave, onReturnToEdits, onFilterChange, getAudioFocusTarget, onClose, onOpenEvent, onAction }: CorrectionInboxProps) {
+  const { t } = useI18n();
   const dialog = useRef<HTMLElement | null>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const pendingFilter = useRef<HTMLButtonElement | null>(null);
@@ -111,48 +126,48 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
   const changeFilter = (history: boolean) => { actionFocus.current = null; if (showAll !== history) onFilterChange(); setShowAll(history); };
 
   const reportText = (event: CorrectionEvent) => [
-      `Before: ${event.originalText}`,
-      `After: ${event.correctedText}`,
-      `Project: ${event.projectTitle}`,
-      `Time: ${formatTime(event.startMs)}–${formatTime(event.endMs)}`,
-      event.contextBefore || event.contextAfter ? `Context: … ${event.contextBefore || ''} [${event.correctedText}] ${event.contextAfter || ''} …` : '',
-      `Suggested memory: ${event.suggestedVocabularyLine || event.correctedText}`,
+      t('inbox.reportBefore', { text: event.originalText }),
+      t('inbox.reportAfter', { text: event.correctedText }),
+      t('inbox.reportProject', { title: event.projectTitle }),
+      t('inbox.reportTime', { start: formatTime(event.startMs), end: formatTime(event.endMs) }),
+      event.contextBefore || event.contextAfter ? t('inbox.reportContext', { before: event.contextBefore || '', text: event.correctedText, after: event.contextAfter || '' }) : '',
+      t('inbox.reportSuggestion', { text: event.suggestedVocabularyLine || event.correctedText }),
     ].filter(Boolean).join('\n');
 
   if (!presence.present) return null;
   return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
     <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="correction-inbox-title" tabIndex={-1} className="modal correction-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong id="correction-inbox-title">Correction inbox</strong><span>Edits appear when you leave a caption field, save, or export.</span></div>
-        <button className="icon-btn" aria-label="Close correction inbox" onClick={onClose}><X size={18}/></button>
+        <div><strong id="correction-inbox-title">{t('inbox.title')}</strong><span>{t('inbox.help')}</span></div>
+        <button className="icon-btn" aria-label={t('inbox.close')} onClick={onClose}><X size={18}/></button>
       </div>
       <div className="inbox-toolbar">
-        <button ref={pendingFilter} aria-pressed={!showAll} className={!showAll ? 'selected' : ''} onClick={() => changeFilter(false)}>Pending ({pending})</button>
-        <button aria-pressed={showAll} className={showAll ? 'selected' : ''} onClick={() => changeFilter(true)}>Resolved ({profile.correctionEvents.length})</button>
+        <button ref={pendingFilter} aria-pressed={!showAll} className={!showAll ? 'selected' : ''} onClick={() => changeFilter(false)}>{t('inbox.pending', { count: pending })}</button>
+        <button aria-pressed={showAll} className={showAll ? 'selected' : ''} onClick={() => changeFilter(true)}>{t('inbox.resolved', { count: profile.correctionEvents.length })}</button>
       </div>
       <div className="correction-list">
-        {events.length === 0 && <div className="modal-empty"><CheckCheck size={26}/><strong>{showAll ? 'No correction history yet' : 'Inbox clear'}</strong><span>New caption corrections appear here automatically.</span></div>}
+        {events.length === 0 && <div className="modal-empty"><CheckCheck size={26}/><strong>{showAll ? t('inbox.noHistory') : t('inbox.clear')}</strong><span>{t('inbox.emptyHelp')}</span></div>}
         {events.map((event) => <article className={`correction-card status-${event.status}`} key={event.id}
           ref={(element) => { if (element) cards.current.set(event.id, element); else cards.current.delete(event.id); }}
-          tabIndex={-1} aria-label={`Correction at ${formatTimestamp(event.startMs)} in ${event.projectTitle}`} aria-busy={working === event.id || openingId === event.id || undefined}>
-          <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTimestamp(event.startMs)} – {formatTimestamp(event.endMs)}</span><b>{event.suggestionKind.replace('-', ' ')}</b></div>
-          <div className="correction-pair"><div><label>Before</label><p>{event.originalText}</p></div><div><label>After</label><p>{event.correctedText}</p></div></div>
+          tabIndex={-1} aria-label={t('inbox.correctionAt', { time: formatTimestamp(event.startMs), project: event.projectTitle })} aria-busy={working === event.id || openingId === event.id || undefined}>
+          <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTimestamp(event.startMs)} – {formatTimestamp(event.endMs)}</span><b>{Object.hasOwn(suggestionLabels, event.suggestionKind) ? t(suggestionLabels[event.suggestionKind]) : event.suggestionKind.replace('-', ' ')}</b></div>
+          <div className="correction-pair"><div><label>{t('inbox.before')}</label><p>{event.originalText}</p></div><div><label>{t('inbox.after')}</label><p>{event.correctedText}</p></div></div>
           {(event.contextBefore || event.contextAfter) && <p className="correction-context">… {event.contextBefore || ''} <mark>{event.correctedText}</mark> {event.contextAfter || ''} …</p>}
-          <div className="correction-suggestion"><span>Suggested memory</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
+          <div className="correction-suggestion"><span>{t('inbox.suggestion')}</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
           {readError?.id === event.id && <p className="correction-read-error" role="alert">{readError.message}</p>}
           {blockedSave?.id === event.id && <p className="correction-read-error" role="alert">{blockedSave.message}</p>}
           <div className="correction-actions">
             <button aria-disabled={Boolean(openingId || working || busy) || undefined}
               onClick={() => { if (!openingId && !working && !busy) onOpenEvent(event); }}>
-              <CirclePlay size={15}/>{openingId === event.id ? 'Opening audio…' : 'Review audio'}</button>
-            {blockedSave?.id === event.id && <button className="remember" onClick={onReturnToEdits}>Return to edits</button>}
+              <CirclePlay size={15}/>{openingId === event.id ? t('inbox.openingAudio') : t('inbox.reviewAudio')}</button>
+            {blockedSave?.id === event.id && <button className="remember" onClick={onReturnToEdits}>{t('inbox.returnToEdits')}</button>}
             <CopyReportButton text={reportText(event)}/>
             {event.status === 'pending' && <>
-              <button disabled={busy || Boolean(working || openingId)} className="remember" onClick={(click) => void decide(event, 'remember-global', click.currentTarget)}><BookOpenCheck size={15} aria-hidden="true"/>Remember for all projects</button>
-              <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'add-project', click.currentTarget)}><FolderPlus size={15} aria-hidden="true"/>Remember for this project</button>
-              <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'ignore', click.currentTarget)}><XCircle size={15}/>Ignore</button>
+              <button disabled={busy || Boolean(working || openingId)} className="remember" onClick={(click) => void decide(event, 'remember-global', click.currentTarget)}><BookOpenCheck size={15} aria-hidden="true"/>{t('inbox.rememberGlobal')}</button>
+              <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'add-project', click.currentTarget)}><FolderPlus size={15} aria-hidden="true"/>{t('inbox.rememberProject')}</button>
+              <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'ignore', click.currentTarget)}><XCircle size={15}/>{t('inbox.ignore')}</button>
             </>}
-            {event.status !== 'pending' && <span className="decision-label">{event.status.replace('-', ' ')}</span>}
+            {event.status !== 'pending' && <span className="decision-label">{Object.hasOwn(decisionLabels, event.status) ? t(decisionLabels[event.status]) : event.status.replace('-', ' ')}</span>}
           </div>
         </article>)}
       </div>

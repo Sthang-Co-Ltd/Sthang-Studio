@@ -1,14 +1,14 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CaptionGenerationModel } from '@kcs/shared';
 import { Check, ChevronDown } from 'lucide-react';
 import './generation-options.css';
 
-const labels = {
-  automatic: 'Automatic',
+const explicitModelLabels = {
   'gemini-3.8-flash': 'Gemini 3.8 Flash',
   'gemini-4-hydrogen': 'Gemini 4 Hydrogen',
   'gemini-3.6-flash': 'Gemini 3.6 Flash',
-} satisfies Record<CaptionGenerationModel, string>;
+} satisfies Record<Exclude<CaptionGenerationModel, 'automatic'>, string>;
 
 function ModelMark({ model }: { model: CaptionGenerationModel }) {
   return model === 'automatic'
@@ -28,6 +28,8 @@ export function GenerationOptions({ value = 'automatic', disabled, saving, expan
   expandAfterError: boolean;
   onApply: (value: CaptionGenerationModel) => Promise<boolean>;
 }) {
+  const { t } = useI18n();
+  const labels = { automatic: t('accuracy.automatic'), ...explicitModelLabels };
   const id = useId();
   const disclosure = useRef<HTMLDetailsElement>(null);
   const [draft, setDraft] = useState<CaptionGenerationModel | null>(null);
@@ -43,13 +45,13 @@ export function GenerationOptions({ value = 'automatic', disabled, saving, expan
 
   return <details className="generation-options" ref={disclosure}>
     <summary>
-      <strong>AI options</strong>
+      <strong>{t('accuracy.aiOptions')}</strong>
       <span className="generation-current-model"><ModelMark model={value} />{labels[value]}</span>
       <ChevronDown className="generation-options-chevron" size={16} aria-hidden="true" />
     </summary>
     <div className="generation-options-body">
       <fieldset disabled={disabled || saving} aria-describedby={`${id}-help ${id}-status`}>
-        <legend>Caption model</legend>
+        <legend>{t('accuracy.captionModel')}</legend>
         {(Object.keys(labels) as CaptionGenerationModel[]).map((model) => (
           <label className="generation-model-choice" key={model}>
             <input type="radio" name={id} value={model} checked={choice === model}
@@ -60,12 +62,12 @@ export function GenerationOptions({ value = 'automatic', disabled, saving, expan
           </label>
         ))}
       </fieldset>
-      <p id={`${id}-help`}>For this project only. {choice === 'automatic' ? 'Uses your default model and existing fallback rules.' : 'Uses only this model for new caption generation and regeneration.'} Global settings stay unchanged.</p>
+      <p id={`${id}-help`}>{choice === 'automatic' ? t('accuracy.automaticHelp') : t('accuracy.explicitModelHelp')}</p>
       <div className="generation-options-footer">
         <span id={`${id}-status`} role="status">
-          {changed ? (saving ? 'Saving choice…' : 'Choice not applied') : 'Saved for this project'}
+          {changed ? (saving ? t('accuracy.savingModel') : t('accuracy.unappliedModel')) : t('accuracy.modelSaved')}
         </span>
-        <button type="button" className="generation-model-apply" aria-disabled={!canApply} onClick={applyModel}>Apply model</button>
+        <button type="button" className="generation-model-apply" aria-disabled={!canApply} onClick={applyModel}>{t('accuracy.applyModel')}</button>
       </div>
     </div>
   </details>;

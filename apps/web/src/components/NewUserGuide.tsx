@@ -144,6 +144,7 @@ export function NewUserGuide({
   onContext,
   onExport,
 }: GuideProps) {
+  const { t, tr } = useI18n();
   const guide = useRef<HTMLElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -174,39 +175,39 @@ export function NewUserGuide({
   const mac = navigator.platform.toLowerCase().includes('mac');
   const modifier = mac ? 'Command' : 'Ctrl';
   const editingShortcuts = [
-    [`${modifier}+S`, 'Save edits'], [`${modifier}+F`, 'Correct everywhere'], ['Space', 'Play / pause'],
-    ['R', 'Replay selection'], ['E', 'Edit selected caption'], ['J', 'Jump to current caption'],
-    [`${mac ? 'Option' : 'Alt'}+Left / Right`, 'Nudge selected captions by 50 ms'],
+    [`${modifier}+S`, t('guide.shortcutSave')], [`${modifier}+F`, t('guide.shortcutFind')], ['Space', t('guide.shortcutPlay')],
+    ['R', t('guide.shortcutReplay')], ['E', t('guide.shortcutEdit')], ['J', t('guide.shortcutJump')],
+    [`${mac ? 'Option' : 'Alt'}+Left / Right`, t('guide.shortcutNudge')],
   ];
-  const reviewShortcuts = [['Enter or A', 'Approve & next'], ['S', 'Skip without approving'], ['Up / Down', 'Previous / next flagged caption']];
-  return <aside ref={guide} className="new-user-guide" aria-label="Sthang Studio guide" onKeyDown={onKeyDown}>
-    <header><div><HelpCircle size={18}/><span><strong>Guide</strong></span></div><button ref={closeButton} onClick={close} aria-label="Close guide"><X size={16}/></button></header>
+  const reviewShortcuts = [['Enter or A', t('guide.shortcutApprove')], ['S', t('guide.shortcutSkip')], ['Up / Down', t('guide.shortcutFlagged')]];
+  return <aside ref={guide} className="new-user-guide" aria-label={t('guide.label')} onKeyDown={onKeyDown}>
+    <header><div><HelpCircle size={18}/><span><strong>{t('guide.title')}</strong></span></div><button ref={closeButton} onClick={close} aria-label={t('guide.close')}><X size={16}/></button></header>
 
-    {!project ? <div className="guide-empty"><FileUp size={28}/><strong>Create a project first</strong><span>Upload a video or audio file from Home to begin.</span></div> : <div className="guide-content">
+    {!project ? <div className="guide-empty"><FileUp size={28}/><strong>{t('guide.createProject')}</strong><span>{t('guide.uploadHelp')}</span></div> : <div className="guide-content">
       <section className="guide-workflow">
-        <h3>Caption workflow</h3>
-        <button className={llmConfigured ? 'done' : 'next'} onClick={() => handoff(onConnect)}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected' : 'Required to generate caption text.'}</small></span></button>
-        <button className={timingConfigured ? 'done' : 'next'} onClick={() => handoff(onOpenDoctor)}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>Khmer timing</b><small>{timingConfigured ? 'Timing ready' : 'Open System check for setup.'}</small></span><ChevronRight size={14}/></button>
-        <button onClick={() => handoff(onContext)}><i>3</i><span><b>Add accuracy context <em>optional</em></b><small>Preserve names, brands, versions, and Khmer-English terms.</small></span><ChevronRight size={14}/></button>
-        {hasCaptions ? <div className="guide-step done"><i><Check size={14} aria-hidden="true"/></i><span><b>{project.transcript ? 'Captions generated' : 'Captions added'}</b></span></div>
-          : <button className="next" onClick={() => handoff(onGenerate)} disabled={!llmConfigured || !timingConfigured || generationPending}><i>4</i><span><b>{generationPending ? 'Generation unavailable' : 'Generate captions'}</b><small>Create timed captions from the audio.</small></span><ChevronRight size={14}/></button>}
-        <button className={hasCaptions && issueCount ? 'next' : hasCaptions ? 'done' : ''} onClick={() => handoff(onReview)} disabled={!hasCaptions}><i>{hasCaptions && !issueCount ? <Check size={14}/> : 5}</i><span><b>Review flagged captions</b><small>{hasCaptions ? `${issueCount} to check.` : 'Available after generation.'}</small></span><ChevronRight size={14}/></button>
-        <button onClick={() => handoff(onExport)} disabled={!hasCaptions}><i>6</i><span><b>Export</b><small>{isVideoProject(project) ? 'Download subtitles or a video with captions.' : 'Download subtitles for your audio.'}</small></span><Download size={14}/></button>
+        <h3>{t('guide.workflow')}</h3>
+        <button className={llmConfigured ? 'done' : 'next'} onClick={() => handoff(onConnect)}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>{t('guide.connect')}</b><small>{llmConfigured ? t('guide.connected') : t('guide.connectHelp')}</small></span></button>
+        <button className={timingConfigured ? 'done' : 'next'} onClick={() => handoff(onOpenDoctor)}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>{t('guide.timing')}</b><small>{timingConfigured ? t('guide.timingReady') : t('guide.timingHelp')}</small></span><ChevronRight size={14}/></button>
+        <button onClick={() => handoff(onContext)}><i>3</i><span><b>{tr('guide.addContext', {}, { b: (text) => <em>{text}</em> })}</b><small>{t('guide.contextHelp')}</small></span><ChevronRight size={14}/></button>
+        {hasCaptions ? <div className="guide-step done"><i><Check size={14} aria-hidden="true"/></i><span><b>{project.transcript ? t('guide.generated') : t('guide.added')}</b></span></div>
+          : <button className="next" onClick={() => handoff(onGenerate)} disabled={!llmConfigured || !timingConfigured || generationPending}><i>4</i><span><b>{generationPending ? t('guide.generationUnavailable') : t('guide.generate')}</b><small>{t('guide.generateHelp')}</small></span><ChevronRight size={14}/></button>}
+        <button className={hasCaptions && issueCount ? 'next' : hasCaptions ? 'done' : ''} onClick={() => handoff(onReview)} disabled={!hasCaptions}><i>{hasCaptions && !issueCount ? <Check size={14}/> : 5}</i><span><b>{t('guide.review')}</b><small>{hasCaptions ? t('guide.issues', { count: issueCount }) : t('guide.reviewUnavailable')}</small></span><ChevronRight size={14}/></button>
+        <button onClick={() => handoff(onExport)} disabled={!hasCaptions}><i>6</i><span><b>{t('guide.export')}</b><small>{isVideoProject(project) ? t('guide.videoExportHelp') : t('guide.audioExportHelp')}</small></span><Download size={14}/></button>
       </section>
 
       <details className="guide-shortcuts">
-        <summary>Keyboard shortcuts</summary>
-        <p>Playback and Review shortcuts apply outside text fields and controls.</p>
-        <h3>Editing and playback</h3>
+        <summary>{t('guide.shortcuts')}</summary>
+        <p>{t('guide.shortcutsHelp')}</p>
+        <h3>{t('guide.editingShortcuts')}</h3>
         <dl>{editingShortcuts.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
-        <h3>Review only</h3>
+        <h3>{t('guide.reviewShortcuts')}</h3>
         <dl>{reviewShortcuts.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
       </details>
 
       <section className="guide-tools">
-        <h3>Other tools</h3>
-        <div><BookOpenCheck size={15}/><span><b>Correction inbox</b><small>Learns from edits after you approve each suggestion.</small></span></div>
-        <div><ListRestart size={15}/><span><b>Improve captions</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
+        <h3>{t('guide.tools')}</h3>
+        <div><BookOpenCheck size={15}/><span><b>{t('guide.inbox')}</b><small>{t('guide.inboxHelp')}</small></span></div>
+        <div><ListRestart size={15}/><span><b>{t('guide.improve')}</b><small>{t('guide.improveHelp')}</small></span></div>
       </section>
     </div>}
 

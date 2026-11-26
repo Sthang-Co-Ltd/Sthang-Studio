@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { useMenuKeyboard } from '../use-menu-keyboard';
@@ -9,6 +10,7 @@ export function ProjectMoreMenu({ id, title, disabled, onRename, onMove }: {
   onRename(): void;
   onMove(): void;
 }) {
+  const { t } = useI18n();
   const menuId = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -35,7 +37,7 @@ export function ProjectMoreMenu({ id, title, disabled, onRename, onMove }: {
   };
   return <div ref={root} className="project-library-more" onKeyDown={keyboard.onKeyDown}>
     <button ref={trigger} type="button" className="project-library-action" data-library-more={id}
-      aria-label={`More actions for ${title}`} aria-haspopup="menu" aria-expanded={open && !disabled}
+      aria-label={t('library.moreForProject', { title })} aria-haspopup="menu" aria-expanded={open && !disabled}
       aria-controls={open && !disabled ? menuId : undefined} disabled={disabled}
       onClick={() => setOpen(!open)} onKeyDown={(event) => {
         if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229
@@ -44,10 +46,10 @@ export function ProjectMoreMenu({ id, title, disabled, onRename, onMove }: {
         event.preventDefault();
         keyboard.openAt(event.key === 'ArrowDown' ? 'first' : 'last', menuId);
         setOpen(true);
-      }}><MoreHorizontal size={18} aria-hidden="true"/>More</button>
-    {open && !disabled && <div ref={menu} id={menuId} className="project-library-menu" role="menu" aria-label={`Actions for ${title}`}>
-      <button type="button" role="menuitem" tabIndex={-1} onClick={() => select(onRename)}>Rename…</button>
-      <button type="button" role="menuitem" tabIndex={-1} onClick={() => select(onMove)}>Move to Recently deleted</button>
+      }}><MoreHorizontal size={18} aria-hidden="true"/>{t('library.more')}</button>
+    {open && !disabled && <div ref={menu} id={menuId} className="project-library-menu" role="menu" aria-label={t('library.actionsForProject', { title })}>
+      <button type="button" role="menuitem" tabIndex={-1} onClick={() => select(onRename)}>{t('library.rename')}</button>
+      <button type="button" role="menuitem" tabIndex={-1} onClick={() => select(onMove)}>{t('library.moveToBin')}</button>
     </div>}
   </div>;
 }

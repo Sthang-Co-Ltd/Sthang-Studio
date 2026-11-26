@@ -1,1 +1,22 @@
-export const groupingMessages = {} as const;
+export const groupingMessages = {
+  dynamic: 'Dynamic',
+  dynamicDescription: 'Fast TikTok rhythm',
+  word: 'Word',
+  wordDescription: 'One word at a time',
+  phrase: 'Phrase',
+  phraseDescription: 'Natural short phrases',
+  line: 'Line',
+  lineDescription: 'Longer single-line groups',
+  targetMaxCharacters: 'Target maximum characters <b>{count}</b>',
+  currentGrouping: 'Current grouping: {mode}. Locked captions stay as they are. History keeps the previous version.',
+  title: 'Caption grouping',
+  help: 'Change how captions are grouped without recalculating speech timing.',
+  wordLimitHelp: 'Word mode shows one timed token per caption.',
+  limitHelp: 'Characters per caption. Speech rhythm can override it.',
+  applying: 'Applying grouping…',
+  apply: 'Apply grouping',
+  cleanSpacing: 'Clean Khmer spacing',
+  savingPreset: 'Saving grouping preset…',
+  savePreset: 'Save grouping preset',
+  applyPreset: 'Apply saved grouping',
+} as const;

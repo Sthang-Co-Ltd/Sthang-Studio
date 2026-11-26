@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useRef } from 'react';
 import type { ProjectHistoryEntry } from '@kcs/shared';
 import { Clock3, History, LoaderCircle, RotateCcw, X } from 'lucide-react';
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function HistoryPanel({ open, entries, busy, loadState, onClose, onRefresh, onRestore }: Props) {
+  const { t, tn } = useI18n();
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   useModalFocus(open, dialog, onClose);
@@ -23,18 +25,18 @@ export function HistoryPanel({ open, entries, busy, loadState, onClose, onRefres
   return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
     <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="history-title" tabIndex={-1} className="modal history-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head history-modal-head">
-        <div className="history-heading-row"><History size={18}/><div className="history-heading-copy"><strong id="history-title">Project history</strong><span>Checkpoints saved before edits, regeneration, and timing changes</span></div></div>
-        <button className="history-modal-close" aria-label="Close history" onClick={onClose}><X size={17}/></button>
+        <div className="history-heading-row"><History size={18}/><div className="history-heading-copy"><strong id="history-title">{t('history.title')}</strong><span>{t('history.help')}</span></div></div>
+        <button className="history-modal-close" aria-label={t('history.close')} onClick={onClose}><X size={17}/></button>
       </div>
-      <div className="history-toolbar"><span role="status" aria-live="polite" aria-atomic="true">{loadState.loading ? <><LoaderCircle size={14} className="spin"/>{loadState.loaded ? 'Refreshing history…' : 'Loading history…'}</> : loadState.loaded ? `${entries.length} saved version${entries.length === 1 ? '' : 's'}` : 'History unavailable'}</span><button disabled={busy || loadState.loading && !loadState.loaded} aria-disabled={loadState.loading || undefined} aria-busy={loadState.loading || undefined} onClick={() => { if (!busy && !loadState.loading) onRefresh(); }}>{loadState.error ? 'Retry history' : 'Refresh'}</button></div>
-      {loadState.error && <p className="history-load-error" role="alert">{loadState.error}{loadState.loaded ? ' The last loaded history is still shown.' : ''}</p>}
+      <div className="history-toolbar"><span role="status" aria-live="polite" aria-atomic="true">{loadState.loading ? <><LoaderCircle size={14} className="spin"/>{loadState.loaded ? t('history.refreshing') : t('history.loading')}</> : loadState.loaded ? tn('history.savedVersions', entries.length) : t('history.unavailable')}</span><button disabled={busy || loadState.loading && !loadState.loaded} aria-disabled={loadState.loading || undefined} aria-busy={loadState.loading || undefined} onClick={() => { if (!busy && !loadState.loading) onRefresh(); }}>{loadState.error ? t('history.retry') : t('history.refresh')}</button></div>
+      {loadState.error && <p className="history-load-error" role="alert">{loadState.error}{loadState.loaded ? t('history.lastLoadedWarning') : ''}</p>}
       <div className="history-list" aria-busy={loadState.loading}>
         {entries.map((entry) => <article key={entry.id}>
           <div className="history-icon"><Clock3 size={15}/></div>
-          <div className="history-copy"><strong>{entry.label}</strong><span>{new Date(entry.createdAt).toLocaleString()} · {entry.source.replaceAll('-', ' ')}</span><small>{entry.captionCount} captions · {entry.approvedCount} approved · {entry.textLockedCount} text locks · {entry.timingLockedCount} timing locks</small></div>
-          <button aria-label={`Restore ${entry.label} saved ${new Date(entry.createdAt).toLocaleString()}`} disabled={busy} onClick={() => onRestore(entry.id)}><RotateCcw size={14}/>Restore</button>
+          <div className="history-copy"><strong>{entry.label}</strong><span>{new Date(entry.createdAt).toLocaleString()} · {entry.source.replaceAll('-', ' ')}</span><small>{t('history.versionSummary', { captions: entry.captionCount, approved: entry.approvedCount, textLocks: entry.textLockedCount, timingLocks: entry.timingLockedCount })}</small></div>
+          <button aria-label={t('history.restoreVersion', { label: entry.label, date: new Date(entry.createdAt).toLocaleString() })} disabled={busy} onClick={() => onRestore(entry.id)}><RotateCcw size={14}/>{t('history.restore')}</button>
         </article>)}
-        {loadState.loaded && !entries.length && !loadState.loading && !loadState.error && <div className="review-empty">History appears after a meaningful edit or automatic change.</div>}
+        {loadState.loaded && !entries.length && !loadState.loading && !loadState.error && <div className="review-empty">{t('history.empty')}</div>}
       </div>
     </section>
   </div>;
