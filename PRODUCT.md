@@ -11,6 +11,10 @@ The published release state is governed separately by release evidence. A featur
 being present on `main` is not proof that it is available in the current public
 download.
 
+Current source includes a staged Khmer interface option on Home and in Settings →
+Profile. This first stage remembers the choice, applies Khmer interface
+typography, and uses English copy until Khmer translations are added.
+
 ## Primary users
 
 - Cambodian TikTok and short-form creators.

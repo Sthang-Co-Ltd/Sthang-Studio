@@ -36,6 +36,32 @@ Studio bundles the interface fonts with the app. With `font-display: swap`,
 system fallbacks display while the faces load. See [Privacy](PRIVACY.md) for
 font delivery and [Third-Party Notices](THIRD_PARTY_NOTICES.md) for the licenses.
 
+## Interface language
+
+The Language control sits after Settings on Home and at the end of Settings →
+Profile under Interface language. Each option uses its native name and language
+attribute. The profile stores the choice after a successful save. A browser
+mirror sets the initial language while the profile loads. During a save, the
+switch and prompt expose their busy state and keep the active choice visible.
+
+When the profile has no saved choice, Home shows a bilingual prompt above setup
+and the upload control. It stays in the page flow and leaves keyboard focus
+where it is. Either choice saves the preference and dismisses the prompt.
+
+Keep English as the typed source catalog and the fallback for missing Khmer
+messages. Use named parameters, plural messages, and Western digits. Rich
+messages may use bold and code markup, with interpolated values rendered as text.
+Keep the bilingual prompt and native language names together in the fixed copy.
+
+In Khmer mode, the root language is `km` and the interface typography removes
+uppercase styling and letter spacing from operational text. Use a 14px floor for
+controls and body copy, 13px for helpers, and 12px for badges and chips apart
+from pure numbers and monospace timecodes. Keep 1.55 line height on multiline
+text, at least 1.4 on single-line controls, and 44px language-control targets
+through 1199px. Grow controls with padding, give Save room for its longest state,
+and leave breaks between grapheme clusters. The brand lockup and caption
+rendering keep their existing typography.
+
 ## Hierarchy
 
 ### Operational icons

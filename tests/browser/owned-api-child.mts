@@ -30,7 +30,7 @@ for (const name of ['uploadDir', 'workingDir', 'exportDir', 'dataFile', 'profile
   }
 }
 const { profileStore } = await import('../../apps/server/src/services/profile-store.js');
-await profileStore.patch({ preferences: { autosaveDelayMs: 60_000, privacyUpgradeNoticeVersion: '0.8' } });
+await profileStore.patch({ preferences: { interfaceLanguage: 'en', autosaveDelayMs: 60_000, privacyUpgradeNoticeVersion: '0.8' } });
 
 const fixtureCaptionIds = process.env.STHANG_BROWSER_FIXTURE_HIGHLIGHT_CAPTION_IDS;
 if (fixtureCaptionIds !== undefined) {

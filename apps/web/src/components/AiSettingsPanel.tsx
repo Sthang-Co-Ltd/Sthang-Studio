@@ -187,7 +187,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
 
     <div className={inline ? undefined : 'ai-settings-grid'}>
       <section className="ai-settings-section">
-        <div className="ai-section-title"><div><strong>{t('setup.ai.keyHeading')}</strong>{!inline && <span>{t('setup.ai.privacy')}</span>}</div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">{t('setup.ai.getKey')} <ExternalLink size={13}/></a></div>
+        <div className="ai-section-title"><div><strong>{t('setup.ai.keyHeading')}</strong>{!inline && <span>{t('setup.ai.privacy')}</span>}</div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">{t('setup.ai.getKey')}{' '}<ExternalLink size={13}/></a></div>
         <label className="ai-key-field">
           <span id={keyLabelId}>{settings.configured ? t('setup.ai.replaceKey') : t('setup.ai.key')}</span>
           <div>

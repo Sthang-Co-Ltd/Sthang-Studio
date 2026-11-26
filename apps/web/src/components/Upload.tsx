@@ -243,7 +243,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
     {reminders.some((entry) => entry.metadata.id !== attempt?.id) && <details className="upload-earlier-recoveries">
       <summary>{t('home.upload.earlierReminders', { count: reminders.filter((entry) => entry.metadata.id !== attempt?.id).length })}</summary>
       <p>{t('home.upload.earlierHelp')}</p>
-      <label>Earlier upload reminder<select aria-label={t('home.upload.earlierLabel')} value="" disabled={busy || disabled || submitting.current || Boolean(recovering)} onChange={event => {
+      <label>{t('home.upload.earlierLabel')}<select aria-label={t('home.upload.earlierLabel')} value="" disabled={busy || disabled || submitting.current || Boolean(recovering)} onChange={event => {
         const entry = reminders.find((item) => item.metadata.id === event.target.value); if (!entry || busy || disabled || submitting.current || recoveryPending.current) return;
         activate(restoredAttempt(entry)); setRecovery(restoredResult(t('home.upload.earlierNeedsCheck')));
       }}><option value="">{t('home.upload.chooseEarlier')}</option>{reminders.filter((entry) => entry.metadata.id !== attempt?.id).map((entry) => <option key={entry.key} value={entry.metadata.id}>{entry.metadata.name}</option>)}</select></label>

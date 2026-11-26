@@ -77,11 +77,11 @@ test('review reasons identify the check and what to do, including distinct alias
   const second = { ...cue('second', 'ខ្មែរ cap cut capkut', 1400, 3000), timingQuality: 'low' as const };
   const reasons = analyzeCaptions([first, second], ['CapCut | cap cut | capkut'])[0].reasons;
   assert.deepEqual(reasons.filter(({ code }) => ['timing-estimated', 'mixed-language', 'key-term-alias', 'overlap'].includes(code)), [
-    { code: 'timing-estimated', label: 'Timing may be off', hint: 'Play it and check that the caption matches the voice.' },
-    { code: 'mixed-language', label: 'Check English words', hint: 'Khmer and English are mixed. Check that names and English words are spelled right.' },
-    { code: 'key-term-alias', label: 'Use “CapCut” for “cap cut”', hint: 'Your key terms say “cap cut” should be written “CapCut”.' },
-    { code: 'key-term-alias', label: 'Use “CapCut” for “capkut”', hint: 'Your key terms say “capkut” should be written “CapCut”.' },
-    { code: 'overlap', label: 'Overlaps previous', hint: 'It starts before the previous caption ends.' },
+    { code: 'timing-estimated', label: 'Timing may be off', hint: 'Play it and check that the caption matches the voice.', params: {} },
+    { code: 'mixed-language', label: 'Check English words', hint: 'Khmer and English are mixed. Check that names and English words are spelled right.', params: {} },
+    { code: 'key-term-alias', label: 'Use “CapCut” for “cap cut”', hint: 'Your key terms say “cap cut” should be written “CapCut”.', params: { canonical: 'CapCut', alias: 'cap cut' } },
+    { code: 'key-term-alias', label: 'Use “CapCut” for “capkut”', hint: 'Your key terms say “capkut” should be written “CapCut”.', params: { canonical: 'CapCut', alias: 'capkut' } },
+    { code: 'overlap', label: 'Overlaps previous', hint: 'It starts before the previous caption ends.', params: {} },
   ]);
 });
 

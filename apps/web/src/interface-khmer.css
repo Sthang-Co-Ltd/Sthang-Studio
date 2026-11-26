@@ -17,13 +17,16 @@ html:lang(km) :is(.home-tools > button, .empty-stage h1, .empty-stage .lead,
 }
 
 html:lang(km) :is(
-  .home-tools > button, .home-ai-setup, .header-actions .workspace-tools-trigger,
+  .home-tools > button, .home-ai-setup, .workspace-tools-menu > summary,
   .header-actions button, .header-actions a, .caption-panel button,
-  .review-card button, .review-card select, .transcribe-card button,
-  .first-watch button, .toast-stack button, .recent button, .project-name-dialog button,
+  .review-card button, .review-card select, .review-actions label, .transcribe-card button,
+  .first-watch button, .toast-stack button, .recent button, .project-name-button,
+  .project-name-dialog button, .project-name-dialog input,
   .first-run-card button, .first-run-card a, .ai-settings-body button,
   .ai-settings-body summary, .ai-settings-body a, .studio-confirm-dialog button,
-  .interface-language-switch button, .interface-language-prompt button
+  .interface-language-switch button, .interface-language-prompt button,
+  .tools-menu-section b, .ai-key-field input, .ai-model-grid input,
+  .upload-earlier-recoveries select
 ),
 html:lang(km) :is(.upload-recovery, .upload-earlier-recoveries, .setup-warning) button {
   font-size: 14px;
@@ -31,9 +34,9 @@ html:lang(km) :is(.upload-recovery, .upload-earlier-recoveries, .setup-warning) 
 }
 
 html:lang(km) :is(
-  .home-tools > button, .header-actions .stage-rail > button, .header-actions > button,
+  .home-tools > button, .header-actions .stage-rail > button, .header-actions > button, .workspace-tools-menu > summary,
   .caption-panel .panel-tool, .review-card button, .review-card select,
-  .first-watch button, .project-name-button, .first-run-card .ai-key-field > div,
+  .review-actions label, .first-watch button, .project-name-button, .first-run-card .ai-key-field > div,
   .ai-settings-body .ai-key-field > div, .ai-model-grid input
 ) {
   height: auto;
@@ -57,13 +60,24 @@ html:lang(km) :is(
 }
 
 html:lang(km) :is(
-  .workspace-tools-popover small, .workspace-tools-popover section > span,
+  .workspace-tools-popover small, .tools-menu-section > span,
   .panel-head-copy > span, .caption-action-menu small, .recent button small,
   .dropzone > span, .transcribe-card span, .first-watch p, .ai-key-field > span,
   .ai-section-title span, .ai-model-grid label > span, .secure-storage-note span,
   .ai-inline-message, .ai-test-result, .qa-profile-control > span, .shortcut-strip
 ) {
   font-size: 13px;
+  line-height: 1.55;
+}
+
+/* The base interface sets these helper sizes with !important. */
+html:lang(km) :is(.first-run-ai, .ai-settings-body) :is(
+  .ai-connection-copy span, .ai-key-field > span, .ai-section-title span,
+  .ai-model-grid label > span, .secure-storage-note strong, .secure-storage-note span,
+  .ai-model-help, .ai-test-result strong, .ai-test-result span, .ai-inline-message span
+),
+html:lang(km) .qa-profile-control :is(label, span) {
+  font-size: 13px !important;
   line-height: 1.55;
 }
 
@@ -82,7 +96,7 @@ html:lang(km) .header-actions .save-action {
 
 @media (max-width: 1199px) {
   html:lang(km) :is(.home-tools > button, .header-actions .stage-rail > button,
-    .header-actions > button, .caption-panel .panel-tool, .review-card button,
+    .header-actions > button, .workspace-tools-menu > summary, .caption-panel .panel-tool, .review-card button,
     .first-watch button, .project-name-button) {
     min-height: 44px;
   }
