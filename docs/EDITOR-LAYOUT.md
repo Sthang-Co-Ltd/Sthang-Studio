@@ -111,9 +111,9 @@ timing drags rather than interpreting movement as caption edits.
 Reordering uses CSS grid positions with native `reading-flow: source-order` and
 explicit `reading-order` on panes, dividers, and the waveform dock, so
 keyboard traversal follows visual order without DOM-reparenting the playing
-video. Browsers that do not support that property keep the canonical arrangement
-and show a disabled Arrange action explaining the browser requirement; resizing
-still works. Below 1200 CSS pixels, Studio uses its standard preview-first
+video. Browsers that do not support that property keep the canonical arrangement;
+in current source, **Tools → Arrange panels…** opens a reset-only popover there
+that explains the browser requirement, and resizing still works. Below 1200 CSS pixels, Studio uses its standard preview-first
 scrolling layout, closes the arrangement popover, and retains desktop preferences.
 
 Verification authority: `tests/editor-layout-state.test.ts`,
@@ -320,3 +320,17 @@ the workflow, public claims, installation, identity, local preference format or
 data-transfer boundaries in the accepted manifest, `README.md` and `PRIVACY.md`.
 The prior source-feature release handoff remains pending. No subagents were used
 for this fix; independent review was not run at the user's request.
+
+## Task-aware layout (development source)
+
+Review, Appearance and Compare use a judging order that places the tool beside
+the preview without moving the preview or changing its width; it is remembered
+separately from the Captions and Export order (`judgeOrder` in the existing v2
+preference). The editor toolbar row exists only for the Captions-stage strip, so
+other stages give its height to the panes. **Arrange panels…** lives in
+**Tools → Project and setup** on desktops 1200px and wider, and **Reset layout**
+sits inside that popover. Browsers without the native Popover API omit the menu
+item; divider double-click still resets sizes. For landscape or square video,
+**Enlarge preview** in judging stages narrows captions to their 360px minimum and
+hides dividers until it is turned off. See `PRODUCT.md` "Editor layout contract"
+for the source contract. This is development source, not a public release.
