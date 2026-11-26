@@ -115,7 +115,7 @@ export function WorkspaceToolsMenu({
   const attentionCount = activeJobs + pendingCorrections + (llmConfigured ? 0 : 1);
 
   return <details ref={details} className="workspace-tools-menu" open={presence.present} data-menu-open={open}>
-    <summary aria-label={t('editor.tools.open')} aria-haspopup="menu" aria-controls={menuId} aria-expanded={open}
+    <summary data-project-tools-trigger aria-label={t('editor.tools.open')} aria-haspopup="menu" aria-controls={menuId} aria-expanded={open}
       onKeyDown={(event) => {
         if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229 && !event.getModifierState('AltGraph')
           && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {

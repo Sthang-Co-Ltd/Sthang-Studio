@@ -1,6 +1,6 @@
-import type { DeepPartial, EnglishMessages } from '../../types';
+import type { EnglishMessages, KhmerMessages } from '../../types';
 
-export const editor: DeepPartial<EnglishMessages['editor']> = {
+export const editor: KhmerMessages<EnglishMessages['editor']> = {
   tools: {
     activeJobs: "កំពុងដំណើរការ {count}",
     open: "បើកឧបករណ៍គម្រោង",

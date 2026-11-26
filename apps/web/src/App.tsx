@@ -1019,7 +1019,7 @@ export default function App() {
     // This temporary notice disappears on entry or when the job advances. Give
     // the dialog a persistent return target before it captures keyboard focus.
     const returnTo = project
-      ? document.querySelector<HTMLElement>('[aria-label="Open project tools"]')
+      ? document.querySelector<HTMLElement>('[data-project-tools-trigger]')
       : document.querySelector<HTMLElement>('.home-tools button:not(:disabled)');
     returnTo?.focus({ preventScroll: true });
     setShowJobs(true, id);
@@ -1673,7 +1673,7 @@ export default function App() {
         const received = await api.patchProfile(patch);
         setProfile((current) => reconcileProfileAcknowledgement(current, basis, received, patch));
       } catch {
-        setError(translate('en', 'common.languageSaveFailed'));
+        setError(t('common.languageSaveFailed'));
       } finally {
         languageSave.current = null;
         setLanguageSaving(false);

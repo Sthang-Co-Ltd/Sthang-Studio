@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createElement, Fragment } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AppProfile, CaptionSegment } from '@kcs/shared';
-import { translate, translatePlural, translateRich } from '../apps/web/src/i18n/translate.js';
+import { createTranslator, translate, translatePlural } from '../apps/web/src/i18n/translate.js';
 import { en } from '../apps/web/src/i18n/messages/en/index.js';
 import { km } from '../apps/web/src/i18n/messages/km/index.js';
 import { reconcileProfileAcknowledgement } from '../apps/web/src/profile-state.js';
@@ -13,25 +13,29 @@ test('messages interpolate named parameters and fall back to English for missing
   assert.equal(translate('en', 'home.launcher.startupFailed', { services: 'Preferences, Projects' }),
     'Could not load: Preferences, Projects. Other tools remain available.');
   assert.equal(translate('en', 'home.launcher.projectCaptions'), '{count} captions');
-  assert.equal(translate('km', 'home.upload.title'), 'Create Khmer captions');
-  assert.equal(translate('km', 'home.launcher.projectCaptions', { count: 1234 }), '1234 captions');
+  assert.equal(translate('km', 'home.upload.title'), km.home.upload.title);
+  assert.equal(translate('km', 'home.launcher.projectCaptions', { count: 1234 }),
+    km.home.launcher.projectCaptions.replace('{count}', '1234'));
+  const fallback = createTranslator({ en, km: { home: { upload: { lead: 'localized fixture' } } } });
+  assert.equal(fallback.translate('km', 'home.upload.title'), en.home.upload.title);
+  assert.equal(fallback.translate('km', 'home.launcher.projectCaptions', { count: 1234 }), '1234 captions');
 });
 
-test('plural messages preserve English fallback grammar and accept a Khmer other form', (t) => {
-  for (const locale of ['en', 'km'] as const) {
-    assert.equal(translatePlural(locale, 'editor.captions.count', 0), '0 captions');
-    assert.equal(translatePlural(locale, 'editor.captions.count', 1), '1 caption');
-    assert.equal(translatePlural(locale, 'editor.captions.count', 12), '12 captions');
+test('plural messages preserve English fallback grammar and accept a Khmer other form', () => {
+  const fallback = createTranslator({ en, km: {} });
+  for (const [count, english] of [[0, '0 captions'], [1, '1 caption'], [12, '12 captions']] as const) {
+    assert.equal(translatePlural('en', 'editor.captions.count', count), english);
+    assert.equal(fallback.translatePlural('km', 'editor.captions.count', count), english);
+    assert.equal(translatePlural('km', 'editor.captions.count', count),
+      km.editor.captions.count.other.replace('{count}', String(count)));
   }
-  t.after(() => { Reflect.deleteProperty(km, 'editor'); });
-  Object.assign(km, { editor: { captions: { count: { other: '{count} items (localized fixture)' } } } });
-  assert.equal(translatePlural('km', 'editor.captions.count', 1), '1 items (localized fixture)');
-  assert.equal(translatePlural('km', 'editor.captions.count', 12), '12 items (localized fixture)');
+  const fixture = createTranslator({ en, km: { editor: { captions: { count: { other: '{count} items (localized fixture)' } } } } });
+  assert.equal(fixture.translatePlural('km', 'editor.captions.count', 1), '1 items (localized fixture)');
+  assert.equal(fixture.translatePlural('km', 'editor.captions.count', 12), '12 items (localized fixture)');
 });
 
-test('rich messages render only allowed tags and escape parameters', (t) => {
-  t.after(() => { Reflect.deleteProperty(km, 'setup'); });
-  Object.assign(km, { setup: { home: { other: '<b>{value}</b> <code>{value}</code> <em>literal</em>' } } });
+test('rich messages render only allowed tags and escape parameters', () => {
+  const { translateRich } = createTranslator({ en, km: { setup: { home: { other: '<b>{value}</b> <code>{value}</code> <em>literal</em>' } } } });
   const nodes = translateRich('km', 'setup.home.other', { value: '<b>typed</b>' }, {
     b: (text) => createElement('strong', null, text),
   });

@@ -53,6 +53,8 @@ messages. Use named parameters, plural messages, and Western digits. Rich
 messages may use bold and code markup, with interpolated values rendered as text.
 Keep the bilingual prompt and native language names together in the fixed copy.
 
+Server-provided secure-storage labels remain English until Settings (Phase C) maps them to catalog keys.
+
 In Khmer mode, the root language is `km` and the interface typography removes
 uppercase styling and letter spacing from operational text. Use a 14px floor for
 controls and body copy, 13px for helpers, and 12px for badges and chips apart
@@ -61,6 +63,9 @@ text, at least 1.4 on single-line controls, and 44px language-control targets
 through 1199px. Grow controls with padding, give Save room for its longest state,
 and leave breaks between grapheme clusters. The brand lockup and caption
 rendering keep their existing typography.
+
+On short desktop viewports, tighten Khmer Tools row padding to keep the menu in
+view. On phones, keep the editor Back action and AI key controls at least 44px.
 
 ## Hierarchy
 

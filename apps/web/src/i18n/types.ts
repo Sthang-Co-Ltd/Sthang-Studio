@@ -5,6 +5,11 @@ export type MessageParams = Readonly<Record<string, string | number>>;
 export type EnglishMessages = typeof en;
 export type PluralMessage = { readonly one: string; readonly other: string };
 
+export type KhmerMessages<T = EnglishMessages> = {
+  readonly [K in keyof T]: T[K] extends PluralMessage ? { readonly other: string; readonly one?: string }
+    : T[K] extends string ? string : KhmerMessages<T[K]>;
+};
+
 export type DeepPartial<T> = T extends string ? string : {
   [K in keyof T]?: DeepPartial<T[K]>;
 };

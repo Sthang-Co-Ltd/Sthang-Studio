@@ -181,7 +181,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
         <strong>{settings.configured ? t('setup.ai.keyAvailable') : t('setup.ai.connect')}</strong>
-        <span>{settings.configured ? t('setup.ai.maskedKey', { key: String(settings.maskedKey), source: sourceLabel }) : t('setup.ai.canImport')}</span>
+        <span data-server-text={settings.configured || undefined}>{settings.configured ? t('setup.ai.maskedKey', { key: String(settings.maskedKey), source: sourceLabel }) : t('setup.ai.canImport')}</span>
       </div>
     </div>}
 
@@ -207,7 +207,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
             <button ref={pasteButton} type="button" aria-label={t('setup.ai.pasteClipboard')} title={t('setup.ai.pasteClipboard')} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'paste' || undefined} onClick={() => void pasteKey()}>{inline ? t('setup.ai.paste') : <ClipboardPaste size={15}/>}</button>
           </div>
         </label>
-        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? t('setup.ai.secureStorage') : t('setup.ai.environmentHelp')}</span>}</div></div>
+        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong data-server-text>{settings.secureStorageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? t('setup.ai.secureStorage') : t('setup.ai.environmentHelp')}</span>}</div></div>
       </section>
 
       {!inline && <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>

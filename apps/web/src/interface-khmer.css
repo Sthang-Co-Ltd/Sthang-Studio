@@ -94,10 +94,39 @@ html:lang(km) .header-actions .save-action {
   min-width: 118px;
 }
 
+html:lang(km) .caption-text-cell textarea {
+  max-inline-size: 100%;
+}
+
+@media (min-width: 1200px) and (max-height: 760px) {
+  html:lang(km) .tools-menu-section > button {
+    padding-block: 2px;
+  }
+}
+
 @media (max-width: 1199px) {
   html:lang(km) :is(.home-tools > button, .header-actions .stage-rail > button,
     .header-actions > button, .workspace-tools-menu > summary, .caption-panel .panel-tool, .review-card button,
     .first-watch button, .project-name-button) {
     min-height: 44px;
+  }
+}
+
+@media (max-width: 620px) {
+  html:lang(km) .workspace > header > .back,
+  html:lang(km) .first-run-ai .ai-key-field button,
+  html:lang(km) .ai-settings-body .ai-section-title a {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  html:lang(km) .first-run-card .ai-key-field > div {
+    min-height: 46px;
+    padding-block: 0;
+  }
+
+  html:lang(km) .ai-settings-body .ai-section-title a {
+    flex: none;
+    font-size: 14px !important;
   }
 }
