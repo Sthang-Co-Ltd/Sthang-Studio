@@ -304,10 +304,9 @@ body{color:var(--text);caret-color:var(--accent)}
 .workspace-tools-popover{position:absolute;top:46px;right:0;width:min(340px,calc(100vw - 24px));max-height:min(650px,calc(100vh - 86px));overflow:auto;border:1px solid #343b45;border-radius:14px;background:#0e1115;box-shadow:0 24px 80px #000c;padding:8px;z-index:70;overscroll-behavior:contain}
 .tools-menu-section{display:flex;flex-direction:column;gap:1px;padding:6px 0;border-bottom:1px solid #222830}
 .tools-menu-section:last-child{border-bottom:0;padding-bottom:1px}
-@media(max-width:1199px){.tools-menu-section.tools-menu-layout{display:none}}
-.tools-menu-layout>button:disabled{opacity:.65;cursor:not-allowed}
 .tools-menu-section>span{padding:0 9px 3px;color:#939da8;font-size:11px;font-weight:600}
 .tools-menu-section>button{width:100%;height:auto;min-height:44px;border:1px solid transparent;border-radius:9px;background:transparent;color:#cfd5db;padding:6px 9px;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;text-align:left;cursor:pointer}
+@media(max-width:1199px){.tools-menu-section>button.tools-menu-arrange{display:none}}
 .tools-menu-section>button:hover:not(:disabled){border-color:#303842;background:#171b20;color:#fff}
 .tools-menu-section>button>span{display:flex;flex-direction:column;gap:2px;min-width:0}
 .tools-menu-section b{font-size:13px;font-weight:600}

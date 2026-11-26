@@ -236,6 +236,11 @@
 .editor-arrange-panel.is-drop-target{outline:2px solid var(--accent);outline-offset:2px;background:#26351c}
 .editor-panel-ghost{position:fixed;pointer-events:none;display:flex;align-items:center;justify-content:center;width:128px;gap:6px;padding:12px 16px;border-radius:8px;background:var(--accent);color:#141b08;font-size:13px;font-weight:700;box-shadow:0 12px 28px #0008;z-index:50;transform:rotate(-2deg)}
 .editor-arrange-status{min-height:20px;font-size:12px;line-height:1.6;color:#c1cfad;margin-top:14px}
+.editor-arrange-reset{display:grid;justify-items:start;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid #35424f}
+.editor-arrange-reset>button{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:6px 10px;border:1px solid #39434e;border-radius:8px;background:#192129;color:#dce4ec;font-size:13px;cursor:pointer}
+.editor-arrange-reset>button:hover:not(:disabled){background:#202e3a;border-color:#6a7a89}
+.editor-arrange-reset>button:disabled{opacity:.45;cursor:default}
+.editor-arrange-reset>small{color:#b0bdca;font-size:12px;line-height:1.6}
 .editor-arrange-popover button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .refined-editor.is-resizing{cursor:col-resize;user-select:none}
 .refined-editor.is-resizing .editor-divider:focus span{height:60px;background:var(--accent);width:4px;left:2px}

@@ -92,7 +92,7 @@ At widths of 1200px and above, Captions and Export default to preview left,
 captions middle and the optional inspector right. Review, Appearance and Compare
 default to the tool beside the preview, preserving the preview's position and
 normal width. Remember a user-set judging order separately from the editing order.
-**Arrange panels…** in **Tools → Layout** offers preview-position presets and a
+**Tools → Arrange panels…** offers preview-position presets and a
 compact drag/keyboard custom order. Within that popover, keep a clear lifted
 proxy, drop target and actual-panel outline; commit positions on drop. Left/Right buttons
 and arrow-key handles provide the same result, with spoken order feedback.
@@ -128,9 +128,10 @@ and caption-list instance. For landscape or square video, **Enlarge preview**
 in the desktop Review, Appearance and Compare preview header uses the space from
 shrinking captions to 360px and hides dividers. This local preference applies
 only in those stages at desktop width. Dividers support dragging, Left/Right,
-Shift for larger steps, Home/End and double-click reset. **Reset layout** in
-**Tools → Layout** restores the default proportions and pane orders and turns
-off enlargement. Source builds reserve Shift for exactly Left/Right;
+Shift for larger steps, Home/End and double-click reset. **Reset layout** in the
+**Arrange panels…** popover restores the default proportions and pane orders and
+turns off enlargement. It remains available in the popover when reordering is
+unsupported. Source builds reserve Shift for exactly Left/Right;
 Shift+Home/End and other modified or composing keys do not resize panels. Measure
 the editor synchronously on mount and on
 window resize; delayed ResizeObserver delivery must not leave a desktop divider
@@ -1163,7 +1164,7 @@ Expose the selected Current/Proposed version with `aria-pressed` on both the
 comparison switch and its matching Preview actions. Keyboard activation and
 wording edits keep these states synchronized with the actual preview.
 In comparison mode, start the sticky preview at the mobile workbench edge.
-On desktops, keep the arrangement controls available under **Tools → Layout**.
+On desktops, keep the arrangement controls available under **Tools → Arrange panels…**.
 
 Include textareas in the narrow inspector's existing scroll margins for the
 sticky preview, both at normal height and when a comparison notice makes it

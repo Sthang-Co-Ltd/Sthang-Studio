@@ -14,7 +14,7 @@ function readLayout() {
 }
 function persist(value: EditorLayoutPreference) { try { localStorage.setItem(EDITOR_LAYOUT_KEY, JSON.stringify(value)); } catch { /* Optional local preference. */ } }
 const notifyGeometry = () => window.dispatchEvent(new Event(EDITOR_LAYOUT_CHANGE));
-export interface EditorLayoutHandle { openArrangement(anchor: HTMLElement): void; resetLayout(): void }
+export interface EditorLayoutHandle { openArrangement(anchor: HTMLElement): void }
 interface Props {
   preview: ReactNode; toolbar: ReactNode; captions: ReactNode; children: ReactNode;
   tool: string | null; title: string; open: boolean; onClose?: () => void;
@@ -156,9 +156,8 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   });
   useImperativeHandle(ref, () => ({
     openArrangement(anchor) {
-      if (wide && arrangeSupported && !resize.current && !arranging.current && !headerDrag.pending) arrangement.current?.open(anchor);
+      if (wide && !resize.current && !arranging.current && !headerDrag.pending) arrangement.current?.open(anchor);
     },
-    resetLayout: reset,
   }));
   function toggleEnlarge() {
     finishResize(false);
@@ -243,7 +242,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         <div className="editor-panel-placeholder" hidden={!headerDrag.lifted} aria-hidden="true"><span>{headerDrag.lifted && PANE_LABELS[headerDrag.lifted]}</span></div>
       </section>
     </TimingDock.Provider></PanelHeaderDragContext.Provider>
-    <PanelArrangement ref={arrangement} mode={mode} order={order} open={open} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing}
+    <PanelArrangement ref={arrangement} mode={mode} order={order} open={open} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing} supported={arrangeSupported} onReset={reset}
       onChange={arrange} onBegin={() => beginReorder('popover')}
       onEnd={() => endReorder('popover')} onFeedback={(source, target) => setFeedback({ source, target })}/>
     <span className="editor-layout-announcement" role="status" aria-live="polite">{headerDrag.announcement}{resetCount > 0 && <span key={resetCount}> Panels reset to the default layout.</span>}</span>

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { DEFAULT_CAPTION_APPEARANCE } from '@kcs/shared';
 import { webSourceIdentity } from '../../scripts/web-runtime-identity.mjs';
@@ -41,15 +42,45 @@ for (const width of [2048, 1024, 390]) test(`precision controls preserve the evi
   await page.screenshot({ path: info.outputPath(`appearance-${width}.png`) });
   await tools(page).click();
   const menu = page.getByRole('menu', { name: 'Project tools' });
-  await expect(menu.getByRole('menuitem')).toHaveCount(10);
+  await expect(menu.getByRole('menuitem')).toHaveCount(width >= 1200 ? 11 : 10);
+  const arrangePanels = menu.getByRole('menuitem', { name: 'Arrange panels…', exact: true });
+  if (width >= 1200) {
+    await expect(arrangePanels).toBeVisible();
+  } else {
+    await expect(arrangePanels).toHaveCount(0);
+  }
   // Presentation scales during entry; hit-target geometry is measured at rest.
   await expect.poll(() => menu.evaluate((node) => node.getAnimations().length)).toBe(0);
   const box = (await menu.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
-  expect(await menu.evaluate((node) => node.scrollHeight)).toBeLessThan(600);
+  const heights = await menu.evaluate(({ scrollHeight, clientHeight }) => ({ scrollHeight, clientHeight }));
+  if (width === 2048) console.log('Tools at 2048×1041', heights);
+  expect(heights.scrollHeight).toBeLessThanOrEqual(heights.clientHeight + 1);
   const rows = await menu.getByRole('menuitem').evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
   expect(rows.every((height) => height >= 44)).toBe(true);
   await page.screenshot({ path: info.outputPath(`tools-${width}.png`) });
+});
+
+test('Tools fits without internal scrolling at 1280×720', async ({ page }) => {
+  const viewport = { width: 1280, height: 720 };
+  await page.setViewportSize(viewport);
+  await appearance(page);
+  await tools(page).click();
+  const menu = page.getByRole('menu', { name: 'Project tools' });
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveCount(11);
+  await expect.poll(() => menu.evaluate((node) => node.getAnimations().length)).toBe(0);
+  const heights = await menu.evaluate(({ scrollHeight, clientHeight }) => ({ scrollHeight, clientHeight }));
+  console.log('Tools at 1280×720', heights);
+  expect(heights.scrollHeight).toBeLessThanOrEqual(heights.clientHeight + 1);
+  for (const item of await items.all()) {
+    const box = (await item.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  }
+  await page.screenshot({ path: path.resolve('.codex-tmp/wave2b-tools/tools-1280x720.png') });
 });
 
 test('fractional opacity remains exact until explicitly edited or reset', async ({ page }) => {
@@ -190,6 +221,9 @@ test('locked row menu skips disabled actions and structural actions restore conn
 });
 
 test('menu typing in Fine timing never auditions, nudges or invokes timing Undo', async ({ page }) => {
+  const layoutKey = 'sthang:editor-layout:v2';
+  const savedLayout = JSON.stringify({ preview: .4, inspector: .28, order: ['preview', 'captions', 'inspector'] });
+  await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), { key: layoutKey, value: savedLayout });
   await openProject(page);
   await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
@@ -203,6 +237,7 @@ test('menu typing in Fine timing never auditions, nudges or invokes timing Undo'
   expect(await page.locator('video').evaluate((video: HTMLVideoElement) => ({ paused: video.paused, time: video.currentTime }))).toEqual({ paused: true, time: playhead });
   await page.keyboard.press('Escape');
   await expect(page.locator('.timing-waveform-surface')).toBeVisible();
+  expect(await page.evaluate((key) => localStorage.getItem(key), layoutKey)).toBe(savedLayout);
 });
 
 for (const key of ['Alt+ArrowRight', 'Control+z', 'Meta+z', 'r']) test(`History restore confirmation blocks timing shortcut ${key}`, async ({ page }) => {

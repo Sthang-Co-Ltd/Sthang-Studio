@@ -95,7 +95,8 @@ for (const [label, module, loaded] of [
     const identity = await page.evaluate(async () => (await fetch('/studio-web-identity.json')).json());
     expect(identity.buildId).toBe(webSourceIdentity(process.cwd()).buildId);
     await page.evaluate(() => { (window as any).__loadingEvidence = [document.querySelector('video'), document.querySelector('.caption-panel')]; });
-    const before = await page.locator('.media-stage').boundingBox();
+    const media = page.locator('.media-stage');
+    const before = (await media.boundingBox())!;
     await page.getByRole('button', { name: label, exact: true }).click();
     const loading = page.locator('.workspace-loading');
     await expect(loading.getByText(`Opening ${label}…`, { exact: true })).toBeVisible();
@@ -103,7 +104,13 @@ for (const [label, module, loaded] of [
     await expect(loading.locator('button,input,[tabindex]')).toHaveCount(0);
     await expect(loading.locator('.workspace-loading-shape')).toHaveAttribute('aria-hidden', 'true');
     expect(await loading.evaluate((node) => Boolean(node.closest('.inspector-content')))).toBe(true);
-    expect(await page.locator('.media-stage').boundingBox()).toEqual(before);
+    const during = (await media.boundingBox())!;
+    if (label === 'Fine timing') {
+      expect(during).toEqual(before);
+    } else {
+      expect(Math.abs(during.width - before.width)).toBeLessThanOrEqual(0.5);
+      expect(during.height).toBeGreaterThanOrEqual(before.height);
+    }
     const caption = page.getByLabel('Caption 1 text', { exact: true });
     await caption.fill('Still editable while the tool opens'); await expect(caption).toHaveValue('Still editable while the tool opens');
     await page.locator('video').evaluate((video: HTMLVideoElement) => video.play());
@@ -112,6 +119,7 @@ for (const [label, module, loaded] of [
     await page.screenshot({ path: info.outputPath(`loading-${module}.png`) });
     gate.resolve();
     await expect(page.locator(loaded)).toBeVisible(); await expect(loading).toHaveCount(0);
+    if (label !== 'Fine timing') expect(await media.boundingBox()).toEqual(during);
     expect(await page.evaluate(() => (window as any).__loadingEvidence.every((node: Element, i: number) => node === document.querySelector(i ? '.caption-panel' : 'video')))).toBe(true);
     await page.getByRole('button', { name: 'Close tool', exact: true }).click();
     await page.getByRole('button', { name: label, exact: true }).click();

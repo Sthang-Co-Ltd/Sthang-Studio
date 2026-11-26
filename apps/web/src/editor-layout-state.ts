@@ -15,9 +15,12 @@ export const PANE_LABELS = { preview: 'Preview', captions: 'Captions', inspector
 export const PANE_MINIMUMS = { preview: 320, captions: 360, inspector: 360 };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-export function editorArrangementSupported() {
-  return CSS.supports('reading-flow', 'source-order') && CSS.supports('reading-order', '1')
-    && typeof HTMLElement.prototype.showPopover === 'function';
+export function editorReorderSupported() {
+  return CSS.supports('reading-flow', 'source-order') && CSS.supports('reading-order', '1');
+}
+
+export function editorPopoverAvailable() {
+  return typeof HTMLElement.prototype.showPopover === 'function';
 }
 
 function validEditorOrder(order: unknown): order is EditorPane[] {
