@@ -1,3 +1,5 @@
+import { workspaceMessages } from './i18n/messages/en/workspace';
+
 type WorkspaceName = 'WaveformEditor' | 'ExportWorkspace' | 'CaptionAppearanceWorkspace' | 'RegenerationReviewDock';
 type WorkspaceAsset = { entry: string; css: string[] };
 declare const __STUDIO_WEB_BUILD_ID__: string;
@@ -6,7 +8,7 @@ function assetUrl(path: string, extension: 'js' | 'css') {
   const valid = import.meta.env.DEV
     ? extension === 'js' && /^\/src\/components\/[A-Za-z]+\.tsx$/.test(path)
     : new RegExp(`^/assets/[A-Za-z0-9_-]+\\.${extension}$`).test(path);
-  if (!valid) throw new Error('Invalid tool download.');
+  if (!valid) throw new Error(workspaceMessages.loading.invalidDownload);
   return new URL(path, location.origin);
 }
 
@@ -42,7 +44,7 @@ function loadStyle(path: string, attempt: string): Promise<void> {
     link.onerror = () => {
       link.onload = null; link.onerror = null;
       // Retain the failed link's position for the next explicit attempt.
-      styles.delete(path); reject(new Error('Tool styles could not load.'));
+      styles.delete(path); reject(new Error(workspaceMessages.loading.stylesFailed));
     };
     // Preserve the original cascade position, including a failed Vite preload.
     if (existing) existing.replaceWith(link); else document.head.appendChild(link);
@@ -54,11 +56,11 @@ function loadStyle(path: string, attempt: string): Promise<void> {
 /** Called only after an explicit Retry; never reload or replace the editor. */
 export async function retryWorkspace<T>(name: WorkspaceName): Promise<T> {
   const response = await fetch('/studio-workspaces.json', { cache: 'no-store', redirect: 'error' });
-  if (!response.ok) throw new Error('Tool download is unavailable.');
+  if (!response.ok) throw new Error(workspaceMessages.loading.unavailable);
   const manifest = await response.json() as { buildId: string; tools: Record<WorkspaceName, WorkspaceAsset> };
-  if (manifest.buildId !== __STUDIO_WEB_BUILD_ID__) throw new Error('Tool download does not match this Studio session.');
+  if (manifest.buildId !== __STUDIO_WEB_BUILD_ID__) throw new Error(workspaceMessages.loading.sessionMismatch);
   const asset = manifest.tools?.[name];
-  if (!asset || !Array.isArray(asset.css) || asset.css.length > 20) throw new Error('Tool download is unavailable.');
+  if (!asset || !Array.isArray(asset.css) || asset.css.length > 20) throw new Error(workspaceMessages.loading.unavailable);
   const url = assetUrl(asset.entry, 'js');
   const attempt = crypto.randomUUID();
   // Keep dependency order. A successful stylesheet is retained across retries.

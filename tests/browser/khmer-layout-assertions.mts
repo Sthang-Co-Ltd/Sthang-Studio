@@ -3,13 +3,9 @@ import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
 import type { CaptionProject } from '@kcs/shared';
 import { km } from '../../apps/web/src/i18n/messages/km/index.js';
+import { catalogValues, pendingEnglishValues } from '../khmer-catalog-coverage.js';
 
 const latinWords = /\p{Script=Latin}{3,}/gu;
-type Catalog = { readonly [key: string]: string | Catalog };
-
-function catalogValues(catalog: Catalog): string[] {
-  return Object.values(catalog).flatMap((value) => typeof value === 'string' ? [value] : catalogValues(value));
-}
 
 function approvedWords(projects: CaptionProject[], fixtureContent: string[]) {
   const content = projects.flatMap(({ title, media, captions }) =>
@@ -33,12 +29,14 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
   await mkdir(folder, { recursive: true });
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   const approved = approvedWords(projects, options.fixtureContent ?? []);
-  const result = await page.evaluate(({ regions, approved, latinPattern, phase }) => {
+  const pendingEnglish = [...pendingEnglishValues()];
+  const result = await page.evaluate(({ regions, approved, pendingEnglish, latinPattern, phase }) => {
     // Native language names, server-supplied storage/key text, and deferred generation options.
     const commonExempt = '.interface-language-switch button[lang="en"], .interface-language-switch button[lang="km"], [data-server-text]';
     const exempt = commonExempt + (phase === 'A' ? ', .generation-options'
       : ', .appearance-look-grid [data-deferred-text="look-name"], .appearance-look-current[data-deferred-text="look-name"]');
     const allow = new Set(Object.values(approved).flat());
+    const pending = new Set(pendingEnglish);
     const words = new RegExp(latinPattern, 'gu');
     const phaseBControls = ', h5, h6, .export-source-chip, .export-check-title > span, .regen-title-copy > span, .decision-label, .project-state';
     const controls = 'button, summary, a[href], [role="menuitem"], label, h1, h2, h3, h4, ' +
@@ -51,6 +49,8 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
     const elements = [];
     const captionFields = [];
     const untranslated = [];
+    const pendingText = new Set<string>();
+    const compactText = [];
     const checkedRegions = [];
     for (const region of document.querySelectorAll(regions)) {
       if (!visible(region)) continue;
@@ -82,13 +82,21 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
         range.selectNodeContents(node);
         if (!range.getClientRects().length) continue;
         observedText.add(node);
+        if (phase === 'B' && /\p{Script=Khmer}/u.test(value)) {
+          const fontSize = Number.parseFloat(getComputedStyle(parent).fontSize);
+          if (fontSize < 14) compactText.push({ element: describe(parent), container: parent.parentElement && describe(parent.parentElement), fontSize });
+        }
+        if (pending.has(value)) {
+          pendingText.add(value);
+          continue;
+        }
         const unknown = [...new Set((value.match(words) ?? []).filter((word) => !allow.has(word)))];
         if (unknown.length) untranslated.push({ element: describe(parent), text: value, words: unknown });
       }
     }
     return { pageWidth: innerWidth, pageScrollWidth: Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),
-      checkedRegions, elements, captionFields, untranslated };
-  }, { regions, approved, latinPattern: latinWords.source, phase: options.phase });
+      checkedRegions, elements, captionFields, pendingText: [...pendingText].sort(), compactText, untranslated };
+  }, { regions, approved, pendingEnglish, latinPattern: latinWords.source, phase: options.phase });
   await writeFile(path.join(folder, `${surface}.json`), JSON.stringify({ ...result, approved }, null, 2));
   await page.screenshot({ path: path.join(folder, `${surface}.png`), animations: 'disabled', fullPage: surface.startsWith('home-') });
   expect.soft(result.checkedRegions.length, `${surface}: Phase ${options.phase} regions present`).toBeGreaterThan(0);
@@ -103,6 +111,8 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
     expect.soft(result.elements.filter(({ target, width, height }) => target && (width < 44 || height < 44)),
       `${surface}: targets under 44px`).toEqual([]);
   }
+  if (options.phase === 'B') {
+    expect.soft(result.compactText.filter(({ fontSize }) => fontSize < 12), `${surface}: text below the Khmer minimum`).toEqual([]);
+  }
   expect.soft(result.untranslated, `${surface}: untranslated text`).toEqual([]);
 }
-

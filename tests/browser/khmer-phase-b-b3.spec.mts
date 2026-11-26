@@ -1,18 +1,20 @@
 import { expect, test } from '@playwright/test';
 import type { CorrectionEvent } from '../../packages/shared/src/index.js';
 import { en } from '../../apps/web/src/i18n/messages/en/index.js';
+import { km } from '../../apps/web/src/i18n/messages/km/index.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 import { requireHarnessConfig } from './harness-config.mjs';
 
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
-test('English project tools preserve their existing copy', async ({ page }) => {
+for (const locale of ['en', 'km'] as const) test('Project tools render catalog copy (' + locale + ')', async ({ page }) => {
+  const messages = locale === 'km' ? km : en;
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   const state = await installFixture(page);
-  state.profile.preferences.interfaceLanguage = 'en';
+  state.profile.preferences.interfaceLanguage = locale;
   const project = state.projects[0];
   if (!project.transcript) throw new Error('Expected a fixture transcript.');
   project.transcript.contextMode = 'audio-only';
@@ -41,59 +43,59 @@ test('English project tools preserve their existing copy', async ({ page }) => {
   });
 
   await openProject(page);
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
 
-  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+  await page.getByRole('button', { name: en.workspace.accuracy, exact: true }).click();
   const accuracy = page.locator('.accuracy-card');
-  await expect(accuracy.getByLabel('What is this video about?', { exact: true })).toBeVisible();
+  await expect(accuracy.getByLabel(messages.accuracy.description, { exact: true })).toBeVisible();
   await accuracy.locator('.generation-options > summary').click();
-  await expect(accuracy.getByText('Caption model', { exact: true })).toBeVisible();
+  await expect(accuracy.getByText(messages.accuracy.captionModel, { exact: true })).toBeVisible();
 
-  await page.locator('.workspace-tool-strip').getByRole('button', { name: 'Caption grouping', exact: true }).click();
-  await expect(page.locator('.controls-card').getByRole('button', { name: 'Apply grouping', exact: true })).toBeVisible();
+  await page.locator('.workspace-tool-strip').getByRole('button', { name: messages.grouping.title, exact: true }).click();
+  await expect(page.locator('.controls-card').getByRole('button', { name: messages.grouping.apply, exact: true })).toBeVisible();
 
   const openTool = async (tool: string) => {
     await page.locator('[data-project-tools-trigger]').click();
-    await page.getByRole('menu', { name: en.editor.tools.menu }).getByText(tool, { exact: true }).click();
+    await page.getByRole('menu', { name: messages.editor.tools.menu }).getByText(tool, { exact: true }).click();
   };
-  await openTool(en.editor.tools.technical);
-  await expect(page.locator('.timing-card')).toContainText('Studio used compatibility transcription without Accuracy recognition hints. Review ambiguous names.');
+  await openTool(messages.editor.tools.technical);
+  await expect(page.locator('.timing-card')).toContainText(messages.details.compatibilityAudioOnly);
 
   for (const [tool, dialog, copy, close] of [
-    [en.editor.tools.activity, 'Activity', 'No jobs yet.', 'Close Activity'],
-    [en.editor.tools.history, 'Project history', 'History appears after a meaningful edit or automatic change.', 'Close history'],
-    [en.editor.tools.correct, 'Correct everywhere', 'Preview every occurrence. Locked text stays unchanged.', 'Close find and correct'],
-    [en.editor.tools.corrections, 'Correction inbox', 'Suggested memory', 'Close correction inbox'],
-    [en.editor.tools.updates, 'Updates', 'Signed releases. You choose when to install.', 'Close updates'],
+    [messages.editor.tools.activity, messages.activity.title, messages.activity.empty, messages.activity.close],
+    [messages.editor.tools.history, messages.history.title, messages.history.empty, messages.history.close],
+    [messages.editor.tools.correct, messages.find.title, messages.find.help, messages.find.closeLabel],
+    [messages.editor.tools.corrections, messages.inbox.title, messages.inbox.suggestion, messages.inbox.close],
+    [messages.editor.tools.updates, messages.updates.title, messages.updates.help, messages.updates.close],
   ]) {
     await openTool(tool);
     const sheet = page.getByRole('dialog', { name: dialog, exact: true });
     await expect(sheet.getByText(copy, { exact: true })).toBeVisible();
-    if (tool === en.editor.tools.corrections) {
+    if (tool === messages.editor.tools.corrections) {
       await expect(sheet.locator('.correction-meta b')).toHaveText(legacySuggestion);
       await expect(sheet.locator('.decision-label')).toHaveText(legacyDecision);
     }
     await sheet.getByRole('button', { name: close, exact: true }).click();
   }
 
-  await openTool(en.editor.tools.guide);
-  const guide = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true });
-  await expect(guide.getByText('Caption workflow', { exact: true })).toBeVisible();
-  await guide.getByRole('button', { name: 'Close guide', exact: true }).click();
+  await openTool(messages.editor.tools.guide);
+  const guide = page.getByRole('complementary', { name: messages.guide.label, exact: true });
+  await expect(guide.getByText(messages.guide.workflow, { exact: true })).toBeVisible();
+  await guide.getByRole('button', { name: messages.guide.close, exact: true }).click();
 
-  await page.getByRole('button', { name: en.editor.header.back, exact: true }).click();
-  await page.getByRole('button', { name: en.home.launcher.allProjects, exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: messages.editor.header.back, exact: true }).click();
+  await page.getByRole('button', { name: messages.home.launcher.allProjects, exact: true }).click();
+  await expect(page.getByRole('heading', { name: messages.library.title, exact: true })).toBeVisible();
   const more = page.locator('[data-library-more]').first();
   await more.click();
-  await expect(page.getByRole('menuitem', { name: 'Rename…', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: messages.library.rename, exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Recently deleted', exact: true }).click();
-  await expect(page.getByText('Nothing in Recently deleted.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: messages.library.recentlyDeleted, exact: true }).click();
+  await expect(page.getByText(messages.library.binEmpty, { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: en.home.launcher.settings, exact: true }).click();
+  await page.getByRole('button', { name: messages.home.launcher.settings, exact: true }).click();
   await page.getByRole('button', { name: 'System check', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Saved project storage', exact: true }).getByRole('status'))
-    .toHaveText('Storage check complete. 2 loaded in this session · 2 readable project files at last check');
+  await expect(page.getByRole('region', { name: messages.library.storageLabel, exact: true }).getByRole('status'))
+    .toHaveText(messages.library.storageCompleted.replace('{loaded}', '2').replace('{readable}', '2'));
   expect(errors).toEqual([]);
 });

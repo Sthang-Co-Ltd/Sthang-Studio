@@ -636,7 +636,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
       {capabilities?.supported && <>
         <section className="export-section" aria-labelledby="video-quality-title">
-          <div className="export-section-title"><div><strong id="video-quality-title">{t('export.workspace.videoSettings')}</strong><span>{t('export.workspace.videoSettingsHelp')}</span></div>{source && <span className="export-source-chip">{t('export.workspace.sourceDetails', { width: source.displayWidth, height: source.displayHeight, rate: source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0), hdr: source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase() })}</span>}</div>
+          <div className="export-section-title"><div><strong id="video-quality-title">{t('export.workspace.videoSettings')}</strong><span>{t('export.workspace.videoSettingsHelp')}</span></div>{source && <span className="export-source-chip" data-server-text>{t('export.workspace.sourceDetails', { width: source.displayWidth, height: source.displayHeight, rate: source.frameRate.toFixed(source.frameRate % 1 ? 2 : 0), hdr: source.hdr === 'sdr' ? 'SDR' : source.hdr.toUpperCase() })}</span>}</div>
 
           <div className="export-preset-bar">
             <label htmlFor="video-export-preset-select">

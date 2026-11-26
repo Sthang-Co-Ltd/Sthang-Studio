@@ -161,7 +161,7 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
               onClick={() => { if (!openingId && !working && !busy) onOpenEvent(event); }}>
               <CirclePlay size={15}/>{openingId === event.id ? t('inbox.openingAudio') : t('inbox.reviewAudio')}</button>
             {blockedSave?.id === event.id && <button className="remember" onClick={onReturnToEdits}>{t('inbox.returnToEdits')}</button>}
-            <CopyReportButton text={reportText(event)}/>
+            <CopyReportButton label={t('workspace.copyReport')} text={reportText(event)}/>
             {event.status === 'pending' && <>
               <button disabled={busy || Boolean(working || openingId)} className="remember" onClick={(click) => void decide(event, 'remember-global', click.currentTarget)}><BookOpenCheck size={15} aria-hidden="true"/>{t('inbox.rememberGlobal')}</button>
               <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'add-project', click.currentTarget)}><FolderPlus size={15} aria-hidden="true"/>{t('inbox.rememberProject')}</button>

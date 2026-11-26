@@ -1,6 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 import { createCaptionData, hydrateCaptionWordTimings, type RegenerationProposal } from '@kcs/shared';
 import { en } from '../../apps/web/src/i18n/messages/en/index.js';
+import { km } from '../../apps/web/src/i18n/messages/km/index.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 import { requireHarnessConfig } from './harness-config.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
@@ -11,10 +12,11 @@ const test = base.extend({ context: async ({ context }, use) => {
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
-test('English Export, restore, repair and Compare preserve their existing copy', async ({ page }) => {
+for (const locale of ['en', 'km'] as const) test('Export, restore, repair and Compare render catalog copy (' + locale + ')', async ({ page }) => {
+  const messages = locale === 'km' ? km : en;
   test.setTimeout(60_000);
   const state = await installFixture(page);
-  state.profile.preferences.interfaceLanguage = 'en';
+  state.profile.preferences.interfaceLanguage = locale;
   const project = state.projects[0];
   project.mediaAlignment = { state: 'unverified-audio-change', acceptedAt: project.updatedAt, sourceRevision: project.updatedAt };
   // The Vite client still opens a socket with HMR disabled in the owned harness.
@@ -65,41 +67,41 @@ test('English Export, restore, repair and Compare preserve their existing copy',
   page.on('pageerror', (error) => errors.push(withoutUrls(error.message)));
 
   await openProject(page);
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await expect(page.locator('.media-alignment-notice strong')).toHaveText('Audio alignment not verified.');
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
+  await expect(page.locator('.media-alignment-notice strong')).toHaveText(messages.export.repair.alignmentNotice.match(/<b>(.*?)<\/b>/)![1]);
 
   await page.locator('[data-stage="export"]').click();
   const workspace = page.locator('.export-workspace');
-  await expect(workspace.getByRole('button', { name: 'Render captioned video', exact: true })).toBeVisible();
-  const checks = workspace.getByRole('region', { name: 'Check before export', exact: true });
+  await expect(workspace.getByRole('button', { name: messages.export.workspace.render, exact: true })).toBeVisible();
+  const checks = workspace.getByRole('region', { name: messages.export.checks.title, exact: true });
   await expect(checks).toBeVisible();
 
   const history = workspace.locator('.export-history');
   await history.locator('summary').click();
-  await expect(history.getByText('No recorded exports. Earlier exports have unknown freshness.')).toBeVisible();
+  await expect(history.getByText(messages.export.history.empty)).toBeVisible();
 
-  await workspace.getByRole('button', { name: /^Captions file/ }).click();
+  await workspace.locator('.export-mode-switch button').filter({ hasText: messages.export.workspace.captions }).click();
   const handoff = workspace.locator('.caption-handoff-panel');
-  await expect(handoff.getByText('In CapCut Desktop, use Captions → Add Captions to import it.')).toBeVisible();
+  await expect(handoff.getByText(messages.export.destinations['capcut-desktop'].step2.replace(/<\/?(?:b|code)>/g, ''))).toBeVisible();
   await handoff.locator('.handoff-advanced > summary').click();
   await handoff.locator('input[type="file"]').setInputFiles({
     name: 'synthetic.sthang-captions.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(candidate)),
   });
-  await expect(workspace.locator('.caption-restore-review').getByRole('heading')).toHaveText('Review caption import');
-  await workspace.getByRole('button', { name: 'Keep current captions', exact: true }).click();
+  await expect(workspace.locator('.caption-restore-review').getByRole('heading')).toHaveText(messages.export.restore.title);
+  await workspace.getByRole('button', { name: messages.export.restore.keepCurrent, exact: true }).click();
 
   const issues = checks.locator('.export-check-details');
   if (await issues.getAttribute('open') === null) await issues.locator('summary').click();
-  await checks.getByRole('button', { name: 'Go to caption 2', exact: true }).click();
-  const repair = page.getByRole('region', { name: 'Export review', exact: true });
-  await expect(repair.locator('#export-repair-title')).toHaveText('Fixing an export issue · Caption 2');
-  await repair.getByRole('button', { name: 'Finish export review', exact: true }).click();
+  await checks.getByRole('button', { name: messages.export.checks.goToCaption.replace('{position}', '2'), exact: true }).click();
+  const repair = page.getByRole('region', { name: messages.export.repair.label, exact: true });
+  await expect(repair.locator('#export-repair-title')).toHaveText(messages.export.repair.fixCaption.replace('{position}', '2'));
+  await repair.getByRole('button', { name: messages.export.repair.finish, exact: true }).click();
 
   await page.locator('[data-project-tools-trigger]').click();
-  await page.getByRole('menuitem').filter({ hasText: en.editor.tools.activity }).click();
-  await page.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).click();
-  const compare = page.getByRole('region', { name: 'Caption comparison', exact: true });
-  await expect(compare.getByRole('button', { name: 'Use proposed', exact: true })).toBeVisible();
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await page.getByRole('menuitem').filter({ has: page.getByText(messages.editor.tools.activity, { exact: true }) }).click();
+  await page.getByRole('dialog', { name: messages.activity.title, exact: true }).getByRole('button', { name: messages.activity.openResult, exact: true }).click();
+  const compare = page.getByRole('region', { name: messages.compare.dock.label, exact: true });
+  await expect(compare.getByRole('button', { name: messages.compare.dock.useProposed, exact: true })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
   expect(errors).toEqual([]);
 });

@@ -61,6 +61,8 @@ Phase B enables Khmer across Export, Compare, Appearance, Fine timing, Accuracy,
 Technical details, Caption grouping, Activity, History, Find / Correct everywhere,
 Correction inbox, Updates, Guide and All projects. Khmer dates use full month
 names and Western digits with 24-hour time where the interface shows a time.
+The workspace shell has its own pending catalog. The Khmer layout sweep records
+its English values while checking for unexpected English across Phase B.
 
 In Khmer mode, the root language is `km` and the interface typography removes
 uppercase styling and letter spacing from operational text. Use a 14px floor for

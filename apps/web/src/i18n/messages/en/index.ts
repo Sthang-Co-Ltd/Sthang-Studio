@@ -17,6 +17,7 @@ import { review } from './review';
 import { setup } from './setup';
 import { timingMessages } from './timing';
 import { updatesMessages } from './updates';
+import { workspaceMessages } from './workspace';
 
 export const en = {
   common,
@@ -38,4 +39,5 @@ export const en = {
   updates: updatesMessages,
   guide: guideMessages,
   library: libraryMessages,
+  workspace: workspaceMessages,
 } as const;
