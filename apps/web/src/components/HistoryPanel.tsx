@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useRef } from 'react';
 import type { ProjectHistoryEntry } from '@kcs/shared';
 import { Clock3, History, LoaderCircle, RotateCcw, X } from 'lucide-react';
@@ -17,7 +18,7 @@ interface Props {
 }
 
 export function HistoryPanel({ open, entries, busy, loadState, onClose, onRefresh, onRestore }: Props) {
-  const { t, tn } = useI18n();
+  const { locale, t, tn } = useI18n();
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   useModalFocus(open, dialog, onClose);
@@ -33,8 +34,8 @@ export function HistoryPanel({ open, entries, busy, loadState, onClose, onRefres
       <div className="history-list" aria-busy={loadState.loading}>
         {entries.map((entry) => <article key={entry.id}>
           <div className="history-icon"><Clock3 size={15}/></div>
-          <div className="history-copy"><strong>{entry.label}</strong><span>{new Date(entry.createdAt).toLocaleString()} · {entry.source.replaceAll('-', ' ')}</span><small>{t('history.versionSummary', { captions: entry.captionCount, approved: entry.approvedCount, textLocks: entry.textLockedCount, timingLocks: entry.timingLockedCount })}</small></div>
-          <button aria-label={t('history.restoreVersion', { label: entry.label, date: new Date(entry.createdAt).toLocaleString() })} disabled={busy} onClick={() => onRestore(entry.id)}><RotateCcw size={14}/>{t('history.restore')}</button>
+          <div className="history-copy"><strong data-server-text>{entry.label}</strong><span data-server-text>{formatInterfaceDate(locale, entry.createdAt, { time: true })} · {entry.source.replaceAll('-', ' ')}</span><small>{t('history.versionSummary', { captions: entry.captionCount, approved: entry.approvedCount, textLocks: entry.textLockedCount, timingLocks: entry.timingLockedCount })}</small></div>
+          <button aria-label={t('history.restoreVersion', { label: entry.label, date: formatInterfaceDate(locale, entry.createdAt, { time: true }) })} disabled={busy} onClick={() => onRestore(entry.id)}><RotateCcw size={14}/>{t('history.restore')}</button>
         </article>)}
         {loadState.loaded && !entries.length && !loadState.loading && !loadState.error && <div className="review-empty">{t('history.empty')}</div>}
       </div>

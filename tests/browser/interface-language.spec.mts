@@ -293,9 +293,9 @@ test('closing Activity opened from a job notice returns focus to the Khmer Tools
     error: 'Synthetic job failure', updatedAt: '2026-01-01T00:00:02.000Z' };
   await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
   await option(page.locator('.processing-notice'), 'Open Activity').press('Enter');
-  const activity = page.getByRole('dialog', { name: 'Activity', exact: true });
+  const activity = page.getByRole('dialog', { name: km.activity.title, exact: true });
   await expect(activity).toBeVisible();
-  await option(activity, 'Close Activity').click();
+  await option(activity, km.activity.close).click();
   await expect(trigger).toBeFocused();
 });
 

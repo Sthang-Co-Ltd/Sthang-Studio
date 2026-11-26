@@ -3,6 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { en } from '../apps/web/src/i18n/messages/en/index.js';
 import { km } from '../apps/web/src/i18n/messages/km/index.js';
 import { pendingKhmerNamespaces } from '../apps/web/src/i18n/pending.js';
+import { pendingEnglishValues } from './khmer-catalog-coverage.js';
 
 type Catalog = { readonly [key: string]: string | Catalog };
 type PartialCatalog = { readonly [key: string]: string | PartialCatalog | undefined };
@@ -39,6 +40,15 @@ test('every pending Khmer namespace exists in the English catalog', () => {
   for (const namespace of pendingKhmerNamespaces) {
     assert.ok(Object.hasOwn(en, namespace), `Missing English namespace ${namespace}`);
   }
+});
+
+test('the pending allowlist contains complete English values only and disappears when all namespaces are translated', () => {
+  const pending = pendingEnglishValues();
+  if (pendingKhmerNamespaces.some((namespace: keyof typeof en) => namespace === 'workspace')) {
+    assert.ok(pending.has(en.workspace.close));
+    assert.ok(!pending.has('Close'));
+  }
+  assert.deepEqual(pendingEnglishValues([]), new Set());
 });
 
 test('every non-pending English namespace has a complete Khmer catalog', async (t) => {

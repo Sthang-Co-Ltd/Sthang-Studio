@@ -11,7 +11,11 @@ export const EDITOR_LAYOUT_KEY = 'sthang:editor-layout:v2';
 export const LEGACY_EDITOR_LAYOUT_KEY = 'sthang:editor-layout:v1';
 export const EDITOR_LAYOUT_CHANGE = 'sthang:editor-layout-change';
 export const DEFAULT_EDITOR_LAYOUT: EditorLayoutPreference = { preview: .36, inspector: .28, order: ['preview', 'captions', 'inspector'] };
-export const PANE_LABELS = { preview: 'Preview', captions: 'Captions', inspector: 'Tool' };
+export const PANE_LABELS = {
+  preview: 'editor.panel.preview',
+  captions: 'editor.panel.captions',
+  inspector: 'editor.panel.tool',
+} as const;
 export const PANE_MINIMUMS = { preview: 320, captions: 360, inspector: 360 };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 

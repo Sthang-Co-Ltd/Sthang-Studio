@@ -3,7 +3,9 @@ import test from 'node:test';
 import { CAPTION_LOOKS } from '@kcs/shared';
 import { createElement, Fragment } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { translate, translatePlural, translateRich } from '../apps/web/src/i18n/translate.js';
+import { en } from '../apps/web/src/i18n/messages/en/index.js';
+import { km } from '../apps/web/src/i18n/messages/km/index.js';
+import { createTranslator, translate, translatePlural, translateRich } from '../apps/web/src/i18n/translate.js';
 
 test('Appearance keeps its save, font import, and preset copy', () => {
   assert.equal(translate('en', 'appearance.workspace.saveState.saved'), 'Saved automatically');
@@ -50,7 +52,10 @@ test('Word highlight preparation keeps progress and coverage in English', () => 
   assert.equal(translate('en', 'appearance.highlight.checking', { completed: 2, total: 3 }), 'Checking captions… 2 of 3');
   assert.equal(translatePlural('en', 'appearance.highlight.coverageIndividual', 1), 'Highlighting 1 caption');
   assert.equal(translatePlural('en', 'appearance.highlight.coverageIndividual', 2), 'Highlighting 2 captions');
-  assert.equal(translatePlural('km', 'appearance.highlight.coverageIndividual', 1), 'Highlighting 1 caption');
+  assert.equal(translatePlural('km', 'appearance.highlight.coverageIndividual', 1),
+    km.appearance.highlight.coverageIndividual.other.replace('{count}', '1'));
+  const fallback = createTranslator({ en, km: { appearance: { highlight: {} } } });
+  assert.equal(fallback.translatePlural('km', 'appearance.highlight.coverageIndividual', 1), 'Highlighting 1 caption');
 });
 
 test('Waveform editing keeps its edge labels and fixed-precision duration', () => {

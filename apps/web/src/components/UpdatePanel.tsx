@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Download, LoaderCircle, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { api, type UpdateStatus, type UpdateSafetySnapshot } from '../api';
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [working, setWorking] = useState<'check' | 'download' | 'install' | ''>('');
   const [checkError, setCheckError] = useState('');
@@ -143,14 +144,14 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
         <button aria-label={t('updates.close')} onClick={onClose} disabled={!!working}><X size={17}/></button>
       </header>
       <div className="update-content">
-        {lastFailure && <div className="update-failure"><TriangleAlert size={18}/><div><strong>{t('updates.rollback')}</strong><span>{lastFailure.message}</span></div></div>}
+        {lastFailure && <div className="update-failure"><TriangleAlert size={18}/><div><strong>{t('updates.rollback')}</strong><span data-server-text>{lastFailure.message}</span></div></div>}
         {working === 'check' && <div className="update-state"><LoaderCircle className="spin" size={20}/><strong>{t('updates.checking')}</strong><span>{t('updates.currentVersionAvailable')}</span></div>}
         {!working && checkError && <div className="update-state"><TriangleAlert size={20}/><strong>{t('updates.unavailable')}</strong><span>{checkError}</span></div>}
-        {!working && !checkError && status?.status === 'disabled' && <div className="update-state"><ShieldCheck size={20}/><strong>{t('updates.disabled')}</strong><span>{status.message}</span></div>}
+        {!working && !checkError && status?.status === 'disabled' && <div className="update-state"><ShieldCheck size={20}/><strong>{t('updates.disabled')}</strong><span data-server-text>{status.message}</span></div>}
         {!working && !checkError && status?.status === 'up-to-date' && <div className="update-state"><CheckCircle2 size={20}/><strong>{t('updates.upToDate')}</strong><span>{t('updates.installedVersion', { version: status.currentVersion })}</span></div>}
         {!checkError && offer && <>
-          <div className="update-version"><div><span>{t('updates.available')}</span><strong>{offer.version}</strong><small>{new Date(offer.publishedAt).toLocaleDateString()}</small></div><ShieldCheck size={28}/></div>
-          <div className="update-notes"><strong>{t('updates.releaseNotes')}</strong><pre>{offer.releaseNotes}</pre></div>
+          <div className="update-version"><div><span>{t('updates.available')}</span><strong>{offer.version}</strong><small>{formatInterfaceDate(locale, offer.publishedAt)}</small></div><ShieldCheck size={28}/></div>
+          <div className="update-notes"><strong>{t('updates.releaseNotes')}</strong><pre data-server-text>{offer.releaseNotes}</pre></div>
           {unsafe && <div className="update-safety"><strong>{t('updates.finishWork')}</strong><span>{unsafeReasons.join(' ')}</span></div>}
           <div className="update-actions">
             <button onClick={(event) => checkAgain(event.currentTarget)} disabled={!!working}><RefreshCw size={15}/>{t('updates.checkAgain')}</button>

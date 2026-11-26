@@ -81,7 +81,7 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
       <button type="button" className="effect-reset-button" onClick={onReset}>
         <RotateCcw size={14}/>{t('appearance.looks.reset')}</button>
     </div>
-    <div className="appearance-look-current" role="status">{tr('appearance.looks.current', { look: activeLookLabel }, {})}</div>
+    <div className="appearance-look-current" role="status" data-deferred-text={activeLook ? 'look-name' : undefined}>{tr('appearance.looks.current', { look: activeLookLabel }, {})}</div>
     <div className="appearance-look-grid" role="group" aria-label={t('appearance.looks.group')}>
       {CAPTION_LOOKS.map((look) => <button
         key={look.id}
@@ -96,7 +96,7 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
           <span style={sampleStyle(look)}>{sample}</span>
         </span>
         <span className="appearance-look-copy">
-          <strong>{look.label}</strong>
+          <strong data-deferred-text="look-name">{look.label}</strong>
           <small>{t(`appearance.looks.description.${look.id}`)}</small>
         </span>
       </button>)}

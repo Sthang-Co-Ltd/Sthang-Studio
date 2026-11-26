@@ -154,16 +154,16 @@ import './styles.css';
 import './interface-motion.css';
 import { ManualSaveButton, useManualSaveFeedback } from './components/ManualSaveButton';
 
-const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })), { name: 'Fine timing', shape: 'timing' },
+const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })), { name: 'workspace.fineTiming', shape: 'timing' },
   () => retryWorkspace<typeof import('./components/WaveformEditor')>('WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
 
-const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })), { name: 'Export', shape: 'export' },
+const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })), { name: 'editor.header.export', shape: 'export' },
   () => retryWorkspace<typeof import('./components/ExportWorkspace')>('ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })));
 
-const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })), { name: 'Appearance', shape: 'appearance' },
+const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })), { name: 'editor.header.appearance', shape: 'appearance' },
   () => retryWorkspace<typeof import('./components/CaptionAppearanceWorkspace')>('CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })));
 
-const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })), { name: 'Compare captions', shape: 'comparison' },
+const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })), { name: 'workspace.compare', shape: 'comparison' },
   () => retryWorkspace<typeof import('./components/RegenerationReviewDock')>('RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })));
 
 const modes: Array<{ id: CaptionMode; label: string; desc: string; labelKey: MessageKey; descKey: MessageKey }> = [
@@ -4693,7 +4693,7 @@ export default function App() {
 
     <EditorLayout
       tool={proposal ? 'proposal' : workspaceTool}
-      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: t('editor.header.review'), timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Technical details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : t('editor.generation.generate')}
+      title={proposal ? t('workspace.compare') : workspaceTool ? t(({ review: 'editor.header.review', timeline: 'workspace.fineTiming', accuracy: 'workspace.accuracy', rhythm: 'grouping.title', appearance: 'editor.header.appearance', details: 'editor.tools.technical', export: 'editor.header.export' } as const)[workspaceTool]) : exportRepair ? t('export.repair.label') : t('editor.generation.generate')}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
       onClose={proposal ? () => { closeComparison(); setNotice('Comparison closed. You can reopen it from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
@@ -4731,15 +4731,15 @@ export default function App() {
               <button type="button" className="first-watch-dismiss" onClick={() => setFirstWatch(null)}>{t('editor.firstWatch.dismiss')}</button>
             </div>
           )}
-          {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? 'Proposed' : 'Current captions'}</span></div>}
+          {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{t(proposalPreviewMode === 'proposed' ? 'compare.dock.proposed' : 'workspace.currentCaptions')}</span></div>}
         </div>
       }
       toolbar={!proposal && stage === 'captions' ? (
         <div className="workspace-tool-strip">
-            {(!showGeneration || draft.length > 0) && <nav aria-label="Caption workspace tools">
-              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
-              {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span></button>}
-              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
+            {(!showGeneration || draft.length > 0) && <nav aria-label={t('workspace.tools')}>
+              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>{t('workspace.fineTiming')}</span></button>}
+              {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>{t('workspace.accuracy')}</span></button>}
+              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>{t('grouping.title')}</span></button>}
             </nav>}
           </div>
       ) : null}
@@ -4990,10 +4990,10 @@ export default function App() {
               ? fallback ? 'details.modelsWithFallbackAndDevice' : 'details.modelsWithDevice'
               : fallback ? 'details.modelsWithFallback' : 'details.models';
             return <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
-              <div className="timing-card-title">{audioAlignmentUnverified ? <TriangleAlert size={18}/> : <CheckCircle2 size={18}/>}<div><strong>{audioAlignmentUnverified ? t('details.previousEvidence') : usedFallback ? t('details.localFallback') : t('details.alignmentActive')}</strong><span>{t(modelKey, { textModel, timingModel, device: device ?? '' })}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{t(project.transcript?.nativeVocabularyBias ? 'details.biasOn' : project.transcript?.contextMode === 'audio-only' ? 'details.biasNotApplied' : 'details.biasPromptOnly', { count: project.transcript?.vocabularyTerms?.length ?? 0 })}</span>}</div></div>
+              <div className="timing-card-title">{audioAlignmentUnverified ? <TriangleAlert size={18}/> : <CheckCircle2 size={18}/>}<div><strong>{audioAlignmentUnverified ? t('details.previousEvidence') : usedFallback ? t('details.localFallback') : t('details.alignmentActive')}</strong><span data-server-text>{t(modelKey, { textModel, timingModel, device: device ?? '' })}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{t(project.transcript?.nativeVocabularyBias ? 'details.biasOn' : project.transcript?.contextMode === 'audio-only' ? 'details.biasNotApplied' : 'details.biasPromptOnly', { count: project.transcript?.vocabularyTerms?.length ?? 0 })}</span>}</div></div>
               {audioAlignmentUnverified && <div className="inline-warning"><TriangleAlert size={16}/><span>{t('details.previousEvidenceWarning')}</span></div>}
               {compatibility && <div className="inline-warning"><TriangleAlert size={16}/><span>{t(compatibility.key, compatibility.params)}</span></div>}
-              {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>{t(audioAlignmentUnverified ? 'details.previousAudioFallback' : 'details.clipFallback', { reason: timing.fallbackReason })}</span></div>}
+              {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span data-server-text>{t(audioAlignmentUnverified ? 'details.previousAudioFallback' : 'details.clipFallback', { reason: timing.fallbackReason })}</span></div>}
               {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>{t('details.syncWarning')}</span></div>}
               <div className="timing-metrics" aria-label={audioAlignmentUnverified ? t('details.previousMeasurements') : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>{t('details.anchored')}</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>{t('details.interpolated')}</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>{t('details.uncertainWords')}</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>{t('details.matchScore')}</span></div></div>
               {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>{t('details.checkpoints')}</span></div>}

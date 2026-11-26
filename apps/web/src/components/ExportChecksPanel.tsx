@@ -77,7 +77,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
               : layoutState === 'blocked' ? t('export.checks.layoutBlocked')
                 : layoutState === 'error' ? t('export.checks.layoutError')
                   : t('export.checks.layoutOptional')}</strong>
-        <span>{layoutMessage || (layoutState === 'passed'
+        <span data-server-text={layoutState === 'error' && Boolean(layoutMessage) || undefined}>{layoutMessage || (layoutState === 'passed'
           ? t('export.checks.layoutPassedHelp')
           : layoutState === 'unchecked' || !layoutState ? t('export.checks.layoutUncheckedHelp')
             : t('export.checks.layoutHelp'))}</span>
@@ -101,7 +101,7 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
               <button type="button" onClick={() => onRepair({ kind: issue.repair, captionId: id })}>{t('export.checks.goToCaption', { position: match.index + 1 })}</button>
             </div>;
           })}
-          {issue.visibleReasons.length > 0 && <ul className="export-check-reasons">{issue.visibleReasons.map(({ text, message, index }) => <li key={index}>{message ? t(message.key, message.params) : text}</li>)}</ul>}
+          {issue.visibleReasons.length > 0 && <ul className="export-check-reasons">{issue.visibleReasons.map(({ text, message, index }) => <li key={index} data-server-text={issue.id.startsWith('layout:') && index === 0 || undefined}>{message ? t(message.key, message.params) : text}</li>)}</ul>}
           <p className="export-check-remedy">{issue.remedyMessage ? t(issue.remedyMessage.key, issue.remedyMessage.params) : issue.remedy}</p>
           {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair, focus: issue.id === 'font' ? 'font' : undefined })}>{issue.id === 'font' ? t('export.checks.chooseFont') : issue.repair === 'appearance' ? t('export.checks.reviewAppearance') : t('export.checks.reviewCaptions')}</button>}
         </li>)}

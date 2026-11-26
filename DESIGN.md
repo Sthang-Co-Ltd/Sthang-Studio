@@ -55,6 +55,14 @@ Keep the bilingual prompt and native language names together in the fixed copy.
 Namespaces listed in `i18n/pending.ts` are awaiting Khmer and fall back to English; remove a namespace from the list in the same change that adds its complete Khmer catalog.
 
 Server-provided secure-storage labels remain English until Settings (Phase C) maps them to catalog keys.
+Server-provided prose and enumerated server codes (job messages and stages, history checkpoint labels and sources, release notes, server progress, regeneration candidate text) remain English until Phase C maps known codes to catalog keys.
+
+Phase B enables Khmer across Export, Compare, Appearance, Fine timing, Accuracy,
+Technical details, Caption grouping, Activity, History, Find / Correct everywhere,
+Correction inbox, Updates, Guide and All projects. Khmer dates use full month
+names and Western digits with 24-hour time where the interface shows a time.
+The workspace shell has its own pending catalog. The Khmer layout sweep records
+its English values while checking for unexpected English across Phase B.
 
 In Khmer mode, the root language is `km` and the interface typography removes
 uppercase styling and letter spacing from operational text. Use a 14px floor for

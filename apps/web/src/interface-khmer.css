@@ -6,7 +6,7 @@ html:lang(km) :is(
   .home-ready-strip, .first-run-card, .home-ai-setup, .setup-warning,
   .recent, .project-name-button, .project-name-dialog, .header-actions,
   .caption-panel, .review-card, .transcribe-card, .first-watch, .toast-stack,
-  .ai-settings-body, .studio-confirm-dialog
+  .ai-settings-body, .studio-confirm-dialog, .preview-version-badge
 ) :is(button, summary, a, label, p, span, strong, small, em, dt, dd, legend, h2, [role="alert"]),
 html:lang(km) :is(.home-tools > button, .empty-stage h1, .empty-stage .lead,
   .dropzone, .upload-validation, .upload-storage-feedback, .home-ai-setup) {
@@ -128,5 +128,143 @@ html:lang(km) .caption-text-cell textarea {
   html:lang(km) .ai-settings-body .ai-section-title a {
     flex: none;
     font-size: 14px !important;
+  }
+}
+
+/* Phase B inspector and sheets retain room for Khmer control labels. */
+html:lang(km) :is(
+  .workspace-tool-strip, .editor-layout-announcement, .editor-arrange-popover,
+  .workspace-inspector, .timing-waveform-surface, .job-modal, .history-modal,
+  .find-replace-modal, .correction-modal, .update-panel, .new-user-guide,
+  .project-library, .project-bin, .project-storage-report
+) :is(button, summary, a[href], select, label, input:not([type="range"], [type="checkbox"]), textarea, p, h2, h3, h4) {
+  font-size: max(14px, 1em);
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+html:lang(km) :is(
+  .workspace-inspector, .timing-waveform-surface, .job-modal, .history-modal,
+  .find-replace-modal, .correction-modal, .update-panel, .new-user-guide,
+  .project-library, .project-bin, .project-storage-report
+) :is(p, small) {
+  line-height: 1.55;
+}
+
+html:lang(km) :is(
+  .workspace-inspector, .timing-waveform-surface, .job-modal, .history-modal,
+  .find-replace-modal, .correction-modal, .update-panel, .new-user-guide,
+  .project-library, .project-bin, .project-storage-report
+) small {
+  font-size: max(13px, 1em);
+}
+
+/* The base interface uses important sizes for these named compact roles. */
+html:lang(km) :is(
+  .correction-actions button, .history-toolbar button, .history-list article > button,
+  .job-actions button, .waveform-controls button, .waveform-controls select,
+  .regen-playback-bar > button, .regen-change-nav button, .regen-comparison header button,
+  .regen-refine-actions button, .regen-apply-actions button, .regen-preview-switch button,
+  .correction-pair label, .find-grid label > span, .replace-memory span
+) {
+  font-size: 14px !important;
+}
+
+html:lang(km) :is(
+  .correction-meta, .correction-suggestion span, .waveform-title span,
+  .find-summary em, .find-preview span, .history-copy span, .history-copy small,
+  .job-copy > div span, .job-copy p, .job-copy small, .job-copy em, .regen-title-copy p,
+  .regen-beginner-guide, .regen-change-nav, .regen-summary > span, .regen-change-focus b,
+  .regen-change-focus em, .regen-comparison header span, .regen-comparison small,
+  .regen-honesty-note, .regen-refine-copy span, .regen-hint > span, .regen-accuracy-truth,
+  .regen-job-progress span, .regen-candidates article small, .regen-candidate-note,
+  .new-user-guide > footer
+) {
+  font-size: 13px !important;
+  line-height: 1.55;
+}
+
+html:lang(km) :is(
+  .workspace-inspector .appearance-font-field > span,
+  .workspace-inspector .appearance-font-search-results > button span,
+  .workspace-inspector .appearance-look-copy > strong,
+  .workspace-inspector .export-setting-grid label > span,
+  .workspace-inspector .export-advanced-grid label > span,
+  .workspace-inspector .export-quality-choice > span,
+  .workspace-inspector .export-preset-bar > label > span,
+  .workspace-inspector .export-preset-tools-body label > span,
+  .workspace-inspector .export-appearance-copy strong,
+  .job-modal .job-title-line strong, .update-panel .update-safety strong
+) {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+html:lang(km) :is(
+  .job-modal-heading-copy span, .history-heading-copy span,
+  .correction-modal .modal-head span, .find-replace-modal .modal-head span,
+  .update-panel > header span, .update-panel > footer, .update-version span,
+  .update-failure span, .project-storage-report time,
+  .export-graphite .export-advanced-help, .export-graphite .export-appearance-copy span,
+  .export-graphite .export-warnings > div, .export-graphite .export-finalize .export-summary-line,
+  .export-graphite > .export-source-note, .timing-waveform-surface .waveform-navigation
+) {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+html:lang(km) :is(
+  .caption-appearance-workspace :is(.appearance-essential-grid, .appearance-grid, .appearance-preset-bar) label > span,
+  .accuracy-card .context-field > span, .accuracy-card .generation-options legend,
+  .accuracy-card .generation-options summary strong, .controls-card .slider > span,
+  .controls-card > p, .handoff-destination-guide li, .handoff-guide-title strong,
+  .handoff-primary strong, .export-check-title > strong, .regen-text-label,
+  .project-library-sort > span, .project-library .project-library-open, .guide-workflow button b
+) {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+html:lang(km) :is(
+  .accuracy-card .accuracy-help > span, .accuracy-card .generation-options-footer > span,
+  .controls-card .mode-grid button > span, .controls-card .preset-actions > span,
+  .appearance-motion-selection-note, .appearance-replay-target :is(span, b),
+  .appearance-workspace-footer > span, .timing-mode-switch .timing-hint,
+  .timing-view-span, .timing-duration, .timing-card .inline-warning > span,
+  .find-preview-copy b, .find-summary > span, .handoff-guide-title > span, .handoff-local-note,
+  .handoff-primary-copy > span, .handoff-advanced > summary > span,
+  .export-history time, .history-toolbar > span, .project-library-item-meta :is(span, time)
+) {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+html:lang(km) :is(.accuracy-card .control-title em, .appearance-save-state > span, .timing-metrics span) {
+  font-size: 12px;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+html:lang(km) .preview-version-badge span {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+html:lang(km) .export-graphite .export-source-chip,
+html:lang(km) .export-check-title > span {
+  font-size: 12px !important;
+}
+
+@media (max-width: 620px) {
+  html:lang(km) :is(
+    .workspace-tool-strip, .workspace-inspector, .timing-waveform-surface,
+    .job-modal, .history-modal, .find-replace-modal, .correction-modal,
+    .update-panel, .new-user-guide, .project-library, .project-bin,
+    .project-storage-report
+  ) :is(button, summary, a[href], select, [role="menuitem"]) {
+    min-inline-size: 44px;
+    min-block-size: 44px;
   }
 }
