@@ -1,0 +1,25 @@
+import type { EnglishMessages, KhmerMessages } from '../../types';
+
+export const accuracyMessages: KhmerMessages<EnglishMessages['accuracy']> = {
+  automatic: "ស្វ័យប្រវត្តិ",
+  automaticHelp: "សម្រាប់តែគម្រោងនេះប៉ុណ្ណោះ។ ប្រើម៉ូដែលលំនាំដើមរបស់អ្នក និងគោលការណ៍ម៉ូដែលបម្រុងដែលមានស្រាប់។ ការកំណត់ទូទៅនៅដដែល។",
+  explicitModelHelp: "សម្រាប់តែគម្រោងនេះប៉ុណ្ណោះ។ ប្រើតែម៉ូដែលនេះសម្រាប់ការបង្កើតអក្សររត់ថ្មី និងការបង្កើតឡើងវិញ។ ការកំណត់ទូទៅនៅដដែល។",
+  aiOptions: "ជម្រើស AI",
+  captionModel: "ម៉ូដែលអក្សររត់",
+  savingModel: "កំពុងរក្សាទុកជម្រើស…",
+  unappliedModel: "ជម្រើសមិនទាន់បានអនុវត្ត",
+  modelSaved: "បានរក្សាទុកសម្រាប់គម្រោងនេះ",
+  applyModel: "អនុវត្តម៉ូដែល",
+  termsExample: "CapCut | ខេបខាត់\nTikTok | តិកតុក\nបាយសាច់ជ្រូក\nសៀមរាប",
+  termCount: "{count} ពាក្យ",
+  aliasesHelp: "មួយពាក្យក្នុងមួយជួរ។ ពាក្យសរសេរផ្សេងប្រើទម្រង់ <code>Canonical | alias | phonetic alias</code>។",
+  title: "ព័ត៌មានបង្កើនភាពត្រឹមត្រូវ <b>ជាជម្រើស</b>",
+  contextHelp: "ជួយ Studio ស្គាល់ឈ្មោះ ម៉ាកយីហោ លេខកំណែ និងការនិយាយលាយខ្មែរ-អង់គ្លេស។",
+  description: "តើវីដេអូនេះនិយាយអំពីអ្វី?",
+  descriptionExample: "ឧទាហរណ៍៖ វីដេអូដើរញ៉ាំអាហារតាមផ្លូវ និងហាងកាហ្វេចុងសប្ដាហ៍នៅភ្នំពេញ សាកកាហ្វេទឹកកក និងបាយសាច់ជ្រូក។",
+  terms: "ពាក្យសំខាន់ៗ",
+  savingGlossary: "កំពុងរក្សាទុកសម្រាប់គម្រោងទាំងអស់…",
+  saveGlossary: "រក្សាទុកសម្រាប់គម្រោងទាំងអស់",
+  saveContext: "រក្សាទុកសម្រាប់គម្រោងនេះ",
+  improveAll: "កែលម្អអក្សររត់ទាំងអស់",
+};
