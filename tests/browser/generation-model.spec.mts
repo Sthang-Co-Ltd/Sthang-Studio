@@ -419,7 +419,7 @@ test('Generate waits for Apply and submits saved Hydrogen with a different draft
   await page.getByRole('button', { name: 'Close Activity', exact: true }).click();
   Object.assign(state.projects[0], { transcript, captions });
   state.jobs = [{ ...state.jobs[0], status: 'completed', stage: 'complete', progress: 100, resultProjectId: 'landscape' }];
-  await expect(page.getByText('Background caption generation completed.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Captions are ready. Watch them on the video, then check 2 flagged captions in Review.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add context', exact: true })).toHaveCount(0);
   const toolbarAccuracy = page.getByRole('button', { name: 'Accuracy', exact: true });
   await toolbarAccuracy.press('Enter');

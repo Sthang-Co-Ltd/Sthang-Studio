@@ -97,6 +97,7 @@ import { captionFieldViewport, revealFocusedCaptionField } from './caption-field
 import { useToastTimeout } from './use-toast-timeout';
 import { createProjectScope, groupingChangesWording, projectMediaKey, proposalForProject, type ProjectTicket } from './project-scope';
 import { SourceMedia } from './components/SourceMedia';
+import './components/first-watch.css';
 import { accuracyPayload, createAccuracyContextDraft, sameAccuracyContext, uniqueContextLines, type AccuracyFields, type AccuracyObservation } from './accuracy-context-draft';
 import { createUnfinishedEditRecoveryStore, assessRecovery, restoredAppearance, restoredCaptions, type RecoveryEntry, type RecoveryStatus } from './unfinished-edit-recovery';
 import { UnfinishedEditRecoveryNotice } from './components/UnfinishedEditRecoveryNotice';
@@ -607,6 +608,8 @@ export default function App() {
   const media = useRef<HTMLMediaElement | null>(null);
   const mediaPreviewFocus = useRef<HTMLDivElement | null>(null);
   const [mediaElement, setMediaElement] = useState<HTMLMediaElement | null>(null);
+  const [firstWatch, setFirstWatch] = useState<{ projectId: string; mediaKey: string } | null>(null);
+  const firstWatchNotice = useRef<typeof firstWatch>(null);
   const nativeCaptionPreview = useRef<NativeCaptionPreviewHandle | null>(null);
   const effectReplayController = useRef<AbortController | null>(null);
   const effectPlaybackCancel = useRef<(() => void) | null>(null);
@@ -2242,9 +2245,16 @@ export default function App() {
                   : 'Caption generation completed. Your newer edits are kept; the result is available in Activity.');
                 return;
               }
+              const watch = !draftRef.current.length && value.captions.length && isVideoProject(value)
+                ? { projectId: value.id, mediaKey: projectMediaKey(value) }
+                : null;
               publishContextProject(value, contextObservation);
               applyProject(value);
-              setNotice(compatibilityNotice || 'Background caption generation completed.');
+              if (watch) {
+                firstWatchNotice.current = compatibilityNotice ? null : watch;
+                setFirstWatch(watch);
+              }
+              if (compatibilityNotice || !watch) setNotice(compatibilityNotice || 'Background caption generation completed.');
             }).catch(reportResultReadFailure);
           } else if (job.resultExport) {
             setNotice(`Captioned video ready: ${job.resultExport.filename}. Open Activity to download it.`);
@@ -4108,6 +4118,32 @@ export default function App() {
   const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const stage: Stage = workspaceTool === 'review' || workspaceTool === 'appearance' || workspaceTool === 'export'
     ? workspaceTool : 'captions';
+  const previousFirstWatchTool = useRef(workspaceTool);
+  useEffect(() => {
+    const toolChanged = previousFirstWatchTool.current !== workspaceTool;
+    previousFirstWatchTool.current = workspaceTool;
+    if (!firstWatch) return;
+    if (firstWatchNotice.current === firstWatch) {
+      firstWatchNotice.current = null;
+      const count = riskyIds.length;
+      setNotice(count
+        ? `Captions are ready. Watch them on the video, then check ${count} flagged caption${count === 1 ? '' : 's'} in Review.`
+        : "Captions are ready. Watch them on the video, then export when you're happy.");
+    }
+    if (firstWatch.projectId !== project?.id || firstWatch.mediaKey !== mediaKey || stage !== 'captions' || toolChanged || proposal) {
+      setFirstWatch(null);
+      return;
+    }
+    if (!mediaElement) return;
+    const dismiss = () => setFirstWatch((current) => current === firstWatch ? null : current);
+    if (!mediaElement.paused || mediaElement.seeking) dismiss();
+    mediaElement.addEventListener('play', dismiss);
+    mediaElement.addEventListener('seeking', dismiss);
+    return () => {
+      mediaElement.removeEventListener('play', dismiss);
+      mediaElement.removeEventListener('seeking', dismiss);
+    };
+  }, [firstWatch, mediaElement, project?.id, mediaKey, stage, workspaceTool, proposal, riskyIds.length]);
   const layoutMode: EditorLayoutMode = proposal || stage === 'review' || stage === 'appearance' ? 'judge' : 'edit';
   const enlargeAvailable = layoutMode === 'judge' && isVideo && mediaShape?.key === mediaKey && mediaShape.landscape;
   const savedContext = project?.transcriptionContext;
@@ -4613,6 +4649,26 @@ export default function App() {
             cancelPlayback(); media.current?.pause(); setReviewMode(false);
             setFontFocusTrigger(trigger); setWorkspaceTool('appearance');
           }} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
+          {firstWatch && firstWatch.projectId === project.id && firstWatch.mediaKey === mediaKey && stage === 'captions' && !proposal && isVideo && (
+            <div className="first-watch" role="group" aria-label="Captions ready" onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                setFirstWatch(null);
+              }
+            }}>
+              <button type="button" className="first-watch-play" onClick={() => {
+                cancelPlayback();
+                setFirstWatch(null);
+                const element = media.current;
+                if (!element) return;
+                element.currentTime = 0;
+                void element.play().catch(() => setError('Playback could not start. Use the video controls to play the captioned video.'));
+              }}><Play size={18} aria-hidden="true"/><span>Watch with captions</span></button>
+              <p>{riskyIds.length ? `${riskyIds.length} caption${riskyIds.length === 1 ? '' : 's'} need a quick check in Review afterwards.` : 'No captions were flagged.'}</p>
+              <button type="button" className="first-watch-dismiss" onClick={() => setFirstWatch(null)}>Not now</button>
+            </div>
+          )}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? 'Proposed' : 'Current captions'}</span></div>}
         </div>
       }
