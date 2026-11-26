@@ -1,6 +1,6 @@
-import type { DeepPartial, EnglishMessages } from '../../types';
+import type { EnglishMessages, KhmerMessages } from '../../types';
 
-export const review: DeepPartial<EnglishMessages['review']> = {
+export const review: KhmerMessages<EnglishMessages['review']> = {
   completion: {
     reviewed: "បានពិនិត្យអក្សររត់ដែលបានសម្គាល់ទាំងអស់ហើយ",
     noRisks: "មិនរកឃើញបញ្ហាដោយស្វ័យប្រវត្តិ",

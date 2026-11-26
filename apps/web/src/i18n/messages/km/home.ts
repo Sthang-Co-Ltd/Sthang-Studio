@@ -1,6 +1,6 @@
-import type { DeepPartial, EnglishMessages } from '../../types';
+import type { EnglishMessages, KhmerMessages } from '../../types';
 
-export const home: DeepPartial<EnglishMessages['home']> = {
+export const home: KhmerMessages<EnglishMessages['home']> = {
   upload: {
     earlierNeedsCheck: "មានការផ្ទុកឡើងមុនមួយដែលត្រូវពិនិត្យ។ សូមពិនិត្យលទ្ធផលដែលបានរក្សាទុករបស់វាមុនពេលព្យាយាមម្ដងទៀត។",
     formats: "MP4, MOV, MP3, WAV និងច្រើនទៀត។",

@@ -1,6 +1,6 @@
-import type { DeepPartial, EnglishMessages } from '../../types';
+import type { EnglishMessages, KhmerMessages } from '../../types';
 
-export const setup: DeepPartial<EnglishMessages['setup']> = {
+export const setup: KhmerMessages<EnglishMessages['setup']> = {
   ai: {
     clipboardEmpty: "ក្ដារតម្បៀតខ្ទាស់ទទេ។ ចម្លងកូនសោរបស់អ្នក រួចបិទភ្ជាប់វាចូលក្នុងប្រអប់កូនសោ API ដោយប្រើ {shortcut}។",
     clipboardUnavailable: "មិនអាចចូលប្រើក្ដារតម្បៀតខ្ទាស់បានទេ។ សូមបិទភ្ជាប់កូនសោរបស់អ្នកចូលក្នុងប្រអប់កូនសោ API ដោយប្រើ {shortcut}។",
