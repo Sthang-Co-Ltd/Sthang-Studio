@@ -4680,7 +4680,7 @@ export default function App() {
       </div>
     </header>
 
-    {alignmentNoticeKey && dismissedAlignmentNotice !== alignmentNoticeKey && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span><strong>Audio alignment not verified.</strong> Existing caption and word times were kept. Check them against the edited audio before exporting.</span><button type="button" aria-label="Dismiss audio alignment warning" title="Dismiss warning" onClick={() => setDismissedAlignmentNotice(alignmentNoticeKey)}><X size={16}/></button></div>}
+    {alignmentNoticeKey && dismissedAlignmentNotice !== alignmentNoticeKey && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span>{messagesFor(interfaceLanguage).tr('export.repair.alignmentNotice', {}, { b: (text) => <strong>{text}</strong> })}</span><button type="button" aria-label={t('export.repair.dismissAlignmentLabel')} title={t('export.repair.dismissAlignment')} onClick={() => setDismissedAlignmentNotice(alignmentNoticeKey)}><X size={16}/></button></div>}
 
     <EditorLayout
       tool={proposal ? 'proposal' : workspaceTool}
@@ -4758,12 +4758,12 @@ export default function App() {
         />}
 
         {!proposal && <>
-          {exportRepair && projectScope.current.isCurrent(exportRepair.ticket) && workspaceTool !== 'export' && <section className="export-repair-return" aria-label="Export review">
-            <div><strong id="export-repair-title" tabIndex={-1}>Fixing an export issue{exportRepair.target.captionId && draft.some((caption) => caption.id === exportRepair.target.captionId)
-              ? ` · Caption ${draft.findIndex((caption) => caption.id === exportRepair.target.captionId) + 1}` : ''}</strong>
-              <p>Check this caption against the video, then return to export. Your output choices are kept for this visit.</p></div>
-            <div><button type="button" onClick={backToExport}>Back to export</button>
-              <button type="button" onClick={() => setExportRepair(null)}>Finish export review</button></div>
+          {exportRepair && projectScope.current.isCurrent(exportRepair.ticket) && workspaceTool !== 'export' && <section className="export-repair-return" aria-label={t('export.repair.label')}>
+            <div><strong id="export-repair-title" tabIndex={-1}>{exportRepair.target.captionId && draft.some((caption) => caption.id === exportRepair.target.captionId)
+              ? t('export.repair.fixCaption', { position: draft.findIndex((caption) => caption.id === exportRepair.target.captionId) + 1 }) : t('export.repair.fixIssue')}</strong>
+              <p>{t('export.repair.instructions')}</p></div>
+            <div><button type="button" onClick={backToExport}>{t('export.repair.back')}</button>
+              <button type="button" onClick={() => setExportRepair(null)}>{t('export.repair.finish')}</button></div>
           </section>}
 
 

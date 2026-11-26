@@ -3,6 +3,8 @@ import {
   type CaptionAppearance, type CaptionFileFormat, type CaptionSegment,
 } from '@kcs/shared';
 import type { ReviewIssue } from './review';
+import { translate } from './i18n/translate';
+import type { MessageKey, MessageParams } from './i18n/types';
 
 export type ExportRepairKind = 'caption' | 'timing' | 'word-timing' | 'appearance';
 
@@ -12,6 +14,11 @@ export interface ExportRepairTarget {
   focus?: 'font';
 }
 
+interface ExportCheckMessage {
+  key: MessageKey;
+  params?: MessageParams;
+}
+
 export interface ExportCheckIssue {
   id: string;
   severity: 'blocker' | 'advisory';
@@ -19,8 +26,15 @@ export interface ExportCheckIssue {
   reasons: string[];
   titleIsFirstReason?: boolean;
   remedy: string;
+  titleMessage?: ExportCheckMessage;
+  reasonMessages?: (ExportCheckMessage | undefined)[];
+  remedyMessage?: ExportCheckMessage;
   captionIds: string[];
   repair: ExportRepairKind;
+}
+
+function english(key: MessageKey) {
+  return translate('en', key);
 }
 
 /** Reuse the editor's QA and word-readiness authorities; no native rendering here. */
@@ -41,12 +55,13 @@ export function buildExportCaptionIssues(input: {
       durationMs: durationMs && Number.isFinite(durationMs) && durationMs > 0 ? durationMs : undefined }, format).entries()) {
       const caption = issue.captionIndex === null ? undefined : captions[issue.captionIndex];
       const timing = issue.field === 'timing' || issue.field === 'word-timing';
+      const title = timing ? 'export.issue.timing' : !caption ? 'export.issue.dataLimit'
+        : caption.text.trim() ? 'export.issue.text' : 'export.issue.empty';
+      const remedy = timing ? 'export.issue.timingRemedy'
+        : 'export.issue.textRemedy';
       issues.push({ id: `file:${caption?.id || 'project'}:${issue.field}:${index}`, severity: 'blocker',
-        title: timing ? 'Caption timing needs correction' : !caption ? 'Caption data exceeds export limits'
-          : caption.text.trim() ? 'Caption text or data needs correction' : 'Caption has no text',
-        reasons: [issue.message],
-        remedy: timing ? 'Adjust the affected timing inside the source, then return to export.'
-          : 'Review the indicated wording or data. Keep the original until you have corrected the export issue.',
+        title: english(title), titleMessage: { key: title }, reasons: [issue.message],
+        remedy: english(remedy), remedyMessage: { key: remedy },
         captionIds: caption ? [caption.id] : [], repair: issue.field === 'word-timing' ? 'word-timing' : timing ? 'timing' : 'caption' });
     }
   }
@@ -55,13 +70,19 @@ export function buildExportCaptionIssues(input: {
     if (!indices.has(issue.captionId) || issue.severity === 'info') continue;
     const previous = captions[(indices.get(issue.captionId) ?? 0) - 1];
     const overlap = Boolean(previous && issue.reasons.some((reason) => reason.code === 'overlap'));
-    if (overlap) issues.push({ id: `overlap:${previous.id}:${issue.captionId}`, severity: 'advisory', title: 'Overlapping captions',
-      reasons: ['These captions overlap in the source timeline. Some destination editors cannot keep overlapping cues.'],
-      remedy: 'Check both captions in Fine timing. Keep an intentional overlap, or adjust their shared boundary without shifting later speech.',
+    if (overlap) issues.push({ id: `overlap:${previous.id}:${issue.captionId}`, severity: 'advisory',
+      title: english('export.issue.overlap'), titleMessage: { key: 'export.issue.overlap' },
+      reasons: [english('export.issue.overlapReason')], reasonMessages: [{ key: 'export.issue.overlapReason' }],
+      remedy: english('export.issue.overlapRemedy'), remedyMessage: { key: 'export.issue.overlapRemedy' },
       captionIds: [previous.id, issue.captionId], repair: 'timing' });
-    const reasons = issue.reasons.filter((reason) => !overlap || reason.code !== 'overlap').map((reason) => reason.label);
-    if (reasons.length) issues.push({ id: `review:${issue.captionId}`, severity: 'advisory', title: reasons[0],
-      reasons, titleIsFirstReason: true, remedy: 'Listen to this caption and check its wording, duration and nearby captions. Export keeps your chosen text and timing.',
+    const reasons = issue.reasons.filter((reason) => !overlap || reason.code !== 'overlap');
+    const reasonMessages = reasons.map(({ code, label, params }) => {
+      const key = `review.reason.${code}.label` as const;
+      return translate('en', key, params) === label ? { key, params } : undefined;
+    });
+    if (reasons.length) issues.push({ id: `review:${issue.captionId}`, severity: 'advisory', title: reasons[0].label,
+      titleMessage: reasonMessages[0], reasons: reasons.map(({ label }) => label), reasonMessages,
+      titleIsFirstReason: true, remedy: english('export.issue.listenRemedy'), remedyMessage: { key: 'export.issue.listenRemedy' },
       captionIds: [issue.captionId], repair: 'caption' });
   }
 
@@ -75,17 +96,19 @@ export function buildExportCaptionIssues(input: {
       if (wordExport ? wordExport.ready : highlightAttention(caption) !== 'needs-attention') continue;
       const marked = hasWordTimingEvidence(caption.wordTiming);
       const plan = marked && !strict ? compileHighlightPlan(caption, 'measured-and-manual') : null;
-      const reason = wordExport && !wordExport.ready ? wordExport.reason
-        : marked ? 'Words without usable timing keep the normal color.'
-          : resolveCaptionWordTiming(caption).reason || 'This caption has no saved word timing.';
-      const consequence = needsWords ? 'Word-timed download requires usable timing for every caption.'
-        : format === 'bundle' ? 'The handoff kit will omit word-timed files until every caption is ready.'
-          : plan?.coverage === 'partial' ? 'Some words keep their normal color.'
-            : plan ? 'This caption keeps its normal color.'
-              : 'This caption will keep its normal color without a spoken-word highlight.';
-      issues.push({ id: `words:${caption.id}`, severity: needsWords ? 'blocker' : 'advisory', title: 'Word timing needs review',
-        reasons: plan ? [consequence] : [reason, consequence],
-        remedy: 'Open Word timing, sync or adjust the words, then review and apply the timing.',
+      const externalReason = wordExport && !wordExport.ready ? wordExport.reason : marked ? undefined : resolveCaptionWordTiming(caption).reason;
+      const reasonKey = marked ? 'export.issue.unusableWords' : 'export.issue.missingWords';
+      const reason = wordExport && !wordExport.ready ? wordExport.reason : externalReason || english(reasonKey);
+      const consequence = needsWords ? 'export.issue.wordFilesRequireTiming'
+        : format === 'bundle' ? 'export.issue.kitOmitsWordFiles'
+          : plan?.coverage === 'partial' ? 'export.issue.somePlainWords'
+            : plan ? 'export.issue.normalColor'
+              : 'export.issue.plainWithoutHighlight';
+      issues.push({ id: `words:${caption.id}`, severity: needsWords ? 'blocker' : 'advisory',
+        title: english('export.issue.wordTiming'), titleMessage: { key: 'export.issue.wordTiming' },
+        reasons: plan ? [english(consequence)] : [reason, english(consequence)],
+        reasonMessages: plan ? [{ key: consequence }] : [externalReason !== undefined ? undefined : { key: reasonKey }, { key: consequence }],
+        remedy: english('export.issue.wordTimingRemedy'), remedyMessage: { key: 'export.issue.wordTimingRemedy' },
         captionIds: [caption.id], repair: 'word-timing' });
     }
   }
