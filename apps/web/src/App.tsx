@@ -4651,11 +4651,12 @@ export default function App() {
           }} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {firstWatch && firstWatch.projectId === project.id && firstWatch.mediaKey === mediaKey && stage === 'captions' && !proposal && isVideo && (
             <div className="first-watch" role="group" aria-label="Captions ready" onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                event.stopPropagation();
-                setFirstWatch(null);
-              }
+              // Plain Escape only, matching the app's other dismiss handlers.
+              if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229
+                || event.getModifierState('AltGraph') || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setFirstWatch(null);
             }}>
               <button type="button" className="first-watch-play" onClick={() => {
                 cancelPlayback();
