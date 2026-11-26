@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
+import { useI18n } from '../i18n';
 import { Check, X } from 'lucide-react';
 import type { HandoffRestorePreview } from '../caption-handoff-client';
 import { formatTimestamp } from '../timestamp';
@@ -19,29 +20,30 @@ export function CaptionRestoreReview({ review, busy, importBlockedReason, onRead
   onApply(): void;
   onCancel(): void;
 }) {
+  const { t, tn } = useI18n();
   const heading = useRef<HTMLHeadingElement>(null);
   const blockedReasonId = useId();
   useEffect(() => { if (heading.current) onReady(heading.current); }, [review.filename, onReady]);
   const captions = review.preview.candidate.captions;
   return <section className="caption-restore-review" aria-labelledby="caption-restore-title">
-    <h3 id="caption-restore-title" ref={heading} tabIndex={-1}>Review caption import</h3>
+    <h3 id="caption-restore-title" ref={heading} tabIndex={-1}>{t('export.restore.title')}</h3>
     <p className="caption-restore-filename">{review.filename}</p>
-    <p>Replace {review.currentCount} current caption{review.currentCount === 1 ? '' : 's'} with {captions.length} from this file. Your video, audio, and appearance stay unchanged.</p>
-    <p>Use this file with the same source footage and playback speed. Caption times start at zero; the file does not contain or identify the source video.</p>
-    <div className="caption-restore-samples" aria-label="Caption import preview">
+    <p>{tn('export.restore.replaceSummary', review.currentCount, { incoming: captions.length })}</p>
+    <p>{t('export.restore.mediaReminder')}</p>
+    <div className="caption-restore-samples" aria-label={t('export.restore.previewLabel')}>
       {captions.slice(0, 4).map((caption, index) => <div key={index}>
         <span>{formatTimestamp(caption.startMs)} – {formatTimestamp(caption.endMs)}</span>
         <p>{caption.text}</p>
       </div>)}
-      {captions.length > 4 && <p>{captions.length - 4} more captions not shown.</p>}
+      {captions.length > 4 && <p>{t('export.restore.moreCaptions', { count: captions.length - 4 })}</p>}
     </div>
     {review.preview.warnings?.map((warning, index) => <p key={index} className="caption-restore-warning">{warning}</p>)}
-    {review.stale && <p className="caption-restore-warning" role="status">The project changed since this preview. Keep your current captions and reopen the file to review the latest state.</p>}
+    {review.stale && <p className="caption-restore-warning" role="status">{t('export.restore.stale')}</p>}
     {importBlockedReason && <p id={blockedReasonId} className="caption-restore-warning" role="status">{importBlockedReason}</p>}
-    <p>Studio saves a History checkpoint first. Review imported captions afterward. Appearance settings remain in the file for reference; your current style stays unchanged.</p>
+    <p>{t('export.restore.checkpoint')}</p>
     <div className="caption-restore-actions">
-      <button type="button" disabled={busy} onClick={onCancel}><X size={15}/>Keep current captions</button>
-      <button type="button" className="primary" disabled={busy || review.stale || !captions.length || Boolean(importBlockedReason)} aria-describedby={importBlockedReason ? blockedReasonId : undefined} onClick={onApply}><Check size={15}/>{busy ? 'Replacing…' : 'Replace captions'}</button>
+      <button type="button" disabled={busy} onClick={onCancel}><X size={15}/>{t('export.restore.keepCurrent')}</button>
+      <button type="button" className="primary" disabled={busy || review.stale || !captions.length || Boolean(importBlockedReason)} aria-describedby={importBlockedReason ? blockedReasonId : undefined} onClick={onApply}><Check size={15}/>{busy ? t('export.restore.replacing') : t('export.restore.apply')}</button>
     </div>
   </section>;
 }

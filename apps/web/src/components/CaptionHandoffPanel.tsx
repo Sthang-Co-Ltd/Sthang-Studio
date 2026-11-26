@@ -1,7 +1,9 @@
 import { useMemo, useState, type ChangeEvent, type RefObject } from 'react';
+import { useI18n } from '../i18n';
 import { hasWordTimingEvidence, highlightAttention, isVideoProject, resolveWordExport, type CaptionProject } from '@kcs/shared';
 import { Download, ExternalLink, FileJson, PackageOpen, RotateCcw, TriangleAlert } from 'lucide-react';
 import type { CaptionDestinationId, CaptionHandoffSession } from '../export-session';
+import type { MessageKey } from '../i18n/types';
 import './caption-handoff.css';
 
 export type CaptionFileFormat = 'srt' | 'word-srt' | 'vtt' | 'word-vtt' | 'ttml' | 'ass' | 'data' | 'bundle';
@@ -24,21 +26,24 @@ export interface CaptionHandoffPanelProps {
 
 type DestinationId = CaptionDestinationId;
 type AdvancedFormat = Exclude<CaptionFileFormat, 'srt'>;
+type HandoffMessage = Extract<MessageKey, `export.destinations.${string}` | `export.formats.${string}`>;
+type DestinationBrand = 'CapCut Desktop' | 'CapCut Mobile' | 'Premiere Pro' | 'DaVinci Resolve' | 'Final Cut Pro';
+type FormatToken = 'SRT' | 'WebVTT' | 'TTML' | 'ASS';
 
 interface DestinationGuide {
   id: DestinationId;
-  label: string;
-  summary: string;
-  steps: string[];
-  note?: string;
-  doc?: { label: string; href: string };
+  label: DestinationBrand | HandoffMessage;
+  summary: HandoffMessage;
+  steps: HandoffMessage[];
+  note?: HandoffMessage;
+  doc?: { label: HandoffMessage; href: string };
 }
 
 interface FormatGuide {
   id: AdvancedFormat;
-  label: string;
+  label: FormatToken | HandoffMessage;
   badge: string;
-  description: string;
+  description: HandoffMessage;
   requiresCompleteWords?: boolean;
 }
 
@@ -46,75 +51,75 @@ const DESTINATIONS: DestinationGuide[] = [
   {
     id: 'capcut-desktop',
     label: 'CapCut Desktop',
-    summary: 'Recommended starting point',
+    summary: 'export.destinations.capcut-desktop.summary',
     steps: [
-      'Download the UTF-8 SRT.',
-      'In CapCut Desktop, use Captions → Add Captions to import it.',
-      'Align subtitles with the source clip at 0:00, then style them in CapCut.',
+      'export.destinations.capcut-desktop.step1',
+      'export.destinations.capcut-desktop.step2',
+      'export.destinations.capcut-desktop.step3',
     ],
-    note: 'SRT carries text and timing, not Studio font, color, position, motion, or word highlights.',
-    doc: { label: 'CapCut subtitle import guide', href: 'https://www.capcut.com/help/how-to-import-subtitles' },
+    note: 'export.destinations.capcut-desktop.note',
+    doc: { label: 'export.destinations.capcut-desktop.label', href: 'https://www.capcut.com/help/how-to-import-subtitles' },
   },
   {
     id: 'capcut-mobile',
     label: 'CapCut Mobile',
-    summary: 'Desktop/Web handoff first',
+    summary: 'export.destinations.capcut-mobile.summary',
     steps: [
-      'CapCut mobile does not provide direct subtitle-file import.',
-      'Import the SRT in CapCut Desktop or Web first.',
-      'If cloud sync is available, sync the CapCut project on the same account, then open it on mobile.',
+      'export.destinations.capcut-mobile.step1',
+      'export.destinations.capcut-mobile.step2',
+      'export.destinations.capcut-mobile.step3',
     ],
-    note: 'CapCut handles cloud sync. Availability varies by account, region, and app version.',
-    doc: { label: 'CapCut subtitle import guide', href: 'https://www.capcut.com/help/how-to-import-subtitles' },
+    note: 'export.destinations.capcut-mobile.note',
+    doc: { label: 'export.destinations.capcut-mobile.label', href: 'https://www.capcut.com/help/how-to-import-subtitles' },
   },
   {
     id: 'premiere',
     label: 'Premiere Pro',
-    summary: 'Start with SRT',
+    summary: 'export.destinations.premiere.summary',
     steps: [
-      'Download the SRT.',
-      'Import it as captions and check the timing against the source clip.',
-      'Set typography, position, and animation in Premiere Pro.',
+      'export.destinations.premiere.step1',
+      'export.destinations.premiere.step2',
+      'export.destinations.premiere.step3',
     ],
   },
   {
     id: 'resolve',
     label: 'DaVinci Resolve',
-    summary: 'Start with SRT',
+    summary: 'export.destinations.resolve.summary',
     steps: [
-      'Download SRT and import it as a subtitle track.',
-      'Check cue timing against the source clip.',
-      'Style or convert captions within Resolve as needed.',
+      'export.destinations.resolve.step1',
+      'export.destinations.resolve.step2',
+      'export.destinations.resolve.step3',
     ],
   },
   {
     id: 'final-cut',
     label: 'Final Cut Pro',
-    summary: 'Start with SRT',
+    summary: 'export.destinations.final-cut.summary',
     steps: [
-      'Download SRT and import it as captions.',
-      'Check language, timing, and placement.',
-      'Apply the look you want inside Final Cut Pro.',
+      'export.destinations.final-cut.step1',
+      'export.destinations.final-cut.step2',
+      'export.destinations.final-cut.step3',
     ],
   },
   {
     id: 'web-other',
-    label: 'Web / other editor',
-    summary: 'SRT first; VTT when requested',
+    label: 'export.destinations.web-other.label',
+    summary: 'export.destinations.web-other.summary',
     steps: [
-      'Start with SRT.',
-      'If the destination asks for WebVTT, choose VTT under Advanced formats.',
-      'Check a short section after import before doing detailed styling.',
+      'export.destinations.web-other.step1',
+      'export.destinations.web-other.step2',
+      'export.destinations.web-other.step3',
     ],
   },
   {
     id: 'subtitle-tools',
-    label: 'Subtitle tools',
-    summary: 'Choose the format the tool documents',
+    label: 'export.destinations.subtitle-tools.label',
+    summary: 'export.destinations.subtitle-tools.summary',
     steps: [
-      'Start with SRT for general exchange.',
-      'Use VTT, TTML, or ASS only when the destination supports the format and features you need.',
-      'Check how the tool handles word-timed cues before relying on highlights.',
+      'export.destinations.subtitle-tools.step1',
+      'export.destinations.subtitle-tools.step2',
+      'export.destinations.subtitle-tools.step3',
     ],
   },
 ];
@@ -122,63 +127,62 @@ const DESTINATIONS: DestinationGuide[] = [
 const ADVANCED_FORMATS: FormatGuide[] = [
   {
     id: 'word-srt',
-    label: 'One word per caption (SRT)',
+    label: 'export.formats.word-srt.label',
     badge: 'WORD SRT',
-    description: 'One timed word per cue for compatible editors. This is not a full-sentence highlight effect.',
+    description: 'export.formats.word-srt.description',
     requiresCompleteWords: true,
   },
   {
     id: 'vtt',
     label: 'WebVTT',
     badge: 'VTT',
-    description: 'Caption text and timing in WebVTT for compatible players and editors.',
+    description: 'export.formats.vtt.description',
   },
   {
     id: 'word-vtt',
-    label: 'One word per caption (VTT)',
+    label: 'export.formats.word-vtt.label',
     badge: 'WORD VTT',
-    description: 'One timed word per VTT cue. Player support varies; Studio word-highlight styling does not transfer.',
+    description: 'export.formats.word-vtt.description',
     requiresCompleteWords: true,
   },
   {
     id: 'ttml',
     label: 'TTML',
     badge: 'TTML',
-    description: 'Timed-text XML for compatible subtitle tools.',
+    description: 'export.formats.ttml.description',
   },
   {
     id: 'ass',
     label: 'ASS',
     badge: 'ASS',
-    description: 'Can carry Studio current-word color in compatible ASS renderers. Some editors keep only text and timing; repeated events may need cleanup.',
+    description: 'export.formats.ass.description',
   },
   {
     id: 'data',
-    label: 'Studio caption data',
+    label: 'export.formats.data.label',
     badge: 'JSON',
-    description: 'Versioned Studio backup data. Not a general editor-import format.',
+    description: 'export.formats.data.description',
   },
   {
     id: 'bundle',
-    label: 'Caption handoff kit',
+    label: 'export.formats.bundle.label',
     badge: 'ZIP',
-    description: 'Captions, optional ready word-timed files, Studio backup, and a guide. No media or fonts.',
+    description: 'export.formats.bundle.description',
   },
 ];
 
-const formatLabel = (format: CaptionFileFormat) => ADVANCED_FORMATS.find((item) => item.id === format)?.label || 'SRT';
-
-function transferSummary(format: CaptionFileFormat) {
-  if (format === 'word-srt') return { keeps: 'Each ready word as an individually timed subtitle cue.', reset: 'Font, color, position, animation, and highlight behavior.' };
-  if (format === 'word-vtt') return { keeps: 'Each ready word as an individually timed WebVTT cue.', reset: 'Appearance and any editor-specific highlight animation.' };
-  if (format === 'ass') return { keeps: 'Caption text, timing, and compatible ASS render/style state.', reset: 'Anything the destination does not support; complex repeated events may need cleanup.' };
-  if (format === 'data') return { keeps: 'Studio caption wording, timing, word tracks, review metadata, and appearance reference.', reset: 'Preview before replacing captions. Current appearance stays unchanged.' };
-  if (format === 'bundle') return { keeps: 'Standard captions, optional ready word timing, Studio backup data, and a guide.', reset: 'Visual styling in the destination editor. The kit contains no media or fonts.' };
-  return { keeps: 'Caption text and source-media cue timing.', reset: 'Font, color, size, placement, animation, and word-highlight styling.' };
+function transferSummary(format: CaptionFileFormat, t: ReturnType<typeof useI18n>['t']) {
+  if (format === 'word-srt') return { keeps: t('export.handoff.wordSrtKeeps'), reset: t('export.handoff.wordSrtReset') };
+  if (format === 'word-vtt') return { keeps: t('export.handoff.wordVttKeeps'), reset: t('export.handoff.wordVttReset') };
+  if (format === 'ass') return { keeps: t('export.handoff.assKeeps'), reset: t('export.handoff.assReset') };
+  if (format === 'data') return { keeps: t('export.handoff.dataKeeps'), reset: t('export.handoff.dataReset') };
+  if (format === 'bundle') return { keeps: t('export.handoff.kitKeeps'), reset: t('export.handoff.kitReset') };
+  return { keeps: t('export.handoff.srtKeeps'), reset: t('export.handoff.srtReset') };
 }
 
 export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarget, onImport, onEditWordTiming, onRenderedVideo,
   session, onSessionChange, saveBlocked = false, invalidCaptions = false, selectedFormatBlocked = false, styledLayoutBlocked = false }: CaptionHandoffPanelProps) {
+  const { t, tn } = useI18n();
   const { destination, advancedFormat } = session;
   const setAdvancedFormat = (format: AdvancedFormat | null) => onSessionChange({ ...session, advancedFormat: format });
   const [exporting, setExporting] = useState<CaptionFileFormat | null>(null);
@@ -219,7 +223,10 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
     (selectedAdvanced?.requiresCompleteWords && !wordsComplete)
     || (advancedFormat === 'ass' && (!videoProject || styledLayoutBlocked)),
   );
-  const summary = transferSummary('srt');
+  const summary = transferSummary('srt', t);
+  const label = (key: DestinationBrand | FormatToken | HandoffMessage) => key.startsWith('export.') ? t(key as HandoffMessage) : key;
+  const formatLabel = (format: CaptionFileFormat) => label(ADVANCED_FORMATS.find((item) => item.id === format)?.label || 'SRT');
+  const selectedTransfer = advancedFormat ? transferSummary(advancedFormat, t) : null;
 
   const exportFormat = async (format: CaptionFileFormat, trigger: HTMLButtonElement) => {
     if (busy || exporting || restoring || !hasCaptions || saveBlocked || (format === 'srt' ? invalidCaptions : selectedFormatBlocked)) return;
@@ -238,10 +245,10 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
     setStatus('');
     try {
       const started = await onExport(format);
-      if (started) setStatus(`${formatLabel(format)} download started.`);
-      else setActionError('The export was not started. Review the current project notice and try again.');
+      if (started) setStatus(t('export.handoff.started', { format: formatLabel(format) }));
+      else setActionError(t('export.handoff.notStarted'));
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not prepare this caption export.');
+      setActionError(error instanceof Error ? error.message : t('export.handoff.prepareError'));
     } finally {
       setExporting(null);
     }
@@ -257,7 +264,7 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
     try {
       await onImport(file, input);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not read this Studio caption-data file.');
+      setActionError(error instanceof Error ? error.message : t('export.handoff.importError'));
     } finally {
       input.value = '';
       setRestoring(false);
@@ -265,17 +272,17 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
   };
 
   return <div className="caption-handoff-panel">
-    <section className="handoff-primary" aria-label="SRT download">
+    <section className="handoff-primary" aria-label={t('export.handoff.srtLabel')}>
       <button className="handoff-download-primary" type="button" aria-describedby="srt-styling-note" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || saveBlocked || invalidCaptions} onClick={(event) => void exportFormat('srt', event.currentTarget)}>
-        <Download size={15}/>{exporting === 'srt' ? 'Preparing…' : 'Download SRT'}
+        <Download size={15}/>{exporting === 'srt' ? t('export.handoff.preparing') : t('export.handoff.downloadSrt')}
       </button>
-      <div className="handoff-primary-copy"><span id="srt-styling-note">Text and timing only. Set visual styling in the destination editor.</span></div>
+      <div className="handoff-primary-copy"><span id="srt-styling-note">{t('export.handoff.srtStyle')}</span></div>
     </section>
 
     <section className="handoff-destination" aria-labelledby="handoff-destination-title">
-      <h3 id="handoff-destination-title">Import instructions</h3>
+      <h3 id="handoff-destination-title">{t('export.handoff.importInstructions')}</h3>
       <div className="handoff-destination-select-wrap">
-        <label htmlFor="handoff-caption-destination">Caption destination</label>
+        <label htmlFor="handoff-caption-destination">{t('export.handoff.destination')}</label>
         <select
           id="handoff-caption-destination"
           value={destination}
@@ -284,41 +291,41 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
             onSessionChange({ ...session, destination: event.target.value as DestinationId, advancedFormat: null });
           }}
         >
-          {DESTINATIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          {DESTINATIONS.map((item) => <option key={item.id} value={item.id}>{label(item.label)}</option>)}
         </select>
       </div>
 
       <div className="handoff-destination-guide" aria-live="polite">
-        <div className="handoff-guide-title"><strong>{destinationGuide.label}</strong><span>{destinationGuide.summary}</span></div>
-        <ol>{destinationGuide.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-        {destinationGuide.note && <p>{destinationGuide.note}</p>}
-        {destinationGuide.doc && <a href={destinationGuide.doc.href} target="_blank" rel="noopener noreferrer">{destinationGuide.doc.label}<ExternalLink size={13}/></a>}
+        <div className="handoff-guide-title"><strong>{label(destinationGuide.label)}</strong><span>{t(destinationGuide.summary)}</span></div>
+        <ol>{destinationGuide.steps.map((step) => <li key={step}>{t(step)}</li>)}</ol>
+        {destinationGuide.note && <p>{t(destinationGuide.note)}</p>}
+        {destinationGuide.doc && <a href={destinationGuide.doc.href} target="_blank" rel="noopener noreferrer">{t(destinationGuide.doc.label)}<ExternalLink size={13}/></a>}
       </div>
     </section>
 
-    <div className="handoff-transfer-summary" aria-label="What transfers with SRT">
-      <div><strong>Keeps</strong><span>{summary.keeps}</span></div>
-      <div><strong>Set again in editor</strong><span>{summary.reset}</span></div>
+    <div className="handoff-transfer-summary" aria-label={t('export.handoff.transferLabel')}>
+      <div><strong>{t('export.handoff.keeps')}</strong><span>{summary.keeps}</span></div>
+      <div><strong>{t('export.handoff.setAgain')}</strong><span>{summary.reset}</span></div>
     </div>
 
-    <p className="handoff-time-note"><TriangleAlert size={14}/><span>Timing starts at source 0:00. If you trim, shift, or change clip speed in another editor, adjust caption timing there.</span></p>
+    <p className="handoff-time-note"><TriangleAlert size={14}/><span>{t('export.handoff.sourceTiming')}</span></p>
     {overlapPairs > 0 && <div className="handoff-overlap-warning" role="status">
-      <TriangleAlert size={15}/><div><strong>{overlapPairs} overlapping cue pair{overlapPairs === 1 ? '' : 's'}</strong><span>Studio exports timing as-is. Check overlaps in your editor; Studio will not retime them.{destination === 'final-cut' ? ' Final Cut Pro cannot keep overlapping captions; resolve them before relying on the import.' : ''}</span></div>
+      <TriangleAlert size={15}/><div><strong>{tn('export.handoff.overlapPairs', overlapPairs)}</strong><span>{destination === 'final-cut' ? t('export.handoff.finalCutOverlap') : t('export.handoff.overlap')}</span></div>
     </div>}
 
     <details className="handoff-advanced" open={session.advancedOpen} onToggle={(event) => {
       const open = event.currentTarget.open;
       if (open !== session.advancedOpen) onSessionChange({ ...session, advancedOpen: open, advancedFormat: open ? session.advancedFormat : null });
     }}>
-      <summary>Advanced caption formats <span>For compatible editors and backups</span></summary>
+      <summary>{t('export.handoff.advanced')}{' '}<span>{t('export.handoff.advancedDetails')}</span></summary>
       <div className="handoff-advanced-body">
         <div className="handoff-word-readiness" role="status">
-          <div><strong>Word timing</strong><span>{readyWordCount} of {nonemptyCaptions.length} caption{nonemptyCaptions.length === 1 ? '' : 's'} with text ready for word-timed export.</span>
-            {Boolean(highlightCounts?.total) && <span>{highlightCounts!.ready} of {highlightCounts!.total} spoken captions have full word highlighting.</span>}</div>
-          {unresolvedWords.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(unresolvedWords[0]?.id)}>Review word timing</button>}
+          <div><strong>{t('export.handoff.wordTiming')}</strong><span>{tn('export.handoff.wordReadiness', nonemptyCaptions.length, { ready: readyWordCount })}</span>
+            {Boolean(highlightCounts?.total) && <span>{t('export.handoff.highlightReadiness', { ready: highlightCounts!.ready, total: highlightCounts!.total })}</span>}</div>
+          {unresolvedWords.length > 0 && onEditWordTiming && <button type="button" onClick={() => onEditWordTiming(unresolvedWords[0]?.id)}>{t('export.handoff.reviewWordTiming')}</button>}
         </div>
 
-        <div className="handoff-format-grid" role="group" aria-label="Advanced caption format">
+        <div className="handoff-format-grid" role="group" aria-label={t('export.handoff.formatLabel')}>
           {ADVANCED_FORMATS.map((format) => {
             const wordBlocked = Boolean(format.requiresCompleteWords && !wordsComplete);
             const assBlocked = format.id === 'ass' && !videoProject;
@@ -331,27 +338,27 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
               disabled={assBlocked}
               onClick={() => setAdvancedFormat(format.id)}
             >
-              <span className="handoff-format-top"><strong>{format.label}</strong>{format.badge !== format.label && <small>{format.badge}</small>}</span>
-              <span>{format.description}</span>
+              <span className="handoff-format-top"><strong>{label(format.label)}</strong>{format.badge !== format.label && <small>{format.badge}</small>}</span>
+              <span>{t(format.description)}</span>
               {assBlocked
-                ? <em>ASS requires a video project to match source geometry.</em>
-                : wordBlocked && <em>{nonemptyCaptions.length === 0 ? 'Needs caption text and complete word timing' : `${unresolvedWords.length} caption${unresolvedWords.length === 1 ? '' : 's'} need word timing review`}</em>}
+                ? <em>{t('export.handoff.assGeometry')}</em>
+                : wordBlocked && <em>{nonemptyCaptions.length === 0 ? t('export.handoff.needsText') : tn('export.handoff.needWordReview', unresolvedWords.length)}</em>}
             </button>;
           })}
         </div>
 
-        {advancedFormat && <div className="handoff-advanced-action">
-          <div><strong>{formatLabel(advancedFormat)}</strong><span>{transferSummary(advancedFormat).keeps}</span><span>{transferSummary(advancedFormat).reset}</span></div>
+        {advancedFormat && selectedTransfer && <div className="handoff-advanced-action">
+          <div><strong>{formatLabel(advancedFormat)}</strong><span>{selectedTransfer.keeps}</span><span>{selectedTransfer.reset}</span></div>
           <button type="button" disabled={!hasCaptions || busy || Boolean(exporting) || restoring || selectedAdvancedBlocked || saveBlocked || selectedFormatBlocked} onClick={(event) => void exportFormat(advancedFormat, event.currentTarget)}>
             {advancedFormat === 'bundle' ? <PackageOpen size={15}/> : advancedFormat === 'data' ? <FileJson size={15}/> : <Download size={15}/>}
-            {exporting === advancedFormat ? 'Preparing…' : advancedFormat === 'bundle' ? 'Download handoff kit' : advancedFormat === 'data' ? 'Download Studio data' : `Download ${ADVANCED_FORMATS.find((item) => item.id === advancedFormat)?.badge}`}
+            {exporting === advancedFormat ? t('export.handoff.preparing') : advancedFormat === 'bundle' ? t('export.handoff.downloadKit') : advancedFormat === 'data' ? t('export.handoff.downloadData') : t('export.handoff.downloadFormat', { format: String(selectedAdvanced?.badge) })}
           </button>
         </div>}
 
         <div className="handoff-restore">
-          <div><RotateCcw size={16}/><div><strong>Restore Studio caption data…</strong><span>Choose a Studio JSON backup and preview it before replacing captions. Current appearance stays unchanged.</span></div></div>
+          <div><RotateCcw size={16}/><div><strong>{t('export.handoff.restoreData')}</strong><span>{t('export.handoff.restoreHelp')}</span></div></div>
           <label className={busy || restoring || Boolean(exporting) ? 'disabled' : ''}>
-            {restoring ? 'Reading…' : 'Choose JSON…'}
+            {restoring ? t('export.handoff.reading') : t('export.handoff.chooseJson')}
             <input type="file" accept=".json,application/json" disabled={busy || restoring || Boolean(exporting)} onChange={(event) => void restore(event)}/>
           </label>
         </div>
@@ -359,11 +366,11 @@ export function CaptionHandoffPanel({ project, busy, onExport, downloadFocusTarg
     </details>
 
     {onRenderedVideo && <div className="handoff-rendered-video">
-      <div><strong>Want the saved Studio look?</strong><span>Render a captioned video with styling in the picture. Captions won't be separately editable in the MP4.</span></div>
-      <button type="button" onClick={onRenderedVideo}>Captioned video</button>
+      <div><strong>{t('export.handoff.renderQuestion')}</strong><span>{t('export.handoff.renderHelp')}</span></div>
+      <button type="button" onClick={onRenderedVideo}>{t('export.handoff.video')}</button>
     </div>}
 
-    <div className="handoff-local-note">Studio prepares files locally. Your destination handles import and cloud sync, not Studio.</div>
+    <div className="handoff-local-note">{t('export.handoff.local')}</div>
     {actionError && <div className="handoff-action-error" role="alert"><TriangleAlert size={15}/><span>{actionError}</span></div>}
     {status && <div className="handoff-action-status" role="status">{status}</div>}
   </div>;
