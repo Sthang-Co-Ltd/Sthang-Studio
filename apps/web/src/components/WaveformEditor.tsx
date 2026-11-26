@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTimingDock } from './EditorLayout';
@@ -198,6 +199,7 @@ export function WaveformEditor({
   onPlaybackRate,
   onPreferenceChange,
 }: WaveformEditorProps) {
+  const { t } = useI18n();
   const timingDock = useTimingDock();
   const unavailableId = useId();
   const waveformHintId = useId();
@@ -249,8 +251,8 @@ export function WaveformEditor({
   const editLimitMs = mediaDurationMs && Number.isFinite(mediaDurationMs)
     ? (durationMs ? Math.min(durationMs, mediaDurationMs) : mediaDurationMs) : durationMs;
   const editingDisabled = !selectedCaption || Boolean(selectedCaption.timingLocked) || !editLimitMs;
-  const editReason = selectedCaption?.timingLocked ? 'Timing locked. Unlock it in the caption menu to edit. You can still listen.'
-    : !editLimitMs ? 'Wait for audio timing to load before editing.' : '';
+  const editReason = selectedCaption?.timingLocked ? t('timing.locked')
+    : !editLimitMs ? t('timing.waveform.waitForAudio') : '';
   const editableWords = useMemo(() => {
     if (!currentCaption) return [];
     if (hasWordTimingEvidence(currentCaption.wordTiming)) {
@@ -284,7 +286,7 @@ export function WaveformEditor({
     if (gesture.prepared.durationMs === editLimitMs && captionTimingBasisMatches(captions, gesture.basis, owners)) return;
     dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null);
     if (canvas.current?.hasPointerCapture(gesture.pointerId)) canvas.current.releasePointerCapture(gesture.pointerId);
-    onNotice('Caption timing changed during this drag. Newer changes were kept. Drag again to adjust.');
+    onNotice(t('timing.waveform.dragChanged'));
   }, [captions, editLimitMs]);
   const edgeBounds = (edge: 'start' | 'end') => {
     if (!currentCaption) return { min: 0, max: editLimitMs, blocked: true };
@@ -305,8 +307,8 @@ export function WaveformEditor({
   const edgeReason = (edge: 'start' | 'end') => {
     if (editingDisabled || drag || !edgeBounds(edge).blocked) return '';
     const other = edge === 'start' ? neighbourLimits.previous : neighbourLimits.next;
-    return other ? 'The adjoining caption has timing locked. Unlock it, or turn off “Move adjoining edge too”.'
-      : `There is no ${edge === 'start' ? 'previous' : 'next'} caption. Turn off “Move adjoining edge too” to edit this edge.`;
+    return other ? t('timing.waveform.adjoiningLocked')
+      : edge === 'start' ? t('timing.waveform.noPreviousCaption') : t('timing.waveform.noNextCaption');
   };
 
   const focusCaption = (caption = selectedCaption) => {
@@ -396,14 +398,16 @@ export function WaveformEditor({
         let detail = '';
         try {
           const body = await response.json() as { error?: string };
-          detail = body.error ? `: ${body.error}` : '';
+          detail = body.error || '';
         } catch {
           // The response may not be JSON; the status still explains the failure.
         }
-        throw new Error(`Waveform audio request failed (${response.status})${detail}`);
+        throw new Error(detail
+          ? t('timing.waveform.loadRequestErrorWithDetail', { status: response.status, detail })
+          : t('timing.waveform.loadRequestError', { status: response.status }));
       }
       const buffer = await response.arrayBuffer();
-      if (buffer.byteLength < 44) throw new Error('The waveform preview was incomplete.');
+      if (buffer.byteLength < 44) throw new Error(t('timing.waveform.incomplete'));
       return decodeWaveformAudio(buffer);
     };
 
@@ -430,7 +434,7 @@ export function WaveformEditor({
         });
       } catch (reason) {
         if (!cancelled) {
-          setLoadError(reason instanceof Error ? reason.message : 'Waveform could not load');
+          setLoadError(reason instanceof Error ? reason.message : t('timing.waveform.loadError'));
           setLoading(false);
         }
       }
@@ -764,7 +768,7 @@ export function WaveformEditor({
     if (!after.length || after.every((caption, index) => sameTimingRevision(caption, before[index]))) return false;
     if (gestureBasis && !captionTimingBasisMatches(captions, gestureBasis.captions, before)
       || !timingTransactionMatches(captions, transaction) || !onTimingChange(before, after, guards, gestureBasis)) {
-      onNotice('This caption changed during the timing edit. Its newer edits were kept.');
+      onNotice(t('timing.waveform.editChanged'));
       return false;
     }
     onStopPreview();
@@ -870,38 +874,37 @@ export function WaveformEditor({
 
   const waveform = <div className="timing-waveform-surface">
     <div className="timing-waveform-toolbar">
-      <div className="timing-mode-switch" role="group" aria-label="Timing editing mode">
-        <button ref={captionEdgesButton} aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); onEditModeChange('caption'); }}>Caption edges</button>
-        <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); onEditModeChange('words'); }}>Word timing</button>
+      <div className="timing-mode-switch" role="group" aria-label={t('timing.waveform.mode')}>
+        <button ref={captionEdgesButton} aria-pressed={editMode === 'caption'} className={editMode === 'caption' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); onEditModeChange('caption'); }}>{t('timing.waveform.captionEdges')}</button>
+        <button aria-pressed={editMode === 'words'} className={editMode === 'words' ? 'selected' : ''} onClick={() => { cancelDrag(); onStopPreview(); onEditModeChange('words'); }}>{t('timing.waveform.wordTiming')}</button>
         {editMode === 'words' && wordAttention !== 'not-applicable' && <span className="timing-hint">
-          {wordAttention === 'ok' ? 'Timing ready' : markedWordTiming ? 'Words without usable timing keep the normal color.' : 'Word timing needs review'}
+          {wordAttention === 'ok' ? t('timing.waveform.ready') : markedWordTiming ? t('timing.normalWordColor') : t('timing.waveform.needsReview')}
         </span>}
       </div>
       <div className="timing-view-controls">
-        <span className="timing-view-span">{(viewDurationMs / 1000).toFixed(1)} s visible</span>
-        <div className="timing-view-actions" role="group" aria-label="Waveform view">
-          <button aria-label="Focus caption" data-tooltip="Focus caption" onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><Focus size={17}/></button>
-          <button aria-label="Full clip" data-tooltip="Full clip" onClick={() => setZoomValue(1)} disabled={!durationMs}><Expand size={17}/></button>
-          <button aria-label="Zoom out" data-tooltip="Zoom out" onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs}><ZoomOut size={17}/></button>
-          <button aria-label="Zoom in" data-tooltip="Zoom in" onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs}><ZoomIn size={17}/></button>
+        <span className="timing-view-span">{t('timing.waveform.visibleSpan', { seconds: (viewDurationMs / 1000).toFixed(1) })}</span>
+        <div className="timing-view-actions" role="group" aria-label={t('timing.waveform.view')}>
+          <button aria-label={t('timing.waveform.focusCaption')} data-tooltip={t('timing.waveform.focusCaption')} onClick={() => focusCaption()} disabled={!currentCaption || !durationMs}><Focus size={17}/></button>
+          <button aria-label={t('timing.waveform.fullClip')} data-tooltip={t('timing.waveform.fullClip')} onClick={() => setZoomValue(1)} disabled={!durationMs}><Expand size={17}/></button>
+          <button aria-label={t('timing.waveform.zoomOut')} data-tooltip={t('timing.waveform.zoomOut')} onClick={() => setZoomValue(zoom / 1.5)} disabled={zoom <= 1 || !durationMs}><ZoomOut size={17}/></button>
+          <button aria-label={t('timing.waveform.zoomIn')} data-tooltip={t('timing.waveform.zoomIn')} onClick={() => setZoomValue(zoom * 1.5)} disabled={zoom >= maxZoom || !durationMs}><ZoomIn size={17}/></button>
         </div>
       </div>
     </div>
     <div ref={canvasHost} className={`waveform-canvas-wrap ${drag ? 'dragging' : ''}`}>
-      {loading && <div className="waveform-loading">Preparing waveform…</div>}
+      {loading && <div className="waveform-loading">{t('timing.waveform.preparing')}</div>}
       {loadError && <div className="waveform-loading error waveform-recovery">
-        <strong>The audio preview could not load.</strong>
-        <span>Your video and captions are safe. Try rebuilding the waveform.</span>
+        <strong>{t('timing.waveform.audioPreviewError')}</strong>
+        <span>{t('timing.waveform.rebuildHelp')}</span>
         <button type="button" onClick={() => setReloadKey((value) => value + 1)}>
-          <RefreshCw size={14}/> Rebuild waveform
-        </button>
-        <small>Still not working? Open System check.</small>
+          <RefreshCw size={14}/>{t('timing.waveform.rebuild')}</button>
+        <small>{t('timing.waveform.systemCheckHelp')}</small>
       </div>}
       <canvas
         ref={canvas}
         className={`waveform-data-canvas${hover?.kind === 'edge' ? ' hover-edge' : hover?.kind === 'move' ? ' hover-move' : ''}`}
         role="slider" tabIndex={durationMs && !loadError ? 0 : -1}
-        aria-label="Waveform playhead" aria-describedby={waveformHintId}
+        aria-label={t('timing.waveform.playhead')} aria-describedby={waveformHintId}
         aria-disabled={!durationMs || Boolean(loadError) || undefined} aria-valuemin={0} aria-valuemax={editLimitMs}
         aria-valuenow={clamp(Math.round(playheadMs), 0, editLimitMs)} aria-valuetext={formatTimestamp(clamp(playheadMs, 0, editLimitMs))}
         onKeyDown={(event) => {
@@ -911,7 +914,7 @@ export function WaveformEditor({
             case 'ArrowLeft': case 'ArrowDown': next -= stepMs; break;
             case 'ArrowRight': case 'ArrowUp': next += stepMs; break;
             case 'Home': next = 0; break;
-            case 'End': next = editLimitMs; break;
+            case t('timing.end'): next = editLimitMs; break;
             default: return;
           }
           event.preventDefault();
@@ -982,8 +985,8 @@ export function WaveformEditor({
       <span>{formatMs(viewStartMs)}</span>
       <input
         type="range"
-        aria-label="Scroll timing waveform"
-        aria-valuetext={`${formatTimestamp(viewStartMs)} to ${formatTimestamp(viewEndMs)}`}
+        aria-label={t('timing.waveform.scroll')}
+        aria-valuetext={t('timing.waveform.viewRange', { start: formatTimestamp(viewStartMs), end: formatTimestamp(viewEndMs) })}
         min="0"
         max={maxViewStartMs}
         disabled={!maxViewStartMs}
@@ -1001,60 +1004,60 @@ export function WaveformEditor({
       />
       <span>{formatMs(viewEndMs)}</span>
     </div>
-    <p className="timing-hint" id={waveformHintId}>Click audio or use the arrow keys on the waveform to seek. {editMode === 'words' ? 'Drag a word edge to trim or its middle to move it.' : 'Drag a caption edge to trim or its middle to move it. Hold Shift to ignore snapping.'}</p>
+    <p className="timing-hint" id={waveformHintId}>{editMode === 'words' ? t('timing.waveform.wordHelp') : t('timing.waveform.captionHelp')}</p>
   </div>;
 
-  return <section className="waveform-card fine-timing" ref={host} aria-label="Fine timing editor">
+  return <section className="waveform-card fine-timing" ref={host} aria-label={t('timing.waveform.title')}>
     <div className="timing-header">
       <div className="timing-caption-nav">
-        <strong>{selectedCaption ? `Caption ${captionIndex + 1} / ${captions.length}` : 'Select a caption'}</strong>
-        <div className="timing-caption-actions" role="group" aria-label="Caption navigation">
-          <button aria-label="Previous caption" disabled={captionIndex <= 0} onClick={() => navigateCaption(-1)}><ChevronLeft size={16}/><span>Previous</span></button>
-          <button aria-label="Next caption" disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>Next</span><ChevronRight size={16}/></button>
+        <strong>{selectedCaption ? t('timing.waveform.captionNumber', { number: captionIndex + 1, total: captions.length }) : t('timing.waveform.selectCaption')}</strong>
+        <div className="timing-caption-actions" role="group" aria-label={t('timing.waveform.navigation')}>
+          <button aria-label={t('timing.waveform.previousCaption')} disabled={captionIndex <= 0} onClick={() => navigateCaption(-1)}><ChevronLeft size={16}/><span>{t('timing.waveform.previous')}</span></button>
+          <button aria-label={t('timing.waveform.nextCaption')} disabled={captionIndex < 0 || captionIndex >= captions.length - 1} onClick={() => navigateCaption(1)}><span>{t('timing.waveform.next')}</span><ChevronRight size={16}/></button>
         </div>
       </div>
       <div className="timing-transport">
-        <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} data-tooltip="Replay this caption" data-tooltip-shortcut="R"><Play size={15}/>Replay caption</button>
-        <button onClick={onStopPreview} data-tooltip="Stop timing preview"><Square size={14}/>Stop</button>
-        <label className="timing-loop"><input type="checkbox" checked={loop} onChange={(event) => { setLoop(event.target.checked); onStopPreview(); }}/>Loop</label>
+        <button className="timing-primary" disabled={!currentCaption || !editLimitMs || Boolean(drag)} onClick={() => audition('caption')} data-tooltip={t('timing.waveform.replayTooltip')} data-tooltip-shortcut="R"><Play size={15}/>{t('timing.waveform.replay')}</button>
+        <button onClick={onStopPreview} data-tooltip={t('timing.waveform.stopTooltip')}><Square size={14}/>{t('timing.waveform.stop')}</button>
+        <label className="timing-loop"><input type="checkbox" checked={loop} onChange={(event) => { setLoop(event.target.checked); onStopPreview(); }}/>{t('timing.waveform.loop')}</label>
         <div className="timing-history">
-          <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} data-tooltip="Undo the last timing edit" data-tooltip-shortcut="Ctrl Z"><Undo2 size={15}/>Undo</button>
-          <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} data-tooltip="Redo the timing edit" data-tooltip-shortcut="Ctrl Shift Z"><Redo2 size={15}/>Redo</button>
+          <button disabled={!canUndo || Boolean(drag)} onClick={() => restore('undo')} data-tooltip={t('timing.waveform.undoTooltip')} data-tooltip-shortcut="Ctrl Z"><Undo2 size={15}/>{t('timing.waveform.undo')}</button>
+          <button disabled={!canRedo || Boolean(drag)} onClick={() => restore('redo')} data-tooltip={t('timing.waveform.redoTooltip')} data-tooltip-shortcut="Ctrl Shift Z"><Redo2 size={15}/>{t('timing.waveform.redo')}</button>
         </div>
       </div>
     </div>
     <div className="timing-selection">
-      <p className="timing-caption-text">{currentCaption?.text || 'Choose a caption from the list to adjust its timing.'}</p>
-      {selectedIds.length > 1 && <p className="timing-hint">Editing the first selected caption. Use Previous or Next for the others.</p>}
+      <p className="timing-caption-text">{currentCaption?.text || t('timing.waveform.chooseCaption')}</p>
+      {selectedIds.length > 1 && <p className="timing-hint">{t('timing.waveform.multipleSelected')}</p>}
     </div>
     {timingDock ? createPortal(waveform, timingDock) : waveform}
     {currentCaption && editMode === 'caption' && <>
       {editReason && <p id={unavailableId} className="timing-lock-status">{editReason}</p>}
       <div className="timing-edge-grid">
         {(['start', 'end'] as const).map((edge) => <div className="timing-edge" key={edge}>
-          <div className="timing-edge-value"><span>{edge === 'start' ? 'Start' : 'End'}</span>
-            <TimestampInput key={currentCaption.id} label={`Fine timing ${edge}`} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
+          <div className="timing-edge-value"><span>{edge === 'start' ? t('timing.start') : t('timing.end')}</span>
+            <TimestampInput key={currentCaption.id} label={t(`timing.waveform.edge.${edge}.field`)} valueMs={currentCaption[edge === 'start' ? 'startMs' : 'endMs']}
               minMs={edgeBounds(edge).min} maxMs={edgeBounds(edge).max}
               describedBy={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked} onFocus={onStopPreview} onCommit={(value) => edit(edge, value)}/>
           </div>
           <div className="timing-edge-actions">
-            <button aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || currentCaption[edge === 'start' ? 'startMs' : 'endMs'] <= edgeBounds(edge).min} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={`Move ${edge} earlier by ${stepMs} milliseconds`}>−{stepMs} ms</button>
-            <button aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || currentCaption[edge === 'start' ? 'startMs' : 'endMs'] >= edgeBounds(edge).max} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={`Move ${edge} later by ${stepMs} milliseconds`}>+{stepMs} ms</button>
-            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max} onClick={() => edit(edge, playheadMs)} aria-label={`Set ${edge} to playhead`} aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} data-tooltip={editReason || edgeReason(edge) || (playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max ? 'Move the playhead within this edge’s allowed range first.' : `Set ${edge} to the current playback position`)}>Set to playhead</button>
-            <button disabled={!editLimitMs || Boolean(drag)} onClick={() => audition(edge)}>Hear {edge}</button>
+            <button aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || currentCaption[edge === 'start' ? 'startMs' : 'endMs'] <= edgeBounds(edge).min} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] - stepMs)} aria-label={t(`timing.waveform.edge.${edge}.earlier`, { step: stepMs })}>−{stepMs} ms</button>
+            <button aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || currentCaption[edge === 'start' ? 'startMs' : 'endMs'] >= edgeBounds(edge).max} onClick={() => edit(edge, currentCaption[edge === 'start' ? 'startMs' : 'endMs'] + stepMs)} aria-label={t(`timing.waveform.edge.${edge}.later`, { step: stepMs })}>+{stepMs} ms</button>
+            <button disabled={editingDisabled || Boolean(drag) || edgeBounds(edge).blocked || playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max} onClick={() => edit(edge, playheadMs)} aria-label={t(`timing.waveform.edge.${edge}.setPlayhead`)} aria-describedby={editReason ? unavailableId : edgeReason(edge) ? `${unavailableId}-${edge}` : undefined} data-tooltip={editReason || edgeReason(edge) || (playheadMs < edgeBounds(edge).min || playheadMs > edgeBounds(edge).max ? t('timing.waveform.playheadOutsideRange') : t(`timing.waveform.edge.${edge}.setPlayheadTip`))}>{t('timing.setPlayhead')}</button>
+            <button disabled={!editLimitMs || Boolean(drag)} onClick={() => audition(edge)}>{t(`timing.waveform.edge.${edge}.hear`)}</button>
           </div>
           {edgeReason(edge) && <p id={`${unavailableId}-${edge}`} className="timing-unavailable-reason">{edgeReason(edge)}</p>}
         </div>)}
       </div>
-      <p className="timing-hint">{sharedBoundary ? 'Moving Start also moves the previous caption’s End; moving End also moves the next caption’s Start.' : allowOverlap ? 'Overlaps allowed. Other captions stay in place.' : 'Neighbor protection on: edits cannot create or increase overlaps.'}</p>
+      <p className="timing-hint">{sharedBoundary ? t('timing.waveform.sharedBoundaryHelp') : allowOverlap ? t('timing.waveform.overlapHelp') : t('timing.waveform.neighborHelp')}</p>
       <div className="timing-move-controls">
-        <label>Step<select aria-label="Timing nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label>
-        <button disabled={editingDisabled || Boolean(drag) || currentCaption.startMs <= (allowOverlap ? 0 : neighbourLimits.lower)} onClick={() => edit('move', -stepMs)} aria-describedby={editReason ? unavailableId : undefined} data-tooltip={editReason || 'Move the whole caption earlier'} data-tooltip-shortcut={editingDisabled ? undefined : 'Alt ←'}>Move earlier</button>
-        <button disabled={editingDisabled || Boolean(drag) || currentCaption.endMs >= (allowOverlap ? editLimitMs : neighbourLimits.upper)} onClick={() => edit('move', stepMs)} aria-describedby={editReason ? unavailableId : undefined} data-tooltip={editReason || 'Move the whole caption later'} data-tooltip-shortcut={editingDisabled ? undefined : 'Alt →'}>Move later</button>
-        <span className="timing-duration">Duration {((currentCaption.endMs - currentCaption.startMs) / 1000).toFixed(3)} s</span>
+        <label>{t('timing.waveform.step')}<select aria-label={t('timing.waveform.captionNudgeStep')} value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label>
+        <button disabled={editingDisabled || Boolean(drag) || currentCaption.startMs <= (allowOverlap ? 0 : neighbourLimits.lower)} onClick={() => edit('move', -stepMs)} aria-describedby={editReason ? unavailableId : undefined} data-tooltip={editReason || t('timing.waveform.moveEarlierTooltip')} data-tooltip-shortcut={editingDisabled ? undefined : 'Alt ←'}>{t('timing.waveform.moveEarlier')}</button>
+        <button disabled={editingDisabled || Boolean(drag) || currentCaption.endMs >= (allowOverlap ? editLimitMs : neighbourLimits.upper)} onClick={() => edit('move', stepMs)} aria-describedby={editReason ? unavailableId : undefined} data-tooltip={editReason || t('timing.waveform.moveLaterTooltip')} data-tooltip-shortcut={editingDisabled ? undefined : 'Alt →'}>{t('timing.waveform.moveLater')}</button>
+        <span className="timing-duration">{t('timing.waveform.duration', { seconds: ((currentCaption.endMs - currentCaption.startMs) / 1000).toFixed(3) })}</span>
       </div>
       {captions.some((caption) => caption.id !== currentCaption.id && caption.startMs < currentCaption.endMs && caption.endMs > currentCaption.startMs)
-        && <p className="timing-lock-status">This caption overlaps another. Adjust its edges to separate them; other captions stay in place.</p>}
+        && <p className="timing-lock-status">{t('timing.waveform.overlapping')}</p>}
     </>}
     {selectedCaption && editMode === 'words' && <WordTimingPanel key={selectedCaption.id} caption={selectedCaption} selectedWordId={selectedWordId}
       playheadMs={playheadMs} stepMs={stepMs} disabled={Boolean(drag)} syncDisabled={syncDisabled} loop={loop}
@@ -1066,23 +1069,23 @@ export function WaveformEditor({
         onWordPreview(basis.id, change);
       }}
       onPreview={onPreview} onStopPreview={onStopPreview} onOpenAppearance={onOpenAppearance} onEditText={onEditCaptionText} onWordControlReady={onTimingControlReady}/>}
-    {editMode === 'words' && <div className="timing-move-controls"><label>Step<select aria-label="Word nudge step" value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}
-    <details className="timing-options"><summary>Snapping, playback speed and display</summary>
+    {editMode === 'words' && <div className="timing-move-controls"><label>{t('timing.waveform.step')}<select aria-label={t('timing.waveform.wordNudgeStep')} value={stepMs} onChange={(event) => setStepMs(Number(event.target.value))}>{[10, 50, 100].map((value) => <option key={value} value={value}>{value} ms</option>)}</select></label></div>}
+    <details className="timing-options"><summary>{t('timing.waveform.options')}</summary>
       <div className="timing-options-controls">
-        <label><input type="checkbox" checked={allowOverlap} onChange={(event) => setAllowOverlap(event.target.checked)}/>Allow overlaps</label>
-        <label><input type="checkbox" checked={sharedBoundary} onChange={(event) => setSharedBoundary(event.target.checked)}/>Move adjoining edge too</label>
-        <label><input type="checkbox" checked={showReferenceWords} onChange={(event) => setShowReferenceWords(event.target.checked)}/>Show original word estimates</label>
-        <label>Snap<select value={snap} onChange={(event) => setSnap(event.target.value as typeof snap)} data-tooltip="Boundary snapping" aria-label="Boundary snapping">
-          <option value="word" disabled={!tokens.length}>Words</option><option value="silence">Quiet gaps</option><option value="off">Off</option>
+        <label><input type="checkbox" checked={allowOverlap} onChange={(event) => setAllowOverlap(event.target.checked)}/>{t('timing.waveform.allowOverlap')}</label>
+        <label><input type="checkbox" checked={sharedBoundary} onChange={(event) => setSharedBoundary(event.target.checked)}/>{t('timing.waveform.sharedBoundary')}</label>
+        <label><input type="checkbox" checked={showReferenceWords} onChange={(event) => setShowReferenceWords(event.target.checked)}/>{t('timing.waveform.originalEstimates')}</label>
+        <label>{t('timing.waveform.snap')}<select value={snap} onChange={(event) => setSnap(event.target.value as typeof snap)} data-tooltip={t('timing.waveform.boundarySnapping')} aria-label={t('timing.waveform.boundarySnapping')}>
+          <option value="word" disabled={!tokens.length}>{t('timing.waveform.snapWords')}</option><option value="silence">{t('timing.waveform.snapQuiet')}</option><option value="off">{t('timing.waveform.snapOff')}</option>
         </select></label>
-        <label>Speed<select value={playbackRate} onChange={(event) => onPlaybackRate(Number(event.target.value))} data-tooltip="Playback speed" aria-label="Timing playback speed">
+        <label>{t('timing.waveform.speed')}<select value={playbackRate} onChange={(event) => onPlaybackRate(Number(event.target.value))} data-tooltip={t('timing.waveform.playbackSpeed')} aria-label={t('timing.waveform.timingPlaybackSpeed')}>
           {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
         </select></label>
-        <button className={mode === 'waveform' ? 'selected' : ''} aria-pressed={mode === 'waveform'} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} data-tooltip="Waveform"><AudioLines size={15}/>Waveform</button>
-        <button className={mode === 'spectrum' ? 'selected' : ''} aria-pressed={mode === 'spectrum'} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} data-tooltip="Spectral view"><ScanLine size={15}/>Spectrum overview</button>
-        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} data-tooltip={follow ? 'Pause automatic scrolling during playback' : 'Keep the playhead in view'}><LocateFixed size={15}/>{follow ? 'Following playhead' : 'Follow playhead'}</button>
+        <button className={mode === 'waveform' ? 'selected' : ''} aria-pressed={mode === 'waveform'} onClick={() => { setMode('waveform'); onPreferenceChange({ waveformMode: 'waveform' }); }} data-tooltip={t('timing.waveform.waveform')}><AudioLines size={15}/>{t('timing.waveform.waveform')}</button>
+        <button className={mode === 'spectrum' ? 'selected' : ''} aria-pressed={mode === 'spectrum'} onClick={() => { setMode('spectrum'); onPreferenceChange({ waveformMode: 'spectrum' }); }} data-tooltip={t('timing.waveform.spectralView')}><ScanLine size={15}/>{t('timing.waveform.spectrum')}</button>
+        <button className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow((value) => !value)} data-tooltip={follow ? t('timing.waveform.pauseFollow') : t('timing.waveform.followTooltip')}><LocateFixed size={15}/>{follow ? t('timing.waveform.following') : t('timing.waveform.follow')}</button>
       </div>
-      <p className="timing-hint">Word marks show timing estimates. Quiet-gap snapping needs a clear drop in audio volume. Undo history clears when this tool closes.</p>
+      <p className="timing-hint">{t('timing.waveform.optionsHelp')}</p>
     </details>
   </section>;
 }
