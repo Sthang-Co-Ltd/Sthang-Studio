@@ -147,7 +147,7 @@ The web app already implements the Khmer UI typography layer separately from cap
 | Caption edges | `គែមអក្សររត់` | Later phase (waveform workspace). |
 | Word timing | `ពេលវេលាតាមពាក្យ` | Per-word timing adjustments. |
 | Sync words | `តម្រឹមពាក្យ` | Later phase; avoid formal `ធ្វើសមកាលកម្ម`. |
-| Allow overlaps | `អនុញ្ញាតឱ្យជាន់ពេល` | Referenced in `editor.captions.timingNeighbor`; match in Phase B waveform controls. |
+| Allow overlaps | `អនុញ្ញាតឱ្យជាន់ពេល` | Phase B term for the waveform checkbox. Until Phase B translates that checkbox, `editor.captions.timingNeighbor` quotes the visible English label «Allow overlaps»; switch it to the Khmer term in the same change that translates the checkbox. |
 | Accuracy | `ភាពត្រឹមត្រូវ` | Tool strip and unsaved status label. |
 | Accuracy context | `ព័ត៌មានបង្កើនភាពត្រឹមត្រូវ` | Avoids abstract `បរិបទ`. |
 | Key terms | `ពាក្យសំខាន់ៗ` | Attached `ៗ`; friendlier than `ពាក្យគន្លឹះ`. |

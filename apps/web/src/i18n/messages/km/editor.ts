@@ -116,7 +116,7 @@ export const editor: DeepPartial<EnglishMessages['editor']> = {
     laterDelta: "+100 ms",
     timingStart: "បានដល់ចំណុចចាប់ផ្ដើមនៃវីដេអូ ឬសំឡេងហើយ។",
     timingEnd: "បានដល់ចំណុចបញ្ចប់នៃវីដេអូ ឬសំឡេងហើយ។",
-    timingNeighbor: "បានដល់អក្សររត់ជាប់គ្នាហើយ។ កែព្រំដែនរួម ឬបើក «អនុញ្ញាតឱ្យជាន់ពេល» ដើម្បីបន្ត។",
+    timingNeighbor: "បានដល់អក្សររត់ជាប់គ្នាហើយ។ កែព្រំដែនរួម ឬបើក «Allow overlaps» ដើម្បីបន្ត។",
   },
   header: {
     regroupingNeedsRefresh: "{status} · ការរៀបចំឃ្លាត្រូវការធ្វើបច្ចុប្បន្នភាព",
