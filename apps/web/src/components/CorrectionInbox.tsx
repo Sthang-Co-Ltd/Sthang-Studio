@@ -150,7 +150,7 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
         {events.map((event) => <article className={`correction-card status-${event.status}`} key={event.id}
           ref={(element) => { if (element) cards.current.set(event.id, element); else cards.current.delete(event.id); }}
           tabIndex={-1} aria-label={t('inbox.correctionAt', { time: formatTimestamp(event.startMs), project: event.projectTitle })} aria-busy={working === event.id || openingId === event.id || undefined}>
-          <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTimestamp(event.startMs)} – {formatTimestamp(event.endMs)}</span><b>{Object.hasOwn(suggestionLabels, event.suggestionKind) ? t(suggestionLabels[event.suggestionKind]) : event.suggestionKind.replace('-', ' ')}</b></div>
+          <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTimestamp(event.startMs)} – {formatTimestamp(event.endMs)}</span><b data-server-text={!Object.hasOwn(suggestionLabels, event.suggestionKind) || undefined}>{Object.hasOwn(suggestionLabels, event.suggestionKind) ? t(suggestionLabels[event.suggestionKind]) : event.suggestionKind.replace('-', ' ')}</b></div>
           <div className="correction-pair"><div><label>{t('inbox.before')}</label><p>{event.originalText}</p></div><div><label>{t('inbox.after')}</label><p>{event.correctedText}</p></div></div>
           {(event.contextBefore || event.contextAfter) && <p className="correction-context">… {event.contextBefore || ''} <mark>{event.correctedText}</mark> {event.contextAfter || ''} …</p>}
           <div className="correction-suggestion"><span>{t('inbox.suggestion')}</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
@@ -167,7 +167,7 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
               <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'add-project', click.currentTarget)}><FolderPlus size={15} aria-hidden="true"/>{t('inbox.rememberProject')}</button>
               <button disabled={busy || Boolean(working || openingId)} onClick={(click) => void decide(event, 'ignore', click.currentTarget)}><XCircle size={15}/>{t('inbox.ignore')}</button>
             </>}
-            {event.status !== 'pending' && <span className="decision-label">{Object.hasOwn(decisionLabels, event.status) ? t(decisionLabels[event.status]) : event.status.replace('-', ' ')}</span>}
+            {event.status !== 'pending' && <span className="decision-label" data-server-text={!Object.hasOwn(decisionLabels, event.status) || undefined}>{Object.hasOwn(decisionLabels, event.status) ? t(decisionLabels[event.status]) : event.status.replace('-', ' ')}</span>}
           </div>
         </article>)}
       </div>

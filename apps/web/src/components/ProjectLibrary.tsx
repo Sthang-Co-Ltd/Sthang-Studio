@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, FolderOpen, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import type { CaptionProjectSummary } from '@kcs/shared';
@@ -38,10 +39,10 @@ interface ProjectLibraryProps {
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 function ProjectDate({ label, value }: { label: string; value: string }) {
-  const { t, tr } = useI18n();
+  const { locale, t, tr } = useI18n();
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return <span>{t('library.dateUnavailable', { label })}</span>;
-  return <span>{tr('library.projectDate', { label, date: dateFormatter.format(date) }, { b: (text) => <time dateTime={date.toISOString()} title={date.toLocaleString()}>{text}</time> })}</span>;
+  return <span>{tr('library.projectDate', { label, date: locale === 'km' ? formatInterfaceDate(locale, date) : dateFormatter.format(date) }, { b: (text) => <time dateTime={date.toISOString()} title={formatInterfaceDate(locale, date, { time: true })}>{text}</time> })}</span>;
 }
 
 export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChange, loading, loadFailed, refreshing, refreshError, refresh, disabled, openingProjectId, onOpen, onBack, onCreate, onRetry, bin, showBin, onShowBin, onRename, confirm, storageUnavailable = false, onReviewStorage }: ProjectLibraryProps) {

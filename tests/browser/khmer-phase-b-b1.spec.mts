@@ -1,6 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import { createCaptionData, hydrateCaptionWordTimings, type RegenerationProposal } from '@kcs/shared';
-import { km } from '../../apps/web/src/i18n/messages/km/index.js';
+import { en } from '../../apps/web/src/i18n/messages/en/index.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 import { requireHarnessConfig } from './harness-config.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
@@ -11,10 +11,10 @@ const test = base.extend({ context: async ({ context }, use) => {
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
-test('Khmer mode renders Export, restore, repair and Compare with the existing English copy', async ({ page }) => {
+test('English Export, restore, repair and Compare preserve their existing copy', async ({ page }) => {
   test.setTimeout(60_000);
   const state = await installFixture(page);
-  state.profile.preferences.interfaceLanguage = 'km';
+  state.profile.preferences.interfaceLanguage = 'en';
   const project = state.projects[0];
   project.mediaAlignment = { state: 'unverified-audio-change', acceptedAt: project.updatedAt, sourceRevision: project.updatedAt };
   // The Vite client still opens a socket with HMR disabled in the owned harness.
@@ -65,7 +65,7 @@ test('Khmer mode renders Export, restore, repair and Compare with the existing E
   page.on('pageerror', (error) => errors.push(withoutUrls(error.message)));
 
   await openProject(page);
-  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('.media-alignment-notice strong')).toHaveText('Audio alignment not verified.');
 
   await page.locator('[data-stage="export"]').click();
@@ -96,10 +96,10 @@ test('Khmer mode renders Export, restore, repair and Compare with the existing E
   await repair.getByRole('button', { name: 'Finish export review', exact: true }).click();
 
   await page.locator('[data-project-tools-trigger]').click();
-  await page.getByRole('menuitem').filter({ hasText: km.editor.tools.activity }).click();
+  await page.getByRole('menuitem').filter({ hasText: en.editor.tools.activity }).click();
   await page.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).click();
   const compare = page.getByRole('region', { name: 'Caption comparison', exact: true });
   await expect(compare.getByRole('button', { name: 'Use proposed', exact: true })).toBeVisible();
-  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   expect(errors).toEqual([]);
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { type CaptionProject, type ExportEvidence, type ProcessingJob } from '@kcs/shared';
 import { appearanceComparisonBasis, type ReconciledAppearance } from '../caption-appearance-reconciliation';
 import './export-history.css';
@@ -65,7 +66,7 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
   appearanceRecovery?: { message: string; actionLabel: string; onRecover(trigger: HTMLButtonElement, focusTarget: HTMLElement | null): void };
   activeJobId?: string;
 }) {
-  const { t, tn } = useI18n();
+  const { locale, t, tn } = useI18n();
   const [history, setHistory] = useState({ projectId: project.id, entries: [] as ExportEvidence[], loaded: false, loading: true, error: false });
   const { entries, loaded, loading, error } = history.projectId === project.id ? history
     : { entries: [] as ExportEvidence[], loaded: false, loading: true, error: false };
@@ -118,7 +119,7 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
           : comparisons[entry.format] === entry.fingerprint ? t('export.history.matches') : t('export.history.changed');
       return <li key={entry.format}>
         <strong>{entry.format === 'video' ? t('export.history.video') : entry.format.toUpperCase()}</strong>
-        <time dateTime={entry.preparedAt}>{t('export.history.prepared', { date: new Date(entry.preparedAt).toLocaleString() })}</time>
+        <time dateTime={entry.preparedAt}>{t('export.history.prepared', { date: formatInterfaceDate(locale, entry.preparedAt, { time: true }) })}</time>
         <span>{retained ? t('export.history.lastLoadedRecord', { status: freshness }) : freshness}</span>
       </li>;
     })}</ul>}

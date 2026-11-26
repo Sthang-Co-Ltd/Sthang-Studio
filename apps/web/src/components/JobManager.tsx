@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useEffect, useRef, useState } from 'react';
 import type { CaptionProject, ProcessingJob } from '@kcs/shared';
 import { ExportJobFreshness } from './ExportHistory';
@@ -96,7 +97,7 @@ function formatDuration(ms: number) {
 }
 
 export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState, pendingActions, openingJobId, blockedSave, onReturnToEdits, project, appearanceReconciliation, onClose, onRefresh, onResume, onCancel, onOpen, getResultFocusTarget }: Props) {
-  const { t, tr } = useI18n();
+  const { locale, t, tr } = useI18n();
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   const entryCard = useRef<HTMLElement | null>(null);
@@ -218,7 +219,7 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
                 <span className="job-state">{status}</span>
                 <span className="job-duration">{durationCopy}</span>
               </div>
-              <p>{job.message}</p>
+              <p data-server-text>{job.message}</p>
               <div className="job-progress-line">
                 <div className="job-progress" role="progressbar" aria-label={t('activity.progress', { job: label })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress} aria-valuetext={t('activity.progressStatus', { progress: job.progress, status })}><i style={{ width: `${job.progress}%` }}/></div>
                 <span className="job-percent" aria-hidden="true">{job.progress}%</span>
@@ -228,8 +229,8 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
               <details className="job-details">
                 <summary>{t('activity.details')}</summary>
                 <dl>
-                  <div><dt>{t('activity.stage')}</dt><dd>{job.stage.replaceAll('-', ' ')}</dd></div>
-                  <div><dt>{t('activity.updated')}</dt><dd><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString()}</time></dd></div>
+                  <div><dt>{t('activity.stage')}</dt><dd data-server-text>{job.stage.replaceAll('-', ' ')}</dd></div>
+                  <div><dt>{t('activity.updated')}</dt><dd><time dateTime={job.updatedAt}>{formatInterfaceDate(locale, job.updatedAt, { time: true })}</time></dd></div>
                   {job.resultExport && <div><dt>{t('activity.video')}</dt><dd>{t('activity.videoMetadata', { width: job.resultExport.width, height: job.resultExport.height, frameRate: job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0), size: (job.resultExport.sizeBytes / 1024 / 1024).toFixed(1) })}</dd></div>}
                 </dl>
               </details>

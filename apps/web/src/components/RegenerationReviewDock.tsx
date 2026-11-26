@@ -186,6 +186,7 @@ export function RegenerationReviewDock({
       <article className={previewMode === 'proposed' ? 'previewing proposed' : 'proposed'}>
         <div className="regen-text-label">{t('compare.dock.proposedText')}</div>
         <textarea
+          data-server-text
           value={editedText}
           onChange={(event) => { onEditedText(event.target.value); onPreviewMode('proposed'); }}
           aria-label={t('compare.dock.editWording')}
@@ -237,17 +238,17 @@ export function RegenerationReviewDock({
     </details>
 
     {refinementJob && ['queued', 'running'].includes(refinementJob.status) && <div className="regen-job-progress">
-      <LoaderCircle className="spin" size={15}/><div><strong>{refinementJob.message}</strong><span>{t('compare.dock.refinementProgress', { progress: refinementJob.progress })}</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
+      <LoaderCircle className="spin" size={15}/><div><strong data-server-text>{refinementJob.message}</strong><span>{t('compare.dock.refinementProgress', { progress: refinementJob.progress })}</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
     </div>}
 
     {proposal.candidates && proposal.candidates.length > 1 && <details className="regen-candidates">
       <summary><ListChecks size={14}/>{t('compare.dock.candidateDetails')}</summary>
       <div>{proposal.candidates.map((candidate) => <article key={candidate.id} className={candidate.selected ? 'selected' : ''}>
-        <div><strong>{candidate.label}</strong>{candidate.selected && <span>{t('compare.dock.selected')}</span>}</div>
-        <p>{candidate.text}</p>
+        <div><strong data-server-text>{candidate.label}</strong>{candidate.selected && <span>{t('compare.dock.selected')}</span>}</div>
+        <p data-server-text>{candidate.text}</p>
         <small>{t('compare.dock.candidateTiming', { score: Math.round(candidate.meanAlignmentScore * 100), flagged: candidate.lowConfidenceTokens, total: candidate.totalTokens })}</small>
       </article>)}</div>
-      {proposal.selectedCandidateReason && <p className="regen-candidate-note">{proposal.selectedCandidateReason}</p>}
+      {proposal.selectedCandidateReason && <p className="regen-candidate-note" data-server-text>{proposal.selectedCandidateReason}</p>}
     </details>}
 
   </section>;

@@ -627,7 +627,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
           } : undefined}/>)}
 
     {outputMode === 'video' && <>
-      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong>{activeExportJob.message}</strong><span>{activeElapsed ? t('export.workspace.progressWithElapsed', { progress: activeExportJob.progress, elapsed: activeElapsed }) : `${activeExportJob.progress}%`}</span><small>{t('export.workspace.backgroundRender')}</small><div className="export-active-progress" aria-label={t('export.workspace.progressComplete', { progress: activeExportJob.progress })}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
+      {activeExportJob && <div className="export-active" role="status"><LoaderCircle className="spin" size={15}/><div><strong data-server-text>{activeExportJob.message}</strong><span>{activeElapsed ? t('export.workspace.progressWithElapsed', { progress: activeExportJob.progress, elapsed: activeElapsed }) : `${activeExportJob.progress}%`}</span><small>{t('export.workspace.backgroundRender')}</small><div className="export-active-progress" aria-label={t('export.workspace.progressComplete', { progress: activeExportJob.progress })}><i style={{ width: `${activeExportJob.progress}%` }}/></div></div></div>}
       {loadingCapabilities && <div className="export-status" role="status"><LoaderCircle className="spin" size={16}/>{t('export.workspace.checkingSupport')}</div>}
       {capabilityError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>{t('export.workspace.checkFailed')}</strong><span>{capabilityError}</span></div></div>}
       {actionError && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>{t('export.workspace.attention')}</strong><span>{actionError}</span></div></div>}
@@ -751,7 +751,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
 
         {appearanceFontUnavailable && <div className="export-block" role="alert"><TriangleAlert size={17}/><div><strong>{t('export.workspace.fontSelectionUnavailable')}</strong><span>{t('export.workspace.fontBlocked', { font: selectedFont })}</span></div></div>}
 
-        {capabilities.warnings.length > 0 && <div className="export-warnings" aria-label={t('export.workspace.notices')}>{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={14}/><span>{warning}</span></div>)}</div>}
+        {capabilities.warnings.length > 0 && <div className="export-warnings" aria-label={t('export.workspace.notices')}>{capabilities.warnings.map((warning) => <div key={warning}><TriangleAlert size={14}/><span data-server-text>{warning}</span></div>)}</div>}
 
         <div className="export-source-note"><ShieldCheck size={17}/><span>{t('export.workspace.sourceNote')}</span></div>
         <div className="export-finalize">

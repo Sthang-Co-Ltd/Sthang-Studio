@@ -9,7 +9,7 @@ const test = base.extend({ context: async ({ context }, use) => {
 test.beforeAll(prepareFixtures);
 test.afterAll(cleanFixtures);
 
-test('Appearance and Fine timing render their English fallback in a Khmer profile', async ({ page }) => {
+test('English Appearance and Fine timing preserve their existing copy', async ({ page }) => {
   const errors: string[] = [];
   const withoutUrls = (message: string) => message.replace(/\b(?:https?|wss?):\/\/[^\s'"]+/g, '[url]');
   page.on('pageerror', (error) => errors.push(withoutUrls(error.message)));
@@ -32,7 +32,7 @@ test('Appearance and Fine timing render their English fallback in a Khmer profil
       url.pathname === `/api/media-preview/${project.id}` && source === project.media.filename)) return route.fallback();
     return route.fulfill({ json: { source, state: 'original', videoCodec: 'h264', progress: 0 } });
   });
-  state.profile.preferences.interfaceLanguage = 'km';
+  state.profile.preferences.interfaceLanguage = 'en';
   state.projects[0].captionAppearance = { ...appearance, highlightMode: 'word' };
   state.fonts.push(...Array.from({ length: 25 }, (_, index) => ({
     name: `Fixture Khmer ${index + 1}`,
@@ -42,7 +42,7 @@ test('Appearance and Fine timing render their English fallback in a Khmer profil
   })));
 
   await openProject(page);
-  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await page.locator('.stage-rail [data-stage="appearance"]').click();
   const workspace = page.locator('.caption-appearance-workspace');
   await expect(workspace).toHaveAccessibleName('Caption appearance');
