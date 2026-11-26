@@ -18,6 +18,7 @@ import { review } from './review';
 import { setup } from './setup';
 import { timingMessages } from './timing';
 import { updatesMessages } from './updates';
+import { workspaceMessages } from './workspace';
 
 export const km: KhmerCatalog = {
   common, home, setup, editor, review,
@@ -35,4 +36,5 @@ export const km: KhmerCatalog = {
   updates: updatesMessages,
   guide: guideMessages,
   library: libraryMessages,
+  workspace: workspaceMessages,
 };

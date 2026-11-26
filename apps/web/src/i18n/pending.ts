@@ -1,2 +1,2 @@
-export const pendingKhmerNamespaces = ['workspace'] as const;
+export const pendingKhmerNamespaces = [] as const;
 export type PendingKhmerNamespace = typeof pendingKhmerNamespaces[number];
