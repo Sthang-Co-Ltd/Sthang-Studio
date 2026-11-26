@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import { en } from '../apps/web/src/i18n/messages/en/index.js';
 import { km } from '../apps/web/src/i18n/messages/km/index.js';
+import { pendingKhmerNamespaces } from '../apps/web/src/i18n/pending.js';
 
 type Catalog = { readonly [key: string]: string | Catalog };
+type PartialCatalog = { readonly [key: string]: string | PartialCatalog | undefined };
 
 function placeholders(text: string) {
   return [...new Set(text.match(/\{[a-zA-Z][a-zA-Z0-9_]*\}/g))].sort();
 }
 
-function checkCatalog(english: Catalog, khmer: Catalog, parent = '') {
+async function checkCatalog(t: TestContext, english: Catalog, khmer: PartialCatalog, parent: string) {
   const plural = typeof english.one === 'string' && typeof english.other === 'string';
   for (const [key, source] of Object.entries(english)) {
     if (plural && key === 'one' && !Object.hasOwn(khmer, key)) continue;
@@ -17,10 +19,10 @@ function checkCatalog(english: Catalog, khmer: Catalog, parent = '') {
     const translation = khmer[key];
     if (typeof source !== 'string') {
       assert.ok(translation && typeof translation === 'object', `Missing section ${path}`);
-      checkCatalog(source, translation, `${path}.`);
+      await checkCatalog(t, source, translation, `${path}.`);
       continue;
     }
-    test(path, () => {
+    await t.test(path, () => {
       assert.ok(typeof translation === 'string' && translation.trim(), 'Missing Khmer value');
       assert.deepEqual(placeholders(translation), placeholders(source), 'Placeholders');
       assert.deepEqual(translation.match(/<\/?(?:b|code)>/g), source.match(/<\/?(?:b|code)>/g), 'Rich tag sequence');
@@ -33,4 +35,19 @@ function checkCatalog(english: Catalog, khmer: Catalog, parent = '') {
   }
 }
 
-checkCatalog(en, km);
+test('every pending Khmer namespace exists in the English catalog', () => {
+  for (const namespace of pendingKhmerNamespaces) {
+    assert.ok(Object.hasOwn(en, namespace), `Missing English namespace ${namespace}`);
+  }
+});
+
+test('every non-pending English namespace has a complete Khmer catalog', async (t) => {
+  const pending = new Set<string>(pendingKhmerNamespaces);
+  const khmer: PartialCatalog = km;
+  for (const [namespace, source] of Object.entries(en)) {
+    if (pending.has(namespace)) continue;
+    const translation = khmer[namespace];
+    assert.ok(translation && typeof translation === 'object', `Missing section ${namespace}`);
+    await checkCatalog(t, source, translation, `${namespace}.`);
+  }
+});

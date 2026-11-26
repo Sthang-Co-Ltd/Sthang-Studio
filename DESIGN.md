@@ -52,6 +52,7 @@ Keep English as the typed source catalog and the fallback for missing Khmer
 messages. Use named parameters, plural messages, and Western digits. Rich
 messages may use bold and code markup, with interpolated values rendered as text.
 Keep the bilingual prompt and native language names together in the fixed copy.
+Namespaces listed in `i18n/pending.ts` are awaiting Khmer and fall back to English; remove a namespace from the list in the same change that adds its complete Khmer catalog.
 
 Server-provided secure-storage labels remain English until Settings (Phase C) maps them to catalog keys.
 
