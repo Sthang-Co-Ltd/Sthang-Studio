@@ -232,6 +232,14 @@ The web app already implements the Khmer UI typography layer separately from cap
 | Keyboard shortcuts | `ផ្លូវកាត់ក្ដារចុច` | coeng-ដ. |
 | Storage vs disk space | `កន្លែងផ្ទុក` vs `ទំហំផ្ទុក` | |
 | Kept in Latin | CapCut menu path `Captions → Add Captions`; `cloud sync` | Users must find the exact CapCut menu items. |
+| Workspace (panel region) | `ផ្ទាំងការងារ` | ARIA regions (`ផ្ទាំងការងារ {title}`); panel headings stay `ផ្ទាំង {panel}`. |
+| Close tool / Copy report | `បិទឧបករណ៍` / `ចម្លងរបាយការណ៍` | |
+| Enlarge preview | `ពង្រីកការមើលជាមុន` | |
+| Resize panels / Divider / Reorder | `ប្ដូរទំហំផ្ទាំង` / `បន្ទាត់ខណ្ឌ` / `ប្ដូរលំដាប់` | |
+| Panel layout / Reset layout | `ប្លង់ផ្ទាំង` / `កំណត់ប្លង់ផ្ទាំងឡើងវិញ` | Distinct from caption layout (`ប្លង់អក្សរ`). |
+| Pixels (spoken unit) | `ភីកសែល` | Screen-reader text only; keep `px` in compact numeric displays. |
+| Studio session | `វគ្គ Studio` | |
+| Keyboard keys | `Home`, `End` | Kept in Latin with Shift, Enter, Esc, Tab, Space. |
 
 ---
 
