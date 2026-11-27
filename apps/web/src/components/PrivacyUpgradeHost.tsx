@@ -3,6 +3,8 @@ import { PRIVACY_UPGRADE_NOTICE_VERSION } from '@kcs/shared';
 import type { AppProfile, ConsentState } from '@kcs/shared';
 import { BarChart3, LockKeyhole, ShieldCheck, HandHeart, X } from 'lucide-react';
 import { api } from '../api';
+import { LocaleProvider, messagesFor } from '../i18n';
+import { readInterfaceLanguage } from '../i18n/language-storage';
 import { CONTRIBUTION_PROMPT_SESSION_KEY, shouldShowPrivacyUpgradeNotice } from '../privacy-onboarding';
 import { ContributorSettings } from './ContributorSettings';
 import { useModalFocus } from '../use-modal-focus';
@@ -13,7 +15,9 @@ export function PrivacyUpgradeHost() {
   const [view, setView] = useState<'intro' | 'review'>('intro');
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [working, setWorking] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ text: string; server?: boolean } | null>(null);
+  const locale = profile?.preferences.interfaceLanguage ?? readInterfaceLanguage() ?? 'en';
+  const { t } = messagesFor(locale);
   const dialogRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -60,12 +64,12 @@ export function PrivacyUpgradeHost() {
 
   const choose = async (consent: Exclude<ConsentState, 'unset'>) => {
     setWorking(true);
-    setError('');
+    setError(null);
     try {
       await saveResolution(consent);
       setOpen(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save your privacy choice');
+      setError(reason instanceof Error ? { text: reason.message, server: true } : { text: t('privacy.upgrade.saveFailed') });
     } finally {
       setWorking(false);
     }
@@ -74,7 +78,7 @@ export function PrivacyUpgradeHost() {
   const dismiss = async () => {
     if (working) return;
     setWorking(true);
-    setError('');
+    setError(null);
     try {
       await saveResolution();
     } catch {
@@ -87,12 +91,12 @@ export function PrivacyUpgradeHost() {
 
   const review = async () => {
     setWorking(true);
-    setError('');
+    setError(null);
     try {
       await saveResolution();
       setView('review');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not open privacy choices');
+      setError(reason instanceof Error ? { text: reason.message, server: true } : { text: t('privacy.upgrade.reviewFailed') });
     } finally {
       setWorking(false);
     }
@@ -116,50 +120,50 @@ export function PrivacyUpgradeHost() {
   if (view === 'review') {
     return <div className="privacy-upgrade-backdrop">
       <section ref={dialogRef} tabIndex={-1} style={{ outline: 'none' }} className="privacy-upgrade-dialog review-mode" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-review-title">
-        <button className="privacy-upgrade-close" aria-label="Close privacy settings" onClick={() => setOpen(false)}><X size={19}/></button>
+        <button className="privacy-upgrade-close" aria-label={t('privacy.upgrade.closeReview')} onClick={() => setOpen(false)}><X size={19}/></button>
         <header className="privacy-upgrade-review-head">
           <span aria-hidden="true"><ShieldCheck size={20}/></span>
-          <div><strong id="privacy-upgrade-review-title">Privacy choices</strong><small>Contribution and product analytics remain separate. You can change either choice later in Settings → Privacy.</small></div>
+          <div><strong id="privacy-upgrade-review-title">{t('privacy.upgrade.reviewTitle')}</strong><small>{t('privacy.upgrade.reviewDescription')}</small></div>
         </header>
-        <ContributorSettings profile={profile} busy={working} showIntro={false} onSave={saveReviewPatch}/>
+        <LocaleProvider locale={locale}><ContributorSettings profile={profile} busy={working} showIntro={false} onSave={saveReviewPatch}/></LocaleProvider>
       </section>
     </div>;
   }
 
   return <div className="privacy-upgrade-backdrop">
     <section ref={dialogRef} tabIndex={-1} style={{ outline: 'none' }} className="privacy-upgrade-dialog" role="dialog" aria-modal="true" aria-labelledby="privacy-upgrade-title" aria-describedby="privacy-upgrade-description">
-      <button className="privacy-upgrade-close" aria-label="Not now" disabled={working} onClick={() => void dismiss()}><X size={19}/></button>
+      <button className="privacy-upgrade-close" aria-label={t('privacy.upgrade.dismiss')} disabled={working} onClick={() => void dismiss()}><X size={19}/></button>
 
       <div className="privacy-upgrade-hero">
         <div className="privacy-upgrade-mark" aria-hidden="true"><ShieldCheck size={29}/></div>
-        <span className="privacy-upgrade-kicker">What’s new in Studio 0.8</span>
-        <h2 id="privacy-upgrade-title">Help make Khmer captions world-class</h2>
-        <p id="privacy-upgrade-description">Because this Studio installation predates the new Contributor option, we’re asking once before it can collect anything.</p>
+        <span className="privacy-upgrade-kicker">{t('privacy.upgrade.version')}</span>
+        <h2 id="privacy-upgrade-title">{t('privacy.promptTitle')}</h2>
+        <p id="privacy-upgrade-description">{t('privacy.upgrade.description')}</p>
       </div>
 
       <div className="privacy-upgrade-facts">
         <div className="privacy-upgrade-fact">
           <span aria-hidden="true"><HandHeart size={18}/></span>
-          <div><strong>Contributor is optional</strong><small>If you join, only eligible corrections you make after joining can contribute the matching short audio, generated and corrected wording, timing, and technical quality evidence.</small></div>
+          <div><strong>{t('privacy.upgrade.optional')}</strong><small>{t('privacy.upgrade.optionalDescription')}</small></div>
         </div>
         <div className="privacy-upgrade-fact">
           <span aria-hidden="true"><LockKeyhole size={18}/></span>
-          <div><strong>Your project stays private</strong><small>Full videos, project names, filenames, API keys, topic context, correction memory, and unrelated captions are not contributed through this program.</small></div>
+          <div><strong>{t('privacy.upgrade.privateProject')}</strong><small>{t('privacy.upgrade.privateProjectDescription')}</small></div>
         </div>
         <div className="privacy-upgrade-fact">
           <span aria-hidden="true"><BarChart3 size={18}/></span>
-          <div><strong>Product analytics is separate</strong><small>Analytics stays off unless you choose it separately. Joining Contributor never turns analytics on.</small></div>
+          <div><strong>{t('privacy.upgrade.analyticsSeparate')}</strong><small>{t('privacy.upgrade.analyticsSeparateDescription')}</small></div>
         </div>
       </div>
 
       <div className="privacy-upgrade-actions">
-        <button className="privacy-upgrade-action primary" disabled={working} onClick={() => void choose('granted')}><HandHeart size={18}/>Help improve Khmer captions</button>
-        <button className="privacy-upgrade-action" disabled={working} onClick={() => void choose('declined')}><LockKeyhole size={18}/>Keep my work private</button>
-        <button className="privacy-upgrade-action tertiary" disabled={working} onClick={() => void review()}><ShieldCheck size={16}/>Review privacy &amp; analytics settings</button>
+        <button className="privacy-upgrade-action primary" disabled={working} onClick={() => void choose('granted')}><HandHeart size={18}/>{t('privacy.helpImprove')}</button>
+        <button className="privacy-upgrade-action" disabled={working} onClick={() => void choose('declined')}><LockKeyhole size={18}/>{t('privacy.keepPrivate')}</button>
+        <button className="privacy-upgrade-action tertiary" disabled={working} onClick={() => void review()}><ShieldCheck size={16}/>{t('privacy.upgrade.review')}</button>
       </div>
 
-      <div className="privacy-upgrade-foot"><ShieldCheck size={14}/><span>Closing this doesn’t change either privacy choice. Change them anytime in Settings → Privacy.</span></div>
-      {error && <div className="privacy-upgrade-error" role="alert">{error}</div>}
+      <div className="privacy-upgrade-foot"><ShieldCheck size={14}/><span>{t('privacy.upgrade.dismissHelp')}</span></div>
+      {error?.text && <div className="privacy-upgrade-error" role="alert" data-server-text={error.server}>{error.text}</div>}
     </section>
   </div>;
 }

@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import { ShieldCheck, HandHeart, X } from 'lucide-react';
 import { api } from '../api';
+import { messagesFor, type Locale } from '../i18n';
+import { readInterfaceLanguage } from '../i18n/language-storage';
 import { CONTRIBUTION_PROMPT_SESSION_KEY } from '../privacy-onboarding';
 import './contribution.css';
 
 export function ContributionPromptHost() {
   const [open, setOpen] = useState(false);
+  const [locale, setLocale] = useState<Locale>('en');
+  const { t, tr } = messagesFor(locale);
   const [working, setWorking] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ text: string; server?: boolean } | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -18,6 +22,7 @@ export function ContributionPromptHost() {
         if (disposed || !status.endpointConfigured) return;
         if ((profile.preferences.khmerContributionConsent || 'unset') !== 'unset') return;
         sessionStorage.setItem(CONTRIBUTION_PROMPT_SESSION_KEY, '1');
+        setLocale(profile.preferences.interfaceLanguage ?? readInterfaceLanguage() ?? 'en');
         setOpen(true);
       } catch {
         // Contribution onboarding is optional and must never interfere with export.
@@ -34,28 +39,28 @@ export function ContributionPromptHost() {
   }, []);
 
   const choose = async (consent: 'granted' | 'declined') => {
-    setWorking(true); setError('');
+    setWorking(true); setError(null);
     try {
       await api.patchProfile({ preferences: { khmerContributionConsent: consent } });
       setOpen(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save your choice');
+      setError(reason instanceof Error ? { text: reason.message, server: true } : { text: t('privacy.invitation.saveFailed') });
     } finally { setWorking(false); }
   };
 
   if (!open) return null;
-  return <aside className="contribution-prompt" aria-label="Khmer Caption Contributor invitation">
-    <button className="contribution-prompt-close" aria-label="Dismiss for this session" onClick={() => setOpen(false)}><X size={17}/></button>
+  return <aside className="contribution-prompt" aria-label={t('privacy.invitation.label')}>
+    <button className="contribution-prompt-close" aria-label={t('privacy.invitation.dismiss')} onClick={() => setOpen(false)}><X size={17}/></button>
     <div className="contribution-prompt-icon"><HandHeart size={22}/></div>
     <div className="contribution-prompt-copy">
-      <strong>Help make Khmer captions world-class</strong>
-      <p>Your corrections can help improve Khmer caption technology for creators everywhere.</p>
-      <p className="contribution-prompt-detail"><ShieldCheck size={14}/>If you join, Studio may share the short audio around eligible corrections you make <b>after joining</b>, together with generated and corrected text and timing. Full videos, project names, API keys, and unrelated captions are not contributed.</p>
+      <strong>{t('privacy.promptTitle')}</strong>
+      <p>{t('privacy.invitation.purpose')}</p>
+      <p className="contribution-prompt-detail"><ShieldCheck size={14}/>{tr('privacy.invitation.detail', {}, {})}</p>
     </div>
     <div className="contribution-prompt-actions">
-      <button className="primary" disabled={working} onClick={() => void choose('granted')}>Help improve Khmer</button>
-      <button disabled={working} onClick={() => void choose('declined')}>Keep my work private</button>
+      <button className="primary" disabled={working} onClick={() => void choose('granted')}>{t('privacy.invitation.join')}</button>
+      <button disabled={working} onClick={() => void choose('declined')}>{t('privacy.keepPrivate')}</button>
     </div>
-    {error && <span className="contribution-prompt-error">{error}</span>}
+    {error?.text && <span className="contribution-prompt-error" data-server-text={error.server}>{error.text}</span>}
   </aside>;
 }
