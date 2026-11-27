@@ -40,8 +40,8 @@ export const dialogsMessages: KhmerMessages<EnglishMessages['dialogs']> = {
     confirm: "កែលម្អអក្សររត់",
   },
   timingCleanup: {
-    title: "អនុវត្តការកែសម្រួលពេលវេលាដោយសុវត្ថិភាព?",
-    confirm: "អនុវត្តការកែសម្រួល",
+    title: "អនុវត្តការកែពេលវេលាដោយសុវត្ថិភាព?",
+    confirm: "អនុវត្តការកែពេលវេលា",
     message: "Studio នឹងប្រើ «{profile}» រំលងអក្សររត់ដែលបានចាក់សោពេលវេលា ហើយបង្កើតចំណុចរក្សាទុកក្នុង «ប្រវត្តិ» មុនពេលផ្លាស់ប្ដូរពេលវេលា។",
   },
   renderWarnings: {

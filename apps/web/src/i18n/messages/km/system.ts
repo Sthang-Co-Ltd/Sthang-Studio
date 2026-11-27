@@ -45,7 +45,7 @@ export const systemMessages: KhmerMessages<EnglishMessages['system']> = {
   },
   timingFix: {
     win32: "ដំណើរការ Install Sthang Studio.bat ម្ដងទៀតពីឯកសារដែលអ្នកបានទាញយក ឬដំណើរការ setup-local-timing-windows.bat នៅក្នុងថត Studio។ បន្ទាប់មកដំណើរការ «ការពិនិត្យប្រព័ន្ធ» ម្ដងទៀត។",
-    darwin: "នៅក្នុងថត Studio សូមដំណើរការ bash ./setup-local-timing-macos.sh។ បន្ទាប់មកដំណើរការ «ការពិនិត្យប្រព័ន្ធ» ម្ដងទៀត។",
+    darwin: "សូមដំណើរការ bash ./setup-local-timing-macos.sh នៅក្នុងថត Studio។ បន្ទាប់មកដំណើរការ «ការពិនិត្យប្រព័ន្ធ» ម្ដងទៀត។",
     other: "ដំឡើងផ្នែក Python នៃការតម្រឹមពេលលើម៉ាស៊ីនសម្រាប់ប្រព័ន្ធនេះ។",
   },
 };
