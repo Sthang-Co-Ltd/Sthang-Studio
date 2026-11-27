@@ -4,6 +4,10 @@ import { normalizeCaptionAppearance, planCaptionRenderStates, type CaptionAppear
 import { captionPreviewPaintKey, captionPreviewReplayStates, captionPreviewStateIndex, containedVideoFrame } from '../caption-preview-plan';
 import { captionPreviewSelection, captionPreviewTransform } from '../caption-preview-interaction';
 import { planNativePreviewBatch, planNativePreviewCatchup, nativePreviewCatchupTimeoutMs, retainNativePreviewPrefetch, TEMPORAL_PREVIEW_WINDOW } from '../native-preview-scheduler';
+import { ApiRequestError } from '../api';
+import { useI18n } from '../i18n';
+import { translate } from '../i18n/translate';
+import type { MessageKey, MessageParams } from '../i18n/types';
 import './native-caption-preview.css';
 
 interface Props {
@@ -25,11 +29,12 @@ interface Props {
 }
 
 type ImageFrame = CaptionPreviewFrame & { width: number; height: number; appearance: CaptionAppearance; resolution: VideoResolutionPreset };
+type PreviewError = Pick<CaptionPreviewResponseError, 'message' | 'code' | 'messageMetadata' | 'serverText'>;
 interface PreviewSession {
   signature: string;
   cache: Map<string, ImageFrame>;
   pending: Set<string>;
-  error: { message: string; code: string } | null;
+  error: PreviewError | null;
   blockedCueKey: string | null;
   retries: number;
   prefetchBlockedKey: string | null;
@@ -82,47 +87,58 @@ function reservePreviewCache(
 }
 
 class CaptionPreviewResponseError extends Error {
-  constructor(message: string, readonly status = 0, readonly retryable = false, readonly code = '') {
+  constructor(
+    message: string,
+    readonly status = 0,
+    readonly retryable = false,
+    readonly code = '',
+    readonly messageMetadata?: { key: MessageKey; params?: MessageParams },
+    readonly serverText = false,
+  ) {
     super(message);
     this.name = 'CaptionPreviewResponseError';
   }
 }
 
-async function readCaptionPreviewResponse(response: Response, fallbackMessage: string): Promise<CaptionPreviewResult> {
+function captionPreviewError(key: MessageKey, options: { status?: number; retryable?: boolean; params?: MessageParams } = {}) {
+  const { status, retryable, params } = options;
+  return new CaptionPreviewResponseError(translate('en', key, params), status, retryable, '', { key, params });
+}
+
+async function readCaptionPreviewResponse(response: Response, fallbackKey: MessageKey): Promise<CaptionPreviewResult> {
+  const status = response.status;
   const text = await response.text();
   let result: (CaptionPreviewResult & { error?: string; code?: string }) | null = null;
   if (text.trim()) {
     try {
       result = JSON.parse(text) as CaptionPreviewResult & { error?: string; code?: string };
     } catch {
-      throw new CaptionPreviewResponseError(
-        response.ok ? 'Caption preview returned an invalid response. Retry preview.' : `${fallbackMessage} (${response.status}).`,
-        response.status,
-        response.ok || TRANSIENT_PREVIEW_STATUS.has(response.status),
-      );
+      if (response.ok) throw captionPreviewError('media.caption.invalidResponse', { status, retryable: true });
+      throw captionPreviewError(fallbackKey, { status, retryable: TRANSIENT_PREVIEW_STATUS.has(status), params: { status } });
     }
   }
   if (!response.ok) {
-    const retryable = TRANSIENT_PREVIEW_STATUS.has(response.status);
-    const message = typeof result?.error === 'string' && result.error.trim()
-      ? result.error
-      : retryable
-        ? 'Caption preview service is reconnecting. Studio will retry automatically.'
-        : `${fallbackMessage} (${response.status}).`;
-    throw new CaptionPreviewResponseError(message, response.status, retryable, typeof result?.code === 'string' ? result.code : '');
+    const retryable = TRANSIENT_PREVIEW_STATUS.has(status);
+    const code = typeof result?.code === 'string' ? result.code : '';
+    if (typeof result?.error === 'string' && result.error.trim()) {
+      throw new CaptionPreviewResponseError(result.error, status, retryable, code, undefined, true);
+    }
+    const key = retryable ? 'media.caption.reconnecting' : fallbackKey;
+    const params = retryable ? undefined : { status };
+    throw new CaptionPreviewResponseError(translate('en', key, params), status, retryable, code, { key, params });
   }
   if (!result || !Number.isFinite(result.width) || !Number.isFinite(result.height) || !Array.isArray(result.frames)) {
-    throw new CaptionPreviewResponseError('Caption preview returned an incomplete response. Retry preview.', response.status, true);
+    throw captionPreviewError('media.caption.incompleteResponse', { status, retryable: true });
   }
   return result;
 }
 
-function previewRequestError(reason: unknown, fallbackMessage: string) {
+function previewRequestError(reason: unknown, fallbackKey: MessageKey) {
   if (reason instanceof CaptionPreviewResponseError) return reason;
   if (reason instanceof TypeError) {
-    return new CaptionPreviewResponseError('Caption preview connection was interrupted. Studio will retry automatically.', 0, true);
+    return captionPreviewError('media.caption.connectionInterrupted', { retryable: true });
   }
-  return new CaptionPreviewResponseError(reason instanceof Error ? reason.message : fallbackMessage);
+  return reason instanceof Error ? new CaptionPreviewResponseError(reason.message) : captionPreviewError(fallbackKey);
 }
 
 export interface NativeCaptionPreviewHandle {
@@ -131,6 +147,7 @@ export interface NativeCaptionPreviewHandle {
 }
 
 export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props>(function NativeCaptionPreview({ project, media, recoveryFocusTarget, mediaElement, captions, appearance, interacting, resolution, timeMs, reviewFocus, focusLabel, focusKey, focusIndices, fontRevision = 0, onChooseFont }, ref) {
+  const { t } = useI18n();
   const normalizedAppearance = useMemo(() => normalizeCaptionAppearance(appearance), [appearance]);
   const highlightWords = normalizedAppearance.highlightMode === 'word';
   const motionPreset = normalizedAppearance.motionPreset;
@@ -315,16 +332,16 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
             body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, batch, focusMask, payload.appearance), timesMs: batch.map((item) => item.atMs) }),
           });
-          const result = await readCaptionPreviewResponse(response, 'The effect preview could not be prepared. Try Replay effect again.');
+          const result = await readCaptionPreviewResponse(response, 'media.caption.replayFailedStatus');
           for (const target of batch) {
             const image = result.frames.find((item) => item.atMs === target.atMs);
-            if (!image) throw new Error('The effect preview returned an incomplete set of frames. Try again.');
+            if (!image) throw captionPreviewError('media.caption.replayIncompleteFrames');
             const decoded = new Image();
             decoded.src = `data:image/png;base64,${image.png}`;
             await decoded.decode();
             if (controller.signal.aborted || session.current !== current) return false;
             const imageBytes = image.png.length;
-            if (imageBytes > 32 * 1024 * 1024) throw new Error('The effect preview exceeds its local image limit. Choose a smaller preview resolution.');
+            if (imageBytes > 32 * 1024 * 1024) throw captionPreviewError('media.caption.replayFrameLimit');
             let bytes = [...current.cache.values()].reduce((sum, item) => sum + item.png.length, 0);
             const targetKey = captionPreviewPaintKey(target);
             for (const [key, cached] of current.cache) {
@@ -338,23 +355,28 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         }
         if (controller.signal.aborted || session.current !== current) return false;
         if (!selected.every((item) => current.cache.has(captionPreviewPaintKey(item)))) {
-          throw new Error('This effect preview is too large to prepare at once. Choose a smaller preview resolution.');
+          throw captionPreviewError('media.caption.replayTooLarge');
         }
         current.retries = 0;
         return true;
       } catch (reason) {
         if (controller.signal.aborted && !timedOut) return false;
-        const normalized = previewRequestError(reason, 'The effect preview could not be prepared.');
-        const error = new Error(timedOut
-          ? 'Preparing the effect preview took too long. Try Replay effect again.'
+        const normalized = previewRequestError(reason, 'notices.playback.effectPreparationFailed');
+        const error = timedOut
+          ? captionPreviewError('media.caption.replayTimeout')
           : normalized.retryable
-            ? 'Preparing the effect preview was interrupted. Try Replay effect again.'
-            : normalized.message);
+            ? captionPreviewError('media.caption.replayInterrupted')
+            : normalized;
         if (session.current === current) {
-          current.error = { message: error.message, code: timedOut ? '' : normalized.code };
+          current.error = {
+            message: error.message, code: timedOut ? '' : normalized.code,
+            messageMetadata: error.messageMetadata, serverText: error.serverText,
+          };
           current.blockedCueKey = normalized.code === 'CAPTION_OVERFLOW' ? state?.key || '' : null;
         }
-        throw error;
+        if (error.serverText) throw new ApiRequestError(error.message, error.status, error.code);
+        const metadata = error.messageMetadata;
+        throw new Error(metadata ? t(metadata.key, metadata.params) : error.message);
       } finally {
         window.clearTimeout(timeout);
         signal.removeEventListener('abort', cancel);
@@ -362,7 +384,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
         redraw();
       }
     },
-  }), [signature, states, captions, payload, focusMask, project.id, resolution, interacting, state?.key]);
+  }), [signature, states, captions, payload, focusMask, project.id, resolution, interacting, state?.key, t]);
 
   useEffect(() => {
     const preparing = replayPreparation.current;
@@ -525,7 +547,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
             body: JSON.stringify({ ...payload, ...captionPreviewSelection(captions, missing, focusMask, payload.appearance), timesMs: missing.map((item) => item.atMs) }),
           });
-          const result = await readCaptionPreviewResponse(response, 'Caption preview could not render.');
+          const result = await readCaptionPreviewResponse(response, 'media.caption.renderFailedStatus');
           if (controller.signal.aborted) return;
           // Decode and validate the entire batch before publishing any new cache
           // entries. A failed later PNG must not leave an oversized partial batch.
@@ -536,7 +558,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             const target = missing.find((item) => item.atMs === image.atMs);
             if (!target) continue;
             if (image.png.length > MAX_CACHED_PREVIEW_BYTES) {
-              throw new Error('This caption preview exceeds its local image limit. Choose a smaller preview resolution.');
+              throw captionPreviewError('media.caption.frameLimit');
             }
             // Decode before replacing the visible image; swapping an undecoded PNG
             // can otherwise introduce a blank paint between native frames.
@@ -550,7 +572,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
             received.add(targetKey);
             if (targetKey === key && continuityKey) presented = rendered;
           }
-          if (received.size !== missing.length) throw new Error('Caption preview returned an incomplete set of frames. Retry preview.');
+          if (received.size !== missing.length) throw captionPreviewError('media.caption.incompleteFrames');
           // Only compressed caption images are retained, only for this project/look. They never
           // enter localStorage, exported project data, analytics, or the contribution queue.
           if (!reservePreviewCache(staged, pinned, MAX_CACHED_PREVIEW_FRAMES, MAX_CACHED_PREVIEW_BYTES)) {
@@ -561,7 +583,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
               current.prefetchBlockedKey = key;
               return;
             }
-            throw new Error('This caption preview exceeds its local image limit. Choose a smaller preview resolution.');
+            throw captionPreviewError('media.caption.frameLimit');
           }
           if (controller.signal.aborted) return;
           if (kind === 'catchup' && session.current !== current) return;
@@ -579,7 +601,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
           }
         } catch (reason) {
           if (!controller.signal.aborted && session.current === current) {
-            const error = previewRequestError(reason, 'Caption preview is unavailable.');
+            const error = previewRequestError(reason, 'media.caption.unavailable');
             if (kind === 'catchup' || error.code === 'CAPTION_OVERFLOW' && kind === 'prefetch') {
               current.prefetchBlockedKey = key;
               return;
@@ -623,6 +645,7 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
   }, [exactImage, continuityKey]);
   const retainedImage = continuityKey && lastPresented.current?.continuityKey === continuityKey && lastPresented.current.image.resolution === resolution ? lastPresented.current.image : undefined;
   const error = current?.error;
+  const errorMessage = error?.messageMetadata ? t(error.messageMetadata.key, error.messageMetadata.params) : error?.message;
   // A blocked layout must not leave a scaled, previously valid bitmap looking
   // like the newly requested caption. Ordinary connection errors retain pixels.
   const image = current?.blockedCueKey != null && current.blockedCueKey === state?.key ? undefined : exactImage || retainedImage;
@@ -646,17 +669,17 @@ export const NativeCaptionPreview = forwardRef<NativeCaptionPreviewHandle, Props
       <img className="native-caption-image" src={`data:image/png;base64,${image.png}`} alt={state?.text || ''} draggable={false}/>
       {reviewFocus && box && <div key={focusKey} className="native-caption-focus" style={{ left: `${box.x / image.width * 100}%`, top: `${box.y / image.height * 100}%`, width: `${box.width / image.width * 100}%`, height: `${box.height / image.height * 100}%` }} aria-hidden="true">
         <div className="review-focus-frame">
-          {focusLabel && <span className="review-focus-label">Reviewing</span>}
+          {focusLabel && <span className="review-focus-label">{t('media.caption.reviewing')}</span>}
           <i className="review-focus-corner review-focus-tl"/><i className="review-focus-corner review-focus-tr"/><i className="review-focus-corner review-focus-bl"/><i className="review-focus-corner review-focus-br"/>
         </div>
       </div>}
       </div>
     </div>}
-    {image && !exactImage && !error && <div className="native-preview-refining">{transform ? 'Interactive preview · refining layout…' : 'Updating caption appearance…'}</div>}
+    {image && !exactImage && !error && <div className="native-preview-refining">{t(transform ? 'media.caption.refining' : 'media.caption.updating')}</div>}
     {state?.key && (!image || error) && <div className={`native-preview-status ${error ? 'error' : ''}`} role="status">
-      <span>{error?.message || 'Preparing caption preview…'}</span>
-      {error?.code === 'font-unavailable' && onChooseFont && <button type="button" onClick={(event) => onChooseFont(event.currentTarget)}>Choose another font</button>}
-      {error && <button type="button" onClick={(event) => retry(event.currentTarget)}>Retry preview</button>}
+      <span data-server-text={error?.serverText || undefined}>{errorMessage || t('media.caption.preparing')}</span>
+      {error?.code === 'font-unavailable' && onChooseFont && <button type="button" onClick={(event) => onChooseFont(event.currentTarget)}>{t('media.caption.chooseFont')}</button>}
+      {error && <button type="button" onClick={(event) => retry(event.currentTarget)}>{t('media.caption.retry')}</button>}
     </div>}
   </>;
 });

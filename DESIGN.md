@@ -54,15 +54,14 @@ messages may use bold and code markup, with interpolated values rendered as text
 Keep the bilingual prompt and native language names together in the fixed copy.
 Namespaces listed in `i18n/pending.ts` are awaiting Khmer and fall back to English; remove a namespace from the list in the same change that adds its complete Khmer catalog.
 
-Server-provided secure-storage labels remain English until Settings (Phase C) maps them to catalog keys.
-Server-provided prose and enumerated server codes (job messages and stages, history checkpoint labels and sources, release notes, server progress, regeneration candidate text) remain English until Phase C maps known codes to catalog keys.
+The interface has a complete Khmer catalog. Activity shows the server job message
+in English mode and a catalog sentence for known stages in Khmer mode. Known
+server codes and labels map by exact match, with a drift test checking the source.
+Free-form server prose stays English inside `data-server-text`. Khmer dates use
+full month names, Western digits and 24-hour time. Upload reminders and storage
+feedback follow the current language.
 
-Phase B enables Khmer across Export, Compare, Appearance, Fine timing, Accuracy,
-Technical details, Caption grouping, Activity, History, Find / Correct everywhere,
-Correction inbox, Updates, Guide and All projects. Khmer dates use full month
-names and Western digits with 24-hour time where the interface shows a time.
-The workspace shell has its own pending catalog. The Khmer layout sweep records
-its English values while checking for unexpected English across Phase B.
+A message is translated when it is raised. One already on screen keeps its language after a language switch, and one raised before the profile loads in a browser without the saved language mirror can appear in English.
 
 In Khmer mode, the root language is `km` and the interface typography removes
 uppercase styling and letter spacing from operational text. Use a 14px floor for

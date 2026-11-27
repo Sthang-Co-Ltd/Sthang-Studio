@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { secureStorageLabelKey } from '../i18n/messages/en/settings';
 import { formatInterfaceDate } from '../i18n/dates';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -170,8 +171,10 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
     }
   };
 
+  const storageKey = secureStorageLabelKey(settings.secureStorageLabel);
+  const storageLabel = storageKey ? t(storageKey) : settings.secureStorageLabel;
   const sourceLabel = settings.keySource === 'secure-store'
-    ? settings.secureStorageLabel
+    ? storageLabel
     : settings.keySource === 'environment'
       ? t('setup.ai.environmentSource')
       : t('setup.ai.notConfigured');
@@ -182,7 +185,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
         <strong>{settings.configured ? t('setup.ai.keyAvailable') : t('setup.ai.connect')}</strong>
-        <span data-server-text={settings.configured || undefined}>{settings.configured ? t('setup.ai.maskedKey', { key: String(settings.maskedKey), source: sourceLabel }) : t('setup.ai.canImport')}</span>
+        <span data-server-text={settings.configured && (settings.keySource !== 'secure-store' || !storageKey) || undefined}>{settings.configured ? t('setup.ai.maskedKey', { key: String(settings.maskedKey), source: sourceLabel }) : t('setup.ai.canImport')}</span>
       </div>
     </div>}
 
@@ -208,7 +211,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
             <button ref={pasteButton} type="button" aria-label={t('setup.ai.pasteClipboard')} title={t('setup.ai.pasteClipboard')} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'paste' || undefined} onClick={() => void pasteKey()}>{inline ? t('setup.ai.paste') : <ClipboardPaste size={15}/>}</button>
           </div>
         </label>
-        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong data-server-text>{settings.secureStorageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? t('setup.ai.secureStorage') : t('setup.ai.environmentHelp')}</span>}</div></div>
+        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong data-server-text={storageKey ? undefined : true}>{storageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? t('setup.ai.secureStorage') : t('setup.ai.environmentHelp')}</span>}</div></div>
       </section>
 
       {!inline && <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>

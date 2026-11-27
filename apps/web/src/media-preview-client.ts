@@ -1,3 +1,12 @@
+import { mediaMessages } from './i18n/messages/en/media';
+import type { MessageKey, MessageParams } from './i18n/types';
+
+export class MediaPreviewClientError extends Error {
+  constructor(message: string, readonly messageMetadata?: { key: MessageKey; params?: MessageParams }) {
+    super(message);
+  }
+}
+
 export interface MediaPreviewStatus {
   source: string;
   state: 'original' | 'processing' | 'ready' | 'failed' | 'cancelled';
@@ -12,7 +21,7 @@ export function needsCompatiblePlayback(codec: string, canPlayType: (type: strin
 }
 export const PREVIEW_REQUEST_TIMEOUT_MS = 25_000;
 export const MAX_PREVIEW_STATUS_BYTES = 64 * 1024;
-const unavailable = () => new Error('Playback preparation is unavailable.');
+const unavailable = () => new MediaPreviewClientError(mediaMessages.playback.requestUnavailable, { key: 'media.playback.requestUnavailable' });
 
 async function withPreviewDeadline<T>(signal: AbortSignal | undefined, timeoutMs: number, request: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
@@ -24,7 +33,7 @@ async function withPreviewDeadline<T>(signal: AbortSignal | undefined, timeoutMs
   try {
     return await request(controller.signal);
   } catch (error) {
-    if (timedOut) throw new Error('Playback preparation did not respond. Check progress or try again.');
+    if (timedOut) throw new MediaPreviewClientError(mediaMessages.playback.requestTimeout, { key: 'media.playback.requestTimeout' });
     throw error;
   } finally {
     clearTimeout(timer); signal?.removeEventListener('abort', abort);
@@ -85,9 +94,12 @@ export async function requestMediaPreview(projectId: string, source: string, met
     });
     // The same deadline covers headers AND a stalled response body.
     const value = await readPreviewStatus(response);
-    if (!response.ok) throw new Error(typeof value.error === 'string' && value.error.length <= 4096 ? value.error : 'Playback preparation is unavailable.');
+    if (!response.ok) {
+      if (typeof value.error === 'string' && value.error.length <= 4096) throw new MediaPreviewClientError(value.error);
+      throw unavailable();
+    }
     if (typeof value.source !== 'string') throw unavailable();
-    if (value.source !== source) throw new Error('The source media changed. Reopen this project.');
+    if (value.source !== source) throw new MediaPreviewClientError(mediaMessages.playback.sourceChanged, { key: 'media.playback.sourceChanged' });
     if (!['original', 'processing', 'ready', 'failed', 'cancelled'].includes(value.state as string)
       || typeof value.videoCodec !== 'string' || value.videoCodec.length > 64
       || typeof value.progress !== 'number' || !Number.isFinite(value.progress) || value.progress < 0 || value.progress > 100

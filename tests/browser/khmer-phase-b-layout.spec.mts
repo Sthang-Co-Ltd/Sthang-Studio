@@ -5,7 +5,7 @@ import { createCaptionData, hydrateCaptionWordTimings, type ProcessingJob, type 
 import { km } from '../../apps/web/src/i18n/messages/km/index.js';
 import { formatInterfaceDate } from '../../apps/web/src/i18n/dates.js';
 import { appearance, cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
-import { captureKhmerLayout } from './khmer-layout-assertions.mjs';
+import { captureKhmerLayout, openKhmerTool as openTool, revealDetails as reveal } from './khmer-layout-assertions.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
 import { deferredHighlight, stubHighlightRoutes } from './word-highlight-routes.mjs';
 
@@ -113,15 +113,6 @@ async function enter(page: Page) {
   await expect(page.locator('html')).toHaveAttribute('lang', 'km');
 }
 
-async function openTool(page: Page, name: string) {
-  await page.locator('[data-project-tools-trigger]').click();
-  await page.getByRole('menuitem').filter({ has: page.getByText(name, { exact: true }) }).click();
-}
-
-async function reveal(details: Locator) {
-  if (await details.getAttribute('open') === null) await details.locator(':scope > summary').click();
-}
-
 for (const viewport of viewports) {
   const size = viewport.width + 'x' + viewport.height;
   test('Khmer Export and Compare at ' + size, async ({ page }) => {
@@ -214,7 +205,11 @@ for (const viewport of viewports) {
 
     await page.locator('[data-stage="appearance"]').click();
     const workspace = page.locator('.caption-appearance-workspace');
-    await expect(workspace.locator('.appearance-look-grid [data-deferred-text="look-name"]')).toHaveCount(6);
+    const { translate } = await import('../../apps/web/src/i18n/translate.js');
+    const lookIds = ['clean', 'bold-outline', 'soft-shadow', 'solid-box', 'high-contrast', 'soft-glow'] as const;
+    await expect(workspace.locator('.appearance-look-card .appearance-look-copy > strong')).toHaveText(
+      lookIds.map((id) => translate(state.profile.preferences.interfaceLanguage ?? 'en', `looks.${id}`)),
+    );
     await capture('appearance-looks', '.workspace-inspector', workspace.locator('.appearance-look-grid'));
     const font = workspace.locator('.appearance-font-search');
     const fontPicker = workspace.locator('.appearance-font-picker select');
@@ -341,7 +336,7 @@ for (const viewport of viewports) {
     await capture('library-deleted', '.project-library, .project-bin', page.locator('.project-bin-row'));
 
     await page.getByRole('button', { name: km.home.launcher.settings, exact: true }).click();
-    await page.getByRole('button', { name: 'System check', exact: true }).click();
+    await page.getByRole('button', { name: km.settings.tabs.doctor, exact: true }).click();
     const storage = page.getByRole('region', { name: km.library.storageLabel, exact: true });
     await expect(storage.getByRole('status')).toContainText(km.library.storageCompleted.replace('{loaded}', '2').replace('{readable}', '2'));
     await capture('library-storage', '.project-storage-report', storage);

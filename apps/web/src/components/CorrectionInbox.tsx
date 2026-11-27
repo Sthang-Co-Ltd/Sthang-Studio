@@ -31,7 +31,7 @@ interface CorrectionInboxProps {
   open: boolean;
   busy: boolean;
   openingId: string | null;
-  readError: { id: string; message: string } | null;
+  readError: { id: string; message: string; serverText: boolean } | null;
   blockedSave?: { id: string; message: string };
   onReturnToEdits(): void;
   onFilterChange(): void;
@@ -154,7 +154,7 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
           <div className="correction-pair"><div><label>{t('inbox.before')}</label><p>{event.originalText}</p></div><div><label>{t('inbox.after')}</label><p>{event.correctedText}</p></div></div>
           {(event.contextBefore || event.contextAfter) && <p className="correction-context">… {event.contextBefore || ''} <mark>{event.correctedText}</mark> {event.contextAfter || ''} …</p>}
           <div className="correction-suggestion"><span>{t('inbox.suggestion')}</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
-          {readError?.id === event.id && <p className="correction-read-error" role="alert">{readError.message}</p>}
+          {readError?.id === event.id && <p className="correction-read-error" role="alert" data-server-text={readError.serverText || undefined}>{readError.message}</p>}
           {blockedSave?.id === event.id && <p className="correction-read-error" role="alert">{blockedSave.message}</p>}
           <div className="correction-actions">
             <button aria-disabled={Boolean(openingId || working || busy) || undefined}

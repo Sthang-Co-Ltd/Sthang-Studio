@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle, Replace, RotateCcw, X } from 'lucide-react';
 import type { MediaReplacementCheckpoint, MediaReplacementMode, PreserveAudioConfirmation } from '../api';
@@ -10,14 +12,15 @@ interface SourceCheck {
   run(): void;
 }
 function SourceCheckAction({ check, returnFocus }: { check: SourceCheck; returnFocus(): void }) {
+  const { t } = useI18n();
   return <button className="primary" disabled={check.checking} onClick={() => { returnFocus(); check.run(); }}>
-    {check.checking ? 'Checking saved source…' : 'Check saved source'}
+    {check.checking ? t('dialogs.media.checkingSavedSource') : t('dialogs.media.checkSavedSource')}
   </button>;
 }
-const unconfirmedMessage = 'Studio could not confirm the saved source. Check which media is saved before trying again.';
-function MediaChangeMessage({ check, error }: { check?: SourceCheck; error: string }) {
-  if (check?.checking) return <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/>Checking which media is saved…</p>;
-  if (check || error) return <p className="media-replacement-error" role="alert">{check ? unconfirmedMessage : error}</p>;
+function MediaChangeMessage({ check, error, errorIsServerText }: { check?: SourceCheck; error: string; errorIsServerText?: boolean }) {
+  const { t } = useI18n();
+  if (check?.checking) return <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/>{t('dialogs.media.checkingWhichSource')}</p>;
+  if (check || error) return <p className="media-replacement-error" role="alert" data-server-text={(!check && errorIsServerText) || undefined}>{check ? t('dialogs.media.sourceUnconfirmed') : error}</p>;
   return null;
 }
 
@@ -26,6 +29,7 @@ interface ReplaceProps {
   captionCount: number;
   working: string;
   error: string;
+  errorIsServerText?: boolean;
   sourceCheck?: SourceCheck;
   preserveAudioConfirmation?: PreserveAudioConfirmation;
   onCancel(): void;
@@ -33,7 +37,8 @@ interface ReplaceProps {
   onReplace(mode: MediaReplacementMode, audioChangeConfirmation?: string): void;
 }
 
-export function ReplaceMediaDialog({ filename, captionCount, working, error, sourceCheck, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
+export function ReplaceMediaDialog({ filename, captionCount, working, error, errorIsServerText, sourceCheck, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
+  const { t, tn, tr } = useI18n();
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const audioAcceptance = useRef<HTMLInputElement>(null);
@@ -70,33 +75,33 @@ export function ReplaceMediaDialog({ filename, captionCount, working, error, sou
 
   return <div className="media-replacement-backdrop" onMouseDown={dismiss}>
     <div ref={dialog} className="media-replacement-dialog" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="replace-media-title" aria-describedby="replace-media-description" aria-busy={Boolean(working)} onMouseDown={(event) => event.stopPropagation()}>
-      <button className="media-replacement-close" aria-label="Cancel media replacement" disabled={Boolean(working)} onClick={dismiss}><X size={18}/></button>
-      <div className="media-replacement-title"><Replace size={20}/><h2 id="replace-media-title">Replace media</h2></div>
-      <p id="replace-media-description">{sourceCheck ? <>Previous source <strong className="media-replacement-filename">{sourceCheck.previousName}</strong></> : <>Replace current media with <strong className="media-replacement-filename">{filename}</strong>. Choose what to keep.</>}</p>
+      <button className="media-replacement-close" aria-label={t('dialogs.media.cancelReplacement')} disabled={Boolean(working)} onClick={dismiss}><X size={18}/></button>
+      <div className="media-replacement-title"><Replace size={20}/><h2 id="replace-media-title">{t('dialogs.media.replaceTitle')}</h2></div>
+      <p id="replace-media-description">{sourceCheck ? tr('dialogs.media.previousSource', { filename: sourceCheck.previousName }, { b: (name) => <strong className="media-replacement-filename">{name}</strong> }) : tr('dialogs.media.replaceDescription', { filename }, { b: (name) => <strong className="media-replacement-filename">{name}</strong> })}</p>
       {!sourceCheck && <><fieldset disabled={Boolean(working)} className="media-replacement-options">
-        <legend className="sr-only">What happens to your captions</legend>
+        <legend className="sr-only">{t('dialogs.media.options')}</legend>
         <label className={`media-replacement-option ${mode === 'preserve' ? 'selected' : ''}`}>
           <input type="radio" name="media-replacement-mode" value="preserve" checked={mode === 'preserve'} onChange={() => chooseMode('preserve')}/>
-          <span><strong>Keep reviewed captions</strong><small>Keep caption text, caption and word timing, approvals, locks, and appearance. Studio checks the new audio first.</small></span>
+          <span><strong>{t('dialogs.media.keepCaptions')}</strong><small>{t('dialogs.media.keepCaptionsDescription')}</small></span>
         </label>
         <label className={`media-replacement-option ${mode === 'reset' ? 'selected' : ''}`}>
           <input type="radio" name="media-replacement-mode" value="reset" checked={mode === 'reset'} onChange={() => chooseMode('reset')}/>
-          <span><strong>Start over</strong><small>Clear {captionCount ? `${captionCount} caption${captionCount === 1 ? '' : 's'}, approvals, locks, and the` : 'captions, approvals, locks, and the'} transcript. Generate new captions when ready.</small></span>
+          <span><strong>{t('dialogs.media.reset')}</strong><small>{captionCount ? tn('dialogs.media.resetCount', captionCount) : t('dialogs.media.resetDescription')}</small></span>
         </label>
       </fieldset>
       {mode === 'preserve' && <div className="media-replacement-check">
         {preserveAudioConfirmation ? <div className="media-replacement-audio-warning" role="status">
-          <h3>Keep old timing with different audio?</h3>
-          <p>The new audio differs. Caption and word times will stay unchanged. You must check their alignment against the new audio.</p>
-          {confirmationExpired ? <p>The audio check expired. Check the replacement again before continuing.</p> : <label><input ref={audioAcceptance} type="checkbox" checked={audioChangeAccepted} disabled={Boolean(working)} onChange={(event) => setAudioChangeAccepted(event.target.checked)}/><span>I accept the existing times and will check their alignment.</span></label>}
-        </div> : <p>Changes in volume, music, or sound effects may need confirmation. The new media must have the same duration.</p>}
+          <h3>{t('dialogs.media.differentAudio')}</h3>
+          <p>{t('dialogs.media.differentAudioDescription')}</p>
+          {confirmationExpired ? <p>{t('dialogs.media.expired')}</p> : <label><input ref={audioAcceptance} type="checkbox" checked={audioChangeAccepted} disabled={Boolean(working)} onChange={(event) => setAudioChangeAccepted(event.target.checked)}/><span>{t('dialogs.media.acceptExistingTimes')}</span></label>}
+        </div> : <p>{t('dialogs.media.durationHelp')}</p>}
       </div>}
-      <p className="media-replacement-helper">Studio backs up the previous media and project so you can undo the replacement. No captions are generated automatically.</p></>}
-      <MediaChangeMessage check={sourceCheck} error={error}/>
-      {working && <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/><span>{working} Stay on this page until the result is confirmed.</span></p>}
+      <p className="media-replacement-helper">{t('dialogs.media.replaceHelp')}</p></>}
+      <MediaChangeMessage check={sourceCheck} error={error} errorIsServerText={errorIsServerText}/>
+      {working && <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/><span>{t('dialogs.media.working', { status: working })}</span></p>}
       <div className="media-replacement-actions">
-        <button ref={cancel} disabled={Boolean(working)} onClick={dismiss}>Cancel</button>
-        {sourceCheck ? <SourceCheckAction check={sourceCheck} returnFocus={() => cancel.current?.focus()}/> : <button className={mode === 'preserve' ? 'primary' : ''} disabled={Boolean(working) || (needsAudioAcceptance && !audioChangeAccepted)} onClick={() => onReplace(mode, needsAudioAcceptance && audioChangeAccepted ? preserveAudioConfirmation?.token : undefined)}>{mode === 'reset' ? 'Continue' : confirmationExpired ? 'Check replacement again' : needsAudioAcceptance ? 'Replace and keep existing times' : 'Replace and keep captions'}</button>}
+        <button ref={cancel} disabled={Boolean(working)} onClick={dismiss}>{t('common.cancel')}</button>
+        {sourceCheck ? <SourceCheckAction check={sourceCheck} returnFocus={() => cancel.current?.focus()}/> : <button className={mode === 'preserve' ? 'primary' : ''} disabled={Boolean(working) || (needsAudioAcceptance && !audioChangeAccepted)} onClick={() => onReplace(mode, needsAudioAcceptance && audioChangeAccepted ? preserveAudioConfirmation?.token : undefined)}>{mode === 'reset' ? t('dialogs.media.continue') : confirmationExpired ? t('dialogs.media.checkAgain') : needsAudioAcceptance ? t('dialogs.media.replaceKeepTimes') : t('dialogs.media.replaceKeepCaptions')}</button>}
       </div>
     </div>
   </div>;
@@ -107,6 +112,7 @@ interface RestoreProps {
   loading: boolean;
   working: string;
   error: string;
+  errorIsServerText?: boolean;
   sourceCheck?: SourceCheck;
   onCancel(): void;
   onReload(): void;
@@ -114,7 +120,8 @@ interface RestoreProps {
   onDelete(checkpoint: MediaReplacementCheckpoint): void;
 }
 
-export function RestoreMediaDialog({ checkpoints, loading, working, error, sourceCheck, onCancel, onReload, onRestore, onDelete }: RestoreProps) {
+export function RestoreMediaDialog({ checkpoints, loading, working, error, errorIsServerText, sourceCheck, onCancel, onReload, onRestore, onDelete }: RestoreProps) {
+  const { locale, t, tr } = useI18n();
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const [chosen, setChosen] = useState('');
@@ -132,24 +139,24 @@ export function RestoreMediaDialog({ checkpoints, loading, working, error, sourc
 
   return <div className="media-replacement-backdrop" onMouseDown={dismiss}>
     <div ref={dialog} className="media-replacement-dialog" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="restore-media-title" aria-describedby="restore-media-description" aria-busy={Boolean(working || loading)} onMouseDown={(event) => event.stopPropagation()}>
-      <button className="media-replacement-close" aria-label="Close replacement backups" disabled={Boolean(working)} onClick={dismiss}><X size={18}/></button>
-      <div className="media-replacement-title"><RotateCcw size={20}/><h2 id="restore-media-title">Undo media replacement</h2></div>
-      <p id="restore-media-description">{sourceCheck ? <>Previous source <strong className="media-replacement-filename">{sourceCheck.previousName}</strong></> : 'Restore saved media with its captions, approvals, timing, and appearance. Your current saved project becomes another backup.'}</p>
+      <button className="media-replacement-close" aria-label={t('dialogs.media.closeBackups')} disabled={Boolean(working)} onClick={dismiss}><X size={18}/></button>
+      <div className="media-replacement-title"><RotateCcw size={20}/><h2 id="restore-media-title">{t('dialogs.media.undoTitle')}</h2></div>
+      <p id="restore-media-description">{sourceCheck ? tr('dialogs.media.previousSource', { filename: sourceCheck.previousName }, { b: (name) => <strong className="media-replacement-filename">{name}</strong> }) : t('dialogs.media.restoreDescription')}</p>
       {!sourceCheck && <><div className="media-replacement-backups">
         {checkpoints.map((item) => <label key={item.id} className={`media-replacement-option ${selected?.id === item.id ? 'selected' : ''}`}>
           <input type="radio" name="replacement-backup" disabled={Boolean(working || loading)} checked={selected?.id === item.id} onChange={() => setChosen(item.id)}/>
-          <span><strong className="media-replacement-filename">{item.previousOriginalName}</strong><small>{new Date(item.createdAt).toLocaleString()}{typeof item.retainedBytes === 'number' ? ` · ${(item.retainedBytes / 1024 / 1024).toFixed(1)} MB` : ''}</small></span>
+          <span><strong className="media-replacement-filename">{item.previousOriginalName}</strong><small>{typeof item.retainedBytes === 'number' ? t('dialogs.media.backupDateAndSize', { date: formatInterfaceDate(locale, item.createdAt, { time: true }), size: (item.retainedBytes / 1024 / 1024).toFixed(1) }) : formatInterfaceDate(locale, item.createdAt, { time: true })}</small></span>
         </label>)}
-        {!loading && !checkpoints.length && !error && <p>No replacement backups yet.</p>}
+        {!loading && !checkpoints.length && !error && <p>{t('dialogs.media.noBackups')}</p>}
       </div>
-      <p className="media-replacement-helper">Studio keeps up to five local backups. Delete one to make room; your current project stays intact.</p></>}
-      <MediaChangeMessage check={sourceCheck} error={error}/>
-      {(working || loading) && <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/><span>{working || 'Loading backups…'}</span></p>}
+      <p className="media-replacement-helper">{t('dialogs.media.backupHelp')}</p></>}
+      <MediaChangeMessage check={sourceCheck} error={error} errorIsServerText={errorIsServerText}/>
+      {(working || loading) && <p className="media-replacement-progress" role="status"><LoaderCircle size={16} className="spin"/><span>{working || t('dialogs.media.loadingBackups')}</span></p>}
       <div className="media-replacement-actions media-replacement-backup-actions">
-        <button ref={cancel} disabled={Boolean(working)} onClick={dismiss}>Close</button>
-        {sourceCheck ? <SourceCheckAction check={sourceCheck} returnFocus={() => cancel.current?.focus()}/> : <>{error && <button disabled={Boolean(working || loading)} onClick={reload}>Refresh backups</button>}
-        {selected && <button className="media-replacement-delete" disabled={Boolean(working || loading)} onClick={() => onDelete(selected)}>Delete backup</button>}
-        <button className="primary" disabled={!selected || Boolean(working || loading)} onClick={() => selected && onRestore(selected)}>Restore selected backup</button></>}
+        <button ref={cancel} disabled={Boolean(working)} onClick={dismiss}>{t('dialogs.media.close')}</button>
+        {sourceCheck ? <SourceCheckAction check={sourceCheck} returnFocus={() => cancel.current?.focus()}/> : <>{error && <button disabled={Boolean(working || loading)} onClick={reload}>{t('dialogs.media.refreshBackups')}</button>}
+        {selected && <button className="media-replacement-delete" disabled={Boolean(working || loading)} onClick={() => onDelete(selected)}>{t('dialogs.deleteBackup.confirm')}</button>}
+        <button className="primary" disabled={!selected || Boolean(working || loading)} onClick={() => selected && onRestore(selected)}>{t('dialogs.media.restoreSelected')}</button></>}
       </div>
     </div>
   </div>;

@@ -6,14 +6,168 @@ html:lang(km) :is(
   .home-ready-strip, .first-run-card, .home-ai-setup, .setup-warning,
   .recent, .project-name-button, .project-name-dialog, .header-actions,
   .caption-panel, .review-card, .transcribe-card, .first-watch, .toast-stack,
-  .ai-settings-body, .studio-confirm-dialog, .preview-version-badge
+  .ai-settings-body, .studio-confirm-dialog, .preview-version-badge,
+  .profile-modal, .privacy-upgrade-dialog, .contribution-prompt, .media-replacement-dialog
 ) :is(button, summary, a, label, p, span, strong, small, em, dt, dd, legend, h2, [role="alert"]),
 html:lang(km) :is(.home-tools > button, .empty-stage h1, .empty-stage .lead,
-  .dropzone, .upload-validation, .upload-storage-feedback, .home-ai-setup) {
+  .dropzone, .upload-validation, .upload-storage-feedback, .home-ai-setup, .review-focus-label) {
   letter-spacing: 0;
   text-transform: none;
   overflow-wrap: break-word;
   word-break: normal;
+}
+
+/* Phase C dialogs and settings need room for the complete localized labels. */
+html:lang(km) :is(
+  .profile-modal, .privacy-upgrade-dialog, .contribution-prompt, .media-replacement-dialog
+) :is(button, summary, a[href], select, textarea, label) {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+html:lang(km) .profile-modal :is(.ai-settings-actions button, .ai-section-title a) {
+  font-size: 14px !important;
+}
+
+html:lang(km) :is(
+  .profile-stats span, .topic-pack-section .section-title span, .topic-pack-section .muted-copy,
+  .profile-form-feedback, .doctor-intro span, .doctor-summary span, .doctor-check span,
+  .doctor-check em, .copy-report-recovery > span, .privacy-upgrade-hero p, .privacy-upgrade-fact small,
+  .privacy-upgrade-foot span, .privacy-upgrade-review-head small, .privacy-choice-helper span,
+  .privacy-control-note span, .privacy-destructive-row > span, .privacy-intro span,
+  .contribution-prompt-copy .contribution-prompt-detail,
+  .media-replacement-option small, .media-replacement-dialog .media-replacement-helper,
+  .unfinished-recovery-heading span, .unfinished-recovery-hint
+) {
+  font-size: 13px !important;
+  line-height: 1.55;
+}
+
+html:lang(km) :is(
+  .privacy-upgrade-kicker, .privacy-status-chip, .contributor-stats > div > span:last-child, .ai-settings-body .ai-status-pill
+) {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+html:lang(km) :is(.privacy-upgrade-fact strong, .media-replacement-dialog > p, .media-replacement-check > p) {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+html:lang(km) .privacy-upgrade-dialog:not(.review-mode) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  width: min(680px, 100%);
+  overflow: hidden;
+}
+
+html:lang(km) .privacy-upgrade-facts {
+  min-block-size: 0;
+  overflow: auto;
+}
+
+html:lang(km) .contribution-prompt-copy {
+  padding-inline-end: 40px;
+}
+
+html:lang(km) .contribution-prompt-copy .contribution-prompt-detail {
+  position: relative;
+  display: block;
+  padding-inline-start: 21px;
+}
+
+html:lang(km) .contribution-prompt-detail svg {
+  position: absolute;
+  inset-block-start: 0.2em;
+  inset-inline-start: 0;
+  margin-block-start: 0;
+}
+
+html:lang(km) :is(.native-preview-status, .native-preview-refining, .source-media-status) {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+html:lang(km) :is(.native-preview-status, .source-media-status) button,
+html:lang(km) :is(.regen-candidates summary, .regen-candidates article strong, .guide-shortcuts kbd) {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+html:lang(km) .regen-candidates article > div {
+  flex-wrap: wrap;
+}
+
+html:lang(km) :is(.regen-title-copy span, .regen-candidates article > div > span, .review-focus-label) {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+html:lang(km) .review-focus-label {
+  font-family: inherit;
+  inset-block-start: auto;
+  inset-block-end: calc(100% + 1px);
+}
+
+@media (max-height: 850px) {
+  html:lang(km) .privacy-upgrade-dialog:not(.review-mode) {
+    padding-block: 18px;
+  }
+
+  html:lang(km) .privacy-upgrade-hero {
+    padding-block-start: 0;
+  }
+
+  html:lang(km) :is(.privacy-upgrade-facts, .privacy-upgrade-actions) {
+    margin-block-start: 12px;
+  }
+}
+
+@media (min-width: 621px) and (max-height: 760px) {
+  html:lang(km) .privacy-upgrade-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  html:lang(km) .privacy-upgrade-action.tertiary {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  html:lang(km) :is(
+    .profile-modal, .privacy-upgrade-dialog, .contribution-prompt, .media-replacement-dialog,
+    .studio-confirm-dialog, .toast-stack
+  ) :is(button, summary, a[href], select) {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+
+  html:lang(km) .toast-stack .toast > button {
+    height: auto;
+  }
+
+  html:lang(km) .privacy-upgrade-mark {
+    width: 44px;
+    height: 44px;
+    margin-block-end: 10px;
+  }
+
+  html:lang(km) .privacy-upgrade-facts {
+    gap: 5px;
+    padding: 6px;
+  }
+
+  html:lang(km) .privacy-upgrade-fact {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    padding-block: 6px;
+  }
+
+  html:lang(km) .privacy-upgrade-fact > span:first-child {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 html:lang(km) :is(

@@ -177,9 +177,9 @@ export function NewUserGuide({
   const editingShortcuts = [
     [`${modifier}+S`, t('guide.shortcutSave')], [`${modifier}+F`, t('guide.shortcutFind')], ['Space', t('guide.shortcutPlay')],
     ['R', t('guide.shortcutReplay')], ['E', t('guide.shortcutEdit')], ['J', t('guide.shortcutJump')],
-    [`${mac ? 'Option' : 'Alt'}+Left / Right`, t('guide.shortcutNudge')],
+    [t('guide.shortcutNudgeKeys', { modifier: mac ? 'Option' : 'Alt' }), t('guide.shortcutNudge')],
   ];
-  const reviewShortcuts = [['Enter or A', t('guide.shortcutApprove')], ['S', t('guide.shortcutSkip')], ['Up / Down', t('guide.shortcutFlagged')]];
+  const reviewShortcuts = [[t('guide.shortcutApproveKeys'), t('guide.shortcutApprove')], ['S', t('guide.shortcutSkip')], [t('guide.shortcutFlaggedKeys'), t('guide.shortcutFlagged')]];
   return <aside ref={guide} className="new-user-guide" aria-label={t('guide.label')} onKeyDown={onKeyDown}>
     <header><div><HelpCircle size={18}/><span><strong>{t('guide.title')}</strong></span></div><button ref={closeButton} onClick={close} aria-label={t('guide.close')}><X size={16}/></button></header>
 

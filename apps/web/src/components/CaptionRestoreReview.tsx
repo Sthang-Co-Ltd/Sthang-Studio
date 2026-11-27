@@ -37,7 +37,7 @@ export function CaptionRestoreReview({ review, busy, importBlockedReason, onRead
       </div>)}
       {captions.length > 4 && <p>{t('export.restore.moreCaptions', { count: captions.length - 4 })}</p>}
     </div>
-    {review.preview.warnings?.map((warning, index) => <p key={index} className="caption-restore-warning">{warning}</p>)}
+    {review.preview.warnings?.map((warning, index) => <p key={index} className="caption-restore-warning" data-server-text>{warning}</p>)}
     {review.stale && <p className="caption-restore-warning" role="status">{t('export.restore.stale')}</p>}
     {importBlockedReason && <p id={blockedReasonId} className="caption-restore-warning" role="status">{importBlockedReason}</p>}
     <p>{t('export.restore.checkpoint')}</p>

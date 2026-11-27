@@ -49,7 +49,7 @@ for (const locale of ['en', 'km'] as const) test('Appearance and Fine timing ren
   await page.locator('.stage-rail [data-stage="appearance"]').click();
   const workspace = page.locator('.caption-appearance-workspace');
   await expect(workspace).toHaveAccessibleName(messages.appearance.workspace.title);
-  await expect(workspace.locator('.appearance-look-current')).toHaveText(messages.appearance.looks.current.replace('<b>{look}</b>', 'Clean'));
+  await expect(workspace.locator('.appearance-look-current')).toHaveText(messages.appearance.looks.current.replace('<b>{look}</b>', messages.looks.clean));
   await expect(workspace.locator('.appearance-number-control').getByRole('spinbutton', { name: messages.appearance.range.exact.replace('{label}', messages.appearance.workspace.size.toLocaleLowerCase('en')) })).toBeVisible();
   await expect(workspace.locator('.appearance-font-search')).toHaveAttribute('placeholder', messages.appearance.fontSearch.placeholder.replace('{count}', '27'));
   await expect(workspace.locator('.word-highlight-preparation')).toHaveAccessibleName(messages.appearance.highlight.results);

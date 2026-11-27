@@ -1,8 +1,9 @@
 import { useI18n } from '../i18n';
+import type { MessageKey, MessageParams } from '../i18n/types';
 import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { FileUp } from 'lucide-react';
 import { StudioBrand } from './Brand';
-import { createUploadRecoveryStore, matchingUploadFile, uploadTitle, UPLOAD_RECOVERY_PREFIX, type UploadRecoveryEntry, type UploadFileDetails } from '../upload-recovery';
+import { createUploadRecoveryStore, matchingUploadFile, uploadTitle, UPLOAD_RECOVERY_PREFIX, type UploadRecoveryEntry, type UploadRecoveryRead, type UploadFileDetails } from '../upload-recovery';
 import './upload-feedback.css';
 
 // These are candidate-file hints, never a claim that the bytes can be decoded.
@@ -21,13 +22,18 @@ function fileDrag(event: DragEvent<HTMLElement>) {
 
 export interface UploadRecoveryProject { id: string; title: string }
 export type UploadResult = { state: 'opened' }
-  | { state: 'not-created'; message: string; retryable?: boolean }
+  | { state: 'not-created'; message: string; retryable?: boolean; serverText?: boolean }
   | { state: 'uncertain'; message: string; project?: UploadRecoveryProject };
 export type UploadRecoveryResult = { state: 'found'; project: UploadRecoveryProject; message?: string }
   | { state: 'uncertain'; message: string };
 interface UploadAttempt { file: File | null; title: string; id: string; details: UploadFileDetails; entry: UploadRecoveryEntry | null; retryRejection?: string }
+type UploadMessage = { key: MessageKey; params?: MessageParams } | { text: string; serverText?: boolean };
+type UploadRecoveryState = Exclude<UploadResult, { state: 'opened' }>
+  | { state: 'uncertain'; message: UploadMessage; project?: UploadRecoveryProject };
 const restoredAttempt = (entry: UploadRecoveryEntry): UploadAttempt => ({ file: null, title: uploadTitle(entry.metadata.name), id: entry.metadata.id, details: entry.metadata, entry });
-const restoredResult = (message: string): Exclude<UploadResult, { state: 'opened' }> => ({ state: 'uncertain', message });
+const restoredResult = (): UploadRecoveryState => ({ state: 'uncertain', message: { key: 'home.upload.earlierNeedsCheck' } });
+const storageMessage = ({ error, errorMessage }: Pick<UploadRecoveryRead, 'error' | 'errorMessage'>): UploadMessage =>
+  errorMessage ?? { text: error };
 interface UploadProps {
   onUpload(file: File, title: string, attemptId: string): Promise<UploadResult>;
   onCheckAttempt?(attemptId: string): Promise<UploadRecoveryResult>;
@@ -48,13 +54,13 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
   const [recoveryStore] = useState(() => createUploadRecoveryStore(() => { try { return window.localStorage; } catch { return null; } }));
   const [initialRecovery] = useState(() => recoveryStore.read());
   const [reminders, setReminders] = useState(initialRecovery.entries);
-  const [storageError, setStorageError] = useState(initialRecovery.error);
+  const [storageFeedback, setStorageFeedback] = useState(() => storageMessage(initialRecovery));
   const [attempt, setAttempt] = useState<UploadAttempt | null>(() => initialRecovery.entries[0] ? restoredAttempt(initialRecovery.entries[0]) : null);
   const attemptRef = useRef(attempt); attemptRef.current = attempt;
   const actionRevision = useRef(0);
   const reselectOwner = useRef<{ id: string; revision: number; trigger: HTMLButtonElement } | null>(null);
   const [reselectionNotice, setReselectionNotice] = useState('');
-  const [recovery, setRecovery] = useState<Exclude<UploadResult, { state: 'opened' }> | null>(() => initialRecovery.entries.length ? restoredResult(t('home.upload.earlierNeedsCheck')) : null);
+  const [recovery, setRecovery] = useState<UploadRecoveryState | null>(() => initialRecovery.entries.length ? restoredResult() : null);
   const [recovering, setRecovering] = useState<'check' | 'open' | ''>('');
   const recoveryPending = useRef<{ revision: number; action: 'check' | 'open' } | null>(null);
   const mounted = useRef(true);
@@ -66,10 +72,14 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
   const statusId = useId();
   const recoveryId = useId();
   const feedback = disabledReason || validation;
+  const renderMessage = (message: UploadMessage | string) =>
+    typeof message === 'string' ? message : 'key' in message ? t(message.key, message.params) : message.text;
+  const storageError = renderMessage(storageFeedback);
+  const recoveryMessage = recovery && renderMessage(recovery.message);
   const clearDrag = () => { dragDepth.current = 0; setDrag(false); };
   const refreshReminders = () => {
     const read = recoveryStore.read(); setReminders(read.entries);
-    if (read.error) setStorageError(read.error);
+    if (read.error) setStorageFeedback(storageMessage(read));
     return read;
   };
   const activate = (next: UploadAttempt | null) => {
@@ -83,7 +93,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
         if (recoveryPending.current?.action === 'open') return; // Finish the deliberate navigation; never launch another upload beside it.
         if (current.file) {
           attemptRef.current = { ...current, entry: null }; setAttempt(attemptRef.current);
-          setStorageError(t('home.upload.reminderRemoved'));
+          setStorageFeedback({ key: 'home.upload.reminderRemoved' });
         } else {
           if (document.activeElement?.closest('.upload-recovery')) dropzone.current?.focus({ preventScroll: true });
           activate(null); recoveryPending.current = null; setRecovery(null); setRecovering('');
@@ -126,7 +136,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
     let captured = next;
     if (!captured.entry) {
       const saved = recoveryStore.keep(captured.details, captured.id);
-      captured = { ...captured, entry: saved.entry }; setStorageError(saved.error); refreshReminders();
+      captured = { ...captured, entry: saved.entry }; setStorageFeedback(storageMessage(saved)); refreshReminders();
     }
     activate(captured); const revision = actionRevision.current;
     setRecovery(null);
@@ -212,8 +222,8 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
     {attempt && recovery && <section id={recoveryId} className="upload-recovery" aria-labelledby={`${recoveryId}-title`}>
       <div role={recovery.state === 'not-created' ? 'alert' : 'status'} aria-live="polite" aria-atomic="true">
         <strong id={`${recoveryId}-title`}>{recovery.state === 'not-created' ? t('home.upload.notApplied') : recovery.project ? t('home.upload.found') : t('home.upload.unconfirmed')}</strong>
-        <p>{recovery.message}</p><p className="upload-recovery-filename">{attempt.details.name}</p>
-        {attempt.retryRejection && attempt.retryRejection !== recovery.message && <p>{attempt.retryRejection}</p>}
+        <p data-server-text={(recovery.state === 'not-created' && recovery.serverText) || undefined}>{recoveryMessage}</p><p className="upload-recovery-filename">{attempt.details.name}</p>
+        {attempt.retryRejection && attempt.retryRejection !== recoveryMessage && <p data-server-text>{attempt.retryRejection}</p>}
       </div>
       <div className="upload-recovery-actions">
         {recovery.state === 'uncertain' && recovery.project && onOpenRecovered && <button type="button" className="upload-recovery-primary" aria-disabled={busy || disabled || Boolean(recovering) || undefined} aria-busy={recovering === 'open' || undefined} onClick={() => void recover('open')}>{recovering === 'open' ? t('home.upload.openingSaved') : t('home.upload.openSaved')}</button>}
@@ -233,7 +243,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
         }}>{t('home.upload.startAnother')}</button>
         {attempt.entry && <button type="button" disabled={busy || disabled || Boolean(recovering)} onClick={() => {
           if (busy || disabled || submitting.current || recoveryPending.current) return;
-          if (!recoveryStore.remove(attempt.entry!)) { setStorageError(t('home.upload.forgetFailed')); return; }
+          if (!recoveryStore.remove(attempt.entry!)) { setStorageFeedback({ key: 'home.upload.forgetFailed' }); return; }
           dropzone.current?.focus({ preventScroll: true }); activate(null); setRecovery(null); refreshReminders();
         }}>{t('home.upload.forget')}</button>}
       </div>
@@ -245,7 +255,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
       <p>{t('home.upload.earlierHelp')}</p>
       <label>{t('home.upload.earlierLabel')}<select aria-label={t('home.upload.earlierLabel')} value="" disabled={busy || disabled || submitting.current || Boolean(recovering)} onChange={event => {
         const entry = reminders.find((item) => item.metadata.id === event.target.value); if (!entry || busy || disabled || submitting.current || recoveryPending.current) return;
-        activate(restoredAttempt(entry)); setRecovery(restoredResult(t('home.upload.earlierNeedsCheck')));
+        activate(restoredAttempt(entry)); setRecovery(restoredResult());
       }}><option value="">{t('home.upload.chooseEarlier')}</option>{reminders.filter((entry) => entry.metadata.id !== attempt?.id).map((entry) => <option key={entry.key} value={entry.metadata.id}>{entry.metadata.name}</option>)}</select></label>
     </details>}
     <input ref={ref} hidden disabled={blocked} type="file" accept="video/*,audio/*" onChange={event=>{

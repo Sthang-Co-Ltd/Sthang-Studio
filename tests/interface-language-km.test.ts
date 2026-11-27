@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
 import { en } from '../apps/web/src/i18n/messages/en/index.js';
 import { km } from '../apps/web/src/i18n/messages/km/index.js';
 import { pendingKhmerNamespaces } from '../apps/web/src/i18n/pending.js';
-import { pendingEnglishValues } from './khmer-catalog-coverage.js';
+import { khmerKeyboardTokens, pendingEnglishValues } from './khmer-catalog-coverage.js';
 
 type Catalog = { readonly [key: string]: string | Catalog };
 type PartialCatalog = { readonly [key: string]: string | PartialCatalog | undefined };
@@ -49,6 +50,14 @@ test('the pending allowlist contains complete English values only and disappears
     assert.ok(!pending.has('Close'));
   }
   assert.deepEqual(pendingEnglishValues([]), new Set());
+});
+
+test('coverage keyboard tokens match the glossary, plus F for Ctrl+F and Command+F', () => {
+  const glossary = readFileSync('docs/KHMER-UI-GLOSSARY.md', 'utf8');
+  const keyboardRule = glossary.split(/\r?\n/).find((line) => line.includes('Keyboard keys and symbols:'));
+  assert.ok(keyboardRule, 'The glossary lists the keyboard keys and symbols');
+  const glossaryKeys = [...keyboardRule.matchAll(/`([A-Za-z]+)`/g)].map(([, key]) => key);
+  assert.deepEqual([...khmerKeyboardTokens], [...glossaryKeys, 'F']);
 });
 
 test('every non-pending English namespace has a complete Khmer catalog', async (t) => {

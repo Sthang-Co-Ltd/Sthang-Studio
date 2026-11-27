@@ -37,8 +37,8 @@ This document fixes the terminology, tone, punctuation, and orthography for Stha
 ### Mixed-language text and Latin tokens
 - **Keep in Latin, untranslated:**
   - Products, services, and scripts/files: `Sthang Studio`, `Studio`, `CapCut`, `TikTok`, `Gemini`, `Google`, `Google AI Studio`, `Python`, `Install Sthang Studio.bat`, `setup-local-timing-windows.bat`, `bash ./setup-local-timing-macos.sh`, `apps/server/.env`, model names (`Gemini 3.8 Flash`, `3.6 Flash`, `3.7 Flash`, `Gemini 4 Hydrogen`, `Gemini Transcribe`).
-  - Formats and units: `SRT`, `MP4`, `MOV`, `MP3`, `WAV`, `AI`, `API`, `HD`, `4K`, `1080p`, `720p`, `fps`, `ms`, `MB`, `GB`, `QR`, `m:ss`, `h:mm:ss`.
-  - Keyboard keys and symbols: `Enter`, `A`, `R`, `S`, `E`, `J`, `Alt`, `Ctrl`, `Shift`, `Esc`, `Tab`, `Space`, `↑/↓`, `←/→`.
+  - Formats and units: `SRT`, `MP4`, `MOV`, `MP3`, `WAV`, `AI`, `API`, `HD`, `SDR`, `HDR`, `4K`, `1080p`, `720p`, `fps`, `ms`, `MB`, `GB`, `QR`, `m:ss`, `h:mm:ss`.
+  - Keyboard keys and symbols: `Enter`, `A`, `R`, `S`, `E`, `J`, `Alt`, `Ctrl`, `Shift`, `Esc`, `Tab`, `Space`, `Home`, `End`, macOS `Command` and `Option`, `↑/↓`, `←/→`. Arrow keys are written as the symbols, never as the English words Left, Right, Up or Down.
 - **Spacing:** Put **one ASCII space** before and after embedded Latin words and Western numbers inside Khmer text. Exceptions: immediately before `។`, `)`, `»`, `,`, `៖`, `?`, or `…`, or immediately after `(` or `«`.
 - **Word order:** Follow head-initial Khmer grammar (`ឯកសារ SRT`, `វីដេអូ MP4`, `កូនសោ API`, `2 ជួរ`, `អក្សររត់ {count} ឃ្លា`).
 - **Plurals:** Khmer has no grammatical plural. For every English `{ one, other }` plural key, provide **only** `{ other: "…" }`.
@@ -241,6 +241,44 @@ The web app already implements the Khmer UI typography layer separately from cap
 | Studio session | `វគ្គ Studio` | |
 | Keyboard keys | `Home`, `End` | Kept in Latin with Shift, Enter, Esc, Tab, Space. |
 
+### Phase C additions (Settings, Privacy, System check, dialogs, notices, server labels, Looks)
+
+| English | Khmer | Note |
+|---|---|---|
+| Profile / Privacy / AI connection | `ប្រវត្តិរូប` / `ឯកជនភាព` / `ការតភ្ជាប់ AI` | Settings tabs. |
+| Topic pack(s) | `កញ្ចប់ប្រធានបទ` | Reusable accuracy context and key terms. |
+| Correction events / Correction memory | `កំណត់ត្រាកែតម្រូវ` / `ការចងចាំការកែតម្រូវ` | |
+| Khmer Caption Contributor | `អ្នករួមចំណែកអក្សររត់ខ្មែរ` | Programme name; quoted as «អ្នករួមចំណែក…» in prose. |
+| Product analytics | `ការវិភាគផលិតផល` | Always kept distinct from Contributor. |
+| Eligible corrections | `ការកែតម្រូវដែលត្រូវលក្ខខណ្ឌ` | Keeps the eligibility boundary in consent copy. |
+| Random installation ID | `លេខសម្គាល់ការដំឡើងចៃដន្យ` | Do not imply anonymity beyond the English. |
+| Request deletion | `ស្នើសុំលុបទិន្នន័យ` | A request to the service, distinct from immediate `លុប`. |
+| Permanently delete | `លុបជារៀងរហូត` | Distinct from Move to Recently deleted. |
+| Diagnostic report | `របាយការណ៍ពិនិត្យប្រព័ន្ធ` | |
+| Draft / Discard draft | `សេចក្ដីព្រាង` / `បោះចោលសេចក្ដីព្រាង` | Discard is distinct from Delete (`លុប`) and Cancel (`បោះបង់`). |
+| Recovery (unfinished edits) / Recovery copy / Recovery draft | `ការសង្គ្រោះ` / `ច្បាប់ចម្លងសង្គ្រោះ` / `សេចក្ដីព្រាងសង្គ្រោះ` | **Orchestrator ruling:** recovery nouns use `សង្គ្រោះ`, never `យក…មកវិញ`. The verb in "Restore draft" and "restoring this draft" follows the button: `ស្ដារសេចក្ដីព្រាង`. `ស្ដារ` remains the verb for projects, versions and backups. |
+| Timing cleanup / Safe timing cleanup | `ការកែពេលវេលា` / `ការកែពេលវេលាដោយសុវត្ថិភាព` | **Orchestrator ruling:** matches the Review button «កែពេលវេលាដោយសុវត្ថិភាព» (`review.card.fixTiming`, "Fix safe timing") that starts it, and the History source `timing-fix` (`កែពេលវេលា`). Never `ការសម្អាតពេលវេលា` or `ការកែសម្រួលពេលវេលា`. |
+| Replacement backup(s) | `ឯកសារបម្រុងទុកនៃការជំនួស` | **Orchestrator ruling:** with `នៃ`. |
+| Clear captions (reset) | `លុបសម្អាតអក្សររត់` | Distinct from Khmer spacing cleanup (`សម្អាតការដកឃ្លាខ្មែរ`). |
+| Transcript | `អត្ថបទបំប្លែងពីសំឡេង` | Distinct from captions (`អក្សររត់`). |
+| Decode (media) | `ឌីកូដ` | |
+| On disk | `លើថាសផ្ទុក` | Contrasts with `ក្នុងផ្ទាំងកែសម្រួល` (in the editor). |
+| Final storage flush | `ការសរសេរចុងក្រោយចូលកន្លែងផ្ទុក` | |
+| Index (saved projects) | `បញ្ជីសន្ទស្សន៍` | |
+| History checkpoint labels | `មុន…` | Pattern: `មុនអនុវត្តការបន្លិចពាក្យ` for "Before applying word highlights". A notice that quotes a checkpoint label must quote the `server.historyLabel` Khmer exactly. |
+| Strict acoustic pass / Context-aware pass / Initial proposal | `ការស្ដាប់តាមសំឡេងសុទ្ធ` / `ការស្ដាប់ដោយប្រើព័ត៌មានបន្ថែម` / `សំណើដំបូង` | Compare candidate labels. |
+| Interrupted (job) | `ផ្អាកកណ្ដាលទី` | Matches the Phase B Activity status. |
+| Retry playback | `ព្យាយាមចាក់ម្ដងទៀត` | The notices already instruct this phrase; the button must match. |
+| Browser playback / Playback preparation / Local playback copy | `ការចាក់ក្នុងកម្មវិធីរុករក` / `ការរៀបចំការចាក់` / `ច្បាប់ចម្លងសម្រាប់ចាក់លើម៉ាស៊ីន` | Media canvas; never name codecs or transcoding. |
+| Prepare playback / Check progress / Cancel preparation | `រៀបចំការចាក់` / `ពិនិត្យវឌ្ឍនភាព` / `បោះបង់ការរៀបចំ` | |
+| Caption preview / Retry preview / Effect preview | `ការមើលអក្សររត់ជាមុន` / `ព្យាយាមមើលជាមុនម្ដងទៀត` / `ការមើលបែបផែនជាមុន` | |
+| Interactive preview | `មើលជាមុនផ្ទាល់` | Creator-verify. |
+| Reviewing (video focus label) | `កំពុងពិនិត្យ` | Compact; no wrapping. |
+| Preview resolution / Local image limit / Frame(s) | `កម្រិតភាពច្បាស់មើលជាមុន` / `ដែនកំណត់រូបភាពលើម៉ាស៊ីន` / `ហ្វ្រេម` | "Smaller resolution" is `ទាបជាងនេះ`. |
+| Discard (a recovery copy or draft) | `បោះចោល` | Never `បោះបង់` (Cancel). |
+| Look names: Clean / Bold Outline / Soft Shadow / Solid Box / High Contrast / Soft Glow | `សាមញ្ញស្អាត` / `ស៊ុមអក្សរក្រាស់` / `ស្រមោលទន់` / `ប្រអប់ផ្ទៃងងឹត` / `ពណ៌ដាច់ច្បាស់` / `ពន្លឺជុំវិញស្រាល` | Creator-verify (§4). |
+| Commands in instructions | — | A command, file name or path must not end a sentence that carries `។`, because users copy it. Reorder so the command sits mid-sentence. |
+
 ---
 
 ## 4. To verify with creators
@@ -261,6 +299,12 @@ Validate these terms in a short comprehension check with Cambodian short-form cr
 12. **Resolution** (`កម្រិតភាពច្បាស់`) vs `ទំហំរូបភាព`.
 13. **Motion names** (`លេចបាត់` / `រំកិលឡើង` / `លោតស្រាល`) and whether the six Look names should also be localized.
 14. **Recently deleted** (`បានលុបថ្មីៗ`) and **Regex** kept in Latin.
+15. **Look names**, now localized: `សាមញ្ញស្អាត` (Clean), `ស៊ុមអក្សរក្រាស់` (Bold Outline), `ស្រមោលទន់` (Soft Shadow), `ប្រអប់ផ្ទៃងងឹត` (Solid Box), `ពណ៌ដាច់ច្បាស់` (High Contrast), `ពន្លឺជុំវិញស្រាល` (Soft Glow). Alternatives: `ស្អាតសាមញ្ញ`, `លេចច្បាស់ខ្លាំង`.
+16. **Khmer Caption Contributor** (`អ្នករួមចំណែកអក្សររត់ខ្មែរ`) vs `កម្មវិធីរួមចំណែកអក្សររត់ខ្មែរ`, and the short CTA "Help improve Khmer" (`ជួយកែលម្អភាសាខ្មែរ`).
+17. **Topic packs** (`កញ្ចប់ប្រធានបទ`) and **Diagnostic report** (`របាយការណ៍ពិនិត្យប្រព័ន្ធ`).
+18. **Recovery** (`ការសង្គ្រោះ`) for unfinished edits, and **Index** (`បញ្ជីសន្ទស្សន៍`) vs `បញ្ជីលំដាប់គម្រោង`.
+19. **Compare candidate labels** (`ការស្ដាប់តាមសំឡេងសុទ្ធ` / `ការស្ដាប់ដោយប្រើព័ត៌មានបន្ថែម`).
+20. **Decode** (`ឌីកូដ`) and **final storage flush** (`ការសរសេរចុងក្រោយចូលកន្លែងផ្ទុក`) for non-technical users.
 
 ---
 

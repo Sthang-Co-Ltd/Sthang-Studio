@@ -263,5 +263,5 @@ test('App routes both caption-save branches and same-media publications through 
   assert.ok(drained >= 0 && acknowledged > drained);
   assert.doesNotMatch(basis, /target\.transcriptionContext/);
   assert.match(basis, /JSON\.stringify\(accuracyDraft\.current\.fields\) !== contextSnapshot/);
-  assert.ok(basis.indexOf('const contextPublished = publishContextProject') < basis.indexOf("throw new Error('The project changed while saving Accuracy context"));
+  assert.ok(basis.indexOf('const contextPublished = publishContextProject') < basis.indexOf("throw new Error(t('notices.media.projectChangedWhileSavingAccuracy')"));
 });
