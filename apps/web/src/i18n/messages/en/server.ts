@@ -15,6 +15,10 @@ export const serverMessages = {
     cancelled: 'This job was cancelled.',
     failed: 'This job could not finish.',
   },
+  // Khmer mode only: an interrupted job that offers Resume.
+  resumable: {
+    interrupted: 'This job stopped before it finished. Choose Resume to continue. Saved progress is used where possible.',
+  },
   stageName: {
     queued: 'queued',
     starting: 'starting',
