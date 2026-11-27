@@ -94,7 +94,7 @@ for (const locale of ['en', 'km'] as const) test('Project tools render catalog c
   await expect(page.getByText(messages.library.binEmpty, { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: messages.home.launcher.settings, exact: true }).click();
-  await page.getByRole('button', { name: 'System check', exact: true }).click();
+  await page.getByRole('button', { name: messages.settings.tabs.doctor, exact: true }).click();
   await expect(page.getByRole('region', { name: messages.library.storageLabel, exact: true }).getByRole('status'))
     .toHaveText(messages.library.storageCompleted.replace('{loaded}', '2').replace('{readable}', '2'));
   expect(errors).toEqual([]);
