@@ -67,6 +67,10 @@ html:lang(km) .privacy-upgrade-facts {
   overflow: auto;
 }
 
+html:lang(km) .contribution-prompt-copy {
+  padding-inline-end: 40px;
+}
+
 html:lang(km) .contribution-prompt-copy .contribution-prompt-detail {
   position: relative;
   display: block;

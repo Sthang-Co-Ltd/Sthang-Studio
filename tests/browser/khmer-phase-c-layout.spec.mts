@@ -197,6 +197,11 @@ for (const viewport of viewports) {
     const boundary = invitation.locator('.contribution-prompt-detail');
     await expect(boundary).toHaveText(km.privacy.invitation.detail.replace(/<\/?b>/g, ''));
     await expect(boundary.locator('b')).toHaveCSS('display', 'inline');
+    const title = await invitation.locator('.contribution-prompt-copy > strong').boundingBox();
+    const dismiss = await invitation.getByRole('button', { name: km.privacy.invitation.dismiss, exact: true }).boundingBox();
+    expect(title).not.toBeNull();
+    expect(dismiss).not.toBeNull();
+    expect(title!.x + title!.width, 'Invitation title clears the dismiss button').toBeLessThanOrEqual(dismiss!.x - 4);
     await capture('contribution-invitation', '.contribution-prompt');
   });
 
