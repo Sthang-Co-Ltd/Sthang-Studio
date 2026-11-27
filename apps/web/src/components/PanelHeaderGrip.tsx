@@ -1,7 +1,8 @@
+import { useI18n } from '../i18n';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { GripVertical } from 'lucide-react';
-import { EDITOR_LAYOUT_CHANGE, moveEditorPane, PANE_LABELS, visibleEditorPanes, type EditorPane } from '../editor-layout-state';
+import { EDITOR_LAYOUT_CHANGE, moveEditorPane, visibleEditorPanes, type EditorPane } from '../editor-layout-state';
 
 interface HeaderContext {
   enabled: boolean;
@@ -10,19 +11,27 @@ interface HeaderContext {
 export const PanelHeaderDragContext = createContext<HeaderContext | null>(null);
 
 export function PanelHeaderGrip({ pane, children }: { pane: EditorPane; children: string }) {
+  const { t } = useI18n();
   const context = useContext(PanelHeaderDragContext);
-  const label = `${children} panel`;
+  const label = t('editor.panel.label', { panel: children });
   return <h2 className="panel-heading" aria-label={label}>
     {context?.enabled ? <button type="button" className="editor-pane-grip" data-editor-layout-control
       aria-label={label} aria-describedby="panel-reorder-hint" aria-keyshortcuts="ArrowLeft ArrowRight Home End"
-      title="Drag to move this panel. Arrow keys move it left or right." {...context.bindings(pane)}>
+      title={t('editor.panel.drag')} {...context.bindings(pane)}>
       <GripVertical size={14} aria-hidden="true"/><strong>{children}</strong>
     </button> : <strong>{children}</strong>}
   </h2>;
 }
 
+const PANE_MESSAGE_KEYS = {
+  preview: 'editor.panel.preview',
+  captions: 'editor.panel.captions',
+  inspector: 'editor.panel.tool',
+} as const;
+
 export function PanelDragGhost({ pane, x, y, portal = false }: { pane: EditorPane; x: number; y: number; portal?: boolean }) {
-  const element = <div className="editor-panel-ghost" aria-hidden="true" style={{ left: Math.max(8, Math.min(x + 12, window.innerWidth - 136)), top: Math.max(8, Math.min(y + 12, window.innerHeight - 56)) }}><GripVertical size={15}/>{PANE_LABELS[pane]}</div>;
+  const { t } = useI18n();
+  const element = <div className="editor-panel-ghost" aria-hidden="true" style={{ left: Math.max(8, Math.min(x + 12, window.innerWidth - 136)), top: Math.max(8, Math.min(y + 12, window.innerHeight - 56)) }}><GripVertical size={15}/>{t(PANE_MESSAGE_KEYS[pane])}</div>;
   return portal ? createPortal(element, document.body) : element;
 }
 
@@ -46,6 +55,7 @@ const paneSelectors = { preview: '.stage-column', captions: '.caption-panel', in
 
 /** Move the actual panes using transforms; the committed grid and DOM ancestry stay stable. */
 export function usePanelHeaderDrag(options: Options) {
+  const { t } = useI18n();
   const current = useRef(options); current.current = options;
   const gesture = useRef<Gesture | null>(null);
   const [pending, setPending] = useState(false);
@@ -120,7 +130,7 @@ export function usePanelHeaderDrag(options: Options) {
     drag.root.dataset.headerDropValid = String(valid);
   }
   function announce(order: EditorPane[]) {
-    setAnnouncement(`From left: ${visibleEditorPanes(order, current.current.open).map((pane) => PANE_LABELS[pane]).join(', ')}.`);
+    setAnnouncement(t('editor.panel.order', { panels: visibleEditorPanes(order, current.current.open).map((pane) => t(PANE_MESSAGE_KEYS[pane])).join(', ') }));
   }
   function finish(commit: boolean, x?: number, y?: number, animate = true) {
     const drag = gesture.current;
@@ -139,7 +149,7 @@ export function usePanelHeaderDrag(options: Options) {
     if (valid && current.current.change(drag.draft)) { landing.current = { rects, source }; announce(drag.draft); }
     else {
       if (animate && matching && (drag.active || Math.hypot(drag.offsetX, drag.offsetY) > .5)) settle(rects, source);
-      if (drag.active) setAnnouncement(valid ? 'Panel kept in place.' : 'Panel move cancelled.');
+      if (drag.active) setAnnouncement(valid ? t('editor.panel.kept') : t('editor.panel.cancelled'));
     }
   }
   const finishRef = useRef(finish); finishRef.current = finish;

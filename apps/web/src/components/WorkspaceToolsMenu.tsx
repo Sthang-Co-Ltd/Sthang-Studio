@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useSurfacePresence } from '../use-surface-presence';
 import { useMenuKeyboard } from '../use-menu-keyboard';
@@ -55,6 +56,7 @@ export function WorkspaceToolsMenu({
   onSettings,
   onUpdates,
 }: WorkspaceToolsMenuProps) {
+  const { t } = useI18n();
   const details = useRef<HTMLDetailsElement | null>(null);
   const popover = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -113,7 +115,7 @@ export function WorkspaceToolsMenu({
   const attentionCount = activeJobs + pendingCorrections + (llmConfigured ? 0 : 1);
 
   return <details ref={details} className="workspace-tools-menu" open={presence.present} data-menu-open={open}>
-    <summary aria-label="Open project tools" aria-haspopup="menu" aria-controls={menuId} aria-expanded={open}
+    <summary data-project-tools-trigger aria-label={t('editor.tools.open')} aria-haspopup="menu" aria-controls={menuId} aria-expanded={open}
       onKeyDown={(event) => {
         if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229 && !event.getModifierState('AltGraph')
           && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
@@ -125,30 +127,30 @@ export function WorkspaceToolsMenu({
         if (open) event.currentTarget.focus({ preventScroll: true }); else keyboard.openAt('first');
         setOpen((value) => !value);
       }}>
-      <SlidersHorizontal size={16}/><span>Tools</span>
+      <SlidersHorizontal size={16}/><span>{t('editor.tools.title')}</span>
       {attentionCount > 0 && <b className="tool-badge">{attentionCount}</b>}
     </summary>
-    <div ref={popover} id={menuId} className="workspace-tools-popover" role="menu" aria-label="Project tools" onKeyDown={keyboard.onKeyDown} data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined}>
+    <div ref={popover} id={menuId} className="workspace-tools-popover" role="menu" aria-label={t('editor.tools.menu')} onKeyDown={keyboard.onKeyDown} data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined}>
       <div className="tools-menu-section">
-        <span>Edit and review</span>
-        <button role="menuitem" aria-keyshortcuts="Control+F Meta+F" onClick={() => run(onCorrect)}><Search size={16}/><span><b>Correct everywhere</b><small>Find and correct repeated wording</small></span><kbd aria-hidden="true">{navigator.platform.toLowerCase().includes('mac') ? '⌘ F' : 'Ctrl F'}</kbd></button>
-        <button role="menuitem" onClick={() => run(onHistory)}><History size={16}/><span><b>History</b><small>Restore an earlier checkpoint</small></span></button>
+        <span>{t('editor.tools.editReview')}</span>
+        <button role="menuitem" aria-keyshortcuts="Control+F Meta+F" onClick={() => run(onCorrect)}><Search size={16}/><span><b>{t('editor.tools.correct')}</b><small>{t('editor.tools.correctHelp')}</small></span><kbd aria-hidden="true">{navigator.platform.toLowerCase().includes('mac') ? '⌘ F' : 'Ctrl F'}</kbd></button>
+        <button role="menuitem" onClick={() => run(onHistory)}><History size={16}/><span><b>{t('editor.tools.history')}</b><small>{t('editor.tools.historyHelp')}</small></span></button>
       </div>
       <div className="tools-menu-section">
-        <button role="menuitem" onClick={() => run(onJobs)}><ListTodo size={16}/><span><b>Activity</b><small>Processing jobs</small></span>{activeJobs > 0 && <em>{activeJobs} active</em>}</button>
-        <button role="menuitem" onClick={() => run(onCorrections)}><BookOpenCheck size={16}/><span><b>Correction inbox</b><small>Approve what Studio should remember</small></span>{pendingCorrections > 0 && <em>{pendingCorrections}</em>}</button>
+        <button role="menuitem" onClick={() => run(onJobs)}><ListTodo size={16}/><span><b>{t('editor.tools.activity')}</b><small>{t('editor.tools.activityHelp')}</small></span>{activeJobs > 0 && <em>{t('editor.tools.activeJobs', { count: activeJobs })}</em>}</button>
+        <button role="menuitem" onClick={() => run(onCorrections)}><BookOpenCheck size={16}/><span><b>{t('editor.tools.corrections')}</b><small>{t('editor.tools.correctionsHelp')}</small></span>{pendingCorrections > 0 && <em>{pendingCorrections}</em>}</button>
       </div>
       <div className="tools-menu-section">
-        <span>Project and setup</span>
-        {technicalDetailsAvailable && onTechnicalDetails && <button role="menuitem" onClick={() => run(onTechnicalDetails)}><Info size={16}/><span><b>Technical details</b><small>Timing and model information</small></span></button>}
-        <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>Replace media</b><small>{replaceDisabled ? 'Finish current work first' : 'Choose whether to keep reviewed captions'}</small></span></button>
-        <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onUndoMedia)}><RotateCcw size={16}/><span><b>Undo media replacement</b><small>Restore or manage saved source backups</small></span></button>
+        <span>{t('editor.tools.projectSetup')}</span>
+        {technicalDetailsAvailable && onTechnicalDetails && <button role="menuitem" onClick={() => run(onTechnicalDetails)}><Info size={16}/><span><b>{t('editor.tools.technical')}</b><small>{t('editor.tools.technicalHelp')}</small></span></button>}
+        <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>{t('editor.tools.replace')}</b><small>{replaceDisabled ? t('editor.tools.replaceBlocked') : t('editor.tools.replaceHelp')}</small></span></button>
+        <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onUndoMedia)}><RotateCcw size={16}/><span><b>{t('editor.tools.undoReplace')}</b><small>{t('editor.tools.undoReplaceHelp')}</small></span></button>
         {editorPopoverAvailable() && <button type="button" role="menuitem" className="tools-menu-arrange" disabled={!layoutWide} onClick={() => run((anchor) => {
           if (anchor) onArrangePanels(anchor);
-        })}><PanelsTopLeft size={16}/><span><b>Arrange panels…</b></span></button>}
-        <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Guide</b></span></button>
-        <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>Updates</b></span></button>
-        <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>Settings</b><small>{llmConfigured ? 'AI, profile, privacy, and system' : 'AI key setup needed'}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>
+        })}><PanelsTopLeft size={16}/><span><b>{t('editor.tools.arrange')}</b></span></button>}
+        <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>{t('editor.tools.guide')}</b></span></button>
+        <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>{t('editor.tools.updates')}</b></span></button>
+        <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>{t('editor.tools.settings')}</b><small>{llmConfigured ? t('editor.tools.settingsHelp') : t('editor.tools.settingsNeeded')}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>
       </div>
     </div>
   </details>;

@@ -230,6 +230,8 @@ function normalizeProfile(value: unknown): AppProfile {
 
   const preferences: AppProfile['preferences'] = raw.preferences && typeof raw.preferences === 'object'
     ? {
+      ...(raw.preferences.interfaceLanguage === 'en' || raw.preferences.interfaceLanguage === 'km'
+        ? { interfaceLanguage: raw.preferences.interfaceLanguage } : {}),
       reviewPreRollMs: Math.max(0, Math.min(3000, Number(raw.preferences.reviewPreRollMs ?? 450))),
       reviewPostRollMs: Math.max(0, Math.min(3000, Number(raw.preferences.reviewPostRollMs ?? 300))),
       autoLoopReview: raw.preferences.autoLoopReview !== false,

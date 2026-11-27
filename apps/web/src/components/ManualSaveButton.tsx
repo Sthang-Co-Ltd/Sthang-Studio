@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Check, Save } from 'lucide-react';
 
@@ -49,13 +50,14 @@ export function useManualSaveFeedback(scope: object, unfinished: boolean) {
 }
 
 export function ManualSaveButton({ unfinished, disabled, confirmed, pending, title, onSave }: Props) {
+  const { t } = useI18n();
   const showConfirmation = confirmed && !unfinished;
   const unavailable = disabled || pending;
   return <button className="save-action" aria-disabled={unavailable || undefined} tabIndex={unavailable ? -1 : 0} data-tooltip={title} data-tooltip-shortcut="Ctrl S" aria-keyshortcuts="Control+S Meta+S"
     data-save-confirmed={showConfirmation || undefined} aria-busy={pending || undefined}
     onClick={() => { if (!unavailable) onSave(); }}>
     <span className="save-action-icon" aria-hidden="true"><Save size={16}/><Check size={16}/></span>
-    <span className="save-action-label">{unfinished ? 'Save' : 'Saved'}</span>
-    <span className="sr-only" role="status">{showConfirmation ? 'Changes saved.' : ''}</span>
+    <span className="save-action-label">{unfinished ? t('editor.save.save') : t('editor.save.saved')}</span>
+    <span className="sr-only" role="status">{showConfirmation ? t('editor.save.confirmed') : ''}</span>
   </button>;
 }

@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
@@ -6,6 +7,7 @@ import './project-identity.css';
 
 /** The compact header name remains inspectable with pointer, keyboard or touch. */
 export function ProjectIdentity({ title, filename, status, onRename }: { title: string; filename: string; status: string; onRename?: RenameProject }) {
+  const { t } = useI18n();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -77,19 +79,19 @@ export function ProjectIdentity({ title, filename, status, onRename }: { title: 
     };
   }, [open]);
   return <div className="project-title inspectable-project-title">
-    <button ref={trigger} type="button" className="project-name-button" aria-label="Project details" aria-describedby={`${id}-name`} aria-haspopup="dialog" data-project-entry-focus
+    <button ref={trigger} type="button" className="project-name-button" aria-label={t('editor.identity.details')} aria-describedby={`${id}-name`} aria-haspopup="dialog" data-project-entry-focus
       aria-expanded={open} aria-controls={open ? id : undefined} data-tooltip={open ? undefined : `${title}\n${filename}`}
       onClick={() => { if (open) close(false); else setOpen(true); }}>
       <strong id={`${id}-name`}>{title}</strong><span className="project-name-compact" aria-hidden="true"><span>{title}</span></span><ChevronDown size={16} aria-hidden="true"/>
     </button>
     <span className="project-file-status">{filename} · {status}</span>
     {open && createPortal(<section ref={panel} id={id} role="dialog" aria-labelledby={`${id}-heading`} className="project-name-dialog" style={position}>
-      <div className="project-name-dialog-head"><strong id={`${id}-heading`}>Project details</strong><button ref={closeButton} type="button" aria-label="Close project details" onClick={() => close(true)}><X size={16}/></button></div>
+      <div className="project-name-dialog-head"><strong id={`${id}-heading`}>{t('editor.identity.details')}</strong><button ref={closeButton} type="button" aria-label={t('editor.identity.close')} onClick={() => close(true)}><X size={16}/></button></div>
       {editing && onRename && <div className="project-name-edit"><ProjectRenameForm title={title} onRename={onRename}
         input={renameInput} busy={savingName} onClose={finishRename}/></div>}
-      <dl>{!editing && <><dt>Project name</dt><dd>{title}</dd></>}<dt>Source file</dt><dd>{filename}</dd></dl>
+      <dl>{!editing && <><dt>{t('editor.identity.name')}</dt><dd>{title}</dd></>}<dt>{t('editor.identity.source')}</dt><dd>{filename}</dd></dl>
       {!editing && onRename && <div className="project-name-actions"><button ref={renameButton} type="button"
-        className="studio-confirm-cancel" onClick={() => setEditing(true)}>Rename</button></div>}
+        className="studio-confirm-cancel" onClick={() => setEditing(true)}>{t('editor.identity.rename')}</button></div>}
     </section>, document.body)}
   </div>;
 }

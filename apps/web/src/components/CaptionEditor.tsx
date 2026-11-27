@@ -1,3 +1,4 @@
+import { translate, useI18n } from '../i18n';
 import {
   forwardRef,
   useCallback,
@@ -23,7 +24,7 @@ import {
   Scissors,
   Trash2,
 } from 'lucide-react';
-import type { ReviewIssue } from '../review';
+import type { ReviewIssue, ReviewReason } from '../review';
 import { MIN_CAPTION_MS } from '../timing-edit';
 import { PanelHeaderGrip } from './PanelHeaderGrip';
 import { CaptionRow, type CaptionRowEvent } from './CaptionRow';
@@ -70,6 +71,18 @@ interface PendingViewportRestore {
   fallbackScrollTop: number;
 }
 
+// Match the three notices the single-caption timing planner can return.
+const timingLimitMessages = new Map(([
+  'editor.captions.timingStart',
+  'editor.captions.timingEnd',
+  'editor.captions.timingNeighbor',
+] as const).map((key) => [translate('en', key), key] as const));
+
+function timingLimitCopy(t: ReturnType<typeof useI18n>['t'], notice: string) {
+  const key = timingLimitMessages.get(notice);
+  return key ? t(key) : notice;
+}
+
 export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>(function CaptionEditor({
   captions,
   active,
@@ -89,7 +102,9 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
   onReviewComplete,
   onEditingChange,
 }, ref) {
+  const { t, tn, tr } = useI18n();
   const list = useRef<HTMLDivElement | null>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
   const rows = useRef<Record<string, HTMLDivElement | null>>({});
   const textareas = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const focusText = useRef<Record<string, string>>({});
@@ -133,7 +148,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (opener.isConnected) return;
     // Split/delete may remove the trigger. Continue on the resulting selection.
     const next = selectedIds.find((id) => rows.current[id]) || visible[0]?.id;
-    const fallback = next ? rows.current[next]?.querySelector<HTMLButtonElement>('.row-more') : list.current?.parentElement?.querySelector<HTMLButtonElement>('[aria-label="Add caption"]');
+    const fallback = next ? rows.current[next]?.querySelector<HTMLButtonElement>('.row-more') : addButton.current;
     fallback?.focus({ preventScroll: true });
   }, [openMenuId, selectedIds, visible]);
   const captionIndexMap = useMemo(() => {
@@ -483,7 +498,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (!caption || caption.timingLocked) return false;
     const edge = value.startMs !== undefined ? 'start' : 'end';
     const result = planCaptionTimingEdit(captions, caption.id, edge, value.startMs ?? value.endMs!, mediaLimit, {}, preparedTiming);
-    if (result.limited) onNotice?.(result.limited);
+    if (result.limited) onNotice?.(timingLimitCopy(t, result.limited));
     if (!result.after.length) return false;
     onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
     return true;
@@ -513,7 +528,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const caption = captions[index];
     if (!caption || caption.textLocked || caption.timingLocked) return;
     const divided = splitCaptionForEditing(caption, crypto.randomUUID(), crypto.randomUUID());
-    if (!divided) { onNotice?.('This caption is too short to split safely.'); return; }
+    if (!divided) { onNotice?.(t('editor.captions.tooShortToSplit')); return; }
     const [first, second] = divided;
     preserveViewport(caption.id, first.id, () => {
       onChange([...captions.slice(0, index), first, second, ...captions.slice(index + 1)], selected.has(caption.id) ? first.id : undefined, 'structure');
@@ -538,7 +553,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const caption = captions[index];
     if (!caption || caption.timingLocked) return;
     const result = planCaptionTimingEdit(captions, caption.id, 'move', delta, mediaLimit, {}, preparedTiming);
-    if (result.limited) onNotice?.(result.limited);
+    if (result.limited) onNotice?.(timingLimitCopy(t, result.limited));
     if (result.after.length) {
       onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
       onEditCommit?.();
@@ -551,7 +566,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const knownDuration = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0 ? Math.floor(durationMs) : null;
     const endMs = knownDuration === null ? startMs + 1500 : Math.min(startMs + 1500, knownDuration);
     if (endMs - startMs < MIN_CAPTION_MS) {
-      onNotice?.('There is no room for another caption at the end. Shorten the last caption or split an existing caption.');
+      onNotice?.(t('editor.captions.noRoom'));
       return;
     }
     const id = crypto.randomUUID();
@@ -639,6 +654,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (typeof window !== 'undefined' && import.meta.env?.DEV) {
       (window as unknown as { __STHANG_TEST_HOOKS__?: { onCaptionListBuild?: (count: number) => void } }).__STHANG_TEST_HOOKS__?.onCaptionListBuild?.(visible.length);
     }
+    const reasonLabel = (reason: ReviewReason | undefined) => reason && t(`review.reason.${reason.code}.label`, reason.params);
     return visible.map((caption) => {
         const index = captionIndexMap.get(caption.id) ?? -1;
         const issue = issueMap.get(caption.id);
@@ -646,48 +662,48 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
         const nextCaption = captions[index + 1];
         const hiddenNeighbor = reviewMode && nextCaption && !reviewIncludes(nextCaption);
         const nextLocked = captions[index + 1]?.textLocked || captions[index + 1]?.timingLocked;
-        const mergeHint = hiddenNeighbor ? `Show all captions to merge with caption ${index + 2}` : destructiveLocked && nextLocked ? 'Unlock both captions first' : destructiveLocked ? 'Unlock this caption first' : nextLocked ? 'Unlock the next caption first' : '';
+        const mergeHint = hiddenNeighbor ? t('editor.captions.showAllToMerge', { number: index + 2 }) : destructiveLocked && nextLocked ? t('editor.captions.unlockBoth') : destructiveLocked ? t('editor.captions.unlockThis') : nextLocked ? t('editor.captions.unlockNext') : '';
         return <CaptionRow key={caption.id} caption={caption} index={index}
           active={active === caption.id} selected={selected.has(caption.id)} reviewMode={reviewMode}
           lower={neighborLimits.get(caption.id)?.lower ?? 0} upper={neighborLimits.get(caption.id)?.upper ?? durationMs}
           wordNeedsReview={wordsNeedingReview.has(caption.id)}
           issueSeverity={issue?.severity}
-          firstReason={issue?.reasons[0]?.label} secondReason={issue?.reasons[1]?.label} thirdReason={issue?.reasons[2]?.label}
+          firstReason={reasonLabel(issue?.reasons[0])} secondReason={reasonLabel(issue?.reasons[1])} thirdReason={reasonLabel(issue?.reasons[2])}
           menuOpen={openMenuId === caption.id} registerRow={registerRow} registerText={registerText} dispatch={dispatchRowAction}
-          menu={menuPresence.present && menuPresence.value === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" aria-label={`Caption ${index + 1} actions`} onKeyDown={(event) => dispatchRowAction(caption.id, { type: 'menuKey', event })}
+          menu={menuPresence.present && menuPresence.value === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" aria-label={t('editor.captions.actions', { number: index + 1 })} onKeyDown={(event) => dispatchRowAction(caption.id, { type: 'menuKey', event })}
               onClickCapture={(event) => {
                 if (!(event.target as Element).closest('button:not(:disabled)')) return;
                 menuActionTrigger.current = rows.current[caption.id]?.querySelector<HTMLButtonElement>('.row-more') || null;
                 menuActionTrigger.current?.focus({ preventScroll: true });
               }}
               data-motion-state={menuPresence.open ? 'open' : 'closed'} inert={!menuPresence.open} aria-hidden={!menuPresence.open || undefined} style={{ maxHeight: menuPlacement.height, overflowY: 'auto' }}>
-              {hasWordTiming && <button role="menuitem" onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'words' }); }}><Clock3 size={14}/><span>Edit word timing</span></button>}
-              <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'textLock' }); }}><LockKeyhole size={14}/><span>{caption.textLocked ? 'Unlock text' : 'Lock text'}</span></button>
-              <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'timingLock' }); }}><Clock3 size={14}/><span>{caption.timingLocked ? 'Unlock timing' : 'Lock timing'}</span></button>
+              {hasWordTiming && <button role="menuitem" onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'words' }); }}><Clock3 size={14}/><span>{t('editor.captions.editWordTiming')}</span></button>}
+              <button role="menuitem" className={caption.textLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'textLock' }); }}><LockKeyhole size={14}/><span>{caption.textLocked ? t('editor.captions.unlockText') : t('editor.captions.lockText')}</span></button>
+              <button role="menuitem" className={caption.timingLocked ? 'state-on' : ''} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'timingLock' }); }}><Clock3 size={14}/><span>{caption.timingLocked ? t('editor.captions.unlockTiming') : t('editor.captions.lockTiming')}</span></button>
               <div className="caption-menu-divider"/>
-              <button role="menuitem" data-menu-label="Move earlier" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'earlier' }); }}><span className="menu-micro">−100 ms</span><span className="caption-action-copy">Move earlier{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
-              <button role="menuitem" data-menu-label="Move later" disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'later' }); }}><span className="menu-micro">+100 ms</span><span className="caption-action-copy">Move later{caption.timingLocked && <small>Unlock timing first</small>}</span></button>
-              <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'split' }); }}><Scissors size={14}/><span>{destructiveLocked ? 'Unlock before splitting' : 'Split caption'}</span></button>
-              {index < captions.length - 1 && <button role="menuitem" data-menu-label="Merge with next" disabled={Boolean(hiddenNeighbor || destructiveLocked || nextLocked)} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'merge' }); }}><Combine size={14}/><span className="caption-action-copy">Merge with next{mergeHint && <small>{mergeHint}</small>}</span></button>}
+              <button role="menuitem" data-menu-label={t('editor.captions.moveEarlier')} disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'earlier' }); }}><span className="menu-micro">{t('editor.captions.earlierDelta')}</span><span className="caption-action-copy">{t('editor.captions.moveEarlier')}{caption.timingLocked && <small>{t('editor.captions.unlockTimingFirst')}</small>}</span></button>
+              <button role="menuitem" data-menu-label={t('editor.captions.moveLater')} disabled={caption.timingLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'later' }); }}><span className="menu-micro">{t('editor.captions.laterDelta')}</span><span className="caption-action-copy">{t('editor.captions.moveLater')}{caption.timingLocked && <small>{t('editor.captions.unlockTimingFirst')}</small>}</span></button>
+              <button role="menuitem" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'split' }); }}><Scissors size={14}/><span>{destructiveLocked ? t('editor.captions.unlockBeforeSplit') : t('editor.captions.split')}</span></button>
+              {index < captions.length - 1 && <button role="menuitem" data-menu-label={t('editor.captions.merge')} disabled={Boolean(hiddenNeighbor || destructiveLocked || nextLocked)} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'merge' }); }}><Combine size={14}/><span className="caption-action-copy">{t('editor.captions.merge')}{mergeHint && <small>{mergeHint}</small>}</span></button>}
               <div className="caption-menu-divider"/>
-              <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'remove' }); }}><Trash2 size={14}/><span>{destructiveLocked ? 'Unlock before deleting' : 'Delete caption'}</span></button>
+              <button role="menuitem" className="danger-action" disabled={destructiveLocked} onClick={(event) => { event.stopPropagation(); dispatchRowAction(caption.id, { type: 'menuAction', action: 'remove' }); }}><Trash2 size={14}/><span>{destructiveLocked ? t('editor.captions.unlockBeforeDelete') : t('editor.captions.delete')}</span></button>
             </div>}
         />;
       });
   }, [captions, visible, captionIndexMap, issueMap, active, selected, reviewMode, neighborLimits, durationMs, wordsNeedingReview,
     openMenuId, menuPresence.present, menuPresence.value, menuPresence.open, menuPlacement.up, menuPlacement.height,
-    hasWordTiming, registerRow, registerText, dispatchRowAction]);
+    hasWordTiming, registerRow, registerText, dispatchRowAction, t]);
 
   return <div className="caption-panel" data-empty={captions.length === 0 || undefined}>
     <div className="panel-head">
       <div className="panel-head-copy">
-        <PanelHeaderGrip pane="captions">{reviewMode ? 'Review queue' : 'Captions'}</PanelHeaderGrip>
-        <span>{reviewMode ? `${visible.length} to review` : `${captions.length} caption${captions.length === 1 ? '' : 's'}`}</span>
+        <PanelHeaderGrip pane="captions">{reviewMode ? t('editor.captions.reviewQueue') : t('editor.captions.title')}</PanelHeaderGrip>
+        <span>{reviewMode ? t('editor.captions.toReview', { count: visible.length }) : tn('editor.captions.count', captions.length)}</span>
       </div>
       <div className="panel-tools">
-        <button className="panel-tool" data-tooltip="Jump to the caption at the playhead" data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
-        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} aria-pressed={followPlayback} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}><ArrowDownToLine size={14}/><span>Follow playback</span></button>
-        <button className="panel-tool" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={15}/><span>Add</span></button>
+        <button className="panel-tool" data-tooltip={t('editor.captions.currentTip')} data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>{t('editor.captions.current')}</span></button>
+        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} aria-pressed={followPlayback} data-tooltip={followPlayback ? t('editor.captions.pauseAutoScroll') : t('editor.captions.followTip')} onClick={toggleFollow} disabled={!visible.length}><ArrowDownToLine size={14}/><span>{t('editor.captions.follow')}</span></button>
+        <button ref={addButton} className="panel-tool" aria-label={t('editor.captions.addLabel')} data-tooltip={t('editor.captions.addTip')} onClick={(event) => add(event.currentTarget)}><Plus size={15}/><span>{t('editor.captions.add')}</span></button>
       </div>
     </div>
     <div
@@ -697,7 +713,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onTouchMove={pauseFollowForBrowsing}
       onScroll={() => { snapshotReviewViewport(); if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
-      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : <>No captions yet. Use <b>Generate captions</b> to create them from the audio, or <b>Add</b> to write one yourself.</>}</div>}
+      {visible.length === 0 && <div className="review-empty">{captions.length ? t('editor.captions.noneToReview') : tr('editor.captions.empty', {}, {})}</div>}
       {renderedRows}
     </div>
   </div>;

@@ -75,7 +75,8 @@ for (const width of [1440, 390]) test('Settings key boundaries ' + width, async 
   await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
   const field = settings(page).getByLabel('Key terms for all projects', { exact: true });
   const first = settings(page).getByRole('button', { name: 'Close settings', exact: true });
-  const last = settings(page).getByLabel('Topic pack name', { exact: true });
+  // The interface-language field is the Profile tab's final control (Wave 3a).
+  const last = settings(page).getByRole('group', { name: 'Language', exact: true }).getByRole('button', { name: 'ខ្មែរ', exact: true });
   await field.fill('Draft កម្ពុជា');
   await ignoredEscape(field, settings(page));
   await traversalBoundaries(page, first, last);

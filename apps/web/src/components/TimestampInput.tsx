@@ -1,3 +1,4 @@
+import { translate, useI18n } from '../i18n';
 import { useEffect, useId, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
 import { formatTimestamp, normalizeTimestampInput, parseTimestamp, validateTimestamp } from '../timestamp';
 
@@ -50,6 +51,7 @@ export function TimestampInput({
   onFocus,
   className,
 }: TimestampInputProps) {
+  const { t } = useI18n();
   const [text, setText] = useState(() => formatTimestamp(valueMs));
   const [error, setError] = useState<string | null>(null);
   const currentValue = useRef(valueMs);
@@ -62,6 +64,13 @@ export function TimestampInput({
   }, [valueMs]);
 
   const validate = (candidate: string) => validateTimestamp(normalizeTimestampInput(candidate), { minMs, maxMs });
+  const errorCopy = (error: string) => {
+    if (error.startsWith('Earliest ') && minMs !== undefined) return t('editor.timestamp.earliest', { time: formatTimestamp(minMs) });
+    if (error.startsWith('Latest ') && maxMs !== undefined) return t('editor.timestamp.latest', { time: formatTimestamp(maxMs) });
+    return error === translate('en', 'editor.timestamp.format') ? t('editor.timestamp.format')
+      : error === translate('en', 'editor.timestamp.otherTime') ? t('editor.timestamp.otherTime')
+        : error;
+  };
   const commit = (candidate: string) => {
     const parsed = parseTimestamp(normalizeTimestampInput(candidate));
     if (parsed !== null && parsed === currentValue.current) {
@@ -72,13 +81,13 @@ export function TimestampInput({
 
     let result = validate(candidate);
     if (!result.ok) {
-      setError(result.error);
+      setError(errorCopy(result.error));
       return false;
     }
     const precision = Number.isFinite(roundingMs) && roundingMs >= 1 ? roundingMs : 1;
     if (precision > 1) {
       result = validate(formatTimestamp(Math.round(result.valueMs / precision) * precision));
-      if (!result.ok) { setError(result.error); return false; }
+      if (!result.ok) { setError(errorCopy(result.error)); return false; }
       if (result.valueMs === currentValue.current) { setText(formatTimestamp(result.valueMs)); setError(null); return false; }
     }
 
@@ -101,7 +110,7 @@ export function TimestampInput({
     setText(next);
     if (error) {
       const result = validate(next);
-      setError(result.ok ? null : result.error);
+      setError(result.ok ? null : errorCopy(result.error));
     }
   };
 

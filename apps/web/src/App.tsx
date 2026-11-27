@@ -66,6 +66,10 @@ import { CorrectionInbox } from './components/CorrectionInbox';
 import { ProfileDoctor, type SettingsTab } from './components/ProfileDoctor';
 import { storageNeedsAttention, useProjectStorage } from './project-storage';
 import { reconcileProfileAcknowledgement, type ProfilePatch } from './profile-state';
+import { LocaleProvider, messagesFor, translate, type Locale } from './i18n';
+import type { MessageKey } from './i18n/types';
+import { InterfaceLanguagePrompt, InterfaceLanguageSwitch } from './i18n/language-controls';
+import { mirrorInterfaceLanguage, readInterfaceLanguage } from './i18n/language-storage';
 import { StudioBrand } from './components/Brand';
 import { FindReplacePanel } from './components/FindReplacePanel';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
@@ -377,6 +381,19 @@ export default function App() {
   const healthRequest = useRef(0);
   const [llmSettings, setLlmSettings] = useState<LlmSettingsStatus | null>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
+  const [bootLanguage] = useState(readInterfaceLanguage);
+  const savedLanguage = profile?.preferences.interfaceLanguage;
+  const interfaceLanguage = savedLanguage ?? bootLanguage ?? 'en';
+  const { t, tn } = useMemo(() => messagesFor(interfaceLanguage), [interfaceLanguage]);
+  const languageSave = useRef<Promise<void> | null>(null);
+  const [languageSaving, setLanguageSaving] = useState(false);
+  useEffect(() => {
+    document.documentElement.lang = interfaceLanguage;
+  }, [interfaceLanguage]);
+  useEffect(() => {
+    // Mirror only a committed profile value, including reconciled PATCH results.
+    if (savedLanguage === 'en' || savedLanguage === 'km') mirrorInterfaceLanguage(savedLanguage);
+  }, [savedLanguage]);
   const [profileImportRevision, setProfileImportRevision] = useState(0);
   const [doctor, setDoctor] = useState<SystemDoctorReport | null>(null);
   const [doctorLoadState, setDoctorLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -570,9 +587,9 @@ export default function App() {
   const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : '',
     appearanceSave.conflict ? 'The saved appearance changed. Download your edits, then reload the saved project to compare.'
       : appearanceSave.status === 'error' ? 'Your latest caption appearance could not be saved.' : ''].filter(Boolean).join(' ');
-  const projectSaveStatus = !unfinishedChanges ? 'saved' : saveFailed ? "Couldn't save changes"
-    : autosaveState === 'saving' || contextSaveState === 'saving' || appearanceSave.status === 'saving' ? 'saving…'
-      : appearanceDirty ? 'Appearance changes unsaved' : dirty ? 'autosave pending' : 'Accuracy changes unsaved';
+  const projectSaveStatus = !unfinishedChanges ? t('editor.header.saved') : saveFailed ? t('editor.header.saveFailed')
+    : autosaveState === 'saving' || contextSaveState === 'saving' || appearanceSave.status === 'saving' ? t('editor.header.saving')
+      : appearanceDirty ? t('editor.header.appearanceUnsaved') : dirty ? t('editor.header.autosavePending') : t('editor.header.accuracyUnsaved');
   const [recoveryOwner] = useState(() => crypto.randomUUID());
   const [recoveryStore] = useState(() => createUnfinishedEditRecoveryStore(() => {
     try { return window.localStorage; } catch { return null; }
@@ -1002,7 +1019,7 @@ export default function App() {
     // This temporary notice disappears on entry or when the job advances. Give
     // the dialog a persistent return target before it captures keyboard focus.
     const returnTo = project
-      ? document.querySelector<HTMLElement>('[aria-label="Open project tools"]')
+      ? document.querySelector<HTMLElement>('[data-project-tools-trigger]')
       : document.querySelector<HTMLElement>('.home-tools button:not(:disabled)');
     returnTo?.focus({ preventScroll: true });
     setShowJobs(true, id);
@@ -1644,6 +1661,26 @@ export default function App() {
       const received = await api.patchProfile({ preferences: patch });
       setProfile((current) => reconcileProfileAcknowledgement(current, expected, received, { preferences: patch }));
     } catch { /* Retain the existing optimistic local preference behavior. */ }
+  };
+
+  const setInterfaceLanguage = async (next: Locale) => {
+    if (!profile || languageSave.current || profile.preferences.interfaceLanguage === next) return;
+    const basis = profile;
+    const patch = { preferences: { interfaceLanguage: next } };
+    setLanguageSaving(true);
+    const save = Promise.resolve().then(async () => {
+      try {
+        const received = await api.patchProfile(patch);
+        setProfile((current) => reconcileProfileAcknowledgement(current, basis, received, patch));
+      } catch {
+        setError(t('common.languageSaveFailed'));
+      } finally {
+        languageSave.current = null;
+        setLanguageSaving(false);
+      }
+    });
+    languageSave.current = save;
+    await save;
   };
 
   // Full-project same-media mutations and caption saves share one acknowledgement
@@ -3046,9 +3083,9 @@ export default function App() {
         || accuracyDraft.current.editRevision !== contextRevision) return;
       const fullDuration = targetProject.transcript?.timing?.audioDurationMs;
       if (targetProject.transcript?.tokens?.length && fullDuration) {
-        await startJob(intent, () => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, targetProject.generationModel ?? 'automatic'), 'Full regeneration queued. Current captions stay untouched until you approve the diff.');
+        await startJob(intent, () => api.startRegenerationJob(targetProject.id, 0, fullDuration, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, targetProject.generationModel ?? 'automatic'), t('editor.generation.regenerationQueued'));
       } else {
-        await startJob(intent, () => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript), targetProject.generationModel ?? 'automatic'), 'Caption generation queued. You can keep the browser open or return later.');
+        await startJob(intent, () => api.startTranscribeJob(targetProject.id, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, Boolean(targetProject.transcript), targetProject.generationModel ?? 'automatic'), t('editor.generation.generationQueued'));
       }
     } finally {
       generationPreparation.current = false;
@@ -3630,9 +3667,9 @@ export default function App() {
 
     const message = nextId
       ? wrapped
-        ? `Approved. Returning to ${remaining.length} earlier skipped review item${remaining.length === 1 ? '' : 's'}.`
-        : 'Approved. Moved to the next review item.'
-      : 'Review complete. All flagged captions are approved.';
+        ? tn('review.undo.wrapped', remaining.length)
+        : t('review.undo.advanced')
+      : t('review.undo.complete');
     setReviewUndo({ items: undoItems, restoreSelectionId, message });
 
     if (nextId) moveToReviewCaption(nextId, profile?.preferences.autoPlayNextReview ?? true);
@@ -3655,7 +3692,7 @@ export default function App() {
         document.querySelector<HTMLButtonElement>('.stage-rail [data-stage="review"]')?.focus({ preventScroll: true });
       }
       setReviewUndo(null);
-      setNotice('No approval was changed. These captions were edited or removed after approval; your newer changes are kept.');
+      setNotice(t('review.undo.none'));
       return;
     }
     const previous = new Map(eligible.map((item) => [item.id, item.approved]));
@@ -3669,8 +3706,11 @@ export default function App() {
       }
     }, 20);
     setNotice(skipped
-      ? `Undid approval for ${eligible.length} caption${eligible.length === 1 ? '' : 's'}. Newer changes to ${skipped} caption${skipped === 1 ? '' : 's'} were kept.`
-      : 'Approval undone.');
+      ? t('review.undo.partial', {
+          restored: tn('review.undo.restoredCount', eligible.length),
+          skipped: tn('review.undo.skippedCount', skipped),
+        })
+      : t('review.undo.undone'));
   };
 
   const prepareCaptionHandoff = async (target: CaptionProject, ticket: ProjectTicket, editRevision: number, signal: AbortSignal, needsAppearance = false) => {
@@ -4127,8 +4167,8 @@ export default function App() {
       firstWatchNotice.current = null;
       const count = riskyIds.length;
       setNotice(count
-        ? `Captions are ready. Watch them on the video, then check ${count} flagged caption${count === 1 ? '' : 's'} in Review.`
-        : "Captions are ready. Watch them on the video, then export when you're happy.");
+        ? tn('editor.firstWatch.noticeFlagged', count)
+        : t('editor.firstWatch.noticeClear'));
     }
     if (firstWatch.projectId !== project?.id || firstWatch.mediaKey !== mediaKey || stage !== 'captions' || toolChanged || proposal) {
       setFirstWatch(null);
@@ -4143,7 +4183,7 @@ export default function App() {
       mediaElement.removeEventListener('play', dismiss);
       mediaElement.removeEventListener('seeking', dismiss);
     };
-  }, [firstWatch, mediaElement, project?.id, mediaKey, stage, workspaceTool, proposal, riskyIds.length]);
+  }, [firstWatch, mediaElement, project?.id, mediaKey, stage, workspaceTool, proposal, riskyIds.length, t, tn]);
   const layoutMode: EditorLayoutMode = proposal || stage === 'review' || stage === 'appearance' ? 'judge' : 'edit';
   const enlargeAvailable = layoutMode === 'judge' && isVideo && mediaShape?.key === mediaKey && mediaShape.landscape;
   const savedContext = project?.transcriptionContext;
@@ -4160,10 +4200,11 @@ export default function App() {
   const checkingGenerationSetup = !generationSetupMissing && (!llmSettings || !health) && !generationSetupFailed;
   const generationPending = Boolean(busy || currentProjectActiveJob || generationPreparing || generationModelSaving || mediaMutationStatus);
   const generationNeedsCheck = uncertainJobs.some((item) => item.key === mediaKey && item.captionJob);
-  const generationLabel = currentProjectActiveJob ? 'Caption job in progress' : generationPreparing ? 'Submitting…' : generationNeedsCheck ? 'Check Activity'
-    : llmSettings?.configured === false ? 'Connect AI' : health?.timing.configured === false ? 'Open System check'
-    : generationSetupFailed ? 'Retry setup checks' : checkingGenerationSetup ? 'Checking setup…'
-    : legacy ? 'Queue rebuild' : 'Generate captions';
+  const generationLabelKey = currentProjectActiveJob ? 'editor.generation.busy' : generationPreparing ? 'editor.generation.submitting' : generationNeedsCheck ? 'editor.generation.checkActivity'
+    : llmSettings?.configured === false ? 'editor.generation.connectAi' : health?.timing.configured === false ? 'editor.generation.systemCheck'
+    : generationSetupFailed ? 'editor.generation.retryChecks' : checkingGenerationSetup ? 'editor.generation.checking'
+    : legacy ? 'editor.generation.rebuild' : 'editor.generation.generate';
+  const generationLabel = translate('en', generationLabelKey);
 
   const openReviewWorkspace = () => {
     if (!draft.length) return;
@@ -4474,7 +4515,7 @@ export default function App() {
       sourceCheck={sourceCheck} onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
 
-    <ProfileDoctor open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
+    <ProfileDoctor languageSaving={languageSaving} onInterfaceLanguage={setInterfaceLanguage} open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
       profileLoadFailed={startupErrors.includes('Preferences')} aiLoadFailed={startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
       onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
@@ -4525,7 +4566,7 @@ export default function App() {
       <button className="toast-action" onClick={() => openActivityFromNotice()}>Open Activity</button>
       <button aria-label="Dismiss job notice" onClick={() => setUncertainJobs((items) => items.map((item) => item === uncertainJob ? { ...item, dismissed: true } : item))}><X size={14}/></button>
     </div>}
-    {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={14}/></button></div>}
+    {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label={t('common.toast.dismissError')} onClick={() => setError('')}><X size={14}/></button></div>}
     {jobNotification && !showJobs && <div className={`toast processing-notice ${jobNotification.error ? 'error' : 'notice'}`} role={jobNotification.error ? 'alert' : 'status'}>
       <span><strong>{jobNotification.projectTitle}.</strong> {jobNotification.message}</span>
       <button className="toast-action" onClick={() => { openActivityFromNotice(jobNotification.id); dismissJobNotification(); }}>Open Activity</button>
@@ -4551,30 +4592,41 @@ export default function App() {
       onDiscard={() => void discardUnfinishedDraft(selectedRecovery)}/>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
-    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>Undo</button><button aria-label="Dismiss approval message" onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
-    {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={14}/></button></div>}
+    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>{t('review.undo.action')}</button><button aria-label={t('review.undo.dismiss')} onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
+    {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span>{notice}</span><button aria-label={t('common.toast.dismissNotice')} onClick={() => setNotice('')}><X size={14}/></button></div>}
   </ToastStack>;
 
+  const startupServiceMessages: Partial<Record<string, MessageKey>> = {
+    Projects: 'home.launcher.projectsService',
+    Preferences: 'home.launcher.preferencesService',
+    'System status': 'home.launcher.systemService',
+    'AI connection': 'home.launcher.aiService',
+    Activity: 'home.launcher.activityService',
+  };
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
-  if (!project) return <main className={showAllProjects ? 'project-library-page' : undefined}
+  if (!project) return <LocaleProvider locale={interfaceLanguage}><main className={showAllProjects ? 'project-library-page' : undefined}
     onPointerDownCapture={releaseLibraryReturn} onKeyDownCapture={releaseLibraryReturn} onWheelCapture={releaseLibraryReturn}>
     <div className="home-tools">
-      {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>All projects</button>}
-      <button onClick={() => setShowGuide(true)} data-tooltip="Open guide"><HelpCircle size={16}/>Guide</button>
-      {jobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>Activity{activeJobs.length > 0 && <b>{activeJobs.length}</b>}</button>}
-      {Boolean(profile?.correctionEvents.length) && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>Correction inbox{pendingCorrections > 0 && <b>{pendingCorrections}</b>}</button>}
-      <button onClick={() => setShowUpdates(true)} data-tooltip="Open Updates"><RefreshCw size={16}/>Updates</button>
-      <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip="AI, profile, and system settings" onClick={() => openSettings('ai')}><Settings2 size={16}/>Settings{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
+      {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>{t('home.launcher.allProjects')}</button>}
+      <button onClick={() => setShowGuide(true)} data-tooltip={t('home.launcher.guideTip')}><HelpCircle size={16}/>{t('home.launcher.guide')}</button>
+      {jobs.length > 0 && <button onClick={() => setShowJobs(true)}><ListTodo size={16}/>{t('home.launcher.activityService')}{activeJobs.length > 0 && <b>{activeJobs.length}</b>}</button>}
+      {Boolean(profile?.correctionEvents.length) && <button onClick={() => setShowCorrections(true)}><BookOpenCheck size={16}/>{t('home.launcher.correctionInbox')}{pendingCorrections > 0 && <b>{pendingCorrections}</b>}</button>}
+      <button onClick={() => setShowUpdates(true)} data-tooltip={t('home.launcher.updatesTip')}><RefreshCw size={16}/>{t('home.launcher.updates')}</button>
+      <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip={t('home.launcher.settingsTip')} onClick={() => openSettings('ai')}><Settings2 size={16}/>{t('home.launcher.settings')}{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
+      {!showAllProjects && <InterfaceLanguageSwitch saving={languageSaving} ready={Boolean(profile)} onChange={setInterfaceLanguage}/>}
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
-        disabledReason={!profile ? startupErrors.includes('Preferences') ? 'Preferences could not load. Retry startup below to enable uploads.' : 'Loading preferences before you can upload.'
-          : busy && busy !== 'Uploading…' ? 'Wait for the current task to finish before uploading.' : ''}
-        beforeDropzone={showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>Set up AI for caption generation</button> : undefined}/>
+        disabledReason={!profile ? startupErrors.includes('Preferences') ? t('home.launcher.preferencesFailed') : t('home.launcher.loadingPreferencesForUpload')
+          : busy && busy !== 'Uploading…' ? t('home.launcher.uploadBusy') : ''}
+        beforeDropzone={<>
+          {profile && savedLanguage === undefined && !showAllProjects && <InterfaceLanguagePrompt saving={languageSaving} onChange={setInterfaceLanguage}/>}
+          {showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>{t('home.launcher.setupAi')}</button> : undefined}
+        </>}/>
     </div>
-    {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>Local timing isn't ready.</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>Open System check</button></div>}
-    {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>Could not load: {visibleStartupErrors.join(', ')}. Other tools remain available.</span><button onClick={() => setStartupAttempt((value) => value + 1)}>Retry startup</button></div>}
-    {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">Loading preferences…</div>}
+    {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>{t('home.launcher.timingWarning')}</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>{t('home.launcher.systemCheck')}</button></div>}
+    {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>{t('home.launcher.startupFailed', { services: visibleStartupErrors.map((label) => translate(interfaceLanguage, startupServiceMessages[label] ?? 'home.launcher.startupService', { service: label })).join(', ') })}</span><button onClick={() => setStartupAttempt((value) => value + 1)}>{t('home.launcher.retryStartup')}</button></div>}
+    {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">{t('home.launcher.loadingPreferences')}</div>}
     {showAllProjects ? <ProjectLibrary
       focusHeadingOnMount={!libraryOrigin.current} projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
       loading={!startupLoaded.current.has('Projects') && !startupErrors.includes('Projects')}
@@ -4585,26 +4637,26 @@ export default function App() {
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
       bin={projectBin} showBin={showProjectBin} onShowBin={setShowProjectBin} onRename={renameProject} confirm={confirmInStudio}
-    /> : projects.length > 0 && <section className="recent" aria-label="Recent projects"><div><strong>Recent projects</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? 'Opening…' : item.captionCount ? `${item.captionCount} captions` : 'Not generated yet'}</small></button>)}</div></section>}
-    {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{projectListState.error} Last loaded projects are shown.</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>Refresh projects</button></div>}
+    /> : projects.length > 0 && <section className="recent" aria-label={t('home.launcher.recentProjects')}><div><strong>{t('home.launcher.recentProjects')}</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}</small></button>)}</div></section>}
+    {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{t('home.launcher.showingLastProjects', { error: projectListState.error })}</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>{t('home.launcher.refreshProjects')}</button></div>}
     {statusToasts}
     {activity}
     {corrections}
     {overlays}
-  </main>;
+  </main></LocaleProvider>;
 
-  return <main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
+  return <LocaleProvider locale={interfaceLanguage}><main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
-      <button className="back" aria-label="Back to Home" data-tooltip="Back to Home" disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
-      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel="Captions" moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={`${projectSaveStatus}${project.transcriptNeedsSync ? ' · transcript regrouping needs refresh' : ''}`}
+      <button className="back" aria-label={t('editor.header.back')} data-tooltip={t('editor.header.back')} disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
+      <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel={t('editor.header.captions')} moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={project.transcriptNeedsSync ? t('editor.header.regroupingNeedsRefresh', { status: projectSaveStatus }) : projectSaveStatus}
         onRename={(title, expectedTitle) => renameProject(project.id, title, expectedTitle, true)}/></div>
       <input ref={replaceInput} hidden type="file" accept="video/*,audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; replaceMedia(file); }}/>
       <div className="header-actions">
-        <nav className="stage-rail" aria-label="Project stages">
-          <button type="button" data-stage="captions" aria-pressed={stage === 'captions'} disabled={Boolean(proposal)} onClick={() => selectStage('captions')}><Captions size={16}/><span>Captions</span></button>
-          <button type="button" data-stage="review" data-tooltip="Review captions worth checking" aria-pressed={stage === 'review'} disabled={!draft.length && !reviewMode} onClick={() => selectStage('review')}><ListChecks size={16}/><span>Review</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
-          {isVideo && <button type="button" data-stage="appearance" aria-pressed={stage === 'appearance'} disabled={!draft.length || Boolean(proposal)} onClick={() => selectStage('appearance')}><Palette size={16}/><span>Appearance</span></button>}
-          <button type="button" className="primary" data-stage="export" data-workspace-trigger="export" data-tooltip="Export SRT or a finished captioned video" aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>Export</span></button>
+        <nav className="stage-rail" aria-label={t('editor.header.stages')}>
+          <button type="button" data-stage="captions" aria-pressed={stage === 'captions'} disabled={Boolean(proposal)} onClick={() => selectStage('captions')}><Captions size={16}/><span>{t('editor.header.captions')}</span></button>
+          <button type="button" data-stage="review" data-tooltip={t('editor.header.reviewTip')} aria-pressed={stage === 'review'} disabled={!draft.length && !reviewMode} onClick={() => selectStage('review')}><ListChecks size={16}/><span>{t('editor.header.review')}</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
+          {isVideo && <button type="button" data-stage="appearance" aria-pressed={stage === 'appearance'} disabled={!draft.length || Boolean(proposal)} onClick={() => selectStage('appearance')}><Palette size={16}/><span>{t('editor.header.appearance')}</span></button>}
+          <button type="button" className="primary" data-stage="export" data-workspace-trigger="export" data-tooltip={t('editor.header.exportTip')} aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>{t('editor.header.export')}</span></button>
         </nav>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
@@ -4624,7 +4676,7 @@ export default function App() {
           onSettings={() => openSettings('ai')}
           onUpdates={() => setShowUpdates(true)}
         />
-        <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveNeedsComparison} title={saveNeedsComparison ? 'Download your edits and reload the saved project to compare' : unfinishedChanges ? 'Save caption, Accuracy and appearance changes' : 'All changes saved'} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
+        <ManualSaveButton unfinished={unfinishedChanges} confirmed={manualSaveFeedback.confirmed} pending={manualSaveFeedback.pending} disabled={!unfinishedChanges || !!busy || textComposing || saveNeedsComparison} title={saveNeedsComparison ? t('editor.header.compareSaved') : unfinishedChanges ? t('editor.header.saveChanges') : t('editor.header.allSaved')} onSave={() => void manualSaveFeedback.run(() => saveUnfinishedChanges(false))}/>
       </div>
     </header>
 
@@ -4632,7 +4684,7 @@ export default function App() {
 
     <EditorLayout
       tool={proposal ? 'proposal' : workspaceTool}
-      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Technical details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
+      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: t('editor.header.review'), timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Technical details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : t('editor.generation.generate')}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
       onClose={proposal ? () => { closeComparison(); setNotice('Comparison closed. You can reopen it from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
@@ -4650,7 +4702,7 @@ export default function App() {
             setFontFocusTrigger(trigger); setWorkspaceTool('appearance');
           }} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
           {firstWatch && firstWatch.projectId === project.id && firstWatch.mediaKey === mediaKey && stage === 'captions' && !proposal && isVideo && (
-            <div className="first-watch" role="group" aria-label="Captions ready" onKeyDown={(event) => {
+            <div className="first-watch" role="group" aria-label={t('editor.firstWatch.label')} onKeyDown={(event) => {
               // Plain Escape only, matching the app's other dismiss handlers.
               if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229
                 || event.getModifierState('AltGraph') || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -4664,10 +4716,10 @@ export default function App() {
                 const element = media.current;
                 if (!element) return;
                 element.currentTime = 0;
-                void element.play().catch(() => setError('Playback could not start. Use the video controls to play the captioned video.'));
-              }}><Play size={18} aria-hidden="true"/><span>Watch with captions</span></button>
-              <p>{riskyIds.length ? `${riskyIds.length} caption${riskyIds.length === 1 ? '' : 's'} need a quick check in Review afterwards.` : 'No captions were flagged.'}</p>
-              <button type="button" className="first-watch-dismiss" onClick={() => setFirstWatch(null)}>Not now</button>
+                void element.play().catch(() => setError(t('editor.firstWatch.playFailed')));
+              }}><Play size={18} aria-hidden="true"/><span>{t('editor.firstWatch.watch')}</span></button>
+              <p>{riskyIds.length ? tn('editor.firstWatch.flagged', riskyIds.length) : t('editor.firstWatch.clear')}</p>
+              <button type="button" className="first-watch-dismiss" onClick={() => setFirstWatch(null)}>{t('editor.firstWatch.dismiss')}</button>
             </div>
           )}
           {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? 'Proposed' : 'Current captions'}</span></div>}
@@ -4833,7 +4885,7 @@ export default function App() {
             onPreferenceChange={(value) => void saveWaveformPreference(value)}
           />}
 
-          {workspaceTool === 'review' && !draft.length && <p className="muted-copy">No captions to review.</p>}
+          {workspaceTool === 'review' && !draft.length && <p className="muted-copy">{t('review.card.noCaptions')}</p>}
           {workspaceTool === 'review' && draft.length > 0 && <div className="review-card review-active">
             {!riskyIds.length && draft.length > 0 && <ReviewCompletion reviewed={reviewedFlags} exportDisabled={Boolean(busy)}
               onShowAll={() => {
@@ -4844,37 +4896,37 @@ export default function App() {
               onExport={() => chooseWorkspaceTool('export')}/>}
             {riskyIds.length > 0 && <>
             <div className="review-card-head">
-              <div className="review-score"><ListChecks size={22}/><strong>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</strong></div>
+              <div className="review-score"><ListChecks size={22}/><strong>{tn('review.card.remaining', riskyIds.length)}</strong></div>
               <div className="review-selection">
-                <b>{selection.captions.length ? `Caption ${draft.findIndex(({ id }) => id === selection.ids[0]) + 1} · ${rangeLabel(selection.startMs, selection.endMs)}` : 'No selection'}</b>
-                {selection.captions.length > 1 && <span>+{selection.captions.length - 1} more selected</span>}
+                <b>{selection.captions.length ? t('review.card.selection', { number: draft.findIndex(({ id }) => id === selection.ids[0]) + 1, range: rangeLabel(selection.startMs, selection.endMs) }) : t('review.card.noSelection')}</b>
+                {selection.captions.length > 1 && <span>{t('review.card.moreSelected', { count: selection.captions.length - 1 })}</span>}
               </div>
             </div>
-            <div className="review-caption" role="group" aria-label="Caption text">
+            <div className="review-caption" role="group" aria-label={t('review.card.captionText')}>
               <p className={`review-caption-text${selection.captions[0]?.text ? '' : ' review-caption-empty'}`}>
-                {selection.captions[0]?.text || (selection.captions.length ? 'This caption has no text.' : 'Select a caption to review.')}
+                {selection.captions[0]?.text || (selection.captions.length ? t('review.card.emptyCaption') : t('review.card.selectCaption'))}
               </p>
               <button type="button" className="review-caption-edit" aria-keyshortcuts="E" onClick={() => selection.ids[0] && editor.current?.focusCaption(selection.ids[0])} disabled={!selection.ids.length}>
                 <PencilLine size={15} aria-hidden="true"/>
-                Edit text
+                {t('review.card.editText')}
               </button>
             </div>
-            {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label="Review reasons">{selectedReviewReasons.map(({ code, label, hint }, index) => <li key={`${code}:${index}`}><strong>{label}</strong> <span>{hint}</span></li>)}</ul>}
+            {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label={t('review.card.reasons')}>{selectedReviewReasons.map(({ code, params }, index) => <li key={`${code}:${index}`}><strong>{t(`review.reason.${code}.label`, params)}</strong> <span>{t(`review.reason.${code}.hint`, params)}</span></li>)}</ul>}
             <div className="review-actions review-nav-actions">
-              <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
-              <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>Replay</button>
-              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>Skip</button>
-              <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
+              <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>{t('review.card.previous')}</button>
+              <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>{t('review.card.replay')}</button>
+              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>{t('review.card.skip')}</button>
+              <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>{t('review.card.autoPlayNext')}</label>
             </div>
             <div className="review-actions review-decision-actions">
-              {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>}
-              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
+              {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>{t('review.card.improve')}</button>}
+              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>{t('review.card.approveNext')}</button>
             </div>
             <details className="advanced-review-tools">
-              <summary>More review options</summary>
-              <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
-              <div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div>
-              <div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div>
+              <summary>{t('review.card.moreOptions')}</summary>
+              <div className="qa-profile-control"><label>{t('review.card.profile')}<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.keys(QA_PROFILES).map((id) => <option key={id} value={id}>{t(`review.profile.${id as Exclude<QaProfileId, 'custom'>}`)}</option>)}</select></label><span>{t('review.card.profileHelp')}</span></div>
+              <div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>{t('review.card.tightLoop')}</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title={t('review.card.contextTip')}><Play size={15}/>{t('review.card.playWithContext')}</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>{t('review.card.focus')}</span><select id="review-focus-mode-select" aria-label={t('review.card.focus')} value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">{t('review.card.bracketsLabel')}</option><option value="brackets">{t('review.card.brackets')}</option><option value="off">{t('review.card.off')}</option></select></label><button onClick={() => patchSelected({ textLocked: true }, t('review.card.lockedText'))} disabled={!selection.ids.length}><LockKeyhole size={15}/>{t('review.card.lockText')}</button><button onClick={() => patchSelected({ timingLocked: true }, t('review.card.lockedTiming'))} disabled={!selection.ids.length}><Clock3 size={15}/>{t('review.card.lockTiming')}</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, t('review.card.unlocked'))} disabled={!selection.ids.length}>{t('review.card.unlock')}</button><button onClick={runTimingPostprocessor} disabled={!!busy}>{t('review.card.fixTiming')}</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>{t('review.card.showAll')}</button></div>
+              <div className="shortcut-strip"><Keyboard size={14}/><span>{t('review.card.shortcuts')}</span></div>
             </details>
             </>}
           </div>}
@@ -4894,14 +4946,14 @@ export default function App() {
           </div>}
 
           {showGeneration && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
-            <Captions size={28} aria-hidden="true"/><div><strong>{generationSetupMissing ? 'Finish caption setup' : legacy ? 'Rebuild with local timing' : 'Captions from audio'}</strong><span>{llmSettings?.configured === false ? 'Connect AI to transcribe this audio.' : health?.timing.configured === false ? 'Set up Khmer timing to align captions with the audio.' : legacy ? 'Rebuild this project’s older timing from the audio.' : 'Create Khmer text aligned to the audio.'}</span></div>
-            <button className="primary" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}>{currentProjectActiveJob || generationPreparing ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured === false ? <KeyRound size={18}/> : <Captions size={18}/>} {generationLabel}</button>
+            <Captions size={28} aria-hidden="true"/><div><strong>{generationSetupMissing ? t('editor.generation.finishSetup') : legacy ? t('editor.generation.rebuildTiming') : t('editor.generation.fromAudio')}</strong><span>{llmSettings?.configured === false ? t('editor.generation.connectHelp') : health?.timing.configured === false ? t('editor.generation.timingHelp') : legacy ? t('editor.generation.rebuildHelp') : t('editor.generation.createHelp')}</span></div>
+            <button className="primary" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}>{currentProjectActiveJob || generationPreparing ? <LoaderCircle className="spin" size={18}/> : llmSettings?.configured === false ? <KeyRound size={18}/> : <Captions size={18}/>} {t(generationLabelKey)}</button>
             <div className="generation-accuracy">
               <div className="generation-accuracy-copy">
                 <BookOpenText size={18} aria-hidden="true"/>
                 <div>
-                  <strong>Accuracy context <small id="generation-accuracy-optional">Optional</small></strong>
-                  <span id="generation-accuracy-help">Add names, brands, and exact terms.</span>
+                  <strong>{t('editor.generation.context')} <small id="generation-accuracy-optional">{t('editor.generation.optional')}</small></strong>
+                  <span id="generation-accuracy-help">{t('editor.generation.contextHelp')}</span>
                 </div>
               </div>
               <button type="button" ref={generationAccuracyEntry} aria-describedby="generation-accuracy-optional generation-accuracy-help" onClick={() => {
@@ -4913,7 +4965,7 @@ export default function App() {
                   }
                 });
               }}>
-                {hasSavedContext ? 'Edit context' : 'Add context'} <ChevronRight size={14} aria-hidden="true"/>
+                {hasSavedContext ? t('editor.generation.editContext') : t('editor.generation.addContext')} <ChevronRight size={14} aria-hidden="true"/>
               </button>
             </div>
             {generationOptions}
@@ -4954,5 +5006,5 @@ export default function App() {
     {activity}
     {corrections}
     {overlays}
-  </main>;
+  </main></LocaleProvider>;
 }

@@ -80,8 +80,8 @@ test('CaptionEditor in review mode displays original caption array indices for f
   ];
 
   const issues: ReviewIssue[] = [
-    { captionId: 'c-2', severity: 'warning', reasons: [{ code: 'fast-reading', label: 'Too fast to read', hint: 'Consider making it longer.' }] },
-    { captionId: 'c-4', severity: 'error', reasons: [{ code: 'overlap', label: 'Overlaps previous', hint: 'Check the boundary.' }] },
+    { captionId: 'c-2', severity: 'warning', reasons: [{ code: 'fast-reading', label: 'Too fast to read', hint: 'Consider making it longer.', params: {} }] },
+    { captionId: 'c-4', severity: 'error', reasons: [{ code: 'overlap', label: 'Overlaps previous', hint: 'Check the boundary.', params: {} }] },
   ];
 
   const html = renderToStaticMarkup(

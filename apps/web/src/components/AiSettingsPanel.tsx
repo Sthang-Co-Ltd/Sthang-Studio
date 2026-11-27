@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
@@ -24,6 +25,7 @@ type AiSettingsPanelProps = {
   | { variant: 'inline'; onForget?: never });
 
 export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 'full' }: AiSettingsPanelProps) {
+  const { t } = useI18n();
   const inline = variant === 'inline';
   const keyLabelId = useId();
   const modelOptionsId = useId();
@@ -70,15 +72,15 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
     try {
       const value = (await navigator.clipboard.readText()).trim();
       if (lifetime.current !== owner || revisions.current.key !== revision) return;
-      if (!value) setError(`Clipboard is empty. Copy your key, then paste it into the API key field with ${pasteShortcut}.`);
+      if (!value) setError(t('setup.ai.clipboardEmpty', { shortcut: pasteShortcut }));
       else {
         revisions.current.key++;
         setApiKey(value);
-        setMessage('API key pasted. Test or save your settings.');
+        setMessage(t('setup.ai.keyPasted'));
       }
     } catch {
       if (lifetime.current === owner && revisions.current.key === revision) {
-        setError(`Clipboard access is unavailable. Paste your key into the API key field with ${pasteShortcut}.`);
+        setError(t('setup.ai.clipboardUnavailable', { shortcut: pasteShortcut }));
         if (document.activeElement === pasteButton.current) keyInput.current?.focus();
       }
     } finally {
@@ -92,7 +94,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
     resetFeedback();
     feedbackTrigger.current = trigger;
     if (!settings.configured && !apiKey.trim()) {
-      setError('Paste a Gemini API key before saving.');
+      setError(t('setup.ai.keyBeforeSaving'));
       return;
     }
     pending.current = true;
@@ -111,11 +113,11 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
       if (revisions.current.key === submitted.key) { setApiKey(''); setShowKey(false); }
       if (revisions.current.model === submitted.model) { edited.current.model = false; setModel(updated.model); }
       if (revisions.current.fallback === submitted.fallback) { edited.current.fallback = false; setFallbackModel(updated.fallbackModel); }
-      setMessage(!unchanged ? 'Earlier AI settings saved. Your newer edits are still unsaved.' : updated.keySource === 'secure-store'
-        ? 'AI settings saved securely on this computer. No restart needed.'
-        : 'Model settings saved. The environment key remains active.');
+      setMessage(!unchanged ? t('setup.ai.earlierSaved') : updated.keySource === 'secure-store'
+        ? t('setup.ai.securelySaved')
+        : t('setup.ai.environmentActive'));
     } catch (reason) {
-      if (lifetime.current === owner) setError(!currentDraft() ? 'The earlier save failed. Your current entries are kept; try again.' : reason instanceof Error ? reason.message : 'Could not verify and save AI settings. Your entries are kept; try again.');
+      if (lifetime.current === owner) setError(!currentDraft() ? t('setup.ai.earlierSaveFailed') : reason instanceof Error ? reason.message : t('setup.ai.saveFailed'));
     } finally {
       pending.current = false;
       if (lifetime.current === owner) setWorking('');
@@ -135,7 +137,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
       const next = await onTest({ apiKey: apiKey.trim() || undefined, model: model.trim() });
       if (current()) setResult(next);
     } catch (reason) {
-      if (current()) setError(reason instanceof Error ? reason.message : 'Gemini connection test failed.');
+      if (current()) setError(reason instanceof Error ? reason.message : t('setup.ai.testFailed'));
     } finally {
       pending.current = false;
       if (lifetime.current === owner) setWorking('');
@@ -146,7 +148,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
     if (!onForget || pending.current) return;
     pending.current = true;
     const owner = lifetime.current;
-    const accepted = await confirm({ title: 'Forget saved key?', message: 'Remove the API key saved by Studio on this computer. Your Google AI Studio key itself will not be deleted, and any typed replacement stays in this form.', confirmLabel: 'Forget saved key', tone: 'warning' });
+    const accepted = await confirm({ title: t('setup.ai.forgetTitle'), message: t('setup.ai.forgetMessage'), confirmLabel: t('setup.ai.forget'), tone: 'warning' });
     if (!accepted || lifetime.current !== owner) { pending.current = false; return; }
     keyInput.current?.focus({ preventScroll: true });
     keyInput.current?.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
@@ -157,10 +159,10 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
       if (lifetime.current !== owner) return;
       setShowKey(false);
       setMessage(updated.configured
-        ? 'Saved key removed. Studio now uses the environment key.'
-        : 'Saved key removed. Add another key to generate captions.');
+        ? t('setup.ai.environmentRestored')
+        : t('setup.ai.removed'));
     } catch (reason) {
-      if (lifetime.current === owner) setError(reason instanceof Error ? reason.message : 'Could not forget the saved API key.');
+      if (lifetime.current === owner) setError(reason instanceof Error ? reason.message : t('setup.ai.forgetFailed'));
     } finally {
       pending.current = false;
       if (lifetime.current === owner) setWorking('');
@@ -170,24 +172,24 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
   const sourceLabel = settings.keySource === 'secure-store'
     ? settings.secureStorageLabel
     : settings.keySource === 'environment'
-      ? 'apps/server/.env or environment'
-      : 'No key configured';
+      ? t('setup.ai.environmentSource')
+      : t('setup.ai.notConfigured');
 
   return <div className={inline ? 'first-run-ai' : 'ai-settings-body'}>
     {!inline &&
     <div className={`ai-connection-card ${settings.configured ? 'configured' : 'missing'}`}>
       <div className="ai-connection-icon">{settings.configured ? <CheckCircle2 size={22}/> : <KeyRound size={22}/>}</div>
       <div className="ai-connection-copy">
-        <strong>{settings.configured ? 'Gemini key available' : 'Connect Gemini to generate captions'}</strong>
-        <span>{settings.configured ? `${settings.maskedKey} · ${sourceLabel}` : 'You can import media and edit captions before connecting.'}</span>
+        <strong>{settings.configured ? t('setup.ai.keyAvailable') : t('setup.ai.connect')}</strong>
+        <span data-server-text={settings.configured || undefined}>{settings.configured ? t('setup.ai.maskedKey', { key: String(settings.maskedKey), source: sourceLabel }) : t('setup.ai.canImport')}</span>
       </div>
     </div>}
 
     <div className={inline ? undefined : 'ai-settings-grid'}>
       <section className="ai-settings-section">
-        <div className="ai-section-title"><div><strong>Gemini API key</strong>{!inline && <span>The key stays behind Studio's local service and is never returned to your browser after saving.</span>}</div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Get a key <ExternalLink size={13}/></a></div>
+        <div className="ai-section-title"><div><strong>{t('setup.ai.keyHeading')}</strong>{!inline && <span>{t('setup.ai.privacy')}</span>}</div><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">{t('setup.ai.getKey')}{' '}<ExternalLink size={13}/></a></div>
         <label className="ai-key-field">
-          <span id={keyLabelId}>{settings.configured ? 'Replace current key' : 'API key'}</span>
+          <span id={keyLabelId}>{settings.configured ? t('setup.ai.replaceKey') : t('setup.ai.key')}</span>
           <div>
             <KeyRound size={16}/>
             <input
@@ -196,42 +198,42 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(event) => { revisions.current.key++; setApiKey(event.target.value); resetFeedback(); }}
-              placeholder={settings.configured ? 'Paste new key' : 'Paste Gemini API key'}
+              placeholder={settings.configured ? t('setup.ai.pasteNew') : t('setup.ai.pasteGemini')}
               autoComplete="off"
               autoCapitalize="off"
               spellCheck={false}
             />
-            <button type="button" aria-label={showKey ? 'Hide typed key' : 'Show typed key'} title={showKey ? 'Hide typed key' : 'Show typed key'} onClick={() => setShowKey((value) => !value)}>{inline ? (showKey ? 'Hide' : 'Show') : showKey ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
-            <button ref={pasteButton} type="button" aria-label="Paste from clipboard" title="Paste from clipboard" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'paste' || undefined} onClick={() => void pasteKey()}>{inline ? 'Paste' : <ClipboardPaste size={15}/>}</button>
+            <button type="button" aria-label={showKey ? t('setup.ai.hideKey') : t('setup.ai.showKey')} title={showKey ? t('setup.ai.hideKey') : t('setup.ai.showKey')} onClick={() => setShowKey((value) => !value)}>{inline ? (showKey ? t('setup.ai.hide') : t('setup.ai.show')) : showKey ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
+            <button ref={pasteButton} type="button" aria-label={t('setup.ai.pasteClipboard')} title={t('setup.ai.pasteClipboard')} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'paste' || undefined} onClick={() => void pasteKey()}>{inline ? t('setup.ai.paste') : <ClipboardPaste size={15}/>}</button>
           </div>
         </label>
-        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong>{settings.secureStorageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? 'Your operating-system account protects the saved key. Profile exports exclude it.' : 'Set a server environment variable on this platform.'}</span>}</div></div>
+        <div className="secure-storage-note"><ShieldCheck size={16}/><div><strong data-server-text>{settings.secureStorageLabel}</strong>{!inline && <span>{settings.secureStorageAvailable ? t('setup.ai.secureStorage') : t('setup.ai.environmentHelp')}</span>}</div></div>
       </section>
 
       {!inline && <details className="ai-settings-section ai-model-settings" open={modelsOpen} onToggle={(event) => setModelsOpen(event.currentTarget.open)}>
-        <summary>Model settings</summary>
+        <summary>{t('setup.ai.models')}</summary>
         <div className="ai-model-grid">
-          <label><span>Primary model</span><input list={modelOptionsId} value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>
-          <label><span>Fallback model <em>optional</em></span><input list={modelOptionsId} value={fallbackModel} onChange={(event) => { revisions.current.fallback++; edited.current.fallback = true; setFallbackModel(event.target.value); resetFeedback(); }} placeholder="Leave blank to disable"/></label>
+          <label><span>{t('setup.ai.primary')}</span><input list={modelOptionsId} value={model} onChange={(event) => { revisions.current.model++; edited.current.model = true; setModel(event.target.value); resetFeedback(); }}/></label>
+          <label><span>{t('setup.ai.fallback')} <em>{t('setup.ai.optional')}</em></span><input list={modelOptionsId} value={fallbackModel} onChange={(event) => { revisions.current.fallback++; edited.current.fallback = true; setFallbackModel(event.target.value); resetFeedback(); }} placeholder={t('setup.ai.disableFallback')}/></label>
           <datalist id={modelOptionsId}><option value="gemini-3.8-flash"/><option value="gemini-4-hydrogen"/><option value="gemini-3.6-flash"/></datalist>
         </div>
-        <details className="ai-model-help"><summary>About these models</summary><p>Recommended: Gemini 3.8 Flash with 3.6 Flash as fallback. Gemini 4 Hydrogen is also an option. These caption models use low thinking. Google routes 3.7 Flash to 3.8, so it cannot serve as a separate fallback. The fallback uses the same key if the primary is temporarily unavailable. Leave the fallback blank to disable automatic failover. Gemini Transcribe is experimental and outside the automatic chain.</p></details>
+        <details className="ai-model-help"><summary>{t('setup.ai.aboutModels')}</summary><p>{t('setup.ai.modelHelp')}</p></details>
       </details>}
     </div>
 
     {result && <div className={`ai-test-result ${result.level}`} role="status">
-      {result.level === 'success' ? <CheckCircle2 size={17}/> : <TriangleAlert size={17}/>}<div><strong>{result.level === 'success' ? 'API key and model lookup checked' : 'Connection reached Google with a warning'}</strong><span>{result.message} · {result.latencyMs} ms</span></div>
+      {result.level === 'success' ? <CheckCircle2 size={17}/> : <TriangleAlert size={17}/>}<div><strong>{result.level === 'success' ? t('setup.ai.testSuccess') : t('setup.ai.testWarning')}</strong><span>{t('setup.ai.testResult', { message: result.message, latency: result.latencyMs })}</span></div>
     </div>}
     {message && <div className="ai-inline-message success" role="status"><CheckCircle2 size={15}/><span>{message}</span></div>}
     {error && <div className="ai-inline-message error" role="alert"><TriangleAlert size={15}/><span>{error}</span></div>}
 
     <div className="ai-settings-actions">
       {!inline && <>
-      {settings.canForgetSecureKey && <button className="danger-quiet" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'forget' || undefined} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}Forget saved key</button>}
-      <span>{settings.updatedAt ? `Last saved ${new Date(settings.updatedAt).toLocaleString()}` : 'No settings saved yet'}</span>
-      <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={(event) => void test(event.currentTarget)}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}Test connection</button>
+      {settings.canForgetSecureKey && <button className="danger-quiet" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'forget' || undefined} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}{t('setup.ai.forget')}</button>}
+      <span>{settings.updatedAt ? t('setup.ai.lastSaved', { date: new Date(settings.updatedAt).toLocaleString() }) : t('setup.ai.neverSaved')}</span>
+      <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={(event) => void test(event.currentTarget)}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}{t('setup.ai.testConnection')}</button>
       </>}
-      <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={(event) => void save(event.currentTarget)}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}Test &amp; save</button>
+      <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={(event) => void save(event.currentTarget)}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}{t('setup.ai.testAndSave')}</button>
     </div>
     {confirmationDialog}
   </div>;
