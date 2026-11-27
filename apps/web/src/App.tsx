@@ -415,6 +415,7 @@ export default function App() {
   const [doctor, setDoctor] = useState<SystemDoctorReport | null>(null);
   const [doctorLoadState, setDoctorLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [doctorError, setDoctorError] = useState('');
+  const [doctorErrorIsServerText, setDoctorErrorIsServerText] = useState(false);
   const doctorRequest = useRef(0);
   const doctorInFlight = useRef(false);
   const [time, setTime] = useState(0);
@@ -637,7 +638,7 @@ export default function App() {
   const correctionDestination = useRef<{ ticket: ProjectTicket; captionId?: string } | null>(null);
   const correctionRequest = useRef<AbortController | null>(null);
   const [openingCorrection, setOpeningCorrection] = useState<string | null>(null);
-  const [correctionReadError, setCorrectionReadError] = useState<{ id: string; message: string } | null>(null);
+  const [correctionReadError, setCorrectionReadError] = useState<{ id: string; message: string; serverText: boolean } | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
@@ -3987,7 +3988,10 @@ export default function App() {
       setShowCorrections(false);
       if (key === intent.key && media.current) playCorrectionAudio(media.current, key);
     } catch (reason) {
-      if (ownsRead()) setCorrectionReadError({ id: event.id, message: reason instanceof Error ? reason.message : t('notices.corrections.savedProjectLoadFailed') });
+      if (ownsRead()) setCorrectionReadError({
+        id: event.id, message: reason instanceof Error ? reason.message : t('notices.corrections.savedProjectLoadFailed'),
+        serverText: reason instanceof ApiRequestError,
+      });
     } finally {
       if (correctionRequest.current === request) {
         correctionRequest.current = null;
@@ -4006,6 +4010,7 @@ export default function App() {
     doctorRequest.current++;
     setDoctor(null);
     setDoctorError('');
+    setDoctorErrorIsServerText(false);
     setDoctorLoadState('idle');
     await refreshSystemHealth();
     return next;
@@ -4048,6 +4053,7 @@ export default function App() {
     const request = ++doctorRequest.current;
     setDoctorLoadState('loading');
     setDoctorError('');
+    setDoctorErrorIsServerText(false);
     setBusy('notices.busy.checkingSystem');
     try {
       const report = await api.doctor();
@@ -4060,6 +4066,7 @@ export default function App() {
     } catch (reason) {
       if (doctorRequest.current === request) {
         setDoctorError(reason instanceof Error ? reason.message : t('notices.profile.systemCheckFailed'));
+        setDoctorErrorIsServerText(reason instanceof ApiRequestError);
         setDoctorLoadState('error');
       }
     } finally {
@@ -4547,7 +4554,7 @@ export default function App() {
       sourceCheck={sourceCheck} onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
 
-    <ProfileDoctor languageSaving={languageSaving} onInterfaceLanguage={setInterfaceLanguage} open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
+    <ProfileDoctor languageSaving={languageSaving} onInterfaceLanguage={setInterfaceLanguage} open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} doctorErrorIsServerText={doctorErrorIsServerText} busy={!!busy} currentContext={project ? contextPayload() : null}
       profileLoadFailed={startupErrors.includes('Preferences')} aiLoadFailed={startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
       onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.errorMessage ? t(savedStorage.errorMessage.key) : savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>

@@ -1,6 +1,7 @@
 import { useI18n } from '../i18n';
+import type { MessageKey, MessageParams } from '../i18n/types';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent, type RefObject } from 'react';
-import { checkMediaPreviewCopy, needsCompatiblePlayback, requestMediaPreview, type MediaPreviewStatus } from '../media-preview-client';
+import { checkMediaPreviewCopy, MediaPreviewClientError, needsCompatiblePlayback, requestMediaPreview, type MediaPreviewStatus } from '../media-preview-client';
 import { playbackFailure, recoveryPosition, restoredPosition, watchPlaybackProgress, type PlaybackSettings } from '../media-playback-recovery';
 import { createMediaClockBinding } from '../media-clock';
 import './source-media.css';
@@ -19,6 +20,18 @@ interface Props {
   onRetry: () => void;
 }
 
+type PreviewError = { key: MessageKey; params?: MessageParams } | { message: string; serverText?: boolean };
+
+function previewRequestFailure(error: unknown, fallback: MessageKey): PreviewError {
+  if (error instanceof MediaPreviewClientError && error.messageMetadata) return error.messageMetadata;
+  if (error instanceof Error) return { message: error.message, serverText: error instanceof MediaPreviewClientError };
+  return { key: fallback };
+}
+
+function readyPreviewWarning(preview: MediaPreviewStatus | null): PreviewError | null {
+  return preview?.state === 'ready' && preview.message ? { message: preview.message, serverText: true } : null;
+}
+
 /** Mount with a project/media key. Recovery never changes the source project. */
 export function SourceMedia({ src, projectId, source, video, playbackRate, media, recoveryFocusTarget, onElementChange, onLoadedMetadata, onTimeUpdate, onRetry }: Props) {
   const [playbackSrc, setPlaybackSrc] = useState<string | undefined>(video ? undefined : src);
@@ -28,12 +41,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   const [recovering, setRecovering] = useState(false);
   const [preview, setPreview] = useState<MediaPreviewStatus | null>(null);
   const { t } = useI18n();
-  const [previewError, setPreviewErrorText] = useState('');
-  const [previewErrorIsServerText, setPreviewErrorIsServerText] = useState(false);
-  const setPreviewError = (message: string, serverText = false) => {
-    setPreviewErrorText(message);
-    setPreviewErrorIsServerText(serverText);
-  };
+  const [previewError, setPreviewError] = useState<PreviewError | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
   const [pollStopped, setPollStopped] = useState(false);
@@ -135,7 +143,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   const accept = (value: MediaPreviewStatus, keepRecoveredPlayer = false) => {
     terminalResponseSequence.current = value.state === 'processing' ? null : sequence.current;
     if (value.state !== 'processing') setRequesting(false);
-    setPreviewError(value.state === 'ready' ? value.message || '' : '', Boolean(value.state === 'ready' && value.message));
+    setPreviewError(readyPreviewWarning(value));
     setPreview(value);
     setPollStopped(false);
     if (value.state === 'ready' && value.url) {
@@ -161,7 +169,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     retrySequence.current = null;
     operation.current?.abort();
     const controller = new AbortController(); operation.current = controller;
-    setRequesting(true); setPreviewError('');
+    setRequesting(true); setPreviewError(null);
     // Keep tracking manual seeks during preparation; only arm restoration when
     // a new source is actually loaded. Cancelling leaves the original playable.
     media.current?.pause();
@@ -170,7 +178,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       const value = await requestMediaPreview(projectId, source, 'POST', controller.signal, Boolean(playbackSrc && playbackSrc !== src));
       if (alive.current && sequence.current === request) accept(value);
     } catch (error) {
-      if (alive.current && sequence.current === request) setPreviewError(error instanceof Error ? error.message : 'Playback preparation failed.', error instanceof Error);
+      if (alive.current && sequence.current === request) setPreviewError(previewRequestFailure(error, 'media.playback.preparationFailed'));
     } finally {
       if (sequence.current === request) { inFlight.current = false; if (alive.current) setRequesting(false); }
     }
@@ -214,7 +222,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     let errors = 0;
     const poll = async () => {
       if (terminalResponseSequence.current === request) return;
-      if (performance.now() >= deadline) { setPollStopped(true); setPreviewError('Playback preparation is taking longer than expected. Check progress or cancel preparation.'); return; }
+      if (performance.now() >= deadline) { setPollStopped(true); setPreviewError({ key: 'media.playback.preparationSlow' }); return; }
       try {
         const value = await requestMediaPreview(projectId, source, 'GET', controller.signal);
         if (controller.signal.aborted || !alive.current || sequence.current !== request || terminalResponseSequence.current === request) return;
@@ -223,7 +231,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
         if (value.state === 'processing') timer = setTimeout(poll, 750);
       } catch {
         if (!controller.signal.aborted && alive.current && sequence.current === request && terminalResponseSequence.current !== request) {
-          setPreviewError('Playback progress is unavailable. Retry or cancel preparation.');
+          setPreviewError({ key: 'media.playback.progressUnavailable' });
           if (++errors >= 3) setPollStopped(true);
           else timer = setTimeout(poll, 1500);
         }
@@ -246,12 +254,12 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     try {
       const value = await requestMediaPreview(projectId, source, 'DELETE', controller.signal);
       if (alive.current && sequence.current === request && terminalResponseSequence.current !== request) {
-        accept(value, true); setPreviewError('');
+        accept(value, true); setPreviewError(null);
       }
     } catch {
       // A restarted poll can finish preparation while this DELETE is pending.
       // Its terminal result owns the player and notice, even if DELETE arrives late.
-      if (alive.current && sequence.current === request && terminalResponseSequence.current !== request) setPreviewError('Could not cancel preparation. Try again.');
+      if (alive.current && sequence.current === request && terminalResponseSequence.current !== request) setPreviewError({ key: 'media.playback.cancelFailed' });
     } finally { if (alive.current && sequence.current === request) setRequesting(false); }
   };
   const retry = async (trigger: HTMLButtonElement) => {
@@ -266,7 +274,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     const controller = new AbortController(); operation.current = controller;
     inFlight.current = false; stallFailure.current = false;
     setRequesting(false); setStalled(false);
-    setPreviewError(preview?.state === 'ready' ? preview.message || '' : '', Boolean(preview?.state === 'ready' && preview.message));
+    setPreviewError(readyPreviewWarning(preview));
     setRecovering(true); setFailed(false);
     setPreview((value) => value && value.state !== 'ready' && value.state !== 'processing' ? { ...value, state: 'original', message: undefined } : value);
     // Decoder recovery must not wait for an optional status API. The actual
@@ -289,7 +297,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       } catch (error) {
         if (missing && ownsRequest() && !currentPlayerReady()) {
           setRecovering(false); setFailed(true);
-          setPreviewError(error instanceof Error ? error.message : 'Playback is unavailable. Try again.', error instanceof Error);
+          setPreviewError(previewRequestFailure(error, 'media.playback.unavailable'));
         }
       }
     }
@@ -343,19 +351,21 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   const processing = requesting || preview?.state === 'processing';
   const offerCopy = video && (failed || Boolean(preview?.state === 'ready' && preview.message) || playbackSrc === src && (failed || ['hevc', 'h265'].includes(preview?.videoCodec || '') || preview?.state === 'failed' || preview?.state === 'cancelled'));
   const failure = playbackFailure(failureCode);
-  const messageIsServerText = previewError
-    ? previewErrorIsServerText
+  const previewErrorMessage = previewError && ('key' in previewError ? t(previewError.key, previewError.params) : previewError.message);
+  const messageIsServerText = previewErrorMessage
+    ? previewError && 'message' in previewError && previewError.serverText
     : !processing && preview?.state === 'failed' && Boolean(preview.message);
-  const message = previewError || (processing ? `Preparing browser playback${preview?.progress ? ` · ${preview.progress}%` : '…'}`
-    : (preview?.state === 'failed' ? preview.message : '') || (recovering ? 'Restarting playback…' : failed ? (stalled ? 'Playback stopped making progress. Retry playback to continue from this position. Your source file and captions are unchanged.' : (t(failure.key) || failure.message)) : offerCopy ? 'Picture missing? Prepare a local playback copy. Your original stays unchanged.' : ''));
+  const preparation = preview?.progress ? t('media.playback.preparingProgress', { progress: preview.progress }) : t('media.playback.preparing');
+  const message = previewErrorMessage || (processing ? preparation
+    : (preview?.state === 'failed' ? preview.message : '') || (recovering ? t('media.playback.restarting') : failed ? (stalled ? t('media.playback.stalled') : (t(failure.key) || failure.message)) : offerCopy ? t('media.playback.missingPicture') : ''));
   return <>
     {video ? <video key={playerGeneration} ref={attach} {...props}/> : <audio key={playerGeneration} ref={attach} {...props}/>}
     {message && <div className="source-media-status" role="status">
       <span data-server-text={messageIsServerText || undefined}>{message}</span>
-      {preview?.state === 'processing' ? <>{pollStopped && <button type="button" onClick={() => { setPollStopped(false); setPollGeneration((generation) => generation + 1); }}>Check progress</button>}<button type="button" disabled={requesting} onClick={(event) => void cancel(event.currentTarget)}>Cancel preparation</button></>
+      {preview?.state === 'processing' ? <>{pollStopped && <button type="button" onClick={() => { setPollStopped(false); setPollGeneration((generation) => generation + 1); }}>{t('media.playback.checkProgress')}</button>}<button type="button" disabled={requesting} onClick={(event) => void cancel(event.currentTarget)}>{t('media.playback.cancelPreparation')}</button></>
         : <>
-          {(failed || recovering) && <button type="button" onClick={(event) => void retry(event.currentTarget)}>{recovering ? 'Retry again' : 'Retry playback'}</button>}
-          {offerCopy && <button type="button" disabled={processing} onClick={(event) => void prepare(event.currentTarget)}>Prepare playback</button>}
+          {(failed || recovering) && <button type="button" onClick={(event) => void retry(event.currentTarget)}>{t(recovering ? 'media.playback.retryAgain' : 'media.playback.retry')}</button>}
+          {offerCopy && <button type="button" disabled={processing} onClick={(event) => void prepare(event.currentTarget)}>{t('media.playback.prepare')}</button>}
         </>}
     </div>}
   </>;
