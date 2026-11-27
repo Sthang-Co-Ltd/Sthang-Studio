@@ -18,8 +18,10 @@ const historyLabelKeys = exactLabelKeys('server.historyLabel', serverMessages.hi
 const candidateLabelKeys = exactLabelKeys('server.candidateLabel', serverMessages.candidateLabel);
 const selectedCandidateReasonKeys = exactLabelKeys('server.selectedCandidateReason', serverMessages.selectedCandidateReason);
 
-export function activityMessageKey(locale: Locale, stage: string): MessageKey | undefined {
-  if (locale === 'km' && hasCode(serverMessages.stage, stage)) return `server.stage.${stage}`;
+export function activityMessageKey(locale: Locale, stage: string, canResume?: boolean): MessageKey | undefined {
+  if (locale !== 'km') return undefined;
+  if (stage === 'interrupted' && canResume) return 'server.resumable.interrupted';
+  if (hasCode(serverMessages.stage, stage)) return `server.stage.${stage}`;
 }
 
 export function activityStageNameKey(stage: string) {

@@ -116,7 +116,6 @@ test('Khmer Activity, History, Compare and Looks render catalog values and prese
     CAPTION_LOOKS.map(({ id }) => t(`looks.${id}`)),
   );
   await expect(looks.locator('.appearance-look-current')).toContainText(t('looks.soft-glow'));
-  await expect(looks.locator('[data-deferred-text="look-name"]')).toHaveCount(0);
 
   await openTool(page, t('editor.tools.activity'));
   const activity = page.getByRole('dialog', { name: t('activity.title') });

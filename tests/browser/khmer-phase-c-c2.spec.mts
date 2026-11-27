@@ -1,7 +1,8 @@
 import { expect, test as base, type Page } from '@playwright/test';
 import { createCaptionData, hydrateCaptionWordTimings } from '@kcs/shared';
 import { translate } from '../../apps/web/src/i18n/translate.js';
-import type { MessageKey } from '../../apps/web/src/i18n/types.js';
+import type { MessageKey, MessageParams } from '../../apps/web/src/i18n/types.js';
+import { UPLOAD_RECOVERY_PREFIX } from '../../apps/web/src/upload-recovery.js';
 import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 import { requireHarnessConfig } from './harness-config.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
@@ -42,18 +43,14 @@ async function fixture(page: Page) {
   return { state, errors };
 }
 
-const km = (key: MessageKey) => translate('km', key);
-function fallback(key: MessageKey) {
-  expect(km(key)).toBe(translate('en', key));
-  return km(key);
-}
+const km = (key: MessageKey, params?: MessageParams) => translate('km', key, params);
 
 async function tool(page: Page, key: MessageKey) {
   await page.locator('[data-project-tools-trigger]').click();
   await page.getByRole('menu', { name: km('editor.tools.menu') }).getByText(km(key), { exact: true }).click();
 }
 
-test('Khmer uses the English media dialogs and confirmation copy', async ({ page }) => {
+test('Khmer localizes the media dialogs and confirmation copy', async ({ page }) => {
   const { errors } = await fixture(page);
   await page.route('**/api/projects/landscape/media-replacements', (route) => route.fulfill({ json: [] }));
   await openProject(page);
@@ -61,22 +58,22 @@ test('Khmer uses the English media dialogs and confirmation copy', async ({ page
   const chooser = page.waitForEvent('filechooser');
   await tool(page, 'editor.tools.replace');
   await (await chooser).setFiles({ name: 'alternate.mp4', mimeType: 'video/mp4', buffer: fixtureMedia() });
-  const dialog = page.getByRole('dialog', { name: fallback('dialogs.media.replaceTitle'), exact: true });
-  await expect(dialog).toContainText('Replace current media with alternate.mp4. Choose what to keep.');
-  await dialog.getByRole('radio', { name: /^Start over/ }).check();
-  await dialog.getByRole('button', { name: fallback('dialogs.media.continue'), exact: true }).click();
-  const confirmation = page.getByRole('alertdialog', { name: fallback('dialogs.resetMedia.title'), exact: true });
-  await expect(confirmation).toContainText('Replace the source with alternate.mp4 and clear the current captions');
-  await confirmation.getByRole('button', { name: fallback('dialogs.resetMedia.cancel'), exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: km('dialogs.media.replaceTitle'), exact: true });
+  await expect(dialog).toContainText(km('dialogs.media.replaceDescription', { filename: 'alternate.mp4' }).replace(/<\/?b>/g, ''));
+  await dialog.getByRole('radio', { name: new RegExp(`^${km('dialogs.media.reset')}`) }).check();
+  await dialog.getByRole('button', { name: km('dialogs.media.continue'), exact: true }).click();
+  const confirmation = page.getByRole('alertdialog', { name: km('dialogs.resetMedia.title'), exact: true });
+  await expect(confirmation).toContainText(km('dialogs.resetMedia.message', { filename: 'alternate.mp4' }));
+  await confirmation.getByRole('button', { name: km('dialogs.resetMedia.cancel'), exact: true }).click();
   await dialog.getByRole('button', { name: km('common.cancel'), exact: true }).click();
 
   await tool(page, 'editor.tools.undoReplace');
-  const backups = page.getByRole('dialog', { name: fallback('dialogs.media.undoTitle'), exact: true });
-  await expect(backups.getByText(fallback('dialogs.media.noBackups'))).toBeVisible();
+  const backups = page.getByRole('dialog', { name: km('dialogs.media.undoTitle'), exact: true });
+  await expect(backups.getByText(km('dialogs.media.noBackups'))).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('Khmer shows project and upload storage notices with English fallback', async ({ page }) => {
+test('Khmer localizes project and upload storage notices', async ({ page }) => {
   const { errors } = await fixture(page);
   await page.route('**/api/system/project-storage*', (route) => route.fulfill({ json: {} }));
   await page.addInitScript(() => {
@@ -85,12 +82,72 @@ test('Khmer shows project and upload storage notices with English fallback', asy
   });
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('lang', 'km');
-  await expect(page.locator('.upload-storage-feedback')).toHaveText(fallback('notices.upload.recoveryUnavailable'));
-  await expect(page.getByText(fallback('notices.storage.checkFailed'), { exact: true })).toBeVisible();
+  await expect(page.locator('.upload-storage-feedback')).toHaveText(km('notices.upload.recoveryUnavailable'));
+  await expect(page.getByText(km('notices.storage.checkFailed'), { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('Khmer shows the unfinished-edit dialog and clipboard recovery in English', async ({ page }) => {
+test('a saved Khmer profile localizes a restored upload reminder on a cold load without a mirror', async ({ page }) => {
+  const { errors } = await fixture(page);
+  await page.addInitScript(({ prefix, mirror }) => {
+    localStorage.removeItem(mirror);
+    const id = 'upload_' + 'a'.repeat(32);
+    localStorage.setItem(prefix + id, JSON.stringify({
+      version: 1, id, name: 'original.mp4', size: 100, type: 'video/mp4', lastModified: 1, capturedAt: Date.now(),
+    }));
+  }, { prefix: UPLOAD_RECOVERY_PREFIX, mirror: 'sthang:interface-language:v1' });
+  let releaseProfile!: () => void;
+  const profileGate = new Promise<void>((resolve) => { releaseProfile = resolve; });
+  await page.route('**/api/profile', async (route) => {
+    await profileGate;
+    await route.fallback();
+  });
+  const reminder = page.locator('.upload-recovery > div:first-child > p').first();
+  try {
+    await page.goto('/');
+    await expect(reminder).toHaveText(translate('en', 'home.upload.earlierNeedsCheck'));
+  } finally {
+    releaseProfile();
+  }
+  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  await expect(reminder).toHaveText(km('home.upload.earlierNeedsCheck'));
+  expect(errors).toEqual([]);
+});
+
+test('cross-tab upload reminder removal uses the language selected after mount', async ({ page, context }) => {
+  const { state, errors } = await fixture(page);
+  state.profile.preferences.interfaceLanguage = 'en';
+  await page.route('**/api/projects', (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 409, json: { code: 'PROJECT_CREATE_NOT_APPLIED', error: 'Synthetic upload rejected.' } })
+    : route.fallback());
+  await page.goto('/');
+  await expect(page.locator('.dropzone')).toBeEnabled();
+  await page.locator('.empty-stage input[type="file"]').setInputFiles({
+    name: 'original.mp4', mimeType: 'video/mp4', buffer: fixtureMedia(),
+  });
+  await expect(page.locator('.upload-recovery')).toContainText('Synthetic upload rejected.');
+  await page.locator('.home-tools .interface-language-switch').getByRole('button', { name: 'ខ្មែរ', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  const other = await context.newPage();
+  try {
+    await fixture(other);
+    await other.goto('/');
+    const removed = await other.evaluate((prefix) => {
+      const key = Object.keys(localStorage).find((item) => item.startsWith(prefix));
+      if (key) localStorage.removeItem(key);
+      return Boolean(key);
+    }, UPLOAD_RECOVERY_PREFIX);
+    expect(removed).toBe(true);
+    await expect(page.locator('.upload-storage-feedback')).toHaveText(km('home.upload.reminderRemoved'));
+    await page.locator('.home-tools .interface-language-switch').getByRole('button', { name: 'English', exact: true }).click();
+    await expect(page.locator('.upload-storage-feedback')).toHaveText(translate('en', 'home.upload.reminderRemoved'));
+  } finally {
+    await other.close();
+  }
+  expect(errors.filter((error) => !error.includes('409'))).toEqual([]);
+});
+
+test('Khmer localizes the unfinished-edit dialog and clipboard recovery', async ({ page }) => {
   const { state, errors } = await fixture(page);
   state.profile.correctionEvents = [{
     id: 'phase-c-correction', projectId: 'landscape', projectTitle: state.projects[0].title, captionId: 'c1',
@@ -105,8 +162,8 @@ test('Khmer shows the unfinished-edit dialog and clipboard recovery in English',
   await tool(page, 'editor.tools.corrections');
   const inbox = page.getByRole('dialog', { name: km('inbox.title'), exact: true });
   await inbox.getByRole('button', { name: km('workspace.copyReport'), exact: true }).click();
-  await expect(inbox.getByRole('alert')).toHaveText(fallback('dialogs.copyReport.failed'));
-  await expect(inbox.getByRole('textbox', { name: km('workspace.copyReport') + ': text for manual copying' })).toBeVisible();
+  await expect(inbox.getByRole('alert')).toHaveText(km('dialogs.copyReport.failed'));
+  await expect(inbox.getByRole('textbox', { name: km('dialogs.copyReport.manualLabel', { label: km('workspace.copyReport') }) })).toBeVisible();
   await inbox.getByRole('button', { name: km('inbox.close'), exact: true }).click();
 
   const caption = page.getByLabel(translate('km', 'editor.row.text', { number: 1 }), { exact: true });
@@ -115,16 +172,16 @@ test('Khmer shows the unfinished-edit dialog and clipboard recovery in English',
     key.startsWith('sthang-studio:unfinished-edits:') && localStorage.getItem(key)?.includes('Unfinished test caption')))).toBe(true);
   page.once('dialog', (dialog) => void dialog.accept());
   await openProject(page);
-  const recovery = page.getByRole('region', { name: fallback('dialogs.draft.label'), exact: true });
-  await expect(recovery.getByText(fallback('dialogs.draft.title'), { exact: true })).toBeVisible();
-  await recovery.getByRole('button', { name: fallback('dialogs.discardDraft.confirm'), exact: true }).click();
-  const confirm = page.getByRole('alertdialog', { name: fallback('dialogs.discardDraft.title'), exact: true });
-  await expect(confirm).toContainText(fallback('dialogs.discardDraft.message'));
-  await confirm.getByRole('button', { name: fallback('dialogs.discardDraft.cancel'), exact: true }).click();
+  const recovery = page.getByRole('region', { name: km('dialogs.draft.label'), exact: true });
+  await expect(recovery.getByText(km('dialogs.draft.title'), { exact: true })).toBeVisible();
+  await recovery.getByRole('button', { name: km('dialogs.discardDraft.confirm'), exact: true }).click();
+  const confirm = page.getByRole('alertdialog', { name: km('dialogs.discardDraft.title'), exact: true });
+  await expect(confirm).toContainText(km('dialogs.discardDraft.message'));
+  await confirm.getByRole('button', { name: km('dialogs.discardDraft.cancel'), exact: true }).click();
   expect(errors).toEqual([]);
 });
 
-test('Khmer opens the timing workspace and falls back for browser media errors', async ({ page }) => {
+test('Khmer opens the timing workspace and localizes browser media errors', async ({ page }) => {
   const { errors } = await fixture(page);
   await openProject(page);
   await page.getByRole('button', { name: km('workspace.fineTiming'), exact: true }).click();
@@ -133,11 +190,11 @@ test('Khmer opens the timing workspace and falls back for browser media errors',
     Object.defineProperty(element, 'error', { configurable: true, value: { code: 2 } });
     element.dispatchEvent(new Event('error'));
   });
-  await expect(page.locator('.source-media-status')).toContainText(fallback('notices.playback.network'));
+  await expect(page.locator('.source-media-status')).toContainText(km('notices.playback.network'));
   expect(errors).toEqual([]);
 });
 
-test('Khmer marks the server warning and uses the transfer error fallback', async ({ page }) => {
+test('Khmer marks the server warning and localizes the transfer error', async ({ page }) => {
   const { state, errors } = await fixture(page);
   const project = state.projects[0];
   const snapshot = createCaptionData({
@@ -155,7 +212,7 @@ test('Khmer marks the server warning and uses the transfer error fallback', asyn
   await page.locator('[data-stage="export"]').click();
   await page.locator('.export-mode-switch button').nth(1).click();
   await page.locator('.handoff-download-primary').click();
-  await expect(page.getByRole('alert').filter({ hasText: fallback('notices.transfer.emptyFile') })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: km('notices.transfer.emptyFile') })).toBeVisible();
   await page.locator('.handoff-advanced summary').click();
   await page.locator('.handoff-restore input[type="file"]').setInputFiles({
     name: 'demo.sthang-captions.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(snapshot)),

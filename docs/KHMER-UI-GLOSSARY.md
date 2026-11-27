@@ -38,7 +38,7 @@ This document fixes the terminology, tone, punctuation, and orthography for Stha
 - **Keep in Latin, untranslated:**
   - Products, services, and scripts/files: `Sthang Studio`, `Studio`, `CapCut`, `TikTok`, `Gemini`, `Google`, `Google AI Studio`, `Python`, `Install Sthang Studio.bat`, `setup-local-timing-windows.bat`, `bash ./setup-local-timing-macos.sh`, `apps/server/.env`, model names (`Gemini 3.8 Flash`, `3.6 Flash`, `3.7 Flash`, `Gemini 4 Hydrogen`, `Gemini Transcribe`).
   - Formats and units: `SRT`, `MP4`, `MOV`, `MP3`, `WAV`, `AI`, `API`, `HD`, `4K`, `1080p`, `720p`, `fps`, `ms`, `MB`, `GB`, `QR`, `m:ss`, `h:mm:ss`.
-  - Keyboard keys and symbols: `Enter`, `A`, `R`, `S`, `E`, `J`, `Alt`, `Ctrl`, `Shift`, `Esc`, `Tab`, `Space`, `↑/↓`, `←/→`.
+  - Keyboard keys and symbols: `Enter`, `A`, `R`, `S`, `E`, `J`, `Alt`, `Ctrl`, `Shift`, `Esc`, `Tab`, `Space`, `Home`, `End`, macOS `Command` and `Option`, `↑/↓`, `←/→`. Arrow keys are written as the symbols, never as the English words Left, Right, Up or Down.
 - **Spacing:** Put **one ASCII space** before and after embedded Latin words and Western numbers inside Khmer text. Exceptions: immediately before `។`, `)`, `»`, `,`, `៖`, `?`, or `…`, or immediately after `(` or `«`.
 - **Word order:** Follow head-initial Khmer grammar (`ឯកសារ SRT`, `វីដេអូ MP4`, `កូនសោ API`, `2 ជួរ`, `អក្សររត់ {count} ឃ្លា`).
 - **Plurals:** Khmer has no grammatical plural. For every English `{ one, other }` plural key, provide **only** `{ other: "…" }`.

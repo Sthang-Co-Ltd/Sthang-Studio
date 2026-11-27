@@ -3,7 +3,9 @@ import test from 'node:test';
 import type { CaptionSegment } from '@kcs/shared';
 import { CaptionHandoffError, captionHandoffApi } from '../apps/web/src/caption-handoff-client.js';
 import { planCaptionTimingEdit } from '../apps/web/src/caption-timing-transaction.js';
-import { translate, translatePlural } from '../apps/web/src/i18n/translate.js';
+import { en } from '../apps/web/src/i18n/messages/en/index.js';
+import { km } from '../apps/web/src/i18n/messages/km/index.js';
+import { createTranslator, translate, translatePlural } from '../apps/web/src/i18n/translate.js';
 import type { MessageKey, MessageParams } from '../apps/web/src/i18n/types.js';
 import { playbackFailure, playbackFailureMessage } from '../apps/web/src/media-playback-recovery.js';
 import { storageCheckFailure } from '../apps/web/src/project-storage.js';
@@ -139,13 +141,20 @@ test('handoff errors keep provider prose separate from the three client-authored
   }
 });
 
-test('pending notice and dialog plurals preserve the original English inflections', () => {
+test('notice and dialog plurals preserve English inflections when translations are absent', () => {
+  const partial = createTranslator({ en, km: { ...km, dialogs: undefined, notices: undefined } });
   for (const locale of ['en', 'km'] as const) {
-    assert.equal(translatePlural(locale, 'notices.corrections.captured', 1), '1 correction captured in the Inbox.');
-    assert.equal(translatePlural(locale, 'notices.corrections.captured', 2), '2 corrections captured in the Inbox.');
-    assert.equal(translatePlural(locale, 'dialogs.media.resetCount', 1), 'Clear 1 caption, approvals, locks, and the transcript. Generate new captions when ready.');
-    assert.equal(translatePlural(locale, 'dialogs.media.resetCount', 2), 'Clear 2 captions, approvals, locks, and the transcript. Generate new captions when ready.');
-    assert.equal(translatePlural(locale, 'dialogs.renderWarnings.message', 1, { profile: 'Balanced' }),
+    assert.equal(partial.translatePlural(locale, 'notices.corrections.captured', 1), '1 correction captured in the Inbox.');
+    assert.equal(partial.translatePlural(locale, 'notices.corrections.captured', 2), '2 corrections captured in the Inbox.');
+    assert.equal(partial.translatePlural(locale, 'dialogs.media.resetCount', 1), 'Clear 1 caption, approvals, locks, and the transcript. Generate new captions when ready.');
+    assert.equal(partial.translatePlural(locale, 'dialogs.media.resetCount', 2), 'Clear 2 captions, approvals, locks, and the transcript. Generate new captions when ready.');
+    assert.equal(partial.translatePlural(locale, 'dialogs.renderWarnings.message', 1, { profile: 'Balanced' }),
       '1 timing/format warning remain under “Balanced”. Studio can render anyway, but the finished video will use the current caption text and timing.');
   }
+  for (const count of [1, 2]) {
+    assert.equal(translatePlural('km', 'notices.corrections.captured', count), km.notices.corrections.captured.other.replace('{count}', String(count)));
+    assert.equal(translatePlural('km', 'dialogs.media.resetCount', count), km.dialogs.media.resetCount.other.replace('{count}', String(count)));
+  }
+  assert.equal(translatePlural('km', 'dialogs.renderWarnings.message', 1, { profile: 'Balanced' }),
+    km.dialogs.renderWarnings.message.other.replace('{count}', '1').replace('{profile}', 'Balanced'));
 });
