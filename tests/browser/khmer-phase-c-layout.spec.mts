@@ -122,25 +122,25 @@ for (const viewport of viewports) {
     let dialog = await settingsTab(page, 'profile');
     const languageSwitch = dialog.locator('.interface-language-switch');
     await expect(languageSwitch.getByRole('button', { name: 'ខ្មែរ', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await capture('settings-profile', '.profile-settings', languageSwitch);
+    await capture('settings-profile', '.profile-modal', languageSwitch);
 
     await dialog.getByRole('button', { name: km.settings.tabs.ai, exact: true }).click();
     const storage = dialog.locator('.secure-storage-note strong:not([data-server-text])');
     await expect(storage).toHaveText(km.settings.secureStorage.win32);
-    await capture('settings-ai', '.profile-settings', storage);
+    await capture('settings-ai', '.profile-modal', storage);
 
     await dialog.getByRole('button', { name: km.settings.tabs.privacy, exact: true }).click();
     await expect(dialog.getByText(km.privacy.analytics.title, { exact: true })).toBeVisible();
-    await capture('settings-privacy', '.profile-settings');
+    await capture('settings-privacy', '.profile-modal');
     const contributor = dialog.locator('.privacy-card-contributor');
     await expect(contributor.getByRole('button', { name: km.privacy.keepPrivate, exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await capture('settings-contributor-off', '.profile-settings', contributor.getByRole('button', { name: km.privacy.keepPrivate, exact: true }));
+    await capture('settings-contributor-off', '.profile-modal', contributor.getByRole('button', { name: km.privacy.keepPrivate, exact: true }));
     state.profile.preferences.khmerContributionConsent = 'granted';
     await page.reload();
     dialog = await settingsTab(page, 'privacy');
     const enabled = dialog.getByRole('button', { name: km.privacy.contributor.enabled, exact: true });
     await expect(enabled).toHaveAttribute('aria-pressed', 'true');
-    await capture('settings-contributor-on', '.profile-settings', enabled);
+    await capture('settings-contributor-on', '.profile-modal', enabled);
 
     await dialog.getByRole('button', { name: km.settings.tabs.doctor, exact: true }).click();
     await dialog.getByRole('button', { name: km.system.run, exact: true }).click();
@@ -148,14 +148,14 @@ for (const viewport of viewports) {
     await expect(checks.locator('strong:not([data-server-text])')).toHaveText(
       [km.system.check.node, km.system.check['gemini-storage'], km.system.check.python],
     );
-    for (const status of ['ok', 'warning', 'error']) await expect(checks.locator('.doctor-' + status)).toHaveCount(1);
+    for (const status of ['ok', 'warning', 'error']) await expect(checks.locator('.check-' + status)).toHaveCount(1);
     await expect(checks.locator('em:not([data-server-text])')).toHaveText(km.system.timingFix.win32);
-    await capture('settings-system-check', '.profile-settings', checks.locator('em'));
+    await capture('settings-system-check', '.profile-modal', checks.locator('em'));
     await dialog.getByRole('button', { name: km.system.copy, exact: true }).click();
     const manualCopy = dialog.getByRole('textbox', { name: translate('km', 'dialogs.copyReport.manualLabel', { label: km.system.copy }), exact: true });
     await expect(dialog.getByRole('alert')).toHaveText(km.dialogs.copyReport.failed);
     await expect(manualCopy).toHaveValue(JSON.stringify(report, null, 2));
-    await capture('copy-report-failed', '.profile-settings', manualCopy);
+    await capture('copy-report-failed', '.profile-modal', manualCopy);
   });
 
   test('Phase C Khmer privacy prompts at ' + size, async ({ page }) => {
@@ -174,10 +174,15 @@ for (const viewport of viewports) {
     const review = page.getByRole('dialog', { name: km.privacy.upgrade.reviewTitle, exact: true });
     await expect(review.getByText(km.privacy.analytics.title, { exact: true })).toBeVisible();
     await capture('privacy-upgrade-review', '.privacy-upgrade-dialog');
+  });
 
-    state.profile.preferences.privacyUpgradeNoticeVersion = '0.8';
-    await page.reload();
-    await expect(upgrade).toHaveCount(0);
+  test('Phase C Khmer contribution invitation at ' + size, async ({ page }) => {
+    const state = await fixtures(page, viewport);
+    const capture = sweeper(page, state);
+    state.profile.preferences.khmerContributionConsent = 'unset';
+    await stubContributionStatus(page, state);
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'km');
     // Invoke the existing SRT-link listener without making an export request.
     await page.evaluate(() => {
       const link = document.createElement('a');
@@ -189,6 +194,9 @@ for (const viewport of viewports) {
     });
     const invitation = page.getByRole('complementary', { name: km.privacy.invitation.label, exact: true });
     await expect(invitation.getByRole('button', { name: km.privacy.invitation.join, exact: true })).toBeVisible();
+    const boundary = invitation.locator('.contribution-prompt-detail');
+    await expect(boundary).toHaveText(km.privacy.invitation.detail.replace(/<\/?b>/g, ''));
+    await expect(boundary.locator('b')).toHaveCSS('display', 'inline');
     await capture('contribution-invitation', '.contribution-prompt');
   });
 
@@ -247,7 +255,7 @@ for (const viewport of viewports) {
       selectedCandidateReason: en.server.selectedCandidateReason.advisoryRanking,
     };
     const job = { projectId: project.id, projectTitle: project.title, canResume: false, createdAt: date, updatedAt: date };
-    state.jobs = [
+    const jobs = [
       { ...job, id: 'interrupted', type: 'transcribe', status: 'interrupted', stage: 'interrupted',
         progress: 51, message: 'Synthetic interruption. Choose Resume to continue.', canResume: true },
       { ...job, id: 'running', type: 'transcribe', projectId: state.projects[1].id, projectTitle: state.projects[1].title,
@@ -277,6 +285,8 @@ for (const viewport of viewports) {
     await capture('history', '.history-modal');
     await history.getByRole('button', { name: km.history.close, exact: true }).click();
 
+    state.jobs = jobs;
+    await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
     await openKhmerTool(page, km.editor.tools.activity);
     const activity = page.getByRole('dialog', { name: km.activity.title, exact: true });
     const interrupted = activity.locator('.job-interrupted');
@@ -324,7 +334,10 @@ for (const viewport of viewports) {
       await expect(sourceStatus).toContainText(translate('km', 'media.playback.preparingProgress', { progress: 32.5 }));
       await expect(sourceStatus.getByRole('button', { name: km.media.playback.cancelPreparation, exact: true })).toBeVisible();
       await expect(captionStatus).toHaveText(km.media.caption.preparing);
-      await capture('media-preparation', '.native-preview-status, .source-media-status', sourceStatus);
+      await capture('media-playback-preparation', '.source-media-status', sourceStatus);
+      processing = false;
+      await expect(sourceStatus).toHaveCount(0);
+      await capture('media-caption-preview', '.native-preview-status', captionStatus);
     } finally {
       processing = false;
       releasePreview();
@@ -354,6 +367,9 @@ for (const viewport of viewports) {
     await revealDetails(shortcuts);
     const approveKeys = shortcuts.getByText(km.guide.shortcutApproveKeys, { exact: true });
     await expect(approveKeys).toBeVisible();
+    const modifier = process.platform === 'darwin' ? 'Option' : 'Alt';
+    await expect(shortcuts.getByText(translate('km', 'guide.shortcutNudgeKeys', { modifier }), { exact: true })).toBeVisible();
+    await expect(shortcuts.getByText(km.guide.shortcutFlaggedKeys, { exact: true })).toBeVisible();
     await capture('guide-keyboard-shortcuts', '.new-user-guide', approveKeys);
   });
 
@@ -370,7 +386,7 @@ for (const viewport of viewports) {
     const error = stack.locator('.save-failure');
     await expect(error).toContainText(km.notices.save.couldNotSave);
     await page.locator('[data-stage="review"]').click();
-    await page.getByRole('button', { name: km.review.card.skip, exact: true }).click();
+    await page.getByRole('button', { name: km.review.card.approveNext, exact: true }).click();
     const notice = stack.locator('.review-undo-toast');
     await expect(notice.getByRole('button', { name: km.review.undo.action, exact: true })).toBeVisible();
     await expect(error.locator('[data-server-text]')).toHaveText('Synthetic caption save failure.');

@@ -2,6 +2,7 @@ import { expect, test as base, type Page } from '@playwright/test';
 import { createCaptionData, hydrateCaptionWordTimings } from '@kcs/shared';
 import { translate } from '../../apps/web/src/i18n/translate.js';
 import type { MessageKey, MessageParams } from '../../apps/web/src/i18n/types.js';
+import { UPLOAD_RECOVERY_PREFIX } from '../../apps/web/src/upload-recovery.js';
 import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
 import { requireHarnessConfig } from './harness-config.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
@@ -84,6 +85,66 @@ test('Khmer localizes project and upload storage notices', async ({ page }) => {
   await expect(page.locator('.upload-storage-feedback')).toHaveText(km('notices.upload.recoveryUnavailable'));
   await expect(page.getByText(km('notices.storage.checkFailed'), { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('a saved Khmer profile localizes a restored upload reminder on a cold load without a mirror', async ({ page }) => {
+  const { errors } = await fixture(page);
+  await page.addInitScript(({ prefix, mirror }) => {
+    localStorage.removeItem(mirror);
+    const id = 'upload_' + 'a'.repeat(32);
+    localStorage.setItem(prefix + id, JSON.stringify({
+      version: 1, id, name: 'original.mp4', size: 100, type: 'video/mp4', lastModified: 1, capturedAt: Date.now(),
+    }));
+  }, { prefix: UPLOAD_RECOVERY_PREFIX, mirror: 'sthang:interface-language:v1' });
+  let releaseProfile!: () => void;
+  const profileGate = new Promise<void>((resolve) => { releaseProfile = resolve; });
+  await page.route('**/api/profile', async (route) => {
+    await profileGate;
+    await route.fallback();
+  });
+  const reminder = page.locator('.upload-recovery > div:first-child > p').first();
+  try {
+    await page.goto('/');
+    await expect(reminder).toHaveText(translate('en', 'home.upload.earlierNeedsCheck'));
+  } finally {
+    releaseProfile();
+  }
+  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  await expect(reminder).toHaveText(km('home.upload.earlierNeedsCheck'));
+  expect(errors).toEqual([]);
+});
+
+test('cross-tab upload reminder removal uses the language selected after mount', async ({ page, context }) => {
+  const { state, errors } = await fixture(page);
+  state.profile.preferences.interfaceLanguage = 'en';
+  await page.route('**/api/projects', (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 409, json: { code: 'PROJECT_CREATE_NOT_APPLIED', error: 'Synthetic upload rejected.' } })
+    : route.fallback());
+  await page.goto('/');
+  await expect(page.locator('.dropzone')).toBeEnabled();
+  await page.locator('.empty-stage input[type="file"]').setInputFiles({
+    name: 'original.mp4', mimeType: 'video/mp4', buffer: fixtureMedia(),
+  });
+  await expect(page.locator('.upload-recovery')).toContainText('Synthetic upload rejected.');
+  await page.locator('.home-tools .interface-language-switch').getByRole('button', { name: 'ខ្មែរ', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  const other = await context.newPage();
+  try {
+    await fixture(other);
+    await other.goto('/');
+    const removed = await other.evaluate((prefix) => {
+      const key = Object.keys(localStorage).find((item) => item.startsWith(prefix));
+      if (key) localStorage.removeItem(key);
+      return Boolean(key);
+    }, UPLOAD_RECOVERY_PREFIX);
+    expect(removed).toBe(true);
+    await expect(page.locator('.upload-storage-feedback')).toHaveText(km('home.upload.reminderRemoved'));
+    await page.locator('.home-tools .interface-language-switch').getByRole('button', { name: 'English', exact: true }).click();
+    await expect(page.locator('.upload-storage-feedback')).toHaveText(translate('en', 'home.upload.reminderRemoved'));
+  } finally {
+    await other.close();
+  }
+  expect(errors.filter((error) => !error.includes('409'))).toEqual([]);
 });
 
 test('Khmer localizes the unfinished-edit dialog and clipboard recovery', async ({ page }) => {
