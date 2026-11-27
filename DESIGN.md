@@ -1404,6 +1404,8 @@ Find shortcuts keep their existing editor-wide behavior.
 
 The home screen is an operational launcher, not a marketing landing page. Keep one concise value line, one concise action-oriented supporting sentence, and the upload surface. Once setup is healthy, collapse onboarding status to a compact readiness indicator; do not keep a completed checklist or repeated workflow explanation in prime space.
 
+While setup is incomplete, **Caption setup** guides users through connecting AI, setting up Khmer timing, and choosing a video. Open the first incomplete step by default and show one step's controls at a time. Home uses the same **Test & save** action as Settings. The timing step names the setup files, offers **Check again**, and keeps the last known timing status when a health read fails. The upload surface remains available during setup.
+
 ### All projects
 
 Keep Home's upload flow and six recent projects compact. **All projects** opens a
@@ -1457,6 +1459,14 @@ all caption bodies, replace an active editor, or start processing during a refre
 - Default review focus is **Brackets + label**; users may choose **Brackets only** or **Off**.
 - The same review-focus language may remain present during Current/Proposed regeneration comparison.
 - Review-focus graphics are editor chrome and must never affect SRT export, captioned-video appearance, or source media.
+
+### First caption playback (source-only)
+
+When the open video receives its first generated captions, offer **Watch with
+captions** and **Not now** over the preview. The prompt keeps the native controls
+clear and leaves focus where it was. Playback starts from the beginning on request.
+Playing, seeking, switching stages or tools, or dismissing the prompt clears it.
+The prompt and completion notice use the Review queue's pending count.
 
 ### Export history
 
