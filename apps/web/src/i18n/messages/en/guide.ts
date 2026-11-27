@@ -10,6 +10,8 @@ export const guideMessages = {
   shortcutNudge: 'Nudge selected captions by 50 ms',
   shortcutApprove: 'Approve & next',
   shortcutApproveKeys: 'Enter or A',
+  shortcutNudgeKeys: '{modifier}+Left / Right',
+  shortcutFlaggedKeys: 'Up / Down',
   shortcutSkip: 'Skip without approving',
   shortcutFlagged: 'Previous / next flagged caption',
   label: 'Sthang Studio guide',
