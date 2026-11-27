@@ -269,6 +269,13 @@ The web app already implements the Khmer UI typography layer separately from cap
 | Strict acoustic pass / Context-aware pass / Initial proposal | `ការស្ដាប់តាមសំឡេងសុទ្ធ` / `ការស្ដាប់ដោយប្រើព័ត៌មានបន្ថែម` / `សំណើដំបូង` | Compare candidate labels. |
 | Interrupted (job) | `ផ្អាកកណ្ដាលទី` | Matches the Phase B Activity status. |
 | Retry playback | `ព្យាយាមចាក់ម្ដងទៀត` | The notices already instruct this phrase; the button must match. |
+| Browser playback / Playback preparation / Local playback copy | `ការចាក់ក្នុងកម្មវិធីរុករក` / `ការរៀបចំការចាក់` / `ច្បាប់ចម្លងសម្រាប់ចាក់លើម៉ាស៊ីន` | Media canvas; never name codecs or transcoding. |
+| Prepare playback / Check progress / Cancel preparation | `រៀបចំការចាក់` / `ពិនិត្យវឌ្ឍនភាព` / `បោះបង់ការរៀបចំ` | |
+| Caption preview / Retry preview / Effect preview | `ការមើលអក្សររត់ជាមុន` / `ព្យាយាមមើលជាមុនម្ដងទៀត` / `ការមើលបែបផែនជាមុន` | |
+| Interactive preview | `មើលជាមុនផ្ទាល់` | Creator-verify. |
+| Reviewing (video focus label) | `កំពុងពិនិត្យ` | Compact; no wrapping. |
+| Preview resolution / Local image limit / Frame(s) | `កម្រិតភាពច្បាស់មើលជាមុន` / `ដែនកំណត់រូបភាពលើម៉ាស៊ីន` / `ហ្វ្រេម` | "Smaller resolution" is `ទាបជាងនេះ`. |
+| Discard (a recovery copy or draft) | `បោះចោល` | Never `បោះបង់` (Cancel). |
 | Look names: Clean / Bold Outline / Soft Shadow / Solid Box / High Contrast / Soft Glow | `សាមញ្ញស្អាត` / `ស៊ុមអក្សរក្រាស់` / `ស្រមោលទន់` / `ប្រអប់ផ្ទៃងងឹត` / `ពណ៌ដាច់ច្បាស់` / `ពន្លឺជុំវិញស្រាល` | Creator-verify (§4). |
 | Commands in instructions | — | A command, file name or path must not end a sentence that carries `។`, because users copy it. Reorder so the command sits mid-sentence. |
 
