@@ -108,11 +108,11 @@ jobs:
           retention-days: 5
           if-no-files-found: error
   browser:
-    name: Browser behavior (Ubuntu shard ${{ matrix.shard }}/4)
+    name: Browser behavior (Ubuntu shard ${{ matrix.shard }}/6)
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -137,13 +137,13 @@ jobs:
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/test-results/browser-results.json
           STHANG_BROWSER_EVIDENCE_ROOT: ${{ runner.temp }}/caption-browser-evidence
-        run: npm run test:browser -- --shard=${{ matrix.shard }}/4 --reporter=list,json --global-timeout=1500000
+        run: npm run test:browser -- --shard=${{ matrix.shard }}/6 --reporter=list,json --global-timeout=1500000
       - name: Retain synthetic browser evidence
         if: ${{ always() }}
         timeout-minutes: 5
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: caption-browser-shard-${{ matrix.shard }}-of-4-${{ github.run_id }}-${{ github.run_attempt }}
+          name: caption-browser-shard-${{ matrix.shard }}-of-6-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/
             ${{ runner.temp }}/caption-browser-evidence/**/outcomes.json
