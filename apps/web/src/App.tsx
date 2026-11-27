@@ -124,11 +124,15 @@ import { ownReviewPlayback, type ReviewPlaybackOwner } from './review-playback';
 import type { ExportRepairTarget } from './export-checks';
 
 function compatibilityTranscriptionNotice(value: CaptionProject) {
+  return compatibilityTranscriptionMessage(value)?.message ?? '';
+}
+
+function compatibilityTranscriptionMessage(value: CaptionProject) {
   const transcript = value.transcript;
   const mode = transcript?.contextMode;
-  if (!mode || mode === 'full') return '';
+  if (!mode || mode === 'full') return null;
   if (mode === 'audio-only') {
-    return 'Studio used compatibility transcription without Accuracy recognition hints. Review ambiguous names.';
+    return { message: 'Studio used compatibility transcription without Accuracy recognition hints. Review ambiguous names.', key: 'details.compatibilityAudioOnly' as const };
   }
   const protectedCount = transcript?.vocabularyTerms?.length || 0;
   const descriptionHints = transcript?.descriptionHintsUsed || 0;
@@ -136,32 +140,37 @@ function compatibilityTranscriptionNotice(value: CaptionProject) {
     const sources = protectedCount
       ? `Protected terms and ${descriptionHints} selected name/model hint${descriptionHints === 1 ? '' : 's'} from your Accuracy context were used as recognition hints`
       : `${descriptionHints} selected name/model hint${descriptionHints === 1 ? '' : 's'} from your Accuracy context ${descriptionHints === 1 ? 'was' : 'were'} used for recognition`;
-    return `Studio used compatibility transcription. ${sources}, but the full topic description was not available to Transcribe. Review ambiguous names.`;
+    const message = `Studio used compatibility transcription. ${sources}, but the full topic description was not available to Transcribe. Review ambiguous names.`;
+    const single = descriptionHints === 1;
+    const key = protectedCount
+      ? single ? 'details.compatibilityTermsAndHint' : 'details.compatibilityTermsAndHints'
+      : single ? 'details.compatibilityHint' : 'details.compatibilityHints';
+    return { message, key, params: { count: descriptionHints } } as const;
   }
-  return 'Studio used compatibility transcription. Protected terms were used as recognition hints, but the full topic description was not available to Transcribe. Review ambiguous names.';
+  return { message: 'Studio used compatibility transcription. Protected terms were used as recognition hints, but the full topic description was not available to Transcribe. Review ambiguous names.', key: 'details.compatibilityTermsOnly' as const };
 }
 import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
 import './interface-motion.css';
 import { ManualSaveButton, useManualSaveFeedback } from './components/ManualSaveButton';
 
-const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })), { name: 'Fine timing', shape: 'timing' },
+const WaveformEditor = deferWorkspace(() => import('./components/WaveformEditor').then((module) => ({ default: module.WaveformEditor })), { name: 'workspace.fineTiming', shape: 'timing' },
   () => retryWorkspace<typeof import('./components/WaveformEditor')>('WaveformEditor').then((module) => ({ default: module.WaveformEditor })));
 
-const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })), { name: 'Export', shape: 'export' },
+const ExportWorkspace = deferWorkspace(() => import('./components/ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })), { name: 'editor.header.export', shape: 'export' },
   () => retryWorkspace<typeof import('./components/ExportWorkspace')>('ExportWorkspace').then((module) => ({ default: module.ExportWorkspace })));
 
-const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })), { name: 'Appearance', shape: 'appearance' },
+const CaptionAppearanceWorkspace = deferWorkspace(() => import('./components/CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })), { name: 'editor.header.appearance', shape: 'appearance' },
   () => retryWorkspace<typeof import('./components/CaptionAppearanceWorkspace')>('CaptionAppearanceWorkspace').then((module) => ({ default: module.CaptionAppearanceWorkspace })));
 
-const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })), { name: 'Compare captions', shape: 'comparison' },
+const RegenerationReviewDock = deferWorkspace(() => import('./components/RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })), { name: 'workspace.compare', shape: 'comparison' },
   () => retryWorkspace<typeof import('./components/RegenerationReviewDock')>('RegenerationReviewDock').then((module) => ({ default: module.RegenerationReviewDock })));
 
-const modes: Array<{ id: CaptionMode; label: string; desc: string }> = [
-  { id: 'dynamic', label: 'Dynamic', desc: 'Fast TikTok rhythm' },
-  { id: 'word', label: 'Word', desc: 'One word at a time' },
-  { id: 'phrase', label: 'Phrase', desc: 'Natural short phrases' },
-  { id: 'single-line', label: 'Line', desc: 'Longer single-line groups' },
+const modes: Array<{ id: CaptionMode; label: string; desc: string; labelKey: MessageKey; descKey: MessageKey }> = [
+  { id: 'dynamic', label: 'Dynamic', desc: 'Fast TikTok rhythm', labelKey: 'grouping.dynamic', descKey: 'grouping.dynamicDescription' },
+  { id: 'word', label: 'Word', desc: 'One word at a time', labelKey: 'grouping.word', descKey: 'grouping.wordDescription' },
+  { id: 'phrase', label: 'Phrase', desc: 'Natural short phrases', labelKey: 'grouping.phrase', descKey: 'grouping.phraseDescription' },
+  { id: 'single-line', label: 'Line', desc: 'Longer single-line groups', labelKey: 'grouping.line', descKey: 'grouping.lineDescription' },
 ];
 
 const LEGACY_GLOSSARY_KEY = 'kcs:default-protected-vocabulary:v1';
@@ -4680,11 +4689,11 @@ export default function App() {
       </div>
     </header>
 
-    {alignmentNoticeKey && dismissedAlignmentNotice !== alignmentNoticeKey && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span><strong>Audio alignment not verified.</strong> Existing caption and word times were kept. Check them against the edited audio before exporting.</span><button type="button" aria-label="Dismiss audio alignment warning" title="Dismiss warning" onClick={() => setDismissedAlignmentNotice(alignmentNoticeKey)}><X size={16}/></button></div>}
+    {alignmentNoticeKey && dismissedAlignmentNotice !== alignmentNoticeKey && <div className="media-alignment-notice" role="note"><TriangleAlert size={16}/><span>{messagesFor(interfaceLanguage).tr('export.repair.alignmentNotice', {}, { b: (text) => <strong>{text}</strong> })}</span><button type="button" aria-label={t('export.repair.dismissAlignmentLabel')} title={t('export.repair.dismissAlignment')} onClick={() => setDismissedAlignmentNotice(alignmentNoticeKey)}><X size={16}/></button></div>}
 
     <EditorLayout
       tool={proposal ? 'proposal' : workspaceTool}
-      title={proposal ? 'Compare captions' : workspaceTool ? ({ review: t('editor.header.review'), timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Technical details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : t('editor.generation.generate')}
+      title={proposal ? t('workspace.compare') : workspaceTool ? t(({ review: 'editor.header.review', timeline: 'workspace.fineTiming', accuracy: 'workspace.accuracy', rhythm: 'grouping.title', appearance: 'editor.header.appearance', details: 'editor.tools.technical', export: 'editor.header.export' } as const)[workspaceTool]) : exportRepair ? t('export.repair.label') : t('editor.generation.generate')}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
       onClose={proposal ? () => { closeComparison(); setNotice('Comparison closed. You can reopen it from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
@@ -4722,15 +4731,15 @@ export default function App() {
               <button type="button" className="first-watch-dismiss" onClick={() => setFirstWatch(null)}>{t('editor.firstWatch.dismiss')}</button>
             </div>
           )}
-          {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? 'Proposed' : 'Current captions'}</span></div>}
+          {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{t(proposalPreviewMode === 'proposed' ? 'compare.dock.proposed' : 'workspace.currentCaptions')}</span></div>}
         </div>
       }
       toolbar={!proposal && stage === 'captions' ? (
         <div className="workspace-tool-strip">
-            {(!showGeneration || draft.length > 0) && <nav aria-label="Caption workspace tools">
-              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>Fine timing</span></button>}
-              {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>Accuracy</span></button>}
-              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>Caption grouping</span></button>}
+            {(!showGeneration || draft.length > 0) && <nav aria-label={t('workspace.tools')}>
+              {draft.length > 0 && <button className={workspaceTool === 'timeline' ? 'active' : ''} aria-pressed={workspaceTool === 'timeline'} onClick={() => chooseWorkspaceTool('timeline')}><AudioLines size={16}/><span>{t('workspace.fineTiming')}</span></button>}
+              {!showGeneration && <button className={workspaceTool === 'accuracy' ? 'active' : ''} aria-pressed={workspaceTool === 'accuracy'} onClick={toggleAccuracyToolbar}><BookOpenText size={16}/><span>{t('workspace.accuracy')}</span></button>}
+              {hasHybrid && <button className={workspaceTool === 'rhythm' ? 'active' : ''} aria-pressed={workspaceTool === 'rhythm'} onClick={() => chooseWorkspaceTool('rhythm')}><Group size={16}/><span>{t('grouping.title')}</span></button>}
             </nav>}
           </div>
       ) : null}
@@ -4758,12 +4767,12 @@ export default function App() {
         />}
 
         {!proposal && <>
-          {exportRepair && projectScope.current.isCurrent(exportRepair.ticket) && workspaceTool !== 'export' && <section className="export-repair-return" aria-label="Export review">
-            <div><strong id="export-repair-title" tabIndex={-1}>Fixing an export issue{exportRepair.target.captionId && draft.some((caption) => caption.id === exportRepair.target.captionId)
-              ? ` · Caption ${draft.findIndex((caption) => caption.id === exportRepair.target.captionId) + 1}` : ''}</strong>
-              <p>Check this caption against the video, then return to export. Your output choices are kept for this visit.</p></div>
-            <div><button type="button" onClick={backToExport}>Back to export</button>
-              <button type="button" onClick={() => setExportRepair(null)}>Finish export review</button></div>
+          {exportRepair && projectScope.current.isCurrent(exportRepair.ticket) && workspaceTool !== 'export' && <section className="export-repair-return" aria-label={t('export.repair.label')}>
+            <div><strong id="export-repair-title" tabIndex={-1}>{exportRepair.target.captionId && draft.some((caption) => caption.id === exportRepair.target.captionId)
+              ? t('export.repair.fixCaption', { position: draft.findIndex((caption) => caption.id === exportRepair.target.captionId) + 1 }) : t('export.repair.fixIssue')}</strong>
+              <p>{t('export.repair.instructions')}</p></div>
+            <div><button type="button" onClick={backToExport}>{t('export.repair.back')}</button>
+              <button type="button" onClick={() => setExportRepair(null)}>{t('export.repair.finish')}</button></div>
           </section>}
 
 
@@ -4932,17 +4941,17 @@ export default function App() {
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">
-            <div className="control-title"><strong>Accuracy context <em>optional</em></strong><span id="accuracy-context-help">Help Studio recognize names, brands, versions, and Khmer-English speech.</span></div>
+            <div className="control-title"><strong>{messagesFor(interfaceLanguage).tr('accuracy.title', {}, { b: (text) => <em>{text}</em> })}</strong><span id="accuracy-context-help">{t('accuracy.contextHelp')}</span></div>
             <div className="context-field">
-              <span><label htmlFor="accuracy-context-description">What is this video about?</label></span>
-              <textarea id="accuracy-context-description" aria-describedby="accuracy-context-help" rows={3} value={contextDescription} onChange={(event) => editAccuracyFields({ description: event.target.value })} placeholder="Example: A weekend street-food and café review in Phnom Penh, trying iced coffee and grilled pork rice."/>
+              <span><label htmlFor="accuracy-context-description">{t('accuracy.description')}</label></span>
+              <textarea id="accuracy-context-description" aria-describedby="accuracy-context-help" rows={3} value={contextDescription} onChange={(event) => editAccuracyFields({ description: event.target.value })} placeholder={t('accuracy.descriptionExample')}/>
             </div>
             <div className="context-field">
-              <span><label htmlFor="accuracy-context-vocabulary">Key terms</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{vocabularyLines.length} terms</span></span>
-              <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={'CapCut | ខេបខាត់\nTikTok | តិកតុក\nបាយសាច់ជ្រូក\nសៀមរាប'}/>
+              <span><label htmlFor="accuracy-context-vocabulary">{t('accuracy.terms')}</label> <b aria-hidden="true">{vocabularyLines.length}</b><span id="accuracy-vocabulary-count" hidden>{t('accuracy.termCount', { count: vocabularyLines.length })}</span></span>
+              <textarea id="accuracy-context-vocabulary" aria-describedby={`accuracy-vocabulary-count accuracy-vocabulary-help${globalGlossaryMessage ? ' accuracy-global-glossary-feedback' : ''}`} rows={5} value={vocabularyText} onChange={(event) => editAccuracyFields({ vocabulary: event.target.value })} placeholder={t('accuracy.termsExample')}/>
             </div>
             {hasHybrid && generationOptions}
-            <div className="accuracy-help"><span id="accuracy-vocabulary-help">One term per line. Aliases use <code>Canonical | alias | phonetic alias</code>.</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? 'Saving to all projects…' : 'Save to all projects'}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>Save for this project</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed || generationNeedsCheck ? generationLabel : 'Improve all captions'}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
+            <div className="accuracy-help"><span id="accuracy-vocabulary-help">{messagesFor(interfaceLanguage).tr('accuracy.aliasesHelp', {}, {})}</span><div className="accuracy-actions"><button aria-disabled={!!busy || globalGlossarySaving || undefined} aria-busy={globalGlossarySaving || undefined} onClick={() => void saveDefaultGlossary()}>{globalGlossarySaving ? t('accuracy.savingGlossary') : t('accuracy.saveGlossary')}</button><button disabled={!!busy || textComposing || saveConflict} onClick={() => void saveContext()}><Save size={15}/>{t('accuracy.saveContext')}</button>{hasHybrid && <button className="context-regenerate" disabled={generationPending || checkingGenerationSetup} onClick={() => void generate()}><RefreshCw size={15}/>{generationSetupMissing || generationSetupFailed || generationNeedsCheck ? (t(generationLabelKey) || generationLabel) : t('accuracy.improveAll')}</button>}</div>{globalGlossaryMessage && <p id="accuracy-global-glossary-feedback" className="profile-form-feedback" role={globalGlossaryFeedback.error ? 'alert' : 'status'}>{globalGlossaryMessage}</p>}</div>
           </div>}
 
           {showGeneration && <div className={`transcribe-card ${legacy ? 'legacy' : ''}`}>
@@ -4971,34 +4980,47 @@ export default function App() {
             {generationOptions}
           </div>}
 
-          {workspaceTool === 'details' && hasHybrid && <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
-            <div className="timing-card-title">{audioAlignmentUnverified ? <TriangleAlert size={18}/> : <CheckCircle2 size={18}/>}<div><strong>{audioAlignmentUnverified ? 'Previous audio timing evidence' : usedFallback ? 'Local Whisper fallback active' : 'KFA Khmer alignment active'}</strong><span>Text: {project.transcript?.textModel || health?.geminiModel}{project.transcript?.textModelFallback ? ' (fallback)' : ''} · Timing: {timing?.model}{timing?.device ? ` · ${timing.device}` : ''}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{project.transcript?.vocabularyTerms?.length} protected terms · native bias {project.transcript?.nativeVocabularyBias ? 'on' : project.transcript?.contextMode === 'audio-only' ? 'not applied' : 'prompt-only'}</span>}</div></div>
-            {audioAlignmentUnverified && <div className="inline-warning"><TriangleAlert size={16}/><span>These measurements belong to the previous audio. Existing caption and word times were kept; check alignment against the edited audio.</span></div>}
-            {project.transcript?.contextMode && project.transcript.contextMode !== 'full' && <div className="inline-warning"><TriangleAlert size={16}/><span>{compatibilityTranscriptionNotice(project)}</span></div>}
-            {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span>KFA could not align {audioAlignmentUnverified ? 'the previous audio' : 'this clip'}, so Studio stayed local and used Whisper. {timing.fallbackReason}</span></div>}
-            {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>Text and canonical timing no longer fully match. Lock reviewed captions before regrouping.</span></div>}
-            <div className="timing-metrics" aria-label={audioAlignmentUnverified ? 'Timing measurements from the previous audio' : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>anchored</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>interpolated</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>uncertain words</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>match score</span></div></div>
-            {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>Local checkpoints let interrupted jobs resume without repeating completed work.</span></div>}
-          </div>}
+          {workspaceTool === 'details' && hasHybrid && (() => {
+            const compatibility = compatibilityTranscriptionMessage(project);
+            const textModel = project.transcript?.textModel || health?.geminiModel || '';
+            const timingModel = timing?.model ?? '';
+            const device = timing?.device;
+            const fallback = project.transcript?.textModelFallback;
+            const modelKey = device
+              ? fallback ? 'details.modelsWithFallbackAndDevice' : 'details.modelsWithDevice'
+              : fallback ? 'details.modelsWithFallback' : 'details.models';
+            return <div className={`timing-card ${audioAlignmentUnverified ? 'retained-audio-evidence' : ''}`}>
+              <div className="timing-card-title">{audioAlignmentUnverified ? <TriangleAlert size={18}/> : <CheckCircle2 size={18}/>}<div><strong>{audioAlignmentUnverified ? t('details.previousEvidence') : usedFallback ? t('details.localFallback') : t('details.alignmentActive')}</strong><span data-server-text>{t(modelKey, { textModel, timingModel, device: device ?? '' })}</span>{Boolean(project.transcript?.vocabularyTerms?.length) && <span className="vocab-status">{t(project.transcript?.nativeVocabularyBias ? 'details.biasOn' : project.transcript?.contextMode === 'audio-only' ? 'details.biasNotApplied' : 'details.biasPromptOnly', { count: project.transcript?.vocabularyTerms?.length ?? 0 })}</span>}</div></div>
+              {audioAlignmentUnverified && <div className="inline-warning"><TriangleAlert size={16}/><span>{t('details.previousEvidenceWarning')}</span></div>}
+              {compatibility && <div className="inline-warning"><TriangleAlert size={16}/><span>{t(compatibility.key, compatibility.params)}</span></div>}
+              {usedFallback && timing?.fallbackReason && <div className="inline-warning"><TriangleAlert size={16}/><span data-server-text>{t(audioAlignmentUnverified ? 'details.previousAudioFallback' : 'details.clipFallback', { reason: timing.fallbackReason })}</span></div>}
+              {project.transcriptNeedsSync && <div className="inline-warning"><TriangleAlert size={16}/><span>{t('details.syncWarning')}</span></div>}
+              <div className="timing-metrics" aria-label={audioAlignmentUnverified ? t('details.previousMeasurements') : undefined}><div><b>{Math.round((timing?.alignmentCoverage || 0) * 100)}%</b><span>{t('details.anchored')}</span></div><div><b>{timing?.interpolatedTokens || 0}</b><span>{t('details.interpolated')}</span></div><div><b>{timing?.lowConfidenceTokens || 0}</b><span>{t('details.uncertainWords')}</span></div><div><b>{Math.round((timing?.meanAlignmentScore || 0) * 100)}%</b><span>{t('details.matchScore')}</span></div></div>
+              {project.pipelineCache?.normalizedAudioCached && <div className="cache-strip"><CheckCircle2 size={14}/><span>{t('details.checkpoints')}</span></div>}
+            </div>;
+          })()}
 
-          {workspaceTool === 'rhythm' && hasHybrid && <div className="controls-card">
-            <div className="control-title"><strong>Caption grouping</strong><span>Change how captions are grouped without recalculating speech timing.</span></div>
-            <div className="mode-grid">{modes.map((mode) => <button key={mode.id} className={groupingMode === mode.id ? 'selected' : ''}
-              aria-pressed={groupingMode === mode.id} disabled={!!busy || groupingApplying} onClick={() => setGroupingMode(mode.id)}>
-              <strong>{mode.label}</strong><span>{mode.desc}</span></button>)}</div>
-            <label className="slider"><span>Target maximum characters <b>{maxChars}</b></span>
-              <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
-                aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
-            <p id="grouping-limit-help">{groupingMode === 'word' ? 'Word mode shows one timed token per caption.' : 'Characters per caption. Speech rhythm can override it.'}</p>
-            <div className="preset-actions">
-              <span>Current grouping: {modes.find((mode) => mode.id === project.mode)?.label || project.mode}. Locked captions stay as they are. History keeps the previous version.</span>
-              <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
-                {groupingApplying ? 'Applying grouping…' : 'Apply grouping'}</button>
-              <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>Clean Khmer spacing</button>
-              <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? 'Saving grouping preset…' : 'Save grouping preset'}</button>
-              {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying || !!currentProjectActiveJob}>Apply saved grouping</button> : null}
-            </div>
-          </div>}
+          {workspaceTool === 'rhythm' && hasHybrid && (() => {
+            const currentMode = modes.find((mode) => mode.id === project.mode);
+            return <div className="controls-card">
+              <div className="control-title"><strong>{t('grouping.title')}</strong><span>{t('grouping.help')}</span></div>
+              <div className="mode-grid">{modes.map((mode) => <button key={mode.id} className={groupingMode === mode.id ? 'selected' : ''}
+                aria-pressed={groupingMode === mode.id} disabled={!!busy || groupingApplying} onClick={() => setGroupingMode(mode.id)}>
+                <strong>{t(mode.labelKey)}</strong><span>{t(mode.descKey)}</span></button>)}</div>
+              <label className="slider"><span>{messagesFor(interfaceLanguage).tr('grouping.targetMaxCharacters', { count: maxChars }, {})}</span>
+                <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
+                  aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
+              <p id="grouping-limit-help">{groupingMode === 'word' ? t('grouping.wordLimitHelp') : t('grouping.limitHelp')}</p>
+              <div className="preset-actions">
+                <span>{t('grouping.currentGrouping', { mode: currentMode ? t(currentMode.labelKey) : project.mode })}</span>
+                <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
+                  {groupingApplying ? t('grouping.applying') : t('grouping.apply')}</button>
+                <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>{t('grouping.cleanSpacing')}</button>
+                <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? t('grouping.savingPreset') : t('grouping.savePreset')}</button>
+                {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying || !!currentProjectActiveJob}>{t('grouping.applyPreset')}</button> : null}
+              </div>
+            </div>;
+          })()}
         </>}
     </EditorLayout>
 

@@ -2,6 +2,7 @@ import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useStat
 import { ArrowLeft, ArrowRight, GripVertical, RotateCcw, X } from 'lucide-react';
 import { EDITOR_LAYOUT_CHANGE, moveEditorPane, PANE_LABELS, visibleEditorPanes, type EditorLayoutMode, type EditorPane } from '../editor-layout-state';
 import { PanelDragGhost } from './PanelHeaderGrip';
+import { useI18n } from '../i18n';
 
 export interface PanelArrangementHandle { open(anchor: HTMLElement): void }
 
@@ -29,6 +30,7 @@ function positionAt(panel: HTMLDivElement, anchor: HTMLElement) {
 }
 
 export function PanelArrangement({ order, open, mode, ref, interactionBusy, supported, geometryKey, onReset, onChange, onBegin, onEnd, onFeedback }: Props) {
+  const { t } = useI18n();
   const id = useId();
   const anchor = useRef<HTMLElement>(null);
   const popover = useRef<HTMLDivElement>(null);
@@ -62,7 +64,7 @@ export function PanelArrangement({ order, open, mode, ref, interactionBusy, supp
     drag.current = null; setDragCaptured(false); setGhost(null); setTarget(null); onFeedback(null, null); onEnd();
     if (gesture.handle.hasPointerCapture(gesture.pointer)) gesture.handle.releasePointerCapture(gesture.pointer);
     if (commit && gesture.active && gesture.target !== null) change(moveEditorPane(current.current.order, current.current.open, gesture.pane, gesture.target), gesture.pane);
-    else if (gesture.active) setAnnouncement('Panel move cancelled.');
+    else if (gesture.active) setAnnouncement(t('editor.panel.cancelled'));
   }
   const finishRef = useRef(finish); finishRef.current = finish;
   useLayoutEffect(() => {
@@ -90,7 +92,7 @@ export function PanelArrangement({ order, open, mode, ref, interactionBusy, supp
     if (drag.current || interactionBusy) return;
     if (next.every((pane, index) => pane === current.current.order[index])) return;
     if (!onChange(next)) return;
-    setAnnouncement(`From left: ${visibleEditorPanes(next, open).map((pane) => PANE_LABELS[pane]).join(', ')}.`);
+    setAnnouncement(t('editor.panel.order', { panels: visibleEditorPanes(next, open).map((pane) => t(PANE_LABELS[pane])).join(', ') }));
     if (focus) requestAnimationFrame(() => handles.current[focus]?.focus({ preventScroll: true }));
   }
 
@@ -102,7 +104,7 @@ export function PanelArrangement({ order, open, mode, ref, interactionBusy, supp
   }
 
   return <div className="editor-arrangement" data-editor-layout-control>
-    <div ref={popover} id={id} className="editor-arrange-popover" popover="auto" role="region" aria-label="Arrange panels" onBeforeToggle={(event) => {
+    <div ref={popover} id={id} className="editor-arrange-popover" popover="auto" role="region" aria-label={t('workspace.arrange.title')} onBeforeToggle={(event) => {
       // A native closing popover may remain painted briefly, but is already dismissed.
       event.currentTarget.inert = (event.nativeEvent as ToggleEvent).newState !== 'open';
       event.currentTarget.setAttribute('aria-hidden', String(event.currentTarget.inert));
@@ -117,22 +119,22 @@ export function PanelArrangement({ order, open, mode, ref, interactionBusy, supp
       }
     }}>
       <div className="editor-arrange-content">
-      <div className="editor-arrange-heading"><strong>Arrange panels</strong><button type="button" aria-label="Close panel arrangement" popoverTarget={id} popoverTargetAction="hide"><X size={16}/></button></div>
+      <div className="editor-arrange-heading"><strong>{t('workspace.arrange.title')}</strong><button type="button" aria-label={t('workspace.arrange.close')} popoverTarget={id} popoverTargetAction="hide"><X size={16}/></button></div>
       {supported ? <>
-      <p>Put the preview where you work best.</p>
-      <p>{mode === 'judge' ? 'This arrangement is used in Review, Appearance and Compare.' : 'This arrangement is used in Captions and Export.'}</p>
-      <div className="editor-position-presets" role="group" aria-label="Preview position">
-        {(['Left', ...(open ? ['Middle'] : []), 'Right']).map((label, index) => <button key={label} type="button" aria-pressed={panes.indexOf('preview') === index}
+      <p>{t('workspace.arrange.guidance')}</p>
+      <p>{t(mode === 'judge' ? 'workspace.arrange.judgeLayout' : 'workspace.arrange.editLayout')}</p>
+      <div className="editor-position-presets" role="group" aria-label={t('workspace.arrange.previewPosition')}>
+        {(open ? ['previewLeft', 'previewMiddle', 'previewRight'] as const : ['previewLeft', 'previewRight'] as const).map((position, index) => <button key={position} type="button" aria-pressed={panes.indexOf('preview') === index}
           onClick={() => { if (drag.current) return; change(moveEditorPane(order, open, 'preview', index)); }}>
-          <span className="editor-position-diagram" aria-hidden="true">{panes.map((_, position) => <i key={position} className={position === index ? 'is-preview' : ''}/>)}</span>
-          Preview {label.toLowerCase()}
+          <span className="editor-position-diagram" aria-hidden="true">{panes.map((_, paneIndex) => <i key={paneIndex} className={paneIndex === index ? 'is-preview' : ''}/>)}</span>
+          {t(`workspace.arrange.${position}`)}
         </button>)}
       </div>
-      <p className="editor-arrange-help" id={`${id}-help`}>Drag a panel, use arrow keys, or choose Left and Right.</p>
+      <p className="editor-arrange-help" id={`${id}-help`}>{t('workspace.arrange.help')}</p>
       <div ref={strip} className="editor-arrange-strip" style={{ gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))` }}>
         {panes.map((pane, index) => <div key={pane} className={`editor-arrange-panel ${ghost?.pane === pane ? 'is-lifted' : ''} ${target === pane ? 'is-drop-target' : ''}`} data-panel={pane}>
           <button type="button" className="editor-panel-grip" ref={(element) => { if (element) handles.current[pane] = element; else delete handles.current[pane]; }}
-            aria-label={`Drag ${PANE_LABELS[pane]} panel to reorder`} aria-describedby={`${id}-help`} onKeyDown={(event) => {
+            aria-label={t('workspace.arrange.dragPanel', { panel: t(PANE_LABELS[pane]) })} aria-describedby={`${id}-help`} onKeyDown={(event) => {
               if (drag.current || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')
                 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || document.querySelector('[aria-modal="true"]') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault(); event.stopPropagation();
@@ -153,23 +155,23 @@ export function PanelArrangement({ order, open, mode, ref, interactionBusy, supp
             }} onPointerUp={(event) => { if (drag.current?.pointer === event.pointerId) { drag.current.target = targetAt(event.clientX, event.clientY); finish(true); } }}
             onPointerCancel={(event) => { if (drag.current?.pointer === event.pointerId) finish(false); }}
             onLostPointerCapture={(event) => { if (drag.current?.pointer === event.pointerId) finish(false); }}>
-            <GripVertical size={15}/><span>{PANE_LABELS[pane]}</span>
+            <GripVertical size={15}/><span>{t(PANE_LABELS[pane])}</span>
           </button>
           <div className="editor-panel-moves">
-            <button type="button" aria-label={`Move ${PANE_LABELS[pane]} panel left`} disabled={index === 0 || !!ghost} onClick={() => change(moveEditorPane(order, open, pane, index - 1), pane)}><ArrowLeft size={12}/>Left</button>
-            <button type="button" aria-label={`Move ${PANE_LABELS[pane]} panel right`} disabled={index === panes.length - 1 || !!ghost} onClick={() => change(moveEditorPane(order, open, pane, index + 1), pane)}>Right<ArrowRight size={12}/></button>
+            <button type="button" aria-label={t('workspace.arrange.moveLeft', { panel: t(PANE_LABELS[pane]) })} disabled={index === 0 || !!ghost} onClick={() => change(moveEditorPane(order, open, pane, index - 1), pane)}><ArrowLeft size={12}/>{t('appearance.workspace.left')}</button>
+            <button type="button" aria-label={t('workspace.arrange.moveRight', { panel: t(PANE_LABELS[pane]) })} disabled={index === panes.length - 1 || !!ghost} onClick={() => change(moveEditorPane(order, open, pane, index + 1), pane)}>{t('appearance.workspace.right')}<ArrowRight size={12}/></button>
           </div>
         </div>)}
       </div>
-      {!open && <p>Your tool panel returns to its saved position when opened.</p>}
-      <div className="editor-arrange-status" role="status" aria-live="polite">{announcement || `From left: ${panes.map((pane) => PANE_LABELS[pane]).join(', ')}.`}</div>
-      </> : <p>This browser can't reorder panels. Update it to arrange panels; sizes can still be reset.</p>}
+      {!open && <p>{t('workspace.arrange.hiddenTool')}</p>}
+      <div className="editor-arrange-status" role="status" aria-live="polite">{announcement || t('editor.panel.order', { panels: panes.map((pane) => t(PANE_LABELS[pane])).join(', ') })}</div>
+      </> : <p>{t('workspace.arrange.unsupported')}</p>}
       <div className="editor-arrange-reset">
         <button ref={resetButton} type="button" aria-describedby={`${id}-reset-help`} disabled={interactionBusy || dragCaptured}
           onClick={(event) => { onReset(); event.currentTarget.focus({ preventScroll: true }); }}>
-          <RotateCcw size={16}/>Reset layout
+          <RotateCcw size={16}/>{t('workspace.arrange.reset')}
         </button>
-        <small id={`${id}-reset-help`}>Restores default sizes and panel order, and turns off Enlarge preview.</small>
+        <small id={`${id}-reset-help`}>{t('workspace.arrange.resetHelp')}</small>
       </div>
       </div>
       {ghost && <PanelDragGhost {...ghost}/>}

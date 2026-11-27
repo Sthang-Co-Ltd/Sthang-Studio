@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useEffect, useId, useRef, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 
@@ -59,12 +60,14 @@ function revealFocusedControl(group: HTMLElement, target: HTMLElement) {
 
 /** A typed value is one undoable edit; the existing slider keeps gesture history. */
 export function AppearanceRange({ label, value, defaultValue, min, max, step = 1, unit = '', context, className = '', onChange }: Props) {
+  const { t } = useI18n();
   const id = useId();
   const [draft, setDraft] = useState(String(value));
   const [feedback, setFeedback] = useState<{ value: number; message: string } | null>(null);
   const cancelled = useRef(false);
   const composing = useRef(false);
   const input = useRef<HTMLInputElement>(null);
+  const unitSuffix = unit ? ` ${unit}` : '';
   const precision = String(step).split('.')[1]?.length || 0;
   useEffect(() => {
     setDraft(String(value));
@@ -84,14 +87,13 @@ export function AppearanceRange({ label, value, defaultValue, min, max, step = 1
     const bounded = Math.min(max, Math.max(min, number));
     const next = Number((min + Math.round((bounded - min) / step) * step).toFixed(precision));
     setDraft(String(next));
-    const accepted = `${next}${unit ? ` ${unit}` : ''}`;
-    const message = bounded !== number ? `Adjusted to ${accepted}: the ${number > max ? 'maximum' : 'minimum'}.`
-      : next !== number ? `Rounded to ${accepted}: nearest ${step}${unit ? ` ${unit}` : ''} step.` : '';
+    const message = bounded !== number ? (number > max ? t('appearance.range.adjustedMaximum', { value: next, unit: unitSuffix }) : t('appearance.range.adjustedMinimum', { value: next, unit: unitSuffix }))
+      : next !== number ? t('appearance.range.rounded', { value: next, unit: unitSuffix, step }) : '';
     setFeedback(message ? { value: next, message } : null);
     if (next !== value) onChange(next, 'discrete');
   };
   const notice = feedback?.value === value ? feedback.message : '';
-  const resetLabel = `Reset ${label.toLowerCase()} to ${defaultValue}${unit ? ` ${unit}` : ''}`;
+  const resetLabel = t('appearance.range.reset', { label: label.toLowerCase(), value: defaultValue, unit: unitSuffix });
   return <div className={`range-field appearance-number-control ${className}`} onFocusCapture={(event) => {
     if (event.target instanceof HTMLElement) revealFocusedControl(event.currentTarget, event.target);
   }}>
@@ -99,9 +101,9 @@ export function AppearanceRange({ label, value, defaultValue, min, max, step = 1
       <label htmlFor={`${id}-range`}>{label}</label>
       <div className="appearance-number-actions">
         <div className="appearance-number-value">
-          <input ref={input} type="number" aria-label={`Exact ${label.toLowerCase()}`} aria-describedby={[context ? `${id}-context` : '', notice ? `${id}-feedback` : ''].filter(Boolean).join(' ') || undefined}
+          <input ref={input} type="number" aria-label={t('appearance.range.exact', { label: label.toLowerCase() })} aria-describedby={[context ? `${id}-context` : '', notice ? `${id}-feedback` : ''].filter(Boolean).join(' ') || undefined}
             min={min} max={max} step={step} value={draft}
-            title={`${min}–${max}${unit ? ` ${unit}` : ''}. Enter to apply; Escape to cancel.`}
+            title={t('appearance.range.limits', { min, max, unit: unitSuffix })}
             onFocus={(event) => { cancelled.current = false; event.currentTarget.select(); }}
             onChange={(event) => { setDraft(event.target.value); setFeedback(null); }} onBlur={commit}
             onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
@@ -119,12 +121,12 @@ export function AppearanceRange({ label, value, defaultValue, min, max, step = 1
             }}/>
           {unit && <span aria-hidden="true">{unit}</span>}
         </div>
-        <button type="button" className="appearance-number-reset" aria-label={resetLabel} title={`${resetLabel} (Studio default)`}
+        <button type="button" className="appearance-number-reset" aria-label={resetLabel} title={t('appearance.range.resetTitle', { label: label.toLowerCase(), value: defaultValue, unit: unitSuffix })}
           style={{ visibility: value === defaultValue ? 'hidden' : undefined }}
           onClick={() => { setFeedback(null); onChange(defaultValue, 'discrete'); input.current?.focus({ preventScroll: true }); }}><RotateCcw size={13}/></button>
       </div>
     </div>
-    <input id={`${id}-range`} type="range" aria-label={`${label} slider`} min={min} max={max} step={step} value={value}
+    <input id={`${id}-range`} type="range" aria-label={t('appearance.range.slider', { label })} min={min} max={max} step={step} value={value}
       onChange={(event) => { setFeedback(null); onChange(Number(event.target.value), 'range'); }}/>
     {context && <small id={`${id}-context`} className="appearance-number-context">{context}</small>}
     {notice && <small id={`${id}-feedback`} className="appearance-number-feedback" role="status" aria-atomic="true">{notice}</small>}

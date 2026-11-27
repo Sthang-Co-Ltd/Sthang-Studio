@@ -1,11 +1,14 @@
 import { Component, Suspense, lazy, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react';
+import { useI18n } from '../i18n';
+import type { MessageKey } from '../i18n/types';
 import './workspace-loading.css';
 
-type WorkspacePresentation = { name: string; shape: 'appearance' | 'timing' | 'export' | 'comparison' };
+type WorkspacePresentation = { name: MessageKey; shape: 'appearance' | 'timing' | 'export' | 'comparison' };
 
 function WorkspaceLoading({ name, shape }: WorkspacePresentation) {
+  const { t } = useI18n();
   return <div className={`workspace-loading workspace-loading-${shape}`} role="status">
-    <p>Opening {name}…</p>
+    <p>{t('workspace.loading.opening', { name: t(name) })}</p>
     <div className="workspace-loading-shape" aria-hidden="true">
       <div className="workspace-loading-preview"><span/><span/><span/></div>
       <div className="workspace-loading-fields">{[0, 1, 2].map((key) => <div key={key} className="workspace-loading-field"><span/><i/></div>)}</div>
@@ -13,13 +16,14 @@ function WorkspaceLoading({ name, shape }: WorkspacePresentation) {
   </div>;
 }
 
-class WorkspaceError extends Component<{ children: ReactNode; name: string; onRetry(trigger: HTMLButtonElement): void }, { failed: boolean }> {
+class WorkspaceError extends Component<{ children: ReactNode; name: string; t: ReturnType<typeof useI18n>['t']; onRetry(trigger: HTMLButtonElement): void }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
-    if (this.state.failed) return <div className="workspace-load-error" role="alert" aria-label={`${this.props.name} could not load`}>
-      <p>This tool could not load. Your captions remain available.</p>
-      <button type="button" onClick={(event) => this.props.onRetry(event.currentTarget)}>Retry loading tool</button>
+    const { t, name } = this.props;
+    if (this.state.failed) return <div className="workspace-load-error" role="alert" aria-label={t('workspace.loading.failedLabel', { name })}>
+      <p>{t('workspace.loading.failed')}</p>
+      <button type="button" onClick={(event) => this.props.onRetry(event.currentTarget)}>{t('workspace.loading.retry')}</button>
     </div>;
     return this.props.children;
   }
@@ -31,6 +35,7 @@ export function deferWorkspace<C extends ComponentType<any>>(load: () => Promise
   // Only an explicit retry replaces it; no import is started by this declaration.
   let currentView = lazy(load);
   return function DeferredWorkspace(props: ComponentProps<C>) {
+    const { t } = useI18n();
     const [attempt, setAttempt] = useState(() => ({ id: 0, View: currentView }));
     // lazy preserves C's props. Normalize its exotic JSX type only at this
     // boundary; callers still require the exact ComponentProps<C> contract.
@@ -47,7 +52,7 @@ export function deferWorkspace<C extends ComponentType<any>>(load: () => Promise
       currentView = nextView;
       setAttempt(({ id }) => ({ id: id + 1, View: nextView }));
     };
-    return <WorkspaceError key={attempt.id} name={presentation.name} onRetry={retry}>
+    return <WorkspaceError key={attempt.id} name={t(presentation.name)} t={t} onRetry={retry}>
       <Suspense fallback={<WorkspaceLoading {...presentation}/>}>
         <View {...props}/>
       </Suspense>

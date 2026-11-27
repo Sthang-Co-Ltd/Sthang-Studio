@@ -1,4 +1,5 @@
 import type { en } from './messages/en';
+import type { PendingKhmerNamespace } from './pending';
 
 export type Locale = 'en' | 'km';
 export type MessageParams = Readonly<Record<string, string | number>>;
@@ -13,6 +14,9 @@ export type KhmerMessages<T = EnglishMessages> = {
 export type DeepPartial<T> = T extends string ? string : {
   [K in keyof T]?: DeepPartial<T[K]>;
 };
+
+export type KhmerCatalog = KhmerMessages<Omit<EnglishMessages, PendingKhmerNamespace>>
+  & { readonly [K in PendingKhmerNamespace]?: DeepPartial<EnglishMessages[K]> };
 
 type Keys<T, Leaf> = {
   [K in keyof T & string]: T[K] extends Leaf ? K

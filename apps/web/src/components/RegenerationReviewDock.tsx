@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
 import { formatTimestamp } from '../timestamp';
 import type {
   ProcessingJob,
@@ -49,10 +50,10 @@ function naturalText(captions: RegenerationProposal['proposedCaptions']) {
   return captionTextForEditing(captions);
 }
 
-function takeLabel(proposal: RegenerationProposal): string | null {
-  if (proposal.strategy === 'deep-verify') return 'Checked more carefully';
-  if (proposal.strategy === 'manual-realign') return 'Re-timed your wording';
-  if (proposal.strategy === 'alternative') return proposal.acceptedBaselineText ? 'Built on your wording' : 'Another take';
+function takeLabel(proposal: RegenerationProposal, t: ReturnType<typeof useI18n>['t']): string | null {
+  if (proposal.strategy === 'deep-verify') return t('compare.dock.deepVerify');
+  if (proposal.strategy === 'manual-realign') return t('compare.dock.retimed');
+  if (proposal.strategy === 'alternative') return proposal.acceptedBaselineText ? t('compare.dock.builtOnWording') : t('compare.dock.anotherTake');
   return null;
 }
 
@@ -73,6 +74,7 @@ export function RegenerationReviewDock({
   onApply,
   onRefine,
 }: Props) {
+  const { t, tn, tr } = useI18n();
   const [changeIndex, setChangeIndex] = useState(0);
   const proposedOriginal = useMemo(() => naturalText(proposal.proposedCaptions), [proposal]);
   const currentText = useMemo(() => naturalText(proposal.currentCaptions), [proposal]);
@@ -93,13 +95,13 @@ export function RegenerationReviewDock({
   const partialMenu = useRef<HTMLDivElement>(null);
   const showPartialMenu = partialOpen && !partialDisabled;
   const keyboard = useMenuKeyboard(showPartialMenu ? partialMenuId : null, partialMenu, () => partialTrigger.current, () => setPartialOpen(false));
-  const take = takeLabel(proposal);
+  const take = takeLabel(proposal, t);
   const locks = proposal.lockedCaptionsPreserved;
   const summary = [
-    textChanges > 0 && `${textChanges} text change${textChanges === 1 ? '' : 's'}`,
-    timingChanges > 0 && `${timingChanges} timing change${timingChanges === 1 ? '' : 's'}`,
-    !textChanges && !timingChanges && 'Same as the current captions',
-    locks > 0 && `${locks} locked caption${locks === 1 ? '' : 's'} kept`,
+    textChanges > 0 && tn('compare.dock.textChanges', textChanges),
+    timingChanges > 0 && tn('compare.dock.timingChanges', timingChanges),
+    !textChanges && !timingChanges && t('compare.dock.same'),
+    locks > 0 && tn('compare.dock.locksKept', locks),
   ].filter(Boolean).join(' · ');
   const changeRange = change ? `${formatTimestamp(change.startMs)} – ${formatTimestamp(change.endMs)}` : '';
 
@@ -145,62 +147,63 @@ export function RegenerationReviewDock({
     action();
   };
 
-  return <section className="regeneration-dock" aria-label="Caption comparison">
+  return <section className="regeneration-dock" aria-label={t('compare.dock.label')}>
     <div className="regen-dock-head">
       <div className="regen-title-icon"><RefreshCw size={17}/></div>
       <div className="regen-title-copy">
         <div><strong>{formatTimestamp(proposal.startMs)} – {formatTimestamp(proposal.endMs)}</strong>{take && <span>{take}</span>}</div>
-        <p>Play both versions against the video, then choose.</p>
+        <p>{t('compare.dock.instructions')}</p>
       </div>
     </div>
 
     <div className="regen-playback-bar">
-      <div className="regen-preview-switch" role="group" aria-label="Caption preview version">
-        <button className={previewMode === 'current' ? 'selected' : ''} aria-pressed={previewMode === 'current'} onClick={() => onPreviewMode('current')}>Current</button>
-        <button className={previewMode === 'proposed' ? 'selected' : ''} aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>Proposed</button>
+      <div className="regen-preview-switch" role="group" aria-label={t('compare.dock.previewLabel')}>
+        <button className={previewMode === 'current' ? 'selected' : ''} aria-pressed={previewMode === 'current'} onClick={() => onPreviewMode('current')}>{t('compare.dock.current')}</button>
+        <button className={previewMode === 'proposed' ? 'selected' : ''} aria-pressed={previewMode === 'proposed'} onClick={() => onPreviewMode('proposed')}>{t('compare.dock.proposed')}</button>
       </div>
-      <button onClick={() => onReplay()}><Play size={14}/>Replay</button>
-      <button className={loop ? 'selected' : ''} aria-pressed={loop} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>Loop</button>
+      <button onClick={() => onReplay()}><Play size={14}/>{t('compare.dock.replay')}</button>
+      <button className={loop ? 'selected' : ''} aria-pressed={loop} onClick={() => onLoop(!loop)}><Repeat2 size={14}/>{t('compare.dock.loop')}</button>
       {proposal.changes.length > 1 && <div className="regen-change-nav">
-        <button onClick={() => selectChange(changeIndex - 1)} disabled={changeIndex === 0} aria-label="Previous proposed change"><ChevronLeft size={14}/></button>
-        <span>Change {changeIndex + 1} of {proposal.changes.length}</span>
-        <button onClick={() => selectChange(changeIndex + 1)} disabled={changeIndex >= proposal.changes.length - 1} aria-label="Next proposed change"><ChevronRight size={14}/></button>
+        <button onClick={() => selectChange(changeIndex - 1)} disabled={changeIndex === 0} aria-label={t('compare.dock.previous')}><ChevronLeft size={14}/></button>
+        <span>{t('compare.dock.changePosition', { position: changeIndex + 1, total: proposal.changes.length })}</span>
+        <button onClick={() => selectChange(changeIndex + 1)} disabled={changeIndex >= proposal.changes.length - 1} aria-label={t('compare.dock.next')}><ChevronRight size={14}/></button>
       </div>}
     </div>
 
     <p className="regen-summary">{summary}</p>
 
-    {change && <button className="regen-change-focus" onClick={() => { onSeek(Math.max(0, change.startMs - 350)); onReplay(change.startMs); }} aria-label={`Play this change, ${changeRange}`}>
+    {change && <button className="regen-change-focus" onClick={() => { onSeek(Math.max(0, change.startMs - 350)); onReplay(change.startMs); }} aria-label={t('compare.dock.playChange', { range: changeRange })}>
       <span>{changeRange}</span>
-      {change.protectedByLock && <em><LockKeyhole size={11}/>Locked</em>}
+      {change.protectedByLock && <em><LockKeyhole size={11}/>{t('compare.dock.locked')}</em>}
       <Play size={13}/>
     </button>}
 
     <div className="regen-comparison">
       <article className={previewMode === 'current' ? 'previewing' : ''}>
-        <div className="regen-text-label">Current text</div>
-        <p>{currentText || 'No current text in this range.'}</p>
+        <div className="regen-text-label">{t('compare.dock.currentText')}</div>
+        <p>{currentText || t('compare.dock.noCurrentText')}</p>
       </article>
       <article className={previewMode === 'proposed' ? 'previewing proposed' : 'proposed'}>
-        <div className="regen-text-label">Proposed text</div>
+        <div className="regen-text-label">{t('compare.dock.proposedText')}</div>
         <textarea
+          data-server-text
           value={editedText}
           onChange={(event) => { onEditedText(event.target.value); onPreviewMode('proposed'); }}
-          aria-label="Edit proposed caption wording"
+          aria-label={t('compare.dock.editWording')}
           aria-invalid={wordingEmpty || undefined}
           aria-describedby={wordingHelpId}
           rows={Math.max(3, Math.min(7, Math.ceil(editedText.length / 58)))}
         />
-        <small id={wordingHelpId} aria-live="polite"><PencilLine size={11}/>{wordingEmpty ? 'Enter wording before using the text or the whole proposal.' : 'You can edit the wording before using it.'}</small>
+        <small id={wordingHelpId} aria-live="polite"><PencilLine size={11}/>{wordingEmpty ? t('compare.dock.emptyWording') : t('compare.dock.editHelp')}</small>
       </article>
     </div>
 
     {edited && !wordingEmpty && <div className="regen-honesty-note warning">
-      <Lightbulb size={15}/><span><b>Wording edited.</b> Using it now keeps the proposal's timing. To fit the timing to your words first, open <b>Try another way</b> and choose <b>Re-time my edited words</b>.</span>
+      <Lightbulb size={15}/><span>{tr('compare.dock.editedTiming', {}, {})}</span>
     </div>}
 
     <div className="regen-apply-actions">
-      <button disabled={working} onClick={() => onApply('reject')}>Keep current</button>
+      <button disabled={working} onClick={() => onApply('reject')}>{t('compare.dock.keepCurrent')}</button>
       <div ref={partialRoot} className="regen-part" onKeyDown={keyboard.onKeyDown}>
         <button ref={partialTrigger} type="button" disabled={partialDisabled} aria-haspopup="menu"
           aria-expanded={showPartialMenu} aria-controls={showPartialMenu ? partialMenuId : undefined}
@@ -211,41 +214,41 @@ export function RegenerationReviewDock({
             event.preventDefault();
             keyboard.openAt(event.key === 'ArrowDown' ? 'first' : 'last', partialMenuId);
             setPartialOpen(true);
-          }}>Use part<ChevronDown size={14} aria-hidden="true"/></button>
-        {showPartialMenu && <div ref={partialMenu} id={partialMenuId} className="regen-part-menu" role="menu" aria-label="Use part of the proposal">
-          <button type="button" role="menuitem" tabIndex={-1} disabled={textDisabled} onClick={() => selectPart(() => onApply('text-only', editedText))}><FileText size={14}/>Use text only</button>
-          <button type="button" role="menuitem" tabIndex={-1} disabled={timingDisabled} onClick={() => selectPart(() => onApply('timing-only'))}><Clock3 size={14}/>Use timing only</button>
+          }}>{t('compare.dock.usePart')}<ChevronDown size={14} aria-hidden="true"/></button>
+        {showPartialMenu && <div ref={partialMenu} id={partialMenuId} className="regen-part-menu" role="menu" aria-label={t('compare.dock.usePartLabel')}>
+          <button type="button" role="menuitem" tabIndex={-1} disabled={textDisabled} onClick={() => selectPart(() => onApply('text-only', editedText))}><FileText size={14}/>{t('compare.dock.useTextOnly')}</button>
+          <button type="button" role="menuitem" tabIndex={-1} disabled={timingDisabled} onClick={() => selectPart(() => onApply('timing-only'))}><Clock3 size={14}/>{t('compare.dock.useTimingOnly')}</button>
         </div>}
       </div>
-      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}>{edited ? 'Use edited version' : 'Use proposed'}</button>
+      <button className="primary" disabled={working || wordingEmpty} onClick={() => onApply('all', edited ? editedText : undefined)}>{edited ? t('compare.dock.useEdited') : t('compare.dock.useProposed')}</button>
     </div>
 
     <details className="regen-refine-options">
-      <summary>Try another way</summary>
+      <summary>{t('compare.dock.refine')}</summary>
       <div className="regen-refine-card">
-      <label className="regen-hint"><span>Accuracy hint <i>optional</i></span><input value={accuracyHint} onChange={(event) => onAccuracyHint(event.target.value)} placeholder={'Example: Write “CapCut” in Latin letters, and the dish as “បាយសាច់ជ្រូក”.'}/></label>
+      <label className="regen-hint"><span>{tr('compare.dock.accuracyHint', {}, { b: (text) => <i>{text}</i> })}</span><input value={accuracyHint} onChange={(event) => onAccuracyHint(event.target.value)} placeholder={t('compare.dock.example')}/></label>
       <div className="regen-refine-actions">
-        <button disabled={working} onClick={() => refine('alternative', false)} title="Ask for a fresh suggestion"><RefreshCw size={14}/>Another take</button>
-        <button className="baseline-action" disabled={working || !editedText.trim()} onClick={() => refine('alternative', true)} title="Start the next suggestion from the wording above"><Check size={14}/>Build on this wording</button>
-        <button disabled={working} onClick={() => refine('deep-verify', edited)} title="Try several times and keep the strongest version"><ScanText size={14}/>Check more carefully</button>
-        <button disabled={working || !editedText.trim()} onClick={() => refine('manual-realign', true)} title="Keep your exact words and fit their timing to the audio"><PencilLine size={14}/>Re-time my edited words</button>
+        <button disabled={working} onClick={() => refine('alternative', false)} title={t('compare.dock.anotherTakeTip')}><RefreshCw size={14}/>{t('compare.dock.anotherTake')}</button>
+        <button className="baseline-action" disabled={working || !editedText.trim()} onClick={() => refine('alternative', true)} title={t('compare.dock.buildOnTip')}><Check size={14}/>{t('compare.dock.buildOn')}</button>
+        <button disabled={working} onClick={() => refine('deep-verify', edited)} title={t('compare.dock.checkCarefullyTip')}><ScanText size={14}/>{t('compare.dock.checkCarefully')}</button>
+        <button disabled={working || !editedText.trim()} onClick={() => refine('manual-realign', true)} title={t('compare.dock.retimeTip')}><PencilLine size={14}/>{t('compare.dock.retime')}</button>
       </div>
-      <div className="regen-baseline-help"><Check size={13}/><span>You can compare the next version before using it.</span></div>
+      <div className="regen-baseline-help"><Check size={13}/><span>{t('compare.dock.compareNext')}</span></div>
       </div>
     </details>
 
     {refinementJob && ['queued', 'running'].includes(refinementJob.status) && <div className="regen-job-progress">
-      <LoaderCircle className="spin" size={15}/><div><strong>{refinementJob.message}</strong><span>{refinementJob.progress}% · You can keep comparing while the next version is prepared.</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
+      <LoaderCircle className="spin" size={15}/><div><strong data-server-text>{refinementJob.message}</strong><span>{t('compare.dock.refinementProgress', { progress: refinementJob.progress })}</span><i><b style={{ width: `${refinementJob.progress}%` }}/></i></div>
     </div>}
 
     {proposal.candidates && proposal.candidates.length > 1 && <details className="regen-candidates">
-      <summary><ListChecks size={14}/>How Studio chose this version</summary>
+      <summary><ListChecks size={14}/>{t('compare.dock.candidateDetails')}</summary>
       <div>{proposal.candidates.map((candidate) => <article key={candidate.id} className={candidate.selected ? 'selected' : ''}>
-        <div><strong>{candidate.label}</strong>{candidate.selected && <span>Selected</span>}</div>
-        <p>{candidate.text}</p>
-        <small>Timing match {Math.round(candidate.meanAlignmentScore * 100)}% · {candidate.lowConfidenceTokens}/{candidate.totalTokens} words flagged</small>
+        <div><strong data-server-text>{candidate.label}</strong>{candidate.selected && <span>{t('compare.dock.selected')}</span>}</div>
+        <p data-server-text>{candidate.text}</p>
+        <small>{t('compare.dock.candidateTiming', { score: Math.round(candidate.meanAlignmentScore * 100), flagged: candidate.lowConfidenceTokens, total: candidate.totalTokens })}</small>
       </article>)}</div>
-      {proposal.selectedCandidateReason && <p className="regen-candidate-note">{proposal.selectedCandidateReason}</p>}
+      {proposal.selectedCandidateReason && <p className="regen-candidate-note" data-server-text>{proposal.selectedCandidateReason}</p>}
     </details>}
 
   </section>;

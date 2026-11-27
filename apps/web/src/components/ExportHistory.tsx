@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { type CaptionProject, type ExportEvidence, type ProcessingJob } from '@kcs/shared';
 import { appearanceComparisonBasis, type ReconciledAppearance } from '../caption-appearance-reconciliation';
 import './export-history.css';
@@ -64,9 +66,10 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
   appearanceRecovery?: { message: string; actionLabel: string; onRecover(trigger: HTMLButtonElement, focusTarget: HTMLElement | null): void };
   activeJobId?: string;
 }) {
-  const [history, setHistory] = useState({ projectId: project.id, entries: [] as ExportEvidence[], loaded: false, loading: true, error: '' });
+  const { locale, t, tn } = useI18n();
+  const [history, setHistory] = useState({ projectId: project.id, entries: [] as ExportEvidence[], loaded: false, loading: true, error: false });
   const { entries, loaded, loading, error } = history.projectId === project.id ? history
-    : { entries: [] as ExportEvidence[], loaded: false, loading: true, error: '' };
+    : { entries: [] as ExportEvidence[], loaded: false, loading: true, error: false };
   const [refresh, setRefresh] = useState(0);
   const summary = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -77,7 +80,7 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
   useEffect(() => {
     const controller = new AbortController();
     setHistory((current) => ({ projectId: project.id, entries: current.projectId === project.id ? current.entries : [],
-      loaded: current.projectId === project.id && current.loaded, loading: true, error: '' }));
+      loaded: current.projectId === project.id && current.loaded, loading: true, error: false }));
     void fetch(`/api/caption-handoff/${encodeURIComponent(project.id)}/export-history`, { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error();
@@ -86,9 +89,8 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
           && ['srt', 'vtt', 'ttml', 'word-srt', 'word-vtt', 'ass', 'data', 'bundle', 'video'].includes(entry.format)
           && typeof entry.fingerprint === 'string' && /^[a-f0-9]{64}$/.test(entry.fingerprint)
           && typeof entry.preparedAt === 'string' && Number.isFinite(Date.parse(entry.preparedAt)))) throw new Error();
-        if (!controller.signal.aborted) setHistory({ projectId: project.id, entries: value, loaded: true, loading: false, error: '' });
-      }).catch(() => { if (!controller.signal.aborted) setHistory((current) => ({ ...current, loading: false,
-        error: current.loaded ? 'Could not refresh export history. Last loaded records are shown; newer exports may be missing.' : 'Export history is unavailable. Freshness is unknown.' })); });
+        if (!controller.signal.aborted) setHistory({ projectId: project.id, entries: value, loaded: true, loading: false, error: false });
+      }).catch(() => { if (!controller.signal.aborted) setHistory((current) => ({ ...current, loading: false, error: true })); });
     return () => controller.abort();
   }, [project.id, activeJobId, refresh]);
   const basis = useMemo(() => JSON.stringify(entries.map((entry) => {
@@ -98,42 +100,49 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
   const comparison = useExportComparisons(project.id, basis);
   const comparisons = comparison.values;
   const changed = entries.filter((entry) => comparisons[entry.format] && comparisons[entry.format] !== entry.fingerprint).length;
-  const retained = loaded && (loading || Boolean(error));
+  const retained = loaded && (loading || error);
   return <details className="export-history">
-    <summary ref={summary}>Export history{retained ? ' · last loaded' : changed > 0 ? ` · ${changed} need updating` : ''}</summary>
-    <p>Compared with the open project, including unsaved edits. Preparing a file does not confirm it was saved to disk. Video comparisons retain that render’s output settings.</p>
-    {appearanceRecovery && <div role="status"><p>{appearanceRecovery.message} Plain caption files are still available.</p><button type="button" onClick={(event) => appearanceRecovery.onRecover(event.currentTarget, summary.current)}>{appearanceRecovery.actionLabel}</button></div>}
-    <div className="export-history-toolbar"><p role="status">{loading ? loaded ? 'Refreshing export history…' : 'Loading export history…' : loaded ? `${entries.length} recorded export${entries.length === 1 ? '' : 's'}` : 'Export history unavailable'}</p>
-      <button type="button" aria-disabled={loading || undefined} onClick={() => { if (!loading) setRefresh((value) => value + 1); }}>{error ? 'Retry export history' : 'Refresh export history'}</button></div>
-    {error && <p className="export-history-error" role="alert">{error}</p>}
+    <summary ref={summary}>{retained ? t('export.history.lastLoaded') : changed > 0 ? t('export.history.needsUpdating', { count: changed }) : t('export.history.title')}</summary>
+    <p>{t('export.history.description')}</p>
+    {appearanceRecovery && <div role="status"><p>{t('export.history.withPlainAvailable', { message: appearanceRecovery.message })}</p><button type="button" onClick={(event) => appearanceRecovery.onRecover(event.currentTarget, summary.current)}>{appearanceRecovery.actionLabel}</button></div>}
+    <div className="export-history-toolbar"><p role="status">{loading ? loaded ? t('export.history.refreshing') : t('export.history.loading') : loaded ? tn('export.history.recorded', entries.length) : t('export.history.unavailable')}</p>
+      <button type="button" aria-disabled={loading || undefined} onClick={() => { if (!loading) setRefresh((value) => value + 1); }}>{error ? t('export.history.retry') : t('export.history.refresh')}</button></div>
+    {error && <p className="export-history-error" role="alert">{t(loaded ? 'export.history.refreshError' : 'export.history.loadError')}</p>}
     {comparison.failed.length > 0 && <div className="export-comparison-recovery">
-      <p role="status">{comparison.pending.length ? 'Retrying export content comparison…' : 'Some export content could not be compared. Freshness remains unknown for those records.'}</p>
+      <p role="status">{comparison.pending.length ? t('export.history.retryingComparison') : t('export.history.comparisonError')}</p>
       <button type="button" aria-disabled={comparison.pending.length > 0 || undefined} aria-busy={comparison.pending.length > 0 || undefined}
-        onClick={() => { if (comparison.retry()) summary.current?.focus({ preventScroll: true }); }}>Retry comparison</button>
+        onClick={() => { if (comparison.retry()) summary.current?.focus({ preventScroll: true }); }}>{t('export.history.retryComparison')}</button>
     </div>}
-    {entries.length > 0 && <ul aria-busy={loading}>{entries.map((entry) => <li key={entry.format}>
-      <strong>{entry.format === 'video' ? 'Captioned video' : entry.format.toUpperCase()}</strong><time dateTime={entry.preparedAt}>Prepared {new Date(entry.preparedAt).toLocaleString()}</time>
-      <span>{retained && 'Last loaded record: '}{comparison.pending.includes(entry.format) ? 'Checking export content…' : !comparisons[entry.format] ? 'Freshness unknown. Studio could not compare the current content.' : comparisons[entry.format] === entry.fingerprint ? 'Matches open project content.' : 'Changed since export. Export again to include current edits.'}</span>
-    </li>)}</ul>}
-    {loaded && !loading && !error && !entries.length && <p>No recorded exports. Earlier exports have unknown freshness.</p>}
+    {entries.length > 0 && <ul aria-busy={loading}>{entries.map((entry) => {
+      const freshness = comparison.pending.includes(entry.format) ? t('export.history.checking')
+        : !comparisons[entry.format] ? t('export.history.unknown')
+          : comparisons[entry.format] === entry.fingerprint ? t('export.history.matches') : t('export.history.changed');
+      return <li key={entry.format}>
+        <strong>{entry.format === 'video' ? t('export.history.video') : entry.format.toUpperCase()}</strong>
+        <time dateTime={entry.preparedAt}>{t('export.history.prepared', { date: formatInterfaceDate(locale, entry.preparedAt, { time: true }) })}</time>
+        <span>{retained ? t('export.history.lastLoadedRecord', { status: freshness }) : freshness}</span>
+      </li>;
+    })}</ul>}
+    {loaded && !loading && !error && !entries.length && <p>{t('export.history.empty')}</p>}
   </details>;
 }
 
 export function ExportJobFreshness({ job, project, appearance }: { job: ProcessingJob; project?: CaptionProject; appearance: ReconciledAppearance }) {
+  const { t } = useI18n();
   const basis = useMemo(() => {
     try { return project?.id === job.projectId ? appearanceComparisonBasis(project, 'video', appearance) || '' : ''; } catch { return ''; }
   }, [appearance, job.projectId, project?.id, project?.captions, project?.captionAppearance, project?.media, project?.transcript, project?.transcriptNeedsSync]);
   const comparison = useExportComparisons(`${job.id}:${project?.id || ''}`, JSON.stringify([['video', basis && job.exportContentFingerprint ? basis : null]]));
   const label = useRef<HTMLElement | null>(null);
   const value = comparison.values.video;
-  return <><small ref={label} tabIndex={-1} className="export-job-freshness" role="status">{!job.exportContentFingerprint ? 'Freshness unknown. This earlier export has no receipt.'
-    : project?.id !== job.projectId ? 'Open this project to compare export content.'
-    : !basis ? appearance.status === 'pending' ? 'Checking export content…' : 'Freshness unknown. Studio could not compare the current content.'
-    : comparison.failed.includes('video') && !comparison.pending.length ? 'Freshness unknown. Studio could not compare the current content.'
-    : !value ? 'Checking export content…'
-    : value === job.exportContentFingerprint ? 'Matches open project content.' : 'Changed since export. This video contains earlier content.'}</small>
+  return <><small ref={label} tabIndex={-1} className="export-job-freshness" role="status">{!job.exportContentFingerprint ? t('export.history.noReceipt')
+    : project?.id !== job.projectId ? t('export.history.openProject')
+    : !basis ? appearance.status === 'pending' ? t('export.history.checking') : t('export.history.unknown')
+    : comparison.failed.includes('video') && !comparison.pending.length ? t('export.history.unknown')
+    : !value ? t('export.history.checking')
+    : value === job.exportContentFingerprint ? t('export.history.matches') : t('export.history.earlierVideo')}</small>
     {comparison.failed.length > 0 && <button type="button" className="export-comparison-retry"
       aria-disabled={comparison.pending.length > 0 || undefined} aria-busy={comparison.pending.length > 0 || undefined}
-      onClick={() => { if (comparison.retry()) label.current?.focus({ preventScroll: true }); }}>Retry comparison</button>}
+      onClick={() => { if (comparison.retry()) label.current?.focus({ preventScroll: true }); }}>{t('export.history.retryComparison')}</button>}
   </>;
 }

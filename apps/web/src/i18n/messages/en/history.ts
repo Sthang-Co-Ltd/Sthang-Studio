@@ -1,0 +1,16 @@
+export const historyMessages = {
+  savedVersions: { one: '{count} saved version', other: '{count} saved versions' },
+  lastLoadedWarning: ' The last loaded history is still shown.',
+  versionSummary: '{captions} captions · {approved} approved · {textLocks} text locks · {timingLocks} timing locks',
+  restoreVersion: 'Restore {label} saved {date}',
+  title: 'Project history',
+  help: 'Checkpoints saved before edits, regeneration, and timing changes',
+  close: 'Close history',
+  refreshing: 'Refreshing history…',
+  loading: 'Loading history…',
+  unavailable: 'History unavailable',
+  retry: 'Retry history',
+  refresh: 'Refresh',
+  restore: 'Restore',
+  empty: 'History appears after a meaningful edit or automatic change.',
+} as const;

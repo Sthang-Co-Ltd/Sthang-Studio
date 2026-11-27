@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Download, LoaderCircle, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { api, type UpdateStatus, type UpdateSafetySnapshot } from '../api';
@@ -17,6 +19,7 @@ interface Props {
 }
 
 export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props) {
+  const { locale, t } = useI18n();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [working, setWorking] = useState<'check' | 'download' | 'install' | ''>('');
   const [checkError, setCheckError] = useState('');
@@ -36,21 +39,21 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
       const next = await api.updateStatus();
       setStatus(next);
       if (options.announce) {
-        if (next.status === 'available') onNotice(`Sthang Studio ${next.offer.version} is available. Review it before downloading.`);
-        else if (next.status === 'up-to-date') onNotice('Sthang Studio is up to date.');
+        if (next.status === 'available') onNotice(t('updates.reviewOffer', { version: next.offer.version }));
+        else if (next.status === 'up-to-date') onNotice(t('updates.upToDateNotice'));
         else onNotice(next.message);
       } else if (next.status === 'available') {
-        onNotice(`Sthang Studio ${next.offer.version} is available. Open Updates to review it.`);
+        onNotice(t('updates.openToReview', { version: next.offer.version }));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Studio could not check for updates. Your installed version is unchanged.';
+      const message = error instanceof Error ? error.message : t('updates.checkError');
       setCheckError(message);
       if (options.surfaceError) onError(message);
     } finally {
       operation.current = false;
       setWorking('');
     }
-  }, [onError, onNotice]);
+  }, [onError, onNotice, t]);
 
   useEffect(() => {
     if (startupCheckStarted) return;
@@ -74,14 +77,14 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
 
   const unsafeReasons = useMemo(() => {
     const reasons: string[] = [];
-    if (safety.dirty) reasons.push('Save caption changes.');
-    if (safety.textEditing) reasons.push('Finish the current text edit.');
-    if (safety.reviewMode) reasons.push('Leave Review.');
-    if (safety.proposalOpen) reasons.push('Close or finish the regeneration comparison.');
-    if (safety.busy) reasons.push('Wait for the current Studio action to finish.');
-    if (safety.activeJobs > 0) reasons.push('Wait for caption processing to finish or cancel it.');
+    if (safety.dirty) reasons.push(t('updates.saveChanges'));
+    if (safety.textEditing) reasons.push(t('updates.finishTextEdit'));
+    if (safety.reviewMode) reasons.push(t('updates.leaveReview'));
+    if (safety.proposalOpen) reasons.push(t('updates.finishComparison'));
+    if (safety.busy) reasons.push(t('updates.waitForStudio'));
+    if (safety.activeJobs > 0) reasons.push(t('updates.waitForJobs'));
     return reasons;
-  }, [safety]);
+  }, [safety, t]);
 
   if (!presence.present) return null;
   const offer = status?.status === 'available' ? status.offer : null;
@@ -100,7 +103,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
 
   const downloadUpdate = async () => {
     if (!offer || unsafe || operation.current) return;
-    if (!window.confirm(`Download and verify Sthang Studio ${offer.version}? Nothing will be installed yet.`)) return;
+    if (!window.confirm(t('updates.confirmDownload', { version: offer.version }))) return;
     operation.current = true;
     setWorking('download');
     try {
@@ -108,9 +111,9 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
       setStatus((current) => current?.status === 'available'
         ? { ...current, offer: { ...current.offer, downloaded: true } }
         : current);
-      onNotice(`Studio ${offer.version} is downloaded and verified. Install it when your work is saved.`);
+      onNotice(t('updates.downloaded', { version: offer.version }));
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'The update could not be downloaded. Your installed version is unchanged.');
+      onError(error instanceof Error ? error.message : t('updates.downloadError'));
     } finally {
       operation.current = false;
       setWorking('');
@@ -119,47 +122,47 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
 
   const installUpdate = async () => {
     if (!offer || !offer.downloaded || unsafe || operation.current) return;
-    if (!window.confirm(`Install Sthang Studio ${offer.version} now? Studio will close, verify the staged release again, prepare dependencies, and restart. It will roll back if health checks fail.`)) return;
+    if (!window.confirm(t('updates.confirmInstall', { version: offer.version }))) return;
     operation.current = true;
     setWorking('install');
     try {
       await api.installUpdate(offer.manifestDigest, safety);
-      onNotice('Studio is closing to finish the verified update.');
+      onNotice(t('updates.installingNotice'));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The update could not be installed. Your installed version is unchanged.';
+      const message = error instanceof Error ? error.message : t('updates.installError');
       onError(message);
       operation.current = false;
       setWorking('');
-      if (/different Studio update|no longer newer/i.test(message)) void check({ announce: false, surfaceError: false });
+      if (error instanceof Error && /different Studio update|no longer newer/i.test(error.message)) void check({ announce: false, surfaceError: false });
     }
   };
 
   return <div className="update-overlay studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
     <section ref={dialog} tabIndex={-1} className="update-panel" role="dialog" aria-modal={open || undefined} aria-labelledby="update-title">
       <header>
-        <div><ShieldCheck size={19}/><div><strong id="update-title">Updates</strong><span>Signed releases. You choose when to install.</span></div></div>
-        <button aria-label="Close updates" onClick={onClose} disabled={!!working}><X size={17}/></button>
+        <div><ShieldCheck size={19}/><div><strong id="update-title">{t('updates.title')}</strong><span>{t('updates.help')}</span></div></div>
+        <button aria-label={t('updates.close')} onClick={onClose} disabled={!!working}><X size={17}/></button>
       </header>
       <div className="update-content">
-        {lastFailure && <div className="update-failure"><TriangleAlert size={18}/><div><strong>The previous update was rolled back</strong><span>{lastFailure.message}</span></div></div>}
-        {working === 'check' && <div className="update-state"><LoaderCircle className="spin" size={20}/><strong>Checking for a signed update…</strong><span>Your current Studio version remains available.</span></div>}
-        {!working && checkError && <div className="update-state"><TriangleAlert size={20}/><strong>Update status is unavailable</strong><span>{checkError}</span></div>}
-        {!working && !checkError && status?.status === 'disabled' && <div className="update-state"><ShieldCheck size={20}/><strong>Updates are not enabled in this build</strong><span>{status.message}</span></div>}
-        {!working && !checkError && status?.status === 'up-to-date' && <div className="update-state"><CheckCircle2 size={20}/><strong>Studio is up to date</strong><span>Installed version {status.currentVersion}</span></div>}
+        {lastFailure && <div className="update-failure"><TriangleAlert size={18}/><div><strong>{t('updates.rollback')}</strong><span data-server-text>{lastFailure.message}</span></div></div>}
+        {working === 'check' && <div className="update-state"><LoaderCircle className="spin" size={20}/><strong>{t('updates.checking')}</strong><span>{t('updates.currentVersionAvailable')}</span></div>}
+        {!working && checkError && <div className="update-state"><TriangleAlert size={20}/><strong>{t('updates.unavailable')}</strong><span>{checkError}</span></div>}
+        {!working && !checkError && status?.status === 'disabled' && <div className="update-state"><ShieldCheck size={20}/><strong>{t('updates.disabled')}</strong><span data-server-text>{status.message}</span></div>}
+        {!working && !checkError && status?.status === 'up-to-date' && <div className="update-state"><CheckCircle2 size={20}/><strong>{t('updates.upToDate')}</strong><span>{t('updates.installedVersion', { version: status.currentVersion })}</span></div>}
         {!checkError && offer && <>
-          <div className="update-version"><div><span>Available version</span><strong>{offer.version}</strong><small>{new Date(offer.publishedAt).toLocaleDateString()}</small></div><ShieldCheck size={28}/></div>
-          <div className="update-notes"><strong>What changed</strong><pre>{offer.releaseNotes}</pre></div>
-          {unsafe && <div className="update-safety"><strong>Finish current work before updating</strong><span>{unsafeReasons.join(' ')}</span></div>}
+          <div className="update-version"><div><span>{t('updates.available')}</span><strong>{offer.version}</strong><small>{formatInterfaceDate(locale, offer.publishedAt)}</small></div><ShieldCheck size={28}/></div>
+          <div className="update-notes"><strong>{t('updates.releaseNotes')}</strong><pre data-server-text>{offer.releaseNotes}</pre></div>
+          {unsafe && <div className="update-safety"><strong>{t('updates.finishWork')}</strong><span>{unsafeReasons.join(' ')}</span></div>}
           <div className="update-actions">
-            <button onClick={(event) => checkAgain(event.currentTarget)} disabled={!!working}><RefreshCw size={15}/>Check again</button>
+            <button onClick={(event) => checkAgain(event.currentTarget)} disabled={!!working}><RefreshCw size={15}/>{t('updates.checkAgain')}</button>
             {!offer.downloaded
-              ? <button className="primary" onClick={() => void downloadUpdate()} disabled={!!working || unsafe}>{working === 'download' ? <LoaderCircle className="spin" size={15}/> : <Download size={15}/>}Download &amp; verify</button>
-              : <button className="primary" onClick={() => void installUpdate()} disabled={!!working || unsafe}>{working === 'install' ? <LoaderCircle className="spin" size={15}/> : <ShieldCheck size={15}/>}Install &amp; restart</button>}
+              ? <button className="primary" onClick={() => void downloadUpdate()} disabled={!!working || unsafe}>{working === 'download' ? <LoaderCircle className="spin" size={15}/> : <Download size={15}/>}{t('updates.download')}</button>
+              : <button className="primary" onClick={() => void installUpdate()} disabled={!!working || unsafe}>{working === 'install' ? <LoaderCircle className="spin" size={15}/> : <ShieldCheck size={15}/>}{t('updates.install')}</button>}
           </div>
         </>}
-        {!working && (!offer || Boolean(checkError)) && <div className="update-actions"><button onClick={(event) => checkAgain(event.currentTarget)}><RefreshCw size={15}/>Check again</button></div>}
+        {!working && (!offer || Boolean(checkError)) && <div className="update-actions"><button onClick={(event) => checkAgain(event.currentTarget)}><RefreshCw size={15}/>{t('updates.checkAgain')}</button></div>}
       </div>
-      <footer>Studio verifies staged updates before activation. GitHub Releases provides a manual recovery download.</footer>
+      <footer>{t('updates.recoveryHelp')}</footer>
     </section>
   </div>;
 }

@@ -4,6 +4,7 @@ import { PanelArrangement, type PanelArrangementHandle } from './PanelArrangemen
 import { PanelHeaderDragContext, PanelHeaderGrip, usePanelHeaderDrag } from './PanelHeaderGrip';
 import { isFocusPreservingCaptionViewport, revealFocusedCaptionField, revealFocusedCaptionRow } from '../caption-field-viewport';
 import { DEFAULT_EDITOR_LAYOUT, EDITOR_LAYOUT_CHANGE, EDITOR_LAYOUT_KEY, LEGACY_EDITOR_LAYOUT_KEY, PANE_LABELS, editorGeometry, editorResizeBounds, effectiveEditorOrder, parseEditorLayout, resizeEditorBoundary, visibleEditorPanes, type EditorLayoutMode, type EditorLayoutPreference, type EditorPane } from '../editor-layout-state';
+import { useI18n } from '../i18n';
 import './editor-layout.css';
 
 const TimingDock = createContext<HTMLElement | null>(null);
@@ -28,6 +29,7 @@ interface ResizeGesture {
 
 /** Content never changes parent or DOM position. Grid and reading flow own the arrangement. */
 export function EditorLayout({ preview, toolbar, captions, children, tool, title, open, onClose, getCloseFocusTarget, mode, enlargeAvailable, arrangeSupported, ref }: Props) {
+  const { t } = useI18n();
   const workbench = useRef<HTMLDivElement | null>(null);
   const [captionListFocused, setCaptionListFocused] = useState(false);
   const captionFocus = useRef(false);
@@ -180,13 +182,13 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
     const bounds = right ? editorResizeBounds(geometry, open, left, right) : { minimum: 0, maximum: 0 };
     // React's numeric style serializer adds px to this new integer-only CSS property.
     return <div className="editor-divider" data-boundary={index} data-editor-layout-control role="separator" aria-orientation="vertical"
-      aria-label={right ? `Resize ${PANE_LABELS[left]} and ${PANE_LABELS[right]}` : 'Resize panels'} tabIndex={0}
+      aria-label={right ? t('workspace.resize', { left: t(PANE_LABELS[left]), right: t(PANE_LABELS[right]) }) : t('workspace.resizePanels')} tabIndex={0}
       aria-valuemin={right ? Math.round(geometry.widths[left] + bounds.minimum) : 0}
       aria-valuemax={right ? Math.round(geometry.widths[left] + bounds.maximum) : 0}
       aria-valuenow={right ? Math.round(geometry.widths[left]) : 0}
-      aria-valuetext={right ? `${PANE_LABELS[left]} ${Math.round(geometry.widths[left])} pixels, ${PANE_LABELS[right]} ${Math.round(geometry.widths[right])} pixels` : undefined}
+      aria-valuetext={right ? t('workspace.sizes', { left: t(PANE_LABELS[left]), leftWidth: Math.round(geometry.widths[left]), right: t(PANE_LABELS[right]), rightWidth: Math.round(geometry.widths[right]) }) : undefined}
       hidden={!right} style={{ gridColumn: index * 2 + 2, order: index * 2 + 1, readingOrder: String(index * 2 + 1) } as CSSProperties}
-      title="Drag or use Left and Right to move the divider. Shift makes larger steps. Double-click to reset."
+      title={t('workspace.dividerHelp')}
       onDoubleClick={reset} onPointerDown={(event) => {
         if (!right || event.button !== 0 || resize.current || arranging.current) return;
         event.preventDefault(); notifyGeometry(); event.currentTarget.focus({ preventScroll: true }); event.currentTarget.setPointerCapture(event.pointerId);
@@ -212,7 +214,7 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
   return <div ref={workbench} className={`editor-workbench ${captionListFocused ? 'caption-list-focused' : ''}`}
     onFocusCapture={(event) => { trackCaptionFocus(event.target); finishNativeCaptionFocus(event.target); }}
     onBlurCapture={(event) => { cancelNativeFocusReveal(); trackCaptionFocus(event.relatedTarget); }}>
-    <span id="panel-reorder-hint" hidden>Use Left or Right arrow, Home or End to move this panel.</span>
+    <span id="panel-reorder-hint" hidden>{t('workspace.reorderHelp')}</span>
     {toolbar && <div className="editor-toolbar">{toolbar}</div>}
     <PanelHeaderDragContext.Provider value={headerDrag.context}><TimingDock.Provider value={docked ? dock : null}>
       <section ref={grid} className={`editor-grid refined-editor ${open ? 'inspector-open' : 'inspector-closed'} ${tool === 'timeline' ? 'timing-layout' : ''} ${resizing ? 'is-resizing' : ''} ${headerDrag.lifted ? 'is-header-dragging' : ''}`}
@@ -220,14 +222,14 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         style={{ '--editor-columns': tracks, '--editor-preview-column': column('preview'), '--editor-captions-column': column('captions'), '--editor-inspector-column': column('inspector'),
           '--editor-preview-order': panes.indexOf('preview') * 2, '--editor-captions-order': panes.indexOf('captions') * 2, '--editor-inspector-order': panes.indexOf('inspector') * 2,
           '--editor-dock-start': dockStart, '--editor-dock-end': dockEnd, '--editor-inspector-row': docked && middle ? '1 / -1' : '1' } as CSSProperties}>
-        <div className="stage-column"><div className="editor-preview-label"><PanelHeaderGrip pane="preview">Preview</PanelHeaderGrip>
-          {wide && enlargeAvailable && <button type="button" className="editor-enlarge-preview" data-editor-layout-control aria-pressed={enlarged} onClick={toggleEnlarge}><Maximize2 size={14}/>Enlarge preview</button>}
+        <div className="stage-column"><div className="editor-preview-label"><PanelHeaderGrip pane="preview">{t(PANE_LABELS.preview)}</PanelHeaderGrip>
+          {wide && enlargeAvailable && <button type="button" className="editor-enlarge-preview" data-editor-layout-control aria-pressed={enlarged} onClick={toggleEnlarge}><Maximize2 size={14}/>{t('workspace.enlargePreview')}</button>}
         </div>{preview}</div>
         {divider(0)}
         {captions}
         {divider(1)}
-        <aside className="workspace-inspector" hidden={!open} aria-label={`${title} workspace`}>
-          <div className="inspector-heading" tabIndex={-1} role="group" aria-label={`${title} workspace`}><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" data-workspace-close onClick={() => {
+        <aside className="workspace-inspector" hidden={!open} aria-label={t('workspace.label', { title })}>
+          <div className="inspector-heading" tabIndex={-1} role="group" aria-label={t('workspace.label', { title })}><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" data-workspace-close onClick={() => {
             const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.workspace-tool-strip button[aria-pressed="true"]')
               || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.stage-rail button[aria-pressed="true"]') || null;
             onClose();
@@ -235,16 +237,16 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
               const target = getCloseFocusTarget ? getCloseFocusTarget(returnTo) : returnTo;
               if (target?.isConnected) target.focus();
             });
-          }}><X size={14}/>Close tool</button>}</div>
+          }}><X size={14}/>{t('workspace.close')}</button>}</div>
           <div className="inspector-content">{children}</div>
         </aside>
-        <div ref={setDock} className="editor-timing-dock" hidden={!docked} role="region" aria-label="Audio timing workspace"/>
-        <div className="editor-panel-placeholder" hidden={!headerDrag.lifted} aria-hidden="true"><span>{headerDrag.lifted && PANE_LABELS[headerDrag.lifted]}</span></div>
+        <div ref={setDock} className="editor-timing-dock" hidden={!docked} role="region" aria-label={t('workspace.audioTiming')}/>
+        <div className="editor-panel-placeholder" hidden={!headerDrag.lifted} aria-hidden="true"><span>{headerDrag.lifted && t(PANE_LABELS[headerDrag.lifted])}</span></div>
       </section>
     </TimingDock.Provider></PanelHeaderDragContext.Provider>
     <PanelArrangement ref={arrangement} mode={mode} order={order} open={open} geometryKey={geometryKey} interactionBusy={headerDrag.pending || resizing} supported={arrangeSupported} onReset={reset}
       onChange={arrange} onBegin={() => beginReorder('popover')}
       onEnd={() => endReorder('popover')} onFeedback={(source, target) => setFeedback({ source, target })}/>
-    <span className="editor-layout-announcement" role="status" aria-live="polite">{headerDrag.announcement}{resetCount > 0 && <span key={resetCount}> Panels reset to the default layout.</span>}</span>
+    <span className="editor-layout-announcement" role="status" aria-live="polite">{headerDrag.announcement}{resetCount > 0 && <span key={resetCount}>{t('workspace.resetAnnouncement')}</span>}</span>
   </div>;
 }

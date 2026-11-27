@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { formatInterfaceDate } from '../i18n/dates';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
@@ -25,7 +26,7 @@ type AiSettingsPanelProps = {
   | { variant: 'inline'; onForget?: never });
 
 export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 'full' }: AiSettingsPanelProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const inline = variant === 'inline';
   const keyLabelId = useId();
   const modelOptionsId = useId();
@@ -230,7 +231,7 @@ export function AiSettingsPanel({ settings, onSave, onTest, onForget, variant = 
     <div className="ai-settings-actions">
       {!inline && <>
       {settings.canForgetSecureKey && <button className="danger-quiet" aria-disabled={Boolean(working) || undefined} aria-busy={working === 'forget' || undefined} onClick={() => void forget()}>{working === 'forget' ? <LoaderCircle className="spin" size={15}/> : <Trash2 size={15}/>}{t('setup.ai.forget')}</button>}
-      <span>{settings.updatedAt ? t('setup.ai.lastSaved', { date: new Date(settings.updatedAt).toLocaleString() }) : t('setup.ai.neverSaved')}</span>
+      <span>{settings.updatedAt ? t('setup.ai.lastSaved', { date: formatInterfaceDate(locale, settings.updatedAt, { time: true }) }) : t('setup.ai.neverSaved')}</span>
       <button disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'test' || undefined} onClick={(event) => void test(event.currentTarget)}>{working === 'test' ? <LoaderCircle className="spin" size={15}/> : <Wifi size={15}/>}{t('setup.ai.testConnection')}</button>
       </>}
       <button className="primary" disabled={!settings.configured && !apiKey.trim()} aria-disabled={Boolean(working) || undefined} aria-busy={working === 'save' || undefined} onClick={(event) => void save(event.currentTarget)}>{working === 'save' ? <LoaderCircle className="spin" size={15}/> : <Save size={15}/>}{t('setup.ai.testAndSave')}</button>

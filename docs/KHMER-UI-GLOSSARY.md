@@ -190,6 +190,57 @@ The web app already implements the Khmer UI typography layer separately from cap
 | Ready to export | `រួចរាល់សម្រាប់នាំចេញ` | Later phase. |
 | Something went wrong. Try again. | `មានបញ្ហាកើតឡើង។ សូមព្យាយាមម្ដងទៀត។` | Calm fallback error; coeng-ដ in `ម្ដង`. |
 
+### Phase B additions (Export, Compare, Appearance, Fine timing, project tools)
+
+| English | Khmer | Note |
+|---|---|---|
+| Caption appearance | `រូបរាងអក្សររត់` | Styling panel; distinct from Look presets (`ម៉ូដអក្សរ`). |
+| Redo | `ធ្វើឡើងវិញ` | Pairs with Undo (`ត្រឡប់វិញ`). |
+| Loop | `ចាក់ដដែលៗ` | Aligns with Tight loop. |
+| Weight / Regular / Bold (font) | `កម្រាស់អក្សរ` / `ធម្មតា` / `ដិត` | Typography labels. |
+| Outline (caption stroke) | `ស៊ុមអក្សរ` | Distinct from video frame and Review corner brackets (`ស៊ុមជ្រុង`). |
+| Shadow / Glow | `ស្រមោល` / `ពន្លឺជុំវិញ` | Caption effects. |
+| Background box | `ប្រអប់ផ្ទៃក្រោយ` | Opacity `ភាពស្រអាប់ផ្ទៃក្រោយ`; padding `គម្លាតក្នុងប្រអប់`. |
+| Alignment: left / center / right | `ការតម្រឹម`: `ឆ្វេង` / `កណ្ដាល` / `ស្ដាំ` | coeng-ដ. |
+| Motion: Fade / Rise / Soft Pop | `លេចបាត់` / `រំកិលឡើង` / `លោតស្រាល` | Motion names are translated; the six Look names stay English for now. |
+| Resolution / Frame rate / Quality | `កម្រិតភាពច្បាស់` / `អត្រាហ្វ្រេម` / `គុណភាព` | Pair Resolution with Upscaled (`ពង្រីកទំហំ`) so it never implies enhancement. |
+| Codec / Encoder / Custom bitrate | `កូដិក` / `កម្មវិធីបំប្លែងកូដ` / `អត្រាប៊ីតផ្ទាល់ខ្លួន (Mbps)` | Advanced video settings only. |
+| Caption handoff kit | `កញ្ចប់ឯកសារអក្សររត់` | Plain phrasing instead of "handoff". |
+| Studio caption data | `ទិន្នន័យអក្សររត់ Studio` | Versioned JSON backup. |
+| Export history | `ប្រវត្តិនាំចេញ` | |
+| Blocker / Review suggestion (export checks) | `បញ្ហារារាំង` / `ចំណុចគួរពិនិត្យ` | |
+| Playhead | `ទីតាំងចាក់` | Matches Phase A. |
+| Move adjoining edge too | `រំកិលគែមជាប់គ្នាផងដែរ` | Exact checkbox label. |
+| Snap / Boundary snapping | `ចាប់ជាប់` / `ការចាប់ជាប់ព្រំដែន` | Options `ពាក្យ` / `ចន្លោះស្ងាត់` / `បិទ`. |
+| Spectral view / Spectrum overview | `ទិដ្ឋភាពប្រេកង់សំឡេង` / `ប្រេកង់សំឡេងសរុប` | Plain phrasing instead of `វិសាលគម`. |
+| Tentative timing | `ពេលវេលាបណ្ដោះអាសន្ន` | coeng-ដ. |
+| Try another way / Re-time my edited words / Check more carefully / Build on this wording | `សាកល្បងវិធីផ្សេង` / `តម្រឹមពេលតាមពាក្យដែលបានកែ` / `ពិនិត្យឱ្យល្អិតល្អន់ជាងមុន` / `បន្តពីពាក្យទាំងនេះ` | Compare refinements. |
+| Recently deleted | `បានលុបថ្មីៗ` | Mirrors `គម្រោងថ្មីៗ`. |
+| Automatic (model) / Default model / Global settings | `ស្វ័យប្រវត្តិ` / `ម៉ូដែលលំនាំដើម` / `ការកំណត់ទូទៅ` | |
+| Grouping modes: Dynamic / Word / Phrase / Line | `បត់បែន` / `តាមពាក្យ` / `តាមឃ្លា` / `តាមជួរ` | Structural, not Motion. |
+| Compatibility transcription | `ការបំប្លែងសំឡេងរបៀបឆបគ្នា` | Technical details only. |
+| Protected term(s) / Native bias / Canonical timing | `ពាក្យការពារ` / `ការផ្ដល់អាទិភាពពាក្យផ្ទាល់` / `ពេលវេលាគោល` | Technical details only. |
+| Anchored / Interpolated / Uncertain words / Match score | `បានតម្រឹមផ្ទាល់` / `ប៉ាន់ស្មានចន្លោះ` / `ពាក្យមិនទាន់ប្រាកដ` / `ពិន្ទុត្រូវគ្នា` | Technical details metrics. |
+| Interrupted / Resume (jobs) | `ផ្អាកកណ្ដាលទី` / `បន្តឡើងវិញ` | |
+| Checkpoint / Restore | `ចំណុចរក្សាទុក` / `ស្ដារ` | |
+| Glossary / Glossary rule | `ពាក្យសំខាន់ៗ` / `ច្បាប់ពាក្យសំខាន់ៗ` | Same noun as Key terms. |
+| Before / After (diff) | `មុនកែ` / `ក្រោយកែ` | Avoids clashing with Previous (`មុន`). |
+| Ignore Latin case / Regex | `មិនគិតអក្សរធំ-តូចឡាតាំង` / `ទម្រង់ Regex` | Keep `Regex` in Latin. |
+| Phonetic alias / Formatting (correction kind) | `ពាក្យសរសេរតាមសូរ` / `ទម្រង់សរសេរ` | |
+| Ignore / Ignored | `មិនអើពើ` / `ត្រូវបានមិនអើពើ` | |
+| Signed release / update; Roll back | `កំណែដែលបានចុះហត្ថលេខា` / `បច្ចុប្បន្នភាពដែលបានចុះហត្ថលេខា`; `ត្រឡប់ទៅកំណែមុនវិញ` | Never overstate the guarantee. |
+| Keyboard shortcuts | `ផ្លូវកាត់ក្ដារចុច` | coeng-ដ. |
+| Storage vs disk space | `កន្លែងផ្ទុក` vs `ទំហំផ្ទុក` | |
+| Kept in Latin | CapCut menu path `Captions → Add Captions`; `cloud sync` | Users must find the exact CapCut menu items. |
+| Workspace (panel region) | `ផ្ទាំងការងារ` | ARIA regions (`ផ្ទាំងការងារ {title}`); panel headings stay `ផ្ទាំង {panel}`. |
+| Close tool / Copy report | `បិទឧបករណ៍` / `ចម្លងរបាយការណ៍` | |
+| Enlarge preview | `ពង្រីកការមើលជាមុន` | |
+| Resize panels / Divider / Reorder | `ប្ដូរទំហំផ្ទាំង` / `បន្ទាត់ខណ្ឌ` / `ប្ដូរលំដាប់` | |
+| Panel layout / Reset layout | `ប្លង់ផ្ទាំង` / `កំណត់ប្លង់ផ្ទាំងឡើងវិញ` | Distinct from caption layout (`ប្លង់អក្សរ`). |
+| Pixels (spoken unit) | `ភីកសែល` | Screen-reader text only; keep `px` in compact numeric displays. |
+| Studio session | `វគ្គ Studio` | |
+| Keyboard keys | `Home`, `End` | Kept in Latin with Shift, Enter, Esc, Tab, Space. |
+
 ---
 
 ## 4. To verify with creators
@@ -205,6 +256,11 @@ Validate these terms in a short comprehension check with Cambodian short-form cr
 7. **Look (style preset)** (`ម៉ូដអក្សរ`) vs `រចនាប័ទ្ម` *(later phase)*.
 8. **Saved presets** (`គំរូដែលបានរក្សាទុក`) vs `Preset ដែលបានរក្សាទុក` *(later phase)*.
 9. **Alternative take** (`ជម្រើសផ្សេងទៀត`) vs `បង្កើតជម្រើសថ្មី` *(later phase)*.
+10. **Dynamic grouping** (`បត់បែន`) vs `រហ័ស` — fast pacing or adaptive grouping?
+11. **Ignore** (`មិនអើពើ`) vs `មិនប្រើ` / `មិនរាប់បញ្ចូល` in the Correction inbox.
+12. **Resolution** (`កម្រិតភាពច្បាស់`) vs `ទំហំរូបភាព`.
+13. **Motion names** (`លេចបាត់` / `រំកិលឡើង` / `លោតស្រាល`) and whether the six Look names should also be localized.
+14. **Recently deleted** (`បានលុបថ្មីៗ`) and **Regex** kept in Latin.
 
 ---
 
