@@ -4,13 +4,20 @@ export interface PlaybackSettings {
   muted: boolean;
 }
 
+const playbackFailures = {
+  1: { message: "Playback was interrupted. Retry playback to restart the player. Your source file and captions are unchanged.", key: 'notices.playback.interrupted' },
+  2: { message: "The browser could not read the playback file. Retry playback to restart the player. Your source file and captions are unchanged.", key: 'notices.playback.network' },
+  3: { message: "The browser could not decode the playback file. Retry playback to restart the player. Your source file and captions are unchanged.", key: 'notices.playback.decode' },
+  4: { message: "The browser could not open the playback file. Retry playback to restart the player. Your source file and captions are unchanged.", key: 'notices.playback.unsupported' },
+  fallback: { message: "Playback could not continue. Retry playback to restart the player. Your source file and captions are unchanged.", key: 'notices.playback.unknownFailure' },
+} as const;
+
+export function playbackFailure(code?: number) {
+  return code === 1 || code === 2 || code === 3 || code === 4 ? playbackFailures[code] : playbackFailures.fallback;
+}
+
 export function playbackFailureMessage(code?: number) {
-  const reason = code === 1 ? 'Playback was interrupted.'
-    : code === 2 ? 'The browser could not read the playback file.'
-    : code === 3 ? 'The browser could not decode the playback file.'
-    : code === 4 ? 'The browser could not open the playback file.'
-    : 'Playback could not continue.';
-  return `${reason} Retry playback to restart the player. Your source file and captions are unchanged.`;
+  return playbackFailure(code).message;
 }
 
 /** A failed decoder can reset currentTime to zero; keep the last healthy clock. */

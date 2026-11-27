@@ -2,8 +2,34 @@ import { useEffect, useRef, useState } from 'react';
 import type { CaptionProjectSummary } from '@kcs/shared';
 import { api, ApiRequestError, type BinnedProject, type ProjectBinReceipt } from './api';
 
+import type { MessageKey, MessageParams } from './i18n/types';
+
+const binErrorMessages = new Map<string, BinNotice>([
+  ['job_active', { message: "Finish or cancel this project's active work in Activity, then try again.", messageMetadata: { key: 'notices.bin.jobActive' } }],
+  ['storage_blocked', { message: "Studio can't change saved projects right now.", messageMetadata: { key: 'notices.bin.storageBlocked' } }],
+  ['expired', { message: "This project can no longer be restored.", messageMetadata: { key: 'notices.bin.expired' } }],
+  ['purging', { message: "This project is being removed.", messageMetadata: { key: 'notices.bin.purging' } }],
+  ['purge_incomplete', { message: "Studio could not finish removing this project. It will try again automatically.", messageMetadata: { key: 'notices.bin.purgeIncomplete' } }],
+]);
+const binFallbackMessages = {
+  refreshed: { message: "This item changed. The list has been updated.", messageMetadata: { key: 'notices.bin.itemRefreshed' } },
+  notRefreshed: { message: "This item changed. Try loading Recently deleted again.", messageMetadata: { key: 'notices.bin.itemRetry' } },
+  move: { message: "Studio could not move this project. It was not changed.", messageMetadata: { key: 'notices.bin.moveFailed' } },
+  restore: { message: "Studio could not restore this project.", messageMetadata: { key: 'notices.bin.restoreFailed' } },
+  delete: { message: "Studio could not delete this project.", messageMetadata: { key: 'notices.bin.deleteFailed' } },
+  unconfirmed: { message: "Studio could not confirm the move. Check All projects and Recently deleted.", messageMetadata: { key: 'notices.bin.moveUnconfirmed' } },
+} as const satisfies Record<string, BinNotice>;
+
+export function projectBinErrorNotice(code: string | undefined, operation: 'move' | 'restore' | 'delete', refreshed = false): BinNotice {
+  const notice = code === 'instance_mismatch'
+    ? (refreshed ? binFallbackMessages.refreshed : binFallbackMessages.notRefreshed)
+    : (code && binErrorMessages.get(code)) || binFallbackMessages[operation];
+  return { ...notice, reviewStorage: code === 'storage_blocked' };
+}
+
 type BinState = { items: BinnedProject[]; status: 'loading' | 'ready' | 'error' };
-type BinNotice = { message: string; reviewStorage?: boolean };
+type BinMessage = { key: MessageKey; params?: MessageParams };
+type BinNotice = { message: string; messageMetadata: BinMessage; reviewStorage?: boolean };
 type UndoMove = ProjectBinReceipt & { title: string };
 
 export function canRestore(restoreUntil: string) {
@@ -18,7 +44,7 @@ export function useProjectBin({
   onRemove(id: string): void;
   onRestore(project: CaptionProjectSummary): void;
   onRefreshProjects(): Promise<void>;
-  onNotice(message: string): void;
+  onNotice(message: string, metadata: BinMessage): void;
 }) {
   const [bin, setBin] = useState<BinState>({ items: [], status: 'loading' });
   const [notice, setNotice] = useState<BinNotice | null>(null);
@@ -74,18 +100,7 @@ export function useProjectBin({
 
   function report(error: unknown, operation: 'move' | 'restore' | 'delete', refreshed = false) {
     const code = error instanceof ApiRequestError ? error.code : undefined;
-    const messages: Record<string, string> = {
-      job_active: "Finish or cancel this project's active work in Activity, then try again.",
-      storage_blocked: "Studio can't change saved projects right now.",
-      expired: 'This project can no longer be restored.',
-      purging: 'This project is being removed.',
-      instance_mismatch: refreshed ? 'This item changed. The list has been updated.' : 'This item changed. Try loading Recently deleted again.',
-      purge_incomplete: 'Studio could not finish removing this project. It will try again automatically.',
-    };
-    const fallback = operation === 'move'
-      ? 'Studio could not move this project. It was not changed.'
-      : operation === 'restore' ? 'Studio could not restore this project.' : 'Studio could not delete this project.';
-    setNotice({ message: (code && messages[code]) || fallback, reviewStorage: code === 'storage_blocked' });
+    setNotice(projectBinErrorNotice(code, operation, refreshed));
   }
 
   const move = (project: CaptionProjectSummary) => change(project.id, async () => {
@@ -102,7 +117,7 @@ export function useProjectBin({
         // active row until a new collection read establishes its membership.
         onRemove(project.id);
         void refresh();
-        setNotice({ message: 'Studio could not confirm the move. Check All projects and Recently deleted.' });
+        setNotice(binFallbackMessages.unconfirmed);
       } else {
         if (error.status === 404) onRemove(project.id);
         report(error, 'move');
@@ -119,7 +134,7 @@ export function useProjectBin({
       setBin((current) => ({ ...current, items: current.items.filter((row) => row.instanceId !== item.instanceId) }));
       onRestore(project);
       void refresh();
-      onNotice(`Restored “${project.title}”.`);
+      onNotice(`Restored “${project.title}”.`, { key: 'notices.bin.restored', params: { title: project.title } });
       return project;
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === 'expired') {
@@ -141,7 +156,7 @@ export function useProjectBin({
       request.current?.abort();
       dismissUndo(item.instanceId);
       setBin((current) => ({ status: 'ready', items: current.items.filter((row) => row.instanceId !== item.instanceId) }));
-      onNotice(`“${item.title}” was deleted.`);
+      onNotice(`“${item.title}” was deleted.`, { key: 'notices.bin.deleted', params: { title: item.title } });
       return true;
     } catch (error) {
       report(error, 'delete', await refresh());

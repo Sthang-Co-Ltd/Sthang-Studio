@@ -1,5 +1,13 @@
 import type { CaptionDataDocument, CaptionProject } from '@kcs/shared';
 
+import type { MessageKey, MessageParams } from './i18n/types';
+
+export class CaptionHandoffError extends Error {
+  constructor(message: string, readonly messageMetadata?: { key: MessageKey; params?: MessageParams }) {
+    super(message);
+  }
+}
+
 export type CaptionFileFormat = 'srt' | 'word-srt' | 'vtt' | 'word-vtt' | 'ttml' | 'ass' | 'data' | 'bundle';
 export type HandoffSnapshot = CaptionDataDocument;
 export interface HandoffSummary {
@@ -23,7 +31,8 @@ async function checkedResponse(url: string, options?: RequestInit) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { error?: unknown } | null;
-    throw new Error(typeof body?.error === 'string' ? body.error : `Caption transfer failed (${response.status}).`);
+    if (typeof body?.error === 'string') throw new CaptionHandoffError(body.error);
+    throw new CaptionHandoffError(`Caption transfer failed (${response.status}).`, { key: 'notices.transfer.httpFailed', params: { status: response.status } });
   }
   return response;
 }
@@ -42,15 +51,15 @@ export const captionHandoffApi = {
   export: async (projectId: string, format: CaptionFileFormat, basis: HandoffPrecondition, signal?: AbortSignal) => {
     const response = await checkedResponse(`${endpoint(projectId)}/export`, post({ format, ...basis }, signal));
     const declaredSize = Number(response.headers.get('content-length'));
-    if (declaredSize > 17 * 1024 * 1024) throw new Error('The caption handoff file exceeded its supported size.');
+    if (declaredSize > 17 * 1024 * 1024) throw new CaptionHandoffError('The caption handoff file exceeded its supported size.', { key: 'notices.transfer.fileTooLarge' });
     const disposition = response.headers.get('content-disposition') || '';
     const proposed = /filename="([^"\r\n]+)"/i.exec(disposition)?.[1];
     // Download names never interpret remote paths, control characters, or HTML.
     const extension = format === 'bundle' ? 'zip' : format === 'data' ? 'json' : format.replace('word-', '');
     const filename = proposed && /^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/.test(proposed) ? proposed : `captions.${extension}`;
     const blob = await response.blob();
-    if (!blob.size) throw new Error('The caption file was empty. Retry the export.');
-    if (blob.size > 17 * 1024 * 1024) throw new Error('The caption handoff file exceeded its supported size.');
+    if (!blob.size) throw new CaptionHandoffError('The caption file was empty. Retry the export.', { key: 'notices.transfer.emptyFile' });
+    if (blob.size > 17 * 1024 * 1024) throw new CaptionHandoffError('The caption handoff file exceeded its supported size.', { key: 'notices.transfer.fileTooLarge' });
     const warnings = (response.headers.get('x-sthang-handoff-warnings') || '').slice(0, 2048);
     return { blob, filename, warnings };
   },

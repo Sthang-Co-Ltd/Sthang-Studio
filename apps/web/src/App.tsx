@@ -70,6 +70,7 @@ import { LocaleProvider, messagesFor, translate, type Locale } from './i18n';
 import type { MessageKey } from './i18n/types';
 import { InterfaceLanguagePrompt, InterfaceLanguageSwitch } from './i18n/language-controls';
 import { mirrorInterfaceLanguage, readInterfaceLanguage } from './i18n/language-storage';
+import { formatInterfaceDate } from './i18n/dates';
 import { StudioBrand } from './components/Brand';
 import { FindReplacePanel } from './components/FindReplacePanel';
 import { HomeSetupChecklist, NewUserGuide } from './components/NewUserGuide';
@@ -123,8 +124,9 @@ import { createExportSessionStorage } from './export-session-storage';
 import { ownReviewPlayback, type ReviewPlaybackOwner } from './review-playback';
 import type { ExportRepairTarget } from './export-checks';
 
-function compatibilityTranscriptionNotice(value: CaptionProject) {
-  return compatibilityTranscriptionMessage(value)?.message ?? '';
+function compatibilityTranscriptionNotice(value: CaptionProject, locale: Locale) {
+  const copy = compatibilityTranscriptionMessage(value);
+  return copy ? translate(locale, copy.key, copy.params) || copy.message : '';
 }
 
 function compatibilityTranscriptionMessage(value: CaptionProject) {
@@ -149,7 +151,7 @@ function compatibilityTranscriptionMessage(value: CaptionProject) {
   }
   return { message: 'Studio used compatibility transcription. Protected terms were used as recognition hints, but the full topic description was not available to Transcribe. Review ambiguous names.', key: 'details.compatibilityTermsOnly' as const };
 }
-import { captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
+import { CaptionHandoffError, captionHandoffApi, saveHandoffDownload, type CaptionFileFormat, type HandoffPrecondition, type HandoffRestorePreview } from './caption-handoff-client';
 import './styles.css';
 import './interface-motion.css';
 import { ManualSaveButton, useManualSaveFeedback } from './components/ManualSaveButton';
@@ -325,15 +327,19 @@ export default function App() {
     tool: 'timeline' | 'appearance'; captionId?: string; ticket: ProjectTicket; request: ProjectNavigationFocusRequest;
   } | null>(null);
   const [wordBatchUndo, setWordBatchUndo] = useState<{ ticket: ProjectTicket; applied: Array<{ before: CaptionSegment; after: CaptionSegment }> } | null>(null);
-  const [busy, setBusy] = useState('');
+  const [busy, setBusy] = useState<MessageKey | ''>('');
   const [generationModelSaving, setGenerationModelSaving] = useState(false);
   const generationModelWrite = useRef(false);
   const generationModelRevision = useRef(0);
   const generationModelAck = useRef<{ key: string; value: CaptionGenerationModel } | null>(null);
   const [generationPreparing, setGenerationPreparing] = useState(false);
   const generationPreparation = useRef(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setErrorText] = useState('');
+  const [errorServerText, setErrorServerText] = useState(false);
+  const setError = useCallback((message: string, serverText = false) => { setErrorText(message); setErrorServerText(serverText); }, []);
+  const [notice, setNoticeText] = useState('');
+  const [noticeServerText, setNoticeServerText] = useState(false);
+  const setNotice = useCallback((message: string, serverText = false) => { setNoticeText(message); setNoticeServerText(serverText); }, []);
   const [toastLayout, setToastLayout] = useState<ToastLayoutState>({ hasContent: false, hasPersistentRecovery: false, hasSaveFailure: false });
   const toastLayoutRef = useRef(toastLayout);
   const toastFocusFrame = useRef<{ frame: number; field: HTMLElement; list: HTMLElement; workbench: HTMLElement } | null>(null);
@@ -376,7 +382,9 @@ export default function App() {
   const [mediaBackups, setMediaBackups] = useState<MediaReplacementCheckpoint[]>([]);
   const [mediaBackupsLoading, setMediaBackupsLoading] = useState(false);
   const [mediaMutationStatus, setMediaMutationStatus] = useState('');
-  const [mediaMutationError, setMediaMutationError] = useState('');
+  const [mediaMutationError, setMediaMutationErrorText] = useState('');
+  const [mediaMutationErrorIsServerText, setMediaMutationErrorIsServerText] = useState(false);
+  const setMediaMutationError = (message: string, serverText = false) => { setMediaMutationErrorText(message); setMediaMutationErrorIsServerText(serverText); };
   const [unconfirmedSource, setUnconfirmedSource] = useState<MediaSourceCheck | null>(null);
   const [checkingMediaSource, setCheckingMediaSource] = useState(false);
   const mediaSourceRequest = useRef<AbortController | null>(null);
@@ -393,7 +401,7 @@ export default function App() {
   const [bootLanguage] = useState(readInterfaceLanguage);
   const savedLanguage = profile?.preferences.interfaceLanguage;
   const interfaceLanguage = savedLanguage ?? bootLanguage ?? 'en';
-  const { t, tn } = useMemo(() => messagesFor(interfaceLanguage), [interfaceLanguage]);
+  const { t, tn, tr } = useMemo(() => messagesFor(interfaceLanguage), [interfaceLanguage]);
   const languageSave = useRef<Promise<void> | null>(null);
   const [languageSaving, setLanguageSaving] = useState(false);
   useEffect(() => {
@@ -452,11 +460,11 @@ export default function App() {
     setActivityEntryId(open ? id : null);
     setShowJobsState(open);
   };
-  const [jobNotification, setJobNotification] = useState<{ id: string; observation: string; projectTitle: string; message: string; error: boolean } | null>(null);
+  const [jobNotification, setJobNotification] = useState<{ id: string; observation: string; projectTitle: string; message: string; error: boolean; serverText: boolean } | null>(null);
   const jobNotificationRevision = useRef(0);
-  const notifyJob = (job: ProcessingJob, message: string, error = true) => {
+  const notifyJob = (job: ProcessingJob, message: string, error = true, serverText = false) => {
     jobNotificationRevision.current += 1;
-    setJobNotification({ id: job.id, observation: jobObservation(job), projectTitle: job.projectTitle, message, error });
+    setJobNotification({ id: job.id, observation: jobObservation(job), projectTitle: job.projectTitle, message, error, serverText });
   };
   const dismissJobNotification = () => { jobNotificationRevision.current += 1; setJobNotification(null); };
   const [showUpdates, setShowUpdates] = useState(false);
@@ -577,8 +585,8 @@ export default function App() {
   const compositionInProgress = useRef(false);
   const [autosaveState, setAutosaveState] = useState<'saved' | 'pending' | 'saving' | 'failed'>('saved');
   const [contextSaveState, setContextSaveState] = useState<'saved' | 'saving' | 'failed'>('saved');
-  const [captionSaveError, setCaptionSaveError] = useState('');
-  const [contextSaveError, setContextSaveError] = useState('');
+  const [captionSaveError, setCaptionSaveError] = useState<{ message: string; serverText?: boolean } | null>(null);
+  const [contextSaveError, setContextSaveError] = useState<{ message: string; serverText?: boolean } | null>(null);
   const [saveConflict, setSaveConflict] = useState(false);
   const pendingContextWrites = useRef(new Map<string, number>());
   const pendingCaptionWrites = useRef(new Map<string, number>());
@@ -593,9 +601,11 @@ export default function App() {
     || (pendingContextWrites.current.get(mediaKey) || 0) > 0 || (pendingCaptionWrites.current.get(mediaKey) || 0) > 0;
   const manualSaveFeedback = useManualSaveFeedback(viewTicket, unfinishedChanges);
   const saveFailed = saveConflict || autosaveState === 'failed' || contextSaveState === 'failed' || appearanceSave.status === 'error';
-  const saveFailure = [autosaveState === 'failed' ? captionSaveError : '', contextSaveState === 'failed' ? contextSaveError : '',
-    appearanceSave.conflict ? 'The saved appearance changed. Download your edits, then reload the saved project to compare.'
-      : appearanceSave.status === 'error' ? 'Your latest caption appearance could not be saved.' : ''].filter(Boolean).join(' ');
+  const saveFailure = [autosaveState === 'failed' ? captionSaveError?.message : '', contextSaveState === 'failed' ? contextSaveError?.message : '',
+    appearanceSave.conflict ? t('notices.save.appearanceConflict')
+      : appearanceSave.status === 'error' ? t('notices.save.appearanceFailed') : ''].filter(Boolean).join(' ');
+  const saveFailureHasServerText = (autosaveState === 'failed' && captionSaveError?.serverText)
+    || (contextSaveState === 'failed' && contextSaveError?.serverText);
   const projectSaveStatus = !unfinishedChanges ? t('editor.header.saved') : saveFailed ? t('editor.header.saveFailed')
     : autosaveState === 'saving' || contextSaveState === 'saving' || appearanceSave.status === 'saving' ? t('editor.header.saving')
       : appearanceDirty ? t('editor.header.appearanceUnsaved') : dirty ? t('editor.header.autosavePending') : t('editor.header.accuracyUnsaved');
@@ -709,7 +719,7 @@ export default function App() {
       setProjectListState({ refreshing: false, error: '' });
     } catch {
       if (!owns()) return;
-      setProjectListState({ refreshing: false, error: 'Could not update projects. Try again.' });
+      setProjectListState({ refreshing: false, error: t('notices.project.refreshFailed') });
       if (!startupLoaded.current.has('Projects')) setStartupErrors((current) => current.includes('Projects') ? current : [...current, 'Projects']);
     } finally {
       if (projectListRequest.current === request) {
@@ -736,7 +746,7 @@ export default function App() {
       void refreshProjects({ replaceRead: true });
     },
     onRefreshProjects: () => refreshProjects({ replaceRead: true }),
-    onNotice: setNotice,
+    onNotice: (message, metadata) => setNotice(t(metadata.key, metadata.params) || message),
   });
 
   async function undoProjectMove(move: typeof projectBin.undo[number]) {
@@ -774,7 +784,7 @@ export default function App() {
       const result = await api.renameProject(id, title, expectedTitle);
       publishTitle(result.title);
       if (!editing) setProjectLibraryView((view) => ({ ...view, page: selectProjectLibrary(projectItems.current, view, id).page }));
-      setNotice(`Renamed to “${result.title}”.`);
+      setNotice(t('notices.project.renamed', { title: result.title }));
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === 'title_conflict' && error.title !== undefined) publishTitle(error.title);
       if (error instanceof ApiRequestError && error.status === 404) void refreshProjects({ replaceRead: true });
@@ -962,7 +972,7 @@ export default function App() {
     });
     const unavailable = result.status === 'unavailable' || result.status === 'too-large' || Boolean(appearance && !appearanceState.basis);
     setRecoveryStorageError(unavailable
-      ? 'A recovery copy could not be kept in this browser. Keep this tab open until your changes save.' : '');
+      ? t('notices.save.recoveryUnavailable') : '');
     if (!conflict && !dirtyRef.current && !captionsMayChange && !contextChanged && !appearance && restoredRecovery.current?.key === projectMediaKey(saved)) {
       recoveryStore.remove(restoredRecovery.current.origin);
       restoredRecovery.current = null;
@@ -977,9 +987,9 @@ export default function App() {
     const appearanceRevision = currentAppearanceSave().revision;
     if (!captureUnfinishedRecovery()) {
       const confirmed = await confirmInStudio({
-        title: 'Reload without a recovery copy?',
-        message: 'A recovery copy could not be kept in this browser. Download your edits first. Reloading will lose any changes you have not downloaded.',
-        confirmLabel: 'Reload anyway',
+        title: t('dialogs.reload.title'),
+        message: t('dialogs.reload.message'),
+        confirmLabel: t('dialogs.reload.confirm'),
       });
       if (!confirmed || !projectScope.current.isCurrent(ticket)
         || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
@@ -1074,11 +1084,11 @@ export default function App() {
   async function goHome() {
     const initiatingControl = document.activeElement;
     if (mediaMutationInFlight.current) {
-      setNotice('Wait for the media change to finish before leaving this project.');
+      setNotice(t('notices.project.waitMediaBeforeLeaving'));
       return;
     }
     if (wordBatchMutation.current) {
-      setNotice('Finish saving prepared word timings before leaving this project.');
+      setNotice(t('notices.project.waitTimingBeforeLeaving'));
       return;
     }
     const intent = requestNavigation();
@@ -1128,16 +1138,16 @@ export default function App() {
     const readViewRevision = proposalViewRevision.current;
     const value = await api.regenerationProposal(projectId, proposalId, owner?.signal);
     if (!projectScope.current.isCurrent(ticket) || request !== proposalRead.current || owner?.signal.aborted || owner?.isCurrent() === false) return false;
-    if (value.projectId !== projectId) throw new Error('This preview belongs to another project.');
+    if (value.projectId !== projectId) throw new Error(t('notices.activity.proposalWrongProject'));
     if (automatic && (proposalViewRevision.current !== readViewRevision
       || (submittedViewRevision === undefined ? Boolean(currentProposal.current) : proposalViewRevision.current !== submittedViewRevision))) {
       setNotice(currentProposal.current
-        ? 'A new take is ready. Your current comparison is kept; open the result from Activity.'
-        : 'Improved captions ready. Open them from Activity when you are ready.');
+        ? t('notices.activity.newTakeReady')
+        : t('notices.activity.improvedReadyActivity'));
       return false;
     }
     if (automatic && (dirtyRef.current || (media.current && !media.current.paused))) {
-      setNotice('Improved captions ready. Open them from Activity when you are ready.');
+      setNotice(t('notices.activity.improvedReadyActivity'));
       return false;
     }
     cancelPlayback();
@@ -1234,7 +1244,7 @@ export default function App() {
       || draftEditRevision.current !== confirmation.editRevision
       || accuracyDraft.current.editRevision !== confirmation.contextRevision || dirtyRef.current) {
       setPendingMediaReplacement((current) => current?.id === pending.id ? { ...current, audioConfirmation: undefined } : current);
-      setMediaMutationError('The project changed since the audio was checked. Check the replacement again before accepting existing times.');
+      setMediaMutationError(t('notices.media.projectChangedAfterCheck'));
     }
   }, [pendingMediaReplacement, project?.updatedAt, draft, accuracyFields]);
 
@@ -1289,8 +1299,8 @@ export default function App() {
       setAccuracyFields(accuracyDraft.current.reset(projectMediaKey(next), next.transcriptionContext, profile?.defaultVocabulary,
         retained ? { description: retained.description, vocabulary: retained.vocabulary } : undefined));
       setContextSaveState('saved');
-      setCaptionSaveError('');
-      setContextSaveError('');
+      setCaptionSaveError(null);
+      setContextSaveError(null);
       projectScope.current.select(next);
       setProposal(null);
       correctionPlayback.current = null;
@@ -1373,7 +1383,7 @@ export default function App() {
       dirtyRef.current = true;
       if (needsComparison || conflictedSave.current?.key === ticket.key) {
         setAutosaveState('failed');
-        setCaptionSaveError('The saved captions changed while your newer edits were unfinished. Download your edits, then reload the saved project to compare.');
+        setCaptionSaveError({ message: t('notices.save.captionsChangedElsewhere') });
       } else setAutosaveState('pending');
     }
     setNotice(preservedNotice);
@@ -1439,9 +1449,9 @@ export default function App() {
         if (!document.execCommand('copy')) throw new Error('Copy command was unavailable');
         textarea.remove();
       }
-      setNotice('Previous-media edit recovery copied.');
+      setNotice(t('notices.media.recoveryCopied'));
     } catch {
-      setError('Could not copy the previous-media edits. The recovery notice will stay available.');
+      setError(t('notices.media.recoveryCopyFailed'));
     }
   };
 
@@ -1509,7 +1519,7 @@ export default function App() {
   );
   const globalGlossaryMessage = globalGlossaryFeedback.ticket !== viewTicket ? ''
     : globalGlossaryFeedback.savedVocabulary && JSON.stringify(profile?.defaultVocabulary) !== JSON.stringify(globalGlossaryFeedback.savedVocabulary)
-      ? 'Earlier glossary save completed. Newer global glossary choices and your current Accuracy text are kept.'
+      ? t('notices.accuracy.glossarySuperseded')
       : globalGlossaryFeedback.message;
   const contextPayload = (): TranscriptionContext => accuracyPayload(accuracyDraft.current.fields, profile?.defaultVocabulary);
   const qaSettings = useMemo(() => resolveQaProfile(profile?.preferences.qaProfileId, profile?.preferences.qaCustom), [profile?.preferences.qaProfileId, profile?.preferences.qaCustom]);
@@ -1595,7 +1605,7 @@ export default function App() {
     const endMs = Math.min(mediaDurationMs || caption.endMs + 120, caption.endMs + 120);
     try {
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-        throw new Error('This caption is outside the source playback range. Adjust its timing in Fine timing before replaying.');
+        throw new Error(t('notices.playback.captionOutsideSource'));
       }
       const ready = await preview.prepareReplay(startMs, endMs, controller.signal);
       if (!ready || controller.signal.aborted || !projectScope.current.isCurrent(ticket)
@@ -1616,13 +1626,13 @@ export default function App() {
       };
       const stop = () => release();
       const release = playTimingRange(element, { startMs, endMs, loop: false },
-        () => setError('Effect replay could not start. Check the source playback controls and try again.'), finish);
+        () => setError(t('notices.playback.effectReplayFailed')), finish);
       effectPlaybackCancel.current = stop;
       element.addEventListener('seeking', onUserSeek);
       setEffectReplayPlaying(true);
     } catch (reason) {
       if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) {
-        setError(reason instanceof Error ? reason.message : 'The effect preview could not be prepared.');
+        setError(reason instanceof Error ? reason.message : t('notices.playback.effectPreparationFailed'), reason instanceof ApiRequestError);
       }
     } finally {
       element.removeEventListener('seeking', cancel);
@@ -1731,7 +1741,7 @@ export default function App() {
         try {
           if (conflictedSave.current?.key === ticket.key) return null;
           if (projectScope.current.isCurrent(ticket)) {
-            if (!silent) { setBusy('Saving captions…'); setError(''); }
+            if (!silent) { setBusy('notices.busy.savingCaptions'); setError(''); }
             setAutosaveState('saving');
           }
           const result = await withCaptionAppearanceBarrier(targetProject.id, async () => {
@@ -1767,14 +1777,17 @@ export default function App() {
           captureUnfinishedRecovery();
           if (result.correctionsCreated > 0) {
             await refreshProfile();
-            if (projectScope.current.isCurrent(ticket)) setNotice(`${result.correctionsCreated} correction${result.correctionsCreated === 1 ? '' : 's'} captured in the Inbox.`);
-          } else if (!silent) setNotice('Captions saved.');
+            if (projectScope.current.isCurrent(ticket)) setNotice(tn('notices.corrections.captured', result.correctionsCreated));
+          } else if (!silent) setNotice(t('notices.save.captionsSaved'));
           return result.project;
         } catch (reason) {
           if (submitted) uncertainCaptionWrites.current.add(ticket.key);
           if (projectScope.current.isCurrent(ticket)) {
             protectSaveConflict(reason, ticket);
-            setCaptionSaveError(reason instanceof Error ? reason.message : 'Caption save failed.');
+            setCaptionSaveError({
+              message: reason instanceof Error ? reason.message : t('notices.save.captionsFailed'),
+              serverText: reason instanceof ApiRequestError,
+            });
             setAutosaveState('failed');
             captureUnfinishedRecovery();
           }
@@ -1809,23 +1822,23 @@ export default function App() {
       const result = await startWordHighlightPreparation('follow', [caption.id], signal, true);
       const outcome = result?.dispositions.get(caption.id);
       return result ? { published: true as const, message: result.applied
-        ? 'Word timing saved. Replay to check it.'
-        : outcome === 'candidate' || outcome === 'reused' ? 'The saved word timing was kept.' : 'This caption still needs a listen.' } : null;
+        ? t('notices.wordTiming.saved')
+        : outcome === 'candidate' || outcome === 'reused' ? t('notices.wordTiming.kept') : t('notices.wordTiming.needsListen') } : null;
     }
     const editRevision = draftEditRevision.current;
     const hadEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
-    if (hadEdits && !saved) throw new Error('Save the caption successfully before syncing its words.');
-    if (editRevision !== draftEditRevision.current || dirtyRef.current) throw new Error('The caption changed while saving. Sync its words again when the edit is ready.');
+    if (hadEdits && !saved) throw new Error(t('notices.wordTiming.saveBeforeSync'));
+    if (editRevision !== draftEditRevision.current || dirtyRef.current) throw new Error(t('notices.wordTiming.changedWhileSaving'));
     const basis = draftRef.current.find((item) => item.id === caption.id);
     if (!basis || basis.timingLocked) return null;
-    setBusy('Syncing word timing…');
+    setBusy('notices.busy.syncingWords');
     try {
       const candidate = await api.syncCaptionWords(project.id, basis, { filename: project.media.filename, size: project.media.size }, signal, true);
       if (signal?.aborted || !projectScope.current.isCurrent(ticket)) return null;
       if (!sameTimingRevision(draftRef.current.find((item) => item.id === basis.id), basis)) {
-        setNotice('The caption changed during word sync. Your newer edits were kept.');
+        setNotice(t('notices.wordTiming.changedDuringSync'));
         return null;
       }
       return candidate;
@@ -1945,7 +1958,7 @@ export default function App() {
               }
               publishWordBatchMutation(response.project, ticket, editRevision, changes,
                 changes.length ? wordHighlightBatchSaveBasis(basis, changes) : basis,
-                'Word highlights were saved. Your newer caption edits are still in the editor.');
+                t('notices.wordTiming.savedWithNewerEdits'));
             });
             return true;
           } finally {
@@ -1960,11 +1973,11 @@ export default function App() {
           historyRecovery = true;
           if (owns()) {
             setWordBatchUndo(null);
-            setNotice('Word highlights were saved. To restore the earlier timing, open History and choose “Before applying word highlights”.');
+            setNotice(t('notices.wordTiming.savedRestoreFromHistory'));
           }
         },
         onUnconfirmedPublication: () => {
-          if (owns()) setNotice('Studio could not confirm whether the word highlights were saved. Reload the saved project to check.');
+          if (owns()) setNotice(t('notices.wordTiming.savedUnconfirmed'));
         },
         newRequestId: () => crypto.randomUUID(),
         delay: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
@@ -2015,7 +2028,7 @@ export default function App() {
       } catch (error) {
         if (projectScope.current.isCurrent(ticket)
           && !(error instanceof ApiRequestError && error.code === 'WORD_HIGHLIGHT_INTENT_CHANGED')) {
-          setError('Could not stop automatic word highlighting. Try turning it off again.');
+          setError(t('notices.wordTiming.stopAutomaticFailed'));
         }
       }
     }, true);
@@ -2033,7 +2046,7 @@ export default function App() {
     const { ticket, applied } = wordBatchUndo;
     const target = project;
     const token = Symbol('word-highlight-undo');
-    setBusy('Undoing word highlights…');
+    setBusy('notices.busy.undoWordHighlights');
     try {
       await queueSameMediaMutation(ticket, async () => {
         if (dirtyRef.current || compositionInProgress.current) return;
@@ -2044,19 +2057,19 @@ export default function App() {
         const response = await api.applyWordHighlightBatch(target.id,
           { filename: target.media.filename, size: target.media.size }, reverse, 'undo', 'apply');
         const published = publishWordBatchMutation(response.project, ticket, editRevision, reverse, captionBasis,
-          'Word highlights were undone. Your newer caption edits are still in the editor.');
+          t('notices.wordTiming.undoneWithNewerEdits'));
         if (published !== 'stale') {
           setWordBatchUndo(null);
           setWordBatch(EMPTY_HIGHLIGHT_PROGRESS);
-          if (published === 'applied') setNotice('Word highlights were undone.');
+          if (published === 'applied') setNotice(t('notices.wordTiming.undone'));
         }
       });
     } catch (error) {
       if (projectScope.current.isCurrent(ticket)) {
         if (error instanceof ApiRequestError && error.status === 409) {
           setWordBatchUndo(null);
-          setNotice('Those captions have newer edits. Use History to restore the earlier word highlights if needed.');
-        } else setError('Could not undo word highlights.');
+          setNotice(t('notices.wordTiming.undoNewerEdits'));
+        } else setError(t('notices.wordTiming.undoFailed'));
       }
     } finally {
       if (wordBatchMutation.current === token) wordBatchMutation.current = null;
@@ -2069,7 +2082,7 @@ export default function App() {
     const next = wordHighlightSummary.exceptions[index + 1] ?? wordHighlightSummary.exceptions[0];
     if (next) {
       openWordTiming(next.id, next.wordId);
-      if (next.locked) setNotice('Caption timing is locked.');
+      if (next.locked) setNotice(t('notices.wordTiming.locked'));
     }
   };
 
@@ -2103,7 +2116,7 @@ export default function App() {
       if (!ownsRead()) return;
       appliedJobRead.current = read;
       settleFeedback();
-      setJobLoadState((current) => ({ ...current, loading: manualJobRead.current !== null, error: 'Could not update activity. Try again.' }));
+      setJobLoadState((current) => ({ ...current, loading: manualJobRead.current !== null, error: t('notices.activity.refreshFailed') }));
       if (options.startup && !startupLoaded.current.has('Activity')) {
         setStartupErrors((current) => current.includes('Activity') ? current : [...current, 'Activity']);
       }
@@ -2174,11 +2187,11 @@ export default function App() {
   const openJobResult = async (job: ProcessingJob) => {
     if (pendingJobResult.current?.id === job.id) return;
     if (mediaMutationInFlight.current) {
-      setNotice('Wait for the media change to finish before opening another result.');
+      setNotice(t('notices.activity.waitMediaBeforeResult'));
       return;
     }
     if (wordBatchMutation.current) {
-      setNotice('Finish saving prepared word timings before opening another result.');
+      setNotice(t('notices.activity.waitTimingBeforeResult'));
       return;
     }
     const intent = requestNavigation();
@@ -2220,7 +2233,7 @@ export default function App() {
           isCurrent: () => pendingJobResult.current === pending && operationRevision.current === navigationRevision,
         }) || !projectScope.current.isCurrent(ticket)
           || pendingJobResult.current !== pending || operationRevision.current !== navigationRevision) return;
-      } else setNotice(compatibilityTranscriptionNotice(target) || (job.resultExport ? 'Export project opened. Compare the video with current content in Activity.' : 'Completed caption job opened.'));
+      } else setNotice(compatibilityTranscriptionNotice(target, interfaceLanguage) || (job.resultExport ? t('notices.activity.exportProjectOpened') : t('notices.activity.captionJobOpened')));
       if ((job.proposalId || target.id !== project?.id) && (document.activeElement === trigger || document.activeElement === document.body)) {
         activityResultFocus.current = { ticket, comparison: Boolean(job.proposalId) };
       }
@@ -2229,7 +2242,7 @@ export default function App() {
     } catch (reason) {
       if (!pending.request.signal.aborted && pendingJobResult.current === pending
         && operationRevision.current === navigationRevision && projectScope.current.isCurrent(ticket)) {
-        setError(reason instanceof Error ? reason.message : 'Could not open the job result. Try opening it again from Activity.');
+        setError(reason instanceof Error ? reason.message : t('notices.activity.openResultFailed'), reason instanceof ApiRequestError);
       }
     } finally {
       if (projectOpen.current === pending.request) projectOpen.current = null;
@@ -2271,24 +2284,24 @@ export default function App() {
           const reportResultReadFailure = () => {
             if (!projectScope.current.isCurrent(ticket) || handledJobVersions.current.get(job.id) !== observation
               || jobNotificationRevision.current !== notificationRevision) return;
-            notifyJob(job, 'Processing completed, but the result could not be loaded. Open Activity and choose Open result to try again.');
+            notifyJob(job, t('notices.activity.resultLoadFailed'));
           };
           if (job.proposalId) {
             void loadProposal(job.projectId, job.proposalId, ticket, true, submittedViewRevision)
               .then((opened) => { if (opened && projectScope.current.isCurrent(ticket)) {
                 if (jobsViewRevision.current === activityRevision) setShowJobs(false);
-                setNotice('Improved captions ready. Review them before applying.');
+                setNotice(t('notices.activity.improvedReadyReview'));
               } })
               .catch(reportResultReadFailure);
           } else if (job.resultProjectId) {
             const contextObservation = accuracyDraft.current.capture(ticket);
             void api.get(job.resultProjectId).then((value) => {
               if (!projectScope.current.isCurrent(ticket) || projectMediaKey(value) !== ticket.key) return;
-              const compatibilityNotice = compatibilityTranscriptionNotice(value);
+              const compatibilityNotice = compatibilityTranscriptionNotice(value, interfaceLanguage);
               if (dirtyRef.current || version !== draftVersion.current) {
                 setNotice(compatibilityNotice
-                  ? `${compatibilityNotice} Your newer edits are kept; open the result from Activity.`
-                  : 'Caption generation completed. Your newer edits are kept; the result is available in Activity.');
+                  ? t('notices.activity.compatibilityWithNewerEdits', { compatibility: compatibilityNotice })
+                  : t('notices.activity.completedWithNewerEdits'));
                 return;
               }
               const watch = !draftRef.current.length && value.captions.length && isVideoProject(value)
@@ -2300,21 +2313,21 @@ export default function App() {
                 firstWatchNotice.current = compatibilityNotice ? null : watch;
                 setFirstWatch(watch);
               }
-              if (compatibilityNotice || !watch) setNotice(compatibilityNotice || 'Background caption generation completed.');
+              if (compatibilityNotice || !watch) setNotice(compatibilityNotice || t('notices.activity.backgroundCompleted'));
             }).catch(reportResultReadFailure);
           } else if (job.resultExport) {
-            setNotice(`Captioned video ready: ${job.resultExport.filename}. Open Activity to download it.`);
+            setNotice(t('notices.activity.videoReady', { filename: job.resultExport.filename }));
           }
         }
       } else if (job.status === 'failed') {
         proposalJobRevisions.current.delete(job.id);
         handledJobVersions.current.set(job.id, observation);
-        notifyJob(job, job.error || 'Processing could not finish. Open Activity to review the result and retry.');
+        notifyJob(job, job.error ? t('notices.activity.serverDetail', { detail: job.error }) : t('notices.activity.processingFailed'), true, Boolean(job.error));
       } else if (job.status === 'interrupted') {
         handledJobVersions.current.set(job.id, observation);
         notifyJob(job, job.canResume
-          ? 'Processing was interrupted. Open Activity and choose Resume to continue from saved progress.'
-          : job.message || 'Processing needs attention. Open Activity to check its saved outcome.', false);
+          ? t('notices.activity.processingInterrupted')
+          : job.message ? t('notices.activity.serverDetail', { detail: job.message }) : t('notices.activity.processingNeedsAttention'), false, !job.canResume && Boolean(job.message));
       } else if (job.status === 'cancelled') {
         proposalJobRevisions.current.delete(job.id);
       }
@@ -2326,7 +2339,7 @@ export default function App() {
     // capturing a new project ticket here would revive a canceled action.
     if (!isCurrentOperation(intent) || mediaMutationInFlight.current) return null;
     if (captionJob && (generationModelWrite.current || intent.modelRevision !== generationModelRevision.current)) {
-      setNotice('AI options changed while preparing this request. Start again with the saved choice.');
+      setNotice(t('notices.activity.aiOptionsChanged'));
       return null;
     }
     if (uncertainJobs.some((item) => item.key === intent.key && item.captionJob === captionJob)) {
@@ -2359,10 +2372,10 @@ export default function App() {
     } catch (reason) {
       const current = isCurrentOperation(intent);
       if (reason instanceof ApiRequestError) {
-        if (current) setError(reason.message);
+        if (current) setError(reason.message, true);
       } else {
         // The server can accept the job before this tab navigates or loses the reply.
-        const receipt = { key: intent.key, title: project?.title || 'this project', captionJob,
+        const receipt = { key: intent.key, title: project?.title || t('notices.activity.unnamedProject'), captionJob,
           afterRead: jobReadGeneration.current, dismissed: false };
         setUncertainJobs((items) => [...items.filter((item) => item.key !== intent.key || item.captionJob !== captionJob), receipt]);
         void refreshJobs({ feedback: current });
@@ -2447,9 +2460,9 @@ export default function App() {
     const selected = new Set(selection.ids);
     const targets = draftRef.current.filter((caption) => selected.has(caption.id));
     if (!targets.length) return;
-    if (targets.some((caption) => caption.timingLocked)) { setNotice('Unlock the selected timing before moving these captions together.'); return; }
+    if (targets.some((caption) => caption.timingLocked)) { setNotice(t('notices.timing.unlockSelection')); return; }
     const safeDelta = limitCaptionSelectionDelta(draftRef.current, selected, delta, mediaDurationMs || Number.MAX_SAFE_INTEGER);
-    if (safeDelta !== delta) setNotice('Reached a caption outside the selection. Other captions stayed in place.');
+    if (safeDelta !== delta) setNotice(t('notices.timing.selectionLimited'));
     if (!safeDelta) return;
     updateDraft(draftRef.current.map((caption) => selected.has(caption.id)
       ? { ...caption, startMs: caption.startMs + safeDelta, endMs: caption.endMs + safeDelta, timingSource: 'manual', timingQuality: 'medium', approved: false }
@@ -2573,11 +2586,11 @@ export default function App() {
     correctionPlayback.current = null;
     if (Number.isFinite(element.duration) && clip.recordedStartMs >= element.duration * 1000) {
       element.pause();
-      setNotice('The correction starts beyond the end of the current media. Its recorded audio is unavailable.');
+      setNotice(t('notices.playback.correctionOutsideSource'));
       return;
     }
     timingPreviewCancel.current = playTimingRange(element, { startMs: clip.startMs, endMs: clip.endMs, loop: false },
-      () => setError('Playback could not start. Use the media controls to listen to the correction.'));
+      () => setError(t('notices.playback.correctionPlaybackFailed')));
   }
   const changePlaybackRate = (rate: number) => {
     setPlaybackRate(rate);
@@ -2606,7 +2619,7 @@ export default function App() {
       if (projectScope.current.isCurrent(ticket) && projectOpen.current === request && !request.signal.aborted) {
         if (dirtyRef.current || readRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
           || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-          setNotice('Newer edits arrived while the project was loading. Save them before opening another project.');
+          setNotice(t('notices.project.editedWhileOpening'));
           return false;
         }
         publishContextProject(value, contextObservation);
@@ -2623,7 +2636,7 @@ export default function App() {
       }
     } catch (reason) {
       if (projectOpen.current === request && !request.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : 'Could not open project. Try again.');
+        setError(reason instanceof Error ? reason.message : t('notices.project.openFailed'), reason instanceof ApiRequestError);
         projectNavigationFocus.complete(focusRequest, () => focusRequest?.owner || null);
         focusCompleted = true;
       }
@@ -2669,37 +2682,37 @@ export default function App() {
     }
     // A missing record does not prove failure: the original upload may still be
     // publishing. Only its exact attempt can be retried or deliberately opened.
-    return { state: 'uncertain', message: 'Studio could not confirm whether this upload was saved. Check again or retry this same upload.' };
+    return { state: 'uncertain', message: t('notices.upload.savedUnconfirmed') };
   };
   const upload = async (file: File, title: string, attemptId: string): Promise<UploadResult> => {
-    if (mediaMutationInFlight.current) return { state: 'not-created', message: 'Wait for the media change to finish, then retry this upload.' };
+    if (mediaMutationInFlight.current) return { state: 'not-created', message: t('notices.upload.waitMedia') };
     const focusRequest = projectNavigationFocus.capture(document.activeElement);
     let focusCompleted = false;
     let ticket = beginNavigation();
-    setBusy('Uploading…');
+    setBusy('notices.busy.uploading');
     setError('');
     try {
       const result = await api.create(file, title, attemptId);
-      if (!projectScope.current.isCurrent(ticket)) return { state: 'uncertain', project: { id: result.id, title: result.title }, message: 'This upload was saved. Open its saved project when you are ready.' };
+      if (!projectScope.current.isCurrent(ticket)) return { state: 'uncertain', project: { id: result.id, title: result.title }, message: t('notices.upload.savedWhenReady') };
       applyProject(result);
       ticket = projectScope.current.capture();
-      if (result.creation?.orderSaved === false) setNotice('Project saved, but its order in Recent projects could not be saved.');
+      if (result.creation?.orderSaved === false) setNotice(t('notices.project.recentOrderFailed'));
       projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
       focusCompleted = true;
       return { state: 'opened' };
     } catch (reason) {
       if (reason instanceof ApiRequestError && reason.code === 'project_binned') {
         void refreshProjects({ replaceRead: true });
-        return { state: 'not-created', message: 'This upload matches a project in Recently deleted. Restore it there, or upload the file again.' };
+        return { state: 'not-created', message: t('notices.upload.projectBinned') };
       }
       if (reason instanceof ApiRequestError && (reason.code === 'PROJECT_CREATE_NOT_APPLIED' || reason.code === 'PROJECT_CREATE_ATTEMPT_MISMATCH')) {
         // Upload owns the persistent, actionable alert for this exact attempt.
         // A second global toast repeats it and can cover the next Home action.
-        return { state: 'not-created', message: reason.message, retryable: reason.retryable ?? reason.code !== 'PROJECT_CREATE_ATTEMPT_MISMATCH' };
+        return { state: 'not-created', message: reason.message, serverText: true, retryable: reason.retryable ?? reason.code !== 'PROJECT_CREATE_ATTEMPT_MISMATCH' };
       }
       const recovery = await checkUploadAttempt(attemptId);
       return recovery.state === 'found'
-        ? { state: 'uncertain', project: recovery.project, message: 'This upload was saved. Open its saved project to continue.' }
+        ? { state: 'uncertain', project: recovery.project, message: t('notices.upload.savedContinue') }
         : recovery;
     } finally {
       if (projectScope.current.isCurrent(ticket)) setBusy('');
@@ -2709,11 +2722,11 @@ export default function App() {
   const replaceMedia = (file?: File) => {
     if (!file || !project || mediaMutationInFlight.current || busy || currentProjectAnyActiveJob) return;
     if (wordBatchMutation.current) {
-      setNotice('Finish saving prepared word timings before replacing the media.');
+      setNotice(t('notices.media.waitTiming'));
       return;
     }
     if (replacementEditRecoveries.length >= MAX_REPLACEMENT_EDIT_RECOVERIES) {
-      setNotice('Copy or dismiss an earlier replacement recovery before replacing media again.');
+      setNotice(t('notices.media.resolveEarlierRecovery'));
       return;
     }
     cancelPlayback();
@@ -2736,7 +2749,7 @@ export default function App() {
       if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setMediaBackups(items);
     } catch (reason) {
       if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) {
-        setMediaMutationError(reason instanceof Error ? reason.message : 'Could not load replacement backups. Try refreshing.');
+        setMediaMutationError(reason instanceof Error ? reason.message : t('notices.media.loadBackupsFailed'), reason instanceof ApiRequestError);
       }
     } finally {
       if (mediaBackupsRequest.current === controller) {
@@ -2764,17 +2777,17 @@ export default function App() {
     // interaction; revision/raw-field checks also catch late accepted input. The
     // in-flight ref prevents queued autosaves from crossing the media boundary.
     await saveQueue.current;
-    if (!projectScope.current.isCurrent(ticket)) throw new Error('The project changed. Open Replace media again for the current project.');
-    if (conflictedSave.current?.key === ticket.key) throw new Error('Download your edits and reload the saved project before changing media.');
+    if (!projectScope.current.isCurrent(ticket)) throw new Error(t('notices.media.projectChanged'));
+    if (conflictedSave.current?.key === ticket.key) throw new Error(t('notices.media.resolveConflict'));
     const hadEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true, true);
-    if (hadEdits && !saved) throw new Error('The current captions could not be saved. Resolve the save error before changing media.');
-    if (flushAppearanceSave.current && !await flushAppearanceSave.current()) throw new Error('Your latest appearance could not be saved. Retry its save before changing media.');
-    if (!await waitForCaptionAppearanceSaves(target.id, target.media)) throw new Error('Your latest appearance could not be saved. Retry its save before changing media.');
+    if (hadEdits && !saved) throw new Error(t('notices.media.captionsSaveFailed'));
+    if (flushAppearanceSave.current && !await flushAppearanceSave.current()) throw new Error(t('notices.media.appearanceSaveFailed'));
+    if (!await waitForCaptionAppearanceSaves(target.id, target.media)) throw new Error(t('notices.media.appearanceSaveFailed'));
     await saveQueue.current;
     if (!projectScope.current.isCurrent(ticket) || dirtyRef.current
       || accuracyDraft.current.editRevision !== contextRevision || JSON.stringify(accuracyDraft.current.fields) !== contextSnapshot) {
-      throw new Error('The project changed while saving. Review your edits before changing media.');
+      throw new Error(t('notices.media.projectChangedWhileSaving'));
     }
     const editRevision = draftEditRevision.current;
     const captionSnapshot = JSON.stringify(draftRef.current);
@@ -2784,10 +2797,10 @@ export default function App() {
     const acknowledgedContext = ordinarySaveBasis.current?.transcriptionContext;
     let fresh = await api.get(target.id);
     if (!projectScope.current.isCurrent(ticket) || editRevision !== draftEditRevision.current || accuracyDraft.current.editRevision !== contextRevision || JSON.stringify(accuracyDraft.current.fields) !== contextSnapshot || dirtyRef.current) {
-      throw new Error('The project changed while saving. Review your edits before changing media.');
+      throw new Error(t('notices.media.projectChangedWhileSaving'));
     }
     if (projectMediaKey(fresh) !== ticket.key || JSON.stringify(withCaptionWordTimings(fresh).captions) !== captionSnapshot) {
-      throw new Error('The saved project changed elsewhere. Reopen it before changing media; your local edits have not been replaced.');
+      throw new Error(t('notices.media.savedProjectChanged'));
     }
     const freshContext = {
       description: fresh.transcriptionContext?.description?.trim() || '',
@@ -2796,7 +2809,7 @@ export default function App() {
     let contextSaved = false;
     if (!sameAccuracyContext(localContext, freshContext)) {
       if (!sameAccuracyContext(fresh.transcriptionContext, acknowledgedContext)) {
-        throw new Error('Accuracy context changed elsewhere. Review and save your current context before changing media.');
+        throw new Error(t('notices.media.accuracyChangedElsewhere'));
       }
       fresh = await api.saveContext(target.id, localContext, { filename: target.media.filename, size: target.media.size }, fresh.updatedAt);
       contextSaved = true;
@@ -2807,10 +2820,10 @@ export default function App() {
     if (!projectScope.current.isCurrent(ticket) || editRevision !== draftEditRevision.current
       || accuracyDraft.current.editRevision !== contextRevision || JSON.stringify(accuracyDraft.current.fields) !== contextSnapshot || dirtyRef.current
       || projectMediaKey(fresh) !== ticket.key || JSON.stringify(withCaptionWordTimings(fresh).captions) !== captionSnapshot) {
-      throw new Error('The project changed while saving Accuracy context. Review it before changing media.');
+      throw new Error(t('notices.media.projectChangedWhileSavingAccuracy'));
     }
     if (!contextPublished) {
-      throw new Error('Accuracy context changed while saving. Review it before changing media.');
+      throw new Error(t('notices.media.accuracyChangedWhileSaving'));
     }
     return { fresh, editRevision, contextRevision, basis: { expectedMedia: { filename: fresh.media.filename, size: fresh.media.size }, expectedUpdatedAt: fresh.updatedAt } };
   };
@@ -2860,10 +2873,10 @@ export default function App() {
       if (request.signal.aborted || fresh.id !== check.target.id || !projectScope.current.isCurrent(check.ticket)) return;
       setUnconfirmedSource(null);
       if (projectMediaKey(fresh) === check.ticket.key) {
-        setMediaMutationError('The saved project still uses the previous source. You can try the media change again.');
+        setMediaMutationError(t('notices.media.previousSourceKept'));
       } else {
         publishMediaReplacement(fresh, check.target, check.editRevision, check.contextRevision, check.ticket);
-        setNotice('The saved source changed. Studio reopened it with its saved captions. Replacement backups are available in Tools → Undo media replacement.');
+        setNotice(t('notices.media.savedSourceChanged'));
       }
     } catch {
       // Keep the unresolved operation, including drafts typed since submission.
@@ -2877,9 +2890,8 @@ export default function App() {
   };
   const reportMediaMutationFailure = (reason: unknown, target: CaptionProject, editRevision: number, contextRevision: number, ticket: ProjectTicket) => {
     if (!projectScope.current.isCurrent(ticket)) return;
-    const message = reason instanceof Error ? reason.message : 'The media change failed.';
     if (reason instanceof ApiRequestError && reason.status >= 400 && reason.status < 500) {
-      setMediaMutationError(`${message} This media change was not applied.`);
+      setMediaMutationError(t('notices.media.changeNotApplied', { detail: reason.message }), true);
       return;
     }
     const check = { target, ticket, editRevision, contextRevision };
@@ -2888,7 +2900,7 @@ export default function App() {
   };
   const submitMediaReplacement = async (mode: MediaReplacementMode, audioChangeConfirmation?: string) => {
     if (!project || !pendingMediaReplacement || mediaMutationInFlight.current || unconfirmedSource) return;
-    if (currentProjectAnyActiveJob) { setMediaMutationError('Wait for the active processing job to finish before replacing media.'); return; }
+    if (currentProjectAnyActiveJob) { setMediaMutationError(t('notices.media.waitBeforeReplacing')); return; }
     const pending = pendingMediaReplacement;
     if (!projectScope.current.isCurrent(pending.ticket)) { setPendingMediaReplacement(null); return; }
     const accepted = mode === 'preserve' && audioChangeConfirmation ? pending.audioConfirmation : undefined;
@@ -2896,13 +2908,13 @@ export default function App() {
       || Date.parse(accepted.expiresAt) <= Date.now() || project.updatedAt !== accepted.basis.expectedUpdatedAt
       || draftEditRevision.current !== accepted.editRevision || accuracyDraft.current.editRevision !== accepted.contextRevision || dirtyRef.current)) {
       setPendingMediaReplacement({ ...pending, audioConfirmation: undefined });
-      setMediaMutationError('The audio check or project changed. Check the replacement again and review the warning before accepting existing times.');
+      setMediaMutationError(t('notices.media.checkChanged'));
       return;
     }
     operationRevision.current += 1;
     mediaMutationInFlight.current = true;
     setPendingMediaReplacement({ ...pending, audioConfirmation: undefined });
-    setMediaMutationStatus(mode === 'reset' ? 'Review the confirmation…' : 'Saving current work…');
+    setMediaMutationStatus(mode === 'reset' ? t('notices.media.reviewConfirmation') : t('notices.media.saveCurrentWork'));
     setMediaMutationError('');
     setError('');
     const target = project;
@@ -2914,13 +2926,13 @@ export default function App() {
     let submittedBasis: MediaReplacementBasis | undefined;
     try {
       if (mode === 'reset' && !await confirmInStudio({
-        title: 'Start over with this media?',
-        message: `Replace the source with ${pending.file.name} and clear the current captions, approvals and transcript. A local backup keeps this saved project for recovery. New captions will not be generated automatically.`,
-        confirmLabel: 'Replace and clear captions', cancelLabel: 'Keep current project',
+        title: t('dialogs.resetMedia.title'),
+        message: t('dialogs.resetMedia.message', { filename: pending.file.name }),
+        confirmLabel: t('dialogs.resetMedia.confirm'), cancelLabel: t('dialogs.resetMedia.cancel'),
       })) return;
       if (!projectScope.current.isCurrent(ticket)) return;
-      setBusy('Saving current work…');
-      setMediaMutationStatus('Saving current work…');
+      setBusy('notices.busy.savingCurrentWork');
+      setMediaMutationStatus(t('notices.media.saveCurrentWork'));
       const ready = await mediaMutationBasis(target, ticket);
       editRevision = ready.editRevision;
       contextRevision = ready.contextRevision;
@@ -2928,7 +2940,7 @@ export default function App() {
         || ready.basis.expectedMedia.filename !== accepted.basis.expectedMedia.filename
         || ready.basis.expectedMedia.size !== accepted.basis.expectedMedia.size
         || editRevision !== accepted.editRevision || contextRevision !== accepted.contextRevision)) {
-        throw new Error('The saved project changed since the audio was checked. Check the replacement again before accepting existing times.');
+        throw new Error(t('notices.media.savedProjectChangedAfterCheck'));
       }
       projectScope.current.invalidate();
       ticket = projectScope.current.capture();
@@ -2936,26 +2948,26 @@ export default function App() {
       wordBatchController.current?.abort();
       setProposal(null);
       correctionPlayback.current = null;
-      setBusy(mode === 'preserve' ? 'Checking replacement audio…' : 'Replacing media…');
-      setMediaMutationStatus(mode === 'preserve' ? 'Uploading and checking the audio locally…' : 'Saving replacement and backup…');
+      setBusy(mode === 'preserve' ? 'notices.busy.checkingReplacementAudio' : 'notices.busy.replacingMedia');
+      setMediaMutationStatus(mode === 'preserve' ? t('notices.media.checkingAudio') : t('notices.media.savingReplacement'));
       submitted = true;
       submittedBasis = ready.basis;
       const result = await api.replaceMedia(target.id, pending.file, mode, ready.basis, accepted?.token);
       if (!publishMediaReplacement(result, target, editRevision, contextRevision, ticket, mode === 'preserve' ? retained : undefined)) return;
-      const warning = result.replacementCleanupWarnings?.some((item) => item !== 'durability') ? ' Some old derived files could not be cleaned up; the saved replacement is usable.' : '';
-      setNotice(`${mode === 'preserve' ? result.mediaAlignment?.state === 'unverified-audio-change'
-        ? 'Media replaced. Existing captions and word times were kept. Check alignment against the edited audio.'
-        : 'Media replaced. Your reviewed captions and appearance were kept.' : 'Media replaced. Captions were cleared; generate them when ready.'}${warning}`);
+      const cleanupWarning = result.replacementCleanupWarnings?.some((item) => item !== 'durability');
+      setNotice(t(mode === 'reset' ? (cleanupWarning ? 'notices.media.clearedWithCleanupWarning' : 'notices.media.cleared')
+        : result.mediaAlignment?.state === 'unverified-audio-change' ? (cleanupWarning ? 'notices.media.unverifiedWithCleanupWarning' : 'notices.media.unverified')
+        : (cleanupWarning ? 'notices.media.preservedWithCleanupWarning' : 'notices.media.preserved')));
       if (result.replacementCleanupWarnings?.includes('durability')) {
-        setError('The replacement was saved, but its final storage flush could not be confirmed. The previous source and backup were retained for recovery. Check your storage before closing Studio.');
+        setError(t('notices.media.replacementFlushUnconfirmed'));
       }
     } catch (reason) {
       if (reason instanceof MediaAudioMismatchError && submittedBasis && mode === 'preserve' && projectScope.current.isCurrent(ticket)) {
         if (editRevision === draftEditRevision.current && contextRevision === accuracyDraft.current.editRevision && !dirtyRef.current) {
           setPendingMediaReplacement({ ...pending, ticket, audioConfirmation: { ...reason.preserveAudioConfirmation, basis: submittedBasis, editRevision, contextRevision } });
-        } else setMediaMutationError('The project changed during the audio check. Check the replacement again before accepting existing times. This media change was not applied.');
+        } else setMediaMutationError(t('notices.media.changedDuringCheck'));
       } else if (submitted) reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
-      else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : 'Save current work before replacing media.');
+      else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : t('notices.media.saveBeforeReplacing'), reason instanceof ApiRequestError);
     } finally {
       mediaMutationInFlight.current = false;
       setMediaMutationStatus('');
@@ -2964,9 +2976,9 @@ export default function App() {
   };
   const restoreMediaBackup = async (checkpoint: MediaReplacementCheckpoint) => {
     if (!project || mediaMutationInFlight.current || unconfirmedSource) return;
-    if (currentProjectAnyActiveJob) { setMediaMutationError('Wait for the active processing job to finish before restoring media.'); return; }
+    if (currentProjectAnyActiveJob) { setMediaMutationError(t('notices.media.waitBeforeRestoring')); return; }
     if (replacementEditRecoveries.length >= MAX_REPLACEMENT_EDIT_RECOVERIES) {
-      setMediaMutationError('Copy or dismiss an earlier edit recovery before restoring media.');
+      setMediaMutationError(t('notices.media.resolveEditRecovery'));
       return;
     }
     const target = project;
@@ -2976,18 +2988,18 @@ export default function App() {
     let submitted = false;
     operationRevision.current += 1;
     mediaMutationInFlight.current = true;
-    setMediaMutationStatus('Review the confirmation…');
+    setMediaMutationStatus(t('notices.media.reviewConfirmation'));
     setMediaMutationError('');
     setError('');
     try {
       if (!await confirmInStudio({
-        title: 'Restore previous media?',
-        message: `Restore ${checkpoint.previousOriginalName} and its saved captions, approvals, timing and appearance. This replaces newer work in the current project. Your current edits will be saved first and kept in another replacement backup.`,
-        confirmLabel: 'Restore previous media', cancelLabel: 'Keep current project',
+        title: t('dialogs.restoreMedia.title'),
+        message: t('dialogs.restoreMedia.message', { filename: checkpoint.previousOriginalName }),
+        confirmLabel: t('dialogs.restoreMedia.confirm'), cancelLabel: t('dialogs.resetMedia.cancel'),
       })) return;
       if (!projectScope.current.isCurrent(ticket)) return;
-      setBusy('Saving current work…');
-      setMediaMutationStatus('Saving current work…');
+      setBusy('notices.busy.savingCurrentWork');
+      setMediaMutationStatus(t('notices.media.saveCurrentWork'));
       const ready = await mediaMutationBasis(target, ticket);
       editRevision = ready.editRevision;
       contextRevision = ready.contextRevision;
@@ -2996,19 +3008,19 @@ export default function App() {
       wordBatchController.current?.abort();
       setProposal(null);
       correctionPlayback.current = null;
-      setBusy('Restoring previous media…');
-      setMediaMutationStatus('Restoring previous media and saved project…');
+      setBusy('notices.busy.restoringMedia');
+      setMediaMutationStatus(t('notices.media.restoringProject'));
       submitted = true;
       const result = await api.restoreMediaReplacement(target.id, checkpoint.id, ready.basis);
       if (publishMediaReplacement(result, target, editRevision, contextRevision, ticket)) {
-        setNotice('Previous media and its saved captions and appearance restored. Your newer saved project is available in replacement backups.');
+        setNotice(t('notices.media.restored'));
         if (result.replacementCleanupWarnings?.includes('durability')) {
-          setError('The restored project was saved, but its final storage flush could not be confirmed. The previous source and backup were retained for recovery. Check your storage before closing Studio.');
+          setError(t('notices.media.restoreFlushUnconfirmed'));
         }
       }
     } catch (reason) {
       if (submitted) reportMediaMutationFailure(reason, target, editRevision, contextRevision, ticket);
-      else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : 'Could not restore this backup.');
+      else if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : t('notices.media.restoreFailed'), reason instanceof ApiRequestError);
     } finally {
       mediaMutationInFlight.current = false;
       setMediaMutationStatus('');
@@ -3020,25 +3032,25 @@ export default function App() {
     const target = project;
     const ticket = projectScope.current.capture();
     mediaMutationInFlight.current = true;
-    setMediaMutationStatus('Review the confirmation…');
+    setMediaMutationStatus(t('notices.media.reviewConfirmation'));
     setMediaMutationError('');
     setError('');
     try {
       if (!await confirmInStudio({
-        title: 'Delete this saved replacement backup?',
-        message: `Permanently delete the backup for ${checkpoint.previousOriginalName} from ${new Date(checkpoint.createdAt).toLocaleString()}. You will no longer be able to restore this saved version. Your current project stays intact.`,
-        confirmLabel: 'Delete backup', cancelLabel: 'Keep backup',
+        title: t('dialogs.deleteBackup.title'),
+        message: t('dialogs.deleteBackup.message', { filename: checkpoint.previousOriginalName, date: formatInterfaceDate(interfaceLanguage, checkpoint.createdAt, { time: true }) }),
+        confirmLabel: t('dialogs.deleteBackup.confirm'), cancelLabel: t('dialogs.deleteBackup.cancel'),
       })) return;
       if (!projectScope.current.isCurrent(ticket)) return;
-      setMediaMutationStatus('Deleting the selected backup…');
+      setMediaMutationStatus(t('notices.media.deletingBackup'));
       const ready = await mediaMutationBasis(target, ticket);
       await api.deleteMediaReplacement(target.id, checkpoint.id, ready.basis);
       if (!projectScope.current.isCurrent(ticket)) return;
       setMediaBackups((items) => items.filter((item) => item.id !== checkpoint.id));
       setMediaUndoNotice((current) => current?.checkpoint.id === checkpoint.id ? null : current);
-      setNotice('Selected replacement backup deleted. Your current project was kept.');
+      setNotice(t('notices.media.backupDeleted'));
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : 'Could not delete the backup. Refresh backups before trying again.');
+      if (projectScope.current.isCurrent(ticket)) setMediaMutationError(reason instanceof Error ? reason.message : t('notices.media.deleteBackupFailed'), reason instanceof ApiRequestError);
     } finally {
       mediaMutationInFlight.current = false;
       setMediaMutationStatus('');
@@ -3060,7 +3072,7 @@ export default function App() {
       if (savedProject.current && projectMediaKey(savedProject.current) === ticket.key) savedProject.current = { ...savedProject.current, generationModel: next.generationModel };
       return true;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not save AI options. Try again.');
+      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.accuracy.aiOptionsSaveFailed'), reason instanceof ApiRequestError);
       return false;
     } finally {
       generationModelWrite.current = false;
@@ -3109,7 +3121,7 @@ export default function App() {
     const revision = accuracyDraft.current.editRevision;
     trackContextWrite(ticket.key, 1);
     captureUnfinishedRecovery();
-    setBusy('Saving accuracy context…');
+    setBusy('notices.busy.savingAccuracy');
     setContextSaveState('saving');
     setError('');
     try {
@@ -3133,16 +3145,19 @@ export default function App() {
       if (!saved || !projectScope.current.isCurrent(ticket)) return false;
       if (accuracyDraft.current.hasChanges(profile?.defaultVocabulary) && accuracyDraft.current.editRevision === revision) {
         setContextSaveState('failed');
-        setContextSaveError('Some Accuracy text could not be saved. Shorten the description or term list, then retry.');
+        setContextSaveError({ message: t('notices.accuracy.contextTooLong') });
         return false;
       }
       setContextSaveState('saved');
-      if (!silent) setNotice(accuracyDraft.current.editRevision === revision ? 'Accuracy context saved.' : 'Accuracy context saved. Newer context edits remain in the editor.');
+      if (!silent) setNotice(accuracyDraft.current.editRevision === revision ? t('notices.accuracy.contextSaved') : t('notices.accuracy.contextSavedWithNewerEdits'));
       return true;
     } catch (reason) {
       if (projectScope.current.isCurrent(ticket)) {
         protectSaveConflict(reason, ticket);
-        setContextSaveError(reason instanceof Error ? reason.message : 'Accuracy context save failed.');
+        setContextSaveError({
+          message: reason instanceof Error ? reason.message : t('notices.accuracy.contextSaveFailed'),
+          serverText: reason instanceof ApiRequestError,
+        });
         setContextSaveState('failed');
       }
       return false;
@@ -3167,11 +3182,11 @@ export default function App() {
     if (!isCurrentIntent()) return false;
     if (!project) return true;
     if (currentAppearanceSave().conflict) {
-      explain('The saved appearance changed. Download your edits and reload the saved project to compare.');
+      explain(t('notices.save.appearanceChangedElsewhere'));
       return false;
     }
     if (compositionInProgress.current) {
-      explain('Finish the current text input before saving or leaving.');
+      explain(t('notices.save.finishTextInput'));
       return false;
     }
     const ticket = projectScope.current.capture();
@@ -3183,12 +3198,12 @@ export default function App() {
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (conflictedSave.current?.key === ticket.key) return false;
     if (pending !== saveQueue.current || compositionInProgress.current) {
-      explain('Changes are still being saved or entered. Wait for them to finish before leaving.');
+      explain(t('notices.save.waitForChanges'));
       return false;
     }
     if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
       || appearanceRevision !== currentAppearanceSave().revision) {
-      explain('Newer changes arrived while saving. Your project is still open; save again when you are ready.');
+      explain(t('notices.save.newerChangesArrived'));
       return false;
     }
     if (dirtyRef.current && !await saveDraft(silent, 'manual-save', true)) return false;
@@ -3199,12 +3214,12 @@ export default function App() {
     if (!await flushCaptionAppearanceSaves(project.id, project.media)) return false;
     if (!projectScope.current.isCurrent(ticket) || !isCurrentIntent()) return false;
     if (appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-      explain('Newer appearance changes arrived while saving. Your project is still open; continue when you are ready.');
+      explain(t('notices.save.newerAppearanceArrived'));
       return false;
     }
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary)
       || captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision) {
-      explain('Newer changes are still unsaved. Save them before leaving.');
+      explain(t('notices.save.newerChangesUnsaved'));
       return false;
     }
     return true;
@@ -3214,7 +3229,7 @@ export default function App() {
     if (!project || busy || recoveryRead.current || mediaMutationInFlight.current || wordBatchMutation.current || currentProjectAnyActiveJob) return;
     if (!recoveryStore.contains(entry)) {
       const focusRequest = projectNavigationFocus.capture();
-      setNotice('That recovery copy was removed or changed. Your current project is kept.');
+      setNotice(t('notices.recovery.copyChanged'));
       refreshUnfinishedRecoveries();
       projectNavigationFocus.complete(focusRequest, () =>
         document.querySelector<HTMLElement>('.toast-slot[data-motion-state="open"] .unfinished-recovery .primary:not(:disabled)')
@@ -3222,7 +3237,7 @@ export default function App() {
       return;
     }
     if (dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current || currentAppearanceSave().status !== 'saved') {
-      setNotice('Save your current edits before restoring another draft.');
+      setNotice(t('notices.recovery.saveBeforeRestoringAnother'));
       return;
     }
     const ticket = projectScope.current.capture();
@@ -3240,21 +3255,21 @@ export default function App() {
       const latest = withCaptionWordTimings(await api.get(project.id, request.signal));
       if (!owns()) return;
       if (!recoveryStore.contains(entry)) {
-        setNotice('That recovery copy was removed or changed. Your current project is kept.');
+        setNotice(t('notices.recovery.copyChanged'));
         refreshUnfinishedRecoveries();
         return;
       }
       if (captionRevision !== draftEditRevision.current || contextRevision !== accuracyDraft.current.editRevision
         || dirtyRef.current || accuracyDraft.current.hasChanges(profile?.defaultVocabulary) || compositionInProgress.current
         || appearanceRevision !== currentAppearanceSave().revision || currentAppearanceSave().status !== 'saved') {
-        setNotice('Newer edits are still here. Save them before restoring this draft.');
+        setNotice(t('notices.recovery.saveNewerEdits'));
         return;
       }
       const compatibility = assessRecovery(entry, latest);
       if (compatibility !== 'matching') {
         setNotice(compatibility === 'already-saved'
-          ? 'This appearance is already saved. You can download or discard its recovery copy.'
-          : 'The saved project or media has changed. Download this draft to compare your edits.');
+          ? t('notices.recovery.appearanceAlreadySaved')
+          : t('notices.recovery.savedProjectChanged'));
         // A refused restore does not make the old visible editor a draft based
         // on this newer server state. Only the offer's eligibility changes.
         setRecoveryConflict({ key: entry.key, raw: entry.raw, status: compatibility });
@@ -3280,11 +3295,11 @@ export default function App() {
       refreshUnfinishedRecoveries();
       if (!captions && entry.draft.accuracy) { setWorkspaceTool('accuracy'); setReviewMode(false); }
       else if (!captions && appearance) { setWorkspaceTool('appearance'); setReviewMode(false); }
-      setNotice(captions ? 'Draft restored for review. Changed captions need approval again.' : 'Draft restored. Its changes use the normal save protection.');
+      setNotice(captions ? t('notices.recovery.captionsRestored') : t('notices.recovery.draftRestored'));
       projectNavigationFocus.complete(focusRequest, () => document.querySelector<HTMLElement>('[data-project-entry-focus]'));
       focusCompleted = true;
     } catch {
-      if (owns()) setError('Could not check the saved project. Your recovery draft is still available; try restoring again.');
+      if (owns()) setError(t('notices.recovery.checkSavedFailed'));
     } finally {
       if (recoveryRead.current === request) {
         recoveryRead.current = null;
@@ -3306,7 +3321,7 @@ export default function App() {
       anchor.click();
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch { setError('Could not download the draft. It is still available here.'); }
+    } catch { setError(t('notices.recovery.downloadFailed')); }
   };
   const downloadUnfinishedDraft = (entry: RecoveryEntry) => downloadDraftText(entry.raw);
   const downloadCurrentDraft = () => {
@@ -3323,8 +3338,8 @@ export default function App() {
     }, null, 2));
   };
   const discardUnfinishedDraft = async (entry: RecoveryEntry) => {
-    if (!await confirmInStudio({ title: 'Discard this recovery draft?', message: 'This removes only this unfinished draft from this browser. Your saved project and current edits stay as they are.', confirmLabel: 'Discard draft', cancelLabel: 'Keep draft' })) return;
-    if (!recoveryStore.remove(entry)) setNotice('The draft changed or could not be removed. Its newer copy was kept.');
+    if (!await confirmInStudio({ title: t('dialogs.discardDraft.title'), message: t('dialogs.discardDraft.message'), confirmLabel: t('dialogs.discardDraft.confirm'), cancelLabel: t('dialogs.discardDraft.cancel') })) return;
+    if (!recoveryStore.remove(entry)) setNotice(t('notices.recovery.removeFailed'));
     refreshUnfinishedRecoveries();
   };
 
@@ -3340,23 +3355,23 @@ export default function App() {
     globalGlossaryWrite.current = true;
     setGlobalGlossarySaving(true);
     report(false, '');
-    setBusy('Saving global glossary…');
+    setBusy('notices.busy.savingGlossary');
     try {
       const saved = await api.patchProfile({ defaultVocabulary: submitted });
       setProfile((current) => reconcileProfileAcknowledgement(current, basis, saved, { defaultVocabulary: submitted }));
       if (JSON.stringify(uniqueContextLines(saved.defaultVocabulary)) !== JSON.stringify(submitted)) {
-        report(true, 'Some glossary terms were not saved. Your text is kept. Shorten the list or long terms, then try again.');
+        report(true, t('notices.accuracy.glossaryTruncated'));
         return;
       }
       report(false, accuracyDraft.current.editRevision === revision
-        ? 'Global glossary saved.'
-        : 'Earlier glossary saved globally. Your newer Accuracy edits are kept; save again to include newer terms.', saved.defaultVocabulary);
+        ? t('notices.accuracy.glossarySaved')
+        : t('notices.accuracy.glossarySavedWithNewerEdits'), saved.defaultVocabulary);
     } catch {
-      report(true, 'Could not save the global glossary. Your text is kept; try again.');
+      report(true, t('notices.accuracy.glossarySaveFailed'));
     } finally {
       globalGlossaryWrite.current = false;
       setGlobalGlossarySaving(false);
-      setBusy((current) => current === 'Saving global glossary…' ? '' : current);
+      setBusy((current) => current === 'notices.busy.savingGlossary' ? '' : current);
     }
   };
   const saveStyle = async () => {
@@ -3372,15 +3387,17 @@ export default function App() {
       const saved = await api.patchProfile({ styles });
       const acknowledged = saved.styles.find((style) => style.id === next.id);
       if (!acknowledged || acknowledged.mode !== next.mode || acknowledged.maxChars !== next.maxChars) {
-        throw new Error('The saved grouping preset could not be confirmed. Try saving again.');
+        throw new Error(t('notices.grouping.presetUnconfirmed'));
       }
       setProfile((current) => reconcileProfileAcknowledgement(current, profile, saved, { styles }));
-      const label = modes.find((mode) => mode.id === next.mode)?.label || next.mode;
-      const snapshot = next.mode === 'word' ? label : `${label}, target ${next.maxChars} characters`;
+      const grouping = modes.find((mode) => mode.id === next.mode);
+      const label = grouping ? t(grouping.labelKey) : next.mode;
       const newerChoices = groupingChoices.current.mode !== next.mode || groupingChoices.current.maxChars !== next.maxChars;
-      setNotice(`Grouping preset saved: ${snapshot}.${newerChoices ? ' Newer choices are kept in the controls.' : ''}`);
+      setNotice(next.mode === 'word'
+        ? t(newerChoices ? 'notices.grouping.presetSavedNewer' : 'notices.grouping.presetSaved', { label })
+        : t(newerChoices ? 'notices.grouping.presetTargetSavedNewer' : 'notices.grouping.presetTargetSaved', { label, count: next.maxChars }));
     } catch (reason) {
-      setError(`${reason instanceof Error ? reason.message : 'Grouping preset save failed.'} Your current grouping choices are kept.`);
+      setError(t('notices.grouping.presetSaveFailed', { detail: reason instanceof Error ? reason.message : t('notices.grouping.presetFailureDetail') }), reason instanceof ApiRequestError);
     } finally {
       groupingPresetWrite.current = false;
       setGroupingPresetSaving(false);
@@ -3396,20 +3413,20 @@ export default function App() {
     try {
       if (groupingChangesWording(project, draftRef.current)) {
         const confirmed = await confirmInStudio({
-          title: 'Regroup from timed wording?',
-          message: 'Unlocked wording may return to the timed transcript. Your current captions will be saved in History first. Lock corrections you want to keep unchanged.',
-          confirmLabel: 'Save and regroup',
+          title: t('dialogs.regroup.title'),
+          message: t('dialogs.regroup.message'),
+          confirmLabel: t('dialogs.regroup.confirm'),
         });
         if (!confirmed || !isCurrentOperation(intent)) return;
       }
-      setBusy('Applying caption grouping…');
+      setBusy('notices.busy.applyingGrouping');
       setError('');
       const hadEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
       // Navigation cancels this intent before its saves drain and the project changes.
       // Do not extend that save queue for a cancelled regrouping action.
       if (!isCurrentOperation(intent) || (hadEdits && !saved)) return;
-      if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before applying grouping.'); return; }
+      if (dirtyRef.current) { setNotice(t('notices.grouping.newerEditsUnsaved')); return; }
       const version = draftVersion.current;
       // Share the save queue: a later edit-save cannot be overtaken by regrouping.
       const task = saveQueue.current.then(async () => {
@@ -3424,16 +3441,16 @@ export default function App() {
         rememberSavedCaptions(result);
         if (version !== draftVersion.current) {
           captureUnfinishedRecovery();
-          setNotice('Grouping was saved, but newer edits remain in the editor. Save or review those edits before applying again.');
+          setNotice(t('notices.grouping.savedWithNewerEdits'));
           return;
         }
         applyProject(result);
-        setNotice('Grouping applied. Timing, pauses and locked captions can produce shorter groups.');
+        setNotice(t('notices.grouping.applied'));
       });
       saveQueue.current = task.then(() => undefined, () => undefined);
       await task;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Grouping could not be applied. Your edits are kept.');
+      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.grouping.applyFailed'), reason instanceof ApiRequestError);
     } finally {
       groupingInFlight.current = false;
       setGroupingApplying(false);
@@ -3452,7 +3469,7 @@ export default function App() {
   const regenerateSelection = async () => {
     if (!project || !selection.captions.length) return;
     if (!llmSettings?.configured) {
-      setError('Connect AI before asking for another take. Exact wording can still refresh timing without AI.');
+      setError(t('notices.compare.connectAi'));
       openSettings('ai');
       return;
     }
@@ -3465,9 +3482,9 @@ export default function App() {
     const requestContext = contextPayload();
     if (selected.endMs - selected.startMs > 90_000) {
       const confirmed = await confirmInStudio({
-        title: 'Improve a long caption range?',
-        message: 'This selection is over 90 seconds, so comparing another take may take noticeably longer. Your current captions stay untouched until you approve the result.',
-        confirmLabel: 'Improve captions',
+        title: t('dialogs.improveRange.title'),
+        message: t('dialogs.improveRange.message'),
+        confirmLabel: t('dialogs.improveRange.confirm'),
       });
       if (!confirmed
         || !isCurrentOperation(intent)
@@ -3485,41 +3502,41 @@ export default function App() {
     await startJob(
       intent,
       () => api.startRegenerationJob(targetProject.id, selected.startMs, selected.endMs, requestContext, { filename: targetProject.media.filename, size: targetProject.media.size }, targetProject.generationModel ?? 'automatic'),
-      `Improving captions for ${rangeLabel(selected.startMs, selected.endMs)}.`,
+      t('notices.compare.improvingRange', { range: rangeLabel(selected.startMs, selected.endMs) }),
     );
   };
 
   const refineProposal = async (input: RegenerationRefinementInput) => {
     if (!project || !proposal) return;
     if (input.strategy !== 'manual-realign' && !llmSettings?.configured) {
-      setError('Connect AI before asking for another take. Exact wording can still refresh timing without AI.');
+      setError(t('notices.compare.connectAi'));
       openSettings('ai');
       return;
     }
     if (currentProjectActiveJob) {
-      setNotice('A caption processing job is already running for this project.');
+      setNotice(t('notices.activity.jobAlreadyRunning'));
       return;
     }
     const label = input.strategy === 'deep-verify'
-      ? 'Deep verification queued. Studio will compare extra attempts.'
+      ? t('notices.compare.deepVerifyQueued')
       : input.strategy === 'manual-realign'
-        ? 'Exact wording queued for a timing refresh.'
+        ? t('notices.compare.timingRefreshQueued')
         : input.useProposalAsBaseline
-          ? 'Refinement queued using this take as the accepted baseline.'
-          : 'Alternative take queued. Keep reviewing while it runs.';
+          ? t('notices.compare.baselineRefinementQueued')
+          : t('notices.compare.alternativeQueued');
     await startJob(captureOperationIntent(), () => api.startRefinementJob(project.id, proposal.id, input, { filename: project.media.filename, size: project.media.size }, project.generationModel ?? 'automatic'), label, false);
   };
 
   const applyProposal = async (mode: RegenerationApplyMode, editedText?: string) => {
     if (!project || !proposal) return;
     if ((mode === 'all' || mode === 'text-only') && editedText !== undefined && !editedText.trim()) {
-      setError('Enter proposed wording before accepting text.');
+      setError(t('notices.compare.enterWording'));
       return;
     }
     const ticket = projectScope.current.capture();
     const editRevision = draftEditRevision.current;
     const draftWasDirty = dirtyRef.current;
-    setBusy(mode === 'reject' ? 'Discarding proposal…' : 'Applying approved regeneration…');
+    setBusy(mode === 'reject' ? 'notices.busy.discardingProposal' : 'notices.busy.applyingRegeneration');
     setError('');
     try {
       const result = await queueSameMediaMutation(
@@ -3538,14 +3555,14 @@ export default function App() {
         editRevision,
         draftWasDirty,
         mode === 'reject'
-          ? 'The proposal was discarded. Your newer caption edits remain unsaved in the editor.'
-          : 'The regeneration was applied on disk. Your newer caption edits remain unsaved in the editor.',
+          ? t('notices.compare.discardedWithNewerEdits')
+          : t('notices.compare.appliedWithNewerEdits'),
         mode !== 'reject',
       );
       if (published === 'stale') return;
       closeComparison();
-      if (published === 'applied') setNotice(mode === 'reject' ? 'Proposal discarded. Current captions were kept.' : `Regeneration applied: ${mode.replace('-', ' ')}.`);
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not apply regeneration'); }
+      if (published === 'applied') setNotice(mode === 'reject' ? t('notices.compare.discarded') : t('notices.compare.applied', { mode: t(mode === 'all' ? 'notices.compare.applyAll' : mode === 'text-only' ? 'notices.compare.applyTextOnly' : 'notices.compare.applyTimingOnly') }));
+    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.compare.applyFailed'), reason instanceof ApiRequestError); }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
@@ -3554,12 +3571,12 @@ export default function App() {
     const targetProject = project;
     const intent = captureOperationIntent();
     const ticket = intent.ticket;
-    setBusy('Cleaning Khmer spacing…'); setError('');
+    setBusy('notices.busy.cleaningSpacing'); setError('');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
       if (!isCurrentOperation(intent) || (hadUnsavedEdits && !saved)) return;
-      if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before cleaning Khmer spacing.'); return; }
+      if (dirtyRef.current) { setNotice(t('notices.grouping.spacingUnsaved')); return; }
       const editRevision = draftEditRevision.current;
       const result = await queueSameMediaMutation(ticket, () => withCaptionAppearanceBarrier(targetProject.id, async () => {
         if (!isCurrentOperation(intent)) return null;
@@ -3577,18 +3594,18 @@ export default function App() {
         ticket,
         editRevision,
         false,
-        'Khmer spacing cleanup was saved. Your newer caption edits remain unsaved in the editor.',
+        t('notices.grouping.spacingSavedWithNewerEdits'),
       );
-      if (published === 'applied') setNotice('Khmer word spacing cleaned. Text-locked captions were preserved.');
+      if (published === 'applied') setNotice(t('notices.grouping.spacingCleaned'));
     } catch (reason) {
       if (projectScope.current.isCurrent(ticket)) {
         if (reason instanceof ApiRequestError && reason.code === 'CAPTION_REVISION_CHANGED') {
           protectSaveConflict(reason, ticket);
-          setCaptionSaveError(reason.message);
+          setCaptionSaveError({ message: reason.message, serverText: true });
           setAutosaveState('failed');
           captureUnfinishedRecovery();
         }
-        setError(reason instanceof Error ? reason.message : 'Khmer spacing cleanup failed');
+        setError(reason instanceof Error ? reason.message : t('notices.grouping.spacingFailed'), reason instanceof ApiRequestError);
       }
     }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
@@ -3600,17 +3617,17 @@ export default function App() {
     const intent = captureOperationIntent();
     const ticket = intent.ticket;
     const confirmed = await confirmInStudio({
-      title: 'Apply safe timing cleanup?',
-      message: `Studio will use “${qaSettings.name}”, skip timing-locked captions, and create a History checkpoint before changing timing.`,
-      confirmLabel: 'Apply cleanup',
+      title: t('dialogs.timingCleanup.title'),
+      message: t('dialogs.timingCleanup.message', { profile: qaSettings.name }),
+      confirmLabel: t('dialogs.timingCleanup.confirm'),
     });
     if (!confirmed || !isCurrentOperation(intent)) return;
-    setBusy('Snapping and smoothing caption timing…');
+    setBusy('notices.busy.timingCleanup');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
       if (!isCurrentOperation(intent) || (hadUnsavedEdits && !saved)) return;
-      if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before applying timing cleanup.'); return; }
+      if (dirtyRef.current) { setNotice(t('notices.timing.cleanupUnsaved')); return; }
       const editRevision = draftEditRevision.current;
       const result = await queueSameMediaMutation(ticket, () => withCaptionAppearanceBarrier(targetProject.id, async () => {
         if (!isCurrentOperation(intent)) return null;
@@ -3628,19 +3645,19 @@ export default function App() {
         ticket,
         editRevision,
         false,
-        'Timing cleanup was saved. Your newer caption edits remain unsaved in the editor.',
+        t('notices.timing.cleanupSavedWithNewerEdits'),
       );
-      if (published === 'applied') setNotice('Safe timing cleanup applied. Restore it from History if needed.');
+      if (published === 'applied') setNotice(t('notices.timing.cleanupApplied'));
     } catch (reason) {
       if (projectScope.current.isCurrent(ticket)) {
         // Alignment/admission conflicts do not invalidate caption save authority.
         if (reason instanceof ApiRequestError && reason.code === 'CAPTION_REVISION_CHANGED') {
           protectSaveConflict(reason, ticket);
-          setCaptionSaveError(reason.message);
+          setCaptionSaveError({ message: reason.message, serverText: true });
           setAutosaveState('failed');
           captureUnfinishedRecovery();
         }
-        setError(reason instanceof Error ? reason.message : 'Timing cleanup failed');
+        setError(reason instanceof Error ? reason.message : t('notices.timing.cleanupFailed'), reason instanceof ApiRequestError);
       }
     }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
@@ -3722,26 +3739,32 @@ export default function App() {
       : t('review.undo.undone'));
   };
 
+  function reportCaptionHandoffError(reason: unknown, fallback: MessageKey) {
+    const metadata = reason instanceof CaptionHandoffError ? reason.messageMetadata : undefined;
+    setError(metadata ? t(metadata.key, metadata.params) : reason instanceof Error ? reason.message : t(fallback),
+      reason instanceof CaptionHandoffError && !metadata);
+  }
+
   const prepareCaptionHandoff = async (target: CaptionProject, ticket: ProjectTicket, editRevision: number, signal: AbortSignal, needsAppearance = false) => {
     const active = () => !signal.aborted && projectScope.current.isCurrent(ticket) && currentWorkspaceTool.current === 'export';
     const hadEdits = dirtyRef.current;
     const saved = await saveDraft(true, 'manual-save', true);
     await saveQueue.current;
     if (!active()) return null;
-    if (hadEdits && !saved) throw new Error('Save your captions successfully before transferring them.');
-    if (dirtyRef.current || draftEditRevision.current !== editRevision) throw new Error('The captions changed while saving. Review the latest version and try again.');
+    if (hadEdits && !saved) throw new Error(t('notices.transfer.saveBeforeTransfer'));
+    if (dirtyRef.current || draftEditRevision.current !== editRevision) throw new Error(t('notices.transfer.changedWhileSaving'));
     const captionSnapshot = JSON.stringify(draftRef.current);
-    if (needsAppearance && !await waitForCaptionAppearanceSaves(target.id, target.media)) throw new Error('Your latest appearance could not be saved. Retry its save before transferring styled captions or appearance data.');
+    if (needsAppearance && !await waitForCaptionAppearanceSaves(target.id, target.media)) throw new Error(t('notices.transfer.appearanceSaveFailed'));
     if (!active()) return null;
     const summary = await captionHandoffApi.summary(target.id, signal);
     if (!active()) return null;
     if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== captionSnapshot) {
-      throw new Error('The captions changed during export preparation. Your newer edits were kept.');
+      throw new Error(t('notices.transfer.changedDuringPreparation'));
     }
     const expected = createCaptionData({ captions: draftRef.current }).captions;
     if (summary.media.filename !== target.media.filename || summary.media.size !== target.media.size
       || JSON.stringify(summary.snapshot.captions) !== JSON.stringify(expected)) {
-      throw new Error('The saved captions changed in another operation. Reopen the project before transferring them.');
+      throw new Error(t('notices.transfer.savedCaptionsChanged'));
     }
     return { summary, captionSnapshot, basis: { expectedMedia: summary.media, expectedRevision: summary.revision } };
   };
@@ -3761,14 +3784,14 @@ export default function App() {
       const result = await captionHandoffApi.export(target.id, format, prepared.basis, controller.signal);
       if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || currentWorkspaceTool.current !== 'export') return false;
       if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
-        throw new Error('The captions changed while the file was being prepared. Export again to include the latest edits.');
+        throw new Error(t('notices.transfer.changedDuringExport'));
       }
       saveHandoffDownload(result.blob, result.filename);
       window.dispatchEvent(new Event('sthang:export-history-updated'));
-      setNotice(result.warnings || 'Caption file prepared for download. Your Studio project stays editable; follow the destination’s import instructions.');
+      setNotice(result.warnings || t('notices.transfer.filePrepared'), Boolean(result.warnings));
       return true;
     } catch (reason) {
-      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Caption export failed.');
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) reportCaptionHandoffError(reason, 'notices.transfer.exportFailed');
       return false;
     } finally {
       if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
@@ -3786,7 +3809,7 @@ export default function App() {
     setPendingCaptionImport(null);
     setError('');
     try {
-      if (file.size > 4 * 1024 * 1024) throw new Error('Choose a Studio caption-data file smaller than 4 MB.');
+      if (file.size > 4 * 1024 * 1024) throw new Error(t('notices.transfer.restoreFileTooLarge'));
       const data = await file.text();
       if (controller.signal.aborted || !projectScope.current.isCurrent(ticket)) return;
       const prepared = await prepareCaptionHandoff(target, ticket, editRevision, controller.signal);
@@ -3794,11 +3817,11 @@ export default function App() {
       const preview = await captionHandoffApi.previewRestore(target.id, data, prepared.basis, controller.signal);
       if (controller.signal.aborted || !projectScope.current.isCurrent(ticket) || currentWorkspaceTool.current !== 'export') return;
       if (dirtyRef.current || draftEditRevision.current !== editRevision || JSON.stringify(draftRef.current) !== prepared.captionSnapshot) {
-        throw new Error('The captions changed while reading the file. Open it again to review the latest state.');
+        throw new Error(t('notices.transfer.changedWhileReading'));
       }
       setPendingCaptionImport({ filename: file.name, data, preview, basis: prepared.basis, ticket, editRevision, captionSnapshot: prepared.captionSnapshot });
     } catch (reason) {
-      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Could not read caption data.');
+      if (!controller.signal.aborted && projectScope.current.isCurrent(ticket)) reportCaptionHandoffError(reason, 'notices.transfer.readFailed');
     } finally {
       if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
     }
@@ -3811,7 +3834,7 @@ export default function App() {
     const valid = () => projectScope.current.isCurrent(pending.ticket) && currentWorkspaceTool.current === 'export'
       && !dirtyRef.current && draftEditRevision.current === pending.editRevision
       && JSON.stringify(draftRef.current) === pending.captionSnapshot;
-    if (!valid()) { setNotice('The project changed. Open the caption-data file again before replacing captions.'); return; }
+    if (!valid()) { setNotice(t('notices.transfer.projectChanged')); return; }
     const controller = new AbortController();
     handoffRequest.current = controller;
     setCaptionHandoffWorking(true);
@@ -3823,14 +3846,14 @@ export default function App() {
         if (!valid() || controller.signal.aborted) return;
         const result = await captionHandoffApi.restore(target.id, pending.data, pending.basis, pending.preview.candidateDigest);
         const published = publishSameMediaMutation(result, pending.ticket, pending.editRevision, false,
-          'Caption data was restored on disk. Your newer edits are still kept in the editor.');
+          t('notices.transfer.restoredWithNewerEdits'));
         if (published !== 'stale') {
           setPendingCaptionImport(null);
-          if (published === 'applied') setNotice('Caption data restored. Current appearance and source media were kept. The previous captions are in History.');
+          if (published === 'applied') setNotice(t('notices.transfer.restored'));
         }
       });
     } catch (reason) {
-      if (projectScope.current.isCurrent(pending.ticket)) setError(reason instanceof Error ? reason.message : 'Caption restore failed.');
+      if (projectScope.current.isCurrent(pending.ticket)) reportCaptionHandoffError(reason, 'notices.transfer.restoreFailed');
     } finally {
       if (handoffRequest.current === controller) { handoffRequest.current = null; setCaptionHandoffWorking(false); }
     }
@@ -3846,9 +3869,9 @@ export default function App() {
     const severe = issues.filter((issue) => issue.severity !== 'info').length;
     if (severe > 0) {
       const confirmed = await confirmInStudio({
-        title: 'Render with review warnings?',
-        message: `${severe} timing/format warning${severe === 1 ? '' : 's'} remain under “${qaSettings.name}”. Studio can render anyway, but the finished video will use the current caption text and timing.`,
-        confirmLabel: 'Render anyway',
+        title: t('dialogs.renderWarnings.title'),
+        message: tn('dialogs.renderWarnings.message', severe, { profile: qaSettings.name }),
+        confirmLabel: t('dialogs.renderWarnings.confirm'),
       });
       if (!confirmed || !currentExport() || !isCurrentOperation(intent) || draftEditRevision.current !== editRevision) return null;
     }
@@ -3867,7 +3890,7 @@ export default function App() {
     return startJob(
       intent,
       () => api.startVideoExportJob(targetProject.id, settings, appearance, { filename: targetProject.media.filename, size: targetProject.media.size }, expectedContentFingerprint),
-      'Captioned video export queued. Studio saved a caption/settings snapshot, so you can keep editing while it renders.',
+      t('notices.transfer.videoQueued'),
       false,
       false,
     );
@@ -3878,7 +3901,7 @@ export default function App() {
     const ticket = projectScope.current.capture();
     if (action === 'add-project' && restoredRecovery.current?.key === ticket.key
       && (!await saveUnfinishedChanges() || !projectScope.current.isCurrent(ticket))) return;
-    setBusy('Updating correction memory…'); setError('');
+    setBusy('notices.busy.updatingCorrections'); setError('');
     try {
       const result = await queueSameMediaMutation(ticket, async () => {
         const observation = accuracyDraft.current.capture(ticket);
@@ -3897,9 +3920,9 @@ export default function App() {
       if (action === 'remember-global' || (action === 'add-project' && result.project && projectMediaKey(result.project) === ticket.key)) {
         editAccuracyFields({ vocabulary: uniqueLines(accuracyDraft.current.fields.vocabulary.split(/\r?\n/), [event.suggestedVocabularyLine]).join('\n') });
       }
-      if (action === 'remember-global') setNotice('Correction remembered globally.');
-      else if (action === 'add-project') setNotice('Correction added to that project’s glossary.');
-    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Correction action failed'); }
+      if (action === 'remember-global') setNotice(t('notices.corrections.rememberedGlobally'));
+      else if (action === 'add-project') setNotice(t('notices.corrections.addedToProject'));
+    } catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.corrections.actionFailed'), reason instanceof ApiRequestError); }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
   function cancelCorrectionRead() {
@@ -3916,11 +3939,11 @@ export default function App() {
   const openCorrectionEvent = async (event: CorrectionEvent) => {
     if (correctionRequest.current) return;
     if (mediaMutationInFlight.current) {
-      setNotice('Wait for the media change to finish before opening another project.');
+      setNotice(t('notices.project.waitMediaBeforeOpening'));
       return;
     }
     if (wordBatchMutation.current) {
-      setNotice('Finish saving prepared word timings before opening another project.');
+      setNotice(t('notices.project.waitTimingBeforeOpening'));
       return;
     }
     const intent = requestNavigation();
@@ -3952,7 +3975,7 @@ export default function App() {
         if (key !== intent.key) queuedCaption.current = captionId;
         setSelectionAnchor(captionId);
         setSelectionEnd(captionId);
-      } else setNotice('The original caption is no longer in this project.');
+      } else setNotice(t('notices.corrections.originalMissing'));
       setWorkspaceTool(null);
       setReviewMode(false);
       correctionDestination.current = { ticket: projectScope.current.capture(), captionId };
@@ -3964,7 +3987,7 @@ export default function App() {
       setShowCorrections(false);
       if (key === intent.key && media.current) playCorrectionAudio(media.current, key);
     } catch (reason) {
-      if (ownsRead()) setCorrectionReadError({ id: event.id, message: reason instanceof Error ? reason.message : 'Could not open the saved project. Try Review audio again.' });
+      if (ownsRead()) setCorrectionReadError({ id: event.id, message: reason instanceof Error ? reason.message : t('notices.corrections.savedProjectLoadFailed') });
     } finally {
       if (correctionRequest.current === request) {
         correctionRequest.current = null;
@@ -3992,21 +4015,21 @@ export default function App() {
 
   const saveProfilePatch = async (patch: ProfilePatch, feedback: 'toast' | 'inline' = 'toast'): Promise<AppProfile | null> => {
     const basis = profile;
-    setBusy('Saving profile…');
+    setBusy('notices.busy.savingProfile');
     try {
       const saved = await api.patchProfile(patch);
       setProfile((current) => reconcileProfileAcknowledgement(current, basis, saved, patch));
-      if (feedback === 'toast') setNotice('Profile updated.');
+      if (feedback === 'toast') setNotice(t('notices.profile.updated'));
       return saved;
     }
-    catch (reason) { if (feedback === 'toast') setError(reason instanceof Error ? reason.message : 'Profile update failed'); return null; }
-    finally { setBusy((current) => current === 'Saving profile…' ? '' : current); }
+    catch (reason) { if (feedback === 'toast') setError(reason instanceof Error ? reason.message : t('notices.profile.updateFailed'), reason instanceof ApiRequestError); return null; }
+    finally { setBusy((current) => current === 'notices.busy.savingProfile' ? '' : current); }
   };
   const importProfile = async (value: AppProfile): Promise<boolean> => {
     const ticket = projectScope.current.capture();
     const basis = profile;
     const accuracyRevision = accuracyDraft.current.editRevision;
-    setBusy('Importing profile…');
+    setBusy('notices.busy.importingProfile');
     try {
       const imported = await api.importProfile(value);
       setProfile((current) => reconcileProfileAcknowledgement(current, basis, imported));
@@ -4014,10 +4037,10 @@ export default function App() {
       if (projectScope.current.isCurrent(ticket) && accuracyDraft.current.editRevision === accuracyRevision) editAccuracyFields({
         vocabulary: uniqueLines(imported.defaultVocabulary, accuracyDraft.current.fields.vocabulary.split(/\r?\n/)).join('\n'),
       });
-      setNotice('Profile imported. Glossary, topic packs, grouping presets and correction memory are now available on this PC.');
+      setNotice(t('notices.profile.imported'));
       return true;
     } catch { return false; }
-    finally { setBusy((current) => current === 'Importing profile…' ? '' : current); }
+    finally { setBusy((current) => current === 'notices.busy.importingProfile' ? '' : current); }
   };
   const runDoctor = async () => {
     if (busy || doctorInFlight.current) return;
@@ -4025,23 +4048,23 @@ export default function App() {
     const request = ++doctorRequest.current;
     setDoctorLoadState('loading');
     setDoctorError('');
-    setBusy('Running system checks…');
+    setBusy('notices.busy.checkingSystem');
     try {
       const report = await api.doctor();
       if (doctorRequest.current !== request) return;
       const confirmed = await refreshSystemHealth(() => doctorRequest.current === request);
       if (doctorRequest.current !== request) return;
       setDoctor(report);
-      if (!confirmed) setDoctorError('The checks finished, but Studio could not confirm caption setup.');
+      if (!confirmed) setDoctorError(t('notices.profile.setupUnconfirmed'));
       setDoctorLoadState(confirmed ? 'ready' : 'error');
     } catch (reason) {
       if (doctorRequest.current === request) {
-        setDoctorError(reason instanceof Error ? reason.message : 'System check failed.');
+        setDoctorError(reason instanceof Error ? reason.message : t('notices.profile.systemCheckFailed'));
         setDoctorLoadState('error');
       }
     } finally {
       doctorInFlight.current = false;
-      setBusy((current) => current === 'Running system checks…' ? '' : current);
+      setBusy((current) => current === 'notices.busy.checkingSystem' ? '' : current);
     }
   };
   const applyTopicPack = (pack: TopicPack) => {
@@ -4049,13 +4072,13 @@ export default function App() {
     editAccuracyFields({ description: pack.description, vocabulary: uniqueLines(profile?.defaultVocabulary, pack.vocabulary).join('\n') });
     setShowProfile(false);
     if (proposal) {
-      setNotice(`Applied “${pack.name}”. Review the project context in Accuracy after this comparison.`);
+      setNotice(t('notices.accuracy.packAppliedDuringComparison', { name: pack.name }));
       return false;
     }
     cancelPlayback();
     setReviewMode(false);
     setWorkspaceTool('accuracy');
-    setNotice(`Applied topic pack: ${pack.name}`);
+    setNotice(t('notices.accuracy.packApplied', { name: pack.name }));
     return true;
   };
   const setAutoLoop = async (enabled: boolean) => {
@@ -4081,7 +4104,7 @@ export default function App() {
       if (!projectScope.current.isCurrent(ticket)) return false;
       if (!savedProfile.defaultVocabulary.some((saved) => saved.trim().toLocaleLowerCase('en') === line.trim().toLocaleLowerCase('en'))) return false;
       editAccuracyFields({ vocabulary: uniqueLines(accuracyDraft.current.fields.vocabulary.split(/\r?\n/), [line]).join('\n') });
-      setNotice('Replacement remembered globally.');
+      setNotice(t('notices.corrections.replacementRemembered'));
       return true;
     } else {
       // Add to the current draft, not the last render's persisted vocabulary.
@@ -4090,7 +4113,7 @@ export default function App() {
       const saved = await saveContext(true);
       if (!saved || !projectScope.current.isCurrent(ticket)) return false;
       const acknowledged = accuracyDraft.current.saved?.vocabulary?.some((savedLine) => savedLine.trim().toLocaleLowerCase('en') === line.trim().toLocaleLowerCase('en')) ?? false;
-      if (acknowledged) setNotice('Replacement added to this project glossary.');
+      if (acknowledged) setNotice(t('notices.corrections.replacementAdded'));
       return acknowledged;
     }
   };
@@ -4110,7 +4133,7 @@ export default function App() {
       }
     } catch {
       if (projectScope.current.isCurrent(ticket) && request === historyRead.current) {
-        setHistoryLoadState((current) => ({ ...current, loading: false, error: 'Could not load history. Try again; your saved versions have not been changed.' }));
+        setHistoryLoadState((current) => ({ ...current, loading: false, error: t('notices.history.loadFailed') }));
       }
     } finally {
       if (pendingHistoryRead.current === request) pendingHistoryRead.current = null;
@@ -4126,17 +4149,17 @@ export default function App() {
     const targetProject = project;
     const ticket = projectScope.current.capture();
     const confirmed = await confirmInStudio({
-      title: 'Restore this checkpoint?',
-      message: 'Studio saves your current state as another History entry first, so you can still return to it later.',
-      confirmLabel: 'Restore checkpoint',
+      title: t('dialogs.restoreHistory.title'),
+      message: t('dialogs.restoreHistory.message'),
+      confirmLabel: t('dialogs.restoreHistory.confirm'),
     });
     if (!confirmed || !projectScope.current.isCurrent(ticket)) return;
-    setBusy('Restoring project history…');
+    setBusy('notices.busy.restoringHistory');
     try {
       const hadUnsavedEdits = dirtyRef.current;
       const saved = await saveDraft(true, 'manual-save', true);
       if (!projectScope.current.isCurrent(ticket) || (hadUnsavedEdits && !saved)) return;
-      if (dirtyRef.current) { setNotice('Newer edits are still unsaved. Save them before restoring History.'); return; }
+      if (dirtyRef.current) { setNotice(t('notices.history.newerEditsUnsaved')); return; }
       const editRevision = draftEditRevision.current;
       const result = await queueSameMediaMutation(ticket, async () => {
         const observation = accuracyDraft.current.capture(ticket);
@@ -4150,13 +4173,13 @@ export default function App() {
         ticket,
         editRevision,
         false,
-        'History was restored on disk. Your newer caption edits remain unsaved in the editor.',
+        t('notices.history.restoredWithNewerEdits'),
       );
       if (published === 'stale') return;
       closeHistory();
-      if (published === 'applied') setNotice('Earlier project version restored.');
+      if (published === 'applied') setNotice(t('notices.history.restored'));
     }
-    catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : 'Restore failed'); }
+    catch (reason) { if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.history.restoreFailed'), reason instanceof ApiRequestError); }
     finally { if (projectScope.current.isCurrent(ticket)) setBusy(''); }
   };
 
@@ -4317,12 +4340,12 @@ export default function App() {
     // preset acknowledgements and capability fallbacks cannot overwrite another
     // tab's more recent decisions in browser storage.
     if (remember) setExportChoiceStorageError(exportChoiceStorage.write(project, session) ? ''
-      : 'These export choices could not be remembered in this browser. They remain selected while this project is open.');
+      : t('notices.transfer.choicesNotRemembered'));
   };
   const repairExportIssue = (target: ExportRepairTarget) => {
     if (!project || !projectScope.current.isCurrent(viewTicket)) return;
     const caption = target.captionId ? draftRef.current.find((item) => item.id === target.captionId) : undefined;
-    if (target.captionId && !caption) { setNotice('That caption changed. Check the updated export issue list.'); return; }
+    if (target.captionId && !caption) { setNotice(t('notices.transfer.exportIssueChanged')); return; }
     cancelPlayback();
     media.current?.pause();
     setReviewMode(false);
@@ -4483,8 +4506,8 @@ export default function App() {
       || document.querySelector<HTMLElement>('.save-action:not(:disabled)')
       || document.querySelector<HTMLElement>('[data-project-entry-focus]');
   }
-  const blockedSaveMessage = blockedSwitch?.reason || (saveNeedsComparison ? 'The saved project changed. Review your current edits before switching.'
-    : saveFailed ? 'Your current edits could not be saved.' : 'Finish saving your current edits before switching projects.');
+  const blockedSaveMessage = blockedSwitch?.reason || (saveNeedsComparison ? t('notices.save.reviewSavedBeforeSwitch')
+    : saveFailed ? t('notices.save.currentEditsFailed') : t('notices.save.finishSavingBeforeSwitch'));
 
   // Keep the Activity dialog and its focused control mounted while a result opens its project.
   const activity = <JobManager key="activity" open={showJobs} entryJobId={activityEntryId}
@@ -4516,17 +4539,17 @@ export default function App() {
     run: () => void checkSavedMediaSource(unconfirmedSource),
   } : undefined;
   const overlays = <>
-    {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError}
+    {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError} errorIsServerText={mediaMutationErrorIsServerText}
       sourceCheck={sourceCheck} preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
       onModeChange={() => { setPendingMediaReplacement((current) => current ? { ...current, audioConfirmation: undefined } : current); setMediaMutationError(''); }}
       onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); setPendingMediaReplacement(null); } }} onReplace={(mode, confirmation) => void submitMediaReplacement(mode, confirmation)}/>}
-    {showMediaBackups && <RestoreMediaDialog checkpoints={mediaBackups} loading={mediaBackupsLoading} working={mediaMutationStatus} error={mediaMutationError}
+    {showMediaBackups && <RestoreMediaDialog checkpoints={mediaBackups} loading={mediaBackupsLoading} working={mediaMutationStatus} error={mediaMutationError} errorIsServerText={mediaMutationErrorIsServerText}
       sourceCheck={sourceCheck} onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); mediaBackupsRequest.current?.abort(); setShowMediaBackups(false); } }} onReload={() => void loadMediaBackups()}
       onRestore={(checkpoint) => void restoreMediaBackup(checkpoint)} onDelete={(checkpoint) => void deleteMediaBackup(checkpoint)}/>}
 
     <ProfileDoctor languageSaving={languageSaving} onInterfaceLanguage={setInterfaceLanguage} open={showProfile} initialTab={settingsTab} llmSettings={llmSettings} profile={profile} doctor={doctor} doctorLoadState={doctorLoadState} doctorError={doctorError} busy={!!busy} currentContext={project ? contextPayload() : null}
       profileLoadFailed={startupErrors.includes('Preferences')} aiLoadFailed={startupErrors.includes('AI connection')} onRetryLoad={() => setStartupAttempt((value) => value + 1)}
-      onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
+      onClose={() => setShowProfile(false)} onSave={saveProfilePatch} onImport={importProfile} onRunDoctor={runDoctor} onApplyPack={applyTopicPack} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onForgetLlm={forgetLlmKey} storageStatus={savedStorage.status} storageChecking={savedStorage.checking} storageError={savedStorage.errorMessage ? t(savedStorage.errorMessage.key) : savedStorage.error} onRecheckStorage={() => void savedStorage.recheck()}/>
     <FindReplacePanel key={mediaKey} open={showFindReplace} captions={draft} selectedIds={selection.ids} initialSearch={selection.captions.length === 1 ? selection.captions[0].text : ''} onClose={() => setShowFindReplace(false)} onApply={(next, message) => { updateDraft(next, undefined, 'text'); setNotice(message); }} onRemember={rememberReplacement}/>
     <HistoryPanel open={showHistory} entries={historyEntries} busy={!!busy} loadState={historyLoadState} onClose={closeHistory} onRefresh={() => void loadHistory()} onRestore={(id) => void restoreHistory(id)}/>
     <UpdatePanel open={showUpdates} safety={{ dirty: unfinishedChanges, textEditing, reviewMode, proposalOpen: Boolean(proposal), busy: Boolean(busy), activeJobs: activeJobs.length }} onClose={() => setShowUpdates(false)} onError={setError} onNotice={setNotice}/>
@@ -4549,46 +4572,48 @@ export default function App() {
     {confirmationDialog}
   </>;
 
-  const recoveryRestoreBlockedReason = textComposing ? 'Finish entering your current text before restoring this draft.'
-    : currentProjectAnyActiveJob ? 'Wait for the current project task to finish before restoring this draft.'
-    : mediaMutationStatus ? 'Wait for the media change to finish before restoring this draft.'
-    : busy ? 'Wait for the current action to finish before restoring this draft.'
-    : unfinishedChanges ? 'Save your current edits before restoring this draft.' : '';
+  const recoveryRestoreBlockedReason = textComposing ? t('notices.recovery.finishTextInput')
+    : currentProjectAnyActiveJob ? t('notices.recovery.waitProjectTask')
+    : mediaMutationStatus ? t('notices.recovery.waitMedia')
+    : busy ? t('notices.recovery.waitCurrentAction')
+    : unfinishedChanges ? t('notices.recovery.saveBeforeRestoring') : '';
 
   const statusToasts = pendingMediaReplacement || showMediaBackups ? null : <ToastStack onLayoutChange={handleToastLayoutChange}>
-    {projectBin.notice && <div className="toast error" role="alert"><span>{projectBin.notice.message}</span>
-      {projectBin.notice.reviewStorage && <button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button>}
-      <button aria-label="Dismiss project notice" onClick={projectBin.dismissNotice}><X size={14}/></button>
+    {projectBin.notice && <div className="toast error" role="alert"><span>{t(projectBin.notice.messageMetadata.key, projectBin.notice.messageMetadata.params) || projectBin.notice.message}</span>
+      {projectBin.notice.reviewStorage && <button className="toast-action" onClick={() => openSettings('doctor')}>{t('library.reviewStorage')}</button>}
+      <button aria-label={t('notices.project.dismissNotice')} onClick={projectBin.dismissNotice}><X size={14}/></button>
     </div>}
     {latestProjectUndo && [latestProjectUndo].map((move) => <div key={move.instanceId} className="toast notice" role="status" data-toast-timer="project-undo">
-      <span>Moved “{move.title}” to Recently deleted.</span>
+      <span>{t('notices.project.moved', { title: move.title })}</span>
       {canRestore(move.restoreUntil) && <button className="toast-action" disabled={Boolean(projectBin.pendingId)}
-        onClick={() => void undoProjectMove(move)}>Undo</button>}
-      <button aria-label="Dismiss move notice" onClick={() => projectBin.dismissUndo(move.instanceId)}><X size={14}/></button>
+        onClick={() => void undoProjectMove(move)}>{t('notices.project.undo')}</button>}
+      <button aria-label={t('notices.project.dismissMove')} onClick={() => projectBin.dismissUndo(move.instanceId)}><X size={14}/></button>
     </div>)}
-    {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>Retry storage check</button><button aria-label="Dismiss storage check notice" onClick={savedStorage.dismissError}><X size={14}/></button></div>}
-    {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>Some saved projects or their index need attention. Existing files were kept.</span><button className="toast-action" onClick={() => openSettings('doctor')}>Review storage</button><button aria-label="Dismiss project storage warning" onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
-    {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{busy}</span></div>}
-    {currentProjectToastJob && !showJobs && <button className="job-toast" aria-label={`Open Activity: ${currentProjectToastJob.message}`} onClick={() => setShowJobs(true, currentProjectToastJob.id)}><LoaderCircle className="spin" size={15}/><div><strong>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}%</span></div></button>}
+    {savedStorage.errorNotice && <div className="toast notice" role="status"><span>{savedStorage.errorMessage ? t(savedStorage.errorMessage.key) : savedStorage.errorNotice}</span><button className="toast-action" disabled={savedStorage.checking} onClick={() => void savedStorage.recheck()}>{t('notices.storage.retry')}</button><button aria-label={t('notices.storage.dismissCheck')} onClick={savedStorage.dismissError}><X size={14}/></button></div>}
+    {storageNeedsAttention(savedStorage.status) && !storageNoticeDismissed && <div className="toast notice" role="status"><span>{t('notices.storage.attention')}</span><button className="toast-action" onClick={() => openSettings('doctor')}>{t('library.reviewStorage')}</button><button aria-label={t('notices.storage.dismissWarning')} onClick={() => setStorageNoticeDismissed(true)}><X size={14}/></button></div>}
+    {busy && <div className="toast"><LoaderCircle className="spin" size={16}/><span>{t(busy)}</span></div>}
+    {currentProjectToastJob && !showJobs && <button className="job-toast" aria-label={t('notices.activity.openJob', { detail: currentProjectToastJob.message })} onClick={() => setShowJobs(true, currentProjectToastJob.id)}><LoaderCircle className="spin" size={15}/><div><strong data-server-text>{currentProjectToastJob.message}</strong><span>{currentProjectToastJob.progress}%</span></div></button>}
     {uncertainJob && !showJobs && <div className="toast error" role="alert">
-      <span>Studio lost the reply for {uncertainJob.title}. Check Activity before starting another job.</span>
-      <button className="toast-action" onClick={() => openActivityFromNotice()}>Open Activity</button>
-      <button aria-label="Dismiss job notice" onClick={() => setUncertainJobs((items) => items.map((item) => item === uncertainJob ? { ...item, dismissed: true } : item))}><X size={14}/></button>
+      <span>{t('notices.activity.replyLost', { title: uncertainJob.title })}</span>
+      <button className="toast-action" onClick={() => openActivityFromNotice()}>{t('notices.activity.open')}</button>
+      <button aria-label={t('notices.activity.dismissJob')} onClick={() => setUncertainJobs((items) => items.map((item) => item === uncertainJob ? { ...item, dismissed: true } : item))}><X size={14}/></button>
     </div>}
-    {error && <div className="toast error" role="alert"><span>{error}</span><button aria-label={t('common.toast.dismissError')} onClick={() => setError('')}><X size={14}/></button></div>}
+    {error && <div className="toast error" role="alert"><span data-server-text={errorServerText || undefined}>{error}</span><button aria-label={t('common.toast.dismissError')} onClick={() => setError('')}><X size={14}/></button></div>}
     {jobNotification && !showJobs && <div className={`toast processing-notice ${jobNotification.error ? 'error' : 'notice'}`} role={jobNotification.error ? 'alert' : 'status'}>
-      <span><strong>{jobNotification.projectTitle}.</strong> {jobNotification.message}</span>
-      <button className="toast-action" onClick={() => { openActivityFromNotice(jobNotification.id); dismissJobNotification(); }}>Open Activity</button>
-      <button aria-label="Dismiss processing notice" onClick={dismissJobNotification}><X size={14}/></button>
+      <span><strong>{jobNotification.projectTitle}.</strong> {jobNotification.serverText ? <span data-server-text>{jobNotification.message}</span> : jobNotification.message}</span>
+      <button className="toast-action" onClick={() => { openActivityFromNotice(jobNotification.id); dismissJobNotification(); }}>{t('notices.activity.open')}</button>
+      <button aria-label={t('notices.activity.dismissProcessing')} onClick={dismissJobNotification}><X size={14}/></button>
     </div>}
-    {saveFailed && unfinishedChanges && !showJobs && !showCorrections && <div className="toast error save-failure" role="alert"><span><strong>{saveNeedsComparison ? 'Saved project changed.' : "Couldn't save changes."}</strong> {saveFailure} Your edits are still here.</span>{saveNeedsComparison
-      ? <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void reloadSavedProject()}>Reload saved project</button>
-      : <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>Retry save</button>}<button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button></div>}
-    {recoveryStorageError && unfinishedChanges && <div className="toast error recovery-storage-error" role="status"><span>{recoveryStorageError}</span>{!saveFailed && <button className="toast-action" onClick={downloadCurrentDraft}>Download edits</button>}</div>}
+    {saveFailed && unfinishedChanges && !showJobs && !showCorrections && <div className="toast error save-failure" role="alert"><span>{tr('notices.save.failure', {
+      heading: t(saveNeedsComparison ? 'notices.save.projectChanged' : 'notices.save.couldNotSave'), detail: saveFailure,
+    }, { b: (text) => <strong>{text}</strong>, code: (text) => saveFailureHasServerText ? <span data-server-text>{text}</span> : text })}</span>{saveNeedsComparison
+      ? <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void reloadSavedProject()}>{t('notices.save.reload')}</button>
+      : <button className="toast-action" disabled={!!busy || textComposing} onClick={() => void saveUnfinishedChanges(false)}>{t('notices.save.retry')}</button>}<button className="toast-action" onClick={downloadCurrentDraft}>{t('notices.save.downloadEdits')}</button></div>}
+    {recoveryStorageError && unfinishedChanges && <div className="toast error recovery-storage-error" role="status"><span>{recoveryStorageError}</span>{!saveFailed && <button className="toast-action" onClick={downloadCurrentDraft}>{t('notices.save.downloadEdits')}</button>}</div>}
     {project && selectedRecovery && <UnfinishedEditRecoveryNotice
       count={recoveryEntries.length} savedAt={selectedRecovery.draft.savedAt}
       entries={recoveryEntries.map((entry) => ({ key: entry.key, savedAt: entry.draft.savedAt,
-        label: [entry.draft.captions && 'Captions', entry.draft.accuracy && 'Accuracy', entry.draft.appearance && 'Appearance'].filter(Boolean).join(' + ') }))}
+        label: [entry.draft.captions && t('editor.header.captions'), entry.draft.accuracy && t('workspace.accuracy'), entry.draft.appearance && t('editor.header.appearance')].filter(Boolean).join(' + ') }))}
       selectedKey={selectedRecovery.key}
       onSelect={(key) => { cancelUnfinishedRecovery(); setRecoveryConflict(null); setSelectedRecoveryKey(key); }}
       captions={selectedRecovery.draft.captions} accuracy={selectedRecovery.draft.accuracy} appearance={selectedRecovery.draft.appearance}
@@ -4599,10 +4624,10 @@ export default function App() {
       onCancel={() => cancelUnfinishedRecovery(true)}
       onDownload={() => downloadUnfinishedDraft(selectedRecovery)}
       onDiscard={() => void discardUnfinishedDraft(selectedRecovery)}/>}
-    {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>Previous media and project saved for recovery.</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>Undo replacement</button><button aria-label="Dismiss replacement recovery" onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
-    {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>Edits to <b>{recovery.sourceMedia.originalName}</b> belong to the previous media and were not applied here.</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>Copy recovery</button><button aria-label={`Dismiss recovery for ${recovery.sourceMedia.originalName}`} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
+    {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>{t('notices.media.savedForRecovery')}</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>{t('notices.media.undoReplacement')}</button><button aria-label={t('notices.media.dismissRecovery')} onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
+    {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>{tr('notices.media.editsBelongToPrevious', { filename: recovery.sourceMedia.originalName }, {})}</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>{t('notices.media.copyRecovery')}</button><button aria-label={t('notices.media.dismissFileRecovery', { filename: recovery.sourceMedia.originalName })} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
     {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>{t('review.undo.action')}</button><button aria-label={t('review.undo.dismiss')} onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
-    {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span>{notice}</span><button aria-label={t('common.toast.dismissNotice')} onClick={() => setNotice('')}><X size={14}/></button></div>}
+    {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span data-server-text={noticeServerText || undefined}>{notice}</span><button aria-label={t('common.toast.dismissNotice')} onClick={() => setNotice('')}><X size={14}/></button></div>}
   </ToastStack>;
 
   const startupServiceMessages: Partial<Record<string, MessageKey>> = {
@@ -4625,9 +4650,9 @@ export default function App() {
       {!showAllProjects && <InterfaceLanguageSwitch saving={languageSaving} ready={Boolean(profile)} onChange={setInterfaceLanguage}/>}
     </div>
     <div hidden={showAllProjects} inert={showAllProjects || undefined}>
-      <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'Uploading…'} disabled={!!busy || !profile}
+      <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'notices.busy.uploading'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? t('home.launcher.preferencesFailed') : t('home.launcher.loadingPreferencesForUpload')
-          : busy && busy !== 'Uploading…' ? t('home.launcher.uploadBusy') : ''}
+          : busy && busy !== 'notices.busy.uploading' ? t('home.launcher.uploadBusy') : ''}
         beforeDropzone={<>
           {profile && savedLanguage === undefined && !showAllProjects && <InterfaceLanguagePrompt saving={languageSaving} onChange={setInterfaceLanguage}/>}
           {showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>{t('home.launcher.setupAi')}</button> : undefined}
@@ -4695,14 +4720,14 @@ export default function App() {
       tool={proposal ? 'proposal' : workspaceTool}
       title={proposal ? t('workspace.compare') : workspaceTool ? t(({ review: 'editor.header.review', timeline: 'workspace.fineTiming', accuracy: 'workspace.accuracy', rhythm: 'grouping.title', appearance: 'editor.header.appearance', details: 'editor.tools.technical', export: 'editor.header.export' } as const)[workspaceTool]) : exportRepair ? t('export.repair.label') : t('editor.generation.generate')}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
-      onClose={proposal ? () => { closeComparison(); setNotice('Comparison closed. You can reopen it from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
+      onClose={proposal ? () => { closeComparison(); setNotice(t('notices.compare.closed')); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
       ref={editorLayout}
       mode={layoutMode}
       enlargeAvailable={enlargeAvailable}
       arrangeSupported={arrangeSupported}
       preview={
-        <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label="Media preview">
+        <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label={t('notices.playback.preview')}>
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} recoveryFocusTarget={mediaPreviewFocus} onElementChange={setMediaElement}
             onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onMediaTimeUpdate}
             onRetry={() => { setProposal(null); correctionPlayback.current = null; setProposalLoop(false); setReviewMode(false); }}/>
@@ -4794,7 +4819,7 @@ export default function App() {
             activeExportJob={activeExportJob}
             onExportCaptions={exportCaptionFile}
             onImportCaptionData={previewCaptionImport}
-            importBlockedReason={currentProjectActiveJob ? 'Wait for caption processing to finish before replacing captions.' : ''}
+            importBlockedReason={currentProjectActiveJob ? t('notices.transfer.waitBeforeImport') : ''}
             captionImportPreview={pendingCaptionImport && projectScope.current.isCurrent(pendingCaptionImport.ticket) ? {
               filename: pendingCaptionImport.filename, preview: pendingCaptionImport.preview, currentCount: draft.length,
               stale: dirty || pendingCaptionImport.editRevision !== draftEditRevision.current
@@ -4885,7 +4910,7 @@ export default function App() {
             onPreview={(range) => {
               cancelPlayback();
               if (media.current && projectScope.current.isCurrent(viewTicket)) {
-                timingPreviewCancel.current = playTimingRange(media.current, range, () => setError('Playback could not start. Use the video controls to check the audio, then replay the caption.'));
+                timingPreviewCancel.current = playTimingRange(media.current, range, () => setError(t('notices.playback.timingPlaybackFailed')));
               }
             }}
             onStopPreview={stopTimingPreview}

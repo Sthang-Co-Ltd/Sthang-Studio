@@ -1,0 +1,165 @@
+import { expect, test as base, type Page } from '@playwright/test';
+import { createCaptionData, hydrateCaptionWordTimings } from '@kcs/shared';
+import { translate } from '../../apps/web/src/i18n/translate.js';
+import type { MessageKey } from '../../apps/web/src/i18n/types.js';
+import { cleanFixtures, fixtureMedia, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
+import { requireHarnessConfig } from './harness-config.mjs';
+import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
+
+const test = base.extend({
+  context: async ({ context }, use) => {
+    try { await use(context); } finally { await closeOwnedBrowserContext(context); }
+  },
+});
+
+test.beforeAll(prepareFixtures);
+test.afterAll(cleanFixtures);
+
+async function fixture(page: Page) {
+  const errors: string[] = [];
+  const withoutUrls = (message: string) => message.replace(/\b(?:https?|wss?):\/\/[^\s'"]+/g, '[url]');
+  page.on('pageerror', (error) => errors.push(withoutUrls(error.message)));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(withoutUrls(message.text()));
+  });
+  const state = await installFixture(page);
+  // Match the other language specs' local HMR handshake and optional GET fixtures.
+  const viteHost = new URL(requireHarnessConfig().webOrigin).host;
+  await page.routeWebSocket((url) => url.protocol === 'ws:' && url.host === viteHost && url.pathname === '/', (socket) => {
+    socket.send(JSON.stringify({ type: 'connected' }));
+  });
+  await page.route('**/api/updates', (route) => route.fulfill({ json: { status: 'unconfigured', currentVersion: 'test' } }));
+  await page.route('**/api/project-bin', (route) => route.fulfill({ json: { items: [] } }));
+  await page.route('**/api/media-preview/*', (route) => {
+    const url = new URL(route.request().url());
+    const source = url.searchParams.get('source');
+    if (route.request().method() !== 'GET' || !state.projects.some((project) =>
+      url.pathname === '/api/media-preview/' + project.id && source === project.media.filename)) return route.fallback();
+    return route.fulfill({ json: { source, state: 'original', videoCodec: 'h264', progress: 0 } });
+  });
+  state.profile.preferences.interfaceLanguage = 'km';
+  state.profile.preferences.autosaveDelayMs = 60_000;
+  return { state, errors };
+}
+
+const km = (key: MessageKey) => translate('km', key);
+function fallback(key: MessageKey) {
+  expect(km(key)).toBe(translate('en', key));
+  return km(key);
+}
+
+async function tool(page: Page, key: MessageKey) {
+  await page.locator('[data-project-tools-trigger]').click();
+  await page.getByRole('menu', { name: km('editor.tools.menu') }).getByText(km(key), { exact: true }).click();
+}
+
+test('Khmer uses the English media dialogs and confirmation copy', async ({ page }) => {
+  const { errors } = await fixture(page);
+  await page.route('**/api/projects/landscape/media-replacements', (route) => route.fulfill({ json: [] }));
+  await openProject(page);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  const chooser = page.waitForEvent('filechooser');
+  await tool(page, 'editor.tools.replace');
+  await (await chooser).setFiles({ name: 'alternate.mp4', mimeType: 'video/mp4', buffer: fixtureMedia() });
+  const dialog = page.getByRole('dialog', { name: fallback('dialogs.media.replaceTitle'), exact: true });
+  await expect(dialog).toContainText('Replace current media with alternate.mp4. Choose what to keep.');
+  await dialog.getByRole('radio', { name: /^Start over/ }).check();
+  await dialog.getByRole('button', { name: fallback('dialogs.media.continue'), exact: true }).click();
+  const confirmation = page.getByRole('alertdialog', { name: fallback('dialogs.resetMedia.title'), exact: true });
+  await expect(confirmation).toContainText('Replace the source with alternate.mp4 and clear the current captions');
+  await confirmation.getByRole('button', { name: fallback('dialogs.resetMedia.cancel'), exact: true }).click();
+  await dialog.getByRole('button', { name: km('common.cancel'), exact: true }).click();
+
+  await tool(page, 'editor.tools.undoReplace');
+  const backups = page.getByRole('dialog', { name: fallback('dialogs.media.undoTitle'), exact: true });
+  await expect(backups.getByText(fallback('dialogs.media.noBackups'))).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Khmer shows project and upload storage notices with English fallback', async ({ page }) => {
+  const { errors } = await fixture(page);
+  await page.route('**/api/system/project-storage*', (route) => route.fulfill({ json: {} }));
+  await page.addInitScript(() => {
+    localStorage.setItem('phase-c-storage-fixture', '1');
+    Storage.prototype.key = () => { throw new Error('Synthetic recovery inventory failure'); };
+  });
+  await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'km');
+  await expect(page.locator('.upload-storage-feedback')).toHaveText(fallback('notices.upload.recoveryUnavailable'));
+  await expect(page.getByText(fallback('notices.storage.checkFailed'), { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Khmer shows the unfinished-edit dialog and clipboard recovery in English', async ({ page }) => {
+  const { state, errors } = await fixture(page);
+  state.profile.correctionEvents = [{
+    id: 'phase-c-correction', projectId: 'landscape', projectTitle: state.projects[0].title, captionId: 'c1',
+    startMs: 200, endMs: 1000, originalText: 'Old កម្ពុជា', correctedText: 'New កម្ពុជា', suggestionKind: 'alias',
+    suggestedVocabularyLine: 'New | Old', status: 'pending', createdAt: '2026-01-01T00:00:00.000Z',
+  }];
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Synthetic clipboard denial'); } } });
+    document.execCommand = () => false;
+  });
+  await openProject(page);
+  await tool(page, 'editor.tools.corrections');
+  const inbox = page.getByRole('dialog', { name: km('inbox.title'), exact: true });
+  await inbox.getByRole('button', { name: km('workspace.copyReport'), exact: true }).click();
+  await expect(inbox.getByRole('alert')).toHaveText(fallback('dialogs.copyReport.failed'));
+  await expect(inbox.getByRole('textbox', { name: km('workspace.copyReport') + ': text for manual copying' })).toBeVisible();
+  await inbox.getByRole('button', { name: km('inbox.close'), exact: true }).click();
+
+  const caption = page.getByLabel(translate('km', 'editor.row.text', { number: 1 }), { exact: true });
+  await caption.fill('Unfinished test caption');
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some((key) =>
+    key.startsWith('sthang-studio:unfinished-edits:') && localStorage.getItem(key)?.includes('Unfinished test caption')))).toBe(true);
+  page.once('dialog', (dialog) => void dialog.accept());
+  await openProject(page);
+  const recovery = page.getByRole('region', { name: fallback('dialogs.draft.label'), exact: true });
+  await expect(recovery.getByText(fallback('dialogs.draft.title'), { exact: true })).toBeVisible();
+  await recovery.getByRole('button', { name: fallback('dialogs.discardDraft.confirm'), exact: true }).click();
+  const confirm = page.getByRole('alertdialog', { name: fallback('dialogs.discardDraft.title'), exact: true });
+  await expect(confirm).toContainText(fallback('dialogs.discardDraft.message'));
+  await confirm.getByRole('button', { name: fallback('dialogs.discardDraft.cancel'), exact: true }).click();
+  expect(errors).toEqual([]);
+});
+
+test('Khmer opens the timing workspace and falls back for browser media errors', async ({ page }) => {
+  const { errors } = await fixture(page);
+  await openProject(page);
+  await page.getByRole('button', { name: km('workspace.fineTiming'), exact: true }).click();
+  await expect(page.getByRole('button', { name: km('timing.waveform.moveEarlier'), exact: true })).toBeVisible();
+  await page.locator('video').evaluate((element) => {
+    Object.defineProperty(element, 'error', { configurable: true, value: { code: 2 } });
+    element.dispatchEvent(new Event('error'));
+  });
+  await expect(page.locator('.source-media-status')).toContainText(fallback('notices.playback.network'));
+  expect(errors).toEqual([]);
+});
+
+test('Khmer marks the server warning and uses the transfer error fallback', async ({ page }) => {
+  const { state, errors } = await fixture(page);
+  const project = state.projects[0];
+  const snapshot = createCaptionData({
+    captions: hydrateCaptionWordTimings(project).captions, appearance: project.captionAppearance, durationMs: 4000,
+  });
+  await page.route('**/api/caption-handoff/landscape/summary', (route) => route.fulfill({
+    json: { revision: 'a'.repeat(64), snapshot, captionCount: project.captions.length, media: project.media },
+  }));
+  await page.route('**/api/caption-handoff/landscape/export-history', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/caption-handoff/landscape/export', (route) => route.fulfill({ body: '' }));
+  await page.route('**/api/caption-handoff/landscape/restore-preview', (route) => route.fulfill({
+    json: { revision: 'a'.repeat(64), candidate: snapshot, candidateDigest: 'b'.repeat(64), warnings: ['Synthetic server warning.'] },
+  }));
+  await openProject(page);
+  await page.locator('[data-stage="export"]').click();
+  await page.locator('.export-mode-switch button').nth(1).click();
+  await page.locator('.handoff-download-primary').click();
+  await expect(page.getByRole('alert').filter({ hasText: fallback('notices.transfer.emptyFile') })).toBeVisible();
+  await page.locator('.handoff-advanced summary').click();
+  await page.locator('.handoff-restore input[type="file"]').setInputFiles({
+    name: 'demo.sthang-captions.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(snapshot)),
+  });
+  await expect(page.locator('.caption-restore-warning[data-server-text]')).toHaveText('Synthetic server warning.');
+  expect(errors).toEqual([]);
+});

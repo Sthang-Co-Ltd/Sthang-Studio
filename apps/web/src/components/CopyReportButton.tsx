@@ -1,8 +1,11 @@
+import { useI18n } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Check, Clipboard } from 'lucide-react';
 import { copyReportText } from '../copy-report';
 
-export function CopyReportButton({ text, label = 'Copy report' }: { text: string; label?: string }) {
+export function CopyReportButton({ text, label: providedLabel }: { text: string; label?: string }) {
+  const { t } = useI18n();
+  const label = providedLabel ?? t('workspace.copyReport');
   const [state, setState] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle');
   const request = useRef(0);
   const pending = useRef(false);
@@ -29,11 +32,11 @@ export function CopyReportButton({ text, label = 'Copy report' }: { text: string
   return <div className="copy-report-control">
     <button type="button" aria-label={label} aria-busy={state === 'copying' || undefined} aria-disabled={state === 'copying' || undefined} onClick={() => void copy()}>
       {state === 'copied' ? <Check size={15}/> : <Clipboard size={15}/>}
-      <span className="copy-report-label"><span aria-hidden="true">{label}</span><span role="status" aria-live="polite">{state === 'copied' ? 'Copied' : state === 'copying' ? 'Copying…' : label}</span></span>
+      <span className="copy-report-label"><span aria-hidden="true">{label}</span><span role="status" aria-live="polite">{state === 'copied' ? t('dialogs.copyReport.copied') : state === 'copying' ? t('dialogs.copyReport.copying') : label}</span></span>
     </button>
     {state === 'failed' && <div className="copy-report-recovery">
-      <span role="alert">Could not copy. Try again, or select and copy the report below.</span>
-      <textarea aria-label={`${label}: text for manual copying`} readOnly rows={5} value={text} onFocus={(event) => event.currentTarget.select()}/>
+      <span role="alert">{t('dialogs.copyReport.failed')}</span>
+      <textarea aria-label={t('dialogs.copyReport.manualLabel', { label })} readOnly rows={5} value={text} onFocus={(event) => event.currentTarget.select()}/>
     </div>}
   </div>;
 }

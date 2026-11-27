@@ -763,8 +763,8 @@ export function WaveformEditor({
   };
 
   const commit = (transaction: CaptionTimingTransaction, record = true) => {
-    const { before, after, guards, limited, gestureBasis } = transaction;
-    if (limited) onNotice(limited);
+    const { before, after, guards, limited, limitedMessage, gestureBasis } = transaction;
+    if (limited) onNotice(limitedMessage ? t(limitedMessage.key, limitedMessage.params) : limited);
     if (!after.length || after.every((caption, index) => sameTimingRevision(caption, before[index]))) return false;
     if (gestureBasis && !captionTimingBasisMatches(captions, gestureBasis.captions, before)
       || !timingTransactionMatches(captions, transaction) || !onTimingChange(before, after, guards, gestureBasis)) {

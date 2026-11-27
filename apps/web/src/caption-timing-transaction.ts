@@ -1,4 +1,5 @@
 import type { CaptionSegment } from '@kcs/shared';
+import type { MessageKey, MessageParams } from './i18n/types';
 import { editCaptionTiming, MIN_CAPTION_MS, sameTimingRevision, type TimingEditKind } from './timing-edit';
 
 export interface CaptionTimingTransaction {
@@ -6,6 +7,7 @@ export interface CaptionTimingTransaction {
   after: CaptionSegment[];
   guards?: CaptionSegment[];
   limited?: string;
+  limitedMessage?: { key: MessageKey; params?: MessageParams };
   /** Only held pointer gestures carry this admission basis; Undo keeps its existing policy. */
   gestureBasis?: CaptionTimingGestureBasis;
 }
@@ -31,6 +33,20 @@ export interface CaptionTimingGestureBasis {
 export interface PreparedCaptionTiming extends CaptionTimingGestureBasis {
   readonly limits: ReadonlyMap<string, CaptionNeighborLimit>;
 }
+
+const timingLimits = {
+  locked: { limited: "Unlock this caption’s timing before changing it.", limitedMessage: { key: 'notices.timing.locked' } },
+  noPrevious: { limited: "There is no previous caption to share this edge.", limitedMessage: { key: 'notices.timing.noPrevious' } },
+  noNext: { limited: "There is no next caption to share this edge.", limitedMessage: { key: 'notices.timing.noNext' } },
+  neighborLocked: { limited: "The neighboring caption’s timing is locked. Both edges were kept.", limitedMessage: { key: 'notices.timing.neighborLocked' } },
+  tooShort: { limited: "These captions do not have enough time for a shared boundary.", limitedMessage: { key: 'notices.timing.tooShort' } },
+  invalidBoundary: { limited: "This boundary cannot be moved without invalidating a caption.", limitedMessage: { key: 'notices.timing.invalidBoundary' } },
+  blockedBoundary: { limited: "Another caption blocks this shared boundary. Its timing was kept.", limitedMessage: { key: 'notices.timing.blockedBoundary' } },
+  minimumDuration: { limited: "Reached the minimum caption duration.", limitedMessage: { key: 'notices.timing.minimumDuration' } },
+  start: { limited: "Reached the start of the media.", limitedMessage: { key: 'editor.captions.timingStart' } },
+  end: { limited: "Reached the end of the media.", limitedMessage: { key: 'editor.captions.timingEnd' } },
+  neighbor: { limited: "Reached the neighboring caption. Adjust the shared boundary or enable Allow overlaps to continue.", limitedMessage: { key: 'editor.captions.timingNeighbor' } },
+} as const satisfies Record<string, Pick<CaptionTimingTransaction, 'limited' | 'limitedMessage'>>;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -134,35 +150,35 @@ export function planCaptionTimingEdit(
   prepared?: PreparedCaptionTiming,
 ): CaptionTimingTransaction {
   const caption = captions.find((item) => item.id === id);
-  const empty = (limited?: string): CaptionTimingTransaction => ({ before: [], after: [], limited });
+  const empty = (limit: Pick<CaptionTimingTransaction, 'limited' | 'limitedMessage'> = { limited: undefined }): CaptionTimingTransaction => ({ before: [], after: [], ...limit });
   if (!caption || !Number.isFinite(value) || !Number.isFinite(durationMs) || durationMs < MIN_CAPTION_MS) return empty();
-  if (caption.timingLocked) return empty('Unlock this caption’s timing before changing it.');
+  if (caption.timingLocked) return empty(timingLimits.locked);
   const limits = prepared?.captions === captions && prepared.durationMs === durationMs
     ? prepared.limits.get(id) || { lower: 0, upper: durationMs, previous: undefined, next: undefined }
     : captionNeighborLimits(captions, id, durationMs);
   if (options.sharedBoundary && kind !== 'move') {
     const neighbour = kind === 'start' ? limits.previous : limits.next;
-    if (!neighbour) return empty(`There is no ${kind === 'start' ? 'previous' : 'next'} caption to share this edge.`);
-    if (neighbour.timingLocked) return empty('The neighboring caption’s timing is locked. Both edges were kept.');
+    if (!neighbour) return empty(kind === 'start' ? timingLimits.noPrevious : timingLimits.noNext);
+    if (neighbour.timingLocked) return empty(timingLimits.neighborLocked);
     const left = kind === 'start' ? neighbour : caption;
     const right = kind === 'start' ? caption : neighbour;
     const lower = Math.max(0, left.startMs + MIN_CAPTION_MS);
     const upper = Math.min(durationMs, right.endMs - MIN_CAPTION_MS);
-    if (lower > upper) return empty('These captions do not have enough time for a shared boundary.');
+    if (lower > upper) return empty(timingLimits.tooShort);
     const boundary = clamp(Math.round(value), lower, upper);
     const nextLeft = editCaptionTiming(left, 'end', boundary, durationMs);
     const nextRight = editCaptionTiming(right, 'start', boundary, durationMs);
-    if (nextLeft.endMs !== boundary || nextRight.startMs !== boundary) return empty('This boundary cannot be moved without invalidating a caption.');
+    if (nextLeft.endMs !== boundary || nextRight.startMs !== boundary) return empty(timingLimits.invalidBoundary);
     if (!options.allowOverlap) {
       const others = captions.filter((item) => item.id !== left.id && item.id !== right.id);
       if (others.some((item) => overlap(nextLeft, item) > overlap(left, item) || overlap(nextRight, item) > overlap(right, item))) {
-        return empty('Another caption blocks this shared boundary. Its timing was kept.');
+        return empty(timingLimits.blockedBoundary);
       }
     }
     const changes = [{ before: left, after: nextLeft }, { before: right, after: nextRight }].filter((item) => item.before !== item.after);
     return {
       before: changes.map((item) => item.before), after: changes.map((item) => item.after),
-      ...(boundary !== Math.round(value) ? { limited: 'Reached the minimum caption duration.' } : {}),
+      ...(boundary !== Math.round(value) ? timingLimits.minimumDuration : {}),
     };
   }
 
@@ -175,9 +191,9 @@ export function planCaptionTimingEdit(
   const after = editCaptionTiming(caption, kind, requested, durationMs);
   const start = kind === 'move' ? caption.startMs + value : value;
   const end = kind === 'move' ? caption.endMs + value : value;
-  const limited = kind !== 'end' && start < 0 && after.startMs === 0 ? 'Reached the start of the media.'
-    : kind !== 'start' && end > durationMs && after.endMs === durationMs ? 'Reached the end of the media.'
-    : requested !== value ? 'Reached the neighboring caption. Adjust the shared boundary or enable Allow overlaps to continue.'
-    : undefined;
-  return after === caption ? empty(limited) : { before: [caption], after: [after], limited };
+  const limited = kind !== 'end' && start < 0 && after.startMs === 0 ? timingLimits.start
+    : kind !== 'start' && end > durationMs && after.endMs === durationMs ? timingLimits.end
+    : requested !== value ? timingLimits.neighbor
+    : { limited: undefined };
+  return after === caption ? empty(limited) : { before: [caption], after: [after], ...limited };
 }

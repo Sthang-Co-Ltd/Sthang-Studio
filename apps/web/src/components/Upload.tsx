@@ -21,7 +21,7 @@ function fileDrag(event: DragEvent<HTMLElement>) {
 
 export interface UploadRecoveryProject { id: string; title: string }
 export type UploadResult = { state: 'opened' }
-  | { state: 'not-created'; message: string; retryable?: boolean }
+  | { state: 'not-created'; message: string; retryable?: boolean; serverText?: boolean }
   | { state: 'uncertain'; message: string; project?: UploadRecoveryProject };
 export type UploadRecoveryResult = { state: 'found'; project: UploadRecoveryProject; message?: string }
   | { state: 'uncertain'; message: string };
@@ -48,7 +48,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
   const [recoveryStore] = useState(() => createUploadRecoveryStore(() => { try { return window.localStorage; } catch { return null; } }));
   const [initialRecovery] = useState(() => recoveryStore.read());
   const [reminders, setReminders] = useState(initialRecovery.entries);
-  const [storageError, setStorageError] = useState(initialRecovery.error);
+  const [storageError, setStorageError] = useState(initialRecovery.errorMessage ? t(initialRecovery.errorMessage.key, initialRecovery.errorMessage.params) : initialRecovery.error);
   const [attempt, setAttempt] = useState<UploadAttempt | null>(() => initialRecovery.entries[0] ? restoredAttempt(initialRecovery.entries[0]) : null);
   const attemptRef = useRef(attempt); attemptRef.current = attempt;
   const actionRevision = useRef(0);
@@ -69,7 +69,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
   const clearDrag = () => { dragDepth.current = 0; setDrag(false); };
   const refreshReminders = () => {
     const read = recoveryStore.read(); setReminders(read.entries);
-    if (read.error) setStorageError(read.error);
+    if (read.error) setStorageError(read.errorMessage ? t(read.errorMessage.key, read.errorMessage.params) : read.error);
     return read;
   };
   const activate = (next: UploadAttempt | null) => {
@@ -126,7 +126,7 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
     let captured = next;
     if (!captured.entry) {
       const saved = recoveryStore.keep(captured.details, captured.id);
-      captured = { ...captured, entry: saved.entry }; setStorageError(saved.error); refreshReminders();
+      captured = { ...captured, entry: saved.entry }; setStorageError(saved.errorMessage ? t(saved.errorMessage.key, saved.errorMessage.params) : saved.error); refreshReminders();
     }
     activate(captured); const revision = actionRevision.current;
     setRecovery(null);
@@ -212,8 +212,8 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
     {attempt && recovery && <section id={recoveryId} className="upload-recovery" aria-labelledby={`${recoveryId}-title`}>
       <div role={recovery.state === 'not-created' ? 'alert' : 'status'} aria-live="polite" aria-atomic="true">
         <strong id={`${recoveryId}-title`}>{recovery.state === 'not-created' ? t('home.upload.notApplied') : recovery.project ? t('home.upload.found') : t('home.upload.unconfirmed')}</strong>
-        <p>{recovery.message}</p><p className="upload-recovery-filename">{attempt.details.name}</p>
-        {attempt.retryRejection && attempt.retryRejection !== recovery.message && <p>{attempt.retryRejection}</p>}
+        <p data-server-text={(recovery.state === 'not-created' && recovery.serverText) || undefined}>{recovery.message}</p><p className="upload-recovery-filename">{attempt.details.name}</p>
+        {attempt.retryRejection && attempt.retryRejection !== recovery.message && <p data-server-text>{attempt.retryRejection}</p>}
       </div>
       <div className="upload-recovery-actions">
         {recovery.state === 'uncertain' && recovery.project && onOpenRecovered && <button type="button" className="upload-recovery-primary" aria-disabled={busy || disabled || Boolean(recovering) || undefined} aria-busy={recovering === 'open' || undefined} onClick={() => void recover('open')}>{recovering === 'open' ? t('home.upload.openingSaved') : t('home.upload.openSaved')}</button>}

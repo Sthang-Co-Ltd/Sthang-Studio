@@ -1,6 +1,7 @@
+import { useI18n } from '../i18n';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SyntheticEvent, type RefObject } from 'react';
 import { checkMediaPreviewCopy, needsCompatiblePlayback, requestMediaPreview, type MediaPreviewStatus } from '../media-preview-client';
-import { playbackFailureMessage, recoveryPosition, restoredPosition, watchPlaybackProgress, type PlaybackSettings } from '../media-playback-recovery';
+import { playbackFailure, recoveryPosition, restoredPosition, watchPlaybackProgress, type PlaybackSettings } from '../media-playback-recovery';
 import { createMediaClockBinding } from '../media-clock';
 import './source-media.css';
 
@@ -26,7 +27,13 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   const [playerGeneration, setPlayerGeneration] = useState(0);
   const [recovering, setRecovering] = useState(false);
   const [preview, setPreview] = useState<MediaPreviewStatus | null>(null);
-  const [previewError, setPreviewError] = useState('');
+  const { t } = useI18n();
+  const [previewError, setPreviewErrorText] = useState('');
+  const [previewErrorIsServerText, setPreviewErrorIsServerText] = useState(false);
+  const setPreviewError = (message: string, serverText = false) => {
+    setPreviewErrorText(message);
+    setPreviewErrorIsServerText(serverText);
+  };
   const [requesting, setRequesting] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
   const [pollStopped, setPollStopped] = useState(false);
@@ -128,7 +135,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   const accept = (value: MediaPreviewStatus, keepRecoveredPlayer = false) => {
     terminalResponseSequence.current = value.state === 'processing' ? null : sequence.current;
     if (value.state !== 'processing') setRequesting(false);
-    setPreviewError(value.state === 'ready' ? value.message || '' : '');
+    setPreviewError(value.state === 'ready' ? value.message || '' : '', Boolean(value.state === 'ready' && value.message));
     setPreview(value);
     setPollStopped(false);
     if (value.state === 'ready' && value.url) {
@@ -163,7 +170,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       const value = await requestMediaPreview(projectId, source, 'POST', controller.signal, Boolean(playbackSrc && playbackSrc !== src));
       if (alive.current && sequence.current === request) accept(value);
     } catch (error) {
-      if (alive.current && sequence.current === request) setPreviewError(error instanceof Error ? error.message : 'Playback preparation failed.');
+      if (alive.current && sequence.current === request) setPreviewError(error instanceof Error ? error.message : 'Playback preparation failed.', error instanceof Error);
     } finally {
       if (sequence.current === request) { inFlight.current = false; if (alive.current) setRequesting(false); }
     }
@@ -259,7 +266,8 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
     const controller = new AbortController(); operation.current = controller;
     inFlight.current = false; stallFailure.current = false;
     setRequesting(false); setStalled(false);
-    setPreviewError(preview?.state === 'ready' ? preview.message || '' : ''); setRecovering(true); setFailed(false);
+    setPreviewError(preview?.state === 'ready' ? preview.message || '' : '', Boolean(preview?.state === 'ready' && preview.message));
+    setRecovering(true); setFailed(false);
     setPreview((value) => value && value.state !== 'ready' && value.state !== 'processing' ? { ...value, state: 'original', message: undefined } : value);
     // Decoder recovery must not wait for an optional status API. The actual
     // copy can still be healthy when status lookup is unavailable or stalled.
@@ -281,7 +289,7 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
       } catch (error) {
         if (missing && ownsRequest() && !currentPlayerReady()) {
           setRecovering(false); setFailed(true);
-          setPreviewError(error instanceof Error ? error.message : 'Playback is unavailable. Try again.');
+          setPreviewError(error instanceof Error ? error.message : 'Playback is unavailable. Try again.', error instanceof Error);
         }
       }
     }
@@ -334,12 +342,16 @@ export function SourceMedia({ src, projectId, source, video, playbackRate, media
   };
   const processing = requesting || preview?.state === 'processing';
   const offerCopy = video && (failed || Boolean(preview?.state === 'ready' && preview.message) || playbackSrc === src && (failed || ['hevc', 'h265'].includes(preview?.videoCodec || '') || preview?.state === 'failed' || preview?.state === 'cancelled'));
+  const failure = playbackFailure(failureCode);
+  const messageIsServerText = previewError
+    ? previewErrorIsServerText
+    : !processing && preview?.state === 'failed' && Boolean(preview.message);
   const message = previewError || (processing ? `Preparing browser playback${preview?.progress ? ` · ${preview.progress}%` : '…'}`
-    : (preview?.state === 'failed' ? preview.message : '') || (recovering ? 'Restarting playback…' : failed ? (stalled ? 'Playback stopped making progress. Retry playback to continue from this position. Your source file and captions are unchanged.' : playbackFailureMessage(failureCode)) : offerCopy ? 'Picture missing? Prepare a local playback copy. Your original stays unchanged.' : ''));
+    : (preview?.state === 'failed' ? preview.message : '') || (recovering ? 'Restarting playback…' : failed ? (stalled ? 'Playback stopped making progress. Retry playback to continue from this position. Your source file and captions are unchanged.' : (t(failure.key) || failure.message)) : offerCopy ? 'Picture missing? Prepare a local playback copy. Your original stays unchanged.' : ''));
   return <>
     {video ? <video key={playerGeneration} ref={attach} {...props}/> : <audio key={playerGeneration} ref={attach} {...props}/>}
     {message && <div className="source-media-status" role="status">
-      <span>{message}</span>
+      <span data-server-text={messageIsServerText || undefined}>{message}</span>
       {preview?.state === 'processing' ? <>{pollStopped && <button type="button" onClick={() => { setPollStopped(false); setPollGeneration((generation) => generation + 1); }}>Check progress</button>}<button type="button" disabled={requesting} onClick={(event) => void cancel(event.currentTarget)}>Cancel preparation</button></>
         : <>
           {(failed || recovering) && <button type="button" onClick={(event) => void retry(event.currentTarget)}>{recovering ? 'Retry again' : 'Retry playback'}</button>}
