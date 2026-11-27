@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { lookNameKey } from '../server-labels';
 import type { CSSProperties } from 'react';
 import {
   CAPTION_LOOKS,
@@ -70,7 +71,12 @@ function boundedSampleText(value?: string) {
 export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, onReset }: Props) {
   const { t, tr } = useI18n();
   const activeLook = matchingCaptionLook(appearance);
-  const activeLookLabel = CAPTION_LOOKS.find((look) => look.id === activeLook)?.label || t('appearance.looks.custom');
+  const lookLabel = ({ id, label }: CaptionLook) => {
+    const key = lookNameKey(id);
+    return key ? t(key) : label;
+  };
+  const activeRecipe = CAPTION_LOOKS.find((look) => look.id === activeLook);
+  const activeLookLabel = activeRecipe ? lookLabel(activeRecipe) : t('appearance.looks.custom');
   const sample = boundedSampleText(sampleCaptionText);
 
   return <section className="caption-effects-section appearance-look-section" aria-labelledby="appearance-look-title">
@@ -81,7 +87,7 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
       <button type="button" className="effect-reset-button" onClick={onReset}>
         <RotateCcw size={14}/>{t('appearance.looks.reset')}</button>
     </div>
-    <div className="appearance-look-current" role="status" data-deferred-text={activeLook ? 'look-name' : undefined}>{tr('appearance.looks.current', { look: activeLookLabel }, {})}</div>
+    <div className="appearance-look-current" role="status">{tr('appearance.looks.current', { look: activeLookLabel }, {})}</div>
     <div className="appearance-look-grid" role="group" aria-label={t('appearance.looks.group')}>
       {CAPTION_LOOKS.map((look) => <button
         key={look.id}
@@ -96,7 +102,7 @@ export function CaptionLooksGallery({ appearance, sampleCaptionText, onSelect, o
           <span style={sampleStyle(look)}>{sample}</span>
         </span>
         <span className="appearance-look-copy">
-          <strong data-deferred-text="look-name">{look.label}</strong>
+          <strong>{lookLabel(look)}</strong>
           <small>{t(`appearance.looks.description.${look.id}`)}</small>
         </span>
       </button>)}

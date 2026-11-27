@@ -56,6 +56,7 @@ Namespaces listed in `i18n/pending.ts` are awaiting Khmer and fall back to Engli
 
 Server-provided secure-storage labels remain English until Settings (Phase C) maps them to catalog keys.
 Server-provided prose and enumerated server codes (job messages and stages, history checkpoint labels and sources, release notes, server progress, regeneration candidate text) remain English until Phase C maps known codes to catalog keys.
+Activity keeps the server job message in English and uses a catalog sentence for known stages in Khmer, with the original server message as the fallback.
 
 Phase B enables Khmer across Export, Compare, Appearance, Fine timing, Accuracy,
 Technical details, Caption grouping, Activity, History, Find / Correct everywhere,

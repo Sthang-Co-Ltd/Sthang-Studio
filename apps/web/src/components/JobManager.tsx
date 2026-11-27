@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n';
+import { activityMessageKey, activityStageNameKey } from '../server-labels';
 import { formatInterfaceDate } from '../i18n/dates';
 import { useEffect, useRef, useState } from 'react';
 import type { CaptionProject, ProcessingJob } from '@kcs/shared';
@@ -211,6 +212,8 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
               : t('activity.durationElapsed', { duration: formatDuration(duration) })
             : '';
           const failedAction = actionErrors[job.id];
+          const messageKey = activityMessageKey(locale, job.stage);
+          const stageNameKey = activityStageNameKey(job.stage);
           return <article ref={entryJobId === job.id ? entryCard : undefined} tabIndex={-1} key={job.id} className={`job-${job.status}`} aria-label={t('activity.jobForProject', { job: label, project: job.projectTitle })}>
             <div className="job-status-icon" aria-hidden="true">{icon(job)}</div>
             <div className="job-copy">
@@ -219,17 +222,17 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
                 <span className="job-state">{status}</span>
                 <span className="job-duration">{durationCopy}</span>
               </div>
-              <p data-server-text>{job.message}</p>
+              <p data-server-text={messageKey ? undefined : true}>{messageKey ? t(messageKey) : job.message}</p>
               <div className="job-progress-line">
                 <div className="job-progress" role="progressbar" aria-label={t('activity.progress', { job: label })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress} aria-valuetext={t('activity.progressStatus', { progress: job.progress, status })}><i style={{ width: `${job.progress}%` }}/></div>
                 <span className="job-percent" aria-hidden="true">{job.progress}%</span>
               </div>
-              {job.error && <em>{job.error}</em>}
+              {job.error && <em data-server-text>{job.error}</em>}
               {job.status === 'completed' && job.resultExport && <ExportJobFreshness job={job} project={project} appearance={appearanceReconciliation.value}/>}
               <details className="job-details">
                 <summary>{t('activity.details')}</summary>
                 <dl>
-                  <div><dt>{t('activity.stage')}</dt><dd data-server-text>{job.stage.replaceAll('-', ' ')}</dd></div>
+                  <div><dt>{t('activity.stage')}</dt><dd data-server-text={stageNameKey ? undefined : true}>{stageNameKey ? t(stageNameKey) : job.stage.replaceAll('-', ' ')}</dd></div>
                   <div><dt>{t('activity.updated')}</dt><dd><time dateTime={job.updatedAt}>{formatInterfaceDate(locale, job.updatedAt, { time: true })}</time></dd></div>
                   {job.resultExport && <div><dt>{t('activity.video')}</dt><dd>{t('activity.videoMetadata', { width: job.resultExport.width, height: job.resultExport.height, frameRate: job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0), size: (job.resultExport.sizeBytes / 1024 / 1024).toFixed(1) })}</dd></div>}
                 </dl>

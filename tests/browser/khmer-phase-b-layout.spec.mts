@@ -214,7 +214,11 @@ for (const viewport of viewports) {
 
     await page.locator('[data-stage="appearance"]').click();
     const workspace = page.locator('.caption-appearance-workspace');
-    await expect(workspace.locator('.appearance-look-grid [data-deferred-text="look-name"]')).toHaveCount(6);
+    const { translate } = await import('../../apps/web/src/i18n/translate.js');
+    const lookIds = ['clean', 'bold-outline', 'soft-shadow', 'solid-box', 'high-contrast', 'soft-glow'] as const;
+    await expect(workspace.locator('.appearance-look-card .appearance-look-copy > strong')).toHaveText(
+      lookIds.map((id) => translate(state.profile.preferences.interfaceLanguage ?? 'en', `looks.${id}`)),
+    );
     await capture('appearance-looks', '.workspace-inspector', workspace.locator('.appearance-look-grid'));
     const font = workspace.locator('.appearance-font-search');
     const fontPicker = workspace.locator('.appearance-font-picker select');

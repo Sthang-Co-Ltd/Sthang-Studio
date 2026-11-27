@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
+import { candidateLabelKey, selectedCandidateReasonKey } from '../server-labels';
 import { formatTimestamp } from '../timestamp';
 import type {
   ProcessingJob,
@@ -75,6 +76,8 @@ export function RegenerationReviewDock({
   onRefine,
 }: Props) {
   const { t, tn, tr } = useI18n();
+  const reason = proposal.selectedCandidateReason;
+  const reasonKey = reason ? selectedCandidateReasonKey(reason) : undefined;
   const [changeIndex, setChangeIndex] = useState(0);
   const proposedOriginal = useMemo(() => naturalText(proposal.proposedCaptions), [proposal]);
   const currentText = useMemo(() => naturalText(proposal.currentCaptions), [proposal]);
@@ -243,12 +246,15 @@ export function RegenerationReviewDock({
 
     {proposal.candidates && proposal.candidates.length > 1 && <details className="regen-candidates">
       <summary><ListChecks size={14}/>{t('compare.dock.candidateDetails')}</summary>
-      <div>{proposal.candidates.map((candidate) => <article key={candidate.id} className={candidate.selected ? 'selected' : ''}>
-        <div><strong data-server-text>{candidate.label}</strong>{candidate.selected && <span>{t('compare.dock.selected')}</span>}</div>
-        <p data-server-text>{candidate.text}</p>
-        <small>{t('compare.dock.candidateTiming', { score: Math.round(candidate.meanAlignmentScore * 100), flagged: candidate.lowConfidenceTokens, total: candidate.totalTokens })}</small>
-      </article>)}</div>
-      {proposal.selectedCandidateReason && <p className="regen-candidate-note" data-server-text>{proposal.selectedCandidateReason}</p>}
+      <div>{proposal.candidates.map((candidate) => {
+        const labelKey = candidateLabelKey(candidate.label);
+        return <article key={candidate.id} className={candidate.selected ? 'selected' : ''}>
+          <div><strong data-server-text={labelKey ? undefined : true}>{labelKey ? t(labelKey) : candidate.label}</strong>{candidate.selected && <span>{t('compare.dock.selected')}</span>}</div>
+          <p data-server-text>{candidate.text}</p>
+          <small>{t('compare.dock.candidateTiming', { score: Math.round(candidate.meanAlignmentScore * 100), flagged: candidate.lowConfidenceTokens, total: candidate.totalTokens })}</small>
+        </article>;
+      })}</div>
+      {reason && <p className="regen-candidate-note" data-server-text={reasonKey ? undefined : true}>{reasonKey ? t(reasonKey) : reason}</p>}
     </details>}
 
   </section>;
