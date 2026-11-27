@@ -32,6 +32,7 @@ interface ProfileDoctorProps {
   doctor: SystemDoctorReport | null;
   doctorLoadState: 'idle' | 'loading' | 'ready' | 'error';
   doctorError: string;
+  doctorErrorIsServerText: boolean;
   busy: boolean;
   currentContext: TranscriptionContext | null;
   onClose(): void;
@@ -61,6 +62,7 @@ export function ProfileDoctor({
   doctor,
   doctorLoadState,
   doctorError,
+  doctorErrorIsServerText,
   busy,
   currentContext,
   onClose,
@@ -280,7 +282,7 @@ export function ProfileDoctor({
         <div className="doctor-intro"><HeartPulse size={24}/><div><strong>{t('settings.tabs.doctor')}</strong><span>{t('system.description')}</span></div><button className="primary" aria-disabled={busy || doctorLoading || undefined} aria-busy={doctorLoading || undefined} aria-describedby={`system-check-status${doctorLoadState === 'error' ? ' system-check-error' : ''}`} onClick={() => { if (!busy && !doctorLoading) onRunDoctor(); }}>{doctorLoading ? t('system.running') : doctorLoadState === 'error' ? t('system.retry') : t('system.run')}</button></div>
         <p id="system-check-status" className="profile-form-feedback" role="status" aria-live="polite" aria-atomic="true">{doctorLoading ? (doctor ? t('system.checkingWithReport') : t('system.checking')) : doctorLoadState === 'ready' ? t('system.complete') : ''}</p>
         {doctorLoadState === 'error' && <p id="system-check-error" className="profile-form-feedback" role="alert">{tr(doctor ? 'system.failureWithReport' : 'system.failureWithoutReport', { error: doctorError || t('system.failure') },
-          { b: (text) => <span data-server-text={doctorError ? true : undefined}>{text}</span> })}</p>}
+          { b: (text) => <span data-server-text={Boolean(doctorError && doctorErrorIsServerText) || undefined}>{text}</span> })}</p>}
         {!doctor && doctorLoadState === 'idle' && <div className="modal-empty"><HeartPulse size={28}/><strong>{t('system.empty')}</strong><span>{t('system.help')}</span></div>}
         {doctor && <>
           <div className={`doctor-summary doctor-${doctor.overall}`}><strong>{doctorStale ? t('system.stale', { summary: doctorSummary }) : doctorSummary}</strong><span data-server-text>{t('system.environment', { date: formatInterfaceDate(locale, doctor.generatedAt, { time: true }), platform: doctor.environment.platform, node: doctor.environment.node })}</span><CopyReportButton label={t('system.copy')} text={JSON.stringify(doctor, null, 2)}/></div>

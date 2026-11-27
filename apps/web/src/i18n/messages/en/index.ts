@@ -15,6 +15,7 @@ import { home } from './home';
 import { inboxMessages } from './inbox';
 import { libraryMessages } from './library';
 import { looksMessages } from './looks';
+import { mediaMessages } from './media';
 import { noticesMessages } from './notices';
 import { privacyMessages } from './privacy';
 import { review } from './review';
@@ -54,4 +55,5 @@ export const en = {
   notices: noticesMessages,
   server: serverMessages,
   looks: looksMessages,
+  media: mediaMessages,
 } as const;
