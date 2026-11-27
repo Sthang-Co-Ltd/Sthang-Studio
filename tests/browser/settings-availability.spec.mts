@@ -43,7 +43,7 @@ for (const width of [1440, 390]) test('Settings keeps its shell and keyboard foc
     initial.release();
     await expect(dialog.getByRole('alert')).toHaveText('Could not load settings');
     await dialog.getByRole('button', { name: 'Profile', exact: true }).click();
-    await expect(dialog.getByLabel('Global protected vocabulary', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
+    await expect(dialog.getByLabel('Key terms for all projects', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
     await dialog.getByRole('button', { name: 'AI connection', exact: true }).click();
     const retryButton = dialog.getByRole('button', { name: 'Retry settings', exact: true });
     await retryButton.focus();
@@ -62,7 +62,7 @@ for (const width of [1440, 390]) test('Settings keeps its shell and keyboard foc
     await expect(dialog).toBeFocused();
     expect(await dialog.evaluate((node) => node === (window as any).__settingsAvailabilityShell)).toBe(true);
     await dialog.getByRole('button', { name: 'Profile', exact: true }).click();
-    await expect(dialog.getByLabel('Global protected vocabulary', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
+    await expect(dialog.getByLabel('Key terms for all projects', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await expect(homeSettings(page)).toBeFocused();
@@ -91,7 +91,7 @@ test('AI connection stays available while preferences load and closing Settings 
     await expect(homeSettings(page)).toBeFocused();
     await homeSettings(page).click();
     await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
-    await expect(settings(page).getByLabel('Global protected vocabulary', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
+    await expect(settings(page).getByLabel('Key terms for all projects', { exact: true })).toHaveValue('Hydrated glossary កម្ពុជា');
   } finally { pending.release(); }
 });
 

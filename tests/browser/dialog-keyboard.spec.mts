@@ -21,9 +21,9 @@ async function expectTrapped(page: Page, dialog: Locator) {
 }
 
 for (const [menu, name] of [
-  [/Correct everywhere/, 'Find & Correct Everywhere'], [/^History/, 'Project history'],
-  [/Processing jobs/, 'Activity'], [/Correction inbox/, 'Correction Inbox'], [/^Settings/, 'Settings'],
-  [/Check for updates/, 'Studio updates'],
+  [/Correct everywhere/, 'Correct everywhere'], [/^History/, 'Project history'],
+  [/Processing jobs/, 'Activity'], [/Correction inbox/, 'Correction inbox'], [/^Settings/, 'Settings'],
+  [/Updates/, 'Updates'],
 ] as const) test(`${name} traps both Tab directions, isolates playback shortcuts and restores its opener`, async ({ page }, info) => {
   await openProject(page); await openTool(page, menu);
   const dialog = page.getByRole('dialog', { name, exact: true });
@@ -47,7 +47,7 @@ test('Find preserves native field keys and composition Escape, then restores the
   await openProject(page);
   const caption = page.getByLabel('Caption 1 text', { exact: true }); await caption.focus();
   await page.keyboard.press('Control+f');
-  const dialog = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
   await expect(dialog.getByLabel('Find', { exact: true })).toBeFocused();
   await dialog.getByLabel('Find', { exact: true }).evaluate((element) => element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: true })));
   await expect(dialog).toBeVisible();
@@ -68,8 +68,8 @@ test('busy Updates cannot dismiss, leak keys, or gain install/download authority
     await route.fulfill({ json: { status: 'unconfigured', currentVersion: 'test', supported: false, message: 'Synthetic fixture' } });
   });
   try {
-    await openProject(page); await openTool(page, /Check for updates/); await entered;
-    const dialog = page.getByRole('dialog', { name: 'Studio updates', exact: true });
+    await openProject(page); await openTool(page, /Updates/); await entered;
+    const dialog = page.getByRole('dialog', { name: 'Updates', exact: true });
     await expect(dialog.getByRole('button', { name: 'Close updates' })).toBeDisabled();
     await expect(dialog).toBeFocused();
     await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();

@@ -44,8 +44,8 @@ const openButton = (page: Page, item: CaptionProject) => page.getByRole('button'
 
 async function showLibrary(page: Page) {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'View all projects' })).toBeVisible();
-  await page.getByRole('button', { name: 'View all projects' }).click();
+  await expect(page.getByRole('button', { name: 'All projects' })).toBeVisible();
+  await page.getByRole('button', { name: 'All projects' }).click();
   await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeVisible();
 }
 
@@ -112,7 +112,7 @@ test('all three sorts paginate deterministically and preserve the chosen view on
   await expect(openButton(page, state.projects[30])).toBeVisible();
   await openButton(page, state.projects[30]).click();
   await expect(page.locator('.project-title strong')).toHaveText(ARCHIVED_TITLE);
-  await page.getByLabel('Back to projects', { exact: true }).click();
+  await page.getByLabel('Back to Home', { exact: true }).click();
   await expect(openButton(page, state.projects[30])).toBeFocused();
   await expect(sort).toHaveValue('title');
   await expect(openButtons(page)).toHaveCount(7);
@@ -152,7 +152,7 @@ test('search uses literal title text, trims and casefolds, normalizes Khmer and 
   await expect(openButtons(page)).toHaveCount(24);
 });
 
-test('Back to projects flushes caption and Accuracy edits and retains query, created sort, and second page', async ({ page }) => {
+test('Back to Home flushes caption and Accuracy edits and retains query, created sort, and second page', async ({ page }) => {
   const state = await fixtureLibrary(page);
   state.profile.preferences.autosaveDelayMs = 60_000;
   const item = state.projects[0];
@@ -174,10 +174,10 @@ test('Back to projects flushes caption and Accuracy edits and retains query, cre
   await openButton(page, item).click();
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(item.captions[0].text);
 
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
-  await page.getByLabel('What is this clip about?', { exact: true }).fill(savedAccuracy);
+  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+  await page.getByLabel('What is this video about?', { exact: true }).fill(savedAccuracy);
   await page.getByLabel('Caption 1 text', { exact: true }).fill(savedCaption);
-  await page.getByLabel('Back to projects', { exact: true }).click();
+  await page.getByLabel('Back to Home', { exact: true }).click();
 
   await expect(openButton(page, item)).toBeFocused();
   await expect.poll(() => item.captions[0].text).toBe(savedCaption);
@@ -190,8 +190,8 @@ test('Back to projects flushes caption and Accuracy edits and retains query, cre
   await openButton(page, item).click();
   await expect(page.locator('.project-title strong')).toHaveText(item.title);
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(savedCaption);
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
-  await expect(page.getByLabel('What is this clip about?', { exact: true })).toHaveValue(savedAccuracy);
+  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+  await expect(page.getByLabel('What is this video about?', { exact: true })).toHaveValue(savedAccuracy);
 });
 
 test('returning on a phone reveals the same project after a refreshed edit moves it to another results page', async ({ page }) => {
@@ -211,7 +211,7 @@ test('returning on a phone reveals the same project after a refreshed edit moves
   // position arrive through the ordinary library refresh on return.
   item.title = 'Project café — ខ្មែរ revised';
   item.updatedAt = new Date(Date.parse(state.projects[13].updatedAt) + 1000).toISOString();
-  await page.getByLabel('Back to projects', { exact: true }).click();
+  await page.getByLabel('Back to Home', { exact: true }).click();
   const returned = openButton(page, item);
   await expect(returned).toBeFocused();
   await expect(returned).toBeInViewport({ ratio: 1 });
@@ -227,7 +227,7 @@ test('returning on a phone reveals the same project after a refreshed edit moves
   await returned.click();
   await expect(field).toHaveValue(item.captions[0].text);
   state.projects = state.projects.filter((project) => project.id !== item.id);
-  await page.getByLabel('Back to projects', { exact: true }).click();
+  await page.getByLabel('Back to Home', { exact: true }).click();
   await expect(resultCountHeading(page)).toHaveText('30 projects');
   await expect(returned).toHaveCount(0);
   const fallback = page.locator('.project-library :is(h1, h2):focus');
@@ -249,7 +249,7 @@ test('a late library refresh preserves a new search and its keyboard focus after
     await route.fulfill({ json: state.projects.map(summarizeProject) });
   });
   try {
-    await page.getByLabel('Back to projects', { exact: true }).click();
+    await page.getByLabel('Back to Home', { exact: true }).click();
     await expect(openButton(page, item)).toBeFocused();
     const search = page.getByRole('searchbox', { name: 'Search projects' });
     await search.fill('Vintage');

@@ -35,19 +35,32 @@ async function seed(name: string, partial: boolean) {
   return { state, directory, media, history, cache, legacy };
 }
 
-function probe(state: string, before = '', exercise = "const response = await fetch(url, { method: 'DELETE' });") {
+function probe(state: string, before = '', exercise = 'const response = await purge();') {
   const script = `
     import fs from 'node:fs/promises'; import path from 'node:path'; import express from 'express'; import { once } from 'node:events'; import assert from 'node:assert/strict';
     const { store } = await import('./apps/server/src/services/store.ts');
     const { config } = await import('./apps/server/src/config.ts');
     await store.list(); ${before}
     const { default: projects } = await import('./apps/server/src/routes/projects.ts');
+    const { default: bin } = await import('./apps/server/src/routes/project-bin.ts');
     const { default: previews } = await import('./apps/server/src/routes/media-preview.ts');
-    const app = express(); app.use(express.json()); app.use('/projects', projects); app.use('/media-preview', previews);
+    const app = express(); app.use(express.json()); app.use('/projects', projects); app.use('/project-bin', bin); app.use('/media-preview', previews);
     app.use((error, req, res, next) => res.status(500).json({ error: 'Synthetic persistence failure' }));
     const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
     try {
       const url = 'http://127.0.0.1:' + server.address().port + '/projects/good';
+      const binUrl = url.replace('/projects/', '/project-bin/');
+      const move = () => fetch(url, { method: 'DELETE' });
+      const instanceRequest = (instanceId, method, suffix = '') => fetch(binUrl + suffix, {
+        method, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instanceId }),
+      });
+      const deleteNow = (instanceId) => instanceRequest(instanceId, 'DELETE');
+      const restore = (instanceId) => instanceRequest(instanceId, 'POST', '/restore');
+      const purge = async () => {
+        const moved = await move();
+        if (moved.status !== 200) return moved;
+        return deleteNow((await moved.json()).instanceId);
+      };
       ${exercise}
       const result = { status: response.status, body: await response.text(), ids: (await store.list()).map(p => p.id) };
       console.log('RESULT:' + JSON.stringify(result));
@@ -65,7 +78,7 @@ test('partial migration API deletion refuses before media, history, or cache cle
   for (let restart = 0; restart < 2; restart++) {
     const result = probe(files.state);
     assert.equal(result.status, 409);
-    assert.equal(JSON.parse(result.body).code, 'PROJECT_STORAGE_RECOVERY_REQUIRED');
+    assert.equal(JSON.parse(result.body).code, 'storage_blocked');
     assert.match(JSON.parse(result.body).error, /restart Studio/);
     for (const secret of [files.state, project.title, project.media.filename, 'broken']) assert.equal(result.body.includes(secret), false);
     assert.deepEqual(result.ids, ['good']);
@@ -104,14 +117,17 @@ test('migration uncertainty discovered on recheck stays blocked until a new safe
 });
 
 for (const failure of ['project-remove', 'order-publish']) {
-  test(`${failure} failure stops API deletion before media/history cleanup`, async () => {
+  test(`${failure} failure retains a durable purging record after media/history cleanup`, async () => {
     const files = await seed(failure, false);
     const injected = failure === 'project-remove'
       ? `const original = fs.rm; fs.rm = async (...args) => { if (String(args[0]) === path.join(path.dirname(config.dataFile), 'projects', 'good.json')) throw new Error('synthetic failure'); return original(...args); };`
       : `const original = fs.rename; fs.rename = async (...args) => { if (String(args[1]) === path.join(path.dirname(config.dataFile), 'projects', 'order.json')) throw new Error('synthetic failure'); return original(...args); };`;
-    assert.equal(probe(files.state, injected).status, 500);
-    for (const file of [files.media, files.history, files.cache]) assert.equal(await fs.readFile(file, 'utf8'), 'synthetic retained bytes');
-    assert.equal(await fs.readFile(path.join(files.directory, 'order.json'), 'utf8'), '["good"]');
+    const result = probe(files.state, injected);
+    assert.equal(result.status, 500);
+    assert.equal(JSON.parse(result.body).code, 'purge_incomplete');
+    for (const file of [files.media, files.history, files.cache]) await assert.rejects(fs.stat(file), { code: 'ENOENT' });
+    assert.ok(JSON.parse(await fs.readFile(path.join(files.directory, 'good.json'), 'utf8')).deletion.purgeStartedAt);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(files.directory, 'order.json'), 'utf8')), failure === 'order-publish' ? ['good'] : []);
   });
 }
 
@@ -169,10 +185,11 @@ test('API deletion aborts and drains preview preparation before removing its rec
   const files = await seed('preview-drain', false);
   const result = probe(files.state, heldPreview, `
     let response;
-    const deleting = fetch(url, { method: 'DELETE' });
+    const deleting = purge();
     try {
       await aborted;
-      assert.deepEqual(await store.get('good'), sourceRecord);
+      assert.equal(await store.get('good'), null);
+      assert.equal((await store.listBinned())[0].purging, false);
       assert.equal(await fs.readFile(sourceFile, 'utf8'), 'synthetic retained bytes');
       assert.deepEqual(destructive, []);
       let settled = false; void deleting.then(() => { settled = true; });
@@ -180,7 +197,7 @@ test('API deletion aborts and drains preview preparation before removing its rec
       assert.equal(settled, false, 'deletion must await the aborted worker releasing its source');
       releaseWorker(); response = await deleting;
       assert.equal(response.status, 204);
-      assert.deepEqual(destructive.map(item => item.target), [recordFile, sourceFile]);
+      assert.deepEqual(destructive.map(item => item.target), [sourceFile, recordFile]);
       assert.ok(destructive.every(item => item.drained));
     } finally { await releaseFixture(); }
   `);
@@ -195,16 +212,20 @@ test('preview cancellation failure leaves the project, source, history and cache
     const originalAbort = previewAbort.abort.bind(previewAbort);
     previewAbort.abort = () => { throw new Error('Synthetic preview cancellation failure'); };
     try {
-      response = await fetch(url, { method: 'DELETE' });
+      response = await purge();
       assert.equal(response.status, 500);
-      assert.deepEqual(await store.get('good'), sourceRecord);
+      assert.equal(await store.get('good'), null);
+      assert.equal((await store.listBinned())[0].purging, false);
       assert.deepEqual(destructive, []);
       assert.equal(await fs.readFile(sourceFile, 'utf8'), 'synthetic retained bytes');
     } finally { previewAbort.abort = originalAbort; await releaseFixture(); }
   `);
-  assert.equal(result.status, 500); assert.deepEqual(result.ids, ['good']);
+  assert.equal(result.status, 500); assert.deepEqual(result.ids, []);
   for (const file of [files.media, files.history, files.cache]) assert.equal(await fs.readFile(file, 'utf8'), 'synthetic retained bytes');
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(files.directory, 'good.json'), 'utf8')), project);
+  const { deletion, ...retained } = JSON.parse(await fs.readFile(path.join(files.directory, 'good.json'), 'utf8'));
+  assert.deepEqual(retained, project);
+  assert.ok(deletion.instanceId);
+  assert.equal(deletion.purgeStartedAt, undefined);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(files.directory, 'order.json'), 'utf8')), ['good']);
 });
 
@@ -260,27 +281,33 @@ for (const boundary of [
     try {
       statusRequest = fetch(url.replace('/projects/', '/media-preview/') + '?source=' + encodeURIComponent(sourceRecord.media.filename));
       await reading;
+      const moved = await move();
+      assert.equal(moved.status, 200);
+      const { instanceId } = await moved.json();
+      originalBytes[0] = await fs.readFile(recordFile);
       const began = performance.now();
-      response = await fetch(url, { method: 'DELETE' });
+      response = await deleteNow(instanceId);
       const failure = {
         status: response.status,
         elapsedMs: performance.now() - began,
-        projectPresent: Boolean(await store.get('good')),
+        restorable: (await store.listBinned()).some(item => item.id === 'good' && !item.purging),
         recordPresent: await fs.stat(recordFile).then(() => true, () => false),
         sourcePresent: await fs.stat(sourceFile).then(() => true, () => false),
         previewPresent: await fs.stat(previewFile).then(() => true, () => false),
         historyPresent: await fs.stat(path.join(config.historyDir, 'good.json')).then(() => true, () => false),
         cachePresent: await fs.stat(path.join(config.cacheDir, 'good', 'retained.txt')).then(() => true, () => false),
       };
-      assert.deepEqual(await store.get('good'), sourceRecord);
+      assert.equal(await store.get('good'), null);
       assert.deepEqual(await Promise.all(preservedFiles.map(file => fs.readFile(file))), originalBytes);
       release(); fs.${boundary.method} = originalRead;
       const status = await statusRequest;
       assert.equal(status.status, 200);
       assert.equal((await status.json()).state, 'ready', 'the preserved cached copy remains readable after the failed drain');
-      const retry = await fetch(url, { method: 'DELETE' });
+      assert.equal((await restore(instanceId)).status, 200);
+      assert.deepEqual(await store.get('good'), sourceRecord);
+      const retry = await purge();
       console.log('DELETION-OBSERVED:' + JSON.stringify({ ...failure, retryStatus: retry.status }));
-      assert.equal(failure.projectPresent, true, 'a failed reader drain must retain the project for retry');
+      assert.equal(failure.restorable, true, 'a failed reader drain must retain the project for restore');
       for (const key of ['recordPresent', 'sourcePresent', 'previewPresent', 'historyPresent', 'cachePresent']) assert.equal(failure[key], true, key);
       assert.equal(failure.status, 409);
       assert.ok(failure.elapsedMs >= 2900, 'the real three-second drain deadline must expire');
@@ -302,17 +329,15 @@ for (const failRemoval of [false, true]) test(`deletion keeps preview admission 
     const previewService = await import('./apps/server/src/services/media-preview.ts');
     const originalRm = fs.rm;
     const originalLstat = fs.lstat;
-    let enterRemoval, releaseRemoval, enterCache, releaseCache, holdRemoval = true, previewReads = 0;
+    let enterRemoval, releaseRemoval, holdRemoval = true, previewReads = 0;
     const removing = new Promise(resolve => { enterRemoval = resolve; });
     const removalGate = new Promise(resolve => { releaseRemoval = resolve; });
-    const clearingCache = new Promise(resolve => { enterCache = resolve; });
-    const cacheGate = new Promise(resolve => { releaseCache = resolve; });
+    const pauseFile = ${failRemoval} ? recordFile : path.join(config.cacheDir, 'good');
     fs.rm = async (...args) => {
-      if (holdRemoval && String(args[0]) === recordFile) {
+      if (holdRemoval && String(args[0]) === pauseFile) {
         holdRemoval = false; enterRemoval(); await removalGate;
         if (${failRemoval}) throw new Error('Synthetic record removal failure');
       }
-      if (!${failRemoval} && String(args[0]) === path.join(config.cacheDir, 'good')) { enterCache(); await cacheGate; }
       return originalRm(...args);
     };
     fs.lstat = async (...args) => {
@@ -320,20 +345,24 @@ for (const failRemoval of [false, true]) test(`deletion keeps preview admission 
       return originalLstat(...args);
     };
     let response;
-    const deleting = fetch(url, { method: 'DELETE' });
+    const moved = await move(); assert.equal(moved.status, 200);
+    const { instanceId } = await moved.json();
+    const deleting = deleteNow(instanceId);
     try {
       await removing;
-      assert.deepEqual(await store.get('good'), sourceRecord, 'the project is still discoverable at the admission check');
+      assert.equal(await store.get('good'), null);
+      assert.equal((await store.listBinned())[0].purging, true);
+      assert.ok(JSON.parse(await fs.readFile(recordFile, 'utf8')).deletion.purgeStartedAt);
       const previewUrl = url.replace('/projects/', '/media-preview/');
       const status = await fetch(previewUrl + '?source=' + encodeURIComponent(sourceRecord.media.filename));
-      assert.equal(status.status, 409); await status.arrayBuffer();
+      assert.equal(status.status, 404); await status.arrayBuffer();
       for (const method of ['GET', 'HEAD']) {
         const file = await fetch(previewUrl + '/file/' + filename, { method, headers: { Range: 'bytes=0-8' } });
-        assert.equal(file.status, 409); await file.arrayBuffer();
+        assert.equal(file.status, 404); await file.arrayBuffer();
       }
       for (const method of ['POST', 'DELETE']) {
         const operation = await fetch(previewUrl, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: sourceRecord.media.filename }) });
-        assert.equal(operation.status, 409); await operation.arrayBuffer();
+        assert.equal(operation.status, 404); await operation.arrayBuffer();
       }
       const duplicate = await fetch(url, { method: 'DELETE' }); assert.equal(duplicate.status, 409); await duplicate.arrayBuffer();
       const form = new FormData();
@@ -342,38 +371,30 @@ for (const failRemoval of [false, true]) test(`deletion keeps preview admission 
       form.append('media', new Blob(['synthetic replacement bytes'], { type: 'video/mp4' }), 'replacement.mp4');
       const replacement = await fetch(url + '/replace-media', { method: 'POST', body: form });
       assert.equal(replacement.status, 409); assert.equal((await replacement.json()).code, 'MEDIA_PROJECT_BUSY');
-      assert.deepEqual(await fs.readdir(config.uploadDir), [sourceRecord.media.filename], 'rejected replacement removes only its own upload');
+      assert.deepEqual(await fs.readdir(config.uploadDir), [], 'rejected replacement removes its own upload');
       assert.equal(previewReads, 0, 'refused requests cannot enter cached file validation');
-      assert.deepEqual(await store.get('good'), sourceRecord);
-      assert.equal(await fs.readFile(sourceFile, 'utf8'), 'synthetic retained bytes');
-      assert.equal(await fs.readFile(previewFile, 'utf8'), previewBytes);
+      // Nested preview invalidation has finished. The outer purge still fences
+      // a status request that captured the project before it became hidden.
+      for (const attempt of [
+        () => previewService.mediaPreviewStatus(sourceRecord),
+        () => previewService.startMediaPreview(sourceRecord),
+        () => previewService.acquireMediaPreviewFile(sourceRecord, filename),
+      ]) await assert.rejects(attempt, error => error.httpStatus === 409);
       releaseRemoval();
-      if (!${failRemoval}) {
-        await clearingCache;
-        // The nested preview invalidation has finished, but the outer deletion
-        // still owns admission. Stale captured project handles must stay fenced.
-        for (const attempt of [
-          () => previewService.mediaPreviewStatus(sourceRecord),
-          () => previewService.startMediaPreview(sourceRecord),
-          () => previewService.acquireMediaPreviewFile(sourceRecord, filename),
-        ]) await assert.rejects(attempt, error => error.httpStatus === 409);
-        releaseCache();
-      }
       response = await deleting;
       assert.equal(response.status, ${failRemoval ? 500 : 204});
       if (${failRemoval}) {
-        assert.deepEqual(await store.get('good'), sourceRecord);
-        assert.deepEqual(JSON.parse(await fs.readFile(recordFile, 'utf8')), sourceRecord);
-        assert.equal(await fs.readFile(sourceFile, 'utf8'), 'synthetic retained bytes');
-        assert.equal(await fs.readFile(path.join(config.historyDir, 'good.json'), 'utf8'), 'synthetic retained bytes');
-        assert.equal(await fs.readFile(path.join(config.cacheDir, 'good', 'retained.txt'), 'utf8'), 'synthetic retained bytes');
-        const ready = await fetch(previewUrl + '?source=' + encodeURIComponent(sourceRecord.media.filename));
-        assert.equal(ready.status, 200); assert.equal((await ready.json()).state, 'ready');
+        assert.equal(await store.get('good'), null);
+        const { deletion, ...retained } = JSON.parse(await fs.readFile(recordFile, 'utf8'));
+        assert.deepEqual(retained, sourceRecord);
+        assert.equal(deletion.instanceId, instanceId);
+        assert.ok(deletion.purgeStartedAt);
+        assert.equal((await restore(instanceId)).status, 409);
         fs.rm = originalRm;
-        assert.equal((await fetch(url, { method: 'DELETE' })).status, 204, 'failed callback releases both admission gates for retry');
+        assert.equal((await deleteNow(instanceId)).status, 204, 'failed callback releases both admission gates for retry');
       }
     } finally {
-      releaseRemoval(); releaseCache(); fs.rm = originalRm; fs.lstat = originalLstat;
+      releaseRemoval(); fs.rm = originalRm; fs.lstat = originalLstat;
       await deleting.catch(() => {});
     }
   `);

@@ -135,7 +135,7 @@ test('resuming Follow leaves an owned Review tight loop and its selection intact
   await page.setViewportSize({ width: 390, height: 900 });
   await openProject(page);
   await rememberNativeNodes(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   const review = page.getByRole('complementary', { name: 'Review workspace', exact: true });
   await expect(review).toBeVisible();
   await expect.poll(() => selection(page)).toEqual(['follow-0']);

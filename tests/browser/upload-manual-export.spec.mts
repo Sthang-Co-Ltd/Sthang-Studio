@@ -87,7 +87,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     const closeGuide = page.getByRole('button', { name: 'Close guide' });
     await expect(closeGuide).toBeHidden();
     await page.getByLabel('Open project tools', { exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Quick guide' }).click();
+    await page.getByRole('menuitem', { name: 'Guide' }).click();
     await closeGuide.click();
     await page.getByRole('button', { name: 'Add caption', exact: true }).click();
     const field = page.getByLabel('Caption 1 text', { exact: true });
@@ -96,7 +96,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await field.fill(caption);
     await field.press('Tab');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     // Video blockers (such as a missing font) expand these checks automatically.
     // Exercise the same transition on machines where the video font is installed.
     const videoIssues = page.locator('.export-check-details');
@@ -123,8 +123,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
       '1', '00:00:00,000 --> 00:00:01,500', caption,
     ]);
 
-    await page.getByRole('button', { name: 'Back to projects' }).click();
-    await page.getByRole('button', { name: 'View all projects' }).click();
+    await page.getByRole('button', { name: 'Back to Home' }).click();
+    await page.getByRole('button', { name: 'All projects' }).click();
     await page.getByLabel('Search projects').fill('no matching title');
     await expect(page.getByRole('heading', { name: 'No projects match your search' })).toBeVisible();
     await page.getByRole('button', { name: 'Show all projects' }).click();

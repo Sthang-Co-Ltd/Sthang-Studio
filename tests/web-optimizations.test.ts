@@ -32,7 +32,7 @@ const defaultEditorProps = {
 // Item 1: CaptionEditor render-path indexing
 // ---------------------------------------------------------------------------
 
-test('CaptionEditor displays 1-indexed padded row numbers matching original caption indices', () => {
+test('CaptionEditor displays row numbers matching original caption indices', () => {
   const captions: CaptionSegment[] = [
     makeCaption('c-1', 'Caption 1', 0, 1000),
     makeCaption('c-2', 'Caption 2', 1000, 2000),
@@ -46,9 +46,9 @@ test('CaptionEditor displays 1-indexed padded row numbers matching original capt
     })
   );
 
-  assert.ok(html.includes('<span class="row-index">01</span>'), 'Row 1 index is 01');
-  assert.ok(html.includes('<span class="row-index">02</span>'), 'Row 2 index is 02');
-  assert.ok(html.includes('<span class="row-index">03</span>'), 'Row 3 index is 03');
+  assert.ok(html.includes('<span class="row-index">1</span>'), 'Row 1 index is 1');
+  assert.ok(html.includes('<span class="row-index">2</span>'), 'Row 2 index is 2');
+  assert.ok(html.includes('<span class="row-index">3</span>'), 'Row 3 index is 3');
 });
 
 test('CaptionEditor preserves first-occurrence findIndex semantics when duplicate IDs exist', () => {
@@ -68,7 +68,7 @@ test('CaptionEditor preserves first-occurrence findIndex semantics when duplicat
   // Both rows with id 'dup-1' should resolve to the first occurrence index (0 -> '01')
   // just as captions.findIndex would have done
   const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(matches, ['01', '02', '01'], 'Duplicate ID maps to first occurrence index 01');
+  assert.deepEqual(matches, ['1', '2', '1'], 'Duplicate ID maps to first occurrence index 1');
 });
 
 test('CaptionEditor in review mode displays original caption array indices for filtered subset', () => {
@@ -80,8 +80,8 @@ test('CaptionEditor in review mode displays original caption array indices for f
   ];
 
   const issues: ReviewIssue[] = [
-    { captionId: 'c-2', severity: 'warning', reasons: ['High reading speed'] },
-    { captionId: 'c-4', severity: 'error', reasons: ['Overlaps with next'] },
+    { captionId: 'c-2', severity: 'warning', reasons: [{ code: 'fast-reading', label: 'Too fast to read', hint: 'Consider making it longer.' }] },
+    { captionId: 'c-4', severity: 'error', reasons: [{ code: 'overlap', label: 'Overlaps previous', hint: 'Check the boundary.' }] },
   ];
 
   const html = renderToStaticMarkup(
@@ -93,9 +93,9 @@ test('CaptionEditor in review mode displays original caption array indices for f
     })
   );
 
-  // Visible rows should only be c-2 and c-4, but their row numbers should be 02 and 04
+  // Visible rows should only be c-2 and c-4, but their row numbers should be 2 and 4
   const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(matches, ['02', '04'], 'Review mode displays original list indices 02 and 04');
+  assert.deepEqual(matches, ['2', '4'], 'Review mode displays original list indices 2 and 4');
 });
 
 test('CaptionEditor renders 500 captions with O(1) index lookups accurately without index errors', () => {
@@ -113,7 +113,7 @@ test('CaptionEditor renders 500 captions with O(1) index lookups accurately with
 
   const matches = [...html.matchAll(/<span class="row-index">(\d+)<\/span>/g)].map((m) => m[1]);
   assert.equal(matches.length, 500, 'All 500 captions rendered');
-  assert.equal(matches[0], '01', 'First caption index is 01');
+  assert.equal(matches[0], '1', 'First caption index is 1');
   assert.equal(matches[9], '10', 'Tenth caption index is 10');
   assert.equal(matches[499], '500', 'Last caption index is 500');
 });
@@ -203,7 +203,7 @@ test('FindReplacePanel rendering smoke check: renders modal markup structure whe
     })
   );
 
-  assert.ok(html.includes('Find &amp; Correct Everywhere') || html.includes('Find & Correct Everywhere'), 'Panel title rendered');
+  assert.ok(html.includes('Correct everywhere'), 'Panel title rendered');
   assert.ok(html.includes('Preview every occurrence'), 'Preview description rendered');
   assert.ok(html.includes('find-replace-modal'), 'Modal class rendered');
 });

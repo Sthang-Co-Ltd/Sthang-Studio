@@ -32,9 +32,9 @@ existing primary headings and Khmer-friendly caption leading; do not scale nativ
 video-caption text with the interface. Responsive controls retain their labeled
 44px touch targets.
 
-The existing Google Fonts stylesheet supplies the interface fonts with
-`display=swap`; system fallbacks remain usable when it is unavailable. See
-`PRIVACY.md` and `THIRD_PARTY_NOTICES.md` for the hosted-font boundary and licenses.
+Studio bundles the interface fonts with the app. With `font-display: swap`,
+system fallbacks display while the faces load. See [Privacy](PRIVACY.md) for
+font delivery and [Third-Party Notices](THIRD_PARTY_NOTICES.md) for the licenses.
 
 ## Hierarchy
 
@@ -59,24 +59,34 @@ separate from this operational icon system.
 
 ### Project header
 
-Only frequent actions remain visible:
+The project header carries the stage rail, followed by **Tools** and **Save**.
 
 ```text
-Review · Tools · Save · Export
+Captions · Review · Appearance · Export
 ```
 
-**Export** opens one focused output workspace. It does not immediately download a
-file because Studio now has two legitimate output paths: editable SRT and finished
-captioned video. Less-used actions live in the labeled **Tools** menu. Never
-collapse them into unexplained icon-only buttons at narrower widths.
+Exactly one stage is current. Selecting it again keeps it open. **Captions**
+returns to caption editing and **Appearance** is available on video projects.
+**Export** keeps its lime fill and adds an inset ring when current. It opens the
+output workspace for editable SRT and finished captioned video.
+
+At 1200px and above, center the rail between the project identity and the
+right-aligned Tools and Save actions. From 621 to 1199px, the rail can share a row
+with Tools and Save when they fit. At 620px and below, the rail uses a full-width
+row of equal text-only buttons at least 44px tall, above Tools and Save. At 380px
+and below, use two columns. Keep every stage label visible at every width.
 
 ### Editor
 
-The video and caption list are the persistent core. Review opens from the project header. The tool strip opens one specialist workspace at a time.
+The video and caption list are the persistent core. Review is a stage in the
+project header. The Captions stage owns a strip that opens one specialist
+workspace at a time.
 
 ```text
-Fine timing · Accuracy · Caption grouping · Appearance · Details
+Fine timing · Accuracy · Caption grouping
 ```
+
+**Technical details** lives in the **Tools** menu under **Project and setup**.
 
 Use the refined A desktop layout at widths of 1200px and above: default preview
 left, complete caption-list pane in the middle, and one optional inspector right.
@@ -165,8 +175,8 @@ Keep Apply focusable during the save and leave focus where the user moves it.
 On failure, show the shared error toast and keep the draft available for retry.
 Use a full-width bordered disclosure row with the current choice, a right-hand
 chevron, and clear hover and keyboard-focus states so AI options reads as a control.
-Preserve labeled keyboard focus and 44px mobile controls. Details continues to
-show the model that actually generated the saved wording.
+Preserve labeled keyboard focus and 44px mobile controls. Technical details
+shows the model that actually generated the saved wording.
 
 ### Caption appearance workspace
 
@@ -174,11 +184,11 @@ Caption appearance is **project editing state**, not an export setting. Creators
 should be able to decide how their captions look while watching the actual video,
 before they reach Export.
 
-- Show **Appearance** as a labeled editor workspace once a video project has
-  captions to judge.
+- Show **Appearance** as a labeled stage on video projects and enable it once
+  there are captions to judge.
 - Keep the real video evidence visible. The editor caption overlay should reflect
   the current project appearance while the creator works across Review, Fine
-  timing, Accuracy, Caption grouping, Appearance, and Details. Appearance is the
+  timing, Accuracy, Caption grouping, Appearance, and Technical details. Appearance is the
   focused place for changing the look, not a temporary styling mode.
 - Treat only a decoded frame for the current settings as layout-locked.
   The preview is rendered as native transparent RGBA PNG frames by the exact same
@@ -607,7 +617,7 @@ it must not invent a second consent contract.
 ## Accessibility floor
 
 Product dialogs share focus entry, forward/reverse Tab containment, topmost-only
-Escape dismissal and return focus to a connected opener. Find & Correct starts in
+Escape dismissal and return focus to a connected opener. Correct everywhere starts in
 Find; destructive confirmations start on the safe decision. Updates and the privacy
 introduction start on their dialog root so async disabled controls and consent
 choices do not steal initial focus. Busy guards remain authoritative. Composition
@@ -631,7 +641,7 @@ Escape cannot close it; leaving that field clears stale composition ownership.
 - Update availability and release notes use the same restrained side-sheet
   language. The updater may surface a calm notice, but must never open itself or
   cover active caption work automatically.
-- Keep **Check for updates** in secondary Home/Tools surfaces. Download and
+- Keep **Updates** in secondary Home/Tools surfaces. Download and
   install remain distinct labeled actions, and unsafe active work must be
   explained before those actions can proceed.
 - In source builds, a failed update recheck always offers **Check again**, even
@@ -706,7 +716,7 @@ Prefer:
   followed by precise data disclosure.
 - “Verified corrections” only after corpus verification, not after upload.
 
-Technical details remain available in **Details**, diagnostics, export Advanced,
+Technical details remain available in **Tools**, diagnostics, export Advanced,
 and privacy explanations where the provider/storage distinction is material to a
 user's choice.
 
@@ -848,6 +858,14 @@ preserves editor geometry and drafts, and returns focus on dismissal. Hover/focu
 hints also expose the names; small screens retain a labeled Project details
 control. Recent-project titles wrap within their existing cards. Never hide a
 full name behind a pointer-only native title.
+
+**Rename** replaces the name row with a selected **Project name** input and
+**Save** and **Cancel**. Enter saves. Escape from the name input cancels the
+edit and returns focus to **Rename**. Elsewhere, Escape dismisses Project
+details. A name conflict shows the current saved name and keeps the name the
+creator typed for a deliberate second Save. Publishing a name updates the header,
+hint and project summary without replacing the editor's caption, appearance or
+Accuracy drafts.
 Project details accepts only plain Escape and the exact Ctrl/Command+F handoff.
 Menus similarly ignore composing keys and unrelated modifier combinations for
 opening, navigation, dismissal and Tab. Preserve Shift+Tab and uppercase typeahead.
@@ -857,7 +875,7 @@ locking prerequisite in visible text. Fine timing names missing or locked
 adjoining-caption prerequisites beside the affected edge, with accessible
 descriptions. Explanations must not unlock, save, or otherwise alter a caption.
 
-Find & Correct highlights changed grapheme spans in its existing Before/After
+Correct everywhere highlights changed grapheme spans in its existing Before/After
 preview, using distinct underlines and restrained colors. Exact text, whitespace,
 locks and replacement rules remain owned by the replacement plan; preview markup
 never changes the applied edit. Bound comparison work to visible rows, and retain
@@ -890,7 +908,7 @@ not evidence of a public release.
 
 ### Correction recovery and value feedback (source-only)
 
-Find & Correct applies a replacement once, then saves the optional glossary rule
+Correct everywhere applies a replacement once, then saves the optional glossary rule
 as a separate step. A failed glossary save keeps the applied caption edits and
 offers **Retry glossary save** for the captured rule and scope only. Repeated
 activation must not repeat the replacement. Confirm success only when the rule
@@ -940,8 +958,8 @@ form, retain drafts and support retrying the same file. Local file validation
 expects an exported Studio profile; server normalization and privacy rules remain
 authoritative. These form drafts are not new persistent recovery storage.
 
-Accuracy's **Save globally** owns a captured normalized glossary and its receipt.
-Guard repeated submission synchronously, show **Saving globally…**, and compare
+Accuracy's **Save to all projects** owns a captured normalized glossary and its receipt.
+Guard repeated submission synchronously, show **Saving to all projects…**, and compare
 the acknowledged vocabulary before reporting success. Keep the full raw draft on
 partial or failed saves; distinguish newer edits from the earlier saved glossary.
 Publish only the vocabulary field while its starting state is still current, so a
@@ -994,7 +1012,7 @@ changed. Keep successful comparisons for other formats and ignore late results
 for an old content basis. Activity's completed-video comparison uses the same
 failure and retry distinction; downloading remains independently available.
 
-Quick guide includes a collapsed Keyboard shortcuts section, grouped into editing
+Guide includes a collapsed Keyboard shortcuts section, grouped into editing
 and playback versus Review-only actions. Show Command/Option on macOS and Ctrl/Alt
 on Windows. The guide uses one scrollable body below its persistent header;
 shortcut help does not change key handling or add another workspace.
@@ -1066,7 +1084,7 @@ and wording ahead of the decision buttons, then offer optional refinement. Keep 
 progress visible when refinement is collapsed. An unavailable saved preview font
 links to the font picker in Appearance and leaves the saved choice with the user.
 
-Quick guide is a nonmodal companion. Focus its Close control on explicit opening,
+Guide is a nonmodal companion. Focus its Close control on explicit opening,
 allow Tab to leave for the editor, and return focus to a connected launcher only
 while the guide owns the interaction. Escape respects composition and foreground
 dialogs or menus. Hand off focus before opening Settings; Accuracy receives its
@@ -1148,9 +1166,9 @@ submitted mode and character target only after they are confirmed in the respons
 preserve newer control values and unrelated newer profile preferences. Save and
 Apply grouping remain separate actions.
 
-Correction Inbox decisions focus their named card at activation. If it disappears
+Correction inbox decisions focus their named card at activation. If it disappears
 from Pending after success, hand off to the next surviving card, then the previous
-one, or the persistent Pending filter. History retains its resolved card; failure
+one, or the persistent Pending filter. Resolved retains its resolved card; failure
 restores the available initiating action. Invalidate the handoff when the user
 changes focus, filter, or dialog visibility. Reveal the chosen target instantly.
 
@@ -1376,6 +1394,30 @@ and mixed-language content. Keyboard focus, explicit labels and mobile touch
 targets follow the existing interface rules. Returning from the editor retains
 the collection view in this tab; a pending open must not win after a newer
 navigation choice. Keep the saved-project/conflict/recovery workflow intact.
+
+Each row has a separate, labeled **More** button. Its menu offers **Rename…**
+and **Move to Recently deleted** with arrow keys, Home, End and typeahead.
+Escape returns focus to **More**. The **Rename project** dialog opens with its
+**Project name** selected. Enter saves, Escape cancels, and dismissal returns
+focus to **More** when the row still matches the current library view.
+
+Moving is immediate and offers **Undo** in the shared toast stack. Move focus to
+the next Open button, the previous one when necessary, or the results heading
+when there are no rows. Undo restores the project and focuses its Open button
+when the library is still in use. A confirmed move or restore replaces any
+pending collection read so an older list cannot put the item back.
+
+**Recently deleted** stays visible even with zero active projects and shows a
+count when entries exist. **Back to All projects** returns focus to that button.
+Explain that projects can be restored until the date shown, Studio removes
+expired items the next time it runs, and deleted projects still use disk space.
+Show the title, caption count, **Deleted** date and **Restore until** date.
+**Restore** moves focus to the next available Restore button or the heading.
+**Delete now** requires confirmation and explains that captions, History and
+Studio's source copy are removed and exported files are kept. For removal in
+progress, show “Removing… If this doesn't clear, review storage.” with
+**Review storage**. A failed load offers **Try again**. Keep the labeled row
+actions at least 44px high on phones.
 
 Refresh collection metadata when returning to Home/All projects, on foreground
 return while that collection is visible, and through **Refresh projects**. Retain

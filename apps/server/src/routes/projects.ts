@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from 'express';
+import { deleteProject } from './project-bin.js';
 import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -6,13 +7,12 @@ import { nanoid } from 'nanoid';
 import { hasWordTimingEvidence, reconcileCaptionWordTiming, resolveCaptionWordTiming, validateMarkedWordTiming,
   type CaptionProject, type CaptionSegment, type CaptionMode, type CaptionWord, type QaProfileSettings, type RegenerationApplyMode } from '@kcs/shared';
 import { config } from '../config.js';
-import { ProjectDeletionBlockedError, store } from '../services/store.js';
+import { store } from '../services/store.js';
 import { profileStore } from '../services/profile-store.js';
 import { createProjectFromUpload, ProjectCreationError } from '../services/project-creation.js';
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
-import { ensureNormalizedAudio, invalidateProjectCache } from '../services/cache.js';
-import { MediaPreviewError, withMediaPreviewDrain } from '../services/media-preview.js';
+import { ensureNormalizedAudio } from '../services/cache.js';
 import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
 import { recordExportEvidence } from '../services/export-evidence.js';
@@ -37,7 +37,7 @@ import { isCaptionGenerationModel } from '../services/generation-settings.js';
 import { MediaCompatibilityError } from '../services/media-compatibility.js';
 import { assertRetainedTimingCanBeDerived, MediaAlignmentUnverifiedError } from '../services/media-alignment.js';
 import {
-  replaceProjectMedia, restoreProjectMedia, listMediaReplacements, discardMediaReplacement, clearRetiredMediaSources,
+  replaceProjectMedia, restoreProjectMedia, listMediaReplacements, discardMediaReplacement,
   MediaReplacementError, type MediaReplacementMode,
 } from '../services/media-replacement.js';
 import {
@@ -591,8 +591,10 @@ router.post('/:id/history/:historyId/restore', async (req, res) => {
       await historyStore.checkpoint(current, 'Before restoring an earlier version', 'restore');
       const restored: CaptionProject = {
         ...entry.snapshot,
+        deletion: undefined,
         wordHighlightFollow: undefined,
         id: current.id,
+        title: current.title,
         media: current.media,
         mediaAlignment: current.mediaAlignment,
         captions: entry.snapshot.captions.map(sanitizeCaptionWordTiming),
@@ -914,33 +916,29 @@ router.get('/:id/export.srt', async (req, res) => {
   res.send(srt);
 });
 
-router.delete('/:id', async (req, res) => {
+router.put('/:id/title', async (req, res) => {
+  const input = req.body?.title;
+  const expectedTitle = req.body?.expectedTitle;
+  if (typeof input !== 'string' || typeof expectedTitle !== 'string' || /\p{Cc}/u.test(input)) {
+    return res.status(400).json({ error: 'Enter a project name of 1 to 120 characters without control characters.' });
+  }
+  const title = input.trim().replace(/\s+/gu, ' ');
+  if (!title || Array.from(title).length > 120) return res.status(400).json({ error: 'Enter a project name of 1 to 120 characters.' });
   try {
-    await jobAdmission.changeProjectMedia(req.params.id, () => jobStore.hasActiveForProject(req.params.id), async () => {
-      const project = await store.get(req.params.id);
-      if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-      // Drain preparation and preview metadata/file readers before durable
-      // deletion. Keep admission closed through cleanup, and preserve published
-      // caches if the drain or migration/persistence checks refuse deletion.
-      await withMediaPreviewDrain(project.id, async () => {
-        await store.remove(req.params.id);
-        await fs.rm(path.join(config.uploadDir, project.media.filename), { force: true });
-        await invalidateProjectCache(project.id);
-        // Recovery media and snapshots are project-owned children of historyDir.
-        await clearRetiredMediaSources(project.id);
-        await historyStore.clear(project.id);
-        await proposalStore.removeProject(project.id);
-        await jobStore.removeProject(project.id);
-        await contributionStore.removeProject(project.id).catch(() => {});
-      });
-      res.status(204).end();
+    const result = await store.withProjectWrite(req.params.id, async (current, persist) => {
+      if (!current) return null;
+      if (current.title !== expectedTitle) return { conflict: true as const, title: current.title };
+      if (current.title !== title) await persist({ ...current, title });
+      return { id: current.id, title };
     });
-  } catch (error) {
-    if (error instanceof ProjectDeletionBlockedError) return res.status(409).json({ error: error.message, code: error.code });
-    if (error instanceof MediaPreviewError) return res.status(error.httpStatus).json({ error: error.message });
-    if (error instanceof JobAdmissionError) return res.status(409).json({ error: error.message });
-    throw error;
+    if (!result) return res.status(404).json({ error: 'Project not found.' });
+    if ('conflict' in result) return res.status(409).json({ code: 'title_conflict', error: 'The project name changed. Review the current name and try again.', title: result.title });
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: 'Studio could not save the project name.' });
   }
 });
+
+router.delete('/:id', deleteProject);
 
 export default router;

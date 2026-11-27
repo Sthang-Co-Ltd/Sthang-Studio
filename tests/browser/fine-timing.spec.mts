@@ -267,7 +267,7 @@ test('same-project media changes discard obsolete waveform caches', async ({ pag
   const originalMedia = structuredClone(state.projects[0].media);
   const audioRequests = () => state.requests.filter((request) => request.path.endsWith('/normalized-audio.wav')).length;
   const originalRequests = audioRequests();
-  await page.getByLabel('Back to projects').click();
+  await page.getByLabel('Back to Home').click();
   state.projects[0].media = { ...state.projects[0].media, filename: 'replacement.mp4', size: 6000, url: '/media/replacement.mp4' };
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await page.getByRole('button', { name: /^Fine timing$/i }).click();
@@ -275,7 +275,7 @@ test('same-project media changes discard obsolete waveform caches', async ({ pag
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
   expect(audioRequests()).toBeGreaterThan(originalRequests);
   const replacementRequests = audioRequests();
-  await page.getByLabel('Back to projects').click();
+  await page.getByLabel('Back to Home').click();
   state.projects[0].media = originalMedia;
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await page.getByRole('button', { name: /^Fine timing$/i }).click();

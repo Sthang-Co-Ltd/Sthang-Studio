@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   state = await installFixture(page);
   state.projects[0].captions[0].text = 'old';
 });
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+const panel = (page: Page) => page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
 const apply = (page: Page) => panel(page).getByRole('button', { name: 'Replace editable matches', exact: true });
 const retry = (page: Page) => panel(page).getByRole('button', { name: 'Retry glossary save', exact: true });
 async function find(page: Page, remember = 'global') {
@@ -95,8 +95,8 @@ test('a normalized project reply cannot confirm a missing rule or discard newer 
     await find(page, 'project'); await apply(page).click();
     await expect.poll(() => writes).toBe(1);
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
-    const description = page.getByLabel('What is this clip about?', { exact: true });
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
+    const description = page.getByLabel('What is this video about?', { exact: true });
     await description.fill('Newer context កម្ពុជា');
     await page.keyboard.press('Control+f');
     gate.resolve();
@@ -146,7 +146,7 @@ test('a late glossary reply from another project cannot alter its captions or cl
     await expect.poll(() => held).toBe(true);
     await page.keyboard.press('Escape');
     await expect.poll(() => state.projects[0].captions[0].text).toBe('old!');
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(page.getByLabel('Caption 1 text', { exact: true })).toBeVisible();
     await page.keyboard.press('Control+f');

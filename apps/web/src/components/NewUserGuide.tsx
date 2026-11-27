@@ -103,7 +103,7 @@ export function NewUserGuide({
   ];
   const reviewShortcuts = [['Enter or A', 'Approve & next'], ['S', 'Skip without approving'], ['Up / Down', 'Previous / next flagged caption']];
   return <aside ref={guide} className="new-user-guide" aria-label="Sthang Studio guide" onKeyDown={onKeyDown}>
-    <header><div><HelpCircle size={18}/><span><strong>Quick guide</strong></span></div><button ref={closeButton} onClick={close} aria-label="Close guide"><X size={16}/></button></header>
+    <header><div><HelpCircle size={18}/><span><strong>Guide</strong></span></div><button ref={closeButton} onClick={close} aria-label="Close guide"><X size={16}/></button></header>
 
     {!project ? <div className="guide-empty"><FileUp size={28}/><strong>Create a project first</strong><span>Upload a video or audio file from Home to begin.</span></div> : <div className="guide-content">
       <section className="guide-workflow">
@@ -111,7 +111,7 @@ export function NewUserGuide({
         <button className={llmConfigured ? 'done' : 'next'} onClick={() => handoff(onConnect)}><i>{llmConfigured ? <Check size={14}/> : 1}</i><span><b>Connect AI</b><small>{llmConfigured ? 'Connected' : 'Required to generate caption text.'}</small></span></button>
         <button className={timingConfigured ? 'done' : 'next'} onClick={() => handoff(onOpenDoctor)}><i>{timingConfigured ? <Check size={14}/> : 2}</i><span><b>Khmer timing</b><small>{timingConfigured ? 'Timing ready' : 'Open System check for setup.'}</small></span><ChevronRight size={14}/></button>
         <button onClick={() => handoff(onContext)}><i>3</i><span><b>Add accuracy context <em>optional</em></b><small>Preserve names, brands, versions, and Khmer-English terms.</small></span><ChevronRight size={14}/></button>
-        {hasCaptions ? <div className="guide-completed-step"><Check size={16} aria-hidden="true"/><b>{project.transcript ? 'Captions generated' : 'Captions added'}</b></div>
+        {hasCaptions ? <div className="guide-step done"><i><Check size={14} aria-hidden="true"/></i><span><b>{project.transcript ? 'Captions generated' : 'Captions added'}</b></span></div>
           : <button className="next" onClick={() => handoff(onGenerate)} disabled={!llmConfigured || !timingConfigured || generationPending}><i>4</i><span><b>{generationPending ? 'Generation unavailable' : 'Generate captions'}</b><small>Create timed captions from the audio.</small></span><ChevronRight size={14}/></button>}
         <button className={hasCaptions && issueCount ? 'next' : hasCaptions ? 'done' : ''} onClick={() => handoff(onReview)} disabled={!hasCaptions}><i>{hasCaptions && !issueCount ? <Check size={14}/> : 5}</i><span><b>Review flagged captions</b><small>{hasCaptions ? `${issueCount} to check.` : 'Available after generation.'}</small></span><ChevronRight size={14}/></button>
         <button onClick={() => handoff(onExport)} disabled={!hasCaptions}><i>6</i><span><b>Export</b><small>{isVideoProject(project) ? 'Download subtitles or a video with captions.' : 'Download subtitles for your audio.'}</small></span><Download size={14}/></button>
@@ -128,8 +128,8 @@ export function NewUserGuide({
 
       <section className="guide-tools">
         <h3>Other tools</h3>
-        <div><BookOpenCheck size={15}/><span><b>Corrections</b><small>Learns from edits after you approve each suggestion.</small></span></div>
-        <div><ListRestart size={15}/><span><b>Regeneration preview</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
+        <div><BookOpenCheck size={15}/><span><b>Correction inbox</b><small>Learns from edits after you approve each suggestion.</small></span></div>
+        <div><ListRestart size={15}/><span><b>Improve captions</b><small>Creates a proposal. Nothing changes until you accept it.</small></span></div>
       </section>
     </div>}
 

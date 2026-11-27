@@ -12,7 +12,7 @@ const exact = (page: Page, name: string) => page.getByRole('spinbutton', { name:
 const slider = (page: Page, name: string) => page.getByRole('slider', { name: `${name} slider`, exact: true });
 async function appearance(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
 }
 async function setExact(page: Page, name: string, value: string) {
@@ -41,7 +41,7 @@ for (const width of [2048, 1024, 390]) test(`precision controls preserve the evi
   await page.screenshot({ path: info.outputPath(`appearance-${width}.png`) });
   await tools(page).click();
   const menu = page.getByRole('menu', { name: 'Project tools' });
-  await expect(menu.getByRole('menuitem')).toHaveCount(9);
+  await expect(menu.getByRole('menuitem')).toHaveCount(10);
   // Presentation scales during entry; hit-target geometry is measured at rest.
   await expect.poll(() => menu.evaluate((node) => node.getAnimations().length)).toBe(0);
   const box = (await menu.boundingBox())!;
@@ -103,7 +103,7 @@ test('typed drafts are atomic, cancelable, bounded and retain existing fractions
   await expect(slider(page, 'Size')).toHaveValue('73');
   await expect.poll(() => state.projects[0].captionAppearance!.fontSize1080).toBe(73);
   await page.getByRole('button', { name: 'Close tool', exact: true }).click();
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(exact(page, 'size')).toHaveValue('73');
 });
 

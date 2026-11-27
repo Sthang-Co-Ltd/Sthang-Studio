@@ -118,7 +118,7 @@ test('audio clock is disposed on project exit and reattached only to the newly o
   });
   expect(await pulseClock(page, 'current')).toEqual({ emitted: 1, connected: true });
 
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.locator('main.workspace')).toHaveCount(0);
   expect(await pulseClock(page, 'retired')).toEqual({ emitted: 0, connected: false });
 

@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(errors).toEqual([]));
 const pane = (page:Page,id:Pane) => page.locator(`.refined-editor > ${selectors[id]}`);
-const grip = (page:Page,id:Pane) => pane(page,id).getByRole('button',{ name:/^Drag .+ panel header to reorder$/ });
+const grip = (page:Page,id:Pane) => pane(page,id).getByRole('button',{ name:/^.+ panel$/ });
 const saved = (page:Page) => page.evaluate(() => localStorage.getItem('sthang:editor-layout:v2'));
 async function setup(page:Page,order:Pane[]) {
   await page.addInitScript((order) => localStorage.setItem('sthang:editor-layout:v2',JSON.stringify({ preview:.36,inspector:.28,order })),order);
@@ -110,7 +110,9 @@ for(const panels of [2,3]) for(const phase of ['landing','cancel']) for(const ac
 });
 
 test('an inspector regrab preserves its fractional anchor while its height is settling',async ({ page },info) => {
-  await setup(page,orders[0]); await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
+  await setup(page,orders[0]);
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
+  await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
   await expect(page.locator('.waveform-loading')).toHaveCount(0);
   await begin(page,'inspector','preview'); await page.mouse.up();
   const paused=await pane(page,'inspector').evaluate((node) => {

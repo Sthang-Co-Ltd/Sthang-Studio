@@ -108,15 +108,15 @@ test('a failed stylesheet remains retryable without duplicating or reordering lo
     requests.push(route.request().url());
     return requests.length <= 2 ? route.abort() : route.fallback();
   });
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   const error = page.getByRole('alert', { name: 'Appearance could not load' });
   let styleOrder: string[] = [];
   for (let i = 0; i < 2; i++) {
     await expect(error).toBeVisible();
     if (i === 1 && asset.css.length) {
-      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
       await expect(page.locator('.export-workspace')).toBeVisible();
-      await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+      await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
       await expect(error).toBeVisible();
       styleOrder = await page.locator('link[rel="stylesheet"]').evaluateAll((links) => links.map((link) => new URL((link as HTMLLinkElement).href).pathname));
     }
@@ -145,15 +145,16 @@ test('a late retry cannot replace the newer workspace or discard its edits', asy
     await gate; await route.fallback();
   });
   try {
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await page.getByRole('button', { name: 'Retry loading tool' }).click();
     await expect.poll(() => count).toBe(2);
+    await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
     await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
     await expect(page.locator('.editor-timing-dock .timing-waveform-surface')).toBeVisible();
     release();
     await expect(page.locator('.caption-appearance-workspace')).toHaveCount(0);
     await preservedEditor(page);
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.locator('.caption-appearance-workspace')).toBeVisible();
     expect(count).toBe(2);
   } finally { release(); }

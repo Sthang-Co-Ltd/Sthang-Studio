@@ -24,14 +24,14 @@ async function expectContained(page: Page, dialog: Locator) {
 async function openReplacement(page: Page, find: string, replacement: string) {
   await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Correct everywhere/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
   await dialog.getByLabel('Find', { exact: true }).fill(find);
   await dialog.getByLabel('Replace with', { exact: true }).fill(replacement);
   return dialog;
 }
 
 async function showHistory(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const history = page.locator('.export-history');
   await history.locator('summary').click();
   return history;
@@ -53,7 +53,7 @@ test('replacement pagination and changing disabled controls retain keyboard cont
   const opener = page.getByLabel('Caption 1 text', { exact: true });
   await opener.focus();
   await opener.press('Control+f');
-  const dialog = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
   const find = dialog.getByLabel('Find', { exact: true });
   await expect(find).toBeFocused();
   await find.fill('Token');
@@ -111,7 +111,7 @@ test('replacement preview and cancel preserve receipts; apply and reverse surviv
   await expect(history.getByText(/Changed since export/)).toHaveCount(2);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => state.projects[0].captions[0].text).toBe(replacement);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   history = await showHistory(page);
   await expect(history.getByText(/Changed since export/)).toHaveCount(2);
@@ -119,7 +119,7 @@ test('replacement preview and cancel preserve receipts; apply and reverse surviv
   await correction.getByRole('button', { name: 'Replace editable matches', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => state.projects[0].captions[0].text).toBe(original);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   history = await showHistory(page);
   await expect(history.getByText('Matches open project content.', { exact: true })).toHaveCount(2);
@@ -138,7 +138,7 @@ test('same-ID recovered content cannot inherit surviving export or completed-vid
       frameRate: 25, videoCodec: 'h264', encoder: 'libx264', audioCodec: null, durationMs: 4000, createdAt } } satisfies ProcessingJob];
   await openProject(page);
   await expect((await showHistory(page)).getByText('Matches open project content.', { exact: true })).toHaveCount(2);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   // Model a restored saved response with the same identity and retained receipts.
   // This is UI comparison evidence, not an actual filesystem recovery operation.
   state.projects[0] = { ...structuredClone(original), captions: original.captions.map((caption, index) =>
@@ -164,7 +164,7 @@ test('same-ID recovered content cannot inherit surviving export or completed-vid
   await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
   const activity = page.getByRole('dialog', { name: 'Activity', exact: true });
-  await expect(activity).toContainText('this video contains earlier content');
+  await expect(activity).toContainText('This video contains earlier content');
   await expect(activity.getByText('Matches open project content.', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__trackerCurrentClaims)).toEqual([]);
   await activity.getByRole('button', { name: 'Close Activity', exact: true }).click();

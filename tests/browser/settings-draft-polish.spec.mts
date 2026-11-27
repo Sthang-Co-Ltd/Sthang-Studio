@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   state.profile.defaultVocabulary = ['Saved glossary'];
 });
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
-const glossary = (page: Page) => settings(page).getByLabel('Global protected vocabulary', { exact: true });
+const glossary = (page: Page) => settings(page).getByLabel('Key terms for all projects', { exact: true });
 const packName = (page: Page) => settings(page).getByLabel('Topic pack name', { exact: true });
 async function openProfile(page: Page) {
   await openProject(page);
@@ -52,7 +52,7 @@ test('a glossary save acknowledges the submitted text while preserving newer inp
   });
   try {
     await openProfile(page); await glossary(page).fill('Submitted glossary');
-    await settings(page).getByRole('button', { name: 'Save glossary', exact: true }).click();
+    await settings(page).getByRole('button', { name: 'Save key terms', exact: true }).click();
     await expect.poll(() => writes).toBe(1);
     await glossary(page).fill('Newer glossary កម្ពុជា');
     gate.resolve();
@@ -64,7 +64,7 @@ test('a glossary save acknowledges the submitted text while preserving newer inp
     await page.getByRole('menuitem', { name: /^Settings/ }).click();
     await settings(page).getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(glossary(page)).toHaveValue('Newer glossary កម្ពុជា');
-    await settings(page).getByRole('button', { name: 'Save glossary', exact: true }).click();
+    await settings(page).getByRole('button', { name: 'Save key terms', exact: true }).click();
     await expect(settings(page).locator('#profile-glossary-feedback')).toHaveText('Glossary saved.');
     expect(state.profile.defaultVocabulary).toEqual(['Newer glossary កម្ពុជា']);
   } finally { gate.resolve(); }
@@ -74,7 +74,7 @@ test('glossary normalization omissions never clear the original draft or claim a
   await page.route('**/api/profile', (route) => route.request().method() === 'PATCH' && route.request().postDataJSON().defaultVocabulary
     ? route.fulfill({ json: state.profile }) : route.fallback());
   await openProfile(page); await glossary(page).fill('New term not accepted');
-  await settings(page).getByRole('button', { name: 'Save glossary', exact: true }).click();
+  await settings(page).getByRole('button', { name: 'Save key terms', exact: true }).click();
   await expect(settings(page).locator('#profile-glossary-feedback')).toContainText('Some glossary terms were not saved');
   await expect(page.locator('.toast.notice').filter({ hasText: 'Profile updated.' })).toHaveCount(0);
   await expect(glossary(page)).toHaveValue('New term not accepted');

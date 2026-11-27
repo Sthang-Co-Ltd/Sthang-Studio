@@ -39,7 +39,7 @@ async function openScope(page: Page, scope: Scope) {
   await openProject(page);
   await expect.poll(() => media(page).evaluate((video: HTMLVideoElement) => video.readyState >= 2 && !video.seeking)).toBe(true);
   if (scope === 'Review') {
-    await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
     await expect(review(page)).toBeVisible();
     await review(page).getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
     await expect(review(page).getByLabel('Tight loop', { exact: true })).toBeChecked();
@@ -220,7 +220,7 @@ for (const [exit, width] of [['Escape', 1440], ['Show all captions', 390]] as co
     await expect.poll(() => page.evaluate(() => (window as any).__reviewHeldCount())).toBe(1);
     const selection = await selected(page); const time = await media(page).evaluate((video: HTMLVideoElement) => video.currentTime);
     if (exit === 'Escape') {
-      const entry = page.locator('.header-actions').getByRole('button', { name: /^Review/ });
+      const entry = page.locator('.stage-rail').getByRole('button', { name: /^Review/ });
       await entry.focus(); await entry.press('Escape');
     } else await review(page).getByRole('button', { name: 'Show all captions', exact: true }).click();
     await expect(review(page)).toHaveCount(0);

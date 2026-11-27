@@ -41,7 +41,7 @@
 .timing-move-controls { margin: 10px 0 6px; }
 .timing-move-controls label, .timing-options-controls label { display: flex; gap: 6px; align-items: center; color: #bec7d3; font-size: 12px; }
 .timing-duration { margin-left: auto; color: #cbd4df; font: 11px ui-monospace, monospace; }
-.timing-lock-status { padding: 9px 10px; border-left: 3px solid #d5b578; background: #282216; color: #ebd4aa; font-size: 12px; line-height: 1.5; }
+.timing-lock-status { padding: 9px 10px; border-left: 3px solid var(--warning-rule); background: #282216; color: #ebd4aa; font-size: 12px; line-height: 1.5; }
 .timing-options { margin-top: 6px; border-top: 1px solid #2e3742; padding-top: 4px; }
 .timing-options summary { cursor: pointer; min-height: 36px; box-sizing: border-box; padding: 6px 0; color: #c6cfda; font-size: 12px; }
 .timing-options-controls { margin: 6px 0 10px; }

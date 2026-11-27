@@ -71,7 +71,7 @@ for (const mode of ['modern', 'fallback', 'delayed fallback', 'failure'] as cons
     };
   }, mode);
   await openProject(page); await tool(page, /^Correction inbox/);
-  const dialog = page.getByRole('dialog', { name: 'Correction Inbox', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Correction inbox', exact: true });
   const copy = dialog.getByRole('button', { name: 'Copy report', exact: true });
   const originalWidth = (await copy.boundingBox())!.width;
   await copy.focus(); await copy.press('Enter');

@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => { await installFixture(page); });
 
 test('pointer hints wait, remain hoverable and dismiss without closing the workspace', async ({ page }, info) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   const identity = await page.evaluate(async () => (await fetch('/studio-web-identity.json')).json());
   expect(identity.buildId).toBe(webSourceIdentity(process.cwd()).buildId);
@@ -49,15 +49,15 @@ test('keyboard hints retain existing descriptions and focus; pointer clicks do n
   await expect(current).toHaveAttribute('aria-describedby', 'existing-hint');
   await page.waitForTimeout(500);
   await expect(page.getByRole('tooltip')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Export', exact: true }).hover();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).hover();
   await expect(page.getByRole('tooltip')).toContainText('Export SRT');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('tooltip')).toHaveCount(0);
 });
 
 test('pending hints leave Escape to the workspace and open menus suppress background hints', async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Current', exact: true }).hover();
   await page.keyboard.press('Escape');
@@ -75,7 +75,7 @@ for (const width of [1440, 390]) test(`hints remain inside a ${width}px viewport
   await page.setViewportSize({ width, height: 800 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openProject(page);
-  const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+  const back = page.getByRole('button', { name: 'Back to Home', exact: true });
   await back.hover();
   const tip = page.getByRole('tooltip');
   await expect(tip).toBeVisible();
@@ -90,7 +90,7 @@ for (const width of [1440, 390]) test(`hints remain inside a ${width}px viewport
 test('scroll cues follow long inspector and sheet boundaries without resizing evidence', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 700 });
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await page.getByText('More appearance', { exact: true }).click();
   const pane = page.locator('.inspector-content');

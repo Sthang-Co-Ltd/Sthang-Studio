@@ -3,6 +3,7 @@ import type { AppProfile, CorrectionEvent } from '@kcs/shared';
 import { BookOpenCheck, CirclePlay, X, XCircle, FolderPlus, CheckCheck } from 'lucide-react';
 import { CopyReportButton } from './CopyReportButton';
 import { useModalFocus } from '../use-modal-focus';
+import { formatTimestamp } from '../timestamp';
 import { useSurfacePresence } from '../use-surface-presence';
 import './correction-inbox.css';
 
@@ -122,19 +123,19 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
   return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
     <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="correction-inbox-title" tabIndex={-1} className="modal correction-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head">
-        <div><strong id="correction-inbox-title">Correction Inbox</strong><span>Edits appear when you leave a caption field, save, or export.</span></div>
+        <div><strong id="correction-inbox-title">Correction inbox</strong><span>Edits appear when you leave a caption field, save, or export.</span></div>
         <button className="icon-btn" aria-label="Close correction inbox" onClick={onClose}><X size={18}/></button>
       </div>
       <div className="inbox-toolbar">
         <button ref={pendingFilter} aria-pressed={!showAll} className={!showAll ? 'selected' : ''} onClick={() => changeFilter(false)}>Pending ({pending})</button>
-        <button aria-pressed={showAll} className={showAll ? 'selected' : ''} onClick={() => changeFilter(true)}>History ({profile.correctionEvents.length})</button>
+        <button aria-pressed={showAll} className={showAll ? 'selected' : ''} onClick={() => changeFilter(true)}>Resolved ({profile.correctionEvents.length})</button>
       </div>
       <div className="correction-list">
         {events.length === 0 && <div className="modal-empty"><CheckCheck size={26}/><strong>{showAll ? 'No correction history yet' : 'Inbox clear'}</strong><span>New caption corrections appear here automatically.</span></div>}
         {events.map((event) => <article className={`correction-card status-${event.status}`} key={event.id}
           ref={(element) => { if (element) cards.current.set(event.id, element); else cards.current.delete(event.id); }}
-          tabIndex={-1} aria-label={`Correction at ${formatTime(event.startMs)} in ${event.projectTitle}`} aria-busy={working === event.id || openingId === event.id || undefined}>
-          <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTime(event.startMs)}–{formatTime(event.endMs)}</span><b>{event.suggestionKind.replace('-', ' ')}</b></div>
+          tabIndex={-1} aria-label={`Correction at ${formatTimestamp(event.startMs)} in ${event.projectTitle}`} aria-busy={working === event.id || openingId === event.id || undefined}>
+          <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTimestamp(event.startMs)} – {formatTimestamp(event.endMs)}</span><b>{event.suggestionKind.replace('-', ' ')}</b></div>
           <div className="correction-pair"><div><label>Before</label><p>{event.originalText}</p></div><div><label>After</label><p>{event.correctedText}</p></div></div>
           {(event.contextBefore || event.contextAfter) && <p className="correction-context">… {event.contextBefore || ''} <mark>{event.correctedText}</mark> {event.contextAfter || ''} …</p>}
           <div className="correction-suggestion"><span>Suggested memory</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>

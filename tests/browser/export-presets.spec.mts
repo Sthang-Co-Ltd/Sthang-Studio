@@ -15,7 +15,7 @@ const presetSaves = () => state.requests.filter((request) =>
 
 async function openExport(page: Page, project = 'landscape') {
   await openProject(page, project);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByLabel('Resolution', { exact: true })).toBeVisible();
 }
 
@@ -127,9 +127,9 @@ test('last-used settings persist only after an accepted render and survive anoth
   await expect.poll(() => state.profile.lastVideoExportSettings).toEqual(chosen);
   expect(lastUsedWrites()).toHaveLength(0);
 
-  await page.getByRole('button', { name: /Back to projects/ }).click();
+  await page.getByRole('button', { name: /Back to Home/ }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expectExportChoices(page, chosen);
 
   await openExport(page);
@@ -171,7 +171,7 @@ test('a named video preset can be saved, reused across projects, and deleted wit
   await page.reload();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(page.locator('.media-stage video')).toBeVisible();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(picker.locator(`option[value="${preset.id}"]`)).toHaveCount(1);
   await openExport(page, 'second');
   await expect(picker).toBeVisible();
@@ -209,7 +209,7 @@ test('a late last-used profile read does not overwrite choices edited during hyd
   await openProject(page);
   const hold = await holdNextProfileRead(page, structuredClone(state.profile));
   try {
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect.poll(hold.received).toBe(true);
     const resolution = page.getByLabel('Resolution', { exact: true });
     await expect(resolution).toBeVisible();
@@ -231,11 +231,11 @@ test('a late profile response from a previous project cannot reset the next proj
   await openProject(page);
   const hold = await holdNextProfileRead(page, structuredClone(state.profile));
   try {
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect.poll(hold.received).toBe(true);
-    await page.getByRole('button', { name: /Back to projects/ }).click();
+    await page.getByRole('button', { name: /Back to Home/ }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expectExportChoices(page, chosen);
     await page.getByLabel('Resolution', { exact: true }).selectOption('2160p');
     hold.release();
@@ -256,7 +256,7 @@ test('held profile read allows render admission and cannot replace a newer saved
   await openProject(page);
   const hold = await holdAllProfileReads(page, structuredClone(state.profile));
   try {
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect.poll(hold.received).toBe(true);
     await expect(page.getByText('Loading saved video settings…', { exact: true })).toBeVisible();
     await setExportChoices(page);

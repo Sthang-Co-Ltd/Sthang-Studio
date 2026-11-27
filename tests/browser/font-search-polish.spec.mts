@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   state.fonts.push(...Array.from({ length: 26 }, (_, index) => ({ name: `Khmer Test ${String(index + 1).padStart(2, '0')}`, source: 'user-installed' as const, available: true, boldAvailable: true })));
 });
 async function openSearch(page: Page) {
-  await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   return page.getByRole('combobox', { name: 'Find Khmer font', exact: true });
 }
 for (const width of [1440, 390]) test(`font search ${width} browses with arrows, cancels without changes, then commits one explicit choice`, async ({ page }, info) => {

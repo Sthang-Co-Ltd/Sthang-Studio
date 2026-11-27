@@ -18,8 +18,7 @@ import {
   Combine,
   LocateFixed,
   LockKeyhole,
-  Pause,
-  Play,
+  ArrowDownToLine,
   Plus,
   Scissors,
   Trash2,
@@ -367,7 +366,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
 
   useEffect(() => {
     // A newly mounted editor can still have a Follow effect queued for time zero
-    // after the Correction Inbox has handed focus to its recorded caption.
+    // after the Correction inbox has handed focus to its recorded caption.
     if (!followPlayback || !active || document.activeElement?.hasAttribute('data-caption-id')) return;
     reveal(active, 'smooth', false);
   }, [active, followPlayback]);
@@ -652,8 +651,8 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
           active={active === caption.id} selected={selected.has(caption.id)} reviewMode={reviewMode}
           lower={neighborLimits.get(caption.id)?.lower ?? 0} upper={neighborLimits.get(caption.id)?.upper ?? durationMs}
           wordNeedsReview={wordsNeedingReview.has(caption.id)}
-          issueSeverity={issue?.severity} issueCount={issue?.reasons.length ?? 0}
-          firstReason={issue?.reasons[0]} secondReason={issue?.reasons[1]} thirdReason={issue?.reasons[2]}
+          issueSeverity={issue?.severity}
+          firstReason={issue?.reasons[0]?.label} secondReason={issue?.reasons[1]?.label} thirdReason={issue?.reasons[2]?.label}
           menuOpen={openMenuId === caption.id} registerRow={registerRow} registerText={registerText} dispatch={dispatchRowAction}
           menu={menuPresence.present && menuPresence.value === caption.id && <div ref={actionMenu} className={`caption-action-menu ${menuPlacement.up ? 'menu-up' : ''}`} role="menu" aria-label={`Caption ${index + 1} actions`} onKeyDown={(event) => dispatchRowAction(caption.id, { type: 'menuKey', event })}
               onClickCapture={(event) => {
@@ -687,7 +686,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       </div>
       <div className="panel-tools">
         <button className="panel-tool" data-tooltip="Jump to the caption at the playhead" data-tooltip-shortcut="J" onClick={jumpToPlayhead} disabled={!visible.length}><LocateFixed size={15}/><span>Current</span></button>
-        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} aria-pressed={followPlayback} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}>{followPlayback ? <Pause size={14}/> : <Play size={14}/>}<span>Follow playback</span></button>
+        <button className={`panel-tool ${followPlayback ? 'following' : ''}`} aria-pressed={followPlayback} data-tooltip={followPlayback ? 'Pause automatic scrolling during playback' : 'Keep the playing caption in view'} onClick={toggleFollow} disabled={!visible.length}><ArrowDownToLine size={14}/><span>Follow playback</span></button>
         <button className="panel-tool" aria-label="Add caption" data-tooltip="Add a caption" onClick={(event) => add(event.currentTarget)}><Plus size={15}/><span>Add</span></button>
       </div>
     </div>
@@ -698,7 +697,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
       onTouchMove={pauseFollowForBrowsing}
       onScroll={() => { snapshotReviewViewport(); if (performance.now() > autoScrollingUntil.current) pauseFollowForBrowsing(); }}
     >
-      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : 'Use Add to write a caption manually.'}</div>}
+      {visible.length === 0 && <div className="review-empty">{captions.length ? 'No unapproved captions need review.' : <>No captions yet. Use <b>Generate captions</b> to create them from the audio, or <b>Add</b> to write one yourself.</>}</div>}
       {renderedRows}
     </div>
   </div>;

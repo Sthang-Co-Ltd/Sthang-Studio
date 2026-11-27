@@ -70,7 +70,7 @@ async function openImport(page: Page) {
     (window as any).__importQolNodes = nodes;
     return nodes.every(Boolean);
   })).toBe(true);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await captionOutput(page).click();
   await page.locator('.handoff-advanced > summary').click();
   await page.locator('.handoff-restore input[type=file]').setInputFiles(file());
@@ -161,7 +161,8 @@ test('a late import response never takes focus from newer Accuracy editing', asy
     await replace(page).click();
     await expect.poll(() => restoreCalls).toBe(1);
     await expect(captionOutput(page)).toBeFocused();
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     const context = page.locator('#accuracy-context-description');
     await context.fill('Newer context draft កម្ពុជា');
     gate.release();

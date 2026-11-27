@@ -11,12 +11,14 @@ export const PanelHeaderDragContext = createContext<HeaderContext | null>(null);
 
 export function PanelHeaderGrip({ pane, children }: { pane: EditorPane; children: string }) {
   const context = useContext(PanelHeaderDragContext);
-  if (!context?.enabled) return <strong>{children}</strong>;
-  return <button type="button" className="editor-pane-grip" data-editor-layout-control
-    aria-label={`Drag ${children} panel header to reorder`} aria-keyshortcuts="ArrowLeft ArrowRight Home End"
-    title="Drag to move this panel. Arrow keys move it left or right." {...context.bindings(pane)}>
-    <GripVertical size={14} aria-hidden="true"/><strong>{children}</strong>
-  </button>;
+  const label = `${children} panel`;
+  return <h2 className="panel-heading" aria-label={label}>
+    {context?.enabled ? <button type="button" className="editor-pane-grip" data-editor-layout-control
+      aria-label={label} aria-describedby="panel-reorder-hint" aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+      title="Drag to move this panel. Arrow keys move it left or right." {...context.bindings(pane)}>
+      <GripVertical size={14} aria-hidden="true"/><strong>{children}</strong>
+    </button> : <strong>{children}</strong>}
+  </h2>;
 }
 
 export function PanelDragGhost({ pane, x, y, portal = false }: { pane: EditorPane; x: number; y: number; portal?: boolean }) {

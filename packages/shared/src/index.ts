@@ -232,11 +232,20 @@ export interface PipelineCacheInfo {
 
 export type CaptionGenerationModel = 'automatic' | 'gemini-3.8-flash' | 'gemini-4-hydrogen' | 'gemini-3.6-flash';
 
+export interface ProjectDeletion {
+  instanceId: string;
+  binnedAt: string;
+  restoreUntil: string;
+  recordUpdatedAt: string;
+  purgeStartedAt?: string;
+}
+
 export interface CaptionProject {
   id: string;
   title: string;
   createdAt: string;
   updatedAt: string;
+  deletion?: ProjectDeletion;
   media: MediaInfo;
   transcriptionContext?: TranscriptionContext;
   /** Local project choice for new caption jobs. Missing means Automatic. */

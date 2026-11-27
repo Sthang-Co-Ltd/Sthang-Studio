@@ -288,9 +288,11 @@ function publicJob(job: StoredJob): ProcessingJob {
   return value;
 }
 
+function isVisibleJob(job: StoredJob) { return !store.isHiddenByBin(job.projectId); }
+
 function publicSnapshot(projectId?: string) {
   return publishedJobs
-    .filter((job) => !projectId || job.projectId === projectId)
+    .filter((job) => isVisibleJob(job) && (!projectId || job.projectId === projectId))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .map(publicJob);
 }
@@ -638,6 +640,7 @@ queueMicrotask(pump);
 
 export const jobStore = {
   historyIsAvailable() { return !historyUnavailable; },
+  notifyProjectVisibilityChanged: notifySubscribers,
 
   hasAnyActive() {
     // Terminal status is published in memory before durable persistence and
@@ -664,23 +667,23 @@ export const jobStore = {
 
   async removeProject(projectId: string) {
     return serializeMutation(async () => {
-    if (this.hasActiveForProject(projectId)) throw new Error('Wait for the active processing job to finish or cancel it before removing this project.');
-    jobs = jobs.filter((job) => job.projectId !== projectId);
-    publishedJobs = jobs;
-    notifySubscribers();
-    await persist();
-    }, true, false);
+      if (this.hasActiveForProject(projectId)) throw new Error('Wait for the active processing job to finish or cancel it before removing this project.');
+      jobs = jobs.filter((job) => job.projectId !== projectId);
+      await persist();
+    });
   },
 
   async list(projectId?: string) {
+    await store.initialize();
     await ensureHistoryAvailable();
     return publicSnapshot(projectId);
   },
 
   async get(id: string) {
+    await store.initialize();
     assertHistoryAvailable();
     const job = publishedJobs.find((item) => item.id === id);
-    return job ? publicJob(job) : null;
+    return job && isVisibleJob(job) ? publicJob(job) : null;
   },
 
   async create(type: ProcessingJobType, projectId: string, payload: JobPayload) {
@@ -733,9 +736,11 @@ export const jobStore = {
   },
 
   async cancel(id: string) {
+    await store.initialize();
     await serializeMutation(async () => {
     const job = jobs.find((item) => item.id === id);
     if (!job) throw new Error('Job not found');
+    if (!isVisibleJob(job)) return;
     if (job.status === 'queued') {
       await patchNow(id, { status: 'cancelled', stage: 'cancelled', message: job.type === 'export-video' ? 'Video export cancelled before it started.' : 'Job cancelled before it started.', completedAt: new Date().toISOString(), canResume: false }, false, undefined, true);
       if (job.type !== 'export-video') await removeRunCheckpoints(job.projectId, job.id).catch(() => {});

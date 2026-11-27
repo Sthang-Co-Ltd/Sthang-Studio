@@ -82,7 +82,7 @@ async function fixture(page: Page, loseFirstAck = false): Promise<Fixture> {
 async function handoffAfterBlur(page: Page, f: Fixture, text: string) {
   await openProject(page);
   await page.getByLabel('Caption 1 text', { exact: true }).fill(text);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await f.started.promise;
   await page.getByRole('button', { name: /Captions file/ }).click();
   await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeEnabled();

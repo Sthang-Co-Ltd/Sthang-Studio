@@ -1,7 +1,7 @@
 # Dialog keyboard consistency — tracker 8
 
-Settings, Find & Correct and Updates now use the same focus handler as Activity,
-History, Correction Inbox, media replacement/recovery and Studio confirmations.
+Settings, Correct everywhere and Updates now use the same focus handler as Activity,
+History, Correction inbox, media replacement/recovery and Studio confirmations.
 The privacy introduction/review uses that shared handler while preserving its
 existing consent and dismissal behavior. This source change restores the existing
 accessibility contract; it does not introduce a release-availability claim.

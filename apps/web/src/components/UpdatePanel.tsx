@@ -137,7 +137,7 @@ export function UpdatePanel({ open, safety, onClose, onError, onNotice }: Props)
   return <div className="update-overlay studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
     <section ref={dialog} tabIndex={-1} className="update-panel" role="dialog" aria-modal={open || undefined} aria-labelledby="update-title">
       <header>
-        <div><ShieldCheck size={19}/><div><strong id="update-title">Studio updates</strong><span>Signed releases. You choose when to install.</span></div></div>
+        <div><ShieldCheck size={19}/><div><strong id="update-title">Updates</strong><span>Signed releases. You choose when to install.</span></div></div>
         <button aria-label="Close updates" onClick={onClose} disabled={!!working}><X size={17}/></button>
       </header>
       <div className="update-content">

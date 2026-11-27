@@ -73,7 +73,7 @@ for (const owner of ['Search', 'Sort', 'Settings'] as const) test('project retry
         await page.getByRole('button', { name: 'Settings', exact: true }).click();
         const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
         await settings.getByRole('button', { name: 'Profile', exact: true }).click();
-        const glossary = settings.getByLabel('Global protected vocabulary', { exact: true });
+        const glossary = settings.getByLabel('Key terms for all projects', { exact: true });
         await glossary.fill('Newer Settings draft កម្ពុជា');
         gate.release();
         await waitForLibraryResult(page, succeeds);

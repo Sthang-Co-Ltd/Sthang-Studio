@@ -127,19 +127,20 @@ test('a late first-open chunk never replaces a newer tool on mobile', async ({ p
   await page.route('**/components/CaptionAppearanceWorkspace.tsx*', async (route) => { fetched.resolve(); await gate.promise; await route.fallback(); });
   try {
     await openProject(page);
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click(); await fetched.promise;
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click(); await fetched.promise;
     const loading = page.locator('.workspace-loading');
     await expect(loading).toContainText('Opening Appearance…');
     await loading.scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await loading.evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
     await page.screenshot({ path: info.outputPath('loading-mobile.png') });
-    await page.getByRole('button', { name: /^Accuracy/ }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
+    await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     await expect(page.getByRole('complementary', { name: 'Accuracy workspace' })).toBeVisible();
     gate.resolve();
     await expect(loading).toHaveCount(0);
     await expect(page.locator('.caption-appearance-workspace')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.locator('.caption-appearance-workspace')).toBeVisible();
   } finally { gate.resolve(); }
 });

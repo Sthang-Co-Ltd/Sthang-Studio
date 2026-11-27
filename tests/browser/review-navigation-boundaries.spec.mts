@@ -52,7 +52,7 @@ async function evidence(page: Page) {
 for (const width of [1440, 390]) test(`Review first/last keyboard boundaries match disabled buttons without a seek or autoplay at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(page.getByRole('complementary', { name: 'Review workspace', exact: true })).toBeVisible();
   await expect.poll(() => selection(page)).toEqual(['c1']);
   // Review opening has its own 40ms handoff. Settle it before measuring shortcuts.

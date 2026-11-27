@@ -21,7 +21,7 @@ function deferred() {
   return { promise, release };
 }
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true });
-const glossary = (page: Page) => settings(page).getByLabel('Global protected vocabulary', { exact: true });
+const glossary = (page: Page) => settings(page).getByLabel('Key terms for all projects', { exact: true });
 const packName = (page: Page) => settings(page).getByLabel('Topic pack name', { exact: true });
 const input = (page: Page) => settings(page).locator('input[type=file]');
 const feedback = (page: Page) => settings(page).locator('.profile-import-feedback');

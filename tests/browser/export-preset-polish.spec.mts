@@ -8,7 +8,7 @@ const name = (page: Page) => page.getByLabel('Save video export preset as', { ex
 const notice = (page: Page) => page.locator('.export-preset-status').filter({ hasText: /(?:Saved|Updated) video preset/ });
 function deferred() { let resolve!: () => void; const promise = new Promise<void>((done) => { resolve = done; }); return { promise, resolve }; }
 async function openPresets(page: Page) {
-  await openProject(page); await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByLabel('Resolution', { exact: true })).toBeVisible();
   await page.getByText('Manage presets', { exact: true }).click();
 }
@@ -32,7 +32,7 @@ test('Retry saved presets preserves choices and a typed preset name through fail
   await page.route('**/api/profile', (route) => route.request().method() === 'GET' && fail
     ? route.fulfill({ status: 503, json: { error: 'Synthetic preset read failure' } }) : route.fallback());
   state.profile.lastVideoExportSettings = { resolution: '2160p', frameRate: 30, quality: 'high', codec: 'h264', encoder: 'software' };
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByText('Manage presets', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry saved presets', exact: true })).toBeEnabled();
   await page.getByLabel('Resolution', { exact: true }).selectOption('720p');

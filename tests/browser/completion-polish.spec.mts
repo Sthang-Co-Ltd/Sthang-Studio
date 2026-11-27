@@ -28,14 +28,14 @@ function cleanCaptions() {
 }
 async function openReview(page: Page) {
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(review(page)).toBeVisible();
 }
 async function expectNoOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 }
 
-test('manual captions open from Quick guide for text editing and approval without a transcript', async ({ page }) => {
+test('manual captions open from Guide for text editing and approval without a transcript', async ({ page }) => {
   const project = state.projects[0];
   project.transcript = null;
   project.captions = [{
@@ -44,7 +44,7 @@ test('manual captions open from Quick guide for text editing and approval withou
   }];
   await openProject(page);
   await page.getByLabel('Open project tools', { exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Guide', exact: true }).click();
   const guide = page.getByRole('complementary', { name: 'Sthang Studio guide', exact: true });
   await expect(guide.getByText('Captions added', { exact: true })).toBeVisible();
   await expect(guide.getByRole('button', { name: /Captions added|Generate captions/i })).toHaveCount(0);
@@ -61,7 +61,7 @@ test('last approval offers deliberate next actions, preserves drafts and editor 
   state.projects[0].captions[0].timingQuality = 'low';
   await page.route('**/api/projects/landscape/captions', (route) => route.fulfill({ status: 503, json: { error: 'Synthetic save failure' } }));
   await openReview(page);
-  const entry = page.getByRole('button', { name: /^Review(?: \d+)?$/ });
+  const entry = page.locator('.stage-rail').getByRole('button', { name: /^Review(?: \d+)?$/ });
   await expect(entry).toHaveCount(1);
   await expect(entry).toHaveAccessibleName('Review 1');
   await expect(review(page)).not.toContainText(/\d+% export readiness/i);
@@ -92,7 +92,7 @@ test('last approval offers deliberate next actions, preserves drafts and editor 
   await expect(review(page)).toHaveCount(0);
   await expect(page.locator('.caption-row')).toHaveCount(3);
   await expect(text).toHaveValue('កែសម្រួល');
-  await expect(page.locator('.header-actions').getByRole('button', { name: /^Review/ })).toBeFocused();
+  await expect(page.locator('.stage-rail').getByRole('button', { name: /^Review/ })).toBeFocused();
   expect(await page.evaluate(() => (window as any).__completionNodes.every((node: Element, i: number) => node === document.querySelector(i ? '.caption-panel' : 'video')))).toBe(true);
   expect(state.projects[0].captions[0].text).toBe('សួស្តី');
 });

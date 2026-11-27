@@ -63,7 +63,7 @@ async function mockActions(page: Page, options: { hold?: Promise<void>; fail?: (
 async function openInbox(page: Page) {
   await page.getByLabel('Open project tools', { exact: true }).click();
   await page.getByRole('menuitem', { name: /Correction inbox/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Correction Inbox', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Correction inbox', exact: true });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -113,7 +113,7 @@ test('History keeps the resolved correction focused and Tab continues within tha
   await mockActions(page);
   await openProject(page);
   const dialog = await openInbox(page);
-  await dialog.getByRole('button', { name: 'History (3)', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Resolved (3)', exact: true }).click();
   const current = card(dialog, 2);
   await activate(current.getByRole('button', { name: 'Ignore', exact: true }));
   await expect(current).toContainText('ignored');
@@ -163,7 +163,7 @@ for (const laterAction of ['focus', 'filter', 'close and reopen'] as const) test
       target = card(dialog, 3).getByRole('button', { name: 'Review audio', exact: true });
       await target.focus();
     } else if (laterAction === 'filter') {
-      target = dialog.getByRole('button', { name: 'History (3)', exact: true });
+      target = dialog.getByRole('button', { name: 'Resolved (3)', exact: true });
       await target.click();
     } else {
       await page.keyboard.press('Escape');
@@ -207,9 +207,9 @@ for (const width of [390, 1440]) test(`returning to correction history keeps a f
   await page.route('**/api/projects/' + project.id, (route) => fail && route.request().method() === 'GET'
     ? route.fulfill({ status: 503, json: { error: 'The saved project could not be read.' } }) : route.fallback());
   await page.goto('/');
-  await page.getByRole('button', { name: 'Corrections', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Correction Inbox' });
-  await expect(dialog.getByRole('button', { name: 'History (38)' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Correction inbox', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Correction inbox' });
+  await expect(dialog.getByRole('button', { name: 'Resolved (38)' })).toHaveAttribute('aria-pressed', 'true');
   const card = dialog.getByRole('article').filter({ has: page.getByText('កម្ពុជា · Correction 17', { exact: true }) });
   const listen = card.getByRole('button', { name: 'Review audio' });
   await activate(listen);
@@ -238,7 +238,7 @@ for (const width of [390, 1440]) test(`returning to correction history keeps a f
   await page.screenshot({ path: info.outputPath('focused-correction.png'), animations: 'disabled' });
 });
 
-test('closing Correction Inbox withdraws a pending request to open another project', async ({ page }) => {
+test('closing Correction inbox withdraws a pending request to open another project', async ({ page }) => {
   state.profile.correctionEvents[0].projectId = state.projects[1].id;
   await openProject(page);
   const gate = deferred();

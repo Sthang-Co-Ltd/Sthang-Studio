@@ -51,7 +51,7 @@ async function approveMixedRange(page: Page) {
   await rememberEvidence(page);
   await expect(row(page, 'c2').getByRole('button', { name: 'Mark caption as needing review', pressed: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve caption', exact: true, pressed: false })).toHaveCount(2);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(review(page)).toBeVisible();
   await expect(row(page, 'c2')).toHaveCount(0);
   await row(page, 'c1').locator('.row-index').click();
@@ -136,7 +136,7 @@ test('fully stale Review Undo keeps the current selection, playback and saved dr
   current().captions.forEach((caption, index) => { caption.timingQuality = 'low'; caption.approved = index !== 0; });
   await openProject(page);
   await rememberEvidence(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await review(page).getByRole('button', { name: 'Approve & next', exact: true }).click();
   await expect(completion(page)).toBeVisible();
   await completion(page).getByRole('button', { name: 'Show all captions', exact: true }).click();
@@ -151,7 +151,7 @@ test('fully stale Review Undo keeps the current selection, playback and saved dr
   await page.keyboard.press('Enter');
   await expect(notice(page)).toContainText('No approval was changed.');
   await expect(page.locator('.review-undo-toast')).toHaveCount(0);
-  await expect(page.locator('.header-actions').getByRole('button', { name: /^Review/ })).toBeFocused();
+  await expect(page.locator('.stage-rail').getByRole('button', { name: /^Review/ })).toBeFocused();
   await expect(page.locator('.save-action')).toBeDisabled();
   expect(await selectedIds(page)).toEqual(['c3']);
   expect(await page.locator('video').evaluate((node: HTMLVideoElement) => ({ time: node.currentTime, paused: node.paused }))).toEqual(clock);
@@ -166,7 +166,7 @@ test('fully stale Review Undo keeps the mobile Review control visible without ch
   current().captions.forEach((caption, index) => { caption.timingQuality = 'low'; caption.approved = index !== 0; });
   await openProject(page);
   await rememberEvidence(page);
-  const reviewButton = page.locator('.header-actions').getByRole('button', { name: /^Review/ });
+  const reviewButton = page.locator('.stage-rail').getByRole('button', { name: /^Review/ });
   await reviewButton.click();
   await review(page).getByRole('button', { name: 'Approve & next', exact: true }).click();
   await expect(completion(page)).toBeVisible();

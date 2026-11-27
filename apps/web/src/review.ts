@@ -1,17 +1,26 @@
 import type { CaptionSegment, QaProfileId, QaProfileSettings } from '@kcs/shared';
 
 export type ReviewSeverity = 'info' | 'warning' | 'error';
+export type ReviewReasonCode = 'empty' | 'timing-estimated' | 'timing-listen' | 'too-short' | 'too-long' | 'fast-reading'
+  | 'long-line' | 'too-many-lines' | 'mixed-language' | 'name-or-number' | 'extra-spaces' | 'key-term-alias'
+  | 'overlap' | 'small-gap' | 'duplicate' | 'starts-before-media' | 'ends-after-media';
+
+export interface ReviewReason {
+  code: ReviewReasonCode;
+  label: string;
+  hint: string;
+}
 
 export interface ReviewIssue {
   captionId: string;
   severity: ReviewSeverity;
-  reasons: string[];
+  reasons: ReviewReason[];
 }
 
 export const QA_PROFILES: Record<Exclude<QaProfileId, 'custom'>, QaProfileSettings> = {
   'khmer-tiktok-fast': {
     id: 'khmer-tiktok-fast',
-    name: 'Khmer TikTok — Fast',
+    name: 'Khmer TikTok: Fast',
     description: 'Punchy single-line captions for rapid short-form delivery.',
     maxCps: 25,
     maxCharsPerLine: 26,
@@ -25,7 +34,7 @@ export const QA_PROFILES: Record<Exclude<QaProfileId, 'custom'>, QaProfileSettin
   },
   'khmer-tiktok-comfortable': {
     id: 'khmer-tiktok-comfortable',
-    name: 'Khmer TikTok — Comfortable',
+    name: 'Khmer TikTok: Comfortable',
     description: 'Balanced reading rhythm with slightly longer display time.',
     maxCps: 20,
     maxCharsPerLine: 32,
@@ -120,15 +129,26 @@ function vocabularyAliases(lines: string[]) {
   });
 }
 
-function addReason(target: Map<string, ReviewIssue>, captionId: string, severity: ReviewSeverity, reason: string) {
-  const rank: Record<ReviewSeverity, number> = { info: 0, warning: 1, error: 2 };
+interface ReviewFinding {
+  issue: ReviewIssue;
+  legacyKeys: Set<string>;
+}
+
+const severityRank: Record<ReviewSeverity, number> = { error: 0, warning: 1, info: 2 };
+const secondsLabel = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+
+function addReason(target: Map<string, ReviewFinding>, captionId: string, severity: ReviewSeverity, legacyKey: string, reason: ReviewReason) {
   const existing = target.get(captionId);
   if (!existing) {
-    target.set(captionId, { captionId, severity, reasons: [reason] });
+    target.set(captionId, { issue: { captionId, severity, reasons: [reason] }, legacyKeys: new Set([legacyKey]) });
     return;
   }
-  if (!existing.reasons.includes(reason)) existing.reasons.push(reason);
-  if (rank[severity] > rank[existing.severity]) existing.severity = severity;
+  // Duplicate caption IDs can share a label while reporting different measurements.
+  if (!existing.legacyKeys.has(legacyKey)) {
+    existing.legacyKeys.add(legacyKey);
+    existing.issue.reasons.push(reason);
+  }
+  if (severityRank[severity] < severityRank[existing.issue.severity]) existing.issue.severity = severity;
 }
 
 export function analyzeCaptions(
@@ -137,7 +157,7 @@ export function analyzeCaptions(
   settings: QaProfileSettings = QA_PROFILES['khmer-tiktok-comfortable'],
   mediaDurationMs?: number,
 ): ReviewIssue[] {
-  const issues = new Map<string, ReviewIssue>();
+  const issues = new Map<string, ReviewFinding>();
   const firstIndex = new Map<string, number>();
   const aliases = vocabularyAliases(vocabularyLines);
 
@@ -151,43 +171,76 @@ export function analyzeCaptions(
     const cps = metrics.compactLength / durationSeconds;
     const longestLine = metrics.longestLine;
 
-    if (!text) addReason(issues, caption.id, 'error', 'Empty caption');
+    if (!text) addReason(issues, caption.id, 'error', 'Empty caption', {
+      code: 'empty', label: 'No text', hint: 'Type the words, or delete this caption.',
+    });
     if (caption.timingQuality === 'low' || caption.timingSource === 'interpolated') {
-      addReason(issues, caption.id, 'error', 'Weak/interpolated timing');
+      addReason(issues, caption.id, 'error', 'Weak/interpolated timing', {
+        code: 'timing-estimated', label: 'Timing may be off', hint: 'Play it and check that the caption matches the voice.',
+      });
     } else if (!caption.approved && (caption.timingQuality === 'medium' || caption.timingSource === 'stt-split')) {
-      addReason(issues, caption.id, 'warning', 'Timing deserves a quick listen');
+      addReason(issues, caption.id, 'warning', 'Timing deserves a quick listen', {
+        code: 'timing-listen', label: 'Listen to check timing', hint: 'The timing is probably right. Play it once to confirm.',
+      });
     }
-    if (durationMs < settings.minDurationMs) addReason(issues, caption.id, 'warning', `Shorter than ${settings.minDurationMs} ms`);
-    if (durationMs > settings.maxDurationMs) addReason(issues, caption.id, 'warning', `Longer than ${(settings.maxDurationMs / 1000).toFixed(1)} seconds`);
-    if (cps > settings.maxCps) addReason(issues, caption.id, 'warning', `Fast reading speed (${Math.round(cps)} chars/s; target ≤ ${settings.maxCps})`);
-    if (longestLine > settings.maxCharsPerLine) addReason(issues, caption.id, 'warning', `Line is ${longestLine} characters; target ≤ ${settings.maxCharsPerLine}`);
-    if (metrics.lineCount > settings.maxLines) addReason(issues, caption.id, 'warning', `${metrics.lineCount} lines; target ≤ ${settings.maxLines}`);
-    if (hasKhmer(text) && hasLatin(text) && !caption.approved) addReason(issues, caption.id, 'info', 'Khmer + English entity check');
+    if (durationMs < settings.minDurationMs) addReason(issues, caption.id, 'warning', `Shorter than ${settings.minDurationMs} ms`, {
+      code: 'too-short', label: 'Very short', hint: `Shown for ${secondsLabel(durationMs)} (minimum: ${secondsLabel(settings.minDurationMs)}). Consider making it longer.`,
+    });
+    if (durationMs > settings.maxDurationMs) addReason(issues, caption.id, 'warning', `Longer than ${(settings.maxDurationMs / 1000).toFixed(1)} seconds`, {
+      code: 'too-long', label: 'Shown too long', hint: `Shown for ${secondsLabel(durationMs)} (maximum: ${secondsLabel(settings.maxDurationMs)}). Consider splitting it.`,
+    });
+    if (cps > settings.maxCps) addReason(issues, caption.id, 'warning', `Fast reading speed (${Math.round(cps)} chars/s; target ≤ ${settings.maxCps})`, {
+      code: 'fast-reading', label: 'Too fast to read', hint: `About ${Math.round(cps)} characters per second (target: ${settings.maxCps} or fewer). Viewers may not finish reading it.`,
+    });
+    if (longestLine > settings.maxCharsPerLine) addReason(issues, caption.id, 'warning', `Line is ${longestLine} characters; target ≤ ${settings.maxCharsPerLine}`, {
+      code: 'long-line', label: 'Long line', hint: `This line has ${longestLine} characters (target: ${settings.maxCharsPerLine} or fewer).`,
+    });
+    if (metrics.lineCount > settings.maxLines) addReason(issues, caption.id, 'warning', `${metrics.lineCount} lines; target ≤ ${settings.maxLines}`, {
+      code: 'too-many-lines', label: 'Too many lines', hint: `${metrics.lineCount} lines (target: ${settings.maxLines} or fewer).`,
+    });
+    if (hasKhmer(text) && hasLatin(text) && !caption.approved) addReason(issues, caption.id, 'info', 'Khmer + English entity check', {
+      code: 'mixed-language', label: 'Check English words', hint: 'Khmer and English are mixed. Check that names and English words are spelled right.',
+    });
     if (!caption.approved && /\b(?:GPT|AI|API|LLM|[A-Z]{2,}|[A-Za-z]+[- ]?\d|\d+(?:\.\d+)+)\b/.test(text)) {
-      addReason(issues, caption.id, 'info', 'Name, acronym or version number');
+      addReason(issues, caption.id, 'info', 'Name, acronym or version number', {
+        code: 'name-or-number', label: 'Check names and numbers', hint: 'Contains a name, brand or number. Check that it is exact.',
+      });
     }
-    if (/\s{2,}/.test(text)) addReason(issues, caption.id, 'warning', 'Repeated spaces');
+    if (/\s{2,}/.test(text)) addReason(issues, caption.id, 'warning', 'Repeated spaces', {
+      code: 'extra-spaces', label: 'Extra spaces', hint: 'Remove extra spaces.',
+    });
 
     for (const { canonical, alias } of aliases) {
       if (alias && text.includes(alias) && alias !== canonical) {
-        addReason(issues, caption.id, 'error', `Alias “${alias}” should probably display as “${canonical}”`);
+        addReason(issues, caption.id, 'error', `Alias “${alias}” should probably display as “${canonical}”`, {
+          code: 'key-term-alias', label: `Use “${canonical}” for “${alias}”`, hint: `Your key terms say “${alias}” should be written “${canonical}”.`,
+        });
       }
     }
 
     const previous = captions[index - 1];
-    if (previous && caption.startMs < previous.endMs) addReason(issues, caption.id, 'error', 'Overlaps the previous caption');
+    if (previous && caption.startMs < previous.endMs) addReason(issues, caption.id, 'error', 'Overlaps the previous caption', {
+      code: 'overlap', label: 'Overlaps previous', hint: 'It starts before the previous caption ends.',
+    });
     if (previous) {
       const gap = caption.startMs - previous.endMs;
-      if (gap >= 0 && gap < settings.minGapMs) addReason(issues, caption.id, 'info', `Gap is ${gap} ms; QA target is ${settings.minGapMs} ms`);
-      if (previous.text.trim() === text && text) addReason(issues, caption.id, 'warning', 'Duplicates the previous caption');
+      if (gap >= 0 && gap < settings.minGapMs) addReason(issues, caption.id, 'info', `Gap is ${gap} ms; QA target is ${settings.minGapMs} ms`, {
+        code: 'small-gap', label: 'Tiny gap', hint: `Starts only ${gap} ms after the previous caption (target: at least ${settings.minGapMs} ms).`,
+      });
+      if (previous.text.trim() === text && text) addReason(issues, caption.id, 'warning', 'Duplicates the previous caption', {
+        code: 'duplicate', label: 'Same as previous', hint: 'Matches the previous caption. Delete one or merge them.',
+      });
     }
-    if (caption.startMs < 0) addReason(issues, caption.id, 'error', 'Starts before the media');
-    if (mediaDurationMs && caption.endMs > mediaDurationMs + 20) addReason(issues, caption.id, 'error', 'Ends after the media');
+    if (caption.startMs < 0) addReason(issues, caption.id, 'error', 'Starts before the media', {
+      code: 'starts-before-media', label: 'Starts before the video', hint: 'Move the start to 00:00.000 or later.',
+    });
+    if (mediaDurationMs && caption.endMs > mediaDurationMs + 20) addReason(issues, caption.id, 'error', 'Ends after the media', {
+      code: 'ends-after-media', label: 'Ends after the video', hint: 'Move the end earlier so it stays inside the video.',
+    });
   });
 
-  return [...issues.values()].sort((a, b) => {
-    const rank: Record<ReviewSeverity, number> = { error: 0, warning: 1, info: 2 };
-    const severity = rank[a.severity] - rank[b.severity];
+  return [...issues.values()].map(({ issue }) => issue).sort((a, b) => {
+    const severity = severityRank[a.severity] - severityRank[b.severity];
     if (severity) return severity;
     return (firstIndex.get(a.captionId) ?? -1) - (firstIndex.get(b.captionId) ?? -1);
   });

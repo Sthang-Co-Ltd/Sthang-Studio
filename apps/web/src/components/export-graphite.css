@@ -58,13 +58,14 @@
 .export-graphite .export-warnings > button { align-self: flex-start; min-height: 38px; padding: 7px 11px; border: 1px solid #414750; border-radius: 8px; background: #22252a; color: var(--export-heading); font-size: 13px; cursor: pointer; }
 .export-graphite .export-warnings > button:hover:not(:disabled) { border-color: #7e8793; background: #2a2e34; }
 .export-graphite .export-warnings.export-information > div { color: var(--export-muted); }
-.export-graphite .export-finalize { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: center; }
+.export-graphite .export-finalize { position: sticky; bottom: 0; z-index: 2; background: #1b1d20; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: center; }
 .export-graphite .export-finalize .export-summary-line { grid-column: 1 / -1; display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 8px 18px; color: var(--export-text); font-size: 12px; line-height: 1.7; }
 .export-graphite .export-summary-line > span { display: inline; overflow-wrap: anywhere; }
 .export-graphite .export-summary-line svg { vertical-align: -2px; margin-right: 5px; color: var(--export-muted); }
 .export-graphite .export-summary-line b { color: var(--export-heading); }
-.export-graphite .export-finalize > .export-source-note { color: var(--export-muted); font-size: 12px; line-height: 1.6; align-items: flex-start; }
+.export-graphite > .export-source-note { display: flex; gap: 8px; color: var(--export-muted); font-size: 12px; line-height: 1.6; align-items: flex-start; }
 .export-graphite .export-source-note > svg { flex: none; margin-top: 2px; }
+.export-graphite .export-active small { color: var(--export-text); font-size: 12px; }
 .export-graphite .export-finalize > button { min-height: 44px; width: 100%; justify-content: center; font-size: 13px; }
 .export-graphite .export-history { margin: 0; padding: 4px 0 0; border: 0; border-top: 1px solid var(--export-line); }
 .export-graphite .export-history summary { color: var(--export-text); font-size: 13px; }

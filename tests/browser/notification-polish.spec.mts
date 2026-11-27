@@ -23,7 +23,7 @@ const firstRow = (page: Page) => page.locator('.caption-row[data-caption-id="not
 
 async function openReview(page: Page) {
   await openProject(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await expect(approve(page)).toBeEnabled();
   await page.locator('video').evaluate((video: HTMLVideoElement) => video.pause());
   await page.evaluate(() => {

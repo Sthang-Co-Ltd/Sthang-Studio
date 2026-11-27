@@ -85,8 +85,8 @@ export function AppearanceRange({ label, value, defaultValue, min, max, step = 1
     const next = Number((min + Math.round((bounded - min) / step) * step).toFixed(precision));
     setDraft(String(next));
     const accepted = `${next}${unit ? ` ${unit}` : ''}`;
-    const message = bounded !== number ? `Adjusted to ${accepted} — the ${number > max ? 'maximum' : 'minimum'}.`
-      : next !== number ? `Rounded to ${accepted} — nearest ${step}${unit ? ` ${unit}` : ''} step.` : '';
+    const message = bounded !== number ? `Adjusted to ${accepted}: the ${number > max ? 'maximum' : 'minimum'}.`
+      : next !== number ? `Rounded to ${accepted}: nearest ${step}${unit ? ` ${unit}` : ''} step.` : '';
     setFeedback(message ? { value: next, message } : null);
     if (next !== value) onChange(next, 'discrete');
   };

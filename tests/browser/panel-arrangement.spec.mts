@@ -44,7 +44,7 @@ async function assertTraversal(page:Page,order:Pane[]) {
 }
 
 test('all six orders preserve mounted evidence and survive three/two/three panes without gaps', async ({ page }) => {
-  await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await page.evaluate(() => { (window as any).__paneMedia = document.querySelector('video'); (window as any).__paneCaptions = document.querySelector('.caption-panel'); });
   for (const order of orders) {
     await setOrder(page,order);
@@ -56,7 +56,7 @@ test('all six orders preserve mounted evidence and survive three/two/three panes
     await assertTraversal(page,order.filter((pane) => pane !== 'inspector'));
     expect(Math.abs((await page.locator('.media-stage').boundingBox())!.width - before.width)).toBeLessThan(1);
     expect(await page.locator('.editor-divider:visible').count()).toBe(1);
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect.poll(() => actualOrder(page)).toEqual(order);
     expect(Math.abs((await page.locator('.media-stage').boundingBox())!.width - before.width)).toBeLessThan(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -64,14 +64,14 @@ test('all six orders preserve mounted evidence and survive three/two/three panes
 });
 
 test('two-pane movement keeps Tool position, persists after reload, and Reset restores both sizes and order', async ({ page }) => {
-  await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await setOrder(page,['preview','inspector','captions']);
   await page.getByRole('button', { name: 'Close tool', exact: true }).click();
   await setOrder(page,['captions','preview']);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect.poll(() => actualOrder(page)).toEqual(['captions','inspector','preview']);
   await assertTraversal(page,['captions','inspector','preview']);
-  await page.reload(); await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.reload(); await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect.poll(() => actualOrder(page)).toEqual(['captions','inspector','preview']);
   await page.getByRole('button', { name: 'Reset layout', exact: true }).click();
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
@@ -100,7 +100,7 @@ test('waveform dock avoids the preview and keyboard traversal follows every visu
 });
 
 test('adjacent Preview–Tool resizing changes both neighbors and leaves Captions fixed', async ({ page }) => {
-  await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await setOrder(page,['preview','inspector','captions']);
   const widths = () => page.locator('.refined-editor').evaluate((root) => ['.stage-column','.workspace-inspector','.caption-panel'].map((selector) => root.querySelector(selector)!.getBoundingClientRect().width));
   const before = await widths();

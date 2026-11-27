@@ -64,7 +64,7 @@ async function holdExportProfile(page: Page, snapshot: AppProfile) {
 }
 
 async function openReadyVideoExport(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(resolution(page)).toBeVisible();
   await expect(page.locator('.export-check-save').filter({ hasText: 'Loading saved caption appearance' })).toHaveCount(0);
   await expect(page.getByText('Checking video export support…', { exact: true })).toHaveCount(0);

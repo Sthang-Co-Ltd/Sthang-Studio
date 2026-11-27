@@ -49,7 +49,7 @@ selected choice locally for this project. The summary and new caption jobs use t
 last saved choice. Automatic uses the configured
 primary/fallback policy. An explicit model uses only that model for new generation,
 range regeneration, Alternative take, and Deep Verify. Exact-word local realignment
-still makes no AI request. Details retains the actual model that produced wording.
+still makes no AI request. Technical details retains the actual model that produced wording.
 
 Each new persisted caption job snapshots its effective model pair at admission.
 Resume retains that pair; changing the project choice affects a new job, not an
@@ -508,6 +508,17 @@ Home keeps a compact six-project recent list beside the upload workflow. A label
 name search, last-edited/created/name ordering, and bounded 24-project pages.
 Search includes projects beyond the current page and preserves Khmer text.
 
+Rename a project from **More** in All projects or **Rename** in the editor's
+**Project details**. Renaming changes the saved name while preserving caption
+revisions and unfinished edits. If another window saves a name first, Studio
+shows that name and lets the creator choose whether to save again.
+
+**Move to Recently deleted** removes a project from the active and recent lists
+and offers **Undo**. Projects in **Recently deleted** can be restored for seven
+days. After the deadline Studio removes them the next time it runs. **Delete
+now** asks for confirmation before permanently removing the project, its
+captions, History and Studio's copy of its source media. Exported files are kept.
+
 Reopening fetches the current saved project through the existing navigation,
 save-conflict, and unfinished-draft recovery protections. A later project choice
 or a return to Home cancels ownership of an earlier pending read. The collection's
@@ -713,7 +724,7 @@ persistent Close tool control while loading, including below the mobile preview.
 
 Importing media, editing captions manually and downloading SRT are available before AI setup.
 The empty project library offers Create a project, which focuses the file picker. Users
-open Settings or Quick guide when they need them.
+open Settings or Guide when they need them.
 
 Home explains when preferences or another task prevent importing, and shows
 Uploading only for an actual media import. Settings opens its existing sheet
@@ -725,11 +736,11 @@ Update recheck failures retain Check again and hide stale download/install actio
 Optional startup-notice dismissal still closes after a failed local marker attempt;
 closing does not select or change either privacy choice.
 
-Find & Correct selects its prefilled query once on opening and identifies invalid
+Correct everywhere selects its prefilled query once on opening and identifies invalid
 regular expressions on the editable Find field. A blank replacement previews removal
 and names it on the action. Text locks protect matching captions. Project History guards duplicate
 refresh requests while preserving the visible entries and keyboard focus.
-Accuracy's Save globally confirms the submitted glossary against the saved result.
+Accuracy's Save to all projects confirms the submitted glossary against the saved result.
 Partial saves explain how to retry, preserve the full draft, and never claim every
 term was saved. Delayed saves preserve newer Accuracy edits, acknowledged global
 glossary changes and unrelated settings.
@@ -737,7 +748,7 @@ Accuracy actions remain fully visible in narrow panels and usable on touch scree
 Export-content comparison failures show unknown freshness with a local retry;
 one failed format does not discard successful comparisons for other formats.
 
-Quick guide takes keyboard focus when opened and returns it to its launcher when
+Guide takes keyboard focus when opened and returns it to its launcher when
 closed from the guide. It remains nonmodal so the media and editor stay usable.
 Its Accuracy, Review and Export actions move focus to the selected workspace
 without delayed scrolling or interrupting a newer editing choice.
@@ -790,9 +801,9 @@ mode/character target. The success message identifies those saved choices while
 preserving newer choices in the controls. Failure keeps those choices retryable;
 saving a preset does not apply grouping to captions.
 
-Correction Inbox decisions retain keyboard position through pending, success and
+Correction inbox decisions retain keyboard position through pending, success and
 failure. A resolved Pending item advances to a surviving correction, or the
-Pending filter when none remain. History keeps the resolved card available
+Pending filter when none remain. Resolved keeps the resolved card available
 from Home after every decision is complete. Review audio keeps a failed project
 read on its original card. Success reveals the saved caption and plays its
 recorded excerpt with the configured surrounding audio.

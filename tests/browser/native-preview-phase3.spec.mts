@@ -43,7 +43,7 @@ test('current spoken-word native pixels precede lookahead and video frames advan
   });
   // Establish an entirely NEW visual signature while a spoken word is current;
   // a request made before the first cue is visible may legitimately prefetch.
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await page.getByLabel('Word highlight color').fill('#FF0000');
   const previewRequests = () => state.requests.filter((request) => request.path === '/api/video-export/landscape/preview');
   await expect.poll(() => previewRequests().filter((request) => request.body.appearance.highlightColor === '#FF0000').length).toBeGreaterThan(0);
@@ -104,7 +104,7 @@ function previewCalls(state: FixtureState) {
 }
 
 async function chooseNewWordPreviewLook(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await page.getByLabel('Word highlight color').fill('#FF0000');
 }
 

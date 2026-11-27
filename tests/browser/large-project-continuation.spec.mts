@@ -218,7 +218,7 @@ test('5,000 rows retain distant Find, menu and timing changes through failed sav
   await expect(page.getByRole('button', { name: 'Download edits', exact: true })).toHaveCount(1);
 
   await page.keyboard.press('Control+f');
-  const findDialog = page.getByRole('dialog', { name: 'Find & Correct Everywhere', exact: true });
+  const findDialog = page.getByRole('dialog', { name: 'Correct everywhere', exact: true });
   await expect(findDialog).toBeVisible();
   await findDialog.getByLabel('Find', { exact: true }).fill('UNIQUE-5000');
   await expect(findDialog.locator('.find-summary')).toContainText(/^1\s*match in 1 caption\b/);
@@ -237,7 +237,7 @@ test('5,000 rows retain distant Find, menu and timing changes through failed sav
   await expect(field(page, 0)).toHaveValue(editedFirst);
   await expect(field(page, 3400)).toHaveValue(saved[3400].text);
 
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.locator('.caption-row')).toHaveCount(COUNT);
   await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toHaveCount(0);
   await expect(saveFailure(page)).toBeVisible();
@@ -254,7 +254,7 @@ test('5,000 rows retain distant Find, menu and timing changes through failed sav
 
   // Review must advance from the first edit to a distant flagged decision without
   // dropping that target or stealing focus from the stable primary action.
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   const review = page.getByRole('complementary', { name: 'Review workspace', exact: true });
   const approveNext = review.getByRole('button', { name: 'Approve & next', exact: true });
   await expect(review).toBeVisible();
@@ -271,7 +271,7 @@ test('5,000 rows retain distant Find, menu and timing changes through failed sav
   expect(state.projects[0].captions[0].approved).toBe(true);
   expect(state.projects[0].captions[COUNT - 1].approved).toBe(true);
 
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.locator('.caption-row')).toHaveCount(3);
@@ -429,14 +429,14 @@ test('5,000 captions keep their player and fields through Appearance, saving and
       '[data-caption-id="scale-2500"] textarea', '[data-caption-id="scale-4999"] textarea']
       .map(selector => ({ selector, node: document.querySelector(selector) }));
   });
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   const size = page.getByLabel('Exact size', { exact: true });
   await size.fill('80');
   await size.press('Enter');
   await expect.poll(() => state.projects[0].captionAppearance?.fontSize1080).toBe(80);
   expect(state.projects[0].captions).toEqual(saved);
 
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: /Captions file/ }).click();
   const lastText = 'Final saved SRT caption កម្ពុជាថ្មី';
   await field(page, COUNT - 1).fill(lastText);

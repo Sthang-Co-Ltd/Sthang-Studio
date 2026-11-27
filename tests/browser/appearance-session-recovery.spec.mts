@@ -32,7 +32,7 @@ function deferred() {
   return { promise, release };
 }
 async function appearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(size(page)).toBeEnabled();
   await expect(page.locator('.appearance-save-state')).toContainText('Saved automatically');
 }
@@ -199,7 +199,7 @@ for (const width of [1440, 390]) test(`an appearance draft survives restart and 
   expect(writes.slice(before)).toHaveLength(2);
   expect(writes[before + 1].expectedAppearance.fontSize1080).toBe(94);
   await sameEditor(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.clock.runFor(100);
   const render = page.getByRole('button', { name: /Render captioned video/ });
   await expect(render).toBeEnabled();
@@ -249,7 +249,7 @@ test('a delayed initial Appearance read cannot replace the explicitly restored f
   const before = writes.length;
   const held = await heldProjectRead(page, 'landscape', true);
   try {
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await held.started;
     await restoreWithKeyboard(page);
     await expect(size(page)).toHaveValue('94');
@@ -339,7 +339,7 @@ test('leaving a hung Restore releases the next project recovery and its late com
   await failLook(page);
   state.appearanceFailure = false;
   await reloadAndReopen(page);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await appearance(page);
   state.appearanceFailure = true;
@@ -348,7 +348,7 @@ test('leaving a hung Restore releases the next project recovery and its late com
   await expect.poll(async () => (await copies(page)).some((entry) => entry.draft.projectId === 'second' && entry.draft.appearance?.fontSize1080 === 91)).toBe(true);
   state.appearanceFailure = false;
   await reloadAndReopen(page, 'second');
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(notice(page)).toBeVisible();
 
@@ -358,7 +358,7 @@ test('leaving a hung Restore releases the next project recovery and its late com
   let second: Awaited<ReturnType<typeof heldProjectRead>> | undefined;
   try {
     await restoreWithKeyboard(page); await first.started;
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(notice(page)).toBeVisible();
     for (const name of ['Restore draft', 'Download draft', 'Discard draft']) {

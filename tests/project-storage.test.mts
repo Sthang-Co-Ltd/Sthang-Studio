@@ -180,7 +180,7 @@ test('after-load disappearance and retained index references are counted once th
 
 test('legitimate deletion removes only its index reference and never becomes a missing-file warning', async () => {
   const { state, directory } = await seed('legitimate-delete', { 'good.json': JSON.stringify(project()), 'order.json': '["good","absent"]' });
-  const result = probe(state, 'await store.remove("good"); const result = { status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
+  const result = probe(state, 'const { instanceId } = await store.moveToBin("good"); await store.purgeBinnedProject("good", { instanceId }, run => run(), async () => {}); const result = { status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
   assert.deepEqual(result.ids, []);
   assert.equal(result.status.missingProjectCount, 1);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'order.json'), 'utf8')), ['absent']);
@@ -191,8 +191,8 @@ test('partial legacy migration refuses deletion and preserves the usable record 
   const { state, directory } = await seed('partial-delete', {}, false);
   const contents = JSON.stringify([project(), { id: 'broken' }]);
   const legacy = path.join(state, 'data', 'projects.json'); await fs.writeFile(legacy, contents);
-  const result = probe(state, 'let code = null; try { await store.remove("good"); } catch (error) { code = error.code; } const result = { code, status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
-  assert.equal(result.code, 'PROJECT_STORAGE_RECOVERY_REQUIRED');
+  const result = probe(state, 'let code = null; try { await store.moveToBin("good"); } catch (error) { code = error.code; } const result = { code, status: await store.storageStatus(true), ids: (await store.list()).map(p => p.id) };');
+  assert.equal(result.code, 'storage_blocked');
   assert.deepEqual(result.ids, ['good']);
   assert.equal(result.status.missingProjectCount, 0, 'memory-only legacy records have no published file to lose');
   assert.deepEqual(probe(state).ids, ['good']);

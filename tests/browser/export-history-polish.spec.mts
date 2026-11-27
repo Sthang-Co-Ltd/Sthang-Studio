@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/caption-handoff/*/export-history', (route) => route.fulfill({ json: entries }));
 });
 function deferred() { let resolve!: () => void; const promise = new Promise<void>((done) => { resolve = done; }); return { promise, resolve }; }
-async function openHistory(page: Page) { await openProject(page); await page.getByRole('button', { name: 'Export', exact: true }).click(); await page.locator('.export-history summary').click(); return page.locator('.export-history'); }
+async function openHistory(page: Page) { await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click(); await page.locator('.export-history summary').click(); return page.locator('.export-history'); }
 
 test('initial loading and failure never masquerade as an empty export history', async ({ page }) => {
   const gate = deferred(); let fail = true;

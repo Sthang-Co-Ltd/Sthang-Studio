@@ -67,7 +67,7 @@ async function expectReady(page: Page, seconds: number) {
   await expect(page.locator('.source-media-status')).toHaveCount(0);
 }
 async function switchProject(page: Page) {
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4');
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
@@ -466,7 +466,7 @@ test('opening a cached copy before original metadata retains the selected editin
   const release = deferred();
   await page.route('**/media/second.mp4', async (route) => { await release.promise; await continueOwnedRoute(route).catch(() => {}); });
   try {
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
     await expect(page.locator('video')).toHaveAttribute('src', '/media/second.mp4?compatible=1');
     await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
@@ -785,7 +785,7 @@ test('a paused compatible player renews only its exact URL even when a newer cop
   await expect.poll(() => heads.length).toBe(1);
   expect(heads).toEqual([playbackUrl]); expect(statusReads).toBe(before);
   await expectReady(page, .5);
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.clock.runFor(31_000);
   expect(heads).toEqual([playbackUrl]);
 });

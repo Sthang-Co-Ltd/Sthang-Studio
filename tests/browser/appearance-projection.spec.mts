@@ -30,10 +30,10 @@ for (const width of [1440, 390]) test(`ordinary saved-look visits transfer appea
   const initialFullReads = fullReads.length;
   await page.evaluate(() => { (window as any).__appearanceProjectionNodes = [document.querySelector('video'), document.querySelector('.caption-list')]; });
   for (let visit = 0; visit < 2; visit++) {
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(page.getByLabel('Exact size', { exact: true })).toHaveValue(String(saved!.fontSize1080));
     await expect(page.locator('.appearance-save-state')).toContainText('Saved automatically');
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect(page.getByLabel('Resolution', { exact: true })).toBeEnabled();
     await expect(page.getByRole('region', { name: 'Check before export' })).not.toContainText('Loading saved caption appearance');
   }

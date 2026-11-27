@@ -54,7 +54,7 @@ async function editKeyReceipt(page: Page) {
 for (const width of [1440, 390]) test(`E makes Review text editing immediately ready and preserves early Khmer composition at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 });
   await openEditor(page);
-  await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   await page.locator('[data-caption-id="c1"] .row-index').click();
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
   await page.clock.install();

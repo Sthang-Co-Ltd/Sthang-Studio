@@ -40,7 +40,7 @@ async function rendered(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-for (const surface of ['Activity', 'Correction Inbox'] as const) {
+for (const surface of ['Activity', 'Correction inbox'] as const) {
   test(`a blocked switch in ${surface} returns to a visible save action with the local draft intact`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 640 });
     const now = '2026-11-20T00:00:00.000Z';
@@ -91,8 +91,10 @@ for (const width of [1440, 390]) test(`Recent project entry and Back to Home pro
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(state.projects[0].captions[0].text);
   await page.screenshot({ path: info.outputPath(`project-entry-focus-${width}.png`) });
   await entry(page).press('Tab');
-  await expect(page.locator('.header-actions').getByRole('button', { name: /^Review/ })).toBeFocused();
-  const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+  await expect(page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.stage-rail').getByRole('button', { name: /^Review/ })).toBeFocused();
+  const back = page.getByRole('button', { name: 'Back to Home', exact: true });
   await back.focus(); await back.press('Enter');
   await expect(page.locator('main.workspace')).toHaveCount(0);
   await visibleFocus(upload(page));
@@ -124,10 +126,12 @@ for (const width of [1440, 390]) test(`a failed library Open returns to its reen
     fail = false;
     await open.press('Enter'); await visibleFocus(entry(page));
     await expect(entry(page)).toHaveAccessibleDescription(/Audit landscape/);
-    const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+    const back = page.getByRole('button', { name: 'Back to Home', exact: true });
     await back.focus(); await back.press('Enter');
     await visibleFocus(open);
-    await expect(page.getByRole('list', { name: 'Project results', exact: true }).getByRole('button')).toHaveCount(2);
+    const results = page.getByRole('list', { name: 'Project results', exact: true });
+    await expect(results.getByRole('button', { name: /^Open / })).toHaveCount(2);
+    await expect(results.getByRole('button', { name: /^More actions for / })).toHaveCount(2);
     expect(reads).toBe(2);
   } finally { gate.release(); }
 });
@@ -164,7 +168,7 @@ test('the first project focuses its named control and opens the guide on request
   await expect(close).toHaveCount(0);
   const tools = page.getByLabel('Open project tools', { exact: true });
   await tools.press('Enter');
-  await page.getByRole('menuitem', { name: 'Quick guide', exact: true }).press('Enter');
+  await page.getByRole('menuitem', { name: 'Guide', exact: true }).press('Enter');
   await expect(close).toBeFocused();
   await close.press('Escape');
   await expect(close).toHaveCount(0);

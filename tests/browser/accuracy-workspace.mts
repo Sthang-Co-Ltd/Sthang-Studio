@@ -3,6 +3,9 @@ import { expect, type Page } from '@playwright/test';
 export async function openAccuracy(page: Page) {
   const workspace = page.getByRole('complementary', { name: 'Accuracy workspace', exact: true });
   if (!(await workspace.isVisible())) {
+    const stage = page.getByRole('navigation', { name: 'Project stages', exact: true })
+      .getByRole('button', { name: 'Captions', exact: true, pressed: false });
+    if (await stage.isVisible() && await stage.isEnabled()) await stage.click();
     const inline = page.getByRole('complementary', { name: 'Generate captions workspace', exact: true })
       .getByRole('button', { name: /^(Add|Edit) context$/ });
     const toolbar = page.getByRole('navigation', { name: 'Caption workspace tools', exact: true })
@@ -11,7 +14,7 @@ export async function openAccuracy(page: Page) {
   }
   await expect(workspace).toBeVisible();
   return {
-    description: workspace.getByLabel('What is this clip about?', { exact: true }),
-    vocabulary: workspace.getByLabel('Exact terms to preserve', { exact: true }),
+    description: workspace.getByLabel('What is this video about?', { exact: true }),
+    vocabulary: workspace.getByLabel('Key terms', { exact: true }),
   };
 }

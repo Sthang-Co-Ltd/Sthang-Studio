@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem('sthang:updates-checked:v1', '1'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
 });
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Studio updates', exact: true });
+const panel = (page: Page) => page.getByRole('dialog', { name: 'Updates', exact: true });
 const again = (page: Page) => panel(page).getByRole('button', { name: 'Check again', exact: true });
 const download = (page: Page) => panel(page).getByRole('button', { name: 'Download & verify', exact: true });
 const install = (page: Page) => panel(page).getByRole('button', { name: 'Install & restart', exact: true });
@@ -58,7 +58,7 @@ async function openUpdates(page: Page) {
     return nodes.every(Boolean);
   })).toBe(true);
   await page.getByLabel('Open project tools', { exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Check for updates', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Updates', exact: true }).click();
   await expect(panel(page)).toBeVisible();
 }
 async function expectVisibleRoot(dialog: Locator) {

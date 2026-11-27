@@ -22,7 +22,7 @@ function rejectOverflow(route: Route) {
 }
 
 async function openAppearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
 }
 

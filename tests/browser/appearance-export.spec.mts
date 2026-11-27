@@ -7,7 +7,7 @@ let state: FixtureState;
 test.beforeEach(async ({ page }) => { state = await installFixture(page); });
 
 async function appearancePanel(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
 }
 
@@ -38,7 +38,7 @@ test('appearance edits persist across tools and export sends the same saved sett
   await page.getByLabel(/^Size /).fill('88');
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
   expect(state.projects[0].captionAppearance?.fontSize1080).toBe(88);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('button', { name: /Captioned video/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('Advanced video settings', { exact: true })).toBeVisible();
   await page.getByLabel('Resolution', { exact: true }).selectOption('720p');
@@ -107,7 +107,7 @@ test('failed appearance saves block export and recovery retries without losing t
   state.appearanceFailure = true;
   await page.getByLabel(/^Size /).fill('90');
   await expect(page.locator('.appearance-save-state').getByText('Appearance could not be saved', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.locator('.export-appearance-prerequisite').getByText(/latest caption appearance could not be saved/)).toBeVisible();
   await expect(page.getByRole('button', { name: /Render captioned video/ })).toBeDisabled();
   await page.getByRole('button', { name: 'Edit appearance' }).click();
@@ -268,7 +268,7 @@ test('newer appearance and project switches reject stale preview responses', asy
   await page.getByLabel(/^Size /).fill('96');
   await expect.poll(() => state.requests.filter((r) => r.path.endsWith('/preview')).at(-1)?.body.appearance.fontSize1080).toBe(96);
   await expect(page.locator('.native-caption-image')).toBeVisible();
-  await page.getByRole('button', { name: /Back to projects/ }).click();
+  await page.getByRole('button', { name: /Back to Home/ }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1);
   await seek(page, 500);
@@ -322,7 +322,7 @@ test('preset management and computed controls keep their real accessible states 
 
 test('SRT remains a separate text-and-timing export mode without appearance controls', async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('button', { name: /Captions file/ }).click();
   await expect(page.getByRole('button', { name: /Captions file/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('Text and timing only. Set visual styling in the destination editor.')).toBeVisible();
@@ -346,7 +346,7 @@ test('export settings grid and preset selector preserve unified field wrappers a
   await expect(page.getByLabel('Preset', { exact: true })).toHaveId('appearance-preset-select');
 
   // 2. Export workspaces at desktop: setting grid has exactly 3 children
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const settingGrid = page.locator('.export-setting-grid');
   await expect(settingGrid).toBeVisible();
   expect(await settingGrid.locator('> *').count()).toBe(3);

@@ -113,7 +113,7 @@ export function ExportHistory({ project, appearance, appearanceRecovery, activeJ
     </div>}
     {entries.length > 0 && <ul aria-busy={loading}>{entries.map((entry) => <li key={entry.format}>
       <strong>{entry.format === 'video' ? 'Captioned video' : entry.format.toUpperCase()}</strong><time dateTime={entry.preparedAt}>Prepared {new Date(entry.preparedAt).toLocaleString()}</time>
-      <span>{retained && 'Last loaded record: '}{comparison.pending.includes(entry.format) ? 'Checking export content…' : !comparisons[entry.format] ? 'Freshness unknown — current content could not be compared.' : comparisons[entry.format] === entry.fingerprint ? 'Matches open project content.' : 'Changed since export — export again to include current edits.'}</span>
+      <span>{retained && 'Last loaded record: '}{comparison.pending.includes(entry.format) ? 'Checking export content…' : !comparisons[entry.format] ? 'Freshness unknown. Studio could not compare the current content.' : comparisons[entry.format] === entry.fingerprint ? 'Matches open project content.' : 'Changed since export. Export again to include current edits.'}</span>
     </li>)}</ul>}
     {loaded && !loading && !error && !entries.length && <p>No recorded exports. Earlier exports have unknown freshness.</p>}
   </details>;
@@ -126,12 +126,12 @@ export function ExportJobFreshness({ job, project, appearance }: { job: Processi
   const comparison = useExportComparisons(`${job.id}:${project?.id || ''}`, JSON.stringify([['video', basis && job.exportContentFingerprint ? basis : null]]));
   const label = useRef<HTMLElement | null>(null);
   const value = comparison.values.video;
-  return <><small ref={label} tabIndex={-1} className="export-job-freshness" role="status">{!job.exportContentFingerprint ? 'Freshness unknown — this earlier export has no receipt.'
+  return <><small ref={label} tabIndex={-1} className="export-job-freshness" role="status">{!job.exportContentFingerprint ? 'Freshness unknown. This earlier export has no receipt.'
     : project?.id !== job.projectId ? 'Open this project to compare export content.'
-    : !basis ? appearance.status === 'pending' ? 'Checking export content…' : 'Freshness unknown — current content could not be compared.'
-    : comparison.failed.includes('video') && !comparison.pending.length ? 'Freshness unknown — current content could not be compared.'
+    : !basis ? appearance.status === 'pending' ? 'Checking export content…' : 'Freshness unknown. Studio could not compare the current content.'
+    : comparison.failed.includes('video') && !comparison.pending.length ? 'Freshness unknown. Studio could not compare the current content.'
     : !value ? 'Checking export content…'
-    : value === job.exportContentFingerprint ? 'Matches open project content.' : 'Changed since export — this video contains earlier content.'}</small>
+    : value === job.exportContentFingerprint ? 'Matches open project content.' : 'Changed since export. This video contains earlier content.'}</small>
     {comparison.failed.length > 0 && <button type="button" className="export-comparison-retry"
       aria-disabled={comparison.pending.length > 0 || undefined} aria-busy={comparison.pending.length > 0 || undefined}
       onClick={() => { if (comparison.retry()) label.current?.focus({ preventScroll: true }); }}>Retry comparison</button>}

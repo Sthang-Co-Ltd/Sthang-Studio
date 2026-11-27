@@ -8,7 +8,7 @@ for (const width of [1440, 390]) test(`font search leaves modified text/navigati
   const state = await installFixture(page);
   state.fonts.push(...Array.from({ length: 26 }, (_, index) => ({ name: `Khmer Test ${String(index + 1).padStart(2, '0')}`, source: 'user-installed' as const, available: true, boldAvailable: true })));
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.setViewportSize({ width, height: 1000 });
-  await openProject(page); await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   const input = page.getByRole('combobox', { name: 'Find Khmer font', exact: true });
   const picker = page.getByLabel('Khmer font', { exact: true });
   const original = await picker.inputValue();

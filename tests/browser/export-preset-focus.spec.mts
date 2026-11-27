@@ -25,7 +25,7 @@ function deferred() {
 }
 type Attempt = { succeeds: boolean; gate: ReturnType<typeof deferred> };
 async function openPresets(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(resolution(page)).toBeVisible();
   await summary(page).click();
   await resolution(page).selectOption('720p');

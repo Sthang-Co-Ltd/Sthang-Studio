@@ -72,7 +72,7 @@ export const proposalStore = {
   },
 
 
-  async removeProject(projectId: string) {
+  async removeProject(projectId: string, { strict = false } = {}) {
     let files: string[];
     try {
       files = await fs.readdir(config.proposalDir);
@@ -87,7 +87,11 @@ export const proposalStore = {
       let value: StoredRegenerationProposal;
       try {
         value = JSON.parse(await fs.readFile(full, 'utf8')) as StoredRegenerationProposal;
-      } catch { return; /* malformed/vanished proposals are already unusable */ }
+      } catch (error) {
+        if (strict && (error as NodeJS.ErrnoException).code !== 'ENOENT') failed += 1;
+        return;
+      }
+      if (typeof value?.summary?.projectId !== 'string') { if (strict) failed += 1; return; }
       if (value.summary.projectId !== projectId) return;
       try {
         await fs.rm(full, { force: true });

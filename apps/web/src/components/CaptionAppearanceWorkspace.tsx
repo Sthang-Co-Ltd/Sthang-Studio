@@ -871,7 +871,7 @@ export function CaptionAppearanceWorkspace({
         {motionPreset !== 'none' && <button type="button" onClick={() => updateAppearance((current) => ({ ...current, motionPreset: 'none' }))}><RotateCcw size={14}/>Turn motion off</button>}
       </div>
       {sampleCaptionText?.trim() && <div className="appearance-replay-target" aria-label="Replay target caption"><span>Replay target</span><b>{sampleCaptionText.trim()}</b></div>}
-      <span className={`appearance-motion-help${replayUnavailableCopy ? ' unavailable' : ''}`}>{replayUnavailableCopy || 'Replay this caption to check its look.'}</span>
+      {replayUnavailableCopy && <span className="appearance-motion-help unavailable">{replayUnavailableCopy}</span>}
     </section>
 
     <details className="appearance-word-details appearance-option-group" open={appearance.highlightMode === 'word' || wordPreparation?.hasUndo || wordPreparation?.running}><summary ref={wordHighlightSummaryRef}>Word highlighting · {appearance.highlightMode === 'word' ? 'On' : 'Off'}</summary>

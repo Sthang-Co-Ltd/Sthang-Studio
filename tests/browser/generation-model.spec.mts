@@ -222,9 +222,9 @@ test('optional Accuracy entry reflects saved project context', async ({ page }, 
   const add = generate.getByRole('button', { name: 'Add context', exact: true });
   const edit = generate.getByRole('button', { name: 'Edit context', exact: true });
   const accuracy = page.getByRole('complementary', { name: 'Accuracy workspace' });
-  const description = accuracy.getByLabel('What is this clip about?', { exact: true });
+  const description = accuracy.getByLabel('What is this video about?', { exact: true });
   const close = accuracy.getByRole('button', { name: 'Close tool', exact: true });
-  const toolbarAccuracy = page.getByRole('button', { name: /^Accuracy/ });
+  const toolbarAccuracy = page.getByRole('button', { name: 'Accuracy', exact: true });
   await expect(toolbarAccuracy).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reset layout', exact: true })).toBeVisible();
   await expect(generate.getByText('Optional', { exact: true })).toBeVisible();
@@ -247,7 +247,7 @@ test('optional Accuracy entry reflects saved project context', async ({ page }, 
   await expect(add).toBeFocused();
   await add.click();
   await expect(description).toHaveValue('A clip about the Studio launch.');
-  await accuracy.getByRole('button', { name: 'Save for project', exact: true }).click();
+  await accuracy.getByRole('button', { name: 'Save for this project', exact: true }).click();
   await expect(page.getByText('Accuracy context saved.', { exact: true })).toBeVisible();
   await close.click();
   await expect(edit).toBeFocused();
@@ -264,7 +264,7 @@ test('optional Accuracy entry reflects saved project context', async ({ page }, 
 test('closing Accuracy with its active toolbar button focuses Add context', async ({ page }) => {
   await initialProject(page);
   const entry = page.getByRole('button', { name: 'Add context', exact: true });
-  const toolbarAccuracy = page.getByRole('button', { name: /^Accuracy/ });
+  const toolbarAccuracy = page.getByRole('button', { name: 'Accuracy', exact: true });
   await entry.press('Enter');
   await expect(toolbarAccuracy).toHaveAttribute('aria-pressed', 'true');
   await toolbarAccuracy.press('Enter');
@@ -278,7 +278,7 @@ for (const key of ['Enter', 'Escape']) {
     state.projects[0].transcriptionContext = { description: '', vocabulary: ['Studio'] };
     await openProject(page);
     await page.getByRole('button', { name: 'Fine timing', exact: true }).press('Enter');
-    const toolbarAccuracy = page.getByRole('button', { name: /^Accuracy/ });
+    const toolbarAccuracy = page.getByRole('button', { name: 'Accuracy', exact: true });
     await toolbarAccuracy.press('Enter');
     const accuracy = page.getByRole('complementary', { name: 'Accuracy workspace' });
     await accuracy.getByRole('button', { name: 'Close tool', exact: true }).press(key);
@@ -308,7 +308,7 @@ test('closing Accuracy cannot move focus after leaving the project', async ({ pa
   });
   expect(heldFrames).toBeGreaterThan(0);
   await expect(page.getByRole('button', { name: 'Add context', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
   await expect(page.getByRole('button', { name: 'Edit context', exact: true })).toBeVisible();
   const generate = page.getByRole('button', { name: 'Generate captions', exact: true });
@@ -322,7 +322,7 @@ for (const surface of ['Generate', 'Accuracy'] as const) {
     if (surface === 'Generate') await initialProject(page);
     else {
       await openProject(page);
-      await page.getByRole('button', { name: /^Accuracy/ }).click();
+      await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
     }
     const disclosure = page.locator('.generation-options');
     const summary = disclosure.locator(':scope > summary');
@@ -381,12 +381,12 @@ test('Generate offers all four choices, saves Hydrogen per project, survives reo
     await applyModel(page).click();
     await expectSummaryModel(page, value);
   }
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit second/ }).click();
-  await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
   await expectSummaryModel(page, 'automatic');
   await expect(radio(await options(page), 'automatic')).toBeChecked();
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await page.getByRole('button', { name: /Audit landscape/ }).click();
   await expect(modelGroup(page)).toBeHidden();
   await expectSummaryModel(page, 'gemini-4-hydrogen');
@@ -419,16 +419,16 @@ test('Generate waits for Apply and submits saved Hydrogen with a different draft
   state.jobs = [{ ...state.jobs[0], status: 'completed', stage: 'complete', progress: 100, resultProjectId: 'landscape' }];
   await expect(page.getByText('Background caption generation completed.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add context', exact: true })).toHaveCount(0);
-  const toolbarAccuracy = page.getByRole('button', { name: /^Accuracy/ });
+  const toolbarAccuracy = page.getByRole('button', { name: 'Accuracy', exact: true });
   await toolbarAccuracy.press('Enter');
-  await expect(page.getByRole('button', { name: 'Preview full regeneration', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Improve all captions', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Close tool', exact: true }).press('Enter');
   await expect(toolbarAccuracy).toBeFocused();
 });
 
 test('failed Apply preserves captions and the saved summary and can retry the same draft', async ({ page }) => {
   const captions = structuredClone(state.projects[0].captions);
-  await openProject(page); await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await openProject(page); await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
   const group = await options(page); failure = true;
   await modelRow(group, 'gemini-3.8-flash').click();
   await applyModel(page).click();
@@ -443,9 +443,9 @@ test('failed Apply preserves captions and the saved summary and can retry the sa
 });
 
 test('full regeneration waits for Apply, uses saved Hydrogen, and locks the choice during the caption save', async ({ page }) => {
-  await openProject(page); await page.getByRole('button', { name: /^Accuracy/ }).click();
+  await openProject(page); await page.getByRole('button', { name: 'Accuracy', exact: true }).click();
   const group = await options(page);
-  const regenerate = page.getByRole('button', { name: 'Preview full regeneration', exact: true });
+  const regenerate = page.getByRole('button', { name: 'Improve all captions', exact: true });
   let releaseModel!: () => void;
   hold = new Promise<void>((resolve) => { releaseModel = resolve; });
   await modelRow(group, 'gemini-4-hydrogen').click();

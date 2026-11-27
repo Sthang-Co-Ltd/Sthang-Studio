@@ -9,7 +9,7 @@ const checks = (page: Page) => page.getByRole('region', { name: 'Check before ex
 const renderButton = (page: Page) => page.getByRole('button', { name: 'Render captioned video', exact: true });
 async function openExport(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(checks(page)).toBeVisible();
 }
 async function showIssues(page: Page) {
@@ -108,7 +108,7 @@ test('native overlap results identify both captions, preserve plain SRT, and bec
   await page.getByLabel(/^Size /).fill('58');
   await expect(page.getByText('Saved automatically', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await expect(checks(page)).toContainText('Previous layout finding · recheck needed');
   expect(state.jobs).toHaveLength(0);
 });
@@ -119,11 +119,11 @@ test('successful checks become stale after caption and resolution edits', async 
   await page.getByRole('button', { name: 'Check layout', exact: true }).click();
   await expect(checks(page)).toContainText('Layout fits the checked frame');
   await page.getByLabel('Caption 1 text', { exact: true }).fill('New ខ្មែរ wording');
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
   await page.getByRole('button', { name: 'Recheck layout', exact: true }).click();
   await expect(checks(page)).toContainText('Layout fits the checked frame');
   await page.getByLabel('Resolution', { exact: true }).selectOption('720p');
-  await expect(checks(page)).toContainText('Layout changed — check again');
+  await expect(checks(page)).toContainText('Layout changed. Check again.');
 });
 
 test('late native replies after edit or explicit cancellation cannot claim a clean result', async ({ page }) => {
@@ -169,11 +169,11 @@ test('leaving Export cancels pending native work and new editor visits reset cho
     await page.getByRole('button', { name: 'Edit appearance', exact: true }).click();
     finish.resolve(); await settled.promise;
     await page.getByRole('button', { name: 'Back to export', exact: true }).click();
-    await expect(checks(page)).toContainText('Full layout has not been checked');
+    await expect(checks(page)).toContainText('Layout check (optional)');
     await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('720p');
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await page.getByRole('button', { name: /Audit second/ }).click();
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await expect(page.getByLabel('Resolution', { exact: true })).toHaveValue('source');
     await expect(page.getByRole('region', { name: 'Export review', exact: true })).toHaveCount(0);
     await expect(checks(page)).not.toContainText('combined layout');
@@ -226,7 +226,7 @@ test('long issue lists have keyboard pagination and readable mobile touch contro
   await openExport(page); await captionsMode(page); await showIssues(page);
   await expect(checks(page).locator('.export-check-item')).toHaveCount(8);
   const firstIssue = checks(page).locator('.export-check-item').first();
-  await expect(firstIssue.locator('.export-check-title strong')).toContainText('timing needs a careful listen');
+  await expect(firstIssue.locator('.export-check-title strong')).toContainText('Timing may be off');
   await expect(firstIssue.getByText('Review suggestion', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next issues', exact: true }).focus();
   await page.keyboard.press('Enter');
@@ -269,7 +269,7 @@ test('ASS explains failed appearance loads and retries without blocking SRT', as
   };
   await page.route('**/api/projects/landscape/appearance', handler);
   try {
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await assMode(page);
     const failure = checks(page).getByRole('alert');
     await expect(failure).toContainText('Could not load the latest saved caption appearance');
@@ -304,12 +304,12 @@ test('ASS explains failed appearance loads and retries without blocking SRT', as
 
 test('ASS explains failed appearance saves and recovers the exact edited look', async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   state.appearanceFailure = true;
   await page.getByLabel(/^Size /).fill('90');
   await expect(page.locator('.appearance-save-state').getByText('Appearance could not be saved', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await assMode(page);
   const failure = checks(page).getByRole('alert');
   await expect(failure).toContainText('Your latest caption appearance could not be saved');
@@ -376,13 +376,13 @@ for (const reply of ['failure', 'old appearance'] as const) {
     };
     await page.route('**/api/projects/landscape/appearance', handler);
     try {
-      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
       await entered.promise;
       await assMode(page);
       await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();
-      await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+      await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
       await page.getByRole('button', { name: /Audit second/ }).click();
-      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
       await assMode(page);
       await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled();
       finish.resolve(); await Promise.all(completed);
@@ -413,7 +413,7 @@ test('ASS rejects an appearance read for changed media until the current source 
   const handler = (route: Route) => route.fulfill({ json: current ? state.projects[0] : changed });
   await page.route('**/api/projects/landscape/appearance', handler);
   try {
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
     await assMode(page);
     await expect(checks(page).getByRole('alert')).toContainText('source changed');
     await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeDisabled();

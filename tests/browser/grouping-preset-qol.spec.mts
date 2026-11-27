@@ -115,7 +115,7 @@ test('late grouping acknowledgement preserves a newer review preference', async 
     await openGrouping(page);
     await save(page).click();
     await expect.poll(() => submitted).toBe(true);
-    await page.locator('.header-actions').getByRole('button', { name: /^Review\b/ }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ }).click();
     const preference = page.getByRole('checkbox', { name: 'Auto-play next', exact: true });
     await preference.check();
     await expect.poll(() => state.profile.preferences.autoPlayNextReview).toBe(true);

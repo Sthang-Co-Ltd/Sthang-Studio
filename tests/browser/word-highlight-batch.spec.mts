@@ -57,7 +57,7 @@ const controls = (page: Page) => page.getByRole('region', { name: 'Word highligh
 const toggle = (page: Page) => page.getByRole('button', { name: 'Highlight spoken word', exact: true });
 const undo = (page: Page) => controls(page).getByRole('button', { name: 'Undo', exact: true });
 async function appearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expandAppearanceSection(page, 'words');
 }
 
@@ -141,6 +141,7 @@ test('a delayed Sync remaining keeps the newer workspace choice', async ({ page 
   try {
     await sync.click();
     await expect.poll(() => routes.chunks.length).toBe(2);
+    await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
     await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
     await appearance(page);
     held.release();
@@ -312,7 +313,7 @@ for (const allReady of [false, true]) {
     project.transcript!.segments = structuredClone(project.captions);
 
     await openProject(page);
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     const section = page.getByRole('region', { name: 'Spoken word highlight', exact: true });
     await expect(section.getByRole('button', { name: 'Highlight spoken word', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(section).toContainText(allReady ? 'Highlighting 2 captions' : '2 plain');

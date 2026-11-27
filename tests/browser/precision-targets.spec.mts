@@ -106,7 +106,7 @@ test('word boundaries gain the same forgiving targets without shifting neighbori
 
 test('separator has a wider hit area without changing pane widths or taking neighboring clicks', async ({ page }) => {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   const divider = page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true });
   const preview = page.locator('.stage-column');
   const before = (await preview.boundingBox())!.width;

@@ -15,7 +15,7 @@ function deferred<T = void>() {
 
 async function openAppearance(page: Page) {
   await openProject(page);
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.locator('.caption-appearance-workspace')).toBeVisible();
   await expect(page.getByLabel('Khmer font', { exact: true })).toBeEnabled();
   await expandAppearanceSection(page, 'motion');
@@ -150,7 +150,7 @@ test('a font added during initial discovery remains selected and completes loadi
   });
   try {
     await openProject(page);
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     await entered.promise;
     await page.locator('.appearance-font-file-input').setInputFiles({ name: 'Synthetic.ttf', mimeType: 'font/ttf', buffer: Buffer.from('fixture font upload') });
     await expect(page.getByLabel('Khmer font', { exact: true })).toHaveValue('Creator Khmer');

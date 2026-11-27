@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptionProject, ProjectStorageStatus } from '@kcs/shared';
+import type { CaptionProject, ProjectDeletion, ProjectStorageStatus } from '@kcs/shared';
 import { beginProjectLoadingPhase, endProjectLoadingPhase } from './project-loading-observer.js';
 
 export type JsonRead = { state: 'ok'; value: unknown } | { state: 'missing' | 'unreadable' };
@@ -21,6 +21,17 @@ export async function readMigrationMarker(file: string): Promise<'present' | 'mi
   try { return (await fs.stat(file)).isFile() ? 'present' : 'unreadable'; }
   catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable'; }
   finally { endProjectLoadingPhase(metadata); }
+}
+
+export const PROJECT_RESTORE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function isProjectDeletion(value: unknown): value is ProjectDeletion {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { instanceId, binnedAt, restoreUntil, recordUpdatedAt, purgeStartedAt } = value as ProjectDeletion;
+  return typeof instanceId === 'string' && instanceId.length > 0
+    && [binnedAt, restoreUntil, recordUpdatedAt].every((date) => typeof date === 'string' && Number.isFinite(Date.parse(date)))
+    && Math.abs(Date.parse(restoreUntil) - Date.parse(binnedAt) - PROJECT_RESTORE_WINDOW_MS) <= 1000
+    && (purgeStartedAt === undefined || (typeof purgeStartedAt === 'string' && Number.isFinite(Date.parse(purgeStartedAt))));
 }
 
 /** Validate load shape only. Editorial errors and repairable cue timing stay editable. */

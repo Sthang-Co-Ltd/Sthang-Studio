@@ -21,7 +21,7 @@ const destination = (page: Page) => page.getByLabel('Caption destination', { exa
 function deferred() { let release!: () => void; const promise = new Promise<void>((resolve) => { release = resolve; }); return { promise, release }; }
 async function rendered(page: Page) { await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))); }
 async function openExport(page: Page) {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Export type' })).toBeVisible();
 }
 async function openRecent(page: Page, id = 'landscape') {
@@ -29,7 +29,7 @@ async function openRecent(page: Page, id = 'landscape') {
   await expect(page.getByRole('button', { name: 'Project details', exact: true })).toHaveAccessibleDescription(new RegExp(`Audit ${id}`));
 }
 async function home(page: Page) {
-  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Recent projects', exact: true })).toBeVisible();
 }
 async function openAdvanced(page: Page) {
@@ -117,7 +117,7 @@ for (const width of [1440, 390]) test(`unavailable optional storage explains the
   await expect(page.getByRole('status').filter({ hasText: 'These export choices could not be remembered in this browser.' })).toBeVisible();
   await expect(resolution(page)).toHaveValue('720p'); await expect(rate(page)).toHaveValue('30'); await expect(bitrate(page)).toHaveValue('11');
   await chooseCaptions(page); await captionChoices(page);
-  await page.getByRole('button', { name: 'Export', exact: true }).click(); await openExport(page); await captionChoices(page);
+  await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click(); await openExport(page); await captionChoices(page);
   await video(page).click(); await expect(resolution(page)).toHaveValue('720p'); await expect(bitrate(page)).toHaveValue('11');
   await page.route('**/api/projects/second', (route) => route.fulfill({ status: 503, json: { error: 'Synthetic project result read failure' } }));
   await page.getByLabel('Open project tools', { exact: true }).click(); await page.getByRole('menuitem', { name: /Processing jobs/ }).click();

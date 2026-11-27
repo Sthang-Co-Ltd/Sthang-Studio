@@ -42,7 +42,7 @@ async function blur(page: Page) {
 
 async function openWorkspace(page: Page, workspace: 'review' | 'timing' | 'normal') {
   await openProject(page);
-  if (workspace === 'review') await page.locator('.header-actions').getByRole('button', { name: /^Review/ }).click();
+  if (workspace === 'review') await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
   if (workspace === 'timing') {
     await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
     await expect(page.locator('.fine-timing')).toBeVisible();

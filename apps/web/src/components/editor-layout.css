@@ -16,7 +16,9 @@
 .editor-workbench .refined-editor{min-height:0;min-width:0;flex:1;margin:12px;display:grid;grid-template-columns:var(--editor-columns);grid-template-rows:minmax(0,1fr);overflow:hidden;reading-flow:source-order}
 .refined-editor> .stage-column{grid-column:var(--editor-preview-column);order:var(--editor-preview-order);reading-order:var(--editor-preview-order);grid-row:1/-1;display:flex;flex-direction:column;padding:0;overflow:hidden;min-height:0;min-width:0;border:1px solid #2d343d;border-radius:12px;background:#090c0f}
 .editor-preview-label{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;font-size:13px;color:#dce1e7}
-.editor-preview-label strong{font-weight:600}.editor-preview-label span{font-size:12px;color:#929da8}
+.panel-heading{margin:0;min-width:0;font:inherit}
+.panel-heading:has(>.editor-pane-grip){margin-left:-6px}
+.editor-preview-label strong{font-weight:600}
 .refined-editor .stage-column .media-stage{flex:1;min-height:0;max-height:none;height:auto;border:0;border-radius:0;background:#000}
 .editor-divider{position:relative;z-index:2;grid-row:1/-1;cursor:col-resize;touch-action:none;outline-offset:-2px;min-width:8px}
 /* Increase the grab band to 16px while the grid track stays 8px wide. */
@@ -28,7 +30,7 @@
 .refined-editor .panel-head-copy{flex:1 1 7rem;min-width:0}
 .refined-editor .panel-tools{margin-left:auto;max-width:100%;flex-wrap:wrap}
 .refined-editor .caption-list{padding:4px 8px;overscroll-behavior:contain}
-.refined-editor .caption-row{border-radius:0;border:0;border-bottom:1px solid #232b32;padding:10px 4px;min-height:76px;box-shadow:none;grid-template-columns:20px 22px 86px minmax(0,1fr) 80px;gap:6px}
+.refined-editor .caption-row{border-radius:0;border:0;border-bottom:1px solid #232b32;padding:10px 4px;min-height:76px;box-shadow:none;grid-template-columns:20px 22px 96px minmax(0,1fr) 80px;gap:6px}
 .refined-editor .row-actions{width:80px}
 .refined-editor .row-actions>button{width:36px;height:36px}
 .refined-editor .caption-action-menu{top:42px}
@@ -42,7 +44,7 @@
 .refined-editor .workspace-inspector{grid-column:var(--editor-inspector-column);order:var(--editor-inspector-order);reading-order:var(--editor-inspector-order);grid-row:var(--editor-inspector-row);display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid #2d343d;border-radius:12px;overflow:hidden;background:#0f1216}
 .editor-workbench [hidden]{display:none!important}
 .inspector-heading{min-height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid #29323b;background:#10151a}
-.inspector-heading>strong{font-size:14px;font-weight:650}
+.inspector-heading .panel-heading>strong{font-size:14px;font-weight:650}
 .inspector-content{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;padding:12px;scrollbar-width:thin;scrollbar-color:#3a4550 transparent;scroll-padding-block:12px}
 .inspector-content> :is(.caption-appearance-workspace,.fine-timing,.review-card,.accuracy-card,.timing-card,.controls-card,.export-workspace,.regeneration-dock){margin:0;min-width:0;max-height:none;border:0;border-radius:0;box-shadow:none;padding:0;background:transparent}
 .inspector-content .review-card{grid-template-columns:minmax(0,1fr);gap:16px;padding:12px}
@@ -168,12 +170,13 @@
 @media(max-width:620px){
   .refined-editor .panel-tools .panel-tool{min-height:44px}
   .inspector-content .transcribe-card>.primary,.inspector-content .controls-card button,.editor-toolbar .workspace-tool-strip nav button,.inspector-heading button,.inspector-content .accuracy-actions button{min-height:44px}
-  .inspector-content .review-card{padding:4px}
+  .inspector-content .review-card{padding:4px;gap:8px}
+  .inspector-content .review-reasons{max-block-size:64px;overflow:auto;scrollbar-width:thin}
   .inspector-content .review-nav-actions,.inspector-content .review-decision-actions{display:grid}
   .inspector-content .review-autoplay-toggle{grid-column:auto}
   .refined-editor>.caption-panel[data-empty] .review-empty{padding-block:12px}
   .editor-workbench .refined-editor{margin:8px}
-  .refined-editor .caption-row{grid-template-columns:20px 24px minmax(86px,1fr) 96px;gap:6px}
+  .refined-editor .caption-row{grid-template-columns:20px 24px minmax(96px,1fr) 96px;gap:6px}
   .refined-editor .row-actions{width:96px}
   .refined-editor .row-actions>button{width:44px;height:44px}
   .refined-editor .caption-action-menu{top:50px}
@@ -189,7 +192,7 @@
   .inspector-content .timing-history{margin-left:0}
 }
 /* Arrangement stays in its own native top-layer popover; media never moves in the DOM. */
-.editor-layout-controls{display:flex;align-items:center;gap:8px;flex:none}
+.editor-layout-controls{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
 .editor-arrange-trigger{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #303740;border-radius:8px;background:#13181d;color:#cbd3dc;font-size:13px;padding:7px 10px;cursor:pointer}
 .editor-arrange-trigger:hover:not(:disabled){background:#202831;color:#f5f5f5}
 .editor-arrange-trigger:disabled{opacity:.55;cursor:not-allowed}
@@ -228,7 +231,7 @@
 @media(max-width:1199px){.editor-layout-controls{display:none}.editor-arrange-popover:popover-open{display:none}}
 @media(prefers-reduced-motion:reduce){.editor-arrange-panel{transition:none}.editor-panel-ghost{transform:none}}
 /* Direct header grips share the existing local pane-order controller. */
-.editor-pane-grip{display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px;max-width:100%;padding:4px 6px;margin-left:-6px;border:1px solid transparent;border-radius:6px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:grab;touch-action:none;user-select:none}
+.editor-pane-grip{display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;min-height:32px;max-width:100%;padding:4px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:grab;touch-action:none;user-select:none}
 .editor-pane-grip strong{font-size:inherit;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .editor-pane-grip svg{color:#91a2b2;flex:none}
 .editor-pane-grip:hover{border-color:#465360;background:#1a242d;color:#eef4f9}
@@ -238,8 +241,8 @@
 .inspector-heading .editor-pane-grip{justify-content:flex-start;border:1px solid transparent;background:transparent;color:#dce1e7;padding:4px 6px;font-size:14px;flex:0 1 auto}
 .inspector-heading .editor-pane-grip:hover{border-color:#465360;background:#1a242d}
 .inspector-heading .editor-pane-grip:active{border-color:var(--accent);background:#26321c}
-.inspector-heading>.editor-pane-grip+button{flex:none}
-.panel-head-copy>.editor-pane-grip{font-size:13px}
+.inspector-heading>.panel-heading+button{flex:none}
+.panel-head-copy .editor-pane-grip{font-size:13px}
 .editor-layout-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .editor-workbench .refined-editor.is-header-dragging{position:relative;overflow:visible;isolation:isolate;cursor:grabbing}
 .refined-editor.is-header-dragging>.editor-pane-floating{position:relative;z-index:20;pointer-events:none;will-change:transform;outline:2px solid var(--accent);outline-offset:-1px;box-shadow:0 20px 48px #000b;cursor:grabbing}

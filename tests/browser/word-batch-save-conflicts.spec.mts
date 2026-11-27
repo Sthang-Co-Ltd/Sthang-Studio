@@ -425,7 +425,7 @@ for (const { action, foreign } of scenarios) {
     });
 
     try {
-      await other.getByRole('button', { name: 'Appearance', exact: true }).click();
+      await other.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
       const results = highlightResults(other);
       await results.getByRole('button', { name: 'Apply to all captions', exact: true }).click();
       await expect.poll(() => preparedAudio).toBe(true);
@@ -712,7 +712,7 @@ test('typing on the prepared target during its held acknowledgement cannot undo 
   });
 
   try {
-    await other.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await other.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
     const beforeBatch = await disk(name);
     await highlightResults(other).getByRole('button', { name: 'Apply to all captions', exact: true }).click();
     await expect.poll(() => held !== null).toBe(true);
@@ -796,7 +796,7 @@ for (const { name, endpoint, busyLabel } of cleanupScenarios) {
 
     try {
       const tools = other.getByRole('navigation', { name: 'Caption workspace tools', exact: true });
-      const review = other.locator('.header-actions').getByRole('button', { name: /^Review\b/ });
+      const review = other.locator('.stage-rail').getByRole('button', { name: /^Review\b/ });
       if (endpoint === 'normalize-khmer-spacing') {
         await tools.getByRole('button', { name: 'Caption grouping', exact: true }).click();
         await other.getByRole('button', { name: 'Clean Khmer spacing', exact: true }).click();
@@ -810,7 +810,7 @@ for (const { name, endpoint, busyLabel } of cleanupScenarios) {
       await expect.poll(() => reads.length > 0 || cleanups.some((entry) => entry.status !== undefined)).toBe(true);
       // Review filters out approved c1. Return to the full caption list before
       // editing, while the actual cleanup decision remains held by the gate.
-      if (endpoint === 'postprocess-timing') await review.click();
+      if (endpoint === 'postprocess-timing') await other.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
       const local = `សេចក្ដីព្រាង B ${endpoint}\nKEEP THIS NEW THIRD CAPTION`;
       await captionField(other, 3).fill(local);
       evidence.editorWhileDecisionHeld = await editorEvidence(other, name);

@@ -209,7 +209,7 @@ for (const cause of ['dismissed notice', 'project switch'] as const) test(`an un
       await page.getByRole('button', { name: 'Dismiss job notice', exact: true }).click();
       await expect(page.getByText(/Studio lost the reply/)).toHaveCount(0);
     } else {
-      await page.getByRole('button', { name: 'Back to projects' }).click();
+      await page.getByRole('button', { name: 'Back to Home' }).click();
       await page.getByRole('button', { name: /Audit second/ }).click();
       const identity = page.getByRole('button', { name: 'Project details', exact: true });
       await expect(identity).toHaveAccessibleDescription(/Audit second/);
@@ -220,7 +220,7 @@ for (const cause of ['dismissed notice', 'project switch'] as const) test(`an un
       await expect(caption).toBeFocused(); await expect(identity).toHaveAccessibleDescription(/Audit second/);
       await expect(activity).toHaveCount(0); await expect(verify).toHaveCount(0);
       await expect(page.getByText(/Studio lost the reply/)).toHaveCount(0);
-      await page.getByRole('button', { name: 'Back to projects' }).click();
+      await page.getByRole('button', { name: 'Back to Home' }).click();
       await page.getByRole('button', { name: /Audit landscape/ }).click();
     }
     await expect(verify).toBeEnabled();

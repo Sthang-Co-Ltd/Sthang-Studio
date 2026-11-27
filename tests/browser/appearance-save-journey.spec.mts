@@ -18,7 +18,7 @@ function deferred() {
   return { promise, release };
 }
 async function appearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.getByLabel('Exact size', { exact: true })).toBeEnabled();
 }
 async function changeSize(page: Page, value: number) {
@@ -44,7 +44,7 @@ for (const width of [1440, 390]) test(`failed appearance remains protected acros
   await changeSize(page, 90);
   await expect(page.getByText('Appearance could not be saved', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Close tool', exact: true }).click();
-  const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+  const back = page.getByRole('button', { name: 'Back to Home', exact: true });
   await back.focus(); await back.press('Enter');
   await expect(page.locator('main.workspace')).toBeVisible();
   await expect(page.locator('.save-action')).toBeEnabled();
@@ -61,7 +61,7 @@ for (const width of [1440, 390]) test(`failed appearance remains protected acros
   await page.getByRole('region', { name: 'Recent projects', exact: true }).getByRole('button', { name: /Audit landscape/ }).click();
   await appearance(page);
   await expect(page.getByLabel('Exact size', { exact: true })).toHaveValue('90');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('button', { name: /Render captioned video/ })).toBeEnabled();
   expect(state.projects[0].captions).toEqual(captions);
 });
@@ -83,7 +83,7 @@ test('a pending appearance save holds navigation and preserves a newer edit made
   try {
     await changeSize(page, 81);
     await expect.poll(() => writes).toBe(1);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(page.getByLabel('Exact size', { exact: true })).toBeVisible();
     await changeSize(page, 93);
     // Enter commits and intentionally blurs this number field. Resume editing
@@ -96,7 +96,7 @@ test('a pending appearance save holds navigation and preserves a newer edit made
     await unchangedEditor(page, captions);
     await page.keyboard.press('Control+s');
     await expect(page.locator('.save-action')).toBeDisabled();
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await expect(page.locator('main.workspace')).toHaveCount(0);
   } finally { gate.release(); }
 });
@@ -198,7 +198,7 @@ test('a newer appearance edit cancels Home while an earlier caption save is drai
     await page.getByLabel('Caption 1 text', { exact: true }).fill('Caption saved before the newer appearance');
     await appearance(page);
     await expect.poll(() => writes).toBe(1);
-    await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
     await changeSize(page, 92);
     await page.getByLabel('Exact size', { exact: true }).focus();
     gate.release(); await finished.promise;

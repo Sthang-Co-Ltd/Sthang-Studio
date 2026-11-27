@@ -16,7 +16,7 @@ const fonts = (page: Page) => page.getByLabel('Khmer font', { exact: true });
 const presets = (page: Page) => page.getByLabel('Preset', { exact: true });
 const name = (page: Page) => page.getByLabel('Save current appearance as', { exact: true });
 async function appearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
   await expect(page.locator('.caption-appearance-workspace')).toBeVisible();
 }
 async function management(page: Page) {

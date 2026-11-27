@@ -16,7 +16,7 @@ test('readability and weak timing remain advisory while invalid caption files id
   const result = issues(captions, 'srt');
   assert.deepEqual(result.filter((issue) => issue.severity === 'blocker').map((issue) => issue.captionIds), [['empty'], ['late']]);
   assert.equal(result.find((issue) => issue.id === 'review:first')?.severity, 'advisory');
-  assert.match(result.find((issue) => issue.id === 'review:first')!.reasons.join(), /listen against the source/);
+  assert.ok(result.find((issue) => issue.id === 'review:first')!.reasons.includes('Timing may be off'));
   assert.equal(result.find((issue) => issue.captionIds[0] === 'empty' && issue.severity === 'blocker')?.repair, 'caption');
   assert.equal(result.find((issue) => issue.captionIds[0] === 'late' && issue.severity === 'blocker')?.repair, 'timing');
   assert.ok(result.slice(0, 2).every((issue) => issue.severity === 'blocker'));
@@ -31,6 +31,17 @@ test('overlap review links both exact captions and keeps other reasons on their 
   assert.equal(overlap.severity, 'advisory');
   assert.deepEqual(result.find((issue) => issue.id === 'review:short-b')?.captionIds, ['short-b']);
   assert.doesNotMatch(result.find((issue) => issue.id === 'review:short-b')!.reasons.join(), /Overlaps/);
+});
+
+test('export groups an overlap by code even when its label changes', () => {
+  const captions = [caption('first', 'Earlier', 0, 2000), caption('second', 'Later', 1000, 2500)];
+  const reviewIssues = analyzeCaptions(captions, []);
+  const reason = reviewIssues[0].reasons.find(({ code }) => code === 'overlap')!;
+  reason.label = 'These two cues play together';
+  const result = buildExportCaptionIssues({ captions, reviewIssues, format: 'video', appearance });
+  assert.deepEqual(result.map(({ id, captionIds }) => ({ id, captionIds })), [
+    { id: 'overlap:first:second', captionIds: ['first', 'second'] },
+  ]);
 });
 
 test('word timing blocks only selected word files and stays advisory for styled video or bundle', () => {
