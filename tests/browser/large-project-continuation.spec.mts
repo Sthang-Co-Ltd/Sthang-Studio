@@ -18,7 +18,9 @@ let state: FixtureState;
 test.beforeEach(async ({ page }) => {
   // Full 5,000-field browser journeys include reload and native focus checks.
   // Latency measurement remains in the separate scalability benchmark.
-  test.setTimeout(120_000);
+  // Ubuntu CI passes take 1.3–2.0 min and vary run to run on the same commit,
+  // so 120 s timed out about 1 run in 7. 180 s leaves headroom above the slowest pass.
+  test.setTimeout(180_000);
   state = await installFixture(page);
   state.profile.preferences.autosaveDelayMs = 60_000;
   state.profile.preferences.autoPlayNextReview = false;
