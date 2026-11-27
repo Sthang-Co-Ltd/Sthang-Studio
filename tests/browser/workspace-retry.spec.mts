@@ -214,7 +214,7 @@ test('Compare captions recovers its download with an unfinished caption draft', 
   await expect.poll(() => requests.length).toBe(2); await expect(error).toBeVisible();
   await preservedEditor(page);
   await error.getByRole('button', { name: 'Retry loading tool' }).click();
-  await expect(page.getByRole('region', { name: 'Live regeneration review', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Caption comparison', exact: true })).toBeVisible();
   await preservedEditor(page);
   expect(new Set(requests).size).toBe(3);
 });

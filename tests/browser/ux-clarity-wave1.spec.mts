@@ -38,8 +38,8 @@ test('phone Review keeps approval in view while keyboard scrolling reads the rea
   await page.locator('.stage-rail').getByRole('button', { name: /^Review\b/ }).click();
   await expect(page.getByRole('button', { name: 'Approve & next', exact: true })).toBeInViewport({ ratio: 1 });
   const reasons = page.getByRole('list', { name: 'Review reasons', exact: true });
-  await page.getByRole('button', { name: 'Close tool', exact: true }).press('Tab');
-  await expect(reasons).toBeFocused();
+  await page.getByRole('button', { name: 'Close tool', exact: true }).press('Tab'); await expect(page.getByRole('button', { name: 'Edit text', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab'); await expect(reasons).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => reasons.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
   await expect(reasons.getByText('Timing may be off', { exact: true })).toHaveCount(1);

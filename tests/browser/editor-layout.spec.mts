@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { resetEditorLayout } from './editor-layout-tools.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -34,11 +35,12 @@ async function portraitProject(page: Page) {
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => Math.round(video.currentTime * 1000))).toBe(300);
 }
 
-test('preview and full caption list survive every tool switch without changing media size or remounting', async ({ page }) => {
+test('preview and full caption list survive every tool switch with stable width and toolbar-dependent height', async ({ page }) => {
   await portraitProject(page);
   await page.evaluate(() => { (window as any).__layoutMedia = document.querySelector('video'); (window as any).__layoutCaptions = document.querySelector('.caption-panel'); });
   const preview = (await page.locator('.media-stage').boundingBox())!;
   expect(preview.height).toBeGreaterThan(650);
+  const toolbarHeight = (await page.locator('.editor-toolbar').boundingBox())!.height;
   const rail = page.locator('.stage-rail');
   for (const name of ['Fine timing', 'Appearance', 'Accuracy', 'Caption grouping', 'Technical details', 'Export']) {
     if (name === 'Technical details') {
@@ -52,7 +54,8 @@ test('preview and full caption list survive every tool switch without changing m
     }
     await expect(page.locator('.workspace-inspector')).toBeVisible();
     const current = (await page.locator('.media-stage').boundingBox())!;
-    expect(Math.abs(current.height - preview.height), name).toBeLessThan(1);
+    const expectedHeight = preview.height + (['Appearance', 'Export'].includes(name) ? toolbarHeight : 0);
+    expect(Math.abs(current.height - expectedHeight), name).toBeLessThan(1);
     expect(Math.abs(current.width - preview.width), name).toBeLessThan(1);
     await expect(page.locator('.caption-panel')).toBeInViewport({ ratio: 1 });
     expect(await page.locator('.caption-row').count()).toBe(3);
@@ -101,7 +104,7 @@ test('docked waveform stays wide and redraws after switching to the smaller-scre
 
 test('pane resizing works with pointer and keyboard, persists locally, and can be reset', async ({ page }) => {
   await openProject(page);
-  await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
   const divider = page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true });
   const initial = (await page.locator('.media-stage').boundingBox())!.width;
   await divider.focus();
@@ -117,7 +120,7 @@ test('pane resizing works with pointer and keyboard, persists locally, and can b
   expect(stored.inspector).toBeGreaterThan(.28);
   await page.reload(); await openProject(page);
   await expect.poll(async () => (await page.locator('.media-stage').boundingBox())!.width).toBe(changed);
-  await page.getByRole('button', { name: 'Reset layout', exact: true }).click();
+  await resetEditorLayout(page);
   await expect.poll(async () => (await page.locator('.media-stage').boundingBox())!.width).toBe(initial);
 });
 
@@ -129,7 +132,8 @@ test('layout remains usable when optional layout storage is corrupt or unavailab
   });
   await openProject(page);
   await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
-  await page.getByRole('button', { name: 'Reset layout', exact: true }).click();
+  await resetEditorLayout(page);
+  await page.keyboard.press('Escape');
   await page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true }).press('ArrowRight');
   await page.getByRole('button', { name: 'Move later', exact: true }).click();
   await expect.poll(() => state.projects[0].captions[0].startMs).toBe(250);

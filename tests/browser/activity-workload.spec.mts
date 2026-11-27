@@ -228,7 +228,7 @@ test('closing Activity retires a delayed proposal before it can open a compariso
     await page.locator('video').evaluate((video: HTMLVideoElement) => { video.pause(); video.currentTime = 1.6; });
     gate.release(); await settled.promise;
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    await expect(page.getByRole('region', { name: 'Live regeneration review', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Caption comparison', exact: true })).toHaveCount(0);
     await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(current.text);
     expect(await page.locator('video').evaluate((video: HTMLVideoElement) => ({ paused: video.paused, time: video.currentTime })))
       .toEqual({ paused: true, time: 1.6 });

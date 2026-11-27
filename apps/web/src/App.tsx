@@ -46,6 +46,7 @@ import {
   LoaderCircle,
   LockKeyhole,
   Palette,
+  PencilLine,
   Play,
   RotateCcw,
   RefreshCw,
@@ -57,7 +58,8 @@ import {
 import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
 import { Upload, type UploadRecoveryResult, type UploadResult } from './components/Upload';
 import { captureUploadRecoveryForProject, clearUploadRecoveryForProject } from './upload-recovery';
-import { EditorLayout } from './components/EditorLayout';
+import { EditorLayout, type EditorLayoutHandle } from './components/EditorLayout';
+import { editorPopoverAvailable, editorReorderSupported, type EditorLayoutMode } from './editor-layout-state';
 import { GenerationOptions } from './components/GenerationOptions';
 import { CaptionEditor, type CaptionEditorHandle, type DraftChangeReason } from './components/CaptionEditor';
 import { CorrectionInbox } from './components/CorrectionInbox';
@@ -474,6 +476,9 @@ export default function App() {
   const proposalJobRevisions = useRef(new Map<string, number>());
   const [showGuide, setShowGuide] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(null);
+  const editorLayout = useRef<EditorLayoutHandle>(null);
+  const [arrangeSupported] = useState(() => editorReorderSupported() && editorPopoverAvailable());
+  const [mediaShape, setMediaShape] = useState<{ key: string; landscape: boolean } | null>(null);
   const accuracyDescriptionFocus = useRef<ProjectTicket | null>(null);
   const workspaceEntryFocus = useRef<{
     ticket: ProjectTicket; tool: Exclude<WorkspaceTool, null>; fromGuide?: boolean; previous: Element | null;
@@ -2494,6 +2499,9 @@ export default function App() {
   };
   const onLoadedMetadata = (element: HTMLMediaElement) => {
     if (media.current !== element || !projectScope.current.isCurrent(viewTicket)) return;
+    if (element instanceof HTMLVideoElement && element.videoWidth > 0 && element.videoHeight > 0) {
+      setMediaShape({ key: mediaKey, landscape: element.videoWidth >= element.videoHeight });
+    }
     if (Number.isFinite(element.duration)) setLoadedMediaDurationMs(element.duration * 1000);
     if (retainedMediaSeek.current?.key === mediaKey) {
       const timeMs = retainedMediaSeek.current.timeMs;
@@ -4100,6 +4108,8 @@ export default function App() {
   const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const stage: Stage = workspaceTool === 'review' || workspaceTool === 'appearance' || workspaceTool === 'export'
     ? workspaceTool : 'captions';
+  const layoutMode: EditorLayoutMode = proposal || stage === 'review' || stage === 'appearance' ? 'judge' : 'edit';
+  const enlargeAvailable = layoutMode === 'judge' && isVideo && mediaShape?.key === mediaKey && mediaShape.landscape;
   const savedContext = project?.transcriptionContext;
   const hasSavedContext = Boolean(savedContext?.description?.trim() || savedContext?.vocabulary?.some((term) => term.trim()));
   const usedFallback = timing?.engine === 'faster-whisper-local';
@@ -4567,6 +4577,7 @@ export default function App() {
           replaceDisabled={Boolean(currentProjectAnyActiveJob || busy)}
           technicalDetailsAvailable={hasHybrid}
           onTechnicalDetails={() => chooseWorkspaceTool('details')}
+          onArrangePanels={(anchor) => editorLayout.current?.openArrangement(anchor)}
           onGuide={() => setShowGuide(true)}
           onCorrect={() => setShowFindReplace(true)}
           onHistory={() => void openHistory()}
@@ -4587,8 +4598,12 @@ export default function App() {
       tool={proposal ? 'proposal' : workspaceTool}
       title={proposal ? 'Compare captions' : workspaceTool ? ({ review: 'Review', timeline: 'Fine timing', accuracy: 'Accuracy', rhythm: 'Caption grouping', appearance: 'Appearance', details: 'Technical details', export: 'Export' })[workspaceTool] : exportRepair ? 'Export review' : 'Generate captions'}
       open={Boolean(proposal || workspaceTool || !hasHybrid || exportRepair && projectScope.current.isCurrent(exportRepair.ticket))}
-      onClose={proposal ? () => { closeComparison(); setNotice('Regeneration review closed. You can reopen the completed proposal from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
+      onClose={proposal ? () => { closeComparison(); setNotice('Comparison closed. You can reopen it from Activity.'); } : workspaceTool ? () => chooseWorkspaceTool(workspaceTool) : exportRepair ? () => setExportRepair(null) : undefined}
       getCloseFocusTarget={proposal ? () => null : workspaceTool === 'accuracy' ? getAccuracyCloseFocusTarget : undefined}
+      ref={editorLayout}
+      mode={layoutMode}
+      enlargeAvailable={enlargeAvailable}
+      arrangeSupported={arrangeSupported}
       preview={
         <div ref={mediaPreviewFocus} className="media-stage" data-media-preview-focus tabIndex={-1} role="region" aria-label="Media preview">
           <SourceMedia key={`source:${mediaKey}`} src={project.media.url} projectId={project.id} source={project.media.filename} video={isVideo} playbackRate={playbackRate} media={media} recoveryFocusTarget={mediaPreviewFocus} onElementChange={setMediaElement}
@@ -4598,7 +4613,7 @@ export default function App() {
             cancelPlayback(); media.current?.pause(); setReviewMode(false);
             setFontFocusTrigger(trigger); setWorkspaceTool('appearance');
           }} fontRevision={captionFontRevision} key={`captions:${mediaKey}`} project={project} media={media} recoveryFocusTarget={mediaPreviewFocus} mediaElement={mediaElement} captions={videoCaptions} appearance={previewAppearance} interacting={appearanceInteracting} resolution={previewResolution} timeMs={time * 1000} reviewFocus={reviewFocusActive} focusLabel={reviewFocusMode === 'brackets-label'} focusKey={reviewFocusKey} focusIndices={reviewFocusIndices}/>}
-          {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? `Proposed · pass ${proposal.passNumber}` : 'Current captions'}</span></div>}
+          {isVideo && proposal && <div className={`preview-version-badge ${proposalPreviewMode}`}><span>{proposalPreviewMode === 'proposed' ? 'Proposed' : 'Current captions'}</span></div>}
         </div>
       }
       toolbar={!proposal && stage === 'captions' ? (
@@ -4771,26 +4786,40 @@ export default function App() {
               }}
               onExport={() => chooseWorkspaceTool('export')}/>}
             {riskyIds.length > 0 && <>
-            <div className="review-score"><ListChecks size={22}/><strong>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</strong></div>
-            <div className="review-selection"><b>{selection.captions.length ? rangeLabel(selection.startMs, selection.endMs) : 'No selection'}</b>{selection.captions.length > 1 && <span>{selection.captions.length} selected</span>}</div>
+            <div className="review-card-head">
+              <div className="review-score"><ListChecks size={22}/><strong>{riskyIds.length} caption{riskyIds.length === 1 ? '' : 's'} left to review</strong></div>
+              <div className="review-selection">
+                <b>{selection.captions.length ? `Caption ${draft.findIndex(({ id }) => id === selection.ids[0]) + 1} · ${rangeLabel(selection.startMs, selection.endMs)}` : 'No selection'}</b>
+                {selection.captions.length > 1 && <span>+{selection.captions.length - 1} more selected</span>}
+              </div>
+            </div>
+            <div className="review-caption" role="group" aria-label="Caption text">
+              <p className={`review-caption-text${selection.captions[0]?.text ? '' : ' review-caption-empty'}`}>
+                {selection.captions[0]?.text || (selection.captions.length ? 'This caption has no text.' : 'Select a caption to review.')}
+              </p>
+              <button type="button" className="review-caption-edit" aria-keyshortcuts="E" onClick={() => selection.ids[0] && editor.current?.focusCaption(selection.ids[0])} disabled={!selection.ids.length}>
+                <PencilLine size={15} aria-hidden="true"/>
+                Edit text
+              </button>
+            </div>
             {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label="Review reasons">{selectedReviewReasons.map(({ code, label, hint }, index) => <li key={`${code}:${index}`}><strong>{label}</strong> <span>{hint}</span></li>)}</ul>}
+            <div className="review-actions review-nav-actions">
+              <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
+              <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>Replay</button>
+              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>Skip</button>
+              <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
+            </div>
+            <div className="review-actions review-decision-actions">
+              {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>}
+              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
+            </div>
+            <details className="advanced-review-tools">
+              <summary>More review options</summary>
+              <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
+              <div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div>
+              <div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div>
+            </details>
             </>}
-            {riskyIds.length > 0 && <div className="review-actions review-primary-actions">
-              <div className="review-nav-actions">
-                <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>Previous</button>
-                <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>Replay</button>
-                <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>Skip</button>
-                <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>Auto-play next</label>
-              </div>
-              <div className="review-decision-actions">
-                {project.transcript?.tokens?.length && project.transcript.timing
-                  ? <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>Improve…</button>
-                  : <button onClick={() => selection.ids[0] && editor.current?.focusCaption(selection.ids[0])} disabled={!selection.ids.length}>Edit text</button>}
-                <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>Approve &amp; next</button>
-              </div>
-            </div>}
-            <div className="qa-profile-control"><label>Review profile<select value={profile?.preferences.qaProfileId || 'khmer-tiktok-comfortable'} onChange={(event) => void setQaProfile(event.target.value as QaProfileId)}>{Object.values(QA_PROFILES).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>Checks reading speed, line length, and timing gaps.</span></div>
-            <details className="advanced-review-tools"><summary>Playback, focus, locks, timing and shortcuts</summary><div className="review-actions"><label><input type="checkbox" checked={profile?.preferences.autoLoopReview ?? true} onChange={(event) => void setAutoLoop(event.target.checked)}/>Tight loop</label><button onClick={replaySelectionWithContext} disabled={!selection.captions.length} title="Include nearby speech"><Play size={15}/>Play with context</button><label htmlFor="review-focus-mode-select" className="review-focus-mode-control"><span>Review focus</span><select id="review-focus-mode-select" aria-label="Review focus" value={reviewFocusMode} onChange={(event) => void setReviewFocusMode(event.target.value as 'brackets-label' | 'brackets' | 'off')}><option value="brackets-label">Brackets + label</option><option value="brackets">Brackets only</option><option value="off">Off</option></select></label><button onClick={() => patchSelected({ textLocked: true }, 'Selected text locked.')} disabled={!selection.ids.length}><LockKeyhole size={15}/>Lock text</button><button onClick={() => patchSelected({ timingLocked: true }, 'Selected timing locked.')} disabled={!selection.ids.length}><Clock3 size={15}/>Lock timing</button><button onClick={() => patchSelected({ textLocked: false, timingLocked: false }, 'Selected captions unlocked.')} disabled={!selection.ids.length}>Unlock</button><button onClick={runTimingPostprocessor} disabled={!!busy}>Fix safe timing</button><button onClick={() => { cancelPlayback(); setReviewMode(false); setWorkspaceTool(null); }}>Show all captions</button></div><div className="shortcut-strip"><Keyboard size={14}/><span>Enter / A approve &amp; next · R replay · S skip · ↑/↓ browse · E edit · J current · Alt+←/→ nudge · Ctrl+F correct · Ctrl+S save</span></div></details>
           </div>}
 
           {workspaceTool === 'accuracy' && <div className="accuracy-card">

@@ -1,14 +1,19 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, GripVertical, PanelsTopLeft, X } from 'lucide-react';
-import { EDITOR_LAYOUT_CHANGE, moveEditorPane, PANE_LABELS, visibleEditorPanes, type EditorPane } from '../editor-layout-state';
+import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react';
+import { ArrowLeft, ArrowRight, GripVertical, RotateCcw, X } from 'lucide-react';
+import { EDITOR_LAYOUT_CHANGE, moveEditorPane, PANE_LABELS, visibleEditorPanes, type EditorLayoutMode, type EditorPane } from '../editor-layout-state';
 import { PanelDragGhost } from './PanelHeaderGrip';
+
+export interface PanelArrangementHandle { open(anchor: HTMLElement): void }
 
 interface Props {
   order: EditorPane[];
   open: boolean;
-  supported: boolean;
+  mode: EditorLayoutMode;
+  ref?: Ref<PanelArrangementHandle>;
   interactionBusy: boolean;
+  supported: boolean;
   geometryKey: string;
+  onReset(): void;
   onChange(order: EditorPane[]): boolean;
   onBegin(): boolean;
   onEnd(): void;
@@ -16,23 +21,45 @@ interface Props {
 }
 interface Drag { pane: EditorPane; pointer: number; x: number; y: number; active: boolean; target: number | null; handle: HTMLButtonElement }
 
-export function PanelArrangement({ order, open, supported, interactionBusy, geometryKey, onChange, onBegin, onEnd, onFeedback }: Props) {
+function positionAt(panel: HTMLDivElement, anchor: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  panel.style.setProperty('--arrange-top', `${rect.bottom + 8}px`);
+  const offset = window.innerWidth - 12 - (rect.left + rect.width / 2);
+  panel.style.setProperty('--arrange-origin', `clamp(0px, calc(100% - ${offset}px), 100%)`);
+}
+
+export function PanelArrangement({ order, open, mode, ref, interactionBusy, supported, geometryKey, onReset, onChange, onBegin, onEnd, onFeedback }: Props) {
   const id = useId();
-  const trigger = useRef<HTMLButtonElement>(null);
+  const anchor = useRef<HTMLElement>(null);
   const popover = useRef<HTMLDivElement>(null);
+  const resetButton = useRef<HTMLButtonElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   const handles = useRef<Partial<Record<EditorPane, HTMLButtonElement>>>({});
   const drag = useRef<Drag | null>(null);
+  const [dragCaptured, setDragCaptured] = useState(false);
   const [ghost, setGhost] = useState<{ pane: EditorPane; x: number; y: number } | null>(null);
   const [target, setTarget] = useState<EditorPane | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const panes = visibleEditorPanes(order, open);
   const current = useRef({ order, open }); current.current = { order, open };
 
+  useImperativeHandle(ref, () => ({
+    open(nextAnchor) {
+      const panel = popover.current;
+      if (!panel || typeof panel.showPopover !== 'function' || panel.matches(':popover-open')) return;
+      anchor.current = nextAnchor;
+      positionAt(panel, nextAnchor);
+      panel.showPopover();
+      const preset = panel.querySelector<HTMLButtonElement>('.editor-position-presets button[aria-pressed="true"]')
+        ?? panel.querySelector<HTMLButtonElement>('.editor-position-presets button');
+      (preset ?? resetButton.current)?.focus({ preventScroll: true });
+    },
+  }));
+
   function finish(commit: boolean) {
     const gesture = drag.current;
     if (!gesture) return;
-    drag.current = null; setGhost(null); setTarget(null); onFeedback(null, null); onEnd();
+    drag.current = null; setDragCaptured(false); setGhost(null); setTarget(null); onFeedback(null, null); onEnd();
     if (gesture.handle.hasPointerCapture(gesture.pointer)) gesture.handle.releasePointerCapture(gesture.pointer);
     if (commit && gesture.active && gesture.target !== null) change(moveEditorPane(current.current.order, current.current.open, gesture.pane, gesture.target), gesture.pane);
     else if (gesture.active) setAnnouncement('Panel move cancelled.');
@@ -43,7 +70,7 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
     const panel = popover.current;
     if (panel && typeof panel.hidePopover === 'function' && panel.matches(':popover-open')) {
       if (!window.matchMedia('(min-width: 1200px)').matches) panel.hidePopover();
-      else { const rect = trigger.current?.getBoundingClientRect(); if (rect) panel.style.setProperty('--arrange-top', `${rect.bottom + 8}px`); }
+      else if (anchor.current?.isConnected) positionAt(panel, anchor.current);
     }
   }, [geometryKey, open, order]);
   useEffect(() => { setAnnouncement(''); }, [order, open]);
@@ -75,28 +102,25 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
   }
 
   return <div className="editor-arrangement" data-editor-layout-control>
-    <button ref={trigger} type="button" className="editor-arrange-trigger" popoverTarget={id} disabled={!supported || interactionBusy} onClick={() => {
-      const rect = trigger.current?.getBoundingClientRect(); if (rect) popover.current?.style.setProperty('--arrange-top', `${rect.bottom + 8}px`);
-    }}
-      title={supported ? 'Choose panel positions' : 'Update your browser to rearrange panels with matching keyboard navigation.'}><PanelsTopLeft size={15}/>Arrange panels</button>
     <div ref={popover} id={id} className="editor-arrange-popover" popover="auto" role="region" aria-label="Arrange panels" onBeforeToggle={(event) => {
       // A native closing popover may remain painted briefly, but is already dismissed.
       event.currentTarget.inert = (event.nativeEvent as ToggleEvent).newState !== 'open';
       event.currentTarget.setAttribute('aria-hidden', String(event.currentTarget.inert));
     }} onToggle={(event) => {
-      if ((event.nativeEvent as ToggleEvent).newState === 'open') {
-        const rect = trigger.current?.getBoundingClientRect();
-        if (rect) {
-          const panel = event.currentTarget;
-          panel.style.setProperty('--arrange-top', `${rect.bottom + 8}px`);
-          const left = window.innerWidth - 12 - panel.offsetWidth;
-          panel.style.setProperty('--arrange-origin', `${Math.max(0, Math.min(panel.offsetWidth, rect.x + rect.width / 2 - left))}px`);
-        }
-      } else finish(false);
+      if ((event.nativeEvent as ToggleEvent).newState !== 'closed') return;
+      finish(false);
+      const returnTo = anchor.current;
+      anchor.current = null;
+      const focused = document.activeElement;
+      if (returnTo?.isConnected && (focused === document.body || event.currentTarget.contains(focused))) {
+        returnTo.focus({ preventScroll: true });
+      }
     }}>
       <div className="editor-arrange-content">
       <div className="editor-arrange-heading"><strong>Arrange panels</strong><button type="button" aria-label="Close panel arrangement" popoverTarget={id} popoverTargetAction="hide"><X size={16}/></button></div>
+      {supported ? <>
       <p>Put the preview where you work best.</p>
+      <p>{mode === 'judge' ? 'This arrangement is used in Review, Appearance and Compare.' : 'This arrangement is used in Captions and Export.'}</p>
       <div className="editor-position-presets" role="group" aria-label="Preview position">
         {(['Left', ...(open ? ['Middle'] : []), 'Right']).map((label, index) => <button key={label} type="button" aria-pressed={panes.indexOf('preview') === index}
           onClick={() => { if (drag.current) return; change(moveEditorPane(order, open, 'preview', index)); }}>
@@ -117,6 +141,7 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
               if (event.button !== 0 || drag.current || !onBegin()) return;
               event.preventDefault(); event.currentTarget.focus({ preventScroll: true }); event.currentTarget.setPointerCapture(event.pointerId);
               drag.current = { pane, pointer: event.pointerId, x: event.clientX, y: event.clientY, active: false, target: index, handle: event.currentTarget };
+              setDragCaptured(true);
             }} onPointerMove={(event) => {
               const gesture = drag.current;
               if (!gesture || gesture.pointer !== event.pointerId) return;
@@ -138,6 +163,14 @@ export function PanelArrangement({ order, open, supported, interactionBusy, geom
       </div>
       {!open && <p>Your tool panel returns to its saved position when opened.</p>}
       <div className="editor-arrange-status" role="status" aria-live="polite">{announcement || `From left: ${panes.map((pane) => PANE_LABELS[pane]).join(', ')}.`}</div>
+      </> : <p>This browser can't reorder panels. Update it to arrange panels; sizes can still be reset.</p>}
+      <div className="editor-arrange-reset">
+        <button ref={resetButton} type="button" aria-describedby={`${id}-reset-help`} disabled={interactionBusy || dragCaptured}
+          onClick={(event) => { onReset(); event.currentTarget.focus({ preventScroll: true }); }}>
+          <RotateCcw size={16}/>Reset layout
+        </button>
+        <small id={`${id}-reset-help`}>Restores default sizes and panel order, and turns off Enlarge preview.</small>
+      </div>
       </div>
       {ghost && <PanelDragGhost {...ghost}/>}
     </div>

@@ -88,9 +88,11 @@ Fine timing · Accuracy · Caption grouping
 
 **Technical details** lives in the **Tools** menu under **Project and setup**.
 
-Use the refined A desktop layout at widths of 1200px and above: default preview
-left, complete caption-list pane in the middle, and one optional inspector right.
-**Arrange panels** beside Reset layout offers preview-position presets and a
+At widths of 1200px and above, Captions and Export default to preview left,
+captions middle and the optional inspector right. Review, Appearance and Compare
+default to the tool beside the preview, preserving the preview's position and
+normal width. Remember a user-set judging order separately from the editing order.
+**Tools → Arrange panels…** offers preview-position presets and a
 compact drag/keyboard custom order. Within that popover, keep a clear lifted
 proxy, drop target and actual-panel outline; commit positions on drop. Left/Right buttons
 and arrow-key handles provide the same result, with spoken order feedback.
@@ -116,20 +118,26 @@ In source builds, reorder handles accept only bare Left/Right and Home/End.
 Composition, legacy composition keys, AltGraph, other modifiers and events already
 handled before the layout listener leave the arrangement alone. Only plain Escape
 cancels an active layout gesture; a foreground dialog retains its own keys.
-The selector is a compact row above the panes. Remove repeated workspace
+The Captions tool strip is a compact row above the panes. Other stages use that
+space for the panes. Remove repeated workspace
 introductions and flatten caption rows into a readable list, preserving selection,
 approval, timing, locks, editing and row menus. Keep all tool labels discoverable.
 
-Opening or switching tools must preserve the media element, preview allocation
-and caption-list instance. Dividers support dragging, Left/Right, Shift for larger
-steps, Home/End and double-click reset. **Reset layout** restores default
-proportions and pane order. Source builds reserve Shift for exactly Left/Right;
+Opening or switching tools must preserve the media element, normal preview width
+and caption-list instance. For landscape or square video, **Enlarge preview**
+in the desktop Review, Appearance and Compare preview header uses the space from
+shrinking captions to 360px and hides dividers. This local preference applies
+only in those stages at desktop width. Dividers support dragging, Left/Right,
+Shift for larger steps, Home/End and double-click reset. **Reset layout** in the
+**Arrange panels…** popover restores the default proportions and pane orders and
+turns off enlargement. It remains available in the popover when reordering is
+unsupported. Source builds reserve Shift for exactly Left/Right;
 Shift+Home/End and other modified or composing keys do not resize panels. Measure
 the editor synchronously on mount and on
 window resize; delayed ResizeObserver delivery must not leave a desktop divider
 using a narrow-screen size or a false zero-width resize range. Store only bounded
-numeric proportions and an exact
-permutation of Preview/Captions/Tool in local browser storage;
+numeric proportions, exact permutations of Preview/Captions/Tool and the enabled
+enlargement preference in local browser storage;
 denied or corrupt storage cannot block editing. **Close tool** restores focus to
 the tool entry and removes the empty inspector column.
 
@@ -422,7 +430,15 @@ the actual download remains disabled. Plain SRT remains independently available.
 
 ### Review decisions
 
-Review is a sequential queue, not a freeform editing surface. Keep navigation and decisions visually distinct:
+The Review decision card shows the remaining count, the selected caption's
+position and time range, its exact text, the reasons it was flagged, and the
+decision bar. **Edit text** uses the same focus and reveal behavior as **E** to
+open the selected caption's existing field in the list. The card reflects the
+live draft. At every width, the decision row (**Improve…** and **Approve & next**)
+stays pinned to the bottom of the visible area while any part of the card is in
+view; it never covers the caption list or the preview. Previous, Replay and Skip
+scroll with the card. In Review the card sits beside the preview (see Editor).
+Keep navigation and decisions visually distinct.
 
 ```text
 Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
@@ -436,7 +452,9 @@ Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 - Auto-advance is scoped to Review mode only. Normal timeline editing must never jump after an approval/edit.
 - Treat surrounding audio as **context**, not as part of every loop. The first pass on a newly entered review item may use the configured pre/post-roll; subsequent loops and Replay use a tight focus window around the selected caption.
 - After a text or timing edit is committed in Review, replay the selected caption with the tight focus pass so the user can verify the change immediately.
-- Keep **Play with context** available under advanced Review controls for deliberate re-checking of neighboring speech.
+- **More review options** contains **Review profile**, playback and focus settings,
+  locks, timing cleanup, and shortcuts. **Play with context** stays there for
+  deliberate re-checking of neighboring speech.
 
 ### Fine Timing and word highlighting
 
@@ -1145,9 +1163,8 @@ from Activity retains its existing meaning.
 Expose the selected Current/Proposed version with `aria-pressed` on both the
 comparison switch and its matching Preview actions. Keyboard activation and
 wording edits keep these states synchronized with the actual preview.
-When comparison mode has no workspace toolbar, collapse its empty mobile band
-and let the sticky preview start at the workbench edge. Keep desktop arrangement
-controls available.
+In comparison mode, start the sticky preview at the mobile workbench edge.
+On desktops, keep the arrangement controls available under **Tools → Arrange panels…**.
 
 Include textareas in the narrow inspector's existing scroll margins for the
 sticky preview, both at normal height and when a comparison notice makes it
@@ -1157,8 +1174,15 @@ Comparison card headers must not inherit the outer app header's stacking level;
 keep them beneath the sticky video and verify its bottom controls remain exposed.
 
 When proposed wording is empty, mark the editable field invalid and associate a
-nearby explanation. Disable Accept text only and full-proposal acceptance until
-wording is present. Keep current and Accept timing only remain distinct decisions.
+nearby explanation. Disable **Use text only** and the full decision (**Use
+proposed** or **Use edited version**) until wording is present. **Keep current**
+and **Use timing only** remain available when their usual conditions are met.
+
+**Compare captions** shows the range, a plain change summary, and Current and
+Proposed previews. **Keep current** sits on the left and the lime **Use proposed**
+action sits on the right. **Use part** opens upward for text-only and timing-only
+decisions. **Try another way** holds the optional accuracy hint and the four
+refinement actions.
 
 Save grouping preset has independent pending feedback and a synchronous duplicate
 guard that survives closing/reopening the grouping workspace. Acknowledge the

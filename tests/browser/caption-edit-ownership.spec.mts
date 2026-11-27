@@ -56,7 +56,7 @@ async function approveMixedRange(page: Page) {
   await expect(row(page, 'c2')).toHaveCount(0);
   await row(page, 'c1').locator('.row-index').click();
   await row(page, 'c3').locator('.row-index').click({ modifiers: ['Shift'] });
-  await expect(review(page).getByText('3 selected', { exact: true })).toBeVisible();
+  await expect(review(page).getByText('+2 more selected', { exact: true })).toBeVisible();
   await expect.poll(() => selectedIds(page)).toEqual(['c1', 'c3']);
   await review(page).getByRole('button', { name: 'Approve & next', exact: true }).click();
   await expect(completion(page)).toBeVisible();

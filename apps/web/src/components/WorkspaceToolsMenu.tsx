@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useSurfacePresence } from '../use-surface-presence';
 import { useMenuKeyboard } from '../use-menu-keyboard';
+import { editorPopoverAvailable } from '../editor-layout-state';
 import {
   BookOpenCheck,
   HelpCircle,
@@ -8,6 +9,7 @@ import {
   Info,
   KeyRound,
   ListTodo,
+  PanelsTopLeft,
   SlidersHorizontal,
   RefreshCw,
   Replace,
@@ -23,6 +25,7 @@ interface WorkspaceToolsMenuProps {
   replaceDisabled: boolean;
   technicalDetailsAvailable?: boolean;
   onTechnicalDetails?: () => void;
+  onArrangePanels(anchor: HTMLElement): void;
   onGuide(): void;
   onCorrect(): void;
   onHistory(): void;
@@ -41,6 +44,7 @@ export function WorkspaceToolsMenu({
   replaceDisabled,
   technicalDetailsAvailable,
   onTechnicalDetails,
+  onArrangePanels,
   onGuide,
   onCorrect,
   onHistory,
@@ -54,6 +58,14 @@ export function WorkspaceToolsMenu({
   const details = useRef<HTMLDetailsElement | null>(null);
   const popover = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [layoutWide, setLayoutWide] = useState(() => window.matchMedia('(min-width: 1200px)').matches);
+  useLayoutEffect(() => {
+    const query = window.matchMedia('(min-width: 1200px)');
+    const update = () => setLayoutWide(query.matches);
+    query.addEventListener('change', update);
+    update();
+    return () => query.removeEventListener('change', update);
+  }, []);
   const openRef = useRef(open); openRef.current = open;
   const presence = useSurfacePresence(open ? 'tools' : null, popover, 'menu');
   const menuId = useId();
@@ -92,10 +104,11 @@ export function WorkspaceToolsMenu({
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, []);
-  const run = (action: () => void) => {
-    details.current?.querySelector('summary')?.focus();
+  const run = (action: (anchor: HTMLElement | null | undefined) => void) => {
+    const anchor = details.current?.querySelector('summary');
+    anchor?.focus();
     setOpen(false);
-    action();
+    action(anchor);
   };
   const attentionCount = activeJobs + pendingCorrections + (llmConfigured ? 0 : 1);
 
@@ -130,6 +143,9 @@ export function WorkspaceToolsMenu({
         {technicalDetailsAvailable && onTechnicalDetails && <button role="menuitem" onClick={() => run(onTechnicalDetails)}><Info size={16}/><span><b>Technical details</b><small>Timing and model information</small></span></button>}
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onReplace)}><Replace size={16}/><span><b>Replace media</b><small>{replaceDisabled ? 'Finish current work first' : 'Choose whether to keep reviewed captions'}</small></span></button>
         <button role="menuitem" disabled={replaceDisabled} onClick={() => run(onUndoMedia)}><RotateCcw size={16}/><span><b>Undo media replacement</b><small>Restore or manage saved source backups</small></span></button>
+        {editorPopoverAvailable() && <button type="button" role="menuitem" className="tools-menu-arrange" disabled={!layoutWide} onClick={() => run((anchor) => {
+          if (anchor) onArrangePanels(anchor);
+        })}><PanelsTopLeft size={16}/><span><b>Arrange panels…</b></span></button>}
         <button role="menuitem" onClick={() => run(onGuide)}><HelpCircle size={16}/><span><b>Guide</b></span></button>
         <button role="menuitem" onClick={() => run(onUpdates)}><RefreshCw size={16}/><span><b>Updates</b></span></button>
         <button role="menuitem" onClick={() => run(onSettings)}><Settings2 size={16}/><span><b>Settings</b><small>{llmConfigured ? 'AI, profile, privacy, and system' : 'AI key setup needed'}</small></span>{!llmConfigured && <KeyRound size={14} className="tools-warning-icon"/>}</button>

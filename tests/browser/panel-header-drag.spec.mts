@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openLayoutTools, openPanelArrangement, resetEditorLayout } from './editor-layout-tools.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 type Pane = 'preview' | 'captions' | 'inspector';
@@ -15,7 +16,7 @@ async function actualOrder(page:Page):Promise<Pane[]> {
     .filter(({ node }) => getComputedStyle(node).display !== 'none')
     .sort((a,b) => a.node.getBoundingClientRect().left-b.node.getBoundingClientRect().left).map(({ id }) => id)) as Promise<Pane[]>;
 }
-async function openEditor(page:Page,tool='Appearance') { await openProject(page); await page.getByRole('button',{ name:tool,exact:true }).click(); }
+async function openEditor(page:Page,tool='Export') { await openProject(page); await page.getByRole('button',{ name:tool,exact:true }).click(); }
 async function begin(page:Page,pane:Pane,x:number,y:number) {
   // Cancellation cases are isolated gestures. Rapid regrabs have their own
   // controlled-animation tests; don't click a stale point on a moving header.
@@ -49,7 +50,7 @@ test('actual headers reach every order, retain hidden Tool slots, and never open
     await expect.poll(() => actualOrder(page)).toEqual(order.filter((pane) => pane!=='inspector'));
     expect((await page.locator('.media-stage').boundingBox())!.width).toBe(width);
     const visible=await actualOrder(page); await dragTo(page,visible[0],visible[1]);
-    await page.getByRole('button',{ name:'Appearance',exact:true }).click();
+    await page.getByRole('button',{ name:'Export',exact:true }).click();
     await expect.poll(() => actualOrder(page)).toEqual(order.map((pane) => pane==='preview' ? 'captions' : pane==='captions' ? 'preview' : pane));
     expect(await page.evaluate(() => (window as any).__headerVideo===document.querySelector('video') && (window as any).__headerCaptions===document.querySelector('.caption-panel'))).toBe(true);
     await expect(page.getByRole('region',{ name:'Arrange panels',exact:true })).toBeHidden();
@@ -69,7 +70,7 @@ test('header keys preserve focus and expose playback controls without triggering
 });
 
 test('header accessible names track the visible tool and Review titles',async ({ page }) => {
-  await openEditor(page); await expect(grip(page,'inspector')).toHaveAccessibleName('Appearance panel');
+  await openEditor(page,'Appearance'); await expect(grip(page,'inspector')).toHaveAccessibleName('Appearance panel');
   await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).click();
   await page.getByRole('button',{ name:'Fine timing',exact:true }).click();
   await expect(grip(page,'inspector')).toHaveAccessibleName('Fine timing panel');
@@ -126,23 +127,38 @@ test('height-only resize, breakpoint, Reset, tool close and tool change safely c
   await start(); await page.setViewportSize({ width:2048,height:900 }); await expect(page.locator('.editor-pane-floating')).toHaveCount(0); await page.mouse.up(); await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
   await start(); await page.setViewportSize({ width:1100,height:900 }); await page.mouse.up(); await expect(page.locator('.editor-pane-grip')).toHaveCount(0);
   await page.setViewportSize({ width:2048,height:1041 }); await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
-  await grip(page,'preview').press('End'); await start(); await page.getByRole('button',{ name:'Reset layout',exact:true }).focus(); await page.keyboard.press('Enter'); await page.mouse.up(); await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
+  await grip(page,'preview').press('End');
+  const beforeReset = await saved(page);
+  await start();
+  const tools = await openLayoutTools(page, true);
+  await tools.getByRole('menuitem', { name: 'Arrange panels…', exact: true }).press('Enter');
+  await expect(page.getByRole('region', { name: 'Arrange panels', exact: true })).toBeHidden();
+  expect(await saved(page)).toBe(beforeReset);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await resetEditorLayout(page, true);
+  await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
+  expect(JSON.parse((await saved(page))!)).toEqual({ preview: .36, inspector: .28, order: orders[0] });
   await start(); await page.getByRole('button',{ name:'Close tool',exact:true }).focus(); await page.keyboard.press('Enter'); await page.mouse.up(); await expect.poll(() => actualOrder(page)).toEqual(['preview','captions']);
-  await page.getByRole('button',{ name:'Appearance',exact:true }).click(); await start();
+  await page.getByRole('button',{ name:'Export',exact:true }).click(); await start();
   await page.locator('.stage-rail').getByRole('button', { name: 'Captions', exact: true }).focus();
   await page.keyboard.press('Enter'); await page.mouse.up();
   await expect(page.locator('.editor-pane-floating')).toHaveCount(0);
   await expect(page.locator('.workspace-inspector')).toBeHidden();
-  await page.getByRole('button',{ name:'Appearance',exact:true }).click();
+  await page.getByRole('button',{ name:'Export',exact:true }).click();
   await expect.poll(() => actualOrder(page)).toEqual(orders[0]);
 });
 
 test('direct dragging closes an open Arrange popup and competing popup/resize/second-pointer actions cannot override it',async ({ page }) => {
-  await openEditor(page); await page.getByRole('button',{ name:'Arrange panels',exact:true }).click();
+  await openEditor(page); await openPanelArrangement(page);
   const before=await saved(page);
   const target=(await page.locator('.caption-panel').boundingBox())!;
   await begin(page,'preview',target.x+target.width/2,target.y+100);
-  await expect(page.getByRole('region',{ name:'Arrange panels',exact:true })).toBeHidden(); await expect(page.getByRole('button',{ name:'Arrange panels',exact:true })).toBeDisabled();
+  const panel = page.getByRole('region',{ name:'Arrange panels',exact:true });
+  await expect(panel).toBeHidden();
+  const tools = await openLayoutTools(page, true);
+  await tools.getByRole('menuitem', { name: /^Arrange panels/ }).press('Enter');
+  await expect(panel).toBeHidden();
   expect(await page.locator('.editor-pane-floating').evaluate((node) => node.parentElement===document.querySelector('.refined-editor'))).toBe(true);
   const widths=await page.locator('.stage-column').evaluate((node) => node.getBoundingClientRect().width);
   await page.locator('.editor-divider:visible').first().press('ArrowRight'); expect(await page.locator('.stage-column').evaluate((node) => node.getBoundingClientRect().width)).toBe(widths);
@@ -245,6 +261,6 @@ test('playing media, caption text/caret, list scroll and paused Follow survive d
 for(const fallback of ['narrow','unsupported']) test(`plain readable headers remain in ${fallback} layouts`,async ({ page }) => {
   if(fallback==='narrow') await page.setViewportSize({ width:1100,height:900 });
   else await page.addInitScript(() => { const supports=CSS.supports.bind(CSS);CSS.supports=((...args:string[]) => args[0]==='reading-flow' ? false : (supports as any)(...args)) as typeof CSS.supports; });
-  await openEditor(page); await expect(page.locator('.editor-pane-grip')).toHaveCount(0);
+  await openEditor(page,'Appearance'); await expect(page.locator('.editor-pane-grip')).toHaveCount(0);
   await expect(page.locator('.editor-preview-label strong')).toHaveText('Preview'); await expect(page.locator('.panel-head-copy strong')).toHaveText('Captions'); await expect(page.locator('.inspector-heading strong')).toHaveText('Appearance');
 });

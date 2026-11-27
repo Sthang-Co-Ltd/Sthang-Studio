@@ -1041,7 +1041,7 @@ test('timing cleanup applies normally and cannot overwrite newer timing, lock, a
   try {
     await openProject(page);
     await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
-    await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+    await page.getByText('More review options', { exact: true }).click();
     await invokeTimingCleanup();
     await expect(page.getByLabel('Caption 1 start time', { exact: true })).toHaveValue('00:00.125');
 
@@ -1089,18 +1089,18 @@ test('proposal apply publishes normally and preserves a newer local draft while 
   const openProposal = async () => {
     const dialog = await activity(page);
     await dialog.getByRole('button', { name: 'Open result', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Live regeneration review', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Caption comparison', exact: true })).toBeVisible();
   };
   try {
     await openProject(page);
     await openProposal();
-    await page.getByRole('button', { name: 'Accept proposed range', exact: true }).click();
+    await page.getByRole('button', { name: 'Use proposed', exact: true }).click();
     const field = page.getByLabel('Caption 1 text', { exact: true });
     await expect(field).toHaveValue('SERVER APPLIED PROPOSAL');
     await expect(page.getByLabel('Caption 1 start time', { exact: true })).toHaveValue('00:00.150');
 
     await openProposal();
-    await page.getByRole('button', { name: 'Accept proposed range', exact: true }).click();
+    await page.getByRole('button', { name: 'Use proposed', exact: true }).click();
     await expect.poll(() => calls).toBe(2);
     await field.fill('NEWER EDIT DURING PROPOSAL APPLY');
     release();

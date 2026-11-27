@@ -107,7 +107,7 @@ test('word boundaries gain the same forgiving targets without shifting neighbori
 test('separator has a wider hit area without changing pane widths or taking neighboring clicks', async ({ page }) => {
   await openProject(page);
   await page.locator('.stage-rail').getByRole('button', { name: 'Appearance', exact: true }).click();
-  const divider = page.getByRole('separator', { name: 'Resize Preview and Captions', exact: true });
+  const divider = page.getByRole('separator', { name: 'Resize Preview and Tool', exact: true });
   const preview = page.locator('.stage-column');
   const before = (await preview.boundingBox())!.width;
   const box = (await divider.boundingBox())!;
@@ -116,13 +116,17 @@ test('separator has a wider hit area without changing pane widths or taking neig
   const y = box.y + 90;
   // Outside the visual 8px track, inside the expanded pointer target.
   await page.mouse.move(box.x + box.width + 2, y);
+  expect((await preview.boundingBox())!.width).toBe(before);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width + 42, y, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => (await preview.boundingBox())!.width).toBeGreaterThan(before + 20);
   const resized = (await preview.boundingBox())!.width;
   const after = (await divider.boundingBox())!;
-  await page.mouse.click(after.x + after.width + 12, after.y + 90);
+  const toolPoint = { x: after.x + after.width + 12, y: after.y + 90 };
+  const tool = page.getByRole('complementary', { name: 'Appearance workspace', exact: true });
+  expect(await tool.evaluate((node, { x, y }) => node.contains(document.elementFromPoint(x, y)), toolPoint)).toBe(true);
+  await page.mouse.click(toolPoint.x, toolPoint.y);
   expect((await preview.boundingBox())!.width).toBeCloseTo(resized, 0);
   const row = page.locator('.refined-editor .caption-row').first();
   const approve = (await row.locator('.row-approve').boundingBox())!;

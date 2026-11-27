@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 for(const open of [false,true]) test(`${open ? 'three' : 'two'} panels recover horizontal dragging after a narrow-to-desktop transition with silent observers`,async ({ page }) => {
   const errors:string[]=[]; page.on('pageerror',(error)=>errors.push(error.message));
   await openProject(page);
-  if(open) await page.getByRole('button',{ name:'Appearance',exact:true }).click();
+  if(open) await page.getByRole('button',{ name:'Export',exact:true }).click();
   await page.setViewportSize({ width:1262,height:1041 });
   const divider=page.getByRole('separator',{ name:'Resize Preview and Captions',exact:true });
   await expect(divider).toBeVisible();

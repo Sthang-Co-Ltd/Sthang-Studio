@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 });
 const media = (page: Page) => page.locator('video');
 const review = (page: Page) => page.getByRole('complementary', { name: 'Review workspace', exact: true });
-const comparison = (page: Page) => page.getByRole('region', { name: 'Live regeneration review', exact: true });
+const comparison = (page: Page) => page.getByRole('region', { name: 'Caption comparison', exact: true });
 const selected = (page: Page) => page.locator('.caption-row.selected-range').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-caption-id')));
 type Scope = 'Review' | 'Comparison';
 
@@ -41,14 +41,16 @@ async function openScope(page: Page, scope: Scope) {
   if (scope === 'Review') {
     await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
     await expect(review(page)).toBeVisible();
-    await review(page).getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+    await review(page).getByText('More review options', { exact: true }).click();
     await expect(review(page).getByLabel('Tight loop', { exact: true })).toBeChecked();
   } else {
     await page.getByLabel('Open project tools', { exact: true }).click();
     await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
     await page.getByRole('dialog', { name: 'Activity', exact: true }).getByRole('button', { name: 'Open result', exact: true }).click();
     await expect(comparison(page)).toBeVisible();
-    await expect(comparison(page).getByRole('button', { name: 'Looping', exact: true })).toBeVisible();
+    const loop = comparison(page).getByRole('button', { name: 'Loop', exact: true });
+    await expect(loop).toBeVisible();
+    await expect(loop).toHaveAttribute('aria-pressed', 'true');
   }
   await media(page).evaluate((video: HTMLVideoElement) => {
     video.pause(); video.playbackRate = .5;
@@ -57,7 +59,7 @@ async function openScope(page: Page, scope: Scope) {
     video.addEventListener('seeking', () => (window as any).__reviewOwnershipSeeks.push(video.currentTime));
   });
   return scope === 'Review' ? review(page).getByRole('button', { name: 'Replay', exact: true })
-    : comparison(page).getByRole('button', { name: 'Replay range', exact: true });
+    : comparison(page).getByRole('button', { name: 'Replay', exact: true });
 }
 async function sameEvidence(page: Page, before: FixtureState['projects'][number], selection: Array<string | null>) {
   expect(state.projects[0]).toEqual(before);
@@ -79,7 +81,11 @@ for (const width of [1440, 390]) for (const scope of ['Review', 'Comparison'] as
   expect(await media(page).evaluate((video: HTMLVideoElement) => video.paused)).toBe(false);
   await expect(media(page)).toBeFocused();
   if (scope === 'Review') await expect(review(page).getByLabel('Tight loop', { exact: true })).toBeChecked();
-  else await expect(comparison(page).getByRole('button', { name: 'Looping', exact: true })).toBeVisible();
+  else {
+    const loop = comparison(page).getByRole('button', { name: 'Loop', exact: true });
+    await expect(loop).toBeVisible();
+    await expect(loop).toHaveAttribute('aria-pressed', 'true');
+  }
   await page.screenshot({ path: info.outputPath(`native-${scope.toLowerCase()}-seek-${width}.png`), animations: 'disabled' });
   const loopsBefore = await page.evaluate(() => (window as any).__reviewOwnershipSeeks.filter((time: number) => Math.abs(time - .1) < .05).length);
   await replay.click();

@@ -119,7 +119,7 @@ test('Activity pauses Review Undo while unavailable and Undo still restores the 
 for (const reduced of [false, true]) test(`explicit notice dismissal restores its opener without moving evidence, reduced motion ${reduced}`, async ({ page }) => {
   await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
   await openReview(page);
-  await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+  await page.getByText('More review options', { exact: true }).click();
   const opener = page.getByRole('button', { name: 'Lock text', exact: true });
   await opener.click();
   const notice = page.locator('[data-toast-timer="notice"]');

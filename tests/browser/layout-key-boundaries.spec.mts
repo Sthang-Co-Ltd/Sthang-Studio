@@ -1,4 +1,5 @@
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
+import { openPanelArrangement } from './editor-layout-tools.mjs';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
 
@@ -90,7 +91,7 @@ async function kept(page: Page) {
 
 for (const surface of ['header', 'popup'] as const) test(surface + ' keys', async ({ page }, info) => {
   await setup(page);
-  if (surface === 'popup') await page.getByRole('button', { name: 'Arrange panels', exact: true }).click();
+  if (surface === 'popup') await openPanelArrangement(page);
   const grip = surface === 'header' ? header(page) : popupGrip(page);
   await grip.press('ArrowRight');
   await expect.poll(() => order(page)).toEqual(middle);
@@ -189,7 +190,7 @@ test('header Escape', async ({ page }) => {
 
 test('popup Escape', async ({ page }) => {
   await setup(page);
-  await page.getByRole('button', { name: 'Arrange panels', exact: true }).click();
+  await openPanelArrangement(page);
   const grip = popupGrip(page); const before = await saved(page);
   const source = (await grip.boundingBox())!;
   const target = (await popup(page).getByRole('button', { name: 'Drag Tool panel to reorder', exact: true }).boundingBox())!;

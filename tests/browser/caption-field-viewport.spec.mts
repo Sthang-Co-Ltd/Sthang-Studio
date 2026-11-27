@@ -58,7 +58,7 @@ test('mobile notice dismissal returns to a caption under the sticky preview with
     startMs: 100 + index * 300, endMs: 350 + index * 300, approved: false }));
   await openProject(page);
   await page.locator('.stage-rail').getByRole('button', { name: /^Review/ }).click();
-  await page.getByText('Playback, focus, locks, timing and shortcuts', { exact: true }).click();
+  await page.getByText('More review options', { exact: true }).click();
   await page.getByRole('button', { name: 'Lock text', exact: true }).click();
   const notice = page.locator('[data-toast-timer="notice"]');
   await expect(notice).toHaveText('Selected text locked.');
