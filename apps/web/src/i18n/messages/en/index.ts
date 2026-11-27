@@ -4,6 +4,7 @@ import { appearanceMessages } from './appearance';
 import { common } from './common';
 import { compareMessages } from './compare';
 import { detailsMessages } from './details';
+import { dialogsMessages } from './dialogs';
 import { editor } from './editor';
 import { exportMessages } from './export';
 import { findMessages } from './find';
@@ -13,8 +14,14 @@ import { historyMessages } from './history';
 import { home } from './home';
 import { inboxMessages } from './inbox';
 import { libraryMessages } from './library';
+import { looksMessages } from './looks';
+import { noticesMessages } from './notices';
+import { privacyMessages } from './privacy';
 import { review } from './review';
+import { serverMessages } from './server';
+import { settingsMessages } from './settings';
 import { setup } from './setup';
+import { systemMessages } from './system';
 import { timingMessages } from './timing';
 import { updatesMessages } from './updates';
 import { workspaceMessages } from './workspace';
@@ -40,4 +47,11 @@ export const en = {
   guide: guideMessages,
   library: libraryMessages,
   workspace: workspaceMessages,
+  settings: settingsMessages,
+  privacy: privacyMessages,
+  system: systemMessages,
+  dialogs: dialogsMessages,
+  notices: noticesMessages,
+  server: serverMessages,
+  looks: looksMessages,
 } as const;
