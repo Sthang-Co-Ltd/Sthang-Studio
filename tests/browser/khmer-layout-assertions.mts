@@ -1,11 +1,20 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import type { CaptionProject } from '@kcs/shared';
 import { km } from '../../apps/web/src/i18n/messages/km/index.js';
 import { catalogValues, pendingEnglishValues } from '../khmer-catalog-coverage.js';
 
 const latinWords = /\p{Script=Latin}{3,}/gu;
+
+export async function openKhmerTool(page: Page, name: string) {
+  await page.locator('[data-project-tools-trigger]').click();
+  await page.getByRole('menuitem').filter({ has: page.getByText(name, { exact: true }) }).click();
+}
+
+export async function revealDetails(details: Locator) {
+  if (await details.getAttribute('open') === null) await details.locator(':scope > summary').click();
+}
 
 function approvedWords(projects: CaptionProject[], fixtureContent: string[]) {
   const content = projects.flatMap(({ title, media, captions }) =>
@@ -21,7 +30,7 @@ function approvedWords(projects: CaptionProject[], fixtureContent: string[]) {
 
 export async function captureKhmerLayout(page: Page, surface: string, regions: string, projects: CaptionProject[], options: {
   evidence: string;
-  phase: 'A' | 'B';
+  phase: 'A' | 'B' | 'C';
   fixtureContent?: string[];
 }) {
   const size = page.viewportSize()!;
@@ -31,17 +40,19 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
   const approved = approvedWords(projects, options.fixtureContent ?? []);
   const pendingEnglish = [...pendingEnglishValues()];
   const result = await page.evaluate(({ regions, approved, pendingEnglish, latinPattern, phase }) => {
-    // Native language names, server-supplied storage/key text, and deferred generation options.
-    const commonExempt = '.interface-language-switch button[lang="en"], .interface-language-switch button[lang="km"], [data-server-text]';
-    const exempt = commonExempt + (phase === 'A' ? ', .generation-options'
-      : ', .appearance-look-grid [data-deferred-text="look-name"], .appearance-look-current[data-deferred-text="look-name"]');
+    // The literal native language names are part of the bilingual switch contract.
+    const exempt = '.interface-language-switch button[lang="en"], .interface-language-switch button[lang="km"], [data-server-text]';
     const allow = new Set(Object.values(approved).flat());
     const pending = new Set(pendingEnglish);
     const words = new RegExp(latinPattern, 'gu');
     const phaseBControls = ', h5, h6, .export-source-chip, .export-check-title > span, .regen-title-copy > span, .decision-label, .project-state';
+    const phaseCControls = ', strong, legend, .toast > span, .privacy-upgrade-kicker, .privacy-chip, ' +
+      '.job-status-chip, .native-preview-status > span, .source-media-status > span, .review-focus-label, ' +
+      '.copy-report-recovery > span, .guide-shortcuts kbd';
     const controls = 'button, summary, a[href], [role="menuitem"], label, h1, h2, h3, h4, ' +
       '.risk-reasons > span, .caption-state-line > span, .first-run-step-header > small, ' +
-      '.generation-accuracy-copy small, .workspace-tools-popover em, .stage-rail .tool-badge' + (phase === 'B' ? phaseBControls : '');
+      '.generation-accuracy-copy small, .workspace-tools-popover em, .stage-rail .tool-badge' +
+      (phase === 'A' ? '' : phaseBControls) + (phase === 'C' ? phaseCControls : '');
     const visible = (element: Element) => element.checkVisibility({ visibilityProperty: true }) && element.getClientRects().length > 0;
     const describe = (element: Element) => `${element.tagName.toLowerCase()}${Array.from(element.classList).map((name) => `.${name}`).join('')}`;
     const checked = new Set<Element>();
@@ -82,7 +93,7 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
         range.selectNodeContents(node);
         if (!range.getClientRects().length) continue;
         observedText.add(node);
-        if (phase === 'B' && /\p{Script=Khmer}/u.test(value)) {
+        if (phase !== 'A' && /\p{Script=Khmer}/u.test(value)) {
           const fontSize = Number.parseFloat(getComputedStyle(parent).fontSize);
           if (fontSize < 14) compactText.push({ element: describe(parent), container: parent.parentElement && describe(parent.parentElement), fontSize });
         }
@@ -111,7 +122,7 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
     expect.soft(result.elements.filter(({ target, width, height }) => target && (width < 44 || height < 44)),
       `${surface}: targets under 44px`).toEqual([]);
   }
-  if (options.phase === 'B') {
+  if (options.phase !== 'A') {
     expect.soft(result.compactText.filter(({ fontSize }) => fontSize < 12), `${surface}: text below the Khmer minimum`).toEqual([]);
   }
   expect.soft(result.untranslated, `${surface}: untranslated text`).toEqual([]);

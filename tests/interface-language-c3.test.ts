@@ -37,6 +37,14 @@ test('Activity keeps the English job message and localizes every known stage in 
   }
 });
 
+test('Only a resumable interrupted job uses the Khmer Resume sentence', () => {
+  assert.equal(activityMessageKey('en', 'interrupted', false), undefined);
+  assert.equal(activityMessageKey('en', 'interrupted', true), undefined);
+  assert.equal(activityMessageKey('km', 'interrupted', false), 'server.stage.interrupted');
+  assert.equal(activityMessageKey('km', 'interrupted', true), 'server.resumable.interrupted');
+  assert.equal(activityMessageKey('km', 'alignment', true), 'server.stage.alignment');
+});
+
 test('History source codes and checkpoint labels keep their exact English display', () => {
   const sources = ['manual-save', 'autosave', 'text-edit', 'regeneration', 'regroup',
     'cleanup', 'timing-fix', 'restore', 'system', 'word-highlight', 'word-highlight-auto'];

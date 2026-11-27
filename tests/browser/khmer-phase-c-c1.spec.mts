@@ -1,6 +1,7 @@
 import { expect, test as base, type Page } from '@playwright/test';
 import type { SystemDoctorReport } from '@kcs/shared';
 import { km } from '../../apps/web/src/i18n/messages/km/index.js';
+import { translatePlural } from '../../apps/web/src/i18n/translate.js';
 import { cleanFixtures, installFixture, prepareFixtures } from './fixtures.mjs';
 import { requireHarnessConfig } from './harness-config.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
@@ -35,7 +36,7 @@ const contributionStatus = {
   verified: 0, rejected: 0, withdrawn: 0, verifiedAudioMs: 0, withdrawalPending: false,
 };
 
-test('Settings, Profile, Privacy and System check use the English fallback in Khmer mode', async ({ page, errors }) => {
+test('Settings, Profile, Privacy and System check use the Khmer catalog', async ({ page, errors }) => {
   const state = await installKhmerFixture(page);
   state.profile.topicPacks = [{
     id: 'sample-pack', name: 'ព័ត៌មាន', description: 'Sample description', vocabulary: ['សៀមរាប'],
@@ -61,56 +62,57 @@ test('Settings, Profile, Privacy and System check use the English fallback in Kh
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('lang', 'km');
   await page.getByRole('button', { name: km.home.launcher.settings, exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
-  await expect(settings.getByRole('group', { name: 'Settings sections' })).toBeVisible();
+  const settings = page.getByRole('dialog', { name: km.settings.title, exact: true });
+  await expect(settings.getByRole('group', { name: km.settings.sections })).toBeVisible();
 
-  await settings.getByRole('button', { name: 'AI connection', exact: true }).click();
+  await settings.getByRole('button', { name: km.settings.tabs.ai, exact: true }).click();
   const storageLabel = settings.locator('.secure-storage-note strong');
-  await expect(storageLabel).toHaveText(storage);
+  await expect(storageLabel).toHaveText(km.settings.secureStorage.win32);
   await expect(settings.locator('.secure-storage-note [data-server-text]')).toHaveCount(0);
-  await expect(settings.locator('.ai-connection-copy span')).toContainText(storage);
+  await expect(settings.locator('.ai-connection-copy span')).toContainText(km.settings.secureStorage.win32);
   await expect(settings.locator('.ai-connection-copy [data-server-text]')).toHaveCount(0);
 
-  await settings.getByRole('button', { name: 'Profile', exact: true }).click();
-  await expect(settings.getByLabel('Key terms for all projects', { exact: true })).toBeVisible();
-  await expect(settings.getByRole('button', { name: 'Import profile', exact: true })).toBeVisible();
-  await expect(settings.getByText('1 term · Sample description', { exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: km.settings.tabs.profile, exact: true }).click();
+  await expect(settings.getByLabel(km.settings.glossary.label, { exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: km.settings.profileImport.open, exact: true })).toBeVisible();
+  await expect(settings.getByText(translatePlural('km', 'settings.packs.summary', 1,
+    { description: state.profile.topicPacks[0].description }), { exact: true })).toBeVisible();
 
-  await settings.getByRole('button', { name: 'Privacy', exact: true }).click();
-  await expect(settings.getByText('Privacy & contribution', { exact: true })).toBeVisible();
-  await expect(settings.getByText('Optional product analytics', { exact: true })).toBeVisible();
-  await expect(settings.getByRole('button', { name: 'Keep my work private', exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: km.settings.tabs.privacy, exact: true }).click();
+  await expect(settings.getByText(km.privacy.title, { exact: true })).toBeVisible();
+  await expect(settings.getByText(km.privacy.analytics.title, { exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: km.privacy.keepPrivate, exact: true })).toBeVisible();
 
-  await settings.getByRole('button', { name: 'System check', exact: true }).click();
-  await expect(settings.getByText('No report yet', { exact: true })).toBeVisible();
-  await settings.getByRole('button', { name: 'Run checks', exact: true }).click();
-  await expect(settings.getByText('Ready with warnings', { exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: km.settings.tabs.doctor, exact: true }).click();
+  await expect(settings.getByText(km.system.empty, { exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: km.system.run, exact: true }).click();
+  await expect(settings.getByText(km.system.overall.warning, { exact: true })).toBeVisible();
   const checks = settings.locator('.doctor-checks');
-  await expect(checks.locator('strong:not([data-server-text])')).toHaveText(['Python timing runtime', 'AI credential storage']);
-  await expect(checks.locator('em:not([data-server-text])')).toHaveText(fix);
+  await expect(checks.locator('strong:not([data-server-text])')).toHaveText([km.system.check.python, km.system.check['gemini-storage']]);
+  await expect(checks.locator('em:not([data-server-text])')).toHaveText(km.system.timingFix.win32);
   await expect(checks.locator('span[data-server-text]')).toHaveText(['Synthetic timing detail', storage, 'New server detail']);
   await expect(checks.locator('strong[data-server-text]')).toHaveText('New server label');
   await expect(checks.locator('em[data-server-text]')).toHaveText('New server fix');
   expect(errors).toEqual([]);
 });
 
-test('the privacy upgrade and review show English fallback in Khmer mode', async ({ page, errors }) => {
+test('the privacy upgrade and review show Khmer catalog copy', async ({ page, errors }) => {
   const state = await installKhmerFixture(page);
   state.profile.preferences.khmerContributionConsent = 'unset';
   state.profile.preferences.privacyUpgradeNoticeVersion = undefined;
   await page.route('**/api/contribution/status', (route) => route.fulfill({ json: contributionStatus }));
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('lang', 'km');
-  const upgrade = page.getByRole('dialog', { name: 'Help make Khmer captions world-class', exact: true });
-  await expect(upgrade.getByText('Product analytics is separate', { exact: true })).toBeVisible();
-  await upgrade.getByRole('button', { name: 'Review privacy & analytics settings', exact: true }).click();
-  const review = page.getByRole('dialog', { name: 'Privacy choices', exact: true });
-  await expect(review.getByText('Optional product analytics', { exact: true })).toBeVisible();
-  await expect(review.getByRole('button', { name: 'Help improve Khmer captions', exact: true })).toBeVisible();
+  const upgrade = page.getByRole('dialog', { name: km.privacy.promptTitle, exact: true });
+  await expect(upgrade.getByText(km.privacy.upgrade.analyticsSeparate, { exact: true })).toBeVisible();
+  await upgrade.getByRole('button', { name: km.privacy.upgrade.review, exact: true }).click();
+  const review = page.getByRole('dialog', { name: km.privacy.upgrade.reviewTitle, exact: true });
+  await expect(review.getByText(km.privacy.analytics.title, { exact: true })).toBeVisible();
+  await expect(review.getByRole('button', { name: km.privacy.helpImprove, exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('the contribution invitation shows English fallback in Khmer mode', async ({ page, errors }) => {
+test('the contribution invitation shows Khmer catalog copy', async ({ page, errors }) => {
   const state = await installKhmerFixture(page);
   state.profile.preferences.khmerContributionConsent = 'unset';
   await page.route('**/api/contribution/status', (route) => route.fulfill({ json: contributionStatus }));
@@ -125,11 +127,13 @@ test('the contribution invitation shows English fallback in Khmer mode', async (
     link.click();
     link.remove();
   });
-  const invitation = page.getByRole('complementary', { name: 'Khmer Caption Contributor invitation', exact: true });
-  await expect(invitation.getByText('Help make Khmer captions world-class', { exact: true })).toBeVisible();
-  await expect(invitation.locator('b')).toHaveText('after joining');
-  await expect(invitation.getByRole('button', { name: 'Help improve Khmer', exact: true })).toBeVisible();
-  await invitation.getByRole('button', { name: 'Dismiss for this session', exact: true }).click();
+  const invitation = page.getByRole('complementary', { name: km.privacy.invitation.label, exact: true });
+  await expect(invitation.getByText(km.privacy.promptTitle, { exact: true })).toBeVisible();
+  const bold = /<b>([^<]+)<\/b>/.exec(km.privacy.invitation.detail);
+  expect(bold).not.toBeNull();
+  await expect(invitation.locator('b')).toHaveText(bold![1]);
+  await expect(invitation.getByRole('button', { name: km.privacy.invitation.join, exact: true })).toBeVisible();
+  await invitation.getByRole('button', { name: km.privacy.invitation.dismiss, exact: true }).click();
   await expect(invitation).toHaveCount(0);
   expect(errors).toEqual([]);
 });

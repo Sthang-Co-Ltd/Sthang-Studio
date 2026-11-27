@@ -212,7 +212,7 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
               : t('activity.durationElapsed', { duration: formatDuration(duration) })
             : '';
           const failedAction = actionErrors[job.id];
-          const messageKey = activityMessageKey(locale, job.stage);
+          const messageKey = activityMessageKey(locale, job.stage, job.canResume);
           const stageNameKey = activityStageNameKey(job.stage);
           return <article ref={entryJobId === job.id ? entryCard : undefined} tabIndex={-1} key={job.id} className={`job-${job.status}`} aria-label={t('activity.jobForProject', { job: label, project: job.projectTitle })}>
             <div className="job-status-icon" aria-hidden="true">{icon(job)}</div>
