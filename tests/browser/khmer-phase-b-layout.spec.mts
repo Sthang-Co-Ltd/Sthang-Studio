@@ -2,7 +2,6 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test as base, type Locator, type Page } from '@playwright/test';
 import { createCaptionData, hydrateCaptionWordTimings, type ProcessingJob, type RegenerationProposal } from '@kcs/shared';
-import { en } from '../../apps/web/src/i18n/messages/en/index.js';
 import { km } from '../../apps/web/src/i18n/messages/km/index.js';
 import { formatInterfaceDate } from '../../apps/web/src/i18n/dates.js';
 import { appearance, cleanFixtures, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
@@ -197,7 +196,7 @@ for (const viewport of viewports) {
     await writeFile(path.join(evidence, size, 'compare-bounds.json'), JSON.stringify(geometry, null, 2));
     await page.keyboard.press('Escape');
     await dock.getByRole('button', { name: km.compare.dock.current, exact: true }).click();
-    await expect(page.locator('.preview-version-badge')).toHaveText(en.workspace.currentCaptions);
+    await expect(page.locator('.preview-version-badge')).toHaveText(km.workspace.currentCaptions);
     await capture('compare-current', compareRegions);
   });
 
@@ -247,7 +246,7 @@ for (const viewport of viewports) {
 
     await page.locator('[data-stage="captions"]').click();
     const tools = page.locator('.workspace-tool-strip');
-    await tools.getByRole('button', { name: en.workspace.fineTiming, exact: true }).click();
+    await tools.getByRole('button', { name: km.workspace.fineTiming, exact: true }).click();
     const timing = page.locator('.fine-timing');
     const surface = page.locator('.timing-waveform-surface');
     const playhead = surface.getByRole('slider', { name: km.timing.waveform.playhead, exact: true });
@@ -275,7 +274,7 @@ for (const viewport of viewports) {
     await enter(page);
 
     const tools = page.locator('.workspace-tool-strip');
-    await tools.getByRole('button', { name: en.workspace.accuracy, exact: true }).click();
+    await tools.getByRole('button', { name: km.workspace.accuracy, exact: true }).click();
     const accuracy = page.locator('.accuracy-card');
     await reveal(accuracy.locator('.generation-options'));
     await capture('accuracy', '.workspace-tool-strip, .workspace-inspector', accuracy.locator('.generation-options'));

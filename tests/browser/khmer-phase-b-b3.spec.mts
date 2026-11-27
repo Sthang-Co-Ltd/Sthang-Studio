@@ -45,7 +45,7 @@ for (const locale of ['en', 'km'] as const) test('Project tools render catalog c
   await openProject(page);
   await expect(page.locator('html')).toHaveAttribute('lang', locale);
 
-  await page.getByRole('button', { name: en.workspace.accuracy, exact: true }).click();
+  await page.getByRole('button', { name: messages.workspace.accuracy, exact: true }).click();
   const accuracy = page.locator('.accuracy-card');
   await expect(accuracy.getByLabel(messages.accuracy.description, { exact: true })).toBeVisible();
   await accuracy.locator('.generation-options > summary').click();

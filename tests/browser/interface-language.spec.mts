@@ -182,7 +182,7 @@ test('the reviewed Khmer catalog renders on Home, the editor, Review, Generate a
   await expect(stages.getByRole('button')).toHaveText([header.captions, reviewStage, header.appearance, header.export]);
   await expect(page.getByRole('textbox', { name: km.editor.row.text.replace('{number}', '1'), exact: true })).toBeVisible();
   await stages.getByRole('button', { name: reviewStage }).click();
-  const review = page.getByRole('complementary', { name: `${header.review} workspace` });
+  const review = page.getByRole('complementary', { name: km.workspace.label.replace('{title}', header.review) });
   const reasons = review.getByRole('list', { name: km.review.card.reasons });
   await expect(reasons.getByText(km.review.reason['timing-estimated'].label, { exact: true })).toBeVisible();
   await expect(reasons.getByText(km.review.reason['timing-estimated'].hint)).toBeVisible();

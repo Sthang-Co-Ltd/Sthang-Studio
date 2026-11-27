@@ -55,7 +55,7 @@ for (const locale of ['en', 'km'] as const) test('Appearance and Fine timing ren
   await expect(workspace.locator('.word-highlight-preparation')).toHaveAccessibleName(messages.appearance.highlight.results);
 
   await page.locator('.stage-rail [data-stage="captions"]').click();
-  await page.locator('.workspace-tool-strip').getByRole('button', { name: en.workspace.fineTiming, exact: true }).click();
+  await page.locator('.workspace-tool-strip').getByRole('button', { name: messages.workspace.fineTiming, exact: true }).click();
   await expect(page.locator('.fine-timing')).toHaveAccessibleName(messages.timing.waveform.title);
   const waveform = page.locator('.timing-waveform-surface');
   await expect(waveform.getByRole('button', { name: messages.timing.waveform.captionEdges, exact: true })).toBeVisible();
