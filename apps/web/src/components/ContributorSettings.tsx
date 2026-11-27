@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { api } from '../api';
+import { useI18n } from '../i18n';
 import { reconcileProfileAcknowledgement } from '../profile-state';
 
 interface ContributorSettingsProps {
@@ -23,28 +24,29 @@ interface ContributorSettingsProps {
 type PrivacyChoice = 'analyticsConsent' | 'khmerContributionConsent';
 
 function consentPresentation(consent: ConsentState) {
-  if (consent === 'granted') return { label: 'On', tone: 'on' } as const;
-  if (consent === 'declined') return { label: 'Off', tone: 'off' } as const;
-  return { label: 'Not chosen', tone: 'unset' } as const;
+  if (consent === 'granted') return { labelKey: 'privacy.consent.on', tone: 'on' } as const;
+  if (consent === 'declined') return { labelKey: 'privacy.consent.off', tone: 'off' } as const;
+  return { labelKey: 'privacy.consent.unset', tone: 'unset' } as const;
 }
 
-function durationLabel(ms: number) {
+function durationParts(ms: number) {
   const seconds = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+  return { minutes, seconds: String(seconds % 60).padStart(2, '0') };
 }
 
 export function ContributorSettings({ profile, busy, showIntro = true, onSave }: ContributorSettingsProps) {
+  const { t } = useI18n();
   const [profileSnapshot, setProfileSnapshot] = useState({ owner: profile, value: profile });
   // A newer parent profile takes precedence immediately, including before effects run.
   const liveProfile = profileSnapshot.owner === profile ? profileSnapshot.value : profile;
   const [status, setStatus] = useState<ContributionStatus | null>(null);
   const [working, setWorking] = useState<PrivacyChoice | 'withdraw' | ''>('');
   const [reading, setReading] = useState(true);
-  const [readError, setReadError] = useState('');
+  const [readError, setReadError] = useState<'profile' | 'contribution' | null>(null);
   const [hasReadFailure, setHasReadFailure] = useState(false);
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ text: string; server?: boolean } | null>(null);
   const mounted = useRef(true);
   const profileOwner = useRef(profile);
   profileOwner.current = profile;
@@ -62,7 +64,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     readRequest.current = token;
     retryReadsProfile.current = readProfile;
     setReading(true);
-    setReadError('');
+    setReadError(null);
     const owns = () => mounted.current && readRequest.current === token && profileOwner.current === owner && !mutationRequest.current;
     try {
       const [nextProfile, nextStatus] = await Promise.all([
@@ -77,9 +79,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       setStatus(nextStatus);
     } catch {
       if (owns()) {
-        setReadError(readProfile
-          ? 'Privacy choices and contribution status could not be refreshed. The last loaded choices are shown.'
-          : 'Contribution status could not be refreshed. Your privacy choices are kept.');
+        setReadError(readProfile ? 'profile' : 'contribution');
         setHasReadFailure(true);
       }
     } finally {
@@ -126,7 +126,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     setReading(false);
     setWorking(key);
     setMessage('');
-    setError('');
+    setError(null);
     const owns = () => mounted.current && mutationRequest.current === token;
     try {
       const saved = await onSave(patch);
@@ -139,9 +139,11 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       // not by identity with the raw receipt returned by onSave.
       acknowledgedParents.current = parent !== owner && acknowledgements.some((acknowledged) => JSON.stringify(parent) === JSON.stringify(acknowledged)) ? [] : acknowledgements;
       acceptChoice(basis, key, consent);
-      setMessage(`${key === 'analyticsConsent' ? 'Product analytics' : 'Khmer Caption Contributor'} choice saved: ${consent === 'granted' ? 'on' : 'off'}.`);
+      setMessage(t(key === 'analyticsConsent'
+        ? (consent === 'granted' ? 'privacy.saved.analyticsOn' : 'privacy.saved.analyticsOff')
+        : (consent === 'granted' ? 'privacy.saved.contributionOn' : 'privacy.saved.contributionOff')));
     } catch {
-      if (owns()) setError('Could not confirm your privacy choice was saved. Try that choice again.');
+      if (owns()) setError({ text: t('privacy.saveFailed') });
     } finally {
       if (owns()) {
         mutationRequest.current = null;
@@ -153,7 +155,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
 
   const withdraw = async () => {
     if (mutationRequest.current || busy) return;
-    if (!window.confirm('Stop contributing and request deletion of contribution data already sent to Sthang? Local caption projects are not deleted.')) return;
+    if (!window.confirm(t('privacy.withdraw.confirm'))) return;
     const token = Symbol('contribution withdrawal');
     const basis = currentProfile.current;
     mutationRequest.current = token;
@@ -162,7 +164,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     setReading(false);
     setWorking('withdraw');
     setMessage('');
-    setError('');
+    setError(null);
     const owns = () => mounted.current && mutationRequest.current === token;
     try {
       const nextStatus = await api.withdrawContributions();
@@ -170,7 +172,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
       setStatus(nextStatus);
       acceptChoice(basis, 'khmerContributionConsent', nextStatus.consent);
     } catch (reason) {
-      if (owns()) setError(reason instanceof Error ? reason.message : 'Could not request contribution deletion.');
+      if (owns()) setError(reason instanceof Error ? { text: reason.message, server: true } : { text: t('privacy.withdraw.failed') });
     } finally {
       if (owns()) {
         mutationRequest.current = null;
@@ -180,6 +182,9 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     }
   };
 
+  const readErrorKey = readError === 'profile'
+    ? (status ? 'privacy.status.privacyFailedWithProgress' : 'privacy.status.privacyFailed')
+    : (status ? 'privacy.status.contributionFailedWithProgress' : 'privacy.status.contributionFailed');
   const contributionConsent = liveProfile.preferences.khmerContributionConsent || 'unset';
   const analyticsConsent = liveProfile.preferences.analyticsConsent || 'unset';
   const contributionState = consentPresentation(contributionConsent);
@@ -190,8 +195,8 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
     {showIntro && <div className="privacy-intro">
       <div className="privacy-intro-icon"><ShieldCheck size={22}/></div>
       <div>
-        <strong>Privacy &amp; contribution</strong>
-        <span>Caption contribution and product analytics are separate. Both stay off until you enable them.</span>
+        <strong>{t('privacy.title')}</strong>
+        <span>{t('privacy.description')}</span>
       </div>
     </div>}
 
@@ -201,41 +206,41 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
         <div className="privacy-card-content">
           <header className="privacy-card-heading">
             <div className="privacy-card-title">
-              <strong>Khmer Caption Contributor</strong>
+              <strong>{t('privacy.contributor.title')}</strong>
             </div>
             <span className={`privacy-status-chip status-${contributionState.tone}`}>
-              <i aria-hidden="true"/>{contributionState.label}
+              <i aria-hidden="true"/>{t(contributionState.labelKey)}
             </span>
           </header>
 
-          <p className="privacy-value-line">Help make Khmer captions world-class.</p>
-          <p className="privacy-description">If you join, eligible corrections may send matching short audio, generated and corrected wording, timing, and technical quality evidence.</p>
+          <p className="privacy-value-line">{t('privacy.contributor.purpose')}</p>
+          <p className="privacy-description">{t('privacy.contributor.data')}</p>
 
           <div className="privacy-boundary">
             <LockKeyhole size={17}/>
-            <span>This program excludes your full video, project name, filename, API key, topic context, correction memory, and unrelated captions. Corrections made before you join are not collected retroactively.</span>
+            <span>{t('privacy.contributor.exclusions')}</span>
           </div>
 
-          {status && <div className="contributor-stats" aria-label="Khmer Caption Contributor progress">
-            <div><span className="privacy-stat-icon"><CheckCircle2 size={17}/></span><b>{status.verified}</b><span>Verified corrections</span></div>
-            <div><span className="privacy-stat-icon"><AudioLines size={17}/></span><b>{durationLabel(status.verifiedAudioMs)}</b><span>Verified Khmer speech</span></div>
-            <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.submitted}</b><span>Awaiting verification</span></div>
-            <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.queued}</b><span>Queued locally</span></div>
+          {status && <div className="contributor-stats" aria-label={t('privacy.contributor.progress')}>
+            <div><span className="privacy-stat-icon"><CheckCircle2 size={17}/></span><b>{status.verified}</b><span>{t('privacy.contributor.verified')}</span></div>
+            <div><span className="privacy-stat-icon"><AudioLines size={17}/></span><b>{t('privacy.contributor.duration', durationParts(status.verifiedAudioMs))}</b><span>{t('privacy.contributor.speech')}</span></div>
+            <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.submitted}</b><span>{t('privacy.contributor.submitted')}</span></div>
+            <div><span className="privacy-stat-icon"><Clock3 size={17}/></span><b>{status.queued}</b><span>{t('privacy.contributor.queued')}</span></div>
           </div>}
 
           {(reading || readError || hasReadFailure) && <div className={`privacy-note${readError ? ' warning' : ''}`}>
             <p className="privacy-description" role={readError ? 'alert' : 'status'}>{reading
-              ? (status ? 'Refreshing contribution status…' : 'Loading contribution status…')
-              : readError || (working ? 'Contribution status will refresh after this action.' : 'Contribution status refreshed.')}{readError && status ? ' The last loaded progress is shown.' : ''}</p>
+              ? (status ? t('privacy.status.refreshing') : t('privacy.status.loading'))
+              : readError ? t(readErrorKey) : (working ? t('privacy.status.wait') : t('privacy.status.refreshed'))}</p>
             {hasReadFailure && <div className="privacy-choice-row"><button className="privacy-choice-button privacy-choice-secondary"
               aria-disabled={reading || disabled || undefined} aria-busy={reading || undefined}
               onClick={() => { if (!disabled) void refresh(retryReadsProfile.current); }}>
-              {reading ? 'Checking status…' : readError ? 'Retry status' : 'Refresh status'}
+              {reading ? t('privacy.status.checking') : readError ? t('privacy.status.retry') : t('privacy.status.refresh')}
             </button></div>}
           </div>}
 
-          {status && !status.endpointConfigured && <div className="privacy-note">Contribution hosting is not configured in this build, so the program cannot upload correction audio even if you join.</div>}
-          {status?.lastError && <div className="privacy-note warning">{status.lastError}</div>}
+          {status && !status.endpointConfigured && <div className="privacy-note">{t('privacy.contributor.unconfigured')}</div>}
+          {status?.lastError && <div className="privacy-note warning" data-server-text>{status.lastError}</div>}
 
           <div className="privacy-choice-row">
             <button
@@ -244,7 +249,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
               aria-pressed={contributionConsent === 'granted'}
               onClick={() => void savePrivacy('khmerContributionConsent', 'granted')}
             >
-              {contributionConsent === 'granted' ? <CheckCircle2 size={18}/> : <HandHeart size={18}/>}<span>{contributionConsent === 'granted' ? 'Helping improve Khmer captions' : 'Help improve Khmer captions'}</span>
+              {contributionConsent === 'granted' ? <CheckCircle2 size={18}/> : <HandHeart size={18}/>}<span>{contributionConsent === 'granted' ? t('privacy.contributor.enabled') : t('privacy.helpImprove')}</span>
             </button>
             <button
               className={`privacy-choice-button privacy-choice-secondary ${contributionConsent === 'declined' ? 'is-selected' : ''}`}
@@ -252,17 +257,17 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
               aria-pressed={contributionConsent === 'declined'}
               onClick={() => void savePrivacy('khmerContributionConsent', 'declined')}
             >
-              <LockKeyhole size={18}/><span>Keep my work private</span>
+              <LockKeyhole size={18}/><span>{t('privacy.keepPrivate')}</span>
             </button>
           </div>
 
-          <div className="privacy-choice-helper"><ShieldCheck size={14}/><span>Change this choice anytime. Your access to Studio stays the same.</span></div>
+          <div className="privacy-choice-helper"><ShieldCheck size={14}/><span>{t('privacy.contributor.choiceHelp')}</span></div>
 
           {status && (status.submitted > 0 || status.verified > 0 || status.withdrawalPending) && <div className="privacy-destructive-row">
-            <button className="privacy-delete-button" disabled={disabled} onClick={() => void withdraw()}><Trash2 size={15}/>Request deletion</button>
-            <span>Requests deletion of data already sent under this Contributor identity. Local projects stay on your computer.</span>
+            <button className="privacy-delete-button" disabled={disabled} onClick={() => void withdraw()}><Trash2 size={15}/>{t('privacy.withdraw.request')}</button>
+            <span>{t('privacy.withdraw.help')}</span>
           </div>}
-          {status?.withdrawalPending && <div className="privacy-note warning">Deletion is pending. The Sthang contribution service has not confirmed it yet.</div>}
+          {status?.withdrawalPending && <div className="privacy-note warning">{t('privacy.withdraw.pending')}</div>}
         </div>
       </div>
     </section>
@@ -272,18 +277,18 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
         <div className="privacy-card-icon" aria-hidden="true"><BarChart3 size={25}/></div>
         <div className="privacy-card-content">
           <header className="privacy-card-heading">
-            <div className="privacy-card-title"><strong>Optional product analytics</strong></div>
+            <div className="privacy-card-title"><strong>{t('privacy.analytics.title')}</strong></div>
             <span className={`privacy-status-chip status-${analyticsState.tone}`}>
-              <i aria-hidden="true"/>{analyticsState.label}
+              <i aria-hidden="true"/>{t(analyticsState.labelKey)}
             </span>
           </header>
 
-          <p className="privacy-value-line">Help us build a better Studio.</p>
-          <p className="privacy-description">Share limited usage events to help Sthang understand the path from launch to caption export and improve the workflow.</p>
+          <p className="privacy-value-line">{t('privacy.analytics.purpose')}</p>
+          <p className="privacy-description">{t('privacy.analytics.description')}</p>
 
           <div className="privacy-boundary">
             <LockKeyhole size={17}/>
-            <span>When enabled, Studio sends a random installation ID, approved event names, coarse workflow categories, and Studio/platform versions. Analytics excludes caption text, audio, filenames, project names, local paths, vocabulary or context text, SRT contents, and your Gemini API key. It is separate from Khmer Caption Contributor.</span>
+            <span>{t('privacy.analytics.data')}</span>
           </div>
 
           <div className="privacy-choice-row">
@@ -293,7 +298,7 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
               aria-pressed={analyticsConsent === 'granted'}
               onClick={() => void savePrivacy('analyticsConsent', 'granted')}
             >
-              {analyticsConsent === 'granted' ? <CheckCircle2 size={18}/> : <BarChart3 size={18}/>}<span>{analyticsConsent === 'granted' ? 'Product analytics is on' : 'Share product analytics'}</span>
+              {analyticsConsent === 'granted' ? <CheckCircle2 size={18}/> : <BarChart3 size={18}/>}<span>{analyticsConsent === 'granted' ? t('privacy.analytics.enabled') : t('privacy.analytics.enable')}</span>
             </button>
             <button
               className={`privacy-choice-button privacy-choice-secondary ${analyticsConsent === 'declined' ? 'is-selected' : ''}`}
@@ -301,18 +306,18 @@ export function ContributorSettings({ profile, busy, showIntro = true, onSave }:
               aria-pressed={analyticsConsent === 'declined'}
               onClick={() => void savePrivacy('analyticsConsent', 'declined')}
             >
-              <ShieldCheck size={18}/><span>Keep analytics off</span>
+              <ShieldCheck size={18}/><span>{t('privacy.analytics.keepOff')}</span>
             </button>
           </div>
 
-          <div className="privacy-choice-helper"><ShieldCheck size={14}/><span>You can change this choice anytime in Settings.</span></div>
+          <div className="privacy-choice-helper"><ShieldCheck size={14}/><span>{t('privacy.analytics.choiceHelp')}</span></div>
         </div>
       </div>
     </section>
 
-    <div className="privacy-control-note"><ShieldCheck size={16}/><span>Both choices are saved separately on this computer. Neither limits Studio's caption features.</span></div>
-    {working && <p className="privacy-description" role="status">{working === 'withdraw' ? 'Requesting contribution deletion…' : 'Saving your privacy choice…'}</p>}
+    <div className="privacy-control-note"><ShieldCheck size={16}/><span>{t('privacy.choicesNote')}</span></div>
+    {working && <p className="privacy-description" role="status">{working === 'withdraw' ? t('privacy.withdraw.requesting') : t('privacy.saving')}</p>}
     {message && <p className="privacy-description" role="status">{message}</p>}
-    {error && <div className="privacy-note warning"><p className="privacy-description" role="alert">{error}</p></div>}
+    {error?.text && <div className="privacy-note warning"><p className="privacy-description" role="alert" data-server-text={error.server}>{error.text}</p></div>}
   </div>;
 }
