@@ -1,3 +1,5 @@
+import type { MessageKey, MessageParams } from './i18n/types';
+
 export const UPLOAD_RECOVERY_PREFIX = 'sthang-studio:upload-attempt:v1:';
 export const UPLOAD_RECOVERY_LIMITS = Object.freeze({ maxEntries: 5, maxEntryBytes: 4096, maxTotalBytes: 20 * 1024,
   ttlMs: 7 * 24 * 60 * 60 * 1000, futureClockAllowanceMs: 5 * 60 * 1000 });
@@ -5,8 +7,9 @@ type RecoveryStorage = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 
 export interface UploadFileDetails { name: string; size: number; type: string; lastModified: number }
 export interface UploadRecoveryMetadata extends UploadFileDetails { version: 1; id: string; capturedAt: number }
 export interface UploadRecoveryEntry { key: string; raw: string; metadata: UploadRecoveryMetadata }
-export interface UploadRecoveryRead { entries: UploadRecoveryEntry[]; error: string }
-const unavailable = 'Upload recovery could not be kept for restart. Keep this page open until the upload result is confirmed.';
+interface UploadRecoveryFeedback { error: string; errorMessage?: { key: MessageKey; params?: MessageParams } }
+export interface UploadRecoveryRead extends UploadRecoveryFeedback { entries: UploadRecoveryEntry[] }
+const unavailable = { error: "Upload recovery could not be kept for restart. Keep this page open until the upload result is confirmed.", errorMessage: { key: 'notices.upload.recoveryUnavailable' } } as const;
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const validId = (value: unknown): value is string => typeof value === 'string' && /^upload_[a-f0-9]{32}$/.test(value);
 const bytes = (key: string, raw: string) => (key.length + raw.length) * 2;
@@ -69,29 +72,29 @@ export function createUploadRecoveryStore(storageGetter: () => RecoveryStorage |
   }
   return {
     read(): UploadRecoveryRead {
-      try { const storage = target(); if (!storage) return { entries: [], error: unavailable };
+      try { const storage = target(); if (!storage) return { entries: [], ...unavailable };
         return { entries: inspect(storage).entries, error: '' };
-      } catch { return { entries: [], error: unavailable }; }
+      } catch { return { entries: [], ...unavailable }; }
     },
-    keep(file: UploadFileDetails, id: string): { entry: UploadRecoveryEntry | null; error: string } {
+    keep(file: UploadFileDetails, id: string): UploadRecoveryFeedback & { entry: UploadRecoveryEntry | null } {
       const metadata: UploadRecoveryMetadata = { version: 1, id, name: file.name, size: file.size, type: mediaType(file.type), lastModified: file.lastModified, capturedAt: now() };
       const key = UPLOAD_RECOVERY_PREFIX + id; const raw = JSON.stringify(metadata);
       const candidate = parse(key, raw, now());
-      if (!candidate) return { entry: null, error: unavailable };
+      if (!candidate) return { entry: null, ...unavailable };
       try {
-        const storage = target(); if (!storage) return { entry: null, error: unavailable };
+        const storage = target(); if (!storage) return { entry: null, ...unavailable };
         const previous = storage.getItem(key);
         if (previous !== null) {
           const existing = parse(key, previous, now());
-          return existing && matchingUploadFile(file, existing.metadata) ? { entry: existing, error: '' } : { entry: null, error: unavailable };
+          return existing && matchingUploadFile(file, existing.metadata) ? { entry: existing, error: '' } : { entry: null, ...unavailable };
         }
         const current = inspect(storage);
         if (current.records >= UPLOAD_RECOVERY_LIMITS.maxEntries || current.total + bytes(key, raw) > UPLOAD_RECOVERY_LIMITS.maxTotalBytes) {
-          return { entry: null, error: 'Upload recovery is full. Earlier reminders are kept; forget one you no longer need to keep this upload for restart.' };
+          return { entry: null, error: "Upload recovery is full. Earlier reminders are kept; forget one you no longer need to keep this upload for restart.", errorMessage: { key: 'notices.upload.recoveryFull' } };
         }
         storage.setItem(key, raw);
-        return storage.getItem(key) === raw ? { entry: candidate, error: '' } : { entry: null, error: unavailable };
-      } catch { return { entry: null, error: unavailable }; }
+        return storage.getItem(key) === raw ? { entry: candidate, error: '' } : { entry: null, ...unavailable };
+      } catch { return { entry: null, ...unavailable }; }
     },
     remove,
     ownership,

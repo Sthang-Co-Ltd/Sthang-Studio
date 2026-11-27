@@ -15,11 +15,13 @@ function validStatus(value: ProjectStorageStatus) {
       .every((key) => typeof value[key as keyof ProjectStorageStatus] === 'boolean');
 }
 
+export const storageCheckFailure = { error: "Saved project storage could not be checked. Your files were not changed.", errorMessage: { key: 'notices.storage.checkFailed' } } as const;
+
 export function useProjectStorage(retryKey: number) {
   const [status, setStatus] = useState<ProjectStorageStatus | null>(null);
   const [checking, setChecking] = useState(true);
   // Failed verification survives toast dismissal and retry until a check succeeds.
-  const [error, setError] = useState('');
+  const [failure, setFailure] = useState<typeof storageCheckFailure | null>(null);
   const [errorNoticeVisible, setErrorNoticeVisible] = useState(false);
   const sequence = useRef(0);
   const request = useRef<AbortController | null>(null);
@@ -31,10 +33,10 @@ export function useProjectStorage(retryKey: number) {
     try {
       const value = await api.projectStorage(recheck, controller.signal);
       if (!validStatus(value)) throw new Error();
-      if (ticket === sequence.current) { setStatus(value); setError(''); }
+      if (ticket === sequence.current) { setStatus(value); setFailure(null); }
     } catch {
       if (ticket === sequence.current && !controller.signal.aborted) {
-        setError('Saved project storage could not be checked. Your files were not changed.');
+        setFailure(storageCheckFailure);
         setErrorNoticeVisible(true);
       }
     } finally { if (ticket === sequence.current) setChecking(false); }
@@ -43,6 +45,6 @@ export function useProjectStorage(retryKey: number) {
     void check(false);
     return () => { sequence.current++; request.current?.abort(); };
   }, [retryKey, check]);
-  return { status, checking, error, errorNotice: errorNoticeVisible ? error : '',
+  return { status, checking, error: failure?.error ?? '', errorMessage: failure?.errorMessage, errorNotice: errorNoticeVisible ? failure?.error ?? '' : '',
     recheck: () => check(true), dismissError: () => setErrorNoticeVisible(false) };
 }

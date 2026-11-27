@@ -1,4 +1,4 @@
-import { translate, useI18n } from '../i18n';
+import { useI18n } from '../i18n';
 import {
   forwardRef,
   useCallback,
@@ -69,18 +69,6 @@ interface PendingViewportRestore {
   anchorId: string | null;
   anchorOffset: number;
   fallbackScrollTop: number;
-}
-
-// Match the three notices the single-caption timing planner can return.
-const timingLimitMessages = new Map(([
-  'editor.captions.timingStart',
-  'editor.captions.timingEnd',
-  'editor.captions.timingNeighbor',
-] as const).map((key) => [translate('en', key), key] as const));
-
-function timingLimitCopy(t: ReturnType<typeof useI18n>['t'], notice: string) {
-  const key = timingLimitMessages.get(notice);
-  return key ? t(key) : notice;
 }
 
 export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>(function CaptionEditor({
@@ -498,7 +486,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     if (!caption || caption.timingLocked) return false;
     const edge = value.startMs !== undefined ? 'start' : 'end';
     const result = planCaptionTimingEdit(captions, caption.id, edge, value.startMs ?? value.endMs!, mediaLimit, {}, preparedTiming);
-    if (result.limited) onNotice?.(timingLimitCopy(t, result.limited));
+    if (result.limited) onNotice?.(result.limitedMessage ? t(result.limitedMessage.key, result.limitedMessage.params) : result.limited);
     if (!result.after.length) return false;
     onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
     return true;
@@ -553,7 +541,7 @@ export const CaptionEditor = forwardRef<CaptionEditorHandle, CaptionEditorProps>
     const caption = captions[index];
     if (!caption || caption.timingLocked) return;
     const result = planCaptionTimingEdit(captions, caption.id, 'move', delta, mediaLimit, {}, preparedTiming);
-    if (result.limited) onNotice?.(timingLimitCopy(t, result.limited));
+    if (result.limited) onNotice?.(result.limitedMessage ? t(result.limitedMessage.key, result.limitedMessage.params) : result.limited);
     if (result.after.length) {
       onChange(captions.map((item) => item.id === caption.id ? result.after[0] : item), caption.id, 'timing');
       onEditCommit?.();
