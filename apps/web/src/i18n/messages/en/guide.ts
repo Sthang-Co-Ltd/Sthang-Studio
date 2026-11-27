@@ -9,6 +9,7 @@ export const guideMessages = {
   shortcutJump: 'Jump to current caption',
   shortcutNudge: 'Nudge selected captions by 50 ms',
   shortcutApprove: 'Approve & next',
+  shortcutApproveKeys: 'Enter or A',
   shortcutSkip: 'Skip without approving',
   shortcutFlagged: 'Previous / next flagged caption',
   label: 'Sthang Studio guide',

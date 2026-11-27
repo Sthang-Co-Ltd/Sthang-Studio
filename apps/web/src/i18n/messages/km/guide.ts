@@ -11,6 +11,7 @@ export const guideMessages: KhmerMessages<EnglishMessages['guide']> = {
   shortcutJump: "លោតទៅអក្សររត់បច្ចុប្បន្ន",
   shortcutNudge: "រំកិលអក្សររត់ដែលបានជ្រើសម្ដង 50 ms",
   shortcutApprove: "យល់ព្រម និងបន្ទាប់",
+  shortcutApproveKeys: "Enter ឬ A",
   shortcutSkip: "រំលងដោយមិនយល់ព្រម",
   shortcutFlagged: "ឃ្លាដែលបានសម្គាល់មុន / បន្ទាប់",
   label: "ការណែនាំ Sthang Studio",
