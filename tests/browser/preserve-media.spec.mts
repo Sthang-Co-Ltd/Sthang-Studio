@@ -224,7 +224,7 @@ test('both footage names and exact sizes are visible before replacement', async 
   const dialog = await chooseFile(page, name);
   const files = dialog.locator('.replacement-files');
   await expect(files.locator('bdi')).toHaveText([name, name]);
-  const bytes = new Intl.NumberFormat('en', { style: 'unit', unit: 'byte', unitDisplay: 'short' }).format(fixtureMedia().length);
+  const bytes = new Intl.NumberFormat('en').format(fixtureMedia().length) + ' bytes';
   await expect(files.locator('small')).toHaveText([bytes, bytes]);
   for (const width of [1440, 320]) {
     await page.setViewportSize({ width, height: 800 });

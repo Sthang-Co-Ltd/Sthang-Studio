@@ -242,7 +242,14 @@ function LookComparisonFrame({ media, text, appearance, decoration, children }: 
       <div ref={overlay} className="look-comparison-overlay" style={{ '--look-bottom': appearance.positionBottomPct + '%' } as CSSProperties}
         tabIndex={scrollable ? 0 : undefined} role={scrollable ? 'region' : undefined}
         aria-label={scrollable ? t('appearance.looks.fullCaption') : undefined} onKeyDown={(event) => {
-          if (scrollable && [' ', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End'].includes(event.key)) {
+          if (!scrollable || event.currentTarget !== event.target || event.defaultPrevented || event.nativeEvent.isComposing
+            || event.altKey || event.ctrlKey || event.metaKey) return;
+          if (!event.shiftKey && (event.key === 'Home' || event.key === 'End')) {
+            event.preventDefault();
+            event.stopPropagation();
+            const sample = event.currentTarget;
+            sample.scrollTo({ top: event.key === 'Home' ? 0 : sample.scrollHeight, behavior: 'instant' });
+          } else if ([' ', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(event.key)) {
             event.stopPropagation();
           }
         }}>

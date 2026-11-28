@@ -870,7 +870,7 @@ export function WaveformEditor({
   const handleTimingKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph') || document.querySelector('[aria-modal="true"]')) return;
       const commandModifier = event.ctrlKey || event.metaKey || event.altKey;
-      if (!commandModifier && event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
+      if (!commandModifier && !event.shiftKey && event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.matches('[data-media-preview-focus]') || target?.closest('video, audio, input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-haspopup="dialog"], [data-editor-layout-control], [role="menu"], [aria-haspopup="menu"]')) return;
       if (dragRef.current) return;

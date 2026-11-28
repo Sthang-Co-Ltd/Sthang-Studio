@@ -151,10 +151,14 @@ test('a long Khmer sample near the top of a narrow frame remains reachable on bo
     expect(reachable).toEqual({ start: true, end: true });
     const scroller = panel.getByRole('region');
     await scroller.focus();
+    await expect(scroller).toBeFocused();
     await scroller.press('Home');
     await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(0);
     await scroller.press('Space');
     await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await scroller.press('End');
+    await expect.poll(() => scroller.evaluate(el => Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop))).toBeLessThanOrEqual(1);
+    await expect(scroller).toBeFocused();
     expect(await page.locator('video').evaluate((el) => el.paused)).toBe(true);
   }
 });

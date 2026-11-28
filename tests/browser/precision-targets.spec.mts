@@ -36,6 +36,12 @@ test('a nearby caption edge has a clear hover affordance, keeps drag delta, and 
   await page.screenshot({ path: test.info().outputPath('precision-hover-desktop.png') });
   await page.keyboard.down('Shift'); // Keep snapping from changing the intended delta.
   await page.mouse.down();
+  // Inside the word-snap radius, releasing Shift previews the original token boundary.
+  await page.mouse.move(x + offset + 6, y);
+  await expect.poll(async () => Number((await start.inputValue()).split(':').at(-1))).toBeGreaterThan(.2);
+  await page.keyboard.up('Shift');
+  await expect(start).toHaveValue('00:00.200');
+  await page.keyboard.down('Shift');
   await page.mouse.move(x + offset + movement, y, { steps: 5 });
   await expect.poll(async () => Number((await start.inputValue()).split(':').at(-1))).toBeGreaterThan(.24);
   // Shift disables snapping during this drag; its modified Escape must stay ignored.
@@ -45,6 +51,7 @@ test('a nearby caption edge has a clear hover affordance, keeps drag delta, and 
   expect(state.projects[0].captions[0].startMs).toBe(200);
   await page.keyboard.up('Shift');
   await page.keyboard.press('Escape');
+  await expect(page.locator('.waveform-canvas-wrap')).not.toHaveClass(/dragging/);
   await page.mouse.up();
   await expect(start).toHaveValue('00:00.200');
   expect(state.projects[0].captions[0].startMs).toBe(200);

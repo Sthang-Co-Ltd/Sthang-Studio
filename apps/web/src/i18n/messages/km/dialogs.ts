@@ -91,6 +91,7 @@ export const dialogsMessages: KhmerMessages<EnglishMessages['dialogs']> = {
     currentFootage: 'មេឌៀបច្ចុប្បន្ន',
     replacementFootage: 'មេឌៀជំនួស',
     sizeUnavailable: 'គ្មានព័ត៌មានទំហំ',
+    fileSizeBytes: { other: '{size} បៃ' },
     resetCount: {
       other: "លុបសម្អាតអក្សររត់ {count} ឃ្លា ការយល់ព្រម ការចាក់សោ និងអត្ថបទបំប្លែងពីសំឡេង។ បង្កើតអក្សររត់ថ្មីនៅពេលអ្នករួចរាល់។",
     },
