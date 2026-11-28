@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -640,6 +640,7 @@ export default function App() {
   const [openingCorrection, setOpeningCorrection] = useState<string | null>(null);
   const [correctionReadError, setCorrectionReadError] = useState<{ id: string; message: string; serverText: boolean } | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
+  const reviewUndoAction = useRef<HTMLButtonElement>(null);
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
@@ -4199,6 +4200,43 @@ export default function App() {
     ? workspaceTool : 'captions';
   const reviewCaptionNumber = useMemo(() => stage === 'review'
     ? draft.findIndex(({ id }) => id === selection.ids[0]) + 1 : 0, [stage, draft, selection.ids]);
+  const usesReviewFooter = stage === 'review' && riskyIds.length > 0;
+  useLayoutEffect(() => {
+    if (!reviewUndo || !usesReviewFooter || !window.matchMedia('(max-width: 1199px)').matches) return;
+    const button = reviewUndoAction.current;
+    const stack = button?.closest<HTMLElement>('.toast-stack');
+    if (!button || !stack) return;
+    // A new Undo must be reachable while its short timer runs. Scroll only
+    // its notice stack, never the editor or keyboard focus.
+    const reveal = () => {
+      if (!button.isConnected || stack.clientHeight === 0
+        || getComputedStyle(stack).overflowY !== 'auto') return;
+      const top = stack.getBoundingClientRect().top + stack.clientTop;
+      const bottom = top + stack.clientHeight;
+      const box = button.getBoundingClientRect();
+      if (!box.height) return;
+      if (box.bottom > bottom) stack.scrollTop += Math.ceil(box.bottom - bottom);
+      else if (box.top < top) stack.scrollTop -= Math.ceil(top - box.top);
+    };
+    const interaction = new AbortController();
+    const resize = new ResizeObserver(reveal);
+    let timeout: number;
+    const stop = () => {
+      resize.disconnect();
+      interaction.abort();
+      window.clearTimeout(timeout);
+    };
+    reveal();
+    resize.observe(stack);
+    for (const slot of stack.children) resize.observe(slot);
+    // Account for the notice entry/exit animation, then return scroll
+    // ownership entirely to the user (or immediately on interaction).
+    for (const name of ['pointerdown', 'wheel', 'keydown', 'focusin']) {
+      stack.addEventListener(name, stop, { signal: interaction.signal });
+    }
+    timeout = window.setTimeout(stop, 250);
+    return stop;
+  }, [reviewUndo, usesReviewFooter]);
   const previousFirstWatchTool = useRef(workspaceTool);
   useEffect(() => {
     const toolChanged = previousFirstWatchTool.current !== workspaceTool;
@@ -4635,7 +4673,7 @@ export default function App() {
       onDiscard={() => void discardUnfinishedDraft(selectedRecovery)}/>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>{t('notices.media.savedForRecovery')}</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>{t('notices.media.undoReplacement')}</button><button aria-label={t('notices.media.dismissRecovery')} onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>{tr('notices.media.editsBelongToPrevious', { filename: recovery.sourceMedia.originalName }, {})}</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>{t('notices.media.copyRecovery')}</button><button aria-label={t('notices.media.dismissFileRecovery', { filename: recovery.sourceMedia.originalName })} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
-    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>{t('review.undo.action')}</button><button aria-label={t('review.undo.dismiss')} onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
+    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button ref={reviewUndoAction} className="toast-action" onClick={undoReviewApproval}>{t('review.undo.action')}</button><button aria-label={t('review.undo.dismiss')} onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
     {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span data-server-text={noticeServerText || undefined}>{notice}</span><button aria-label={t('common.toast.dismissNotice')} onClick={() => setNotice('')}><X size={14}/></button></div>}
   </ToastStack>;
 
@@ -5071,7 +5109,7 @@ export default function App() {
         </>}
     </EditorLayout>
 
-    {stage === 'review' && riskyIds.length > 0 && <div className="review-position-footer">
+    {usesReviewFooter && <div className="review-position-footer">
       <Captions size={16} aria-hidden="true"/>
       <span>{selection.captions.length ? t('timing.waveform.captionNumber', { number: reviewCaptionNumber, total: draft.length }) : tn('review.card.remaining', riskyIds.length)}</span>
       {selection.captions.length > 0 && <span className="review-footer-time">{rangeLabel(selection.startMs, selection.endMs)}</span>}

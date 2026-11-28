@@ -112,6 +112,23 @@ test('returning projects form full rows beside Upload on desktop and below it on
   await expect(page.locator('.project-title strong')).toHaveText(state.projects[0].title);
 });
 
+test('returning Home keeps the language prompt inside the Upload column at 801px', async ({ page }) => {
+  const state = await fixtureLibrary(page);
+  delete state.profile.preferences.interfaceLanguage;
+  await page.setViewportSize({ width: 801, height: 900 });
+  await page.goto('/');
+  const uploadColumn = page.locator('.returning-launcher .empty-stage');
+  const prompt = uploadColumn.locator('.interface-language-prompt');
+  await expect(prompt).toBeVisible();
+  const [column, panel, recent] = await Promise.all([
+    uploadColumn.boundingBox(), prompt.boundingBox(),
+    page.getByRole('region', { name: 'Recent projects' }).boundingBox(),
+  ]);
+  expect(panel!.x).toBeGreaterThanOrEqual(column!.x);
+  expect(panel!.x + panel!.width).toBeLessThanOrEqual(column!.x + column!.width + 1);
+  expect(panel!.x + panel!.width).toBeLessThan(recent!.x);
+});
+
 test('all three sorts paginate deterministically and preserve the chosen view on reopening', async ({ page }) => {
   const state = await fixtureLibrary(page);
   await showLibrary(page);

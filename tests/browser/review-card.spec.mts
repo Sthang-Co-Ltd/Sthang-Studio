@@ -166,6 +166,41 @@ test('phone Review keeps Undo clear of the next keyboard approval', async ({ pag
 
 test.describe('phone Review touch targets', () => {
   test.use({ hasTouch: true });
+  test('Undo is directly reachable over a pre-existing storage notice', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await installFixture(page);
+    const captions = state.projects[0].captions;
+    captions[2].timingQuality = 'low';
+    await page.route('**/api/system/project-storage', (route) => route.fulfill({ json: {
+      schemaVersion: 1, checkedAt: '2026-11-28T00:00:00.000Z', loadedProjectCount: 1,
+      readableProjectCount: 1, unreadableProjectCount: 0, missingProjectCount: 0, duplicateProjectCount: 0,
+      directoryUnreadable: false, orderUnreadable: false, legacyUnreadable: false, migrationPending: true, restartRequired: false,
+    } }));
+    await openProject(page);
+    await enterReview(page);
+    const storage = page.locator('.toast-stack .toast').filter({ has: page.getByRole('button', { name: 'Review storage', exact: true }) });
+    await expect(storage).toBeInViewport({ ratio: 1 });
+    const approve = decision(page, 'Approve & next');
+    const rect = (await approve.boundingBox())!;
+    const x = Math.round(rect.x + rect.width * 0.65);
+    const y = Math.round(rect.y + rect.height / 2);
+    await page.touchscreen.tap(x, y);
+    await expect(cardText(page)).toHaveText(captions[1].text);
+    const undo = page.locator('.review-undo-toast .toast-action');
+    await expect.poll(() => undo.evaluate((button) => {
+      const stack = button.closest<HTMLElement>('.toast-stack')!;
+      const { x, y, width, height } = button.getBoundingClientRect();
+      const top = stack.getBoundingClientRect().top + stack.clientTop;
+      return y >= top - 1 && y + height <= top + stack.clientHeight + 1
+        && document.elementFromPoint(x + width / 2, y + height / 2)?.closest('button') === button;
+    })).toBe(true);
+    expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('button')?.matches('.review-approve-next'), [x, y])).toBe(true);
+    const hit = (await undo.boundingBox())!;
+    await page.touchscreen.tap(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    await expect(cardText(page)).toHaveText(captions[0].text);
+    await expect(storage).toBeInViewport({ ratio: 1 });
+  });
+
   for (const width of [320, 390]) for (const locale of ['en', 'km'] as const) {
     test(`repeated taps advance and deliberate Undo restores at ${width}px in ${locale}`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 844 });
