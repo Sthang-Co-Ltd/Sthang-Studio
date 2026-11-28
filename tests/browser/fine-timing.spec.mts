@@ -508,8 +508,10 @@ test('word snapping distinguishes token starts from token ends', async ({ page }
   await page.mouse.move(box.x + 325 / 2500 * box.width, box.y + 158, { steps: 4 });
   await expect(readout).toContainText('(+');
   await page.keyboard.press('Escape');
-  await expect(readout).toHaveCount(0);
+  await expect(readout).toContainText('(+');
   await page.keyboard.up('Shift');
+  await page.keyboard.press('Escape');
+  await expect(readout).toHaveCount(0);
   await page.mouse.up();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.250');
   await dragEdge(1000, 970, '00:00.960', '−40');
