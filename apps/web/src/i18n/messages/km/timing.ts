@@ -2,6 +2,7 @@ import type { EnglishMessages, KhmerMessages } from '../../types';
 
 export const timingMessages: KhmerMessages<EnglishMessages['timing']> = {
   waveform: {
+    overview: "ផ្នែកដែលកំពុងមើលក្នុងឃ្លីប",
     noPreviousCaption: "គ្មានអក្សររត់មុននេះទេ។ បិទ «រំកិលគែមជាប់គ្នាផងដែរ» ដើម្បីកែគែមនេះ។",
     noNextCaption: "គ្មានអក្សររត់បន្ទាប់ទេ។ បិទ «រំកិលគែមជាប់គ្នាផងដែរ» ដើម្បីកែគែមនេះ។",
     loadRequestErrorWithDetail: "សំណើទិន្នន័យរលកសំឡេងបានបរាជ័យ ({status})៖ {detail}",

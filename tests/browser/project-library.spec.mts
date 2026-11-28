@@ -79,6 +79,30 @@ test('Home keeps six recent cards; a saved Khmer project beyond both limits reop
   expect(detailUrls.map((url) => url.pathname)).toEqual(['/api/projects/library-31']);
 });
 
+test('returning projects form full rows beside Upload on desktop and below it on phones', async ({ page }) => {
+  const state = await fixtureLibrary(page);
+  state.projects[0].title = ARCHIVED_TITLE.repeat(3);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const region = page.getByRole('region', { name: 'Recent projects' });
+  const rows = region.getByRole('listitem');
+  await expect(rows).toHaveCount(6);
+  const first = rows.first().getByRole('button');
+  const upload = page.locator('.dropzone');
+  const desktopUpload = (await upload.boundingBox())!;
+  const firstBox = (await first.boundingBox())!;
+  expect(firstBox.x).toBeGreaterThanOrEqual(desktopUpload.x + desktopUpload.width);
+  expect((await rows.nth(1).boundingBox())!.y).toBeGreaterThanOrEqual(firstBox.y + firstBox.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const phoneUpload = (await upload.boundingBox())!;
+  expect((await region.boundingBox())!.y).toBeGreaterThanOrEqual(phoneUpload.y + phoneUpload.height);
+  await expect(first).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await first.press('Enter');
+  await expect(page.locator('.project-title strong')).toHaveText(state.projects[0].title);
+});
+
 test('all three sorts paginate deterministically and preserve the chosen view on reopening', async ({ page }) => {
   const state = await fixtureLibrary(page);
   await showLibrary(page);
@@ -406,6 +430,8 @@ test('an empty library has an explicit empty state separate from failed loading'
   const state = await installFixture(page);
   state.projects = [];
   await page.goto('/');
+  await expect(page.locator('.dropzone')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Recent projects' })).toHaveCount(0);
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeVisible();
   await expect(openButtons(page)).toHaveCount(0);

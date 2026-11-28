@@ -1,5 +1,6 @@
 export const timingMessages = {
   waveform: {
+    overview: "View within clip",
     noPreviousCaption: "There is no previous caption. Turn off “Move adjoining edge too” to edit this edge.",
     noNextCaption: "There is no next caption. Turn off “Move adjoining edge too” to edit this edge.",
     loadRequestErrorWithDetail: "Waveform audio request failed ({status}): {detail}",

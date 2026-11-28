@@ -27,9 +27,14 @@ test('the current stage owns the inspector and Captions owns its tools', async (
   await openProject(page);
   await expect(rail(page).locator('button > span')).toHaveText(['Captions', 'Review', 'Appearance', 'Export']);
   await expectStage(page, 'captions');
+  const exportStage = stage(page, 'export');
+  const studioLime = 'rgb(215, 255, 79)';
+  await expect(exportStage).toHaveCSS('background-color', studioLime);
   await expect(strip(page).getByRole('button')).toHaveText(['Fine timing', 'Accuracy', 'Caption grouping']);
   await stage(page, 'review').click();
   await expectStage(page, 'review');
+  await expect(exportStage).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.review-approve-next')).toHaveCSS('background-color', studioLime);
   await expect(page.getByRole('heading', { name: 'Review panel', exact: true })).toBeVisible();
   await expect(strip(page)).toHaveCount(0);
   await expect((await openLayoutTools(page)).getByRole('menuitem', { name: /^Arrange panels/ })).toBeVisible();
@@ -45,8 +50,7 @@ test('the current stage owns the inspector and Captions owns its tools', async (
   await expect(page.locator('.caption-row')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Approve caption and move to the next review item', exact: true })).toHaveCount(0);
 
-  const exportStage = stage(page, 'export');
-  const lime = await exportStage.evaluate((node) => getComputedStyle(node).backgroundColor);
+  await expect(exportStage).toHaveCSS('background-color', studioLime);
   for (const name of ['Appearance', 'Export']) {
     const trigger = stage(page, name.toLowerCase());
     await trigger.click();
@@ -54,7 +58,7 @@ test('the current stage owns the inspector and Captions owns its tools', async (
     await expect(page.getByRole('heading', { name: `${name} panel`, exact: true })).toBeVisible();
     await expect(strip(page)).toHaveCount(0);
     if (name === 'Export') {
-      await expect(exportStage).toHaveCSS('background-color', lime);
+      await expect(exportStage).toHaveCSS('background-color', studioLime);
       await expect(exportStage).toHaveCSS('box-shadow', 'rgb(16, 21, 26) 0px 0px 0px 2px inset');
     }
     await closeTool(page).click();

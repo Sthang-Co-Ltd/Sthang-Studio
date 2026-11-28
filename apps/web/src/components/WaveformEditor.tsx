@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useTimingDock } from './EditorLayout';
 import { EDITOR_LAYOUT_CHANGE } from '../editor-layout-state';
@@ -91,6 +91,26 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 function formatMs(value: number) {
   const tenths = Math.max(0, Math.round(value / 100));
   return `${Math.floor(tenths / 600)}:${((tenths % 600) / 10).toFixed(1).padStart(4, '0')}`;
+}
+
+// The overview uses the existing multiresolution cache. Panning and playback
+// move the native range thumb without redrawing the recording.
+function OverviewTrace({ peaks }: { peaks: WaveformPeaks | null }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const ctx = canvas.current?.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, 640, 32);
+    const level = peaks?.levels.find(({ min }) => min.length <= 640);
+    if (!peaks || !level) return;
+    ctx.fillStyle = '#849397';
+    const bucketWidth = level.stride * 640 / peaks.samples.length;
+    for (let i = 0; i < level.min.length; i++) {
+      const top = 16 - 15 * level.max[i];
+      ctx.fillRect(i * bucketWidth, top, Math.ceil(bucketWidth), Math.max(1, (level.max[i] - level.min[i]) * 15));
+    }
+  }, [peaks]);
+  return <canvas ref={canvas} width={640} height={32} aria-hidden="true"/>;
 }
 
 function nearestBoundary(tokens: TimedToken[], value: number, edge: TimingEditKind) {
@@ -203,6 +223,7 @@ export function WaveformEditor({
   const timingDock = useTimingDock();
   const unavailableId = useId();
   const waveformHintId = useId();
+  const [previewOverview] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).get('timingOverview') === '1');
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
@@ -448,7 +469,7 @@ export function WaveformEditor({
 
   useEffect(() => {
     const samples = samplesRef.current;
-    if (loading || mode !== 'waveform' || !samples || peaks?.samples === samples) return;
+    if (loading || (mode !== 'waveform' && !previewOverview) || !samples || peaks?.samples === samples) return;
     let cancelled = false;
     void buildWaveformPeaks(samples, () => cancelled || samplesRef.current !== samples).then((value) => {
       if (!value || cancelled || samplesRef.current !== samples) return;
@@ -458,7 +479,7 @@ export function WaveformEditor({
       if (entry?.samples === samples) rememberWaveform(memoryKey, { ...entry, peaks: value });
     }).catch(() => { /* Optional peaks: exact raw PCM drawing remains the fallback. */ });
     return () => { cancelled = true; };
-  }, [loading, mode, memoryKey, reloadKey, durationMs, peaks]);
+  }, [loading, mode, memoryKey, reloadKey, durationMs, peaks, previewOverview]);
 
   useEffect(() => {
     if (loading || mode !== 'spectrum' || spectrum) return;
@@ -872,6 +893,7 @@ export function WaveformEditor({
     return () => window.removeEventListener('keydown', handleTimingKey, true);
   });
 
+  const showOverview = previewOverview && !loading && !loadError && durationMs > 0;
   const waveform = <div className="timing-waveform-surface">
     <div className="timing-waveform-toolbar">
       <div className="timing-mode-switch" role="group" aria-label={t('timing.waveform.mode')}>
@@ -981,28 +1003,35 @@ export function WaveformEditor({
       <canvas ref={playheadCanvas} aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}/>
 
     </div>
-    <div className="waveform-navigation">
-      <span>{formatMs(viewStartMs)}</span>
-      <input
-        type="range"
-        aria-label={t('timing.waveform.scroll')}
-        aria-valuetext={t('timing.waveform.viewRange', { start: formatTimestamp(viewStartMs), end: formatTimestamp(viewEndMs) })}
-        min="0"
-        max={maxViewStartMs}
-        disabled={!maxViewStartMs}
-        step="50"
-        value={Math.min(viewStartMs, maxViewStartMs)}
-        onKeyDown={(event) => {
-          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-          const direction = ['ArrowLeft', 'ArrowDown'].includes(event.key) ? -1 : ['ArrowRight', 'ArrowUp'].includes(event.key) ? 1 : 0;
-          if (!direction) return;
-          event.preventDefault();
-          setFollow(false);
-          setViewStartMs(clamp(viewStartMs + direction * Math.max(50, Math.round(viewDurationMs / 10)), 0, maxViewStartMs));
-        }}
-        onChange={(event: React.ChangeEvent<HTMLInputElement>) => { setFollow(false); setViewStartMs(Number(event.target.value)); }}
-      />
-      <span>{formatMs(viewEndMs)}</span>
+    <div className={showOverview ? 'waveform-navigation timing-overview' : 'waveform-navigation'}>
+      {showOverview && <div className="overview-heading">
+        <strong>{t('timing.waveform.overview')}</strong>
+        <span>{t('timing.waveform.viewRange', { start: formatMs(viewStartMs), end: formatMs(viewEndMs) })}</span>
+      </div>}
+      <span>{formatMs(showOverview ? 0 : viewStartMs)}</span>
+      <div className="timing-pan-track" style={showOverview ? { '--window-size': `${100 / zoom}%` } as CSSProperties : undefined}>
+        {showOverview && <OverviewTrace peaks={peaks}/>}
+        <input
+          type="range"
+          aria-label={t('timing.waveform.scroll')}
+          aria-valuetext={t('timing.waveform.viewRange', { start: formatTimestamp(viewStartMs), end: formatTimestamp(viewEndMs) })}
+          min="0"
+          max={maxViewStartMs}
+          disabled={!maxViewStartMs}
+          step="50"
+          value={Math.min(viewStartMs, maxViewStartMs)}
+          onKeyDown={(event) => {
+            if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+            const direction = ['ArrowLeft', 'ArrowDown'].includes(event.key) ? -1 : ['ArrowRight', 'ArrowUp'].includes(event.key) ? 1 : 0;
+            if (!direction) return;
+            event.preventDefault();
+            setFollow(false);
+            setViewStartMs(clamp(viewStartMs + direction * Math.max(50, Math.round(viewDurationMs / 10)), 0, maxViewStartMs));
+          }}
+          onChange={(event: React.ChangeEvent<HTMLInputElement>) => { setFollow(false); setViewStartMs(Number(event.target.value)); }}
+        />
+      </div>
+      <span>{formatMs(showOverview ? durationMs : viewEndMs)}</span>
     </div>
     <p className="timing-hint" id={waveformHintId}>{editMode === 'words' ? t('timing.waveform.wordHelp') : t('timing.waveform.captionHelp')}</p>
   </div>;

@@ -1,4 +1,5 @@
 .workspace.refined-workspace{height:100dvh;min-height:0;overflow:hidden}
+.review-position-footer{display:none}
 .workspace.refined-workspace>header,.workspace.refined-workspace>.media-alignment-notice{flex:none}
 /* Persistent save errors and comparison decisions must leave work controls reachable. */
 .workspace.refined-workspace:is(.has-caption-proposal,.has-save-failure)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
@@ -52,7 +53,9 @@
 .inspector-content .review-card{grid-template-columns:minmax(0,1fr);gap:16px;padding:12px}
 .inspector-content .review-card>*{grid-column:1;min-width:0}
 .inspector-content .review-card-head{display:grid;gap:6px}
-.inspector-content .review-selection{text-align:left;font-size:13px;line-height:1.5}
+.inspector-content .review-selection{grid-column:1/-1;text-align:start;font-size:13px;line-height:1.5;color:var(--muted);font-variant-numeric:tabular-nums}
+.inspector-content .review-selection b{font-weight:500}
+.inspector-content .review-score{font-variant-numeric:tabular-nums}
 .inspector-content .review-caption{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px;border:1px solid #2d343d;border-radius:12px;background:var(--panel)}
 .inspector-content .review-caption-text{margin:0;color:#eef2f6;font:18px/1.7 'Noto Sans Khmer','Plus Jakarta Sans',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}
 .inspector-content .review-caption-empty{color:var(--muted)}
@@ -143,10 +146,24 @@
 .inspector-content :is(input,textarea,select){max-width:100%}
 @media(max-width:1199px){
   .toast-stack .recovery-storage-error>.toast-action{min-height:44px}
-  /* Persistent recovery cannot cover the only editable area below a sticky
-     preview. Reuse the comparison footer while keeping both surfaces mounted. */
-  .workspace.refined-workspace.has-persistent-recovery>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
-  .workspace.refined-workspace.has-persistent-recovery>.toast-stack>*{flex-shrink:0}
+  /* Keep recovery and Review notices in flow so Undo and the next decision
+     stay visible below the sticky preview. */
+  .workspace.refined-workspace:is(.has-persistent-recovery,[data-review-active].has-toasts)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
+  .workspace.refined-workspace:is(.has-persistent-recovery,[data-review-active].has-toasts)>.toast-stack>*{flex-shrink:0}
+  /* The single-notice slot keeps the next decision at the same touch coordinates. */
+  .workspace[data-review-active]{--review-footer-size:clamp(64px,10dvh,88px)}
+  .workspace[data-review-active]:not(.has-toasts)>.review-position-footer,
+  .workspace.refined-workspace[data-review-active].has-toasts:not(.has-persistent-recovery)>.review-position-footer + .toast-stack{
+    box-sizing:border-box;flex:none;align-self:stretch;width:auto;height:var(--review-footer-size);
+    margin:0;padding:4px 12px;max-height:none;border-top:1px solid var(--line);background:var(--panel);
+  }
+  .workspace[data-review-active]:not(.has-toasts)>.review-position-footer{
+    display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;
+  }
+  .review-footer-time{margin-inline-start:auto}
+  .review-position-footer + .toast-stack>.toast-slot:only-child{margin-block:auto}
+  .review-position-footer + .toast-stack .review-undo-toast{padding-block:4px}
+  .review-position-footer + .toast-stack .review-undo-toast>button{min-height:44px;min-width:44px}
   .workspace.refined-workspace.has-persistent-recovery .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
   .workspace.refined-workspace.has-persistent-recovery :is(.inspector-content :is(button,input,textarea,select,summary,canvas),[data-workspace-close]){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
   /* Native keyboard focus must account for evidence that covers the outer

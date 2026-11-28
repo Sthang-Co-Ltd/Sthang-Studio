@@ -140,6 +140,79 @@ test('row selection, approval, Skip, Previous and Undo show their current target
   await expect(cardText(page)).toHaveText(captions[0].text);
 });
 
+test('phone Review keeps Undo clear of the next keyboard approval', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const state = await installFixture(page);
+  const captions = state.projects[0].captions;
+  captions[2].timingQuality = 'low';
+  await openProject(page);
+  await enterReview(page);
+  const approve = decision(page, 'Approve & next');
+  await approve.press('Enter');
+  await expect(cardText(page)).toHaveText(captions[1].text);
+  await expect(approve).toBeFocused();
+  const notice = page.locator('.review-undo-toast');
+  await expect(notice).toBeInViewport({ ratio: 1 });
+  await expect(approve).toBeInViewport({ ratio: 1 });
+  const actionBox = (await approve.boundingBox())!;
+  const noticeBox = (await notice.boundingBox())!;
+  expect(noticeBox.y).toBeGreaterThanOrEqual(actionBox.y + actionBox.height);
+  await page.keyboard.press('Enter');
+  await expect(cardText(page)).toHaveText(captions[2].text);
+  await notice.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
+  await expect(cardText(page)).toHaveText(captions[1].text);
+});
+
+test.describe('phone Review touch targets', () => {
+  test.use({ hasTouch: true });
+  for (const width of [320, 390]) for (const locale of ['en', 'km'] as const) {
+    test(`repeated taps advance and deliberate Undo restores at ${width}px in ${locale}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion: width === 320 ? 'reduce' : 'no-preference' });
+      const state = await installFixture(page);
+      state.profile.preferences.interfaceLanguage = locale;
+      const captions = state.projects[0].captions;
+      captions[2].timingQuality = 'low';
+      await openProject(page);
+      await page.locator('[data-stage="review"]').tap();
+      await page.evaluate(() => document.fonts.ready);
+      const approve = page.locator('.review-approve-next');
+      const current = page.locator('.review-caption-text');
+      const notice = page.locator('.review-undo-toast');
+      await expect(current).toHaveText(captions[0].text);
+      await expect(approve).toBeInViewport({ ratio: 1 });
+      const rect = (await approve.boundingBox())!;
+      const x = Math.round(rect.x + rect.width * 0.65);
+      const y = Math.round(rect.y + rect.height / 2);
+      const targetAtPoint = () => page.evaluate(([x, y]) =>
+        document.elementFromPoint(x, y)?.closest('button')?.matches('.review-approve-next') === true, [x, y]);
+      await page.touchscreen.tap(x, y);
+      await expect(current).toHaveText(captions[1].text);
+      await expect(notice).toBeInViewport({ ratio: 1 });
+      expect((await approve.boundingBox())!.y).toBeCloseTo(rect.y, 0);
+      expect(await targetAtPoint()).toBe(true);
+      await page.screenshot({ path: info.outputPath('after-first-approval.png') });
+      await page.touchscreen.tap(x, y);
+      await expect(current).toHaveText(captions[2].text);
+      await notice.locator('.toast-action').tap();
+      await expect(current).toHaveText(captions[1].text);
+      await expect(notice).toHaveCount(0);
+      expect(await targetAtPoint()).toBe(true);
+      await page.touchscreen.tap(x, y);
+      await expect(current).toHaveText(captions[2].text);
+      if (width === 390 && locale === 'en') {
+        await expect(notice).toHaveCount(0, { timeout: 12_000 });
+      } else {
+        await notice.getByRole('button').last().tap();
+        await expect(notice).toHaveCount(0);
+      }
+      await expect(page.locator('.review-position-footer')).toBeVisible();
+      expect((await approve.boundingBox())!.y).toBeCloseTo(rect.y, 0);
+    });
+  }
+});
+
 test('More review options keeps the profile request and existing advanced controls', async ({ page }) => {
   const state = await installFixture(page);
   await openProject(page);
@@ -285,7 +358,8 @@ test('phone long-caption entry pins decisions only while the card is on screen',
   expect(cardBox.y).toBeLessThan(844);
   expect(cardBox.y + cardBox.height).toBeGreaterThan(844);
   const rowBox = (await actions(page).boundingBox())!;
-  expect(rowBox.y + rowBox.height).toBeCloseTo(844, 0);
+  const workbenchBox = (await workbench.boundingBox())!;
+  expect(rowBox.y + rowBox.height).toBeCloseTo(workbenchBox.y + workbenchBox.height, 0);
   await expect(approve).toBeInViewport({ ratio: 1 });
   await capture(page, 'review-390x844-long-mid-scroll.png');
 });

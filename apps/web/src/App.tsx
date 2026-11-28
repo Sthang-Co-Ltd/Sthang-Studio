@@ -4197,6 +4197,8 @@ export default function App() {
   const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const stage: Stage = workspaceTool === 'review' || workspaceTool === 'appearance' || workspaceTool === 'export'
     ? workspaceTool : 'captions';
+  const reviewCaptionNumber = useMemo(() => stage === 'review'
+    ? draft.findIndex(({ id }) => id === selection.ids[0]) + 1 : 0, [stage, draft, selection.ids]);
   const previousFirstWatchTool = useRef(workspaceTool);
   useEffect(() => {
     const toolChanged = previousFirstWatchTool.current !== workspaceTool;
@@ -4645,7 +4647,7 @@ export default function App() {
     Activity: 'home.launcher.activityService',
   };
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
-  if (!project) return <LocaleProvider locale={interfaceLanguage}><main className={showAllProjects ? 'project-library-page' : undefined}
+  if (!project) return <LocaleProvider locale={interfaceLanguage}><main className={showAllProjects ? 'project-library-page' : projects.length ? 'returning-home' : undefined}
     onPointerDownCapture={releaseLibraryReturn} onKeyDownCapture={releaseLibraryReturn} onWheelCapture={releaseLibraryReturn}>
     <div className="home-tools">
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>{t('home.launcher.allProjects')}</button>}
@@ -4656,7 +4658,7 @@ export default function App() {
       <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip={t('home.launcher.settingsTip')} onClick={() => openSettings('ai')}><Settings2 size={16}/>{t('home.launcher.settings')}{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
       {!showAllProjects && <InterfaceLanguageSwitch saving={languageSaving} ready={Boolean(profile)} onChange={setInterfaceLanguage}/>}
     </div>
-    <div hidden={showAllProjects} inert={showAllProjects || undefined}>
+    <div className={projects.length && !showAllProjects ? 'returning-launcher' : undefined} hidden={showAllProjects} inert={showAllProjects || undefined}>
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'notices.busy.uploading'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? t('home.launcher.preferencesFailed') : t('home.launcher.loadingPreferencesForUpload')
           : busy && busy !== 'notices.busy.uploading' ? t('home.launcher.uploadBusy') : ''}
@@ -4664,11 +4666,24 @@ export default function App() {
           {profile && savedLanguage === undefined && !showAllProjects && <InterfaceLanguagePrompt saving={languageSaving} onChange={setInterfaceLanguage}/>}
           {showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>{t('home.launcher.setupAi')}</button> : undefined}
         </>}/>
+      {!showAllProjects && projects.length > 0 && <section className="recent" aria-labelledby="recent-projects-heading">
+        <h2 id="recent-projects-heading">{t('home.launcher.recentProjects')}</h2>
+        <ul className="recent-project-list" role="list">
+          {projects.slice(0, 6).map((item) => <li key={item.id}>
+            <button data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id}
+              aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}>
+              <span>{item.title}</span>
+              <small>{openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}</small>
+              <ChevronRight size={16} aria-hidden="true"/>
+            </button>
+          </li>)}
+        </ul>
+      </section>}
     </div>
     {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>{t('home.launcher.timingWarning')}</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>{t('home.launcher.systemCheck')}</button></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>{t('home.launcher.startupFailed', { services: visibleStartupErrors.map((label) => translate(interfaceLanguage, startupServiceMessages[label] ?? 'home.launcher.startupService', { service: label })).join(', ') })}</span><button onClick={() => setStartupAttempt((value) => value + 1)}>{t('home.launcher.retryStartup')}</button></div>}
     {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">{t('home.launcher.loadingPreferences')}</div>}
-    {showAllProjects ? <ProjectLibrary
+    {showAllProjects && <ProjectLibrary
       focusHeadingOnMount={!libraryOrigin.current} projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
       loading={!startupLoaded.current.has('Projects') && !startupErrors.includes('Projects')}
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
@@ -4678,7 +4693,7 @@ export default function App() {
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
       bin={projectBin} showBin={showProjectBin} onShowBin={setShowProjectBin} onRename={renameProject} confirm={confirmInStudio}
-    /> : projects.length > 0 && <section className="recent" aria-label={t('home.launcher.recentProjects')}><div><strong>{t('home.launcher.recentProjects')}</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}</small></button>)}</div></section>}
+    />}
     {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{t('home.launcher.showingLastProjects', { error: projectListState.error })}</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>{t('home.launcher.refreshProjects')}</button></div>}
     {statusToasts}
     {activity}
@@ -4686,7 +4701,7 @@ export default function App() {
     {overlays}
   </main></LocaleProvider>;
 
-  return <LocaleProvider locale={interfaceLanguage}><main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
+  return <LocaleProvider locale={interfaceLanguage}><main data-review-active={stage === 'review' || undefined} className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label={t('editor.header.back')} data-tooltip={t('editor.header.back')} disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel={t('editor.header.captions')} moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={project.transcriptNeedsSync ? t('editor.header.regroupingNeedsRefresh', { status: projectSaveStatus }) : projectSaveStatus}
@@ -4697,7 +4712,7 @@ export default function App() {
           <button type="button" data-stage="captions" aria-pressed={stage === 'captions'} disabled={Boolean(proposal)} onClick={() => selectStage('captions')}><Captions size={16}/><span>{t('editor.header.captions')}</span></button>
           <button type="button" data-stage="review" data-tooltip={t('editor.header.reviewTip')} aria-pressed={stage === 'review'} disabled={!draft.length && !reviewMode} onClick={() => selectStage('review')}><ListChecks size={16}/><span>{t('editor.header.review')}</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
           {isVideo && <button type="button" data-stage="appearance" aria-pressed={stage === 'appearance'} disabled={!draft.length || Boolean(proposal)} onClick={() => selectStage('appearance')}><Palette size={16}/><span>{t('editor.header.appearance')}</span></button>}
-          <button type="button" className="primary" data-stage="export" data-workspace-trigger="export" data-tooltip={t('editor.header.exportTip')} aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>{t('editor.header.export')}</span></button>
+          <button type="button" className={stage === 'review' ? undefined : 'primary'} data-stage="export" data-workspace-trigger="export" data-tooltip={t('editor.header.exportTip')} aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>{t('editor.header.export')}</span></button>
         </nav>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
@@ -4938,10 +4953,6 @@ export default function App() {
             {riskyIds.length > 0 && <>
             <div className="review-card-head">
               <div className="review-score"><ListChecks size={22}/><strong>{tn('review.card.remaining', riskyIds.length)}</strong></div>
-              <div className="review-selection">
-                <b>{selection.captions.length ? t('review.card.selection', { number: draft.findIndex(({ id }) => id === selection.ids[0]) + 1, range: rangeLabel(selection.startMs, selection.endMs) }) : t('review.card.noSelection')}</b>
-                {selection.captions.length > 1 && <span>{t('review.card.moreSelected', { count: selection.captions.length - 1 })}</span>}
-              </div>
             </div>
             <div className="review-caption" role="group" aria-label={t('review.card.captionText')}>
               <p className={`review-caption-text${selection.captions[0]?.text ? '' : ' review-caption-empty'}`}>
@@ -4951,6 +4962,10 @@ export default function App() {
                 <PencilLine size={15} aria-hidden="true"/>
                 {t('review.card.editText')}
               </button>
+              <div className="review-selection">
+                <b>{selection.captions.length ? t('review.card.selection', { number: reviewCaptionNumber, range: rangeLabel(selection.startMs, selection.endMs) }) : t('review.card.noSelection')}</b>
+                {selection.captions.length > 1 && <span>{t('review.card.moreSelected', { count: selection.captions.length - 1 })}</span>}
+              </div>
             </div>
             {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label={t('review.card.reasons')}>{selectedReviewReasons.map(({ code, params }, index) => <li key={`${code}:${index}`}><strong>{t(`review.reason.${code}.label`, params)}</strong> <span>{t(`review.reason.${code}.hint`, params)}</span></li>)}</ul>}
             <div className="review-actions review-nav-actions">
@@ -5056,6 +5071,11 @@ export default function App() {
         </>}
     </EditorLayout>
 
+    {stage === 'review' && riskyIds.length > 0 && <div className="review-position-footer">
+      <Captions size={16} aria-hidden="true"/>
+      <span>{selection.captions.length ? t('timing.waveform.captionNumber', { number: reviewCaptionNumber, total: draft.length }) : tn('review.card.remaining', riskyIds.length)}</span>
+      {selection.captions.length > 0 && <span className="review-footer-time">{rangeLabel(selection.startMs, selection.endMs)}</span>}
+    </div>}
     {statusToasts}
     {activity}
     {corrections}

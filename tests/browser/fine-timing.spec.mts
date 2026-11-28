@@ -14,6 +14,73 @@ async function openTiming(page: Page) {
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
 }
 
+test.describe('local clip overview prototype', () => {
+  test.use({ hasTouch: true, reducedMotion: 'reduce' });
+  for (const width of [1440, 390]) test(`panning a three-minute recording changes only its viewport at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    const sampleRate = 8000;
+    const wav = createSyntheticWav(180, 200, sampleRate);
+    // Give the recording distinct sections, including a quiet patch.
+    for (let second = 0; second < 180; second++) {
+      const gain = (1 + Math.sin(second / 7)) / 2;
+      for (let i = second * sampleRate; i < (second + 1) * sampleRate; i++) {
+        const offset = 44 + 2 * i;
+        wav.writeInt16LE(Math.round(wav.readInt16LE(offset) * gain), offset);
+      }
+    }
+    const item = state.projects[0];
+    item.media = { filename: 'overview.wav', originalName: 'overview.wav', mimeType: 'audio/wav', size: wav.length, url: '/media/overview.wav' };
+    item.captions[2] = { ...item.captions[2], startMs: 125_000, endMs: 126_000 };
+    await page.route('**/media/overview.wav', (route) => route.fulfill({ contentType: 'audio/wav', body: wav }));
+    await page.route('**/normalized-audio.wav*', (route) => route.fulfill({ contentType: 'audio/wav', body: wav }));
+    await page.goto('/?timingOverview=1');
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    const audio = page.locator('.media-stage audio');
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.duration)).toBe(180);
+    await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
+    const overview = page.locator('.timing-overview');
+    const pan = overview.getByRole('slider');
+    await expect(pan).toBeEnabled();
+    await expect.poll(() => overview.locator('canvas').evaluate((el: HTMLCanvasElement) =>
+      el.getContext('2d')!.getImageData(0, 0, el.width, el.height).data.some((value) => value !== 0))).toBe(true);
+    const playhead = () => audio.evaluate((el: HTMLAudioElement) => el.currentTime);
+    const timeBefore = await playhead();
+    const selected = page.locator('.timing-caption-nav strong');
+    const before = await selected.textContent();
+    const undo = page.locator('.fine-timing').getByRole('button', { name: 'Undo', exact: true });
+    await expect(undo).toBeDisabled();
+    await pan.scrollIntoViewIfNeeded();
+    const box = (await pan.boundingBox())!;
+    const y = box.y + box.height / 2;
+    if (width === 390) {
+      await page.touchscreen.tap(box.x + box.width * .7, y);
+    } else {
+      await page.mouse.move(box.x + 2, y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * .7, y, { steps: 8 });
+      await page.mouse.up();
+    }
+    const jumped = Number(await pan.inputValue());
+    expect(jumped).toBeGreaterThan(110_000);
+    expect(jumped).toBeLessThan(140_000);
+    await overview.screenshot({ path: info.outputPath('timing-overview.png') });
+    await pan.press('ArrowRight');
+    expect(Number(await pan.inputValue())).toBeGreaterThan(jumped);
+    await pan.press('End');
+    await expect(pan).toHaveAttribute('aria-valuetext', /03:00\.000$/);
+    await pan.press('Home');
+    await expect(pan).toHaveValue('0');
+    expect(await playhead()).toBe(timeBefore);
+    expect(await selected.textContent()).toBe(before);
+    await expect(undo).toBeDisabled();
+    expect(state.requests.filter(({ path, method }) => path.endsWith('/captions') && method === 'PUT')).toHaveLength(0);
+    await page.getByRole('button', { name: 'Full clip', exact: true }).click();
+    await expect(pan).toBeDisabled();
+    await page.getByRole('button', { name: 'Focus caption', exact: true }).click();
+    await expect(pan).toBeEnabled();
+  });
+});
+
 test('timing nudges preserve wording and neighbours, with undo and redo after autosave', async ({ page }) => {
   state.projects[0].captions[0].approved = true;
   await openTiming(page);
