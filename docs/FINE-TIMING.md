@@ -12,8 +12,9 @@ orientation and close editing. Click the audio to move the playhead.
 On the development branch, zoom keeps the current playhead in view when it is
 inside the visible range. With the waveform focused, press Left or Right to seek
 by the selected timing step. Home and End seek to the beginning and end of the
-recording. Use the slider below the waveform to browse a different time range
-while keeping playback and caption edges in place.
+recording. The **View within clip** slider shows the whole recording. Drag the
+lime window or focus the slider and use the arrow keys to browse a different
+time range while keeping playback and caption edges in place.
 
 **Caption edges** edits when the entire caption appears and disappears.
 **Word timing** edits the words inside that caption. These are separate levels:
@@ -21,6 +22,10 @@ changing one word does not move the entire sentence, and trimming a sentence doe
 not stretch its internal word timings.
 
 ## Caption edges and neighboring captions
+
+In the development preview, dragging a caption bar’s **Start** or **End** handle
+shows the previewed edge time and signed change, for example
+`Start 00:12.330 (−120 ms)`. The readout clears when the edit commits or is cancelled.
 
 Drag the caption bar's left/right handle to change Start/End. Drag its middle or
 use **Move earlier / Move later** to shift the caption while preserving its

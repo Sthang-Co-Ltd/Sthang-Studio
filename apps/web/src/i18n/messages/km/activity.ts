@@ -10,6 +10,7 @@ export const activityMessages: KhmerMessages<EnglishMessages['activity']> = {
   cancelled: "បានបោះបង់",
   interrupted: "ផ្អាកកណ្ដាលទី",
   needsAttention: "ត្រូវការពិនិត្យមើល",
+  attentionFilter: "ត្រូវយកចិត្តទុកដាក់ ({count})",
   generate: "បង្កើតអក្សររត់",
   export: "នាំចេញវីដេអូមានអក្សររត់",
   refine: "កែលម្អអក្សររត់ដែលបង្កើតឡើងវិញ",

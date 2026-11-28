@@ -113,6 +113,38 @@ test('native overlap results identify both captions, preserve plain SRT, and bec
   expect(state.jobs).toHaveLength(0);
 });
 
+test('a phone layout check reveals the blocker and repair together and respects newer focus', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const response = deferred();
+  await page.route('**/api/video-export/*/check-layout', async (route) => {
+    await response.promise;
+    await route.fulfill({ json: blocked });
+  });
+  await openExport(page);
+  await checks(page).getByRole('button', { name: 'Check layout', exact: true }).click();
+  const resolution = page.getByLabel('Resolution', { exact: true });
+  try { await resolution.focus(); } finally { response.resolve(); }
+  const blocker = checks(page).locator('[data-severity="blocker"]').first();
+  await expect(blocker).toBeVisible();
+  await expect(resolution).toBeFocused();
+
+  await checks(page).getByRole('button', { name: 'Recheck layout', exact: true }).click();
+  const title = blocker.locator('.export-check-title strong');
+  await expect(title).toBeFocused();
+  const repair = blocker.getByRole('button').first();
+  for (const target of [title, repair]) {
+    expect(await target.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+  }
+  await page.keyboard.press('Tab');
+  await expect(repair).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Khmer font', { exact: true })).toBeVisible();
+});
+
 test('successful checks become stale after caption and resolution edits', async ({ page }) => {
   await page.route('**/api/video-export/*/check-layout', (route) => route.fulfill({ json: passed }));
   await openExport(page);

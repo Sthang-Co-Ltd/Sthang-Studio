@@ -215,9 +215,13 @@ export function Upload({ onUpload, onCheckAttempt, onOpenRecovered, busy, disabl
       onDrop={event=>{event.preventDefault();accept(Array.from(event.dataTransfer.files));}}>
       {!reviewingUpload && <FileUp className="upload-file-icon" size={34}/>}
       <strong>{busy ? t('home.upload.uploading') : reviewingUpload ? t('home.upload.finishReviewing') : drag ? t('home.upload.drop') : t('home.upload.choose')}</strong>
+      {busy && attempt?.file && <bdi className="upload-active-filename">{attempt.details.name}</bdi>}
       {!busy && !reviewingUpload && <span>{t(drag ? 'home.upload.formats' : 'home.upload.dragOrChoose')}</span>}
     </button>
     <p id={statusId} className={`upload-validation${disabledReason ? ' upload-availability' : ''}`} role="status" aria-live="polite" aria-atomic="true">{feedback}</p>
+    <span className="sr-only upload-transfer-status" role="status" aria-atomic="true">
+      {busy && attempt?.file && <>{t('home.upload.uploading')} <bdi>{attempt.details.name}</bdi></>}
+    </span>
     {storageError && <p className="upload-storage-feedback" role="status">{storageError}</p>}
     {attempt && recovery && <section id={recoveryId} className="upload-recovery" aria-labelledby={`${recoveryId}-title`}>
       <div role={recovery.state === 'not-created' ? 'alert' : 'status'} aria-live="polite" aria-atomic="true">

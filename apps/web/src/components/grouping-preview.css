@@ -1,0 +1,12 @@
+.grouping-preview { margin-block-start: 12px; border-block: 1px solid var(--border, #343940); }
+.grouping-preview-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 8px 0; background: transparent; border: 0; color: inherit; font: inherit; font-weight: 650; cursor: pointer; text-align: start; }
+.grouping-preview-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.grouping-preview-time, .grouping-preview-side small { font-variant-numeric: tabular-nums; color: #acb5bf; }
+.grouping-preview-time { margin: 0 0 10px; font-size: 12px; }
+.grouping-preview-side { margin: 0 0 12px; }
+.grouping-preview-side h4 { margin: 0 0 4px; font-size: 13px; }
+.grouping-preview-side ul { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; border: 1px solid #343940; border-radius: 6px; overflow: hidden; background: #343940; }
+.grouping-preview-side li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 10px; padding: 5px 9px; background: #111519; }
+.grouping-preview-side li span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.grouping-preview-side small { font-size: 11px; }
+.grouping-preview [role="status"] button { margin-inline-start: 8px; }

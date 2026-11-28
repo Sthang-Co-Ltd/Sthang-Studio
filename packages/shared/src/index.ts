@@ -13,6 +13,14 @@ export { summarizeProject, type CaptionProjectSummary } from './project-summary.
 export { captionWordBreakOffsets, planCaptionRenderStates, captionMotionContextIndices, type CaptionRenderState } from './caption-layout.js';
 
 export type CaptionMode = 'dynamic' | 'word' | 'phrase' | 'single-line';
+
+export interface GroupingPassage {
+  startMs: number;
+  endMs: number;
+  current: Pick<CaptionSegment, 'startMs' | 'endMs' | 'text'>[];
+  proposed: GroupingPassage['current'];
+  digest: string;
+}
 export type TimingSource = 'stt' | 'stt-split' | 'interpolated' | 'manual';
 export type TimingQuality = 'high' | 'medium' | 'low';
 export type TimingEngine = 'kfa-local' | 'faster-whisper-local' | 'google-cloud-stt-v2';

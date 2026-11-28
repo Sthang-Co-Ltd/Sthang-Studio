@@ -1,5 +1,7 @@
 export const appearanceMessages = {
   workspace: {
+    projectColors: "Project colors",
+    projectColorsFor: "Project colors for {label}",
     saveState: {
       saving: "Saving appearance…",
       pending: "Saving automatically…",
@@ -162,6 +164,13 @@ export const appearanceMessages = {
   },
   undo: "Undo",
   looks: {
+    fullCaption: "Style sample · Scroll to read the full caption",
+    compare: "Compare looks",
+    currentVersion: "Current",
+    candidate: "Candidate",
+    applyCandidate: "Apply candidate",
+    sample: "Style sample on a still frame",
+    frameUnavailable: "Video frame unavailable. Try again after the video loads.",
     current: "Current look <b>{look}</b>",
     description: {
       clean: "Balanced white type with a restrained outline and shadow.",
@@ -189,6 +198,9 @@ export const appearanceMessages = {
     slider: "{label} slider",
   },
   fontSearch: {
+    preview: "Font preview",
+    previewUnavailable: "Exact font preview unavailable",
+    sample: "សួស្តី ពី Sthang Studio",
     placeholder: "Find among {count} installed Khmer fonts…",
     addedRegularBold: "Added to Studio · Regular + Bold",
     addedRegular: "Added to Studio · Regular only",

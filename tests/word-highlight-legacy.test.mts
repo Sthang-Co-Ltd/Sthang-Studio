@@ -9,7 +9,8 @@ import {
   compileHighlightPlan, planCaptionRenderStates, resolveCaptionWordTiming, resolveWordExport, serializeCaptionFile,
   type CaptionProject, type CaptionSegment, type CaptionWord, type ExportEvidenceFormat, type TimedToken,
 } from '../packages/shared/src/index.js';
-import { buildExportCaptionIssues } from '../apps/web/src/export-checks.js';
+import { buildExportCaptionIssues, type ExportCheckIssue } from '../apps/web/src/export-checks.js';
+import { translate } from '../apps/web/src/i18n/translate.js';
 
 const golden = new URL('./fixtures/word-highlight-legacy.json', import.meta.url);
 const formats = ['srt', 'vtt', 'ttml', 'word-srt', 'word-vtt', 'data'] as const;
@@ -81,6 +82,23 @@ function capture<T>(read: () => T) {
   }
 }
 
+function legacyExportCheck({ titleMessage, reasonMessages, remedyMessage, ...legacy }: ExportCheckIssue) {
+  // The legacy fixture pins the original English output. Validate the newer
+  // localization descriptors against that same text before comparing bytes.
+  if (legacy.id.startsWith('words:')) {
+    assert.equal(titleMessage?.key, 'export.issue.wordTiming');
+    assert.equal(remedyMessage?.key, 'export.issue.wordTimingRemedy');
+    assert.equal(reasonMessages?.length, legacy.reasons.length);
+    assert.ok(reasonMessages?.at(-1));
+  }
+  if (titleMessage) assert.equal(translate('en', titleMessage.key, titleMessage.params), legacy.title);
+  if (remedyMessage) assert.equal(translate('en', remedyMessage.key, remedyMessage.params), legacy.remedy);
+  reasonMessages?.forEach((message, index) => {
+    if (message) assert.equal(translate('en', message.key, message.params), legacy.reasons[index]);
+  });
+  return legacy;
+}
+
 test('legacy render and export bytes match main at 8b70a47', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'studio-highlight-golden-'));
   process.env.STHANG_STUDIO_STATE_ROOT = root;
@@ -126,7 +144,8 @@ test('legacy render and export bytes match main at 8b70a47', async () => {
         files: Object.fromEntries(formats.map((format) => [format, capture(() => serializeCaptionFile({ captions, appearance }, format))])),
         data: capture(() => createCaptionData({ captions, appearance })),
         bundle,
-        exportChecks: Object.fromEntries(evidenceFormats.map((format) => [format, buildExportCaptionIssues({ captions, appearance, format, reviewIssues: [] })])),
+        exportChecks: Object.fromEntries(evidenceFormats.map((format) => [format,
+          buildExportCaptionIssues({ captions, appearance, format, reviewIssues: [] }).map(legacyExportCheck)])),
       });
     }
     const bytes = JSON.stringify(result) + '\n';

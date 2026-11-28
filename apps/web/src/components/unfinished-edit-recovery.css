@@ -18,3 +18,11 @@
 .toast-stack .save-failure{flex-wrap:wrap}
 .toast-stack .toast.save-failure>span{flex:0 0 100%}
 @media(max-width:620px){.unfinished-recovery-actions button,.unfinished-recovery summary,.toast-stack .save-failure>.toast-action{min-height:44px}.unfinished-recovery-actions{gap:8px}.unfinished-recovery-actions button{flex:1 1 auto}}
+.recovery-caption-pair { display: grid; gap: 8px; margin: 0; }
+.recovery-caption-pair > div { padding-inline-start: 9px; border-inline-start: 2px solid var(--line); }
+.recovery-caption-pair dt { font-weight: 650; }
+.recovery-caption-pair dd { margin: 0; }
+.recovery-lock { display: inline-flex; align-items: center; gap: 4px; margin-inline-end: 8px; }
+.recovery-caption-pair small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.recovery-caption-pair mark { background: #393d31; color: inherit; text-decoration: underline; }
+.recovery-caption-pair > div:last-child mark { background: #344124; color: #efffd4; }

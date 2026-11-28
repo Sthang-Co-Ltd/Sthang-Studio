@@ -25,7 +25,8 @@ function MediaChangeMessage({ check, error, errorIsServerText }: { check?: Sourc
 }
 
 interface ReplaceProps {
-  filename: string;
+  current: { originalName: string; size?: number };
+  replacement: { name: string; size?: number };
   captionCount: number;
   working: string;
   error: string;
@@ -37,8 +38,9 @@ interface ReplaceProps {
   onReplace(mode: MediaReplacementMode, audioChangeConfirmation?: string): void;
 }
 
-export function ReplaceMediaDialog({ filename, captionCount, working, error, errorIsServerText, sourceCheck, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
-  const { t, tn, tr } = useI18n();
+export function ReplaceMediaDialog({ current, replacement, captionCount, working, error, errorIsServerText, sourceCheck, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
+  const { locale, t, tn, tr } = useI18n();
+  const bytes = new Intl.NumberFormat(locale, { style: 'unit', unit: 'byte', unitDisplay: 'short' });
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const audioAcceptance = useRef<HTMLInputElement>(null);
@@ -77,7 +79,14 @@ export function ReplaceMediaDialog({ filename, captionCount, working, error, err
     <div ref={dialog} className="media-replacement-dialog" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="replace-media-title" aria-describedby="replace-media-description" aria-busy={Boolean(working)} onMouseDown={(event) => event.stopPropagation()}>
       <button className="media-replacement-close" aria-label={t('dialogs.media.cancelReplacement')} disabled={Boolean(working)} onClick={dismiss}><X size={18}/></button>
       <div className="media-replacement-title"><Replace size={20}/><h2 id="replace-media-title">{t('dialogs.media.replaceTitle')}</h2></div>
-      <p id="replace-media-description">{sourceCheck ? tr('dialogs.media.previousSource', { filename: sourceCheck.previousName }, { b: (name) => <strong className="media-replacement-filename">{name}</strong> }) : tr('dialogs.media.replaceDescription', { filename }, { b: (name) => <strong className="media-replacement-filename">{name}</strong> })}</p>
+      <p id="replace-media-description">{sourceCheck ? tr('dialogs.media.previousSource', { filename: sourceCheck.previousName }, { b: (name) => <strong className="media-replacement-filename">{name}</strong> }) : t('dialogs.media.replaceDescription')}</p>
+      {!sourceCheck && <dl className="replacement-files">
+        {([{ label: 'dialogs.media.currentFootage', name: current.originalName, size: current.size },
+          { label: 'dialogs.media.replacementFootage', name: replacement.name, size: replacement.size }] as const).map(file =>
+          <div key={file.label}><dt>{t(file.label)}</dt><dd><bdi>{file.name}</bdi>
+            <small>{typeof file.size === 'number' && Number.isSafeInteger(file.size) && file.size >= 0 ? bytes.format(file.size) : t('dialogs.media.sizeUnavailable')}</small>
+          </dd></div>)}
+      </dl>}
       {!sourceCheck && <><fieldset disabled={Boolean(working)} className="media-replacement-options">
         <legend className="sr-only">{t('dialogs.media.options')}</legend>
         <label className={`media-replacement-option ${mode === 'preserve' ? 'selected' : ''}`}>

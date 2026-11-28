@@ -1,11 +1,12 @@
 import { useI18n } from '../i18n';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AppProfile, CorrectionEvent } from '@kcs/shared';
 import { BookOpenCheck, CirclePlay, X, XCircle, FolderPlus, CheckCheck } from 'lucide-react';
 import { CopyReportButton } from './CopyReportButton';
 import { useModalFocus } from '../use-modal-focus';
 import { formatTimestamp } from '../timestamp';
 import { useSurfacePresence } from '../use-surface-presence';
+import { findPreviewDiff, type FindPreviewSpan } from '../find-preview-diff';
 import './correction-inbox.css';
 
 const formatTime = (ms: number) => {
@@ -40,6 +41,19 @@ interface CorrectionInboxProps {
   onOpenEvent(event: CorrectionEvent): void;
   onAction(event: CorrectionEvent, action: 'remember-global' | 'add-project' | 'ignore'): void | Promise<void>;
 }
+
+function markedText(spans: FindPreviewSpan[]) {
+  return spans.map((span, index) => span.changed ? <mark key={index}>{span.text}</mark> : span.text);
+}
+
+const CorrectionPair = memo(function CorrectionPair({ originalText, correctedText }: Pick<CorrectionEvent, 'originalText' | 'correctedText'>) {
+  const { t } = useI18n();
+  const diff = findPreviewDiff(originalText, correctedText);
+  return <div className="correction-pair">
+    <div><label>{t('inbox.before')}</label><p>{markedText(diff.before)}</p></div>
+    <div><label>{t('inbox.after')}</label><p>{markedText(diff.after)}</p></div>
+  </div>;
+});
 
 export function CorrectionInbox({ profile, open, busy, openingId, readError, blockedSave, onReturnToEdits, onFilterChange, getAudioFocusTarget, onClose, onOpenEvent, onAction }: CorrectionInboxProps) {
   const { t } = useI18n();
@@ -151,7 +165,7 @@ export function CorrectionInbox({ profile, open, busy, openingId, readError, blo
           ref={(element) => { if (element) cards.current.set(event.id, element); else cards.current.delete(event.id); }}
           tabIndex={-1} aria-label={t('inbox.correctionAt', { time: formatTimestamp(event.startMs), project: event.projectTitle })} aria-busy={working === event.id || openingId === event.id || undefined}>
           <div className="correction-meta"><span>{event.projectTitle}</span><span>{formatTimestamp(event.startMs)} – {formatTimestamp(event.endMs)}</span><b data-server-text={!Object.hasOwn(suggestionLabels, event.suggestionKind) || undefined}>{Object.hasOwn(suggestionLabels, event.suggestionKind) ? t(suggestionLabels[event.suggestionKind]) : event.suggestionKind.replace('-', ' ')}</b></div>
-          <div className="correction-pair"><div><label>{t('inbox.before')}</label><p>{event.originalText}</p></div><div><label>{t('inbox.after')}</label><p>{event.correctedText}</p></div></div>
+          <CorrectionPair originalText={event.originalText} correctedText={event.correctedText}/>
           {(event.contextBefore || event.contextAfter) && <p className="correction-context">… {event.contextBefore || ''} <mark>{event.correctedText}</mark> {event.contextAfter || ''} …</p>}
           <div className="correction-suggestion"><span>{t('inbox.suggestion')}</span><code>{event.suggestedVocabularyLine || event.correctedText}</code></div>
           {readError?.id === event.id && <p className="correction-read-error" role="alert" data-server-text={readError.serverText || undefined}>{readError.message}</p>}

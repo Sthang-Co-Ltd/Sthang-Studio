@@ -2,6 +2,8 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { createCaptionData, hydrateCaptionWordTimings, parseCaptionData, type CaptionSegment, type ProcessingJob } from '../../packages/shared/src/index.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
+import { en } from '../../apps/web/src/i18n/messages/en/index.js';
+import { km } from '../../apps/web/src/i18n/messages/km/index.js';
 
 const test = base.extend({
   context: async ({ context }, use) => { await use(context); await closeOwnedBrowserContext(context); },
@@ -63,27 +65,98 @@ function deferred() {
   const promise = new Promise<void>((resolve) => { release = resolve; });
   return { promise, release };
 }
-async function openImport(page: Page) {
+async function openImport(page: Page, backup = file()) {
+  const messages = state.profile.preferences.interfaceLanguage === 'km' ? km : en;
   await openProject(page);
   expect(await page.evaluate(() => {
     const nodes = [document.querySelector('video'), document.querySelector('.caption-list')];
     (window as any).__importQolNodes = nodes;
     return nodes.every(Boolean);
   })).toBe(true);
-  await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click();
-  await captionOutput(page).click();
+  await page.locator('[data-stage="export"]').click();
+  await page.locator('.export-mode-switch button').filter({ hasText: messages.export.workspace.captions }).click();
   await page.locator('.handoff-advanced > summary').click();
-  await page.locator('.handoff-restore input[type=file]').setInputFiles(file());
-  await expect(page.getByRole('heading', { name: 'Review caption import', exact: true })).toBeFocused();
+  await page.locator('.handoff-restore input[type=file]').setInputFiles(backup);
+  await expect(page.getByRole('heading', { name: messages.export.restore.title, exact: true })).toBeFocused();
 }
 async function expectNodes(page: Page) {
   expect(await page.evaluate(() => (window as any).__importQolNodes.every((node: Element, index: number) => node === document.querySelector(index ? '.caption-list' : 'video')))).toBe(true);
 }
 
+test.describe('backup section samples', () => {
+  test.use({ hasTouch: true });
+  for (const width of [1440, 320]) test(`two files with the same opening can be identified by their final cue at ${width}px`, async ({ page }, info) => {
+    state.profile.preferences.interfaceLanguage = width === 320 ? 'km' : 'en';
+    const copy = (width === 320 ? km : en).export.restore;
+    await page.setViewportSize({ width, height: 900 });
+    const before = structuredClone(current().captions);
+    const backup = (ending: string) => ({
+      ...file(),
+      buffer: Buffer.from(JSON.stringify(createCaptionData({
+        captions: Array.from({ length: 15 }, (_, i) => ({
+          id: `cue-${i}`, text: i === 14 ? ending : `សំឡេង ${i + 1}`, startMs: i * 200, endMs: i * 200 + 180,
+        })), durationMs: 4000,
+      }))),
+    });
+    await openImport(page, backup('ចប់ A'));
+    const group = page.getByRole('group', { name: copy.chooseSection });
+    const start = group.getByRole('radio', { name: copy.beginning });
+    const middle = group.getByRole('radio', { name: copy.middle });
+    const end = group.getByRole('radio', { name: copy.end });
+    const samples = page.getByRole('region', { name: copy.previewLabel });
+    const range = (first: number, last: number) => copy.range.replace('{first}', String(first)).replace('{last}', String(last)).replace('{total}', '15');
+    const mutations: string[] = [];
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() !== 'GET' && (path.startsWith('/api/projects/') || path.endsWith('/restore'))) mutations.push(path);
+    });
+    for (const ending of ['ចប់ A', 'ចប់ B']) {
+      await expect(start).toBeChecked();
+      await expect(samples.locator('p')).toHaveText(['សំឡេង 1', 'សំឡេង 2', 'សំឡេង 3', 'សំឡេង 4']);
+      await start.focus();
+      await start.press('ArrowRight');
+      await expect(middle).toBeChecked();
+      await expect(middle).toBeFocused();
+      await expect(preview(page).getByRole('status')).toHaveText(range(6, 9));
+      await expect(samples.locator('p').first()).toHaveText('សំឡេង 6');
+      if (width === 320) await end.tap();
+      else await middle.press('ArrowRight');
+      await expect(end).toBeChecked();
+      await expect(samples.locator('p').last()).toHaveText(ending);
+      expect(await samples.evaluate(el => {
+        const cue = el.lastElementChild!.getBoundingClientRect();
+        const viewport = el.getBoundingClientRect();
+        return cue.top >= viewport.top && cue.bottom <= viewport.bottom + 1;
+      })).toBe(true);
+      await expect(samples.locator('span').last()).toHaveText('00:02.800 – 00:02.980');
+      await expect(preview(page).getByRole('status')).toHaveText(range(12, 15));
+      expect(await preview(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      if (ending === 'ចប់ B') {
+        await samples.screenshot({ path: info.outputPath(`restore-final-cue-${width}.png`) });
+        await group.screenshot({ path: info.outputPath(`restore-sections-${width}.png`) });
+        await end.press('Tab');
+        await expect(samples).toBeFocused();
+        await samples.press('Home');
+        await expect.poll(() => samples.evaluate(el => el.scrollTop)).toBe(0);
+        await expect(end).toBeChecked();
+        break;
+      }
+      await page.getByRole('button', { name: copy.keepCurrent }).click();
+      const details = page.locator('.handoff-advanced');
+      if (!await details.evaluate(el => (el as HTMLDetailsElement).open)) await details.locator('summary').first().click();
+      await page.locator('.handoff-restore input[type=file]').setInputFiles(backup('ចប់ B'));
+    }
+    expect(mutations).toEqual([]);
+    expect(restoreCalls).toBe(0);
+    expect(current().captions).toEqual(before);
+  });
+});
+
 test('caption processing explains the blocked replacement, then cancellation clears only that prerequisite', async ({ page }, info) => {
   state.jobs = [job('transcribe')];
   const before = structuredClone(current().captions);
   await openImport(page);
+  await expect(preview(page).getByRole('radio')).toHaveCount(0);
   await expect(replace(page)).toBeDisabled();
   await expect(replace(page)).toHaveAccessibleDescription(blocked);
   const reason = preview(page).getByText(blocked, { exact: true });

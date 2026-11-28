@@ -383,6 +383,12 @@ export const exportMessages: KhmerMessages<EnglishMessages['export']> = {
     lastLoadedRecord: "កំណត់ត្រាដែលបានផ្ទុកចុងក្រោយ៖ {status}",
   },
   restore: {
+    chooseSection: "ជ្រើសរើសផ្នែកឯកសារបម្រុង",
+    beginning: "ដើម",
+    middle: "កណ្ដាល",
+    end: "ចុង",
+    range: "អក្សររត់ {first}–{last} ក្នុងចំណោម {total}",
+    singleRange: "អក្សររត់ {first} ក្នុងចំណោម {total}",
     title: "ពិនិត្យការនាំចូលអក្សររត់",
     mediaReminder: "ប្រើឯកសារនេះជាមួយវីដេអូដើម និងល្បឿនចាក់ដូចគ្នា។ ពេលវេលាអក្សររត់ចាប់ផ្ដើមពី 0 ហើយឯកសារនេះមិនផ្ទុក ឬសម្គាល់វីដេអូដើមទេ។",
     previewLabel: "ការមើលជាមុននៃការនាំចូលអក្សររត់",
@@ -394,6 +400,5 @@ export const exportMessages: KhmerMessages<EnglishMessages['export']> = {
     replaceSummary: {
       other: "ជំនួសអក្សររត់បច្ចុប្បន្ន {count} ឃ្លា ដោយ {incoming} ឃ្លាពីឯកសារនេះ។ វីដេអូ សំឡេង និងរូបរាងរបស់អ្នកនៅដដែល។",
     },
-    moreCaptions: "មានអក្សររត់ {count} ឃ្លាទៀតមិនបានបង្ហាញ។",
   },
 };

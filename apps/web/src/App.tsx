@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   AppProfile,
   CaptionAppearance,
@@ -57,6 +57,7 @@ import {
 } from 'lucide-react';
 import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
 import { Upload, type UploadRecoveryResult, type UploadResult } from './components/Upload';
+import { captureRecentStill, type RecentStill } from './recent-media-still';
 import { captureUploadRecoveryForProject, clearUploadRecoveryForProject } from './upload-recovery';
 import { EditorLayout, type EditorLayoutHandle } from './components/EditorLayout';
 import { editorPopoverAvailable, editorReorderSupported, type EditorLayoutMode } from './editor-layout-state';
@@ -87,6 +88,7 @@ import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCa
 import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { ReplaceMediaDialog, RestoreMediaDialog } from './components/ReplaceMediaDialog';
+import { GroupingPreview } from './components/GroupingPreview';
 import { analyzeCaptions, QA_PROFILES, resolveQaProfile } from './review';
 import { formatTimestamp } from './timestamp';
 import { captionTextForEditing } from './caption-text';
@@ -283,11 +285,20 @@ export default function App() {
   const projectNavigationFocus = useProjectNavigationFocus();
   const [projects, setProjectItems] = useState<CaptionProjectSummary[]>([]);
   const projectItems = useRef<CaptionProjectSummary[]>([]);
+  const [trialStills] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).get('recentThumbnails') === '1'
+    ? new Map<string, RecentStill>() : null);
+  const [stillsConfirmed, setStillsConfirmed] = useState(false);
   const setProjects = useCallback((update: CaptionProjectSummary[] | ((current: CaptionProjectSummary[]) => CaptionProjectSummary[])) => {
     const next = typeof update === 'function' ? update(projectItems.current) : update;
+    if (trialStills) {
+      const recent = next.slice(0, 6);
+      for (const [id, still] of trialStills) {
+        if (!recent.some(item => item.id === id && item.updatedAt === still.updatedAt)) trialStills.delete(id);
+      }
+    }
     projectItems.current = next;
     setProjectItems(next);
-  }, []);
+  }, [trialStills]);
   const [projectListState, setProjectListState] = useState({ refreshing: false, error: '' });
   const projectListRequest = useRef<AbortController | null>(null);
   const projectsBinnedDuringRead = useRef(new Set<string>());
@@ -424,6 +435,9 @@ export default function App() {
   const [effectReplayPlaying, setEffectReplayPlaying] = useState(false);
   const [captionFontRevision, setCaptionFontRevision] = useState(0);
   const [maxChars, setMaxChars] = useState(18);
+  const [outdatedGrouping, setOutdatedGrouping] = useState<string | null>(null);
+  const groupingRevision = JSON.stringify([projectMediaKey(project), project?.updatedAt]);
+  const groupingOutdated = outdatedGrouping === groupingRevision;
   const [groupingMode, setGroupingMode] = useState<CaptionMode>('dynamic');
   const [groupingApplying, setGroupingApplying] = useState(false);
   const groupingInFlight = useRef(false);
@@ -640,6 +654,7 @@ export default function App() {
   const [openingCorrection, setOpeningCorrection] = useState<string | null>(null);
   const [correctionReadError, setCorrectionReadError] = useState<{ id: string; message: string; serverText: boolean } | null>(null);
   const [reviewUndo, setReviewUndo] = useState<ReviewUndoState | null>(null);
+  const reviewUndoAction = useRef<HTMLButtonElement>(null);
   const { confirm: confirmInStudio, confirmationDialog } = useStudioConfirm();
 
   const media = useRef<HTMLMediaElement | null>(null);
@@ -700,10 +715,17 @@ export default function App() {
     const basis = captureProjectCollectionBasis(projectItems.current);
     const owns = () => !request.signal.aborted && projectListRequest.current === request && options.isCurrent?.() !== false;
     setProjectListState((current) => ({ ...current, refreshing: true }));
+    if (trialStills) setStillsConfirmed(false);
     try {
       const items = await api.listSummaries(request.signal);
       if (!owns()) return;
       const next = reconcileProjectCollection(projectItems.current, items, basis).filter((item) => !binnedDuringRead.has(item.id));
+      if (trialStills) {
+        for (const [id, still] of trialStills) {
+          if (!items.some(item => item.id === id && item.updatedAt === still.updatedAt)) trialStills.delete(id);
+        }
+        setStillsConfirmed(true);
+      }
       const origin = libraryReturnId.current;
       const active = document.activeElement;
       if (origin && active === libraryReturnTarget(origin)) {
@@ -1095,6 +1117,19 @@ export default function App() {
     const intent = requestNavigation();
     if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
     const focusRequest = projectNavigationFocus.capture(initiatingControl);
+    if (trialStills) {
+      // A read started on an earlier Home visit cannot confirm this return.
+      projectListRequest.current?.abort();
+      projectListRequest.current = null;
+      setStillsConfirmed(false);
+    }
+    const saved = savedProject.current;
+    if (trialStills && saved && projectMediaKey(saved) === mediaKey
+      && projectItems.current.slice(0, 6).some(item => item.id === saved.id && item.updatedAt === saved.updatedAt)) {
+      const still = captureRecentStill(media.current, saved.updatedAt);
+      if (still) trialStills.set(saved.id, still);
+      else trialStills.delete(saved.id);
+    }
     const origin = showAllProjects ? libraryOrigin.current : null;
     libraryReturnId.current = focusRequest ? origin : null;
     if (origin) {
@@ -2517,7 +2552,10 @@ export default function App() {
         }
         return;
       }
-      if (typing || !project || target?.matches('[data-media-preview-focus]') || target?.closest('button, select, summary, .review-reasons, [role="button"], [role="slider"], [role="combobox"]')) return;
+      const control = target?.closest('button, select, summary, .review-reasons, [role="button"], [role="slider"], [role="combobox"]');
+      const ownReviewShortcut = reviewMode && !proposal && control?.matches('.review-active .review-actions button[aria-keyshortcuts]:enabled')
+        && control.getAttribute('aria-keyshortcuts') === event.key.toUpperCase();
+      if (typing || !project || target?.matches('[data-media-preview-focus]') || (control && !ownReviewShortcut)) return;
       if (event.altKey) {
         event.preventDefault(); shiftSelection(event.key === 'ArrowLeft' ? -50 : 50);
       } else if (event.key === ' ') {
@@ -3404,8 +3442,9 @@ export default function App() {
       setGroupingPresetSaving(false);
     }
   };
-  const applyGrouping = async (mode = groupingMode, limit = maxChars) => {
+  const applyGrouping = async (mode = groupingMode, limit = maxChars, preview?: { atMs: number; digest: string }) => {
     if (!project || busy || groupingInFlight.current || currentProjectActiveJob) return;
+    if (groupingOutdated) { setError(t('grouping.reopen')); return; }
     groupingInFlight.current = true;
     const targetProject = project;
     const intent = captureOperationIntent();
@@ -3437,6 +3476,7 @@ export default function App() {
           mode,
           limit,
           { filename: targetProject.media.filename, size: targetProject.media.size },
+          preview,
         );
         if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result) !== ticket.key) return;
         rememberSavedCaptions(result);
@@ -3451,20 +3491,25 @@ export default function App() {
       saveQueue.current = task.then(() => undefined, () => undefined);
       await task;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.grouping.applyFailed'), reason instanceof ApiRequestError);
+      if (projectScope.current.isCurrent(ticket)) {
+        if (reason instanceof ApiRequestError && reason.code === 'GROUPING_PREVIEW_STALE') {
+          setOutdatedGrouping(groupingRevision);
+          setError(t('grouping.stalePreview'));
+        } else setError(reason instanceof Error ? reason.message : t('notices.grouping.applyFailed'), reason instanceof ApiRequestError);
+      }
     } finally {
       groupingInFlight.current = false;
       setGroupingApplying(false);
       if (projectScope.current.isCurrent(ticket)) setBusy('');
     }
   };
-  const applyStyle = () => {
+  const applyStyle = (previewOnly: boolean) => {
     if (!project || !profile || busy || currentProjectActiveJob || groupingInFlight.current) return;
     const style = profile.styles.find((item) => item.id === 'my-tiktok-style') || profile.styles[0];
     if (!style) return;
     setMaxChars(style.maxChars);
     setGroupingMode(style.mode);
-    void applyGrouping(style.mode, style.maxChars);
+    if (!previewOnly) void applyGrouping(style.mode, style.maxChars);
   };
 
   const regenerateSelection = async () => {
@@ -4197,6 +4242,45 @@ export default function App() {
   const showGeneration = !proposal && !hasHybrid && !workspaceTool && !exportRepair;
   const stage: Stage = workspaceTool === 'review' || workspaceTool === 'appearance' || workspaceTool === 'export'
     ? workspaceTool : 'captions';
+  const reviewCaptionNumber = useMemo(() => stage === 'review'
+    ? draft.findIndex(({ id }) => id === selection.ids[0]) + 1 : 0, [stage, draft, selection.ids]);
+  const usesReviewFooter = stage === 'review' && riskyIds.length > 0;
+  useLayoutEffect(() => {
+    if (!reviewUndo || !usesReviewFooter || !window.matchMedia('(max-width: 1199px)').matches) return;
+    const button = reviewUndoAction.current;
+    const stack = button?.closest<HTMLElement>('.toast-stack');
+    if (!button || !stack) return;
+    // A new Undo must be reachable while its short timer runs. Scroll only
+    // its notice stack, never the editor or keyboard focus.
+    const reveal = () => {
+      if (!button.isConnected || stack.clientHeight === 0
+        || getComputedStyle(stack).overflowY !== 'auto') return;
+      const top = stack.getBoundingClientRect().top + stack.clientTop;
+      const bottom = top + stack.clientHeight;
+      const box = button.getBoundingClientRect();
+      if (!box.height) return;
+      if (box.bottom > bottom) stack.scrollTop += Math.ceil(box.bottom - bottom);
+      else if (box.top < top) stack.scrollTop -= Math.ceil(top - box.top);
+    };
+    const interaction = new AbortController();
+    const resize = new ResizeObserver(reveal);
+    let timeout: number;
+    const stop = () => {
+      resize.disconnect();
+      interaction.abort();
+      window.clearTimeout(timeout);
+    };
+    reveal();
+    resize.observe(stack);
+    for (const slot of stack.children) resize.observe(slot);
+    // Account for the notice entry/exit animation, then return scroll
+    // ownership entirely to the user (or immediately on interaction).
+    for (const name of ['pointerdown', 'wheel', 'keydown', 'focusin']) {
+      stack.addEventListener(name, stop, { signal: interaction.signal });
+    }
+    timeout = window.setTimeout(stop, 250);
+    return stop;
+  }, [reviewUndo, usesReviewFooter]);
   const previousFirstWatchTool = useRef(workspaceTool);
   useEffect(() => {
     const toolChanged = previousFirstWatchTool.current !== workspaceTool;
@@ -4546,7 +4630,7 @@ export default function App() {
     run: () => void checkSavedMediaSource(unconfirmedSource),
   } : undefined;
   const overlays = <>
-    {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError} errorIsServerText={mediaMutationErrorIsServerText}
+    {pendingMediaReplacement && project && <ReplaceMediaDialog key={pendingMediaReplacement.id} current={project.media} replacement={pendingMediaReplacement.file} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError} errorIsServerText={mediaMutationErrorIsServerText}
       sourceCheck={sourceCheck} preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
       onModeChange={() => { setPendingMediaReplacement((current) => current ? { ...current, audioConfirmation: undefined } : current); setMediaMutationError(''); }}
       onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); setPendingMediaReplacement(null); } }} onReplace={(mode, confirmation) => void submitMediaReplacement(mode, confirmation)}/>}
@@ -4622,6 +4706,7 @@ export default function App() {
       entries={recoveryEntries.map((entry) => ({ key: entry.key, savedAt: entry.draft.savedAt,
         label: [entry.draft.captions && t('editor.header.captions'), entry.draft.accuracy && t('workspace.accuracy'), entry.draft.appearance && t('editor.header.appearance')].filter(Boolean).join(' + ') }))}
       selectedKey={selectedRecovery.key}
+      savedCaptions={(savedProject.current || project).captions}
       onSelect={(key) => { cancelUnfinishedRecovery(); setRecoveryConflict(null); setSelectedRecoveryKey(key); }}
       captions={selectedRecovery.draft.captions} accuracy={selectedRecovery.draft.accuracy} appearance={selectedRecovery.draft.appearance}
       status={recoveryConflict?.key === selectedRecovery.key && recoveryConflict.raw === selectedRecovery.raw ? recoveryConflict.status : assessRecovery(selectedRecovery, savedProject.current || project)}
@@ -4633,7 +4718,7 @@ export default function App() {
       onDiscard={() => void discardUnfinishedDraft(selectedRecovery)}/>}
     {mediaUndoNotice?.key === mediaKey && <div className="toast notice replacement-edit-recovery" role="status"><span>{t('notices.media.savedForRecovery')}</span><button className="toast-action" disabled={Boolean(busy || mediaMutationStatus)} onClick={openMediaBackups}>{t('notices.media.undoReplacement')}</button><button aria-label={t('notices.media.dismissRecovery')} onClick={() => setMediaUndoNotice(null)}><X size={14}/></button></div>}
     {replacementEditRecoveries.map((recovery) => <div key={recovery.id} className="toast notice replacement-edit-recovery" role="status"><span>{tr('notices.media.editsBelongToPrevious', { filename: recovery.sourceMedia.originalName }, {})}</span><button className="toast-action" onClick={() => void copyReplacementEdits(recovery)}>{t('notices.media.copyRecovery')}</button><button aria-label={t('notices.media.dismissFileRecovery', { filename: recovery.sourceMedia.originalName })} onClick={() => setReplacementEditRecoveries((current) => current.filter((item) => item.id !== recovery.id))}><X size={14}/></button></div>)}
-    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button className="toast-action" onClick={undoReviewApproval}>{t('review.undo.action')}</button><button aria-label={t('review.undo.dismiss')} onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
+    {reviewUndo && <div className="toast notice review-undo-toast" data-toast-timer="review-undo"><span>{reviewUndo.message}</span><button ref={reviewUndoAction} className="toast-action" onClick={undoReviewApproval}>{t('review.undo.action')}</button><button aria-label={t('review.undo.dismiss')} onClick={() => setReviewUndo(null)}><X size={14}/></button></div>}
     {notice && <div className="toast notice" role="status" data-toast-timer="notice"><span data-server-text={noticeServerText || undefined}>{notice}</span><button aria-label={t('common.toast.dismissNotice')} onClick={() => setNotice('')}><X size={14}/></button></div>}
   </ToastStack>;
 
@@ -4645,7 +4730,7 @@ export default function App() {
     Activity: 'home.launcher.activityService',
   };
   const visibleStartupErrors = showAllProjects ? startupErrors.filter((label) => label !== 'Projects') : startupErrors;
-  if (!project) return <LocaleProvider locale={interfaceLanguage}><main className={showAllProjects ? 'project-library-page' : undefined}
+  if (!project) return <LocaleProvider locale={interfaceLanguage}><main className={showAllProjects ? 'project-library-page' : projects.length ? 'returning-home' : undefined}
     onPointerDownCapture={releaseLibraryReturn} onKeyDownCapture={releaseLibraryReturn} onWheelCapture={releaseLibraryReturn}>
     <div className="home-tools">
       {!showAllProjects && <button ref={homeProjectsButton} disabled={!!busy} onClick={() => changeProjectListView(true)}><FolderOpen size={16}/>{t('home.launcher.allProjects')}</button>}
@@ -4656,7 +4741,7 @@ export default function App() {
       <button className={llmSettings?.configured === false ? 'setup-needed' : ''} data-tooltip={t('home.launcher.settingsTip')} onClick={() => openSettings('ai')}><Settings2 size={16}/>{t('home.launcher.settings')}{llmSettings && <span className={`connection-dot ${llmSettings.configured ? 'ready' : 'missing'}`}/>}</button>
       {!showAllProjects && <InterfaceLanguageSwitch saving={languageSaving} ready={Boolean(profile)} onChange={setInterfaceLanguage}/>}
     </div>
-    <div hidden={showAllProjects} inert={showAllProjects || undefined}>
+    <div className={projects.length && !showAllProjects ? 'returning-launcher' : undefined} hidden={showAllProjects} inert={showAllProjects || undefined}>
       <Upload onUpload={upload} onCheckAttempt={checkUploadAttempt} onOpenRecovered={openRecentProject} busy={busy === 'notices.busy.uploading'} disabled={!!busy || !profile}
         disabledReason={!profile ? startupErrors.includes('Preferences') ? t('home.launcher.preferencesFailed') : t('home.launcher.loadingPreferencesForUpload')
           : busy && busy !== 'notices.busy.uploading' ? t('home.launcher.uploadBusy') : ''}
@@ -4664,11 +4749,33 @@ export default function App() {
           {profile && savedLanguage === undefined && !showAllProjects && <InterfaceLanguagePrompt saving={languageSaving} onChange={setInterfaceLanguage}/>}
           {showFirstRun ? <HomeSetupChecklist llmSettings={llmSettings} timingConfigured={health?.timing.configured} onSaveLlm={saveLlmSettings} onTestLlm={api.testLlmConnection} onCheckTiming={() => refreshSystemHealth()} onOpenDoctor={() => { openSettings('doctor'); window.setTimeout(() => void runDoctor(), 0); }} onDismiss={() => { setShowFirstRun(false); try { localStorage.setItem(FIRST_RUN_DISMISSED_KEY, '1'); } catch { /* optional */ } }}/> : llmSettings?.configured === false ? <button className="home-ai-setup" onClick={() => openSettings('ai')}><KeyRound size={16} aria-hidden="true"/>{t('home.launcher.setupAi')}</button> : undefined}
         </>}/>
+      {!showAllProjects && projects.length > 0 && <section className="recent" aria-labelledby="recent-projects-heading">
+        <h2 id="recent-projects-heading">{t('home.launcher.recentProjects')}</h2>
+        <ul className="recent-project-list" role="list" data-stills={trialStills ? true : undefined}>
+          {projects.slice(0, 6).map((item) => <li key={item.id}>
+            <button data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id}
+              aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}>
+              {trialStills && <i className="recent-still" aria-hidden="true">
+                {stillsConfirmed && trialStills.get(item.id)?.image ? <img alt="" src={trialStills.get(item.id)?.image}/>
+                  : stillsConfirmed && trialStills.get(item.id)?.audio ? <AudioLines size={19}/> : <FolderOpen size={18}/>}
+              </i>}
+              <span>{item.title}</span>
+              <small className="recent-project-meta">
+                {openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}
+                {Number.isFinite(Date.parse(item.updatedAt)) ? <time dateTime={item.updatedAt}>
+                  {t('home.launcher.editedAt', { editedDateTime: formatInterfaceDate(interfaceLanguage, item.updatedAt, { time: true, seconds: true }) })}
+                </time> : <span className="recent-date-unavailable">{t('library.dateUnavailable', { label: t('library.editedDate') })}</span>}
+              </small>
+              <ChevronRight size={16} aria-hidden="true"/>
+            </button>
+          </li>)}
+        </ul>
+      </section>}
     </div>
     {health && !timingConfigured && !showAllProjects && !showFirstRun && <div className="setup-warning"><TriangleAlert size={16}/><span>{t('home.launcher.timingWarning')}</span><button onClick={() => { openSettings('doctor'); void runDoctor(); }}>{t('home.launcher.systemCheck')}</button></div>}
     {visibleStartupErrors.length > 0 && <div className="setup-warning" role="status"><span>{t('home.launcher.startupFailed', { services: visibleStartupErrors.map((label) => translate(interfaceLanguage, startupServiceMessages[label] ?? 'home.launcher.startupService', { service: label })).join(', ') })}</span><button onClick={() => setStartupAttempt((value) => value + 1)}>{t('home.launcher.retryStartup')}</button></div>}
     {showAllProjects && !profile && !startupErrors.includes('Preferences') && <div className="setup-warning" role="status">{t('home.launcher.loadingPreferences')}</div>}
-    {showAllProjects ? <ProjectLibrary
+    {showAllProjects && <ProjectLibrary
       focusHeadingOnMount={!libraryOrigin.current} projects={projects} view={projectLibraryView} onViewChange={setProjectLibraryView}
       loading={!startupLoaded.current.has('Projects') && !startupErrors.includes('Projects')}
       loadFailed={startupErrors.includes('Projects')} disabled={!!busy || !profile}
@@ -4678,7 +4785,7 @@ export default function App() {
       storageUnavailable={!savedStorage.status || savedStorage.checking || Boolean(savedStorage.error) || storageNeedsAttention(savedStorage.status)}
       onReviewStorage={() => openSettings('doctor')}
       bin={projectBin} showBin={showProjectBin} onShowBin={setShowProjectBin} onRename={renameProject} confirm={confirmInStudio}
-    /> : projects.length > 0 && <section className="recent" aria-label={t('home.launcher.recentProjects')}><div><strong>{t('home.launcher.recentProjects')}</strong></div><div>{projects.slice(0, 6).map((item) => <button key={item.id} data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id} aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}><span>{item.title}</span><small>{openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}</small></button>)}</div></section>}
+    />}
     {!showAllProjects && startupLoaded.current.has('Projects') && projectListState.error && <div className="setup-warning" role="status"><span>{t('home.launcher.showingLastProjects', { error: projectListState.error })}</span><button aria-disabled={projectListState.refreshing || undefined} aria-busy={projectListState.refreshing || undefined} onClick={() => void refreshProjects()}>{t('home.launcher.refreshProjects')}</button></div>}
     {statusToasts}
     {activity}
@@ -4686,7 +4793,7 @@ export default function App() {
     {overlays}
   </main></LocaleProvider>;
 
-  return <LocaleProvider locale={interfaceLanguage}><main className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
+  return <LocaleProvider locale={interfaceLanguage}><main data-review-active={stage === 'review' || undefined} className={`workspace refined-workspace ${proposal ? 'has-caption-proposal' : ''} ${toastLayout.hasContent ? 'has-toasts' : ''} ${toastLayout.hasPersistentRecovery ? 'has-persistent-recovery' : ''} ${toastLayout.hasSaveFailure ? 'has-save-failure' : ''}`} onCompositionStartCapture={() => { compositionInProgress.current = true; setTextComposing(true); }} onCompositionEndCapture={() => { compositionInProgress.current = false; setTextComposing(false); }}>
     <header>
       <button className="back" aria-label={t('editor.header.back')} data-tooltip={t('editor.header.back')} disabled={Boolean(wordBatchMutation.current || mediaMutationStatus)} onClick={goHome}><ChevronLeft size={18}/></button>
       <div className="workspace-identity"><StudioBrand variant="compact" moduleLabel={t('editor.header.captions')} moduleDescriptor=""/><span className="workspace-divider"/><ProjectIdentity key={project.id} title={project.title} filename={project.media.originalName} status={project.transcriptNeedsSync ? t('editor.header.regroupingNeedsRefresh', { status: projectSaveStatus }) : projectSaveStatus}
@@ -4697,7 +4804,7 @@ export default function App() {
           <button type="button" data-stage="captions" aria-pressed={stage === 'captions'} disabled={Boolean(proposal)} onClick={() => selectStage('captions')}><Captions size={16}/><span>{t('editor.header.captions')}</span></button>
           <button type="button" data-stage="review" data-tooltip={t('editor.header.reviewTip')} aria-pressed={stage === 'review'} disabled={!draft.length && !reviewMode} onClick={() => selectStage('review')}><ListChecks size={16}/><span>{t('editor.header.review')}</span>{riskyIds.length > 0 && <b className="tool-badge">{riskyIds.length}</b>}</button>
           {isVideo && <button type="button" data-stage="appearance" aria-pressed={stage === 'appearance'} disabled={!draft.length || Boolean(proposal)} onClick={() => selectStage('appearance')}><Palette size={16}/><span>{t('editor.header.appearance')}</span></button>}
-          <button type="button" className="primary" data-stage="export" data-workspace-trigger="export" data-tooltip={t('editor.header.exportTip')} aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>{t('editor.header.export')}</span></button>
+          <button type="button" className={stage === 'review' ? undefined : 'primary'} data-stage="export" data-workspace-trigger="export" data-tooltip={t('editor.header.exportTip')} aria-pressed={stage === 'export'} disabled={!draft.length || !!busy} onClick={() => selectStage('export')}><FileOutput size={16}/><span>{t('editor.header.export')}</span></button>
         </nav>
         <WorkspaceToolsMenu
           activeJobs={activeJobs.length}
@@ -4855,6 +4962,7 @@ export default function App() {
             onCancelReplayEffect={stopEffectReplay}
             replayPlaying={effectReplayPlaying}
             onFontLibraryChange={changeCaptionFontLibrary}
+            mediaElement={mediaElement}
             sampleCaptionText={(selection.captions[0] || active || draft[0])?.text}
             onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
@@ -4938,10 +5046,6 @@ export default function App() {
             {riskyIds.length > 0 && <>
             <div className="review-card-head">
               <div className="review-score"><ListChecks size={22}/><strong>{tn('review.card.remaining', riskyIds.length)}</strong></div>
-              <div className="review-selection">
-                <b>{selection.captions.length ? t('review.card.selection', { number: draft.findIndex(({ id }) => id === selection.ids[0]) + 1, range: rangeLabel(selection.startMs, selection.endMs) }) : t('review.card.noSelection')}</b>
-                {selection.captions.length > 1 && <span>{t('review.card.moreSelected', { count: selection.captions.length - 1 })}</span>}
-              </div>
             </div>
             <div className="review-caption" role="group" aria-label={t('review.card.captionText')}>
               <p className={`review-caption-text${selection.captions[0]?.text ? '' : ' review-caption-empty'}`}>
@@ -4951,17 +5055,21 @@ export default function App() {
                 <PencilLine size={15} aria-hidden="true"/>
                 {t('review.card.editText')}
               </button>
+              <div className="review-selection">
+                <b>{selection.captions.length ? t('review.card.selection', { number: reviewCaptionNumber, range: rangeLabel(selection.startMs, selection.endMs) }) : t('review.card.noSelection')}</b>
+                {selection.captions.length > 1 && <span>{t('review.card.moreSelected', { count: selection.captions.length - 1 })}</span>}
+              </div>
             </div>
             {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label={t('review.card.reasons')}>{selectedReviewReasons.map(({ code, params }, index) => <li key={`${code}:${index}`}><strong>{t(`review.reason.${code}.label`, params)}</strong> <span>{t(`review.reason.${code}.hint`, params)}</span></li>)}</ul>}
             <div className="review-actions review-nav-actions">
               <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>{t('review.card.previous')}</button>
-              <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>{t('review.card.replay')}</button>
-              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>{t('review.card.skip')}</button>
+              <button onClick={replaySelection} disabled={!selection.captions.length} aria-keyshortcuts="R"><Play size={15}/>{t('review.card.replay')}<kbd className="review-keycap" aria-hidden="true">R</kbd></button>
+              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1} aria-keyshortcuts="S"><ChevronDown size={15}/>{t('review.card.skip')}<kbd className="review-keycap" aria-hidden="true">S</kbd></button>
               <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>{t('review.card.autoPlayNext')}</label>
             </div>
             <div className="review-actions review-decision-actions">
               {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>{t('review.card.improve')}</button>}
-              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>{t('review.card.approveNext')}</button>
+              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length} aria-keyshortcuts="A"><CheckCheck size={15}/>{t('review.card.approveNext')}<kbd className="review-keycap" aria-hidden="true">A</kbd></button>
             </div>
             <details className="advanced-review-tools">
               <summary>{t('review.card.moreOptions')}</summary>
@@ -5040,22 +5148,31 @@ export default function App() {
                 aria-pressed={groupingMode === mode.id} disabled={!!busy || groupingApplying} onClick={() => setGroupingMode(mode.id)}>
                 <strong>{t(mode.labelKey)}</strong><span>{t(mode.descKey)}</span></button>)}</div>
               <label className="slider"><span>{messagesFor(interfaceLanguage).tr('grouping.targetMaxCharacters', { count: maxChars }, {})}</span>
-                <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
-                  aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
+                <input type="range" min="6" max={Math.max(44, maxChars, ...(profile?.styles.map(style => Math.ceil(style.maxChars)) ?? []))}
+                  step={Number.isInteger(maxChars) ? 1 : 'any'} value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
+                  aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Math.round(Number(event.target.value)))}/></label>
               <p id="grouping-limit-help">{groupingMode === 'word' ? t('grouping.wordLimitHelp') : t('grouping.limitHelp')}</p>
-              <div className="preset-actions">
+              <GroupingPreview key={projectMediaKey(project)} project={project} mode={groupingMode} limit={maxChars} dirty={dirty}
+                revision={groupingRevision} outdated={groupingOutdated} onStale={setOutdatedGrouping} time={time}>
+              {(open, blocked, preview) => <div className="preset-actions">
                 <span>{t('grouping.currentGrouping', { mode: currentMode ? t(currentMode.labelKey) : project.mode })}</span>
-                <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
+                <button className="primary" disabled={blocked || !!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping(groupingMode, maxChars, preview)}>
                   {groupingApplying ? t('grouping.applying') : t('grouping.apply')}</button>
                 <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>{t('grouping.cleanSpacing')}</button>
                 <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? t('grouping.savingPreset') : t('grouping.savePreset')}</button>
-                {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying || !!currentProjectActiveJob}>{t('grouping.applyPreset')}</button> : null}
-              </div>
+                {profile?.styles.length ? <button onClick={() => applyStyle(open)} disabled={!!busy || groupingApplying || !!currentProjectActiveJob || groupingOutdated}>{t(open ? 'grouping.previewPreset' : 'grouping.applyPreset')}</button> : null}
+              </div>}
+              </GroupingPreview>
             </div>;
           })()}
         </>}
     </EditorLayout>
 
+    {usesReviewFooter && <div className="review-position-footer">
+      <Captions size={16} aria-hidden="true"/>
+      <span>{selection.captions.length ? t('timing.waveform.captionNumber', { number: reviewCaptionNumber, total: draft.length }) : tn('review.card.remaining', riskyIds.length)}</span>
+      {selection.captions.length > 0 && <span className="review-footer-time">{rangeLabel(selection.startMs, selection.endMs)}</span>}
+    </div>}
     {statusToasts}
     {activity}
     {corrections}

@@ -40,6 +40,7 @@ export const home: KhmerMessages<EnglishMessages['home']> = {
     fileMatches: "ព័ត៌មានឯកសារត្រូវគ្នាហើយ។ ជ្រើសរើស «ព្យាយាមផ្ទុកឡើងម្ដងទៀត» ដើម្បីបន្ត។",
   },
   launcher: {
+    editedAt: "កែសម្រួល {editedDateTime}",
     projectCaptions: "អក្សររត់ {count} ឃ្លា",
     startupFailed: "មិនអាចផ្ទុកបានទេ៖ {services}។ ឧបករណ៍ផ្សេងទៀតនៅតែអាចប្រើបាន។",
     startupService: "{service}",

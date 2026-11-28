@@ -229,7 +229,10 @@ export function EditorLayout({ preview, toolbar, captions, children, tool, title
         {captions}
         {divider(1)}
         <aside className="workspace-inspector" hidden={!open} aria-label={t('workspace.label', { title })}>
-          <div className="inspector-heading" tabIndex={-1} role="group" aria-label={t('workspace.label', { title })}><PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" data-workspace-close onClick={() => {
+          <div className="inspector-heading" tabIndex={-1} role="group" aria-label={t('workspace.label', { title })}>
+            {open && (tool === 'review' || tool === 'appearance' || tool === 'export') &&
+              <span key={tool} className="inspector-stage-rule" aria-hidden="true"/>}
+            <PanelHeaderGrip pane="inspector">{title}</PanelHeaderGrip>{onClose && <button type="button" data-workspace-close onClick={() => {
             const returnTo = grid.current?.parentElement?.querySelector<HTMLButtonElement>('.workspace-tool-strip button[aria-pressed="true"]')
               || grid.current?.closest('main')?.querySelector<HTMLButtonElement>('.stage-rail button[aria-pressed="true"]') || null;
             onClose();

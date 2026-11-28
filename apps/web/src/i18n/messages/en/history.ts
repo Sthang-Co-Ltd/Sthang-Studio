@@ -1,7 +1,9 @@
 export const historyMessages = {
   savedVersions: { one: '{count} saved version', other: '{count} saved versions' },
   lastLoadedWarning: ' The last loaded history is still shown.',
-  versionSummary: '{captions} captions · {approved} approved · {textLocks} text locks · {timingLocks} timing locks',
+  captionSummary: '{captions} captions · {approved} approved',
+  locks: 'Locks',
+  lockSummary: '{textLocks} text locks · {timingLocks} timing locks',
   restoreVersion: 'Restore {label} saved {date}',
   title: 'Project history',
   help: 'Checkpoints saved before edits, regeneration, and timing changes',

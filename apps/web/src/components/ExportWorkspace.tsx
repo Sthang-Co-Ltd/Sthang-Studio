@@ -606,7 +606,7 @@ export function ExportWorkspace({ project, appearanceReconciliation, busy, activ
           || (outputMode === 'video' && waitingForVideoSettings) } : {})}/>}
 
     {outputMode === 'captions' && (captionImportPreview
-      ? <CaptionRestoreReview review={captionImportPreview} busy={busy} importBlockedReason={importBlockedReason} onReady={focusImportPreview}
+      ? <CaptionRestoreReview key={captionImportPreview.preview.candidateDigest} review={captionImportPreview} busy={busy} importBlockedReason={importBlockedReason} onReady={focusImportPreview}
           onApply={() => {
             // Hand off before the preview becomes busy or disappears. A later
             // response must never move focus away from newer editing/navigation.

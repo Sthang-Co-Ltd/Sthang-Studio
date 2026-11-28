@@ -38,6 +38,7 @@ export const home = {
     fileMatches: "File details match. Choose Retry this upload to continue.",
   },
   launcher: {
+    editedAt: "Edited {editedDateTime}",
     projectCaptions: "{count} captions",
     startupFailed: "Could not load: {services}. Other tools remain available.",
     startupService: "{service}",

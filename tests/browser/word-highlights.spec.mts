@@ -1,5 +1,6 @@
 import { stubHighlightRoutes } from './word-highlight-routes.mjs';
 import { test, expect, type Page } from '@playwright/test';
+import { translate } from '../../apps/web/src/i18n/translate.js';
 import { buildCaptionWordTiming, type CaptionProject, type CaptionSegment, type TimedToken } from '../../packages/shared/src/index.js';
 import { cleanFixtures, createSyntheticWav, expandAppearanceSection, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
@@ -277,6 +278,12 @@ test('a suggested shared caption repair previews, applies, and undoes both capti
   const proposal = page.getByRole('region', { name: 'Suggested caption timing' });
   await expect(proposal).toContainText('00:02.450');
   await expect(proposal).toContainText('Applying clears Review approval on 2 captions.');
+  const diagram = proposal.locator('.timing-repair-diagram');
+  await expect(diagram.locator('li strong')).toHaveText(['Previous caption', 'Selected caption']);
+  await expect(diagram.locator('li small')).toHaveText(['End 00:02.500 → 00:02.450 (−50 ms)', 'Start 00:02.800 → 00:02.450 (−350 ms)']);
+  const markers = diagram.locator('.repair-marker');
+  expect(Math.abs((await markers.first().boundingBox())!.x - (await markers.last().boundingBox())!.x)).toBeLessThan(1);
+  await expect(diagram.getByRole('button')).toHaveCount(0);
   expect(project().captions).toEqual(before);
   await proposal.getByRole('button', { name: 'Play suggestion', exact: true }).click();
   await expect.poll(() => page.locator('video').evaluate((media: HTMLVideoElement) => media.currentTime)).toBeLessThan(2);
@@ -302,6 +309,47 @@ test('a suggested shared caption repair previews, applies, and undoes both capti
   ]);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => project().captions).toEqual(before);
+});
+
+test('Khmer repair preview shows both selected edges and their next neighbor on a phone', async ({ page }, info) => {
+  state.profile.preferences.interfaceLanguage = 'km';
+  const left = makeCue('c1', 'យើង ទៅ', 200, 500, [200, 350], [320, 500]);
+  const right = makeCue('c2', 'Next caption', 500, 2000, [500, 1400], [1000, 2000]);
+  const before = [left.caption, right.caption];
+  project().captions = structuredClone(before);
+  project().transcript!.tokens = [...left.tokens, ...right.tokens];
+  project().transcript!.segments = structuredClone(before);
+  project().transcript!.fullText = before.map(cue => cue.text).join(' ');
+  const target = makeCue('c1', left.caption.text, 120, 560, [120, 510], [180, 540]).caption;
+  const neighbor = makeCue('c2', right.caption.text, 560, 2000, [580, 1400], [1000, 2000]).caption;
+  target.approved = neighbor.approved = false;
+  await page.route('**/api/projects/landscape/caption-word-timing', route => route.fulfill({
+    json: { basis: before[0], wordTiming: target.wordTiming, edgeRepair: { before, after: [neighbor, target], guards: [] } },
+  }));
+  await page.setViewportSize({ width: 320, height: 844 });
+  await openProject(page);
+  for (const key of ['workspace.fineTiming', 'timing.waveform.wordTiming', 'timing.words.sync'] as const) {
+    await page.getByRole('button', { name: translate('km', key), exact: true }).click();
+  }
+  const diagram = page.locator('.timing-repair-diagram');
+  await expect(diagram.locator('li strong')).toHaveText([
+    translate('km', 'timing.words.repairSelectedCaption'), translate('km', 'timing.waveform.nextCaption'),
+  ]);
+  const change = (edge: 'timing.start' | 'timing.end', before: string, after: string, delta: string) =>
+    translate('km', 'timing.words.repairEdgeChange', { edge: translate('km', edge), before, after, delta });
+  await expect(diagram.locator('li small')).toHaveText([
+    change('timing.start', '00:00.200', '00:00.120', '−80'), change('timing.end', '00:00.500', '00:00.560', '+60'),
+    change('timing.start', '00:00.500', '00:00.560', '+60'),
+  ]);
+  await expect(diagram.locator('.repair-marker')).toHaveCount(3);
+  expect(await diagram.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(project().captions).toEqual(before);
+  await diagram.evaluate(el => el.scrollIntoView({ block: 'end', behavior: 'instant' }));
+  await expect.poll(() => diagram.evaluate(el => {
+    const rect = el.getBoundingClientRect();
+    return [rect.top + 4, rect.bottom - 4].every(y => el.contains(document.elementFromPoint(rect.x + rect.width / 2, y)));
+  })).toBe(true);
+  await diagram.screenshot({ path: info.outputPath('timing-repair-khmer-320.png') });
 });
 
 test('opening unresolved word timing selects the issue without repeating the sync', async ({ page }) => {

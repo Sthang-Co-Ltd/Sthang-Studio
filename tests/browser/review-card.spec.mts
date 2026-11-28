@@ -27,6 +27,48 @@ async function capture(page: Page, filename: string) {
   await page.screenshot({ path: path.resolve('.codex-tmp/wave2b3', filename) });
 }
 
+for (const locale of ['en', 'km'] as const) test(`Review shortcut hints yield to labels as the inspector narrows in ${locale}`, async ({ page }, info) => {
+  const state = await installFixture(page);
+  state.profile.preferences.interfaceLanguage = locale;
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await openProject(page);
+  await page.locator('[data-stage="review"]').click();
+  const card = page.locator('.review-card');
+  const caps = card.locator('.review-keycap');
+  await expect(caps).toHaveText(['R', 'S', 'A']);
+  // Exercise the pane breakpoint independently of the viewport and saved arrangement.
+  await card.evaluate(el => { el.style.width = '560px'; });
+  await expect(caps.first()).toBeVisible();
+  for (const cap of await caps.all()) {
+    await expect(cap.locator('..')).toHaveAttribute('aria-keyshortcuts', (await cap.textContent())!);
+    await expect(cap).toHaveAttribute('aria-hidden', 'true');
+  }
+  await card.evaluate(el => { el.style.removeProperty('width'); });
+  if (locale === 'en') await card.screenshot({ path: info.outputPath('review-shortcuts-desktop.png') });
+  await page.setViewportSize({ width: 320, height: 844 });
+  for (const cap of await caps.all()) await expect(cap).toBeHidden();
+  const decisionBar = card.locator('.review-decision-actions');
+  expect(await decisionBar.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+});
+
+test('a focused Review button accepts its own letter shortcut and leaves other actions alone', async ({ page }) => {
+  const state = await installFixture(page);
+  const captions = state.projects[0].captions;
+  captions[2].timingQuality = 'low';
+  await openProject(page);
+  await enterReview(page);
+  const edit = editText(page);
+  await edit.press('e');
+  await expect(edit).toBeFocused();
+  const skip = decision(page, 'Skip');
+  await skip.press('a');
+  await expect(cardText(page)).toHaveText(captions[0].text);
+  await skip.press('s');
+  await expect(cardText(page)).toHaveText(captions[1].text);
+  await decision(page, 'Approve & next').press('a');
+  await expect(cardText(page)).toHaveText(captions[2].text);
+});
+
 test('the card presents exact Khmer text, position, reasons and decisions in order', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const state = await installFixture(page);
@@ -138,6 +180,114 @@ test('row selection, approval, Skip, Previous and Undo show their current target
   await expect(cardText(page)).toHaveText(captions[1].text);
   await page.locator('.review-undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(cardText(page)).toHaveText(captions[0].text);
+});
+
+test('phone Review keeps Undo clear of the next keyboard approval', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const state = await installFixture(page);
+  const captions = state.projects[0].captions;
+  captions[2].timingQuality = 'low';
+  await openProject(page);
+  await enterReview(page);
+  const approve = decision(page, 'Approve & next');
+  await approve.press('Enter');
+  await expect(cardText(page)).toHaveText(captions[1].text);
+  await expect(approve).toBeFocused();
+  const notice = page.locator('.review-undo-toast');
+  await expect(notice).toBeInViewport({ ratio: 1 });
+  await expect(approve).toBeInViewport({ ratio: 1 });
+  const actionBox = (await approve.boundingBox())!;
+  const noticeBox = (await notice.boundingBox())!;
+  expect(noticeBox.y).toBeGreaterThanOrEqual(actionBox.y + actionBox.height);
+  await page.keyboard.press('Enter');
+  await expect(cardText(page)).toHaveText(captions[2].text);
+  await notice.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
+  await expect(cardText(page)).toHaveText(captions[1].text);
+});
+
+test.describe('phone Review touch targets', () => {
+  test.use({ hasTouch: true });
+  test('Undo is directly reachable over a pre-existing storage notice', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await installFixture(page);
+    const captions = state.projects[0].captions;
+    captions[2].timingQuality = 'low';
+    await page.route('**/api/system/project-storage', (route) => route.fulfill({ json: {
+      schemaVersion: 1, checkedAt: '2026-11-28T00:00:00.000Z', loadedProjectCount: 1,
+      readableProjectCount: 1, unreadableProjectCount: 0, missingProjectCount: 0, duplicateProjectCount: 0,
+      directoryUnreadable: false, orderUnreadable: false, legacyUnreadable: false, migrationPending: true, restartRequired: false,
+    } }));
+    await openProject(page);
+    await enterReview(page);
+    const storage = page.locator('.toast-stack .toast').filter({ has: page.getByRole('button', { name: 'Review storage', exact: true }) });
+    await expect(storage).toBeInViewport({ ratio: 1 });
+    const approve = decision(page, 'Approve & next');
+    const rect = (await approve.boundingBox())!;
+    const x = Math.round(rect.x + rect.width * 0.65);
+    const y = Math.round(rect.y + rect.height / 2);
+    await page.touchscreen.tap(x, y);
+    await expect(cardText(page)).toHaveText(captions[1].text);
+    const undo = page.locator('.review-undo-toast .toast-action');
+    await expect.poll(() => undo.evaluate((button) => {
+      const stack = button.closest<HTMLElement>('.toast-stack')!;
+      const { x, y, width, height } = button.getBoundingClientRect();
+      const top = stack.getBoundingClientRect().top + stack.clientTop;
+      return y >= top - 1 && y + height <= top + stack.clientHeight + 1
+        && document.elementFromPoint(x + width / 2, y + height / 2)?.closest('button') === button;
+    })).toBe(true);
+    expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('button')?.matches('.review-approve-next'), [x, y])).toBe(true);
+    const hit = (await undo.boundingBox())!;
+    await page.touchscreen.tap(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    await expect(cardText(page)).toHaveText(captions[0].text);
+    await expect(storage).toBeInViewport({ ratio: 1 });
+  });
+
+  for (const width of [320, 390]) for (const locale of ['en', 'km'] as const) {
+    test(`repeated taps advance and deliberate Undo restores at ${width}px in ${locale}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion: width === 320 ? 'reduce' : 'no-preference' });
+      const state = await installFixture(page);
+      state.profile.preferences.interfaceLanguage = locale;
+      const captions = state.projects[0].captions;
+      captions[2].timingQuality = 'low';
+      await openProject(page);
+      await page.locator('[data-stage="review"]').tap();
+      await page.evaluate(() => document.fonts.ready);
+      const approve = page.locator('.review-approve-next');
+      const current = page.locator('.review-caption-text');
+      const notice = page.locator('.review-undo-toast');
+      await expect(current).toHaveText(captions[0].text);
+      await expect(approve).toBeInViewport({ ratio: 1 });
+      const rect = (await approve.boundingBox())!;
+      const x = Math.round(rect.x + rect.width * 0.65);
+      const y = Math.round(rect.y + rect.height / 2);
+      const targetAtPoint = () => page.evaluate(([x, y]) =>
+        document.elementFromPoint(x, y)?.closest('button')?.matches('.review-approve-next') === true, [x, y]);
+      await page.touchscreen.tap(x, y);
+      await expect(current).toHaveText(captions[1].text);
+      await expect(notice).toBeInViewport({ ratio: 1 });
+      expect((await approve.boundingBox())!.y).toBeCloseTo(rect.y, 0);
+      expect(await targetAtPoint()).toBe(true);
+      await page.screenshot({ path: info.outputPath('after-first-approval.png') });
+      await page.touchscreen.tap(x, y);
+      await expect(current).toHaveText(captions[2].text);
+      await notice.locator('.toast-action').tap();
+      await expect(current).toHaveText(captions[1].text);
+      await expect(notice).toHaveCount(0);
+      expect(await targetAtPoint()).toBe(true);
+      await page.touchscreen.tap(x, y);
+      await expect(current).toHaveText(captions[2].text);
+      if (width === 390 && locale === 'en') {
+        await expect(notice).toHaveCount(0, { timeout: 12_000 });
+      } else {
+        await notice.getByRole('button').last().tap();
+        await expect(notice).toHaveCount(0);
+      }
+      await expect(page.locator('.review-position-footer')).toBeVisible();
+      expect((await approve.boundingBox())!.y).toBeCloseTo(rect.y, 0);
+    });
+  }
 });
 
 test('More review options keeps the profile request and existing advanced controls', async ({ page }) => {
@@ -285,7 +435,8 @@ test('phone long-caption entry pins decisions only while the card is on screen',
   expect(cardBox.y).toBeLessThan(844);
   expect(cardBox.y + cardBox.height).toBeGreaterThan(844);
   const rowBox = (await actions(page).boundingBox())!;
-  expect(rowBox.y + rowBox.height).toBeCloseTo(844, 0);
+  const workbenchBox = (await workbench.boundingBox())!;
+  expect(rowBox.y + rowBox.height).toBeCloseTo(workbenchBox.y + workbenchBox.height, 0);
   await expect(approve).toBeInViewport({ ratio: 1 });
   await capture(page, 'review-390x844-long-mid-scroll.png');
 });

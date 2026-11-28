@@ -14,6 +14,7 @@ export const libraryMessages: KhmerMessages<EnglishMessages['library']> = {
   refreshFailed: "{error} កំពុងបង្ហាញគម្រោងដែលបានផ្ទុកចុងក្រោយ បញ្ជីនេះអាចមិនទាន់ថ្មីទេ។",
   showing: "បង្ហាញ {start}–{end}",
   openNamedProject: "បើក {title}",
+  goToPage: 'ទៅទំព័រ {number}',
   page: "ទំព័រ {page} នៃ {pages}",
   confirmDeleteHelp: "អក្សររត់ ប្រវត្តិ និងច្បាប់ចម្លងវីដេអូដើមរបស់ Studio នឹងត្រូវលុបចេញពីកុំព្យូទ័រនេះ។ ឯកសារដែលបាននាំចេញនឹងនៅរក្សាទុកដដែល។ សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ។",
   deleteNow: "លុបឥឡូវនេះ",

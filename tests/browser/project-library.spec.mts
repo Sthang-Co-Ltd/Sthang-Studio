@@ -49,6 +49,32 @@ async function showLibrary(page: Page) {
   await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeVisible();
 }
 
+test('Home thumbnail trial uses a visited frame without loading footage on Home', async ({ page }, info) => {
+  await installFixture(page);
+  const loads: string[] = [];
+  page.on('request', request => { if (request.resourceType() === 'media') loads.push(request.url()); });
+  await page.goto('/?recentThumbnails=1');
+  const row = page.locator('[data-recent-project="landscape"]');
+  await expect(row).toBeVisible();
+  expect(loads).toHaveLength(0);
+  await row.click();
+  await page.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 2);
+  let release!: () => void;
+  const held = new Promise<void>(done => { release = done; });
+  await page.route('**/api/projects?summary=1', async route => { await held; await route.fallback(); });
+  try {
+    await page.locator('button.back').click();
+    await expect(row).toBeVisible();
+    await expect(row.locator('img')).toHaveCount(0);
+  } finally { release(); }
+  await expect(row.locator('img')).toBeVisible();
+  expect(await row.locator('img').evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.locator('.recent').screenshot({ path: info.outputPath('recent-project-still.png') });
+  await page.reload();
+  await expect(row).toBeVisible();
+  await expect(row.locator('img')).toHaveCount(0);
+});
+
 test('Home keeps six recent cards; a saved Khmer project beyond both limits reopens without eager detail fetches', async ({ page }) => {
   const state = await fixtureLibrary(page);
   const requested: string[] = [];
@@ -77,6 +103,135 @@ test('Home keeps six recent cards; a saved Khmer project beyond both limits reop
   await expect(page.getByLabel('Caption 1 text', { exact: true })).toHaveValue(state.projects[30].captions[0].text);
   const detailUrls = apiRequests().filter((url) => /^\/api\/projects\/[^/]+$/.test(url.pathname));
   expect(detailUrls.map((url) => url.pathname)).toEqual(['/api/projects/library-31']);
+});
+
+for (const locale of ['en', 'km'] as const) test(`Recent projects distinguish duplicate titles by local edit time in ${locale}`, async ({ page }, info) => {
+  const state = await fixtureLibrary(page);
+  state.profile.preferences.interfaceLanguage = locale;
+  state.projects = state.projects.slice(0, 3);
+  const [latest, earlier, legacy] = state.projects;
+  latest.title = earlier.title = '0916(1) សំឡេងដើម';
+  latest.updatedAt = '2026-11-28T08:24:03.000Z';
+  earlier.updatedAt = '2026-11-28T08:24:01.000Z';
+  legacy.updatedAt = '';
+  const width = locale === 'en' ? 1440 : 320;
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto('/');
+  const row = (id: string) => page.locator(`button[data-recent-project="${id}"]`);
+  for (const item of [latest, earlier]) {
+    const time = row(item.id).locator('time');
+    await expect(time).toHaveAttribute('datetime', item.updatedAt);
+    await expect(time).toBeVisible();
+    await expect(row(item.id)).toHaveAccessibleName(new RegExp((await time.innerText()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  expect(await row(latest.id).innerText()).not.toBe(await row(earlier.id).innerText());
+  await expect(row(legacy.id)).toBeEnabled();
+  await expect(row(legacy.id).locator('time')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  await page.locator('.recent').screenshot({ path: info.outputPath('recent-timestamps.png') });
+  await row(earlier.id).press('Enter');
+  await expect(page.locator('.project-title strong')).toHaveText(earlier.title);
+  expect(state.requests.some(({ path }) => path === `/api/projects/${earlier.id}`)).toBe(true);
+});
+
+test('returning projects form full rows beside Upload on desktop and below it on phones', async ({ page }) => {
+  const state = await fixtureLibrary(page);
+  state.projects[0].title = ARCHIVED_TITLE.repeat(3);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const region = page.getByRole('region', { name: 'Recent projects' });
+  const rows = region.getByRole('listitem');
+  await expect(rows).toHaveCount(6);
+  const first = rows.first().getByRole('button');
+  const upload = page.locator('.dropzone');
+  const desktopUpload = (await upload.boundingBox())!;
+  const firstBox = (await first.boundingBox())!;
+  expect(firstBox.x).toBeGreaterThanOrEqual(desktopUpload.x + desktopUpload.width);
+  expect((await rows.nth(1).boundingBox())!.y).toBeGreaterThanOrEqual(firstBox.y + firstBox.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const phoneUpload = (await upload.boundingBox())!;
+  expect((await region.boundingBox())!.y).toBeGreaterThanOrEqual(phoneUpload.y + phoneUpload.height);
+  await expect(first).toBeInViewport({ ratio: 1 });
+  const title = first.locator('span');
+  await expect(title).toHaveText(state.projects[0].title);
+  await expect(title).toHaveCSS('white-space', 'normal');
+  await expect.poll(() => title.evaluate((element) => {
+    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+    return element.clientHeight >= lineHeight * 1.8
+      && element.scrollHeight <= element.clientHeight + 1
+      && element.scrollWidth <= element.clientWidth + 1;
+  })).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await first.press('Enter');
+  await expect(page.locator('.project-title strong')).toHaveText(state.projects[0].title);
+});
+
+test('one recent project stays at the top beside expanded setup on a wide screen', async ({ page }, info) => {
+  const state = await installFixture(page, { showFirstRun: true });
+  state.projects = state.projects.slice(0, 1);
+  const llm = { configured: false, keySource: 'none', maskedKey: null };
+  await page.route(/\/api\/(?:health|system\/llm-settings)$/, (route) => route.fulfill({
+    json: route.request().url().endsWith('/health') ? { ok: true, llm, timing: { configured: false } } : llm,
+  }));
+  await page.setViewportSize({ width: 1915, height: 943 });
+  await page.goto('/');
+  const launcher = page.locator('.returning-launcher');
+  const recent = page.getByRole('region', { name: 'Recent projects' });
+  await expect(launcher.locator('.first-run-card input[type=password]')).toBeVisible();
+  await expect(recent.getByRole('button')).toBeInViewport({ ratio: 1 });
+  const left = (await launcher.locator('.empty-stage').boundingBox())!;
+  const right = (await recent.boundingBox())!;
+  expect(Math.abs(left.y - right.y)).toBeLessThanOrEqual(2);
+  expect(left.y - (await launcher.boundingBox())!.y).toBeLessThanOrEqual(44);
+  await page.screenshot({ path: info.outputPath('returning-home-wide.png') });
+});
+
+test('returning Home keeps the language prompt inside the Upload column at 801px', async ({ page }) => {
+  const state = await fixtureLibrary(page);
+  delete state.profile.preferences.interfaceLanguage;
+  await page.setViewportSize({ width: 801, height: 900 });
+  await page.goto('/');
+  const uploadColumn = page.locator('.returning-launcher .empty-stage');
+  const prompt = uploadColumn.locator('.interface-language-prompt');
+  await expect(prompt).toBeVisible();
+  const [column, panel, recent] = await Promise.all([
+    uploadColumn.boundingBox(), prompt.boundingBox(),
+    page.getByRole('region', { name: 'Recent projects' }).boundingBox(),
+  ]);
+  expect(panel!.x).toBeGreaterThanOrEqual(column!.x);
+  expect(panel!.x + panel!.width).toBeLessThanOrEqual(column!.x + column!.width + 1);
+  expect(panel!.x + panel!.width).toBeLessThan(recent!.x);
+});
+
+test('numbered pages jump across long libraries and collapse on a phone', async ({ page }, info) => {
+  const state = await installFixture(page);
+  state.projects = Array.from({ length: 145 }, (_, i) => ({
+    ...project('archive-' + i), title: 'Archive ' + String(i + 1).padStart(3, '0'),
+  }));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await showLibrary(page);
+  const nav = page.getByRole('navigation', { name: 'Project pages' });
+  const jump = (n: number) => nav.getByRole('button', { name: 'Go to page ' + n, exact: true });
+  await jump(7).press('Enter');
+  await expect(resultCountHeading(page)).toBeFocused();
+  await expect(openButtons(page)).toHaveCount(1);
+  await expect(jump(7)).toHaveAttribute('aria-current', 'page');
+  await jump(6).click();
+  await expect(openButtons(page)).toHaveCount(24);
+  await nav.screenshot({ path: info.outputPath('library-page-jumps.png') });
+  await jump(1).click();
+  await expect(nav.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+  await jump(7).click();
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect(jump(1)).toBeHidden();
+  await expect(nav).toContainText('Page 7 of 7');
+  await nav.getByRole('button', { name: 'Previous page' }).press('Enter');
+  await expect(resultCountHeading(page)).toBeFocused();
+  await expect(nav).toContainText('Page 6 of 7');
+  await page.getByRole('searchbox').fill('Archive 0');
+  await expect(nav).toContainText('Page 1 of 5');
+  expect(await nav.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
 test('all three sorts paginate deterministically and preserve the chosen view on reopening', async ({ page }) => {
@@ -406,6 +561,8 @@ test('an empty library has an explicit empty state separate from failed loading'
   const state = await installFixture(page);
   state.projects = [];
   await page.goto('/');
+  await expect(page.locator('.dropzone')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Recent projects' })).toHaveCount(0);
   await page.getByRole('button', { name: 'All projects', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'All projects', exact: true })).toBeVisible();
   await expect(openButtons(page)).toHaveCount(0);

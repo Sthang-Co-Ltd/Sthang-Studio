@@ -59,7 +59,8 @@ test('Khmer localizes the media dialogs and confirmation copy', async ({ page })
   await tool(page, 'editor.tools.replace');
   await (await chooser).setFiles({ name: 'alternate.mp4', mimeType: 'video/mp4', buffer: fixtureMedia() });
   const dialog = page.getByRole('dialog', { name: km('dialogs.media.replaceTitle'), exact: true });
-  await expect(dialog).toContainText(km('dialogs.media.replaceDescription', { filename: 'alternate.mp4' }).replace(/<\/?b>/g, ''));
+  await expect(dialog).toContainText(km('dialogs.media.replaceDescription'));
+  await expect(dialog.locator('.replacement-files bdi').last()).toHaveText('alternate.mp4');
   await dialog.getByRole('radio', { name: new RegExp(`^${km('dialogs.media.reset')}`) }).check();
   await dialog.getByRole('button', { name: km('dialogs.media.continue'), exact: true }).click();
   const confirmation = page.getByRole('alertdialog', { name: km('dialogs.resetMedia.title'), exact: true });
@@ -70,6 +71,26 @@ test('Khmer localizes the media dialogs and confirmation copy', async ({ page })
   await tool(page, 'editor.tools.undoReplace');
   const backups = page.getByRole('dialog', { name: km('dialogs.media.undoTitle'), exact: true });
   await expect(backups.getByText(km('dialogs.media.noBackups'))).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Khmer grouping preview compares the same passage on a phone', async ({ page }, info) => {
+  const { errors } = await fixture(page);
+  await page.route('**/resegment/preview', route => route.fulfill({ json: {
+    startMs: 0, endMs: 3000, digest: 'sample',
+    current: [{ startMs: 200, endMs: 1800, text: 'ថ្ងៃនេះយើងទៅសាលាជាមួយគ្នា។' }],
+    proposed: [{ startMs: 200, endMs: 900, text: 'ថ្ងៃនេះយើងទៅសាលា' }, { startMs: 900, endMs: 1800, text: 'ជាមួយគ្នា។' }],
+  } }));
+  await page.setViewportSize({ width: 320, height: 900 });
+  await openProject(page);
+  await page.getByRole('button', { name: km('grouping.title'), exact: true }).click();
+  const toggle = page.getByRole('button', { name: km('grouping.preview') });
+  await toggle.press('Enter');
+  const panel = page.locator('.grouping-preview');
+  await expect(panel.getByRole('heading')).toHaveText([km('grouping.current'), km('grouping.proposed')]);
+  await toggle.evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+  expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('khmer-grouping-320.png') });
   expect(errors).toEqual([]);
 });
 

@@ -17,6 +17,21 @@ function plain(text: string): FindPreviewSpan[] {
   return text ? [{ text, changed: false }] : [];
 }
 
+function displayGraphemes(segments: Iterable<{ segment: string }>): string[] {
+  const clusters: string[] = [];
+  for (const { segment } of segments) {
+    const last = clusters.length - 1;
+    // Older ICU separates the subscript consonant after a Khmer coeng. Keep the
+    // stack in one text run so a highlight cannot interfere with its shaping.
+    if (last >= 0 && /^[\u1780-\u17A2]/u.test(segment) && /\u17D2[\u200C\u200D]*$/u.test(clusters[last])) {
+      clusters[last] += segment;
+    } else {
+      clusters.push(segment);
+    }
+  }
+  return clusters;
+}
+
 function append(spans: FindPreviewSpan[], text: string, changed: boolean) {
   if (!text) return;
   const previous = spans.at(-1);
@@ -36,8 +51,8 @@ export function findPreviewDiff(before: string, after: string, enabled = true): 
   let proposed: string[];
   try {
     segmenter ??= new Intl.Segmenter('km', { granularity: 'grapheme' });
-    original = Array.from(segmenter.segment(before), (part) => part.segment);
-    proposed = Array.from(segmenter.segment(after), (part) => part.segment);
+    original = displayGraphemes(segmenter.segment(before));
+    proposed = displayGraphemes(segmenter.segment(after));
   } catch {
     return fallback();
   }

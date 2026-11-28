@@ -38,6 +38,11 @@ interface ProjectLibraryProps {
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+function pageJumps(page: number, pages: number) {
+  return [...new Set([1, page - 1, page, page + 1, pages])]
+    .filter((number) => number >= 1 && number <= pages).sort((a, b) => a - b);
+}
 function ProjectDate({ label, value }: { label: string; value: string }) {
   const { locale, t, tr } = useI18n();
   const date = new Date(value);
@@ -60,6 +65,7 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
   const navigationFocus = useProjectNavigationFocus();
   const [deadlineTick, setDeadlineTick] = useState(0);
   const result = useMemo(() => selectProjectLibrary(projects, view), [projects, view]);
+  const jumps = pageJumps(result.page, result.pages);
   const ready = !loading && !loadFailed;
 
   useEffect(() => { if (focusHeadingOnMount) heading.current?.focus({ preventScroll: true }); }, [focusHeadingOnMount]);
@@ -268,6 +274,14 @@ export function ProjectLibrary({ focusHeadingOnMount, projects, view, onViewChan
       {result.pages > 1 && <nav className="project-library-pagination" aria-label={t('library.pages')}>
         <button type="button" disabled={result.page === 1} onClick={() => changePage(result.page - 1)}><ChevronLeft size={16} aria-hidden="true"/>{t('library.previous')}</button>
         <span aria-live="polite">{t('library.page', { page: result.page, pages: result.pages })}</span>
+        {result.pages > 2 && <div className="project-library-jumps">
+          {jumps.map((number, index) => <span key={number}>
+            {index > 0 && number > jumps[index - 1] + 1 && <i aria-hidden="true">…</i>}
+            <button type="button" aria-label={t('library.goToPage', { number })}
+              aria-current={number === result.page ? 'page' : undefined}
+              onClick={() => { if (number !== result.page) changePage(number); }}>{number}</button>
+          </span>)}
+        </div>}
         <button type="button" disabled={result.page === result.pages} onClick={() => changePage(result.page + 1)}>{t('library.next')}<ChevronRight size={16} aria-hidden="true"/></button>
       </nav>}
     </>}

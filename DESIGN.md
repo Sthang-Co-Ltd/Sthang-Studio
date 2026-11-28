@@ -106,8 +106,9 @@ Captions · Review · Appearance · Export
 
 Exactly one stage is current. Selecting it again keeps it open. **Captions**
 returns to caption editing and **Appearance** is available on video projects.
-**Export** keeps its lime fill and adds an inset ring when current. It opens the
-output workspace for editable SRT and finished captioned video.
+**Export** opens the output workspace for editable SRT and finished captioned
+video. It has a lime fill and adds an inset ring when current. In Review, Export
+uses the secondary stage style so **Approve & next** has the strongest emphasis.
 
 At 1200px and above, center the rail between the project identity and the
 right-aligned Tools and Save actions. From 621 to 1199px, the rail can share a row
@@ -191,6 +192,10 @@ Fine timing's 184px waveform occupies a dock under the two non-preview panes
 when adjacent; with Preview in the middle it uses the caption column only and
 the inspector retains full height. Timing controls stay in the inspector. Layout
 geometry changes cancel any pending timing drag before moving its canvas.
+In Fine timing, the pan slider shows the whole clip with its current viewport
+outlined in lime once audio loads.
+Moving the window pauses follow and pans the detail. Seeking and caption edits
+remain on the detailed waveform. Full clip and Focus caption keep their usual roles.
 A narrower window keeps the canonical preview-first order and uses a vertically
 scrollable arrangement. Keep a compact preview above an open tool, bring its
 heading into view on entry, and give an empty caption list only the space it needs. Do not use a blocking modal for a task
@@ -483,7 +488,7 @@ Keep navigation and decisions visually distinct.
 Previous · Replay · Skip · Auto-play next        Improve… · Approve & next
 ```
 
-- **Approve & next** is the stable far-right primary action and uses the Studio lime accent.
+- During Review, **Approve & next** owns the solid Studio-lime fill. Export remains available as a secondary stage. Keep the time range below the Khmer wording and align its digits as the selection advances. In stacked layouts, use the same footer space for the caption position and the Undo notice. The next approval stays under the user's finger when Undo appears or expires.
 - Approval immediately selects the next unapproved flagged caption; optional auto-play starts it with review pre-roll.
 - **Skip** moves forward without changing approval state.
 - **Improve…** stays adjacent to approval as the problem path and opens regeneration without advancing.
@@ -913,7 +918,7 @@ The project title opens a compact nonmodal **Project details** view containing t
 full project and source-file names. It supports pointer, keyboard and touch,
 preserves editor geometry and drafts, and returns focus on dismissal. Hover/focus
 hints also expose the names; small screens retain a labeled Project details
-control. Recent-project titles wrap within their existing cards. Never hide a
+control. Recent-project titles wrap within their rows. Never hide a
 full name behind a pointer-only native title.
 
 **Rename** replaces the name row with a selected **Project name** input and
@@ -1447,7 +1452,7 @@ While setup is incomplete, **Caption setup** guides users through connecting AI,
 
 ### All projects
 
-Keep Home's upload flow and six recent projects compact. **All projects** opens a
+With saved projects, place Upload beside a graphite list of up to six recent projects on wide screens. At 800px and below, stack the list immediately after Upload. Keep the centered upload launcher for an empty collection. **All projects** opens a
 dedicated page with **Back to Home**, labeled **Search projects** and **Sort
 projects** controls, a result count, and 24-row pagination. Search covers the
 complete metadata collection. Distinguish loading, failed loading, an empty

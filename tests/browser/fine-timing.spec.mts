@@ -14,6 +14,73 @@ async function openTiming(page: Page) {
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
 }
 
+test.describe('whole-clip waveform overview', () => {
+  test.use({ hasTouch: true, reducedMotion: 'reduce' });
+  for (const width of [1440, 390]) test(`panning a three-minute recording changes only its viewport at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    const sampleRate = 8000;
+    const wav = createSyntheticWav(180, 200, sampleRate);
+    // Give the recording distinct sections, including a quiet patch.
+    for (let second = 0; second < 180; second++) {
+      const gain = (1 + Math.sin(second / 7)) / 2;
+      for (let i = second * sampleRate; i < (second + 1) * sampleRate; i++) {
+        const offset = 44 + 2 * i;
+        wav.writeInt16LE(Math.round(wav.readInt16LE(offset) * gain), offset);
+      }
+    }
+    const item = state.projects[0];
+    item.media = { filename: 'overview.wav', originalName: 'overview.wav', mimeType: 'audio/wav', size: wav.length, url: '/media/overview.wav' };
+    item.captions[2] = { ...item.captions[2], startMs: 125_000, endMs: 126_000 };
+    await page.route('**/media/overview.wav', (route) => route.fulfill({ contentType: 'audio/wav', body: wav }));
+    await page.route('**/normalized-audio.wav*', (route) => route.fulfill({ contentType: 'audio/wav', body: wav }));
+    await page.goto('/');
+    await page.getByRole('button', { name: /Audit landscape/ }).click();
+    const audio = page.locator('.media-stage audio');
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.duration)).toBe(180);
+    await page.getByRole('button', { name: 'Fine timing', exact: true }).click();
+    const overview = page.locator('.timing-overview');
+    const pan = overview.getByRole('slider');
+    await expect(pan).toBeEnabled();
+    await expect.poll(() => overview.locator('canvas').evaluate((el: HTMLCanvasElement) =>
+      el.getContext('2d')!.getImageData(0, 0, el.width, el.height).data.some((value) => value !== 0))).toBe(true);
+    const playhead = () => audio.evaluate((el: HTMLAudioElement) => el.currentTime);
+    const timeBefore = await playhead();
+    const selected = page.locator('.timing-caption-nav strong');
+    const before = await selected.textContent();
+    const undo = page.locator('.fine-timing').getByRole('button', { name: 'Undo', exact: true });
+    await expect(undo).toBeDisabled();
+    await pan.scrollIntoViewIfNeeded();
+    const box = (await pan.boundingBox())!;
+    const y = box.y + box.height / 2;
+    if (width === 390) {
+      await page.touchscreen.tap(box.x + box.width * .7, y);
+    } else {
+      await page.mouse.move(box.x + 2, y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * .7, y, { steps: 8 });
+      await page.mouse.up();
+    }
+    const jumped = Number(await pan.inputValue());
+    expect(jumped).toBeGreaterThan(110_000);
+    expect(jumped).toBeLessThan(140_000);
+    await overview.screenshot({ path: info.outputPath('timing-overview.png') });
+    await pan.press('ArrowRight');
+    expect(Number(await pan.inputValue())).toBeGreaterThan(jumped);
+    await pan.press('End');
+    await expect(pan).toHaveAttribute('aria-valuetext', /03:00\.000$/);
+    await pan.press('Home');
+    await expect(pan).toHaveValue('0');
+    expect(await playhead()).toBe(timeBefore);
+    expect(await selected.textContent()).toBe(before);
+    await expect(undo).toBeDisabled();
+    expect(state.requests.filter(({ path, method }) => path.endsWith('/captions') && method === 'PUT')).toHaveLength(0);
+    await page.getByRole('button', { name: 'Full clip', exact: true }).click();
+    await expect(pan).toBeDisabled();
+    await page.getByRole('button', { name: 'Focus caption', exact: true }).click();
+    await expect(pan).toBeEnabled();
+  });
+});
+
 test('timing nudges preserve wording and neighbours, with undo and redo after autosave', async ({ page }) => {
   state.projects[0].captions[0].approved = true;
   await openTiming(page);
@@ -41,8 +108,10 @@ test('a drag is one edit; Escape cancels a preview without closing the workspace
   await page.mouse.down();
   await page.mouse.move(at(350), box.y + 158, { steps: 8 });
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.350');
+  await expect(page.locator('.timing-trim-readout')).toContainText('+150');
   expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toHaveLength(0);
   await page.keyboard.press('Escape');
+  await expect(page.locator('.timing-trim-readout')).toHaveCount(0);
   await page.mouse.up();
   await expect(page.locator('.fine-timing')).toBeVisible();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
@@ -53,6 +122,35 @@ test('a drag is one edit; Escape cancels a preview without closing the workspace
   await expect.poll(() => state.projects[0].captions[0].startMs).toBe(350);
   await page.locator('.fine-timing').getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
+});
+
+test.describe('caption trim on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, reducedMotion: 'reduce' });
+
+  test('the readout stays above the finger and clears on touch cancellation', async ({ page }, info) => {
+    await openTiming(page);
+    const canvas = page.locator('.waveform-data-canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const box = (await canvas.boundingBox())!;
+    const y = box.y + 158;
+    const touch = await page.context().newCDPSession(page);
+    const at = (ms: number) => [{ id: 1, x: box.x + ms / 2500 * box.width, y }];
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(200) });
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(620) });
+    const readout = page.locator('.timing-trim-readout');
+    await expect(readout).toContainText('(+');
+    const field = page.getByLabel('Fine timing start', { exact: true });
+    await expect(readout).toContainText(await field.inputValue());
+    const label = (await readout.boundingBox())!;
+    expect(label.x).toBeGreaterThanOrEqual(box.x - 1);
+    expect(label.x + label.width).toBeLessThanOrEqual(box.x + box.width + 1);
+    expect(label.y + label.height).toBeLessThan(y - 24);
+    await page.locator('.waveform-canvas-wrap').screenshot({ path: info.outputPath('touch-trim-readout.png') });
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await expect(readout).toHaveCount(0);
+    await expect(field).toHaveValue('00:00.200');
+    expect(state.requests.filter(({ path, method }) => path.endsWith('/captions') && method === 'PUT')).toHaveLength(0);
+  });
 });
 
 test('clicking the audio above an edge seeks without changing timing', async ({ page }) => {
@@ -375,7 +473,7 @@ test('a rejected numeric edit never becomes the displayed or Escape-restored tim
   expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toHaveLength(0);
 });
 
-test('word snapping distinguishes token starts from token ends', async ({ page }) => {
+test('word snapping distinguishes token starts from token ends', async ({ page }, info) => {
   state.projects[0].transcript!.tokens = [
     { id: 'word-a', text: 'First', startMs: 250, endMs: 960, spaceBefore: false, timingSource: 'stt' },
     { id: 'word-b', text: 'Second', startMs: 975, endMs: 1100, spaceBefore: true, timingSource: 'stt' },
@@ -384,15 +482,37 @@ test('word snapping distinguishes token starts from token ends', async ({ page }
   const canvas = page.locator('.waveform-data-canvas');
   await canvas.scrollIntoViewIfNeeded();
   const box = (await canvas.boundingBox())!;
-  const dragEdge = async (fromMs: number, toMs: number) => {
+  const readout = page.locator('.timing-trim-readout');
+  const dragEdge = async (fromMs: number, toMs: number, time: string, delta: string) => {
     await page.mouse.move(box.x + fromMs / 2500 * box.width, box.y + 158);
     await page.mouse.down();
     await page.mouse.move(box.x + toMs / 2500 * box.width, box.y + 158, { steps: 5 });
+    await expect(readout).toContainText(time);
+    await expect(readout).toContainText(delta);
+    if (fromMs === 200) {
+      await page.locator('.waveform-canvas-wrap').screenshot({ path: info.outputPath('trim-readout.png') });
+      await page.keyboard.down('Shift');
+      await expect(readout).not.toContainText(time);
+      await expect(readout).toContainText(await page.getByLabel('Fine timing start', { exact: true }).inputValue());
+      await page.keyboard.up('Shift');
+      await expect(readout).toContainText(time);
+    }
     await page.mouse.up();
+    await expect(readout).toHaveCount(0);
   };
-  await dragEdge(200, 240);
+  await dragEdge(200, 240, '00:00.250', '+50');
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.250');
-  await dragEdge(1000, 970);
+  await page.mouse.move(box.x + 250 / 2500 * box.width, box.y + 158);
+  await page.mouse.down();
+  await page.keyboard.down('Shift');
+  await page.mouse.move(box.x + 325 / 2500 * box.width, box.y + 158, { steps: 4 });
+  await expect(readout).toContainText('(+');
+  await page.keyboard.press('Escape');
+  await expect(readout).toHaveCount(0);
+  await page.keyboard.up('Shift');
+  await page.mouse.up();
+  await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.250');
+  await dragEdge(1000, 970, '00:00.960', '−40');
   await expect(page.getByLabel('Fine timing end', { exact: true })).toHaveValue('00:00.960');
 });
 

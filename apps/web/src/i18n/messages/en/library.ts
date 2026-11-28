@@ -8,6 +8,7 @@ export const libraryMessages = {
   refreshFailed: '{error} Last loaded projects are shown; this list may be out of date.',
   showing: 'Showing {start}–{end}',
   openNamedProject: 'Open {title}',
+  goToPage: 'Go to page {number}',
   page: 'Page {page} of {pages}',
   confirmDeleteHelp: 'Its captions, History and Studio\'s copy of the source video are removed from this computer. Exported files are kept. This can\'t be undone.',
   deleteNow: 'Delete now',

@@ -1,4 +1,5 @@
 .workspace.refined-workspace{height:100dvh;min-height:0;overflow:hidden}
+.review-position-footer{display:none}
 .workspace.refined-workspace>header,.workspace.refined-workspace>.media-alignment-notice{flex:none}
 /* Persistent save errors and comparison decisions must leave work controls reachable. */
 .workspace.refined-workspace:is(.has-caption-proposal,.has-save-failure)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
@@ -47,12 +48,36 @@
 .editor-workbench [hidden]{display:none!important}
 .inspector-heading{min-height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid #29323b;background:#10151a}
 .inspector-heading .panel-heading>strong{font-size:14px;font-weight:650}
+.inspector-heading { position: relative; }
+.inspector-stage-rule {
+  position: absolute;
+  inset-inline-start: 4px;
+  top: calc(50% - 8px);
+  width: 2px;
+  height: 16px;
+  background: var(--accent);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .inspector-stage-rule { animation: inspector-stage-in var(--studio-motion-in) var(--studio-motion-ease); }
+  @keyframes inspector-stage-in { from { opacity: .2; transform: scaleY(.5); } }
+}
 .inspector-content{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;padding:12px;scrollbar-width:thin;scrollbar-color:#3a4550 transparent;scroll-padding-block:12px}
 .inspector-content> :is(.caption-appearance-workspace,.fine-timing,.review-card,.accuracy-card,.timing-card,.controls-card,.export-workspace,.regeneration-dock){margin:0;min-width:0;max-height:none;border:0;border-radius:0;box-shadow:none;padding:0;background:transparent}
 .inspector-content .review-card{grid-template-columns:minmax(0,1fr);gap:16px;padding:12px}
 .inspector-content .review-card>*{grid-column:1;min-width:0}
+.review-active { container: review-controls / inline-size; }
+.review-keycap { display: none; border: 1px solid currentColor; border-radius: 3px; min-width: 1.35em; text-align: center; font: 600 max(10px, .8em)/1.35 var(--font-mono, monospace); }
+@container review-controls (min-width: 23rem) {
+  :lang(en) > .review-keycap { display: inline-block; }
+}
+@container review-controls (min-width: 31rem) {
+  .review-keycap { display: inline-block; }
+}
 .inspector-content .review-card-head{display:grid;gap:6px}
-.inspector-content .review-selection{text-align:left;font-size:13px;line-height:1.5}
+.inspector-content .review-selection{grid-column:1/-1;text-align:start;font-size:13px;line-height:1.5;color:var(--muted);font-variant-numeric:tabular-nums}
+.inspector-content .review-selection b{font-weight:500}
+.inspector-content .review-score{font-variant-numeric:tabular-nums}
 .inspector-content .review-caption{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px;border:1px solid #2d343d;border-radius:12px;background:var(--panel)}
 .inspector-content .review-caption-text{margin:0;color:#eef2f6;font:18px/1.7 'Noto Sans Khmer','Plus Jakarta Sans',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}
 .inspector-content .review-caption-empty{color:var(--muted)}
@@ -107,10 +132,6 @@
 .inspector-content .appearance-essential-grid>.range-field{grid-column:1/-1}
 .inspector-content .appearance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .inspector-content .appearance-grid .range-field{grid-column:span 2}
-.inspector-content .appearance-look-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-.inspector-content .appearance-look-card{min-height:0;padding:6px;gap:5px;border-radius:8px}
-.inspector-content .appearance-look-preview{min-height:44px;padding:4px}
-.inspector-content .appearance-look-copy small{display:none}
 .inspector-content .caption-effects-section-head{flex-direction:column;align-items:stretch;gap:8px}
 .inspector-content .caption-effects-section-head .effect-reset-button{align-self:flex-start}
 .inspector-content .appearance-motion-controls,.inspector-content .appearance-preset-tools-body,.inspector-content .appearance-more .appearance-glow-group{grid-template-columns:minmax(0,1fr)}
@@ -124,9 +145,7 @@
 .inspector-content .caption-appearance-head{align-items:center;justify-content:space-between}
 .inspector-content .appearance-effect-toolbar{margin-left:auto}
 .inspector-content .caption-effects-section-head{flex-direction:row;align-items:center}
-.inspector-content .appearance-look-current{padding-block:3px}
 .inspector-content .appearance-look-section{gap:8px;padding-top:10px}
-.inspector-content .appearance-look-card{min-height:70px}
 .inspector-content .appearance-replay-section{display:flex;flex-direction:column;gap:8px;padding-top:8px}
 .inspector-content .appearance-replay-target b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .inspector-content .regen-comparison{grid-template-columns:minmax(0,1fr)}
@@ -143,10 +162,24 @@
 .inspector-content :is(input,textarea,select){max-width:100%}
 @media(max-width:1199px){
   .toast-stack .recovery-storage-error>.toast-action{min-height:44px}
-  /* Persistent recovery cannot cover the only editable area below a sticky
-     preview. Reuse the comparison footer while keeping both surfaces mounted. */
-  .workspace.refined-workspace.has-persistent-recovery>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
-  .workspace.refined-workspace.has-persistent-recovery>.toast-stack>*{flex-shrink:0}
+  /* Keep recovery and Review notices in flow so Undo and the next decision
+     stay visible below the sticky preview. */
+  .workspace.refined-workspace:is(.has-persistent-recovery,[data-review-active].has-toasts)>.toast-stack{position:static;flex:none;align-self:flex-end;margin:0 12px 12px;max-height:min(30dvh,260px);overflow:auto;pointer-events:auto}
+  .workspace.refined-workspace:is(.has-persistent-recovery,[data-review-active].has-toasts)>.toast-stack>*{flex-shrink:0}
+  /* The single-notice slot keeps the next decision at the same touch coordinates. */
+  .workspace[data-review-active]{--review-footer-size:clamp(64px,10dvh,88px)}
+  .workspace[data-review-active]:not(.has-toasts)>.review-position-footer,
+  .workspace.refined-workspace[data-review-active].has-toasts:not(.has-persistent-recovery)>.review-position-footer + .toast-stack{
+    box-sizing:border-box;flex:none;align-self:stretch;width:auto;height:var(--review-footer-size);
+    margin:0;padding:4px 12px;max-height:none;border-top:1px solid var(--line);background:var(--panel);
+  }
+  .workspace[data-review-active]:not(.has-toasts)>.review-position-footer{
+    display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;
+  }
+  .review-footer-time{margin-inline-start:auto}
+  .review-position-footer + .toast-stack>.toast-slot:only-child{margin-block:auto}
+  .review-position-footer + .toast-stack .review-undo-toast{padding-block:4px}
+  .review-position-footer + .toast-stack .review-undo-toast>button{min-height:44px;min-width:44px}
   .workspace.refined-workspace.has-persistent-recovery .stage-column .media-stage{height:clamp(120px,24dvh,240px)}
   .workspace.refined-workspace.has-persistent-recovery :is(.inspector-content :is(button,input,textarea,select,summary,canvas),[data-workspace-close]){scroll-margin-top:calc(clamp(120px,24dvh,240px) + 112px)}
   /* Native keyboard focus must account for evidence that covers the outer
@@ -201,7 +234,6 @@
   .refined-editor .caption-action-menu>button{min-height:44px}
   .refined-editor .caption-row .caption-text-cell{grid-column:1/-1;grid-row:2}
   .refined-editor .caption-row textarea{font-size:14px}
-  .inspector-content .appearance-look-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .inspector-content .appearance-grid,.inspector-content .appearance-essential-grid{grid-template-columns:minmax(0,1fr)}
   .inspector-content .appearance-grid .range-field{grid-column:auto}
   .inspector-content .appearance-font-picker{flex-direction:column}

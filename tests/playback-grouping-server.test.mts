@@ -90,6 +90,53 @@ async function readDiskProject(id: string) {
   return JSON.parse(await fs.readFile(path.join(projectDir, `${id}.json`), 'utf8')) as CaptionProject;
 }
 
+test('grouping previews match persisted Khmer cues and locked wording, and stale previews create no checkpoint', async () => {
+  const project = await seedProject('paired-grouping', true);
+  const words = ['ថ្ងៃនេះ', 'យើង', 'ទៅ', 'សាលា', 'ជាមួយគ្នា'];
+  project.transcript!.tokens = words.map((text, i) => ({
+    id: String(i), text, spaceBefore: false, timingSource: 'stt', startMs: i * 400, endMs: (i + 1) * 400,
+  }));
+  project.captions = [{ ...caption('ពាក្យដែលបានកែ'), startMs: 0, endMs: 400, textLocked: true, timingLocked: true },
+    { ...caption(words.slice(1).join('')), id: 'rest', startMs: 400, endMs: 2000 }];
+  await store.upsert(project);
+  const before = await readDiskProject(project.id);
+  const route = `${baseUrl}/api/projects/${project.id}/resegment`;
+  const body = { mode: 'word', maxChars: 18, expectedMedia: project.media, expectedUpdatedAt: before.updatedAt, atMs: 900 };
+  const post = (url: string, data: object) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const staleEditor = await post(route + '/preview', { ...body, expectedUpdatedAt: 'older-editor-revision' });
+  assert.equal(staleEditor.status, 409);
+  assert.equal((await staleEditor.json()).code, 'GROUPING_PREVIEW_STALE');
+  for (const maxChars of [80, 57.5]) {
+    assert.equal((await post(route + '/preview', { ...body, maxChars })).status, 200);
+  }
+  const response = await post(route + '/preview', body);
+  assert.equal(response.status, 200);
+  const preview = await response.json();
+  assert.equal(preview.proposed[0].text, project.captions[0].text);
+  assert.equal(preview.proposed.length, words.length);
+  assert.deepEqual(await readDiskProject(project.id), before);
+  assert.deepEqual(await historyStore.list(project.id), []);
+  const reviewed = { ...body, preview: { digest: preview.digest, atMs: body.atMs } };
+  // No cues in this far-off passage: distinct plans are visually identical here.
+  const outside = { ...body, atMs: 6000 };
+  const empty = await (await post(route + '/preview', outside)).json();
+  assert.deepEqual(empty.proposed, []);
+  for (const options of [{ mode: 'single-line' }, { maxChars: 44 }, { maxDurationMs: 900 }]) {
+    const substituted = await post(route, { ...outside, ...options, preview: { digest: empty.digest, atMs: outside.atMs } });
+    assert.equal(substituted.status, 409);
+  }
+  const changed = await post(route, { ...reviewed, mode: 'single-line' });
+  assert.equal(changed.status, 409);
+  assert.equal((await changed.json()).code, 'GROUPING_PREVIEW_STALE');
+  assert.deepEqual(await historyStore.list(project.id), []);
+  const applied = await post(route, reviewed);
+  assert.equal(applied.status, 200);
+  const disk = await readDiskProject(project.id);
+  assert.deepEqual(disk.captions.map(({ text, startMs, endMs }) => ({ text, startMs, endMs })), preview.proposed);
+  assert.equal(disk.captions[0].timingLocked, true);
+  assert.equal((await post(route, reviewed)).status, 409);
+});
+
 type ReplacedProject = CaptionProject & { replacementCleanupWarnings: string[] };
 
 async function assertRetiredGeneration(

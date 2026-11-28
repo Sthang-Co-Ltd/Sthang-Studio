@@ -27,7 +27,9 @@ import {
   ScanText,
 } from 'lucide-react';
 import { captionTextForEditing } from '../caption-text';
+import { findPreviewDiff, type FindPreviewSpan } from '../find-preview-diff';
 import { useMenuKeyboard } from '../use-menu-keyboard';
+import './compare-change-wording.css';
 
 interface Props {
   proposal: RegenerationProposal;
@@ -49,6 +51,15 @@ interface Props {
 
 function naturalText(captions: RegenerationProposal['proposedCaptions']) {
   return captionTextForEditing(captions);
+}
+
+function WordingLine({ label, spans, proposed }: { label: string; spans: FindPreviewSpan[]; proposed?: boolean }) {
+  if (!spans.length) return null;
+  return <div className={proposed ? 'proposed-wording' : undefined}>
+    <dt>{label}</dt>
+    <dd data-server-text>{spans.map((span, index) => span.changed
+      ? <mark key={index}>{span.text}</mark> : span.text)}</dd>
+  </div>;
 }
 
 function takeLabel(proposal: RegenerationProposal, t: ReturnType<typeof useI18n>['t']): string | null {
@@ -85,6 +96,8 @@ export function RegenerationReviewDock({
   const wordingEmpty = !editedText.trim();
   const wordingHelpId = useId();
   const change = proposal.changes[changeIndex] || null;
+  const wordingDiff = useMemo(() => change?.textChanged
+    ? findPreviewDiff(change.beforeText, change.afterText) : null, [change]);
   const textChanges = proposal.changes.filter((item) => item.textChanged).length;
   const timingChanges = proposal.changes.filter((item) => item.timingChanged).length;
   const working = busy || Boolean(refinementJob && ['queued', 'running'].includes(refinementJob.status));
@@ -180,6 +193,13 @@ export function RegenerationReviewDock({
       {change.protectedByLock && <em><LockKeyhole size={11}/>{t('compare.dock.locked')}</em>}
       <Play size={13}/>
     </button>}
+
+    {wordingDiff && <dl className="regen-change-wording">
+      <WordingLine label={t(wordingDiff.after.length ? 'compare.dock.current' : 'compare.dock.removedCaption')}
+        spans={wordingDiff.before}/>
+      <WordingLine label={t(wordingDiff.before.length ? 'compare.dock.originalProposal' : 'compare.dock.addedCaption')}
+        spans={wordingDiff.after} proposed/>
+    </dl>}
 
     <div className="regen-comparison">
       <article className={previewMode === 'current' ? 'previewing' : ''}>

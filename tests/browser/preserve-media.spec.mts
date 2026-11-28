@@ -215,6 +215,26 @@ test('Accuracy fields keep native labels and exact accessible names across edits
   noGeneration(f.state);
 });
 
+test('both footage names and exact sizes are visible before replacement', async ({ page }, info) => {
+  const f = await fixture(page);
+  const name = 'សាកល្បង'.repeat(9) + '.mp4';
+  f.state.projects[0].media.originalName = name;
+  f.state.projects[0].media.size = fixtureMedia().length;
+  await openProject(page);
+  const dialog = await chooseFile(page, name);
+  const files = dialog.locator('.replacement-files');
+  await expect(files.locator('bdi')).toHaveText([name, name]);
+  const bytes = new Intl.NumberFormat('en', { style: 'unit', unit: 'byte', unitDisplay: 'short' }).format(fixtureMedia().length);
+  await expect(files.locator('small')).toHaveText([bytes, bytes]);
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    expect(await files.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await files.screenshot({ path: info.outputPath(`paired-footage-${width}.png`) });
+  }
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).press('Enter');
+  expect(f.requests).toHaveLength(0);
+});
+
 test('replacement defaults to preserving reviewed work and cancelling or Escape leaves it untouched', async ({ page }) => {
   const f = await fixture(page);
   await openProject(page);

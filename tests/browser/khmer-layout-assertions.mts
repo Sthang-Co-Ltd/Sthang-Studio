@@ -94,6 +94,8 @@ export async function captureKhmerLayout(page: Page, surface: string, regions: s
         const parent = node.parentElement;
         const value = node.textContent?.trim();
         if (!value || !parent || observedText.has(node) || parent.closest(exempt) || !visible(parent)) continue;
+        const colorInput = parent.matches('.project-color-controls > button') ? parent.previousElementSibling : null;
+        if (colorInput instanceof HTMLInputElement && colorInput.type === 'color' && value === colorInput.value.toUpperCase()) continue;
         const range = document.createRange();
         range.selectNodeContents(node);
         if (!range.getClientRects().length) continue;

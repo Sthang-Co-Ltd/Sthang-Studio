@@ -24,12 +24,14 @@ const { historyStore } = await import('../apps/server/src/services/history-store
 const { jobStore } = await import('../apps/server/src/services/job-store.js');
 const { cancelScheduledProjectPrewarm } = await import('../apps/server/src/services/prewarm.js');
 const { default: projectsRouter } = await import('../apps/server/src/routes/projects.js');
+const { default: projectBinRouter } = await import('../apps/server/src/routes/project-bin.js');
 const { default: jobsRouter } = await import('../apps/server/src/routes/jobs.js');
 const { default: videoExportRouter } = await import('../apps/server/src/routes/video-export.js');
 const { createMediaReplacementService } = await import('../apps/server/src/services/media-replacement.js');
 const app = express();
 app.use(express.json({ limit: '4mb' }));
 app.use('/api/projects', projectsRouter);
+app.use('/api/project-bin', projectBinRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/video-export', videoExportRouter);
 const server = app.listen(0, '127.0.0.1');
@@ -116,6 +118,20 @@ async function jsonRequest(id: string, suffix: string, method = 'GET', body?: un
 }
 function kept(project: CaptionProject) {
   return { id: project.id, title: project.title, createdAt: project.createdAt, captions: project.captions, transcript: project.transcript, transcriptNeedsSync: project.transcriptNeedsSync, mode: project.mode, captionAppearance: project.captionAppearance, transcriptionContext: project.transcriptionContext, engineVersion: project.engineVersion };
+}
+async function binAndPurge(project: CaptionProject) {
+  const moved = await jsonRequest(project.id, '', 'DELETE');
+  assert.equal(moved.status, 200);
+  const receipt = await moved.json();
+  assert.equal(receipt.id, project.id);
+  assert.ok(receipt.instanceId);
+  assert.equal(await store.get(project.id), null);
+  assert.deepEqual(await fs.readFile(path.join(config.uploadDir, project.media.filename)), replacementBytes);
+  assert.ok((await fs.stat(path.join(config.historyDir, project.id))).isDirectory());
+  const purged = await fetch(new URL('/api/project-bin/' + project.id, baseUrl), {
+    method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instanceId: receipt.instanceId }),
+  });
+  assert.equal(purged.status, 204);
 }
 function deferred() {
   let resolve!: () => void;
@@ -530,7 +546,7 @@ test('delete during replacement cannot orphan the newly published source; later 
     assert.equal(response.status, 200, await response.clone().text());
     const current = await response.json() as CaptionProject;
     const preparedKey = preparedCandidate(current);
-    assert.equal((await jsonRequest(project.id, '', 'DELETE')).status, 204);
+    await binAndPurge(current);
     assert.equal(wordHighlightCandidateStore.get(preparedKey), undefined);
     assert.equal(await store.get(project.id), null);
     await assert.rejects(fs.stat(path.join(config.uploadDir, current.media.filename)), { code: 'ENOENT' });
@@ -631,9 +647,15 @@ test('changed content with an identical incoming timestamp advances revision and
   const project = await seed('same-timestamp-edit');
   const frozen = t.mock.method(Date, 'now', () => Date.parse(project.updatedAt));
   try {
+    const rename = await jsonRequest(project.id, '/title', 'PUT', { expectedTitle: project.title, title: 'Renamed project' });
+    assert.equal(rename.status, 200);
+    const renamed = (await store.get(project.id))!;
+    assert.equal(renamed.title, 'Renamed project');
+    assert.equal(renamed.updatedAt, project.updatedAt);
     await store.withProjectWrite(project.id, async (current, persist) => {
       assert.ok(current);
-      await persist({ ...current, title: 'A newer title in the same millisecond', updatedAt: project.updatedAt });
+      const captions = current.captions.map((cue, index) => index === 0 ? { ...cue, text: 'New caption wording' } : cue);
+      await persist({ ...current, captions, updatedAt: project.updatedAt });
     });
     const changed = (await store.get(project.id))!;
     assert.notEqual(changed.updatedAt, project.updatedAt);
@@ -927,8 +949,7 @@ test(process.platform === 'win32'
     assert.deepEqual(await historyStore.list(project.id, project.media), beforeHistory, 'old History remains available until directory durability is confirmed');
     assert.deepEqual(await historyStore.get(project.id, beforeHistory[0].id, project.media), beforeCheckpoint);
   } finally { mock?.mock.restore(); }
-  const removed = await jsonRequest(project.id, '', 'DELETE');
-  assert.equal(removed.status, 204, await removed.clone().text());
+  await binAndPurge(replacement);
   assert.equal(await store.get(project.id), null);
   await assert.rejects(fs.stat(path.join(projectDir, `${project.id}.json`)), { code: 'ENOENT' });
   await assert.rejects(fs.stat(path.join(config.historyDir, project.id)), { code: 'ENOENT' });

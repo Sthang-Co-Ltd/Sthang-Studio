@@ -13,7 +13,8 @@ registerHooks({ load(url, context, nextLoad) {
 const { ReplaceMediaDialog, RestoreMediaDialog } = await import('../apps/web/src/components/ReplaceMediaDialog.js');
 const noop = () => {};
 const replace = (extra = {}) => renderToStaticMarkup(React.createElement(ReplaceMediaDialog, {
-  filename: 'new-visual-edit.mp4', captionCount: 18, working: '', error: '', onCancel: noop, onModeChange: noop, onReplace: noop, ...extra,
+  current: { originalName: 'original.mp4', size: 1024 }, replacement: { name: 'new-visual-edit.mp4', size: 0 },
+  captionCount: 18, working: '', error: '', onCancel: noop, onModeChange: noop, onReplace: noop, ...extra,
 }));
 const restore = (extra = {}) => renderToStaticMarkup(React.createElement(RestoreMediaDialog, {
   checkpoints: [], loading: false, working: '', error: '', onCancel: noop, onReload: noop, onRestore: noop, onDelete: noop, ...extra,
@@ -76,7 +77,9 @@ test('compatibility rejection remains visible and cannot select reset as a fallb
 });
 
 test('source filenames and server error text are escaped rather than interpreted', () => {
-  const html = replace({ filename: '<img src=x onerror=run()>.mp4', error: '<script>run()</script>' });
+  const html = replace({ current: { originalName: '<svg>.mov' }, replacement: { name: '<img src=x onerror=run()>.mp4' }, error: '<script>run()</script>' });
+  assert.match(html, /&lt;svg&gt;/);
+  assert.match(html, /Size unavailable/);
   assert.match(html, /&lt;img/);
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<img|<script/);

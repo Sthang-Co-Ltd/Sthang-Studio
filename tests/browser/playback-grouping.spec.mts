@@ -73,6 +73,60 @@ function queuedRegenerationJob(id = 'queued-regeneration'): ProcessingJob {
   };
 }
 
+test('paired grouping shows the reviewed passage and passes its identity only on Apply', async ({ page }, info) => {
+  const project = state.projects[0];
+  state.profile.styles = [{ id: 'saved', name: 'Saved', mode: 'single-line', maxChars: 80 }];
+  const sample = { startMs: 0, endMs: 3000, digest: 'reviewed-passage',
+    current: [{ startMs: 200, endMs: 1700, text: 'យើងទៅសាលាជាមួយគ្នា' }],
+    proposed: [{ startMs: 200, endMs: 700, text: 'យើងទៅសាលា' }, { startMs: 700, endMs: 1700, text: 'ជាមួយគ្នា' }] };
+  let calls = 0;
+  let requestedAtMs = -1;
+  let applied: unknown = null;
+  await page.route('**/resegment/preview', async route => {
+    requestedAtMs = route.request().postDataJSON().atMs;
+    expect(route.request().postDataJSON().expectedUpdatedAt).toBe(project.updatedAt);
+    calls++;
+    if (applied) await route.fulfill({ status: 409, json: { code: 'GROUPING_PREVIEW_STALE' } });
+    else await route.fulfill(calls === 1 ? { status: 503 } : { json: sample });
+  });
+  await page.route('**/resegment', async route => {
+    applied = route.request().postDataJSON().preview;
+    await route.fulfill({ status: 409, json: { code: 'GROUPING_PREVIEW_STALE' } });
+  });
+  await openProject(page);
+  const controls = await grouping(page);
+  await controls.getByRole('button', { name: /^Word/ }).click();
+  const toggle = controls.getByRole('button', { name: 'Preview caption grouping' });
+  await toggle.focus();
+  await toggle.press('Enter');
+  const apply = controls.getByRole('button', { name: 'Apply grouping', exact: true });
+  await expect(controls.getByRole('status')).toContainText('Preview unavailable.');
+  await expect(apply).toBeDisabled();
+  await controls.getByRole('button', { name: 'Retry', exact: true }).click();
+  const preview = controls.locator('.grouping-preview');
+  await expect(preview.locator('section').last().locator('li span')).toHaveText(sample.proposed.map(c => c.text));
+  await controls.getByRole('button', { name: 'Preview saved grouping' }).click();
+  await expect(controls.getByRole('button', { name: /^Line/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(controls.getByRole('slider')).toHaveValue('80');
+  await expect.poll(() => calls).toBe(3);
+  await expect(apply).toBeEnabled();
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await toggle.focus();
+    await toggle.evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    expect(await preview.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`paired-grouping-${width}.png`) });
+  }
+  expect(applied).toBeNull();
+  await apply.click();
+  expect(requestedAtMs).toBeGreaterThanOrEqual(0);
+  await expect.poll(() => applied).toEqual({ atMs: requestedAtMs, digest: sample.digest });
+  await expect(controls.getByRole('status')).toContainText('Reopen the project before previewing grouping.');
+  await toggle.click();
+  await expect(apply).toBeDisabled();
+  await expect(controls.getByRole('button', { name: 'Apply saved grouping' })).toBeDisabled();
+});
+
 test('changing the slider applies the requested limit only on Apply grouping', async ({ page }, info) => {
   const current = state.projects[0];
   const tokens: TimedToken[] = ['ខ្មែរ', 'កម្ពុជា', 'ភាសា', 'សួស្តី', 'ខ្មែរ', 'កម្ពុជា'].map((text, i) => ({

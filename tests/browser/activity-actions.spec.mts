@@ -2,7 +2,6 @@ import { test as base, expect, type Page } from '@playwright/test';
 import type { ProcessingJob } from '@kcs/shared';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
-
 const test = base.extend({
   context: async ({ context }, use) => {
     await use(context);
@@ -234,4 +233,30 @@ for (const cause of ['dismissed notice', 'project switch'] as const) test(`an un
     await expect(page.getByRole('button', { name: 'Caption job in progress' })).toBeDisabled();
     expect(submissions).toBe(1);
   } finally { gate.resolve(); }
+});
+
+test('filtering Activity preserves row-local recovery and focus through the last recovery', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  state.jobs = [job('complete', 'completed'), job('broken', 'failed'), job('paused', 'interrupted')];
+  await openProject(page);
+  const dialog = await openActivity(page);
+  const filter = dialog.getByRole('button', { name: /^Needs attention \(/ });
+  await filter.press('Space');
+  await expect(filter).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.locator('article')).toHaveCount(2);
+  await dialog.screenshot({ path: info.outputPath('activity-attention.png') });
+  await filter.press('Enter');
+  await expect(dialog.locator('article')).toHaveCount(3);
+  await filter.press('Enter');
+  const broken = dialog.getByRole('article', { name: /broken/ });
+  await broken.getByRole('button', { name: 'Resume' }).focus();
+  state.jobs[1] = job('broken', 'running');
+  await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
+  await expect(dialog.locator('article')).toHaveCount(1);
+  await expect(filter).toBeFocused();
+  state.jobs[2] = job('paused', 'completed');
+  await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
+  await expect(filter).toHaveCount(0);
+  await expect(dialog.locator('article')).toHaveCount(3);
+  await expect(dialog.getByRole('button', { name: 'Refresh', exact: true })).toBeFocused();
 });

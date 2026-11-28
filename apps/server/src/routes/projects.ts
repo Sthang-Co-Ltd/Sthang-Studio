@@ -13,13 +13,13 @@ import { createProjectFromUpload, ProjectCreationError } from '../services/proje
 import { contributionStore } from '../services/contribution-store.js';
 import { analyticsBuckets, captureAnalytics } from '../services/analytics.js';
 import { ensureNormalizedAudio } from '../services/cache.js';
-import { requireTimedTokens, segmentTimedTokens } from '../services/segmenter.js';
+import { segmentTimedTokens } from '../services/segmenter.js';
 import { toSrt } from '../services/srt.js';
 import { recordExportEvidence } from '../services/export-evidence.js';
 import { normalizeTranscriptionContext } from '../services/vocabulary.js';
 import { normalizeKhmerDisplayText, normalizeKhmerTokenSpacing } from '../services/tokenizer.js';
 import { transcriptText } from '../services/transcript.js';
-import { preserveCaptionLocks } from '../services/caption-locks.js';
+import { groupingPassage, planGrouping } from '../services/grouping-passage.js';
 import {
   applyRegenerationProposal,
   createRangeRegenerationProposal,
@@ -836,6 +836,26 @@ router.post('/:id/normalize-khmer-spacing', async (req, res) => {
   }
 });
 
+router.post('/:id/resegment/preview', async (req, res) => {
+  const media = expectedMedia(req.body?.expectedMedia);
+  const { atMs, mode, maxChars, expectedUpdatedAt } = req.body ?? {};
+  if (!media || !Number.isSafeInteger(atMs) || atMs < 0 || !['dynamic', 'word', 'phrase', 'single-line'].includes(mode)
+    || typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt
+    || !Number.isFinite(maxChars) || maxChars < 6 || maxChars > 80) return res.sendStatus(400);
+  try {
+    const project = await store.get(req.params.id);
+    if (!project) return res.sendStatus(404);
+    if (media.filename !== project.media.filename || media.size !== project.media.size || expectedUpdatedAt !== project.updatedAt) {
+      return res.status(409).json({ code: 'GROUPING_PREVIEW_STALE' });
+    }
+    if (!project.transcript) return res.sendStatus(400);
+    const options = { mode, maxChars };
+    return res.json(groupingPassage(project, planGrouping(project, options), atMs, options));
+  } catch (error) {
+    return res.sendStatus(error instanceof MediaAlignmentUnverifiedError ? 409 : 400);
+  }
+});
+
 router.post('/:id/resegment', async (req, res) => {
   const expectedMedia = req.body?.expectedMedia;
   if (!expectedMedia || typeof expectedMedia.filename !== 'string' || !Number.isFinite(expectedMedia.size)) {
@@ -848,20 +868,17 @@ router.post('/:id/resegment', async (req, res) => {
         return { status: 'stale' as const };
       }
       if (!project.transcript) return { status: 'untranscribed' as const };
-      assertRetainedTimingCanBeDerived(project);
-      await historyStore.checkpoint(project, 'Before caption regrouping', 'regroup');
-      const tokens = requireTimedTokens(project.transcript.tokens);
       const mode = String(req.body.mode || 'dynamic') as CaptionMode;
-      const generated = segmentTimedTokens(tokens, {
-        mode,
-        maxChars: Number(req.body.maxChars || 0) || undefined,
-        maxDurationMs: Number(req.body.maxDurationMs || 0) || undefined,
-        protectedPhrases: project.transcript.vocabularyTerms,
-      });
+      const options = { mode, maxChars: Number(req.body.maxChars) || undefined, maxDurationMs: Number(req.body.maxDurationMs) || undefined };
+      const captions = planGrouping(project, options);
+      const preview = req.body.preview;
+      if (preview !== undefined && (!Number.isSafeInteger(preview?.atMs) || preview.atMs < 0 ||
+        preview.digest !== groupingPassage(project, captions, preview.atMs, options).digest)) return { status: 'preview-stale' as const };
+      await historyStore.checkpoint(project, 'Before caption regrouping', 'regroup');
       const saved = await persist({
         ...project,
         mode,
-        captions: preserveCaptionLocks(project.captions, generated),
+        captions,
         engineVersion: '0.7.10',
         updatedAt: new Date().toISOString(),
       });
@@ -871,6 +888,7 @@ router.post('/:id/resegment', async (req, res) => {
     if (result.status === 'stale') {
       return res.status(409).json({ error: 'This grouping request belongs to an older media version. Reload the project before regrouping.' });
     }
+    if (result.status === 'preview-stale') return res.status(409).json({ code: 'GROUPING_PREVIEW_STALE' });
     if (result.status === 'untranscribed') return res.status(400).json({ error: 'Transcribe this project first.' });
     res.json(result.project);
   } catch (error) {
