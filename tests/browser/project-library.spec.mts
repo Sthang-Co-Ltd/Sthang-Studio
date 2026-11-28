@@ -98,6 +98,15 @@ test('returning projects form full rows beside Upload on desktop and below it on
   const phoneUpload = (await upload.boundingBox())!;
   expect((await region.boundingBox())!.y).toBeGreaterThanOrEqual(phoneUpload.y + phoneUpload.height);
   await expect(first).toBeInViewport({ ratio: 1 });
+  const title = first.locator('span');
+  await expect(title).toHaveText(state.projects[0].title);
+  await expect(title).toHaveCSS('white-space', 'normal');
+  await expect.poll(() => title.evaluate((element) => {
+    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+    return element.clientHeight >= lineHeight * 1.8
+      && element.scrollHeight <= element.clientHeight + 1
+      && element.scrollWidth <= element.clientWidth + 1;
+  })).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await first.press('Enter');
   await expect(page.locator('.project-title strong')).toHaveText(state.projects[0].title);

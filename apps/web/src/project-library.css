@@ -164,7 +164,13 @@
   border-color: #434d58;
 }
 .returning-launcher .recent button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.returning-launcher .recent button span { font-size: 14px; font-weight: 600; }
+.returning-launcher .recent button span {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .returning-launcher .recent button small { grid-row: 2; font-size: 13px; color: var(--muted); }
 .returning-launcher .recent button svg { grid-column: 2; grid-row: 1 / 3; color: var(--muted); }
 .returning-launcher .recent button:is(:hover, :focus-visible):enabled svg { color: var(--accent); }
