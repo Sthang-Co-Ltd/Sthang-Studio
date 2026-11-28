@@ -34,6 +34,14 @@ test('replacement starts in preserve mode with ordinary verification and no adva
   assert.match(html, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="replace-media-title"/);
 });
 
+test('replacement sizes use the English fallback for one byte, zero, and missing sizes', () => {
+  assert.match(replace(), /<small>1,024 bytes<\/small>/);
+  assert.match(replace(), /<small>0 bytes<\/small>/);
+  const html = replace({ current: { originalName: 'old.mp4' }, replacement: { name: 'new.mp4', size: 1 } });
+  assert.match(html, /<small>Size unavailable<\/small>/);
+  assert.match(html, /<small>1 byte<\/small>/);
+});
+
 test('only a supplied audio mismatch confirmation reveals an unchecked honest timing warning', () => {
   const html = replace({ preserveAudioConfirmation: { token: 'opaque-selected-file-and-revision', expiresAt: '2099-01-01T00:00:00.000Z' } });
   assert.match(html, /Keep old timing with different audio\?/);

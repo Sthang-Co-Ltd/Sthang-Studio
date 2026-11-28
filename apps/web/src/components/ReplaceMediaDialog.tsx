@@ -40,7 +40,7 @@ interface ReplaceProps {
 
 export function ReplaceMediaDialog({ current, replacement, captionCount, working, error, errorIsServerText, sourceCheck, preserveAudioConfirmation, onCancel, onModeChange, onReplace }: ReplaceProps) {
   const { locale, t, tn, tr } = useI18n();
-  const bytes = new Intl.NumberFormat(locale, { style: 'unit', unit: 'byte', unitDisplay: 'short' });
+  const number = new Intl.NumberFormat(locale);
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const audioAcceptance = useRef<HTMLInputElement>(null);
@@ -84,7 +84,8 @@ export function ReplaceMediaDialog({ current, replacement, captionCount, working
         {([{ label: 'dialogs.media.currentFootage', name: current.originalName, size: current.size },
           { label: 'dialogs.media.replacementFootage', name: replacement.name, size: replacement.size }] as const).map(file =>
           <div key={file.label}><dt>{t(file.label)}</dt><dd><bdi>{file.name}</bdi>
-            <small>{typeof file.size === 'number' && Number.isSafeInteger(file.size) && file.size >= 0 ? bytes.format(file.size) : t('dialogs.media.sizeUnavailable')}</small>
+            <small>{typeof file.size === 'number' && Number.isSafeInteger(file.size) && file.size >= 0
+              ? tn('dialogs.media.fileSizeBytes', file.size, { size: number.format(file.size) }) : t('dialogs.media.sizeUnavailable')}</small>
           </dd></div>)}
       </dl>}
       {!sourceCheck && <><fieldset disabled={Boolean(working)} className="media-replacement-options">

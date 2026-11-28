@@ -87,6 +87,7 @@ export const dialogsMessages = {
     currentFootage: 'Current footage',
     replacementFootage: 'Replacement footage',
     sizeUnavailable: 'Size unavailable',
+    fileSizeBytes: { one: '{size} byte', other: '{size} bytes' },
     resetCount: {"one":"Clear {count} caption, approvals, locks, and the transcript. Generate new captions when ready.","other":"Clear {count} captions, approvals, locks, and the transcript. Generate new captions when ready."},
     resetDescription: "Clear captions, approvals, locks, and the transcript. Generate new captions when ready.",
     working: "{status} Stay on this page until the result is confirmed.",

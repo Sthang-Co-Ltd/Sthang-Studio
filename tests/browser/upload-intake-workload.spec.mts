@@ -39,11 +39,16 @@ function attempt(route: Route) {
 function savedProject(id: string, title = 'Recovered original upload') {
   return { ...project(id), title, captions: [], transcript: null };
 }
+async function expectRecentProject(page: Page, id: string, title: string, status: string) {
+  const card = page.locator(`button[data-recent-project="${id}"]`);
+  await expect(card.getByText(title, { exact: true })).toBeVisible();
+  await expect(card.locator('small')).toContainText(status);
+}
 async function ready(page: Page) {
   await page.goto('/');
   // This card proves startup collection publication has completed before the
   // later summary-only hold is installed.
-  await expect(page.getByRole('button', { name: 'Audit second 3 captions', exact: true })).toBeVisible();
+  await expectRecentProject(page, 'second', 'Audit second', '3 captions');
   await expect(zone(page)).toBeEnabled();
 }
 async function openSaved(page: Page) {
@@ -157,7 +162,7 @@ for (const width of [1440, 390]) test(`exact lost-ACK recovery and deliberate Op
     await expect(page.locator('video')).toHaveAttribute('src', `/media/${uploadedId}.mp4`);
     expect(posts).toBe(1);
     await page.getByRole('button', { name: 'Back to Home', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'bounded-import Not generated yet', exact: true })).toBeVisible();
+    await expectRecentProject(page, uploadedId, 'bounded-import', 'Not generated yet');
   } finally {
     gate.release();
     if (summaryReads) await expect.poll(() => summaryFinished).toBe(true);
@@ -184,7 +189,7 @@ test('a restored exact check settles missing or found while summary refresh stay
     return route.fallback();
   });
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Audit second 3 captions', exact: true })).toBeVisible();
+  await expectRecentProject(page, 'second', 'Audit second', '3 captions');
   const check = page.getByRole('button', { name: 'Check saved upload', exact: true });
   await expect(check).toBeEnabled();
   const oldSummaries = state.projects.map(summarizeProject);
@@ -214,7 +219,7 @@ test('a restored exact check settles missing or found while summary refresh stay
     expect(summaryFinished).toBe(false);
     gate.release();
     await expect.poll(() => summaryFinished).toBe(true);
-    await expect(page.getByRole('button', { name: 'Recovered original upload Not generated yet', exact: true })).toBeVisible();
+    await expectRecentProject(page, id, 'Recovered original upload', 'Not generated yet');
     await expect(page.locator('.media-stage video')).toHaveCount(0);
     expect(posts).toBe(0);
     expect(await page.evaluate((prefix) => Object.keys(localStorage).filter((key) => key.startsWith(prefix)), UPLOAD_RECOVERY_PREFIX)).toEqual([UPLOAD_RECOVERY_PREFIX + id]);

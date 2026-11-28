@@ -215,6 +215,10 @@ for (const viewport of viewports) {
     await (await chooser).setFiles({ name: replacement, mimeType: 'video/mp4', buffer: fixtureMedia() });
     const replace = page.getByRole('dialog', { name: km.dialogs.media.replaceTitle, exact: true });
     await expect(replace).toBeVisible();
+    const number = new Intl.NumberFormat('km');
+    await expect(replace.locator('.replacement-files small')).toHaveText([
+      number.format(state.projects[0].media.size) + ' បៃ', number.format(fixtureMedia().length) + ' បៃ',
+    ]);
     await actionsInView(page, replace.locator('.media-replacement-actions button'));
     await capture('replace-media', '.media-replacement-dialog');
     await replace.getByRole('button', { name: km.common.cancel, exact: true }).click();
