@@ -133,7 +133,6 @@ for (const viewport of viewports) {
     await expect.soft(footer).toBeInViewport({ ratio: 1 });
     await workspace.getByRole('button', { name: km.export.checks.checkLayout, exact: true }).click();
     const videoChecks = workspace.locator('.export-check-details');
-    await reveal(videoChecks);
     await expect(videoChecks.locator('[data-severity="blocker"]')).toHaveCount(1);
     await expect(videoChecks.locator('[data-severity="advisory"]')).toHaveCount(1);
     await capture('export-video-checks', '.export-checks', videoChecks.locator('[data-severity="blocker"]'));
