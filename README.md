@@ -109,12 +109,26 @@ controls. This layout does not change caption data, source media or export
 semantics. These controls are included in v0.89.0. See the
 [editor layout contract and release handoff](docs/EDITOR-LAYOUT.md).
 
+In the development checkout, **Compare looks** freezes the displayed frame.
+Switch between **Current** and **Candidate** to compare decoration on the same
+caption sample. **Apply candidate** applies the Look to the project. The main
+video preview shows the final caption layout. Beside each appearance color,
+open its hex value to reuse another color from the project.
+
+In this development checkout, arrow through font-search results to preview a
+caption and press Enter or select a font to apply it. Accurate preview
+availability depends on the browser and available font face.
+
 ## Find and reopen projects
 
 Version 0.88 keeps six recent projects on Home and adds **All projects**
 for the complete saved collection. Search by project name, including Khmer, and
 sort by **Last edited**, **Newest created**, or **Name A–Z**. Results are shown in
 pages of 24; search covers the whole collection, including older projects.
+In the development checkout, larger libraries also have numbered page jumps on
+wide screens. On phones, use **Previous page** and **Next page**.
+Each **Recent projects** row on Home pairs the caption status with the local
+last-edited date and time so same-named projects are easier to tell apart.
 
 Choose **Continue editing** to reopen saved captions or **Open project** for a
 project that has not been generated. **Back to projects** keeps the search and sort order during this Studio session.
@@ -281,6 +295,16 @@ Studio caption-data backup/restore, and a ZIP kit with import guidance. These ar
 different preservation levels, not a universal editable-highlight guarantee.
 See [Continue editing elsewhere](docs/CAPTION-HANDOFF.md), including CapCut
 mobile's documented Desktop/Web plus manual project-sync requirement.
+
+In the development checkout, **Correction Inbox** highlights changed text between
+**Before** and **After**. **Export → Captions file → Restore Studio caption data**
+lets you browse the beginning, middle, and end of a backup before replacing captions.
+
+On this development checkout, **Replace media** displays the current and replacement footage before you choose what to keep, and **Caption grouping** adds a paired **Current** and **Proposed** passage preview before you apply grouping.
+
+In the development checkout, roomy **Review** controls show inline R (**Replay**), S (**Skip**), and A (**Approve & next**) shortcut hints, and **Fine timing → Words** adds a read-only diagram comparing current and proposed caption edges before applying a timing repair.
+
+In this development checkout, unfinished-draft **Preview draft** adds a read-only **Saved** vs. **Draft** caption comparison with added and removed cues, **Export history** uses a responsive layout, and Home **Recent projects** trials a local still thumbnail shown only when available (`?recentThumbnails=1`).
 
 The Fine Timing workspace now focuses on one caption at a time, keeps
 playback visible, and provides precise start/end entry, bounded nudges, whole-cue
@@ -897,6 +921,9 @@ configured integrations and do not imply sponsorship or endorsement.
 **Sthang Studio** is developed by Sthang. Product information: https://sthang.app/
 
 ## Export freshness in source development
+
+In this development checkout, Activity includes a **Needs attention** filter to
+show only failed and interrupted tasks.
 
 Export history compares the latest prepared file of each format with the open
 project, including unsaved edits. Activity compares individual new captioned-video

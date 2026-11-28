@@ -5,7 +5,7 @@ const khmerMonths = [
   'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ',
 ];
 
-export function formatInterfaceDate(locale: Locale, value: Date | string | number, options?: { time?: boolean }): string {
+export function formatInterfaceDate(locale: Locale, value: Date | string | number, options?: { time?: boolean; seconds?: boolean }): string {
   const date = value instanceof Date ? value : new Date(value);
   if (locale === 'en' || !Number.isFinite(date.getTime())) {
     return options?.time ? date.toLocaleString() : date.toLocaleDateString();
@@ -14,5 +14,6 @@ export function formatInterfaceDate(locale: Locale, value: Date | string | numbe
   if (!options?.time) return day;
   const hours = String(date.getHours()).padStart(2, '0');
   const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${day} · ${hours}:${minutes}`;
+  const seconds = options.seconds ? `:${String(date.getSeconds()).padStart(2, '0')}` : '';
+  return `${day} · ${hours}:${minutes}${seconds}`;
 }

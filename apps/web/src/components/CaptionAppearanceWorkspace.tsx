@@ -18,6 +18,7 @@ import { useAppearanceInteraction } from '../use-appearance-interaction';
 import { flushCaptionAppearanceSaves, getCaptionAppearanceSaveState, markCaptionAppearanceDraft, observeSavedCaptionAppearance, queueCaptionAppearanceSave, recoverUnsavedCaptionAppearance, subscribeCaptionAppearanceSaves, waitForCaptionAppearanceSaves } from '../caption-appearance-save';
 import { CaptionLooksGallery } from './CaptionLooksGallery';
 import { AppearanceRange } from './AppearanceRange';
+import { ProjectColorField } from './ProjectColorField';
 import { FontSearch } from './FontSearch';
 import type { StudioConfirmOptions } from './ConfirmationDialog';
 import { WordHighlightPreparation, type WordHighlightPreparationView } from './WordHighlightPreparation';
@@ -46,6 +47,7 @@ interface Props {
   replayPreparing?: boolean;
   replayPlaying?: boolean;
   replayDisabled?: boolean;
+  mediaElement: HTMLMediaElement | null;
   sampleCaptionText?: string;
   wordPreparation?: WordHighlightPreparationView;
   flushSave?: RefObject<(() => Promise<boolean>) | null>;
@@ -75,6 +77,7 @@ export function CaptionAppearanceWorkspace({
   replayPreparing = false,
   replayPlaying = false,
   replayDisabled = false,
+  mediaElement,
   sampleCaptionText,
   wordPreparation,
   flushSave,
@@ -498,6 +501,21 @@ export function CaptionAppearanceWorkspace({
     return commitAppearance(change(appearanceRef.current), options);
   };
 
+  const projectColors = [
+    appearance.textColor,
+    appearance.outlineWidth1080 > 0 && appearance.outlineColor,
+    appearance.backgroundEnabled && appearance.backgroundColor,
+    appearance.glowEnabled && appearance.glowColor,
+    appearance.highlightMode === 'word' && appearance.highlightColor,
+  ].filter((color): color is string => typeof color === 'string').map((color) => color.toUpperCase());
+
+  function colorField(key: 'textColor' | 'outlineColor' | 'backgroundColor' | 'glowColor' | 'highlightColor') {
+    return <ProjectColorField label={t(`appearance.workspace.${key}`)}
+      inputLabel={key === 'highlightColor' ? t('appearance.workspace.wordHighlightColor') : undefined}
+      value={appearance[key] ?? DEFAULT_CAPTION_APPEARANCE[key] ?? '#D7FF4F'} colors={projectColors}
+      onChange={(hex) => updateAppearance((current) => ({ ...current, [key]: hex }))}/>;
+  }
+
   const undoAppearanceChange = () => {
     if (!undoAppearance) return;
     fontImportChoiceRevisionRef.current += 1;
@@ -807,14 +825,15 @@ export function CaptionAppearanceWorkspace({
 
     <CaptionLooksGallery
       appearance={appearance}
+      mediaElement={mediaElement}
       sampleCaptionText={sampleCaptionText}
       onSelect={applyLook}
       onReset={resetLook}
     />
 
     <div className="appearance-essential-grid">
-      <div className="appearance-font-field"><span>{t('appearance.workspace.khmerFont')}</span>{installedFonts.length > 24 && <FontSearch query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label={t('appearance.workspace.khmerFont')} value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{loadingFonts ? t('appearance.workspace.fontChecking', { font: appearance.fontFamily }) : fontDiscoveryFailed ? t('appearance.workspace.fontUnverified', { font: appearance.fontFamily }) : t('appearance.workspace.fontUnavailableOption', { font: appearance.fontFamily })}</option>}{addedFontOptions.length > 0 && <optgroup label={t('appearance.workspace.addedToStudio')}>{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.boldAvailable ? font.name : t('appearance.workspace.fontRegularOption', { font: font.name })}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={t('appearance.workspace.installedFonts', { count: installedFonts.length })}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.boldAvailable ? font.name : t('appearance.workspace.fontRegularOption', { font: font.name })}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>{t('appearance.workspace.checkingLocalFonts')}</option>}</select><button ref={fontAddRef} type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? t('appearance.workspace.addingFont') : t('appearance.workspace.addFont')}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? t('appearance.workspace.fontCountHelp', { count: installedFonts.length }) : t('appearance.workspace.fontDiscoveryHelp')}</small></div>
-      <label><span>{t('appearance.workspace.textColor')}</span><input type="color" value={appearance.textColor} onChange={(event) => updateAppearance((current) => ({ ...current, textColor: event.target.value.toUpperCase() }))}/></label>
+      <div className="appearance-font-field"><span>{t('appearance.workspace.khmerFont')}</span>{installedFonts.length + addedFontOptions.length > 1 && <FontSearch projectId={project.id} sampleCaptionText={sampleCaptionText} bold={appearance.bold} query={fontQuery} onQueryChange={setFontQuery} options={fontSearchResults} selected={appearance.fontFamily} count={installedFonts.length} onSelect={chooseFont}/>}<div className="appearance-font-picker"><select ref={fontPickerRef} aria-label={t('appearance.workspace.khmerFont')} value={appearance.fontFamily} disabled={loadingFonts && !fonts.length} aria-busy={loadingFonts || undefined} onChange={(event) => chooseFont(event.target.value)}>{!currentFontAvailable && appearance.fontFamily && <option value={appearance.fontFamily}>{loadingFonts ? t('appearance.workspace.fontChecking', { font: appearance.fontFamily }) : fontDiscoveryFailed ? t('appearance.workspace.fontUnverified', { font: appearance.fontFamily }) : t('appearance.workspace.fontUnavailableOption', { font: appearance.fontFamily })}</option>}{addedFontOptions.length > 0 && <optgroup label={t('appearance.workspace.addedToStudio')}>{addedFontOptions.map((font) => <option key={font.name} value={font.name}>{font.boldAvailable ? font.name : t('appearance.workspace.fontRegularOption', { font: font.name })}</option>)}</optgroup>}{installedFonts.length > 0 && <optgroup label={t('appearance.workspace.installedFonts', { count: installedFonts.length })}>{installedFonts.map((font) => <option key={font.name} value={font.name}>{font.boldAvailable ? font.name : t('appearance.workspace.fontRegularOption', { font: font.name })}</option>)}</optgroup>}{loadingFonts && !fontOptions.length && <option value={appearance.fontFamily}>{t('appearance.workspace.checkingLocalFonts')}</option>}</select><button ref={fontAddRef} type="button" disabled={addingFonts || Boolean(removingFontId)} onClick={() => fontInputRef.current?.click()}><Plus size={14}/>{addingFonts ? t('appearance.workspace.addingFont') : t('appearance.workspace.addFont')}</button><input ref={fontInputRef} className="appearance-font-file-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addFonts(files); }}/></div><small>{installedFonts.length ? t('appearance.workspace.fontCountHelp', { count: installedFonts.length }) : t('appearance.workspace.fontDiscoveryHelp')}</small></div>
+      {colorField('textColor')}
       <AppearanceRange key={`fontSize1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.size')} value={appearance.fontSize1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.fontSize1080} min={22} max={120} step={1} unit="px" context={t('appearance.workspace.at1080p')} onChange={(value, history) => updateAppearance((current) => ({ ...current, fontSize1080: value }), { history })}/>
       <AppearanceRange key={`positionBottomPct:${project.id}:${project.media.filename}`} label={t('appearance.workspace.position')} value={appearance.positionBottomPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.positionBottomPct} min={3} max={82} step={1} unit="%" context={t('appearance.workspace.fromBottom')} onChange={(value, history) => updateAppearance((current) => ({ ...current, positionBottomPct: value }), { history })}/>
     </div>
@@ -883,8 +902,7 @@ export function CaptionAppearanceWorkspace({
         </button>
       </div>
       {appearance.highlightMode === 'word' && <>
-        <label className="appearance-highlight-color"><span>{t('appearance.workspace.highlightColor')}</span><input type="color" aria-label={t('appearance.workspace.wordHighlightColor')} value={appearance.highlightColor || '#D7FF4F'}
-          onChange={(event) => updateAppearance((current) => ({ ...current, highlightColor: event.target.value.toUpperCase() }))}/></label>
+        {colorField('highlightColor')}
         {wordPreparation?.exceptions === 0 && <button type="button" onClick={() => onEditWordTiming()}>{t('appearance.workspace.editWordTiming')}</button>}
       </>}
       {wordPreparation && <WordHighlightPreparation view={wordPreparation} enabled={appearance.highlightMode === 'word'} actionFocusTarget={wordHighlightSummaryRef}/>}
@@ -897,16 +915,16 @@ export function CaptionAppearanceWorkspace({
       <summary>{t('appearance.workspace.more')}</summary>
       <div className="appearance-grid appearance-option-body">
         <div className="toggle-field"><span>{t('appearance.workspace.weight')}</span><button aria-pressed={appearance.bold} className={appearance.bold ? 'selected' : ''} title={chosenFont && !chosenFont.boldAvailable ? t('appearance.workspace.fontRegularTooltip', { font: chosenFont.name }) : undefined} disabled={Boolean(chosenFont && !chosenFont.boldAvailable && !appearance.bold)} onClick={() => updateAppearance((current) => ({ ...current, bold: !current.bold }))}>{appearance.bold ? t('appearance.workspace.bold') : t('appearance.workspace.regular')}</button></div>
-        <label><span>{t('appearance.workspace.outlineColor')}</span><input type="color" value={appearance.outlineColor} onChange={(event) => updateAppearance((current) => ({ ...current, outlineColor: event.target.value.toUpperCase() }))}/></label>
+        {colorField('outlineColor')}
         <AppearanceRange key={`outlineWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.outline')} value={appearance.outlineWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.outlineWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, outlineWidth1080: value }), { history })}/>
         <AppearanceRange key={`shadowWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.shadow')} value={appearance.shadowWidth1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.shadowWidth1080} min={0} max={12} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, shadowWidth1080: value }), { history })}/>
         <AppearanceRange key={`maxWidthPct:${project.id}:${project.media.filename}`} label={t('appearance.workspace.maxWidth')} value={appearance.maxWidthPct} defaultValue={DEFAULT_CAPTION_APPEARANCE.maxWidthPct} min={45} max={96} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, maxWidthPct: value }), { history })}/>
         <label><span>{t('appearance.workspace.alignment')}</span><select value={appearance.alignment} onChange={(event) => updateAppearance((current) => ({ ...current, alignment: event.target.value as CaptionAppearance['alignment'] }))}><option value="left">{t('appearance.workspace.left')}</option><option value="center">{t('appearance.workspace.center')}</option><option value="right">{t('appearance.workspace.right')}</option></select></label>
         <div className="toggle-field"><span>{t('appearance.workspace.backgroundBox')}</span><button aria-pressed={appearance.backgroundEnabled} className={appearance.backgroundEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, backgroundEnabled: !current.backgroundEnabled }))}>{appearance.backgroundEnabled ? t('appearance.workspace.on') : t('appearance.workspace.off')}</button></div>
-        {appearance.backgroundEnabled && <><label><span>{t('appearance.workspace.backgroundColor')}</span><input type="color" value={appearance.backgroundColor} onChange={(event) => updateAppearance((current) => ({ ...current, backgroundColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`backgroundOpacity:${project.id}:${project.media.filename}`} label={t('appearance.workspace.backgroundOpacity')} value={Number((appearance.backgroundOpacity * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.backgroundOpacity * 100)} min={5} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundOpacity: value / 100 }), { history })}/><AppearanceRange key={`backgroundPadding1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.boxPadding')} value={appearance.backgroundPadding1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080} min={0} max={28} step={1} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundPadding1080: value }), { history })}/></>}
+        {appearance.backgroundEnabled && <>{colorField('backgroundColor')}<AppearanceRange key={`backgroundOpacity:${project.id}:${project.media.filename}`} label={t('appearance.workspace.backgroundOpacity')} value={Number((appearance.backgroundOpacity * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.backgroundOpacity * 100)} min={5} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundOpacity: value / 100 }), { history })}/><AppearanceRange key={`backgroundPadding1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.boxPadding')} value={appearance.backgroundPadding1080} defaultValue={DEFAULT_CAPTION_APPEARANCE.backgroundPadding1080} min={0} max={28} step={1} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, backgroundPadding1080: value }), { history })}/></>}
         <div className="appearance-glow-group">
           <div className="toggle-field"><span>{t('appearance.workspace.glow')}</span><button aria-pressed={appearance.glowEnabled === true} className={appearance.glowEnabled ? 'selected' : ''} onClick={() => updateAppearance((current) => ({ ...current, glowEnabled: !current.glowEnabled }))}>{appearance.glowEnabled ? t('appearance.workspace.on') : t('appearance.workspace.off')}</button></div>
-          {appearance.glowEnabled && <><label><span>{t('appearance.workspace.glowColor')}</span><input type="color" value={appearance.glowColor || DEFAULT_CAPTION_APPEARANCE.glowColor} onChange={(event) => updateAppearance((current) => ({ ...current, glowColor: event.target.value.toUpperCase() }))}/></label><AppearanceRange key={`glowWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.glowWidth')} value={(appearance.glowWidth1080 ?? DEFAULT_CAPTION_APPEARANCE.glowWidth1080!)} defaultValue={DEFAULT_CAPTION_APPEARANCE.glowWidth1080!} min={0} max={16} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowWidth1080: value }), { history })}/><AppearanceRange key={`glowOpacity:${project.id}:${project.media.filename}`} label={t('appearance.workspace.glowOpacity')} value={Number(((appearance.glowOpacity ?? DEFAULT_CAPTION_APPEARANCE.glowOpacity!) * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.glowOpacity! * 100)} min={0} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowOpacity: value / 100 }), { history })}/></>}
+          {appearance.glowEnabled && <>{colorField('glowColor')}<AppearanceRange key={`glowWidth1080:${project.id}:${project.media.filename}`} label={t('appearance.workspace.glowWidth')} value={(appearance.glowWidth1080 ?? DEFAULT_CAPTION_APPEARANCE.glowWidth1080!)} defaultValue={DEFAULT_CAPTION_APPEARANCE.glowWidth1080!} min={0} max={16} step={0.5} unit="px" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowWidth1080: value }), { history })}/><AppearanceRange key={`glowOpacity:${project.id}:${project.media.filename}`} label={t('appearance.workspace.glowOpacity')} value={Number(((appearance.glowOpacity ?? DEFAULT_CAPTION_APPEARANCE.glowOpacity!) * 100).toFixed(10))} defaultValue={Math.round(DEFAULT_CAPTION_APPEARANCE.glowOpacity! * 100)} min={0} max={100} step={1} unit="%" onChange={(value, history) => updateAppearance((current) => ({ ...current, glowOpacity: value / 100 }), { history })}/></>}
         </div>
       </div>
     </details>

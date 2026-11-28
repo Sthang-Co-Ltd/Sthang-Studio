@@ -1,16 +1,38 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { exportContentBasis } from '../../packages/shared/src/index.js';
-import { cleanFixtures, installFixture, openProject, prepareFixtures } from './fixtures.mjs';
+import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 
 test.beforeAll(prepareFixtures); test.afterAll(cleanFixtures);
 let entries: { version: number; format: string; preparedAt: string; fingerprint: string }[];
+let fixture: FixtureState;
 test.beforeEach(async ({ page }) => {
   const state = await installFixture(page);
+  fixture = state;
   entries = ['srt', 'video'].map((format) => ({ version: 1, format, preparedAt: '2026-01-01T00:00:00Z', fingerprint: createHash('sha256').update(exportContentBasis(state.projects[0], format as 'srt' | 'video')).digest('hex') }));
   await page.route('**/api/caption-handoff/*/export-history', (route) => route.fulfill({ json: entries }));
 });
 function deferred() { let resolve!: () => void; const promise = new Promise<void>((done) => { resolve = done; }); return { promise, resolve }; }
+
+test('Export history keeps Khmer format, date and freshness readable in compact rows', async ({ page }, info) => {
+  fixture.profile.preferences.interfaceLanguage = 'km';
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openProject(page);
+  await page.locator('[data-stage="export"]').click();
+  const history = page.locator('.export-history');
+  await history.locator('summary').click();
+  await expect(history.locator('li')).toHaveCount(2);
+  await history.screenshot({ path: info.outputPath('exports-khmer-desktop.png') });
+  await page.setViewportSize({ width: 320, height: 844 });
+  const row = history.locator('li').first();
+  const format = await row.locator('strong').boundingBox();
+  const date = await row.locator('time').boundingBox();
+  const status = await row.locator('span').boundingBox();
+  expect(date!.y).toBeGreaterThan(format!.y);
+  expect(status!.x).toBeGreaterThan(format!.x);
+  expect(await row.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await history.screenshot({ path: info.outputPath('exports-khmer-320.png') });
+});
 async function openHistory(page: Page) { await openProject(page); await page.locator('.stage-rail').getByRole('button', { name: 'Export', exact: true }).click(); await page.locator('.export-history summary').click(); return page.locator('.export-history'); }
 
 test('initial loading and failure never masquerade as an empty export history', async ({ page }) => {

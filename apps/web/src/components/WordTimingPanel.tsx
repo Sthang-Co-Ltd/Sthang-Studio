@@ -7,6 +7,7 @@ import {
 } from '@kcs/shared';
 import { LoaderCircle, Play, RefreshCw } from 'lucide-react';
 import { TimestampInput } from './TimestampInput';
+import { TimingRepairDiagram } from './TimingRepairDiagram';
 import { sameTimingRevision } from '../timing-edit';
 import { timingTransactionMatches } from '../caption-timing-transaction';
 import { formatTimestamp } from '../timestamp';
@@ -267,6 +268,7 @@ export function WordTimingPanel({ caption, captionContext, selectedWordId, playh
       <strong>{t('timing.words.suggestion')}</strong>
       <p>{t('timing.words.suggestionHelp')}</p>
       <p>{tn('timing.words.suggestionRange', repair.after.length, { start: formatTimestamp(preview.startMs), end: formatTimestamp(preview.endMs) })}</p>
+      <TimingRepairDiagram repair={repair} selectedId={caption.id}/>
       <div>
         <button onClick={playRepair}><Play size={14}/>{t('timing.words.playSuggestion')}</button>
         <button className="timing-primary" disabled={disabled || syncDisabled} onClick={applyRepair}>{t('timing.words.applyRepair')}</button>

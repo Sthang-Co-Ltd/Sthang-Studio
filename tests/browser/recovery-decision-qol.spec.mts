@@ -121,7 +121,7 @@ test('held backup refresh yields to a newer dialog control on both failure and s
   await expectReadOnlyEvidence(page, original);
 });
 
-async function seedRecovery(page: Page) {
+async function seedRecovery(page: Page, changedIndex = 0, change: 'text' | 'timing' | 'lock' = 'text') {
   state.projects[0] = hydrateCaptionWordTimings(state.projects[0]);
   const values = new Map<string, string>();
   const store = createUnfinishedEditRecoveryStore(() => ({
@@ -129,13 +129,51 @@ async function seedRecovery(page: Page) {
     getItem(key) { return values.get(key) ?? null; }, setItem(key, value) { values.set(key, value); }, removeItem(key) { values.delete(key); },
   }), 'recovery-decision-fixture');
   const captions = structuredClone(state.projects[0].captions);
-  captions[0].text = 'Recovered ខ្មែរ wording awaiting review';
+  if (change === 'timing') captions[changedIndex].startMs += 20;
+  else if (change === 'lock') captions[changedIndex].textLocked = !captions[changedIndex].textLocked;
+  else captions[changedIndex].text = 'Recovered ខ្មែរ wording awaiting review';
   const result = store.write({ project: state.projects[0], captions });
   expect(result.status).toBe('saved');
   if (!result.entry) throw new Error('The synthetic recovery entry was not created.');
   await page.addInitScript(({ key, raw }) => localStorage.setItem(key, raw), result.entry);
 }
 const recovery = (page: Page) => page.getByRole('region', { name: 'Unfinished edit recovery', exact: true });
+for (const change of ['text', 'timing', 'lock'] as const) test(`recovery previews a later caption with a ${change} change`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const index = state.projects[0].captions.length - 1;
+  expect(index).toBeGreaterThan(1);
+  await seedRecovery(page, index, change);
+  const cue = state.projects[0].captions[index];
+  await openProject(page);
+  const notice = recovery(page);
+  await notice.locator('summary').press('Enter');
+  const pair = notice.locator('.recovery-caption-pair');
+  await expect(pair.locator('dd p').first()).toHaveText(cue.text);
+  await expect(pair.locator('dd p').last()).toHaveText(change === 'text' ? 'Recovered ខ្មែរ wording awaiting review' : cue.text);
+  const times = await pair.locator('small').allTextContents();
+  expect(times[0] === times[1]).toBe(change !== 'timing');
+  if (change === 'lock') {
+    const locks = pair.getByRole('checkbox');
+    await expect(locks).toHaveCount(2);
+    expect(await locks.first().isChecked()).not.toBe(await locks.last().isChecked());
+  }
+  if (change === 'text') {
+    await expect(pair.locator('mark').first()).toBeVisible();
+    await pair.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    const paragraphs = pair.locator('dd p');
+    for (const p of await paragraphs.all()) {
+      expect(await p.evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+      })).toBe(true);
+    }
+    await pair.screenshot({ path: info.outputPath('recovery-changed-caption.png') });
+    const restore = notice.getByRole('button', { name: 'Restore draft', exact: true });
+    await restore.focus();
+    await expect(restore).toBeInViewport();
+  }
+  expectNoSavedStateMutations();
+});
 async function expectBlockedReason(page: Page, text: string) {
   const notice = recovery(page);
   const restore = notice.getByRole('button', { name: 'Restore draft', exact: true });

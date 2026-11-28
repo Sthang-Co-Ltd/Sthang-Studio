@@ -1,10 +1,12 @@
 .export-history{margin:0 0 14px;border-block:1px solid var(--line);padding:10px 0;font-size:13px}
 .export-history summary{cursor:pointer;color:var(--text);padding:6px 0;min-height:36px}
 .export-history p{font-size:12px;line-height:1.6;color:var(--muted);max-width:70ch;margin:8px 0}
-.export-history ul{list-style:none;padding:0;margin:0}
-.export-history li{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 0;border-top:1px solid var(--line)}
-.export-history li span{flex-basis:100%;line-height:1.6;color:var(--text)}
-.export-history time{font-size:12px;color:var(--muted)}
+.export-history ul{container-type:inline-size;list-style:none;padding:0;margin:0}
+.export-history li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);grid-template-areas:"format status" "date status";align-items:baseline;gap:3px 12px;padding:10px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.export-history li strong{grid-area:format}
+.export-history li span{grid-area:status;line-height:1.6;color:var(--text)}
+.export-history time{grid-area:date;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+@container (min-width:26rem){.export-history li{grid-template-columns:minmax(5rem,.65fr) minmax(0,1.3fr) minmax(0,1fr);grid-template-areas:"format status date"}}
 .export-history button{min-height:36px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
 .export-history-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px}
 .export-history-toolbar button[aria-disabled=true]{opacity:.55;cursor:wait}

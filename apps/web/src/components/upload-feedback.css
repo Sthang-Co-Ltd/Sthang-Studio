@@ -2,6 +2,7 @@
 .empty-stage .dropzone.drag{border-color:#bad94c;background:#12180e}
 .empty-stage .dropzone:disabled,.empty-stage .dropzone[aria-disabled=true]{cursor:default;border-color:#3a404b;background:#0e1014;box-shadow:0 24px 90px #0008}
 .empty-stage .dropzone[aria-busy=true]{cursor:wait}
+.dropzone .upload-active-filename { display: block; max-width: 100%; overflow-wrap: anywhere; color: var(--muted); font-size: 14px; }
 .upload-validation{width:min(620px,90vw);margin:10px 0 0;color:#e6b6a5;font-size:12px;line-height:1.5;text-align:center;overflow-wrap:anywhere}
 .upload-validation:empty{display:none}
 .upload-availability{color:var(--muted)}

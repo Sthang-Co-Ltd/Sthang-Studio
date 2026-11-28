@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import type { ProcessingJob, RegenerationProposal } from '@kcs/shared';
+import { captionTextForEditing } from '../../apps/web/src/caption-text.js';
 import { cleanFixtures, installFixture, openProject, prepareFixtures, type FixtureState } from './fixtures.mjs';
 import { closeOwnedBrowserContext } from './owned-browser-routes.mjs';
 
@@ -49,7 +50,7 @@ async function setupComparison(page: Page, configure?: (proposal: RegenerationPr
   await page.getByRole('menuitem', { name: /Processing jobs/ }).click();
   await page.getByRole('dialog', { name: 'Activity', exact: true }).locator('article').filter({ hasText: 'Comparison ready' })
     .getByRole('button', { name: 'Open result', exact: true }).click();
-  await expect(wording(page)).toHaveValue(proposal.proposedCaptions[0].text);
+  await expect(wording(page)).toHaveValue(captionTextForEditing(proposal.proposedCaptions));
   return { state, proposal };
 }
 
@@ -67,6 +68,77 @@ test('the default comparison is a choice between two versions', async ({ page })
   await expect(page.locator('.preview-version-badge')).toHaveText('Proposed');
   await button(page, 'Current').click();
   await expect(page.locator('.preview-version-badge')).toHaveText('Current captions');
+});
+
+test('the selected change shows intact Khmer wording and stays independent of the editable draft', async ({ page }, info) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await setupComparison(page, (fixture) => {
+    const change = fixture.changes[0];
+    change.beforeText = 'យើង ទៅ ក្រុង';
+    change.afterText = 'យើង នៅ ក្រុង';
+    fixture.currentCaptions[0].text = change.beforeText;
+    fixture.proposedCaptions[0].text = change.afterText;
+    fixture.changes.push({ ...change, id: 'timing-only', beforeText: change.afterText, textChanged: false });
+  });
+  const diff = dock(page).locator('.regen-change-wording');
+  await expect(diff.locator('dd')).toHaveText(['យើង ទៅ ក្រុង', 'យើង នៅ ក្រុង']);
+  await expect(diff.locator('mark')).toHaveText(['ទៅ', 'នៅ']);
+  await expect(diff.locator('dt')).toHaveText(['Current', 'Original proposal']);
+  await wording(page).fill('សំណើដែលបានកែ');
+  await expect(diff.locator('dd').last()).toHaveText('យើង នៅ ក្រុង');
+  await diff.scrollIntoViewIfNeeded();
+  expect(await diff.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('selected-change-320.png') });
+  await button(page, 'Next proposed change').press('Enter');
+  await expect(diff).toHaveCount(0);
+  await expect(wording(page)).toHaveValue('សំណើដែលបានកែ');
+});
+
+for (const fallback of ['diff budget', 'missing segmenter']) test('Compare retains cue-local wording with ' + fallback, async ({ page }) => {
+  const before = fallback === 'diff budget' ? 'ក'.repeat(256) : 'កម្ពុជា';
+  const after = fallback === 'diff budget' ? 'ខ'.repeat(256) : 'ខ្មែរ';
+  await setupComparison(page, (fixture) => {
+    const added = { ...fixture.proposedCaptions[0], id: 'added-cue', startMs: 1200, endMs: 1800, text: 'Added cue' };
+    const removed = { ...fixture.currentCaptions[0], id: 'removed-cue', startMs: 1900, endMs: 2200, text: 'Removed cue' };
+    fixture.endMs = removed.endMs;
+    fixture.currentCaptions[0].text = before;
+    fixture.proposedCaptions[0].text = after;
+    fixture.currentCaptions.push(removed);
+    fixture.proposedCaptions.push(added);
+    const first = fixture.changes[0];
+    first.beforeText = before;
+    first.afterText = after;
+    fixture.changes.push(
+      { ...first, id: added.id, startMs: added.startMs, endMs: added.endMs, beforeText: '', afterText: added.text },
+      { ...first, id: removed.id, startMs: removed.startMs, endMs: removed.endMs, beforeText: removed.text, afterText: '' },
+    );
+  });
+  await wording(page).fill('Edited whole range');
+  const diff = dock(page).locator('.regen-change-wording');
+  const next = button(page, 'Next proposed change');
+  if (fallback === 'missing segmenter') {
+    // Scope the missing API to a selection change in the running editor.
+    // Shared caption processing uses the native segmenter at module startup.
+    await next.press('Enter');
+    const segmenter = await page.evaluateHandle(() => Intl.Segmenter);
+    try {
+      await page.evaluate(() => { Object.defineProperty(Intl, 'Segmenter', { value: undefined }); });
+      await button(page, 'Previous proposed change').press('Enter');
+      await expect(diff.locator('dt').first()).toHaveText('Current');
+    } finally {
+      await page.evaluate((native) => { Object.defineProperty(Intl, 'Segmenter', { value: native }); }, segmenter);
+      await segmenter.dispose();
+    }
+  }
+  await expect(diff.locator('dd')).toHaveText([before, after]);
+  await expect(diff.locator('mark')).toHaveCount(0);
+  await next.press('Enter');
+  await expect(diff.locator('dt')).toHaveText('Added caption');
+  await expect(diff.locator('dd')).toHaveText('Added cue');
+  await next.press('Enter');
+  await expect(diff.locator('dt')).toHaveText('Removed caption');
+  await expect(diff.locator('dd')).toHaveText('Removed cue');
+  await expect(wording(page)).toHaveValue('Edited whole range');
 });
 
 test('change navigation still seeks to the selected change with pre-roll', async ({ page }) => {

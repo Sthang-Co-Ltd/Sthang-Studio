@@ -3,7 +3,7 @@ import { formatInterfaceDate } from '../i18n/dates';
 import { historyLabelKey, historySourceKey } from '../server-labels';
 import { useRef } from 'react';
 import type { ProjectHistoryEntry } from '@kcs/shared';
-import { Clock3, History, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { History, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { useModalFocus } from '../use-modal-focus';
 import { useSurfacePresence } from '../use-surface-presence';
 import './history-panel.css';
@@ -39,8 +39,16 @@ export function HistoryPanel({ open, entries, busy, loadState, onClose, onRefres
           const label = labelKey ? t(labelKey) : entry.label;
           const date = formatInterfaceDate(locale, entry.createdAt, { time: true });
           return <article key={entry.id}>
-            <div className="history-icon"><Clock3 size={15}/></div>
-            <div className="history-copy"><strong data-server-text={labelKey ? undefined : true}>{label}</strong><span data-server-text={sourceKey ? undefined : true}>{date} · {sourceKey ? t(sourceKey) : entry.source.replaceAll('-', ' ')}</span><small>{t('history.versionSummary', { captions: entry.captionCount, approved: entry.approvedCount, textLocks: entry.textLockedCount, timingLocks: entry.timingLockedCount })}</small></div>
+            <div className="history-copy">
+              <strong data-server-text={labelKey ? undefined : true}>{label}</strong>
+              <time dateTime={entry.createdAt}>{date}</time>
+              <span data-server-text={sourceKey ? undefined : true}>{sourceKey ? t(sourceKey) : entry.source.replaceAll('-', ' ')}</span>
+              <small>{t('history.captionSummary', { captions: entry.captionCount, approved: entry.approvedCount })}</small>
+              <details>
+                <summary>{t('history.locks')}</summary>
+                <small>{t('history.lockSummary', { textLocks: entry.textLockedCount, timingLocks: entry.timingLockedCount })}</small>
+              </details>
+            </div>
             <button aria-label={t('history.restoreVersion', { label, date })} disabled={busy} onClick={() => onRestore(entry.id)}><RotateCcw size={14}/>{t('history.restore')}</button>
           </article>;
         })}

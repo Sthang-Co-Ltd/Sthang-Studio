@@ -33,7 +33,8 @@ test('Caption handoff and restore retain English guidance, options and number ag
   assert.equal(translate('en', 'export.restore.title'), 'Review caption import');
   assert.equal(translatePlural('en', 'export.restore.replaceSummary', 1, { incoming: 4 }),
     'Replace 1 current caption with 4 from this file. Your video, audio, and appearance stay unchanged.');
-  assert.equal(translate('en', 'export.restore.moreCaptions', { count: 1 }), '1 more captions not shown.');
+  assert.equal(translate('en', 'export.restore.range', { first: 4, last: 7, total: 10 }), 'Captions 4–7 of 10');
+  assert.equal(translate('en', 'export.restore.singleRange', { first: 3, total: 5 }), 'Caption 3 of 5');
 });
 
 test('Export checks preserve English findings, repair instructions and paging', () => {

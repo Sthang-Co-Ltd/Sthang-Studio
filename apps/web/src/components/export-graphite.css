@@ -25,7 +25,48 @@
 .export-graphite .export-layout-check span { color: var(--export-muted); line-height: 1.6; }
 .export-graphite .export-check-save { margin: 12px 0; padding: 10px; border: 1px solid #725c2f; border-radius: 8px; }
 .export-graphite .export-check-details > summary { color: var(--export-text); }
-.export-graphite .export-check-caption { border: 0; border-radius: 0; background: transparent; padding: 8px 0; }
+.export-graphite .export-check-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.export-graphite .export-check-title strong {
+  color: var(--export-heading);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.export-graphite .export-check-title > span {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+}
+.export-graphite .export-check-title svg { flex: none; align-self: center; }
+.export-graphite .export-check-title strong:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.export-graphite .export-check-reasons { padding-inline-start: 18px; color: var(--export-heading); }
+.export-graphite .export-check-remedy { color: var(--export-text); font-size: 13px; }
+.export-graphite .export-check-caption {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--export-line);
+  border-radius: 0;
+  background: transparent;
+}
+.export-graphite .export-check-caption button { max-width: 100%; white-space: normal; }
+@container studio-export (min-width: 350px) {
+  .export-graphite .export-check-title,
+  .export-graphite .export-check-caption {
+    grid-template-columns: minmax(0, 1fr) fit-content(42%);
+    justify-items: stretch;
+    column-gap: 12px;
+  }
+  .export-graphite .export-check-caption button { align-self: center; }
+}
 .export-graphite .export-section { gap: 16px; }
 .export-graphite .export-section-title { margin: -14px -14px 0; padding: 12px 14px; border-bottom: 1px solid var(--export-line); border-radius: 11px 11px 0 0; background: linear-gradient(180deg, #24272b 0%, #1d2024 100%); flex-wrap: wrap; flex-direction: row; align-items: center; }
 .export-graphite .export-section-title strong { font-size: 14px; color: var(--export-heading); }
@@ -98,6 +139,12 @@
   .export-graphite :is(.handoff-download-primary, .handoff-advanced-action button, .handoff-rendered-video button, .handoff-restore label) { width: auto; }
   .export-graphite .handoff-transfer-summary > div { grid-template-columns: 118px minmax(0, 1fr); gap: 9px; }
   .export-graphite .handoff-format-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1199px) {
+  /* Give the open warning and its repair action the space of the disabled render footer. */
+  .export-graphite:has(.export-layout-check.blocked):has(.export-check-details[open]) .export-finalize:has(> button:disabled) {
+    position: static;
+  }
 }
 @media (max-width: 620px) {
   .export-workspace.export-graphite { gap: 10px; }

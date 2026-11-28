@@ -223,7 +223,6 @@ export function WaveformEditor({
   const timingDock = useTimingDock();
   const unavailableId = useId();
   const waveformHintId = useId();
-  const [previewOverview] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).get('timingOverview') === '1');
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvas = useRef<HTMLCanvasElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
@@ -241,6 +240,7 @@ export function WaveformEditor({
   const [snap, setSnap] = useState<'word' | 'silence' | 'off'>(tokens.length ? 'word' : 'off');
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const lastDragX = useRef(0);
   const [dragPreview, setDragPreview] = useState<CaptionSegment[] | null>(null);
   const [hover, setHover] = useState<WaveformHover | null>(null);
   const [allowOverlap, setAllowOverlap] = useState(false);
@@ -469,7 +469,7 @@ export function WaveformEditor({
 
   useEffect(() => {
     const samples = samplesRef.current;
-    if (loading || (mode !== 'waveform' && !previewOverview) || !samples || peaks?.samples === samples) return;
+    if (loading || !samples || peaks?.samples === samples) return;
     let cancelled = false;
     void buildWaveformPeaks(samples, () => cancelled || samplesRef.current !== samples).then((value) => {
       if (!value || cancelled || samplesRef.current !== samples) return;
@@ -479,7 +479,7 @@ export function WaveformEditor({
       if (entry?.samples === samples) rememberWaveform(memoryKey, { ...entry, peaks: value });
     }).catch(() => { /* Optional peaks: exact raw PCM drawing remains the fallback. */ });
     return () => { cancelled = true; };
-  }, [loading, mode, memoryKey, reloadKey, durationMs, peaks, previewOverview]);
+  }, [loading, memoryKey, reloadKey, durationMs, peaks]);
 
   useEffect(() => {
     if (loading || mode !== 'spectrum' || spectrum) return;
@@ -747,9 +747,9 @@ export function WaveformEditor({
     }
   }, [timingDock, width, durationMs, loading, viewStartMs, viewDurationMs, playheadMs, hover]);
 
-  const pointerTime = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return xToTime(clamp(event.clientX - rect.left, 0, rect.width) / rect.width * width);
+  const pointerTime = (surface: HTMLCanvasElement, clientX: number) => {
+    const rect = surface.getBoundingClientRect();
+    return xToTime(clamp(clientX - rect.left, 0, rect.width) / rect.width * width);
   };
 
   const hitCaptionEdges = (value: number, pointerType: string) => hitTestWaveformEdges(captionEdges, value, viewDurationMs / width, pointerType);
@@ -759,7 +759,7 @@ export function WaveformEditor({
       && previous?.edge === next?.edge && previous?.timeMs === next?.timeMs ? previous : next);
   const updateHover = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === 'touch' || !durationMs || loading || loadError) { showHover(null); return; }
-    const time = pointerTime(event);
+    const time = pointerTime(event.currentTarget, event.clientX);
     const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
     let next: WaveformHover | null = null;
     if (editMode === 'words' && y >= 96 && y < 136 && selectedCaption) {
@@ -820,9 +820,9 @@ export function WaveformEditor({
       setHistoryRevision((value) => value + 1);
     }
   };
-  const previewForPointer = (event: React.PointerEvent<HTMLCanvasElement>, gesture: DragState) => {
-    if (Math.abs(event.clientX - gesture.originX) < 2) return { before: [], after: [] } as CaptionTimingTransaction;
-    const delta = pointerTime(event) - gesture.originMs;
+  const previewForPointer = (gesture: DragState, clientX: number, bypassSnap: boolean) => {
+    if (!canvas.current || Math.abs(clientX - gesture.originX) < 2) return { before: [], after: [] } as CaptionTimingTransaction;
+    const delta = pointerTime(canvas.current, clientX) - gesture.originMs;
     if (gesture.wordId) {
       const word = gesture.before.wordTiming?.words.find((item) => item.id === gesture.wordId);
       if (word?.startMs == null || word.endMs == null) return { before: [], after: [] };
@@ -832,13 +832,15 @@ export function WaveformEditor({
     }
     const target = gesture.edge === 'move' ? gesture.before.startMs + delta
       : gesture.before[gesture.edge === 'start' ? 'startMs' : 'endMs'] + delta;
-    const snapped = event.shiftKey ? target : snapTime(target, gesture.edge);
+    const snapped = bypassSnap ? target : snapTime(target, gesture.edge);
     return { ...planCaptionTimingEdit(gesture.basis, gesture.before.id, gesture.edge, gesture.edge === 'move' ? snapped - gesture.before.startMs : snapped, gesture.prepared.durationMs, gesture.options, gesture.prepared), gestureBasis: gesture.prepared };
   };
   const cancelDrag = () => { dragRef.current = null; setDrag(null); setDragPreview(null); setHover(null); };
   const updateDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const gesture = dragRef.current;
-    if (gesture?.pointerId === event.pointerId) setDragPreview(previewForPointer(event, gesture).after);
+    if (gesture?.pointerId !== event.pointerId) return;
+    lastDragX.current = event.clientX;
+    setDragPreview(previewForPointer(gesture, event.clientX, event.shiftKey).after);
   };
   const navigateCaption = (delta: number) => {
     const next = captions[clamp(captionIndex + delta, 0, captions.length - 1)];
@@ -867,8 +869,8 @@ export function WaveformEditor({
 
   const handleTimingKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph') || document.querySelector('[aria-modal="true"]')) return;
-      const unmodified = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-      if (unmodified && event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
+      const commandModifier = event.ctrlKey || event.metaKey || event.altKey;
+      if (!commandModifier && event.key === 'Escape' && dragRef.current) { event.preventDefault(); event.stopPropagation(); cancelDrag(); return; }
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.matches('[data-media-preview-focus]') || target?.closest('video, audio, input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-haspopup="dialog"], [data-editor-layout-control], [role="menu"], [aria-haspopup="menu"]')) return;
       if (dragRef.current) return;
@@ -883,17 +885,47 @@ export function WaveformEditor({
             if (after !== selectedCaption) commit({ before: [selectedCaption], after: [after] });
           }
         } else edit('move', delta);
-      } else if (unmodified && event.key.toLowerCase() === 'r') {
+      } else if (!commandModifier && !event.shiftKey && event.key.toLowerCase() === 'r') {
         event.preventDefault(); audition('caption');
       }
   };
   useEffect(() => {
     // While this workspace is open, its shortcuts share the same bounded edit and undo path.
     window.addEventListener('keydown', handleTimingKey, true);
-    return () => window.removeEventListener('keydown', handleTimingKey, true);
+    const refreshSnap = (event: KeyboardEvent) => {
+      const gesture = dragRef.current;
+      if (event.key === 'Shift' && !event.repeat && gesture && !gesture.wordId && gesture.edge !== 'move') {
+        setDragPreview(previewForPointer(gesture, lastDragX.current, event.shiftKey).after);
+      }
+    };
+    if (drag) {
+      window.addEventListener('keydown', refreshSnap, true);
+      window.addEventListener('keyup', refreshSnap, true);
+    }
+    return () => {
+      window.removeEventListener('keydown', handleTimingKey, true);
+      window.removeEventListener('keydown', refreshSnap, true);
+      window.removeEventListener('keyup', refreshSnap, true);
+    };
   });
 
-  const showOverview = previewOverview && !loading && !loadError && durationMs > 0;
+  const showOverview = !loading && !loadError && durationMs > 0;
+  let trimReadout = null;
+  if (import.meta.env.DEV && drag && !drag.wordId && drag.edge !== 'move') {
+    const field = drag.edge === 'start' ? 'startMs' : 'endMs';
+    const preview = dragPreview?.find((caption) => caption.id === drag.captionId) ?? drag.before;
+    const time = preview[field];
+    const delta = time - drag.before[field];
+    const position = clamp((time - viewStartMs) / viewDurationMs, 0, 1) * 100;
+    trimReadout = <div className="timing-trim-readout" aria-hidden="true"
+      style={{ left: `${position}%`, transform: `translateX(-${position}%)` }}>
+      {t('timing.waveform.trimReadout', {
+        edgeLabel: t(drag.edge === 'start' ? 'timing.start' : 'timing.end'),
+        edgeTime: formatTimestamp(time),
+        signedDeltaMs: delta < 0 ? `−${Math.abs(delta)}` : delta > 0 ? `+${delta}` : '0',
+      })}
+    </div>;
+  }
   const waveform = <div className="timing-waveform-surface">
     <div className="timing-waveform-toolbar">
       <div className="timing-mode-switch" role="group" aria-label={t('timing.waveform.mode')}>
@@ -949,7 +981,7 @@ export function WaveformEditor({
           if (!durationMs || loading || loadError || event.button !== 0) return;
           event.currentTarget.focus({ preventScroll: true });
           showHover(null);
-          const value = pointerTime(event);
+          const value = pointerTime(event.currentTarget, event.clientX);
           const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
           if (editMode === 'words' && y >= 96 && y < 136 && selectedCaption) {
             const hit = hitWordEdges(value, event.pointerType);
@@ -978,6 +1010,7 @@ export function WaveformEditor({
           onStopPreview();
           if (target && !target.timingLocked && editMode === 'caption') {
             event.currentTarget.setPointerCapture(event.pointerId);
+            lastDragX.current = event.clientX;
             focusIdentity.current = `${memoryKey}:${target.id}`;
             const gesture: DragState = { captionId: target.id, edge: boundary?.edge || 'move', before: target, basis: captions, prepared: preparedTiming, options: { allowOverlap, sharedBoundary }, originMs: value, originX: event.clientX, pointerId: event.pointerId };
             dragRef.current = gesture;
@@ -993,7 +1026,7 @@ export function WaveformEditor({
         onPointerLeave={() => { if (!dragRef.current) showHover(null); }}
         onPointerUp={(event: React.PointerEvent<HTMLCanvasElement>) => {
           const gesture = dragRef.current;
-          if (gesture?.pointerId === event.pointerId) commit(previewForPointer(event, gesture));
+          if (gesture?.pointerId === event.pointerId) commit(previewForPointer(gesture, event.clientX, event.shiftKey));
           cancelDrag();
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
         }}
@@ -1001,7 +1034,7 @@ export function WaveformEditor({
         onLostPointerCapture={cancelDrag}
       />
       <canvas ref={playheadCanvas} aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}/>
-
+      {trimReadout}
     </div>
     <div className={showOverview ? 'waveform-navigation timing-overview' : 'waveform-navigation'}>
       {showOverview && <div className="overview-heading">

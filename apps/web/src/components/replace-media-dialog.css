@@ -48,3 +48,13 @@
 .retained-audio-evidence .timing-card-title span,.retained-audio-evidence .timing-metrics span{color:#c0b69e}
 .retained-audio-evidence .timing-metrics>div{border-color:#50462e;background:#1b1912}
 @media(max-width:620px){.media-replacement-backdrop{padding:12px}.media-replacement-dialog{padding:20px 16px;max-height:calc(100dvh - 24px)}.media-replacement-actions{display:grid;grid-template-columns:1fr}.media-replacement-actions button,.media-replacement-close{min-height:44px}.media-replacement-close{width:44px;top:9px;right:8px}.media-replacement-check label{min-height:44px}.media-replacement-backups{max-height:220px}}
+.replacement-files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 12px 0; border-block: 1px solid #353c45; }
+.replacement-files > div { min-width: 0; padding: 10px 12px 10px 0; }
+.replacement-files > div + div { border-inline-start: 1px solid #353c45; padding-inline: 12px 0; }
+.replacement-files dt, .replacement-files small { color: #aeb6c0; font-size: 12px; }
+.replacement-files dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
+.replacement-files small { display: block; font-variant-numeric: tabular-nums; }
+@media (max-width: 540px) {
+  .replacement-files { grid-template-columns: 1fr; }
+  .replacement-files > div + div { padding-inline: 0; border-inline-start: 0; border-block-start: 1px solid #353c45; }
+}

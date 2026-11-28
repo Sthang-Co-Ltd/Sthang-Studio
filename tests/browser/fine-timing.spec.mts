@@ -14,7 +14,7 @@ async function openTiming(page: Page) {
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
 }
 
-test.describe('local clip overview prototype', () => {
+test.describe('whole-clip waveform overview', () => {
   test.use({ hasTouch: true, reducedMotion: 'reduce' });
   for (const width of [1440, 390]) test(`panning a three-minute recording changes only its viewport at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
@@ -33,7 +33,7 @@ test.describe('local clip overview prototype', () => {
     item.captions[2] = { ...item.captions[2], startMs: 125_000, endMs: 126_000 };
     await page.route('**/media/overview.wav', (route) => route.fulfill({ contentType: 'audio/wav', body: wav }));
     await page.route('**/normalized-audio.wav*', (route) => route.fulfill({ contentType: 'audio/wav', body: wav }));
-    await page.goto('/?timingOverview=1');
+    await page.goto('/');
     await page.getByRole('button', { name: /Audit landscape/ }).click();
     const audio = page.locator('.media-stage audio');
     await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.duration)).toBe(180);
@@ -108,8 +108,10 @@ test('a drag is one edit; Escape cancels a preview without closing the workspace
   await page.mouse.down();
   await page.mouse.move(at(350), box.y + 158, { steps: 8 });
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.350');
+  await expect(page.locator('.timing-trim-readout')).toContainText('+150');
   expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toHaveLength(0);
   await page.keyboard.press('Escape');
+  await expect(page.locator('.timing-trim-readout')).toHaveCount(0);
   await page.mouse.up();
   await expect(page.locator('.fine-timing')).toBeVisible();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
@@ -120,6 +122,35 @@ test('a drag is one edit; Escape cancels a preview without closing the workspace
   await expect.poll(() => state.projects[0].captions[0].startMs).toBe(350);
   await page.locator('.fine-timing').getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.200');
+});
+
+test.describe('caption trim on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, reducedMotion: 'reduce' });
+
+  test('the readout stays above the finger and clears on touch cancellation', async ({ page }, info) => {
+    await openTiming(page);
+    const canvas = page.locator('.waveform-data-canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const box = (await canvas.boundingBox())!;
+    const y = box.y + 158;
+    const touch = await page.context().newCDPSession(page);
+    const at = (ms: number) => [{ id: 1, x: box.x + ms / 2500 * box.width, y }];
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(200) });
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(620) });
+    const readout = page.locator('.timing-trim-readout');
+    await expect(readout).toContainText('(+');
+    const field = page.getByLabel('Fine timing start', { exact: true });
+    await expect(readout).toContainText(await field.inputValue());
+    const label = (await readout.boundingBox())!;
+    expect(label.x).toBeGreaterThanOrEqual(box.x - 1);
+    expect(label.x + label.width).toBeLessThanOrEqual(box.x + box.width + 1);
+    expect(label.y + label.height).toBeLessThan(y - 24);
+    await page.locator('.waveform-canvas-wrap').screenshot({ path: info.outputPath('touch-trim-readout.png') });
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await expect(readout).toHaveCount(0);
+    await expect(field).toHaveValue('00:00.200');
+    expect(state.requests.filter(({ path, method }) => path.endsWith('/captions') && method === 'PUT')).toHaveLength(0);
+  });
 });
 
 test('clicking the audio above an edge seeks without changing timing', async ({ page }) => {
@@ -442,7 +473,7 @@ test('a rejected numeric edit never becomes the displayed or Escape-restored tim
   expect(state.requests.filter((request) => request.path.endsWith('/captions'))).toHaveLength(0);
 });
 
-test('word snapping distinguishes token starts from token ends', async ({ page }) => {
+test('word snapping distinguishes token starts from token ends', async ({ page }, info) => {
   state.projects[0].transcript!.tokens = [
     { id: 'word-a', text: 'First', startMs: 250, endMs: 960, spaceBefore: false, timingSource: 'stt' },
     { id: 'word-b', text: 'Second', startMs: 975, endMs: 1100, spaceBefore: true, timingSource: 'stt' },
@@ -451,15 +482,37 @@ test('word snapping distinguishes token starts from token ends', async ({ page }
   const canvas = page.locator('.waveform-data-canvas');
   await canvas.scrollIntoViewIfNeeded();
   const box = (await canvas.boundingBox())!;
-  const dragEdge = async (fromMs: number, toMs: number) => {
+  const readout = page.locator('.timing-trim-readout');
+  const dragEdge = async (fromMs: number, toMs: number, time: string, delta: string) => {
     await page.mouse.move(box.x + fromMs / 2500 * box.width, box.y + 158);
     await page.mouse.down();
     await page.mouse.move(box.x + toMs / 2500 * box.width, box.y + 158, { steps: 5 });
+    await expect(readout).toContainText(time);
+    await expect(readout).toContainText(delta);
+    if (fromMs === 200) {
+      await page.locator('.waveform-canvas-wrap').screenshot({ path: info.outputPath('trim-readout.png') });
+      await page.keyboard.down('Shift');
+      await expect(readout).not.toContainText(time);
+      await expect(readout).toContainText(await page.getByLabel('Fine timing start', { exact: true }).inputValue());
+      await page.keyboard.up('Shift');
+      await expect(readout).toContainText(time);
+    }
     await page.mouse.up();
+    await expect(readout).toHaveCount(0);
   };
-  await dragEdge(200, 240);
+  await dragEdge(200, 240, '00:00.250', '+50');
   await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.250');
-  await dragEdge(1000, 970);
+  await page.mouse.move(box.x + 250 / 2500 * box.width, box.y + 158);
+  await page.mouse.down();
+  await page.keyboard.down('Shift');
+  await page.mouse.move(box.x + 325 / 2500 * box.width, box.y + 158, { steps: 4 });
+  await expect(readout).toContainText('(+');
+  await page.keyboard.press('Escape');
+  await expect(readout).toHaveCount(0);
+  await page.keyboard.up('Shift');
+  await page.mouse.up();
+  await expect(page.getByLabel('Fine timing start', { exact: true })).toHaveValue('00:00.250');
+  await dragEdge(1000, 970, '00:00.960', '−40');
   await expect(page.getByLabel('Fine timing end', { exact: true })).toHaveValue('00:00.960');
 });
 

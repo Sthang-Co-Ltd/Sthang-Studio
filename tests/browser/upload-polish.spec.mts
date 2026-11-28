@@ -98,14 +98,23 @@ test('the file input clears before submission so the same file can retry after a
   expect(await input(page).inputValue()).toBe('');
 });
 
-test('busy upload rejects further drop and input admission until the request settles', async ({ page }) => {
+test('busy upload rejects further drop and input admission until the request settles', async ({ page }, info) => {
   let release!: () => void;
   hold = new Promise<void>((resolve) => { release = resolve; });
   const data = await transfer(page, [{ name: 'other.mp4', type: 'video/mp4' }]);
   try {
-    await input(page).setInputFiles(video());
+    await page.setViewportSize({ width: 320, height: 844 });
+    const transferStatus = page.locator('.upload-transfer-status');
+    await expect(transferStatus).toHaveRole('status');
+    await expect(transferStatus).toBeEmpty();
+    const name = 'ការកែសម្រួល-' + 'scene-0916-'.repeat(6) + '.mp4';
+    await input(page).setInputFiles({ ...video(), name });
     await expect.poll(() => uploads).toBe(1);
     await expect(dropzone(page)).toBeDisabled();
+    await expect(dropzone(page).locator('bdi')).toHaveText(name);
+    await expect(transferStatus).toContainText(name);
+    expect(await dropzone(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await dropzone(page).screenshot({ path: info.outputPath('upload-filename-320.png') });
     await expect(input(page)).toBeDisabled();
     await dropzone(page).dispatchEvent('dragenter', { dataTransfer: data });
     await dropzone(page).dispatchEvent('drop', { dataTransfer: data });
@@ -115,8 +124,10 @@ test('busy upload rejects further drop and input admission until the request set
     });
     await expect(dropzone(page)).not.toHaveClass(/\bdrag\b/);
     expect(uploads).toBe(1);
+    await expect(dropzone(page).locator('bdi')).toHaveText(name);
     release();
     await expect(dropzone(page)).toBeEnabled();
+    await expect(transferStatus).toBeEmpty();
     await input(page).setInputFiles(video());
     await expect.poll(() => uploads).toBe(2);
   } finally { release(); hold = undefined; await data.dispose(); }

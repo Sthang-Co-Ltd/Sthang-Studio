@@ -57,6 +57,7 @@ import {
 } from 'lucide-react';
 import { api, ApiRequestError, MediaAudioMismatchError, type HealthResponse, type LlmSettingsStatus, type SaveLlmSettingsInput, type MediaReplacementBasis, type MediaReplacementCheckpoint, type MediaReplacementMode, type PreserveAudioConfirmation, type ReplaceMediaResponse } from './api';
 import { Upload, type UploadRecoveryResult, type UploadResult } from './components/Upload';
+import { captureRecentStill, type RecentStill } from './recent-media-still';
 import { captureUploadRecoveryForProject, clearUploadRecoveryForProject } from './upload-recovery';
 import { EditorLayout, type EditorLayoutHandle } from './components/EditorLayout';
 import { editorPopoverAvailable, editorReorderSupported, type EditorLayoutMode } from './editor-layout-state';
@@ -87,6 +88,7 @@ import { isVideoProject, normalizeCaptionAppearance, summarizeProject, hydrateCa
 import { NativeCaptionPreview, type NativeCaptionPreviewHandle } from './components/NativeCaptionPreview';
 import { useStudioConfirm } from './components/ConfirmationDialog';
 import { ReplaceMediaDialog, RestoreMediaDialog } from './components/ReplaceMediaDialog';
+import { GroupingPreview } from './components/GroupingPreview';
 import { analyzeCaptions, QA_PROFILES, resolveQaProfile } from './review';
 import { formatTimestamp } from './timestamp';
 import { captionTextForEditing } from './caption-text';
@@ -283,11 +285,20 @@ export default function App() {
   const projectNavigationFocus = useProjectNavigationFocus();
   const [projects, setProjectItems] = useState<CaptionProjectSummary[]>([]);
   const projectItems = useRef<CaptionProjectSummary[]>([]);
+  const [trialStills] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).get('recentThumbnails') === '1'
+    ? new Map<string, RecentStill>() : null);
+  const [stillsConfirmed, setStillsConfirmed] = useState(false);
   const setProjects = useCallback((update: CaptionProjectSummary[] | ((current: CaptionProjectSummary[]) => CaptionProjectSummary[])) => {
     const next = typeof update === 'function' ? update(projectItems.current) : update;
+    if (trialStills) {
+      const recent = next.slice(0, 6);
+      for (const [id, still] of trialStills) {
+        if (!recent.some(item => item.id === id && item.updatedAt === still.updatedAt)) trialStills.delete(id);
+      }
+    }
     projectItems.current = next;
     setProjectItems(next);
-  }, []);
+  }, [trialStills]);
   const [projectListState, setProjectListState] = useState({ refreshing: false, error: '' });
   const projectListRequest = useRef<AbortController | null>(null);
   const projectsBinnedDuringRead = useRef(new Set<string>());
@@ -424,6 +435,9 @@ export default function App() {
   const [effectReplayPlaying, setEffectReplayPlaying] = useState(false);
   const [captionFontRevision, setCaptionFontRevision] = useState(0);
   const [maxChars, setMaxChars] = useState(18);
+  const [outdatedGrouping, setOutdatedGrouping] = useState<string | null>(null);
+  const groupingRevision = JSON.stringify([projectMediaKey(project), project?.updatedAt]);
+  const groupingOutdated = outdatedGrouping === groupingRevision;
   const [groupingMode, setGroupingMode] = useState<CaptionMode>('dynamic');
   const [groupingApplying, setGroupingApplying] = useState(false);
   const groupingInFlight = useRef(false);
@@ -701,10 +715,17 @@ export default function App() {
     const basis = captureProjectCollectionBasis(projectItems.current);
     const owns = () => !request.signal.aborted && projectListRequest.current === request && options.isCurrent?.() !== false;
     setProjectListState((current) => ({ ...current, refreshing: true }));
+    if (trialStills) setStillsConfirmed(false);
     try {
       const items = await api.listSummaries(request.signal);
       if (!owns()) return;
       const next = reconcileProjectCollection(projectItems.current, items, basis).filter((item) => !binnedDuringRead.has(item.id));
+      if (trialStills) {
+        for (const [id, still] of trialStills) {
+          if (!items.some(item => item.id === id && item.updatedAt === still.updatedAt)) trialStills.delete(id);
+        }
+        setStillsConfirmed(true);
+      }
       const origin = libraryReturnId.current;
       const active = document.activeElement;
       if (origin && active === libraryReturnTarget(origin)) {
@@ -1096,6 +1117,19 @@ export default function App() {
     const intent = requestNavigation();
     if (!await saveUnfinishedChanges(true, () => isCurrentOperation(intent)) || !isCurrentOperation(intent)) return;
     const focusRequest = projectNavigationFocus.capture(initiatingControl);
+    if (trialStills) {
+      // A read started on an earlier Home visit cannot confirm this return.
+      projectListRequest.current?.abort();
+      projectListRequest.current = null;
+      setStillsConfirmed(false);
+    }
+    const saved = savedProject.current;
+    if (trialStills && saved && projectMediaKey(saved) === mediaKey
+      && projectItems.current.slice(0, 6).some(item => item.id === saved.id && item.updatedAt === saved.updatedAt)) {
+      const still = captureRecentStill(media.current, saved.updatedAt);
+      if (still) trialStills.set(saved.id, still);
+      else trialStills.delete(saved.id);
+    }
     const origin = showAllProjects ? libraryOrigin.current : null;
     libraryReturnId.current = focusRequest ? origin : null;
     if (origin) {
@@ -2518,7 +2552,10 @@ export default function App() {
         }
         return;
       }
-      if (typing || !project || target?.matches('[data-media-preview-focus]') || target?.closest('button, select, summary, .review-reasons, [role="button"], [role="slider"], [role="combobox"]')) return;
+      const control = target?.closest('button, select, summary, .review-reasons, [role="button"], [role="slider"], [role="combobox"]');
+      const ownReviewShortcut = reviewMode && !proposal && control?.matches('.review-active .review-actions button[aria-keyshortcuts]:enabled')
+        && control.getAttribute('aria-keyshortcuts') === event.key.toUpperCase();
+      if (typing || !project || target?.matches('[data-media-preview-focus]') || (control && !ownReviewShortcut)) return;
       if (event.altKey) {
         event.preventDefault(); shiftSelection(event.key === 'ArrowLeft' ? -50 : 50);
       } else if (event.key === ' ') {
@@ -3405,8 +3442,9 @@ export default function App() {
       setGroupingPresetSaving(false);
     }
   };
-  const applyGrouping = async (mode = groupingMode, limit = maxChars) => {
+  const applyGrouping = async (mode = groupingMode, limit = maxChars, preview?: { atMs: number; digest: string }) => {
     if (!project || busy || groupingInFlight.current || currentProjectActiveJob) return;
+    if (groupingOutdated) { setError(t('grouping.reopen')); return; }
     groupingInFlight.current = true;
     const targetProject = project;
     const intent = captureOperationIntent();
@@ -3438,6 +3476,7 @@ export default function App() {
           mode,
           limit,
           { filename: targetProject.media.filename, size: targetProject.media.size },
+          preview,
         );
         if (!projectScope.current.isCurrent(ticket) || projectMediaKey(result) !== ticket.key) return;
         rememberSavedCaptions(result);
@@ -3452,20 +3491,25 @@ export default function App() {
       saveQueue.current = task.then(() => undefined, () => undefined);
       await task;
     } catch (reason) {
-      if (projectScope.current.isCurrent(ticket)) setError(reason instanceof Error ? reason.message : t('notices.grouping.applyFailed'), reason instanceof ApiRequestError);
+      if (projectScope.current.isCurrent(ticket)) {
+        if (reason instanceof ApiRequestError && reason.code === 'GROUPING_PREVIEW_STALE') {
+          setOutdatedGrouping(groupingRevision);
+          setError(t('grouping.stalePreview'));
+        } else setError(reason instanceof Error ? reason.message : t('notices.grouping.applyFailed'), reason instanceof ApiRequestError);
+      }
     } finally {
       groupingInFlight.current = false;
       setGroupingApplying(false);
       if (projectScope.current.isCurrent(ticket)) setBusy('');
     }
   };
-  const applyStyle = () => {
+  const applyStyle = (previewOnly: boolean) => {
     if (!project || !profile || busy || currentProjectActiveJob || groupingInFlight.current) return;
     const style = profile.styles.find((item) => item.id === 'my-tiktok-style') || profile.styles[0];
     if (!style) return;
     setMaxChars(style.maxChars);
     setGroupingMode(style.mode);
-    void applyGrouping(style.mode, style.maxChars);
+    if (!previewOnly) void applyGrouping(style.mode, style.maxChars);
   };
 
   const regenerateSelection = async () => {
@@ -4586,7 +4630,7 @@ export default function App() {
     run: () => void checkSavedMediaSource(unconfirmedSource),
   } : undefined;
   const overlays = <>
-    {pendingMediaReplacement && <ReplaceMediaDialog key={pendingMediaReplacement.id} filename={pendingMediaReplacement.file.name} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError} errorIsServerText={mediaMutationErrorIsServerText}
+    {pendingMediaReplacement && project && <ReplaceMediaDialog key={pendingMediaReplacement.id} current={project.media} replacement={pendingMediaReplacement.file} captionCount={draft.length} working={mediaMutationStatus} error={mediaMutationError} errorIsServerText={mediaMutationErrorIsServerText}
       sourceCheck={sourceCheck} preserveAudioConfirmation={pendingMediaReplacement.audioConfirmation}
       onModeChange={() => { setPendingMediaReplacement((current) => current ? { ...current, audioConfirmation: undefined } : current); setMediaMutationError(''); }}
       onCancel={() => { if (!mediaMutationInFlight.current) { cancelMediaSourceRead(); setPendingMediaReplacement(null); } }} onReplace={(mode, confirmation) => void submitMediaReplacement(mode, confirmation)}/>}
@@ -4662,6 +4706,7 @@ export default function App() {
       entries={recoveryEntries.map((entry) => ({ key: entry.key, savedAt: entry.draft.savedAt,
         label: [entry.draft.captions && t('editor.header.captions'), entry.draft.accuracy && t('workspace.accuracy'), entry.draft.appearance && t('editor.header.appearance')].filter(Boolean).join(' + ') }))}
       selectedKey={selectedRecovery.key}
+      savedCaptions={(savedProject.current || project).captions}
       onSelect={(key) => { cancelUnfinishedRecovery(); setRecoveryConflict(null); setSelectedRecoveryKey(key); }}
       captions={selectedRecovery.draft.captions} accuracy={selectedRecovery.draft.accuracy} appearance={selectedRecovery.draft.appearance}
       status={recoveryConflict?.key === selectedRecovery.key && recoveryConflict.raw === selectedRecovery.raw ? recoveryConflict.status : assessRecovery(selectedRecovery, savedProject.current || project)}
@@ -4706,12 +4751,21 @@ export default function App() {
         </>}/>
       {!showAllProjects && projects.length > 0 && <section className="recent" aria-labelledby="recent-projects-heading">
         <h2 id="recent-projects-heading">{t('home.launcher.recentProjects')}</h2>
-        <ul className="recent-project-list" role="list">
+        <ul className="recent-project-list" role="list" data-stills={trialStills ? true : undefined}>
           {projects.slice(0, 6).map((item) => <li key={item.id}>
             <button data-recent-project={item.id} disabled={!!busy || !profile || projectBin.pendingId === item.id}
               aria-busy={openingProjectId === item.id} onClick={() => void openRecentProject(item.id)}>
+              {trialStills && <i className="recent-still" aria-hidden="true">
+                {stillsConfirmed && trialStills.get(item.id)?.image ? <img alt="" src={trialStills.get(item.id)?.image}/>
+                  : stillsConfirmed && trialStills.get(item.id)?.audio ? <AudioLines size={19}/> : <FolderOpen size={18}/>}
+              </i>}
               <span>{item.title}</span>
-              <small>{openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}</small>
+              <small className="recent-project-meta">
+                {openingProjectId === item.id ? t('home.launcher.opening') : item.captionCount ? t('home.launcher.projectCaptions', { count: item.captionCount }) : t('home.launcher.notGenerated')}
+                {Number.isFinite(Date.parse(item.updatedAt)) ? <time dateTime={item.updatedAt}>
+                  {t('home.launcher.editedAt', { editedDateTime: formatInterfaceDate(interfaceLanguage, item.updatedAt, { time: true, seconds: true }) })}
+                </time> : <span className="recent-date-unavailable">{t('library.dateUnavailable', { label: t('library.editedDate') })}</span>}
+              </small>
               <ChevronRight size={16} aria-hidden="true"/>
             </button>
           </li>)}
@@ -4908,6 +4962,7 @@ export default function App() {
             onCancelReplayEffect={stopEffectReplay}
             replayPlaying={effectReplayPlaying}
             onFontLibraryChange={changeCaptionFontLibrary}
+            mediaElement={mediaElement}
             sampleCaptionText={(selection.captions[0] || active || draft[0])?.text}
             onAppearanceChange={changeAppearance} onInteractionChange={setAppearanceInteracting} onConfirm={confirmInStudio}/>}
 
@@ -5008,13 +5063,13 @@ export default function App() {
             {!!selectedReviewReasons?.length && <ul className="review-reasons" role="list" aria-label={t('review.card.reasons')}>{selectedReviewReasons.map(({ code, params }, index) => <li key={`${code}:${index}`}><strong>{t(`review.reason.${code}.label`, params)}</strong> <span>{t(`review.reason.${code}.hint`, params)}</span></li>)}</ul>}
             <div className="review-actions review-nav-actions">
               <button onClick={() => selectRisk(-1)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) <= 0}><ChevronUp size={15}/>{t('review.card.previous')}</button>
-              <button onClick={replaySelection} disabled={!selection.captions.length}><Play size={15}/>{t('review.card.replay')}</button>
-              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1}><ChevronDown size={15}/>{t('review.card.skip')}</button>
+              <button onClick={replaySelection} disabled={!selection.captions.length} aria-keyshortcuts="R"><Play size={15}/>{t('review.card.replay')}<kbd className="review-keycap" aria-hidden="true">R</kbd></button>
+              <button onClick={() => selectRisk(1, profile?.preferences.autoPlayNextReview ?? true)} disabled={!riskyIds.length || riskyIds.findIndex((id) => selection.ids.includes(id)) === riskyIds.length - 1} aria-keyshortcuts="S"><ChevronDown size={15}/>{t('review.card.skip')}<kbd className="review-keycap" aria-hidden="true">S</kbd></button>
               <label className="review-autoplay-toggle"><input type="checkbox" checked={profile?.preferences.autoPlayNextReview ?? true} onChange={(event) => void setAutoPlayNext(event.target.checked)}/>{t('review.card.autoPlayNext')}</label>
             </div>
             <div className="review-actions review-decision-actions">
               {!!project.transcript?.tokens?.length && project.transcript.timing && <button className="regenerate-range review-improve" onClick={regenerateSelection} disabled={!selection.captions.length || !!currentProjectActiveJob}><RotateCcw size={15}/>{t('review.card.improve')}</button>}
-              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length}><CheckCheck size={15}/>{t('review.card.approveNext')}</button>
+              <button className="review-approve-next primary" onKeyDown={(event) => { if (event.key === 'Enter' && event.repeat) event.preventDefault(); }} onClick={approveAndNext} disabled={!selection.ids.length} aria-keyshortcuts="A"><CheckCheck size={15}/>{t('review.card.approveNext')}<kbd className="review-keycap" aria-hidden="true">A</kbd></button>
             </div>
             <details className="advanced-review-tools">
               <summary>{t('review.card.moreOptions')}</summary>
@@ -5093,17 +5148,21 @@ export default function App() {
                 aria-pressed={groupingMode === mode.id} disabled={!!busy || groupingApplying} onClick={() => setGroupingMode(mode.id)}>
                 <strong>{t(mode.labelKey)}</strong><span>{t(mode.descKey)}</span></button>)}</div>
               <label className="slider"><span>{messagesFor(interfaceLanguage).tr('grouping.targetMaxCharacters', { count: maxChars }, {})}</span>
-                <input type="range" min="6" max="44" value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
-                  aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Number(event.target.value))}/></label>
+                <input type="range" min="6" max={Math.max(44, maxChars, ...(profile?.styles.map(style => Math.ceil(style.maxChars)) ?? []))}
+                  step={Number.isInteger(maxChars) ? 1 : 'any'} value={maxChars} disabled={!!busy || groupingApplying || groupingMode === 'word'}
+                  aria-describedby="grouping-limit-help" onChange={(event) => setMaxChars(Math.round(Number(event.target.value)))}/></label>
               <p id="grouping-limit-help">{groupingMode === 'word' ? t('grouping.wordLimitHelp') : t('grouping.limitHelp')}</p>
-              <div className="preset-actions">
+              <GroupingPreview key={projectMediaKey(project)} project={project} mode={groupingMode} limit={maxChars} dirty={dirty}
+                revision={groupingRevision} outdated={groupingOutdated} onStale={setOutdatedGrouping} time={time}>
+              {(open, blocked, preview) => <div className="preset-actions">
                 <span>{t('grouping.currentGrouping', { mode: currentMode ? t(currentMode.labelKey) : project.mode })}</span>
-                <button className="primary" disabled={!!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping()}>
+                <button className="primary" disabled={blocked || !!busy || groupingApplying || Boolean(currentProjectActiveJob)} onClick={() => void applyGrouping(groupingMode, maxChars, preview)}>
                   {groupingApplying ? t('grouping.applying') : t('grouping.apply')}</button>
                 <button onClick={cleanKhmerSpacing} disabled={!!busy || groupingApplying}><Languages size={14}/>{t('grouping.cleanSpacing')}</button>
                 <button onClick={() => void saveStyle()} disabled={!!busy || groupingApplying || groupingPresetSaving} aria-busy={groupingPresetSaving || undefined}>{groupingPresetSaving ? t('grouping.savingPreset') : t('grouping.savePreset')}</button>
-                {profile?.styles.length ? <button onClick={applyStyle} disabled={!!busy || groupingApplying || !!currentProjectActiveJob}>{t('grouping.applyPreset')}</button> : null}
-              </div>
+                {profile?.styles.length ? <button onClick={() => applyStyle(open)} disabled={!!busy || groupingApplying || !!currentProjectActiveJob || groupingOutdated}>{t(open ? 'grouping.previewPreset' : 'grouping.applyPreset')}</button> : null}
+              </div>}
+              </GroupingPreview>
             </div>;
           })()}
         </>}

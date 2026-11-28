@@ -38,6 +38,17 @@
 .project-library-open svg{flex:none}
 .project-library-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px}
 .project-library-pagination>span{font-size:13px;color:#aab4c0;text-align:center}
+.project-library-jumps, .project-library-jumps > span { display: flex; align-items: center; gap: 4px; }
+.project-library-jumps i { color: var(--muted); font-style: normal; padding-inline: 2px; }
+.project-library-jumps button { min-width: 44px; padding: 0 5px; font-variant-numeric: tabular-nums; }
+.project-library-jumps button[aria-current=page] { color: var(--accent); border-color: var(--accent); }
+@media (min-width: 761px) {
+  .project-library-pagination:has(.project-library-jumps) { justify-content: center; }
+  .project-library-pagination:has(.project-library-jumps) > span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  }
+}
+@media (max-width: 760px) { .project-library-pagination .project-library-jumps { display: none; } }
 .project-library-empty{display:flex;align-items:center;flex-direction:column;gap:11px;margin:20px 0;padding:38px 22px;border:1px solid var(--line);border-radius:12px;background:#101216;color:#a4b0bc;text-align:center}
 .project-library-empty h2{font-size:18px;line-height:1.5;color:#e7ebef;margin:0}
 .project-library-empty p{font-size:14px;line-height:1.6;margin:0;max-width:48ch;overflow-wrap:anywhere}
@@ -107,11 +118,11 @@
 .returning-launcher {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  align-items: end;
+  align-items: start;
   gap: clamp(28px, 5vw, 76px);
   width: min(1100px, calc(100% - 64px));
   margin: 0 auto;
-  padding: clamp(40px, 10vh, 112px) 0 48px;
+  padding: clamp(24px, 4vh, 44px) 0 48px;
 }
 
 .returning-launcher .empty-stage {
@@ -160,6 +171,13 @@
   border-radius: 9px;
 }
 .recent-project-list li + li { border-top: 1px solid var(--line); }
+.returning-launcher .recent [data-stills] button { grid-template-columns: 46px minmax(0, 1fr) auto; }
+.returning-launcher .recent [data-stills] button > span,
+.returning-launcher .recent [data-stills] button > small { grid-column: 2; }
+.returning-launcher .recent [data-stills] button > svg { grid-column: 3; }
+.recent-still { grid-area: 1 / 1 / 3 / 2; display: grid; place-items: center; height: 38px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.recent-still img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.returning-launcher .recent button .recent-still svg { grid-area: 1 / 1; color: var(--muted); }
 .returning-launcher .recent button:is(:hover, :focus-visible):enabled {
   background: #191e24;
   border-color: #434d58;
@@ -173,6 +191,15 @@
   overflow-wrap: anywhere;
 }
 .returning-launcher .recent button small { grid-row: 2; font-size: 13px; color: var(--muted); }
+.recent-project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  line-height: 1.5;
+}
+.recent-project-meta time { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.returning-launcher .recent button .recent-date-unavailable { font: inherit; color: inherit; }
 .returning-launcher .recent button svg { grid-column: 2; grid-row: 1 / 3; color: var(--muted); }
 .returning-launcher .recent button:is(:hover, :focus-visible):enabled svg { color: var(--accent); }
 

@@ -68,6 +68,25 @@ async function openInbox(page: Page) {
   return dialog;
 }
 const card = (dialog: Locator, index: number) => dialog.getByRole('article').filter({ hasText: `កម្ពុជា corrected ${index}` });
+
+for (const width of [1440, 320]) test(`changed Khmer clusters stay intact in both correction lines at ${width}px`, async ({ page }, info) => {
+  const [event, fallback] = state.profile.correctionEvents;
+  event.originalText = 'Khmer  កិ\nខ្មែរ';
+  event.correctedText = 'Khmer  កី\nខ្មារ';
+  fallback.originalText = 'ក'.repeat(260);
+  fallback.correctedText = 'ង'.repeat(260);
+  await page.setViewportSize({ width, height: 900 });
+  await openProject(page);
+  const dialog = await openInbox(page);
+  const pair = dialog.locator('.correction-pair').first();
+  await expect(pair.locator('mark')).toHaveText(['កិ', 'ខ្មែ', 'កី', 'ខ្មា']);
+  expect(await pair.locator('p').allTextContents()).toEqual([event.originalText, event.correctedText]);
+  const plain = dialog.locator('.correction-pair').nth(1);
+  expect(await plain.locator('p').allTextContents()).toEqual([fallback.originalText, fallback.correctedText]);
+  await expect(plain.locator('mark')).toHaveCount(0);
+  expect(await plain.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await pair.screenshot({ path: info.outputPath(`correction-diff-${width}.png`) });
+});
 async function activate(button: Locator) { await button.focus(); await button.press('Enter'); }
 async function expectCardHeadingVisible(target: Locator) {
   await expect.poll(() => target.locator('.correction-meta').evaluate((node) => {

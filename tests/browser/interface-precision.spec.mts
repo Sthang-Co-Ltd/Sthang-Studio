@@ -38,6 +38,7 @@ for (const width of [2048, 1024, 390]) test(`precision controls preserve the evi
   if (width === 390) {
     expect((await field.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     expect((await page.getByRole('button', { name: /^Reset size to/ }).boundingBox())!.width).toBeGreaterThanOrEqual(44);
+    expect((await slider(page, 'Size').boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
   await page.screenshot({ path: info.outputPath(`appearance-${width}.png`) });
   await tools(page).click();
@@ -163,6 +164,11 @@ test('typed changes and single-setting resets retain sibling settings and one-st
 test('advanced numbers preserve percentages, half steps, zero and motion duration semantics', async ({ page }) => {
   await appearance(page);
   await page.getByText('More appearance', { exact: true }).click();
+  const sizeTrack = (await slider(page, 'Size').boundingBox())!;
+  const outlineTrack = (await slider(page, 'Outline').boundingBox())!;
+  expect(outlineTrack.x).toBeCloseTo(sizeTrack.x, 0);
+  expect(outlineTrack.width).toBeCloseTo(sizeTrack.width, 0);
+  expect((await exact(page, 'outline').boundingBox())!.x).toBeCloseTo((await exact(page, 'size').boundingBox())!.x, 0);
   await setExact(page, 'outline', '4.5'); await expect(slider(page, 'Outline')).toHaveValue('4.5');
   await setExact(page, 'shadow', '0'); await expect(slider(page, 'Shadow')).toHaveValue('0');
   const background = page.locator('.toggle-field').filter({ hasText: 'Background box' });

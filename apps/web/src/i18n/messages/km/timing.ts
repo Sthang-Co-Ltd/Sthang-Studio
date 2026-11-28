@@ -2,6 +2,7 @@ import type { EnglishMessages, KhmerMessages } from '../../types';
 
 export const timingMessages: KhmerMessages<EnglishMessages['timing']> = {
   waveform: {
+    trimReadout: "{edgeLabel} {edgeTime} ({signedDeltaMs} ms)",
     overview: "ផ្នែកដែលកំពុងមើលក្នុងឃ្លីប",
     noPreviousCaption: "គ្មានអក្សររត់មុននេះទេ។ បិទ «រំកិលគែមជាប់គ្នាផងដែរ» ដើម្បីកែគែមនេះ។",
     noNextCaption: "គ្មានអក្សររត់បន្ទាប់ទេ។ បិទ «រំកិលគែមជាប់គ្នាផងដែរ» ដើម្បីកែគែមនេះ។",
@@ -111,6 +112,10 @@ export const timingMessages: KhmerMessages<EnglishMessages['timing']> = {
   start: "ចាប់ផ្ដើម",
   setPlayhead: "កំណត់ត្រង់ទីតាំងចាក់",
   words: {
+    repairCurrent: 'ពេលវេលាបច្ចុប្បន្ន',
+    repairProposed: 'គែមសំណើថ្មី',
+    repairSelectedCaption: 'អក្សររត់ដែលបានជ្រើស',
+    repairEdgeChange: 'ពេល{edge}៖ {before} ទៅ {after} ({delta} ms)',
     confirmEnd: "កំណត់ពេលបញ្ចប់ត្រឹម {end} ឬមុននោះ។ ការកែពេលវេលាដោយដៃនោះនឹងបញ្ជាក់ពាក្យនេះ។",
     confirmStart: "កំណត់ពេលចាប់ផ្ដើមត្រឹម {start} ឬក្រោយនោះ។ ការកែពេលវេលាដោយដៃនោះនឹងបញ្ជាក់ពាក្យនេះ។",
     confirmRange: "រក្សាពាក្យនេះឱ្យនៅចន្លោះ {start} និង {end}។ ការកែពេលវេលាដោយដៃនឹងបញ្ជាក់វា។",

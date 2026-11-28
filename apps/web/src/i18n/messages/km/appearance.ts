@@ -2,6 +2,8 @@ import type { EnglishMessages, KhmerMessages } from '../../types';
 
 export const appearanceMessages: KhmerMessages<EnglishMessages['appearance']> = {
   workspace: {
+    projectColors: "ពណ៌ក្នុងគម្រោង",
+    projectColorsFor: "ពណ៌ក្នុងគម្រោងសម្រាប់ {label}",
     saveState: {
       saving: "កំពុងរក្សាទុករូបរាង…",
       pending: "កំពុងរក្សាទុកស្វ័យប្រវត្តិ…",
@@ -161,6 +163,13 @@ export const appearanceMessages: KhmerMessages<EnglishMessages['appearance']> = 
   },
   undo: "ត្រឡប់វិញ",
   looks: {
+    fullCaption: "គំរូម៉ូដអក្សរ · អូសដើម្បីអានអក្សររត់ទាំងមូល",
+    compare: "ប្រៀបធៀបម៉ូដអក្សរ",
+    currentVersion: "បច្ចុប្បន្ន",
+    candidate: "ម៉ូដសាកល្បង",
+    applyCandidate: "ប្រើម៉ូដសាកល្បង",
+    sample: "គំរូម៉ូដអក្សរលើរូបភាពនឹង",
+    frameUnavailable: "មិនអាចបង្ហាញរូបភាពវីដេអូបានទេ។ សូមសាកម្ដងទៀតបន្ទាប់ពីវីដេអូផ្ទុករួច។",
     current: "ម៉ូដអក្សរបច្ចុប្បន្ន <b>{look}</b>",
     description: {
       clean: "អក្សរពណ៌សមានតុល្យភាព ជាមួយស៊ុមអក្សរ និងស្រមោលស្រាលៗ។",
@@ -188,6 +197,9 @@ export const appearanceMessages: KhmerMessages<EnglishMessages['appearance']> = 
     slider: "របាររំកិល {label}",
   },
   fontSearch: {
+    preview: "មើលពុម្ពអក្សរជាមុន",
+    previewUnavailable: "មិនអាចបង្ហាញពុម្ពអក្សរជាមុនបានត្រឹមត្រូវទេ",
+    sample: "សួស្តី ពី Sthang Studio",
     placeholder: "ស្វែងរកក្នុងចំណោមពុម្ពអក្សរខ្មែរ {count} ដែលបានដំឡើង…",
     addedRegularBold: "បានបន្ថែមក្នុង Studio · ធម្មតា + ដិត",
     addedRegular: "បានបន្ថែមក្នុង Studio · តែកម្រាស់ធម្មតា",

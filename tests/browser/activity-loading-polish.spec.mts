@@ -59,6 +59,36 @@ for (const width of [1440, 390]) test(`Activity keeps true states and recovery v
   await expect(rows.first().getByText('Updated', { exact: true })).toBeVisible();
 });
 
+for (const reducedMotion of ['no-preference', 'reduce'] as const) test('Activity marks a new completion once with ' + reducedMotion + ' motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion });
+  state.jobs = [job('live', 'running'), job('archive', 'completed')];
+  await page.addInitScript(() => {
+    document.addEventListener('transitionrun', (event) => {
+      if (event.target instanceof SVGElement && event.target.classList.contains('job-completion-mark') && event.propertyName === 'opacity') {
+        const mark = event.target;
+        mark.dataset.appearances = String(Number(mark.dataset.appearances || 0) + 1);
+      }
+    });
+  });
+  await openProject(page);
+  const dialog = await activity(page);
+  const live = dialog.locator('article').first();
+  const mark = live.locator('.job-completion-mark');
+  const archive = dialog.locator('article').nth(1).locator('.job-completion-mark');
+  await expect(mark).toHaveCSS('opacity', '0');
+  await expect(archive).toHaveCSS('opacity', '1');
+  state.jobs[0] = { ...state.jobs[0], status: 'completed', progress: 100 };
+  await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
+  await expect(live.locator('.job-state')).toHaveText('Completed');
+  await expect(mark).toHaveCSS('opacity', '1');
+  state.jobs[0] = { ...state.jobs[0], message: 'Refreshed completed job' };
+  await page.evaluate(() => window.dispatchEvent(new Event('sthang:jobs-updated')));
+  await expect(live).toContainText('Refreshed completed job');
+  if (reducedMotion === 'reduce') await expect(mark).not.toHaveAttribute('data-appearances');
+  else await expect(mark).toHaveAttribute('data-appearances', '1');
+  await expect(archive).not.toHaveAttribute('data-appearances');
+});
+
 test('Activity updates numbers without replacing rows, open Details, or focused actions', async ({ page }) => {
   state.jobs = [job('running', 'running'), job('finished', 'completed', { completedAt: new Date().toISOString(), message: 'Done.' })];
   await openProject(page); const dialog = await activity(page);

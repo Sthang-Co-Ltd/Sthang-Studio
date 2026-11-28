@@ -4,4 +4,14 @@
   .correction-modal .correction-actions button { min-height: 44px !important; }
 }
 .correction-read-error { color: #ffb8ae; margin: 8px 0; font-size: 14px; }
+.correction-pair > div { min-width: 0; }
+.correction-pair p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.correction-pair mark {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  text-decoration: underline dotted;
+  text-underline-offset: .2em;
+}
+.correction-pair > div:last-child mark { color: var(--accent); text-decoration-style: solid; }
 .correction-modal :focus-visible { outline: 2px solid #d7ff4f; outline-offset: 2px; }

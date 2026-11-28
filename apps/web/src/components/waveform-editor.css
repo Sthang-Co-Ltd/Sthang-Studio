@@ -27,6 +27,22 @@
 .waveform-data-canvas.hover-edge { cursor: ew-resize; }
 .waveform-data-canvas.hover-move { cursor: grab; }
 .waveform-canvas-wrap.dragging .waveform-data-canvas { cursor: ew-resize; }
+.timing-trim-readout {
+  position: absolute;
+  bottom: 70px;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 :is(.fine-timing, .timing-waveform-surface) .waveform-navigation { grid-template-columns: 52px minmax(0, 1fr) 52px; font-size: 11px; color: #b3bdcb; margin-top: 3px; }
 :is(.fine-timing, .timing-waveform-surface) .waveform-navigation input { min-width: 0; height: 28px; margin: 0; cursor: ew-resize; }
 .timing-pan-track { display: contents; }
@@ -82,6 +98,23 @@
 .word-timing-selected-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .word-timing-candidate { border: 1px solid #8ba653; background: #172211; border-radius: 8px; padding: 10px; margin: 10px 0; font-size: 13px; line-height: 1.5; }
 .word-timing-candidate > div { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.timing-repair-diagram { margin: 10px 0; padding: 10px 12px; color: #e4e9ed; background: #111519; border-radius: 6px; }
+.timing-repair-diagram figcaption { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: #c0c8cf; }
+.timing-repair-diagram figcaption span { display: inline-flex; gap: 6px; align-items: center; }
+.repair-legend-interval, .repair-interval { border: 1px solid #b2bac2; border-radius: 2px; }
+.repair-legend-interval { width: 1.2em; height: .55em; }
+.repair-legend-edge, .repair-marker { border-inline-start: 3px solid #d7ff4f; height: 12px; }
+.timing-repair-diagram ol { margin: 0; padding: 0; list-style: none; }
+.timing-repair-diagram li { padding-block-start: 8px; margin-block-start: 8px; border-block-start: 1px solid #343a40; }
+.repair-caption-text { margin-inline-start: 8px; overflow-wrap: anywhere; }
+.repair-scale { position: relative; margin: 8px 2px 4px; height: 12px; border-radius: 2px; background: #22282d; }
+.repair-interval, .repair-marker { position: absolute; }
+.repair-interval { inset-block: 2px; }
+.repair-marker { inset-block-start: 0; transform: translateX(-50%); }
+.timing-repair-diagram small { display: block; font-size: 12px; color: #c9d1d8; font-variant-numeric: tabular-nums; }
+@media (forced-colors: active) {
+  .repair-legend-edge, .repair-marker { border-color: Highlight; }
+}
 .word-timing-empty { color: #c6cfda; font-size: 13px; padding: 8px 0; }
 :is(.fine-timing, .timing-waveform-surface) .timing-options-controls input[type='checkbox'] { width: 16px; height: 16px; accent-color: #d7ff4f; }
 .fine-timing-active .media-stage { height: min(25vh, 240px); min-height: 170px; flex: none; }

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useI18n } from '../i18n';
 import type { CaptionSegment } from '@kcs/shared';
-import { Check, ChevronLeft, ChevronRight, ListChecks, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Info, ListChecks, LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { ExportCheckIssue, ExportRepairTarget } from '../export-checks';
 import { formatTimestamp } from '../timestamp';
 import './export-checks.css';
@@ -33,6 +33,8 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
   const { t, tn } = useI18n();
   const [page, setPage] = useState(0);
   const [issuesExpanded, setIssuesExpanded] = useState(false);
+  const checkTrigger = useRef<HTMLButtonElement | null>(null);
+  const details = useRef<HTMLDetailsElement>(null);
   const identity = issues.map((issue) => issue.id).join('\0');
   useEffect(() => { setPage(0); }, [identity]);
   const captionsById = useMemo(() => new Map(captions.map((caption, index) => [caption.id, { caption, index }])), [captions]);
@@ -45,6 +47,30 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
   const suggestions = issues.length - blockers;
   const blockerSummary = blockers > 0 ? tn('export.checks.blockerCount', blockers) : t('export.checks.noBlockers');
   useEffect(() => { if (blockers > 0) setIssuesExpanded(true); }, [blockers]);
+
+  useLayoutEffect(() => {
+    const trigger = checkTrigger.current;
+    if (!trigger || layoutState === 'checking') return;
+    checkTrigger.current = null;
+    if (layoutState !== 'blocked' || document.activeElement !== trigger) return;
+    const workbench = trigger.closest('.editor-workbench');
+    const preview = workbench?.querySelector('.stage-column');
+    if (!workbench || !preview || getComputedStyle(preview).position !== 'sticky') return;
+    const box = trigger.getBoundingClientRect();
+    if (!trigger.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))) return;
+
+    // Only the explicit check that still owns focus can bring its result into view.
+    if (!issuesExpanded || currentPage !== 0) {
+      checkTrigger.current = trigger;
+      setIssuesExpanded(true);
+      setPage(0);
+      return;
+    }
+    const title = details.current?.querySelector<HTMLElement>('[data-severity="blocker"] .export-check-title strong');
+    if (!title) return;
+    title.focus({ preventScroll: true });
+    workbench.scrollBy({ top: title.getBoundingClientRect().top - preview.getBoundingClientRect().bottom - 12, behavior: 'instant' });
+  }, [layoutState, issuesExpanded, currentPage]);
 
   const changePage = (next: number) => {
     setPage(next);
@@ -69,7 +95,8 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
       <button type="button" onClick={(event) => appearancePrerequisite.onRecover(event.currentTarget)}>{appearancePrerequisite.actionLabel}</button>
     </div>}
 
-    {onCheckLayout && <div className={`export-layout-check ${layoutState || 'unchecked'}`}>
+    {onCheckLayout && <div className={`export-layout-check ${layoutState || 'unchecked'}`}
+      onBlurCapture={() => { checkTrigger.current = null; }}>
       <div role="status">
         <strong>{layoutState === 'passed' ? <><Check size={15}/>{t('export.checks.layoutPassed')}</>
           : layoutState === 'checking' ? <><LoaderCircle className="spin" size={15}/>{t('export.checks.layoutChecking')}</>
@@ -84,14 +111,24 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
       </div>
       {layoutState === 'checking'
         ? <button type="button" onClick={onCancelLayout}>{t('export.checks.cancelCheck')}</button>
-        : <button type="button" disabled={layoutDisabled} onClick={onCheckLayout}>{layoutState === 'unchecked' ? t('export.checks.checkLayout') : t('export.checks.recheckLayout')}</button>}
+        : <button type="button" disabled={layoutDisabled} onClick={(event) => {
+          checkTrigger.current = event.currentTarget;
+          onCheckLayout();
+        }}>{layoutState === 'unchecked' ? t('export.checks.checkLayout') : t('export.checks.recheckLayout')}</button>}
     </div>}
 
-    {issues.length > 0 && <details className="export-check-details" open={issuesExpanded} onToggle={(event) => setIssuesExpanded(event.currentTarget.open)}>
+    {issues.length > 0 && <details ref={details} className="export-check-details" open={issuesExpanded} onToggle={(event) => setIssuesExpanded(event.currentTarget.open)}>
       <summary>{blockers > 0 ? t('export.checks.expandBlockers') : t('export.checks.expandSuggestions')}</summary>
       <ol className="export-check-list" aria-label={t('export.checks.issuesLabel')} start={currentPage * PAGE_SIZE + 1}>
         {visible.map((issue) => <li key={issue.id} className="export-check-item" data-severity={issue.severity}>
-          <div className="export-check-title"><strong>{issue.titleMessage ? t(issue.titleMessage.key, issue.titleMessage.params) : issue.title}</strong><span>{issue.severity === 'blocker' ? t('export.checks.blocks') : t('export.checks.suggestion')}</span></div>
+          <div className="export-check-title">
+            <strong tabIndex={-1}>{issue.titleMessage ? t(issue.titleMessage.key, issue.titleMessage.params) : issue.title}</strong>
+            <span>{issue.severity === 'blocker'
+              ? <><TriangleAlert size={14} aria-hidden="true"/>{t('export.checks.blocks')}</>
+              : <><Info size={14} aria-hidden="true"/>{t('export.checks.suggestion')}</>}</span>
+          </div>
+          {issue.visibleReasons.length > 0 && <ul className="export-check-reasons">{issue.visibleReasons.map(({ text, message, index }) => <li key={index} data-server-text={issue.id.startsWith('layout:') && index === 0 || undefined}>{message ? t(message.key, message.params) : text}</li>)}</ul>}
+          <p className="export-check-remedy">{issue.remedyMessage ? t(issue.remedyMessage.key, issue.remedyMessage.params) : issue.remedy}</p>
           {issue.captionIds.length > 1 && <p className="export-check-group">{t('export.checks.group')}</p>}
           {issue.captionIds.map((id) => {
             const match = captionsById.get(id);
@@ -101,8 +138,6 @@ export function ExportChecksPanel({ captions, issues, onRepair, unsaved, saveBlo
               <button type="button" onClick={() => onRepair({ kind: issue.repair, captionId: id })}>{t('export.checks.goToCaption', { position: match.index + 1 })}</button>
             </div>;
           })}
-          {issue.visibleReasons.length > 0 && <ul className="export-check-reasons">{issue.visibleReasons.map(({ text, message, index }) => <li key={index} data-server-text={issue.id.startsWith('layout:') && index === 0 || undefined}>{message ? t(message.key, message.params) : text}</li>)}</ul>}
-          <p className="export-check-remedy">{issue.remedyMessage ? t(issue.remedyMessage.key, issue.remedyMessage.params) : issue.remedy}</p>
           {issue.captionIds.length === 0 && <button className="export-check-global-action" type="button" onClick={() => onRepair({ kind: issue.repair, focus: issue.id === 'font' ? 'font' : undefined })}>{issue.id === 'font' ? t('export.checks.chooseFont') : issue.repair === 'appearance' ? t('export.checks.reviewAppearance') : t('export.checks.reviewCaptions')}</button>}
         </li>)}
       </ol>

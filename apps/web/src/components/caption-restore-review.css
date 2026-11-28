@@ -2,7 +2,47 @@
 .caption-restore-review h3 { margin: 0; font-size: 16px; color: #ecf4d8; }
 .caption-restore-review p { font-size: 13px; line-height: 1.6; color: #bbc3b4; overflow-wrap: anywhere; }
 .caption-restore-filename { color: #edf2e8 !important; }
-.caption-restore-samples { max-height: 250px; overflow-y: auto; border: 1px solid #343e2d; border-radius: 8px; padding: 0 12px; background: #0e130b; }
+.caption-restore-sections {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.caption-restore-sections label { display: grid; position: relative; min-width: 0; cursor: pointer; }
+.caption-restore-sections input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.caption-restore-sections span {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  padding-inline: 3px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.caption-restore-sections input:checked + span {
+  background: #252e1b;
+  color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.caption-restore-sections input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: -2px; }
+.caption-restore-review .caption-restore-range { margin: 7px 0; font-variant-numeric: tabular-nums; }
+@media (max-width: 620px) { .caption-restore-sections span { min-height: 44px; } }
+@media (forced-colors: active) { .caption-restore-sections input:checked + span { border-bottom: 2px solid Highlight; } }
+.caption-restore-samples { position: relative; max-height: 250px; overflow-y: auto; border: 1px solid #343e2d; border-radius: 8px; padding: 0 12px; background: #0e130b; }
 .caption-restore-samples > div { padding: 10px 0; border-bottom: 1px solid #2c3426; }
 .caption-restore-samples span { font: 12px ui-monospace, monospace; color: #a8b397; }
 .caption-restore-samples p { margin: 5px 0 0; white-space: pre-wrap; color: #e1e9d8; }

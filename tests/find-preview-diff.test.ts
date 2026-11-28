@@ -48,6 +48,14 @@ test('Khmer vowels, emoji sequences, flags and combining accents remain whole gr
   assert.equal(changed(composed.before), 'é'); assert.equal(changed(composed.after), 'e\u0301');
 });
 
+test('a vowel edit highlights the full Khmer consonant stack on either side', () => {
+  for (const stem of ['ខ្ម', 'ខ្\u200Dម', 'ខ្\u200Cម', 'ស្ត្រ']) {
+    const result = exact(`${stem}ែរ`, `${stem}ារ`);
+    assert.deepEqual(result.before, [{ text: stem + 'ែ', changed: true }, { text: 'រ', changed: false }]);
+    assert.deepEqual(result.after, [{ text: stem + 'ា', changed: true }, { text: 'រ', changed: false }]);
+  }
+});
+
 test('locked and no-op plan entries remain unhighlighted; regex output is consumed verbatim', () => {
   const caption = (id: string, value: string, textLocked = false): CaptionSegment => ({ id, text: value, textLocked, startMs: 0, endMs: 1000 });
   const lockedPlan = planReplacement([caption('locked', 'CapCut', true)], '(Cap)(Cut)', '$2-$1', 'regex');

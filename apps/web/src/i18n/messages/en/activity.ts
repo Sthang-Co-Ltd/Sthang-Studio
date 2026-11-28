@@ -8,6 +8,7 @@ export const activityMessages = {
   cancelled: 'Cancelled',
   interrupted: 'Interrupted',
   needsAttention: 'Needs attention',
+  attentionFilter: "Needs attention ({count})",
   generate: 'Generate captions',
   export: 'Export captioned video',
   refine: 'Refine regenerated captions',

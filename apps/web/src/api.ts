@@ -8,6 +8,7 @@ import type {
   CaptionLayoutCheckResult,
   CaptionFontImportResult,
   CaptionMode,
+  GroupingPassage,
   CaptionProject,
   CaptionProjectAppearance,
   CaptionProjectSummary,
@@ -460,13 +461,19 @@ export const api = {
     const query = new URLSearchParams({ filename: expectedMedia.filename, size: String(expectedMedia.size) });
     return request<WordHighlightReceipt>(`/api/projects/${projectId}/caption-word-timing/publication/${requestId}?${query}`, { signal });
   },
+  previewGrouping: (id: string, mode: CaptionMode, maxChars: number, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>, expectedUpdatedAt: string, atMs: number, signal: AbortSignal) =>
+    request<GroupingPassage>(`/api/projects/${encodeURIComponent(id)}/resegment/preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+      body: JSON.stringify({ mode, maxChars, expectedMedia, expectedUpdatedAt, atMs }),
+    }),
   resegment: (
     id: string,
     mode: CaptionMode,
     maxChars: number | undefined,
     expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>,
+    preview?: { atMs: number; digest: string },
   ) => request<CaptionProject>(`/api/projects/${id}/resegment`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, maxChars, expectedMedia }),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, maxChars, expectedMedia, preview }),
   }),
   normalizeKhmerSpacing: (id: string, expectedMedia: Pick<CaptionProject['media'], 'filename' | 'size'>, expectedUpdatedAt: string) => request<CaptionProject>(`/api/projects/${id}/normalize-khmer-spacing`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedMedia, expectedUpdatedAt }),

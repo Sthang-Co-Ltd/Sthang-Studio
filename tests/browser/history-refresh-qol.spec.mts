@@ -70,6 +70,39 @@ for (const width of [1440, 390]) test('History guards a loaded refresh, retains 
   } finally { gate.resolve(); }
 });
 
+test('History keeps lock counts on their checkpoint and Restore aligned at desktop and phone widths', async ({ page }, info) => {
+  await installFixture(page);
+  await page.route('**/api/projects/landscape/history', (route) => route.fulfill({ json: [
+    { ...checkpoint, textLockedCount: 2, timingLockedCount: 3 },
+    { ...checkpoint, id: 'second', label: 'Before updating a long Khmer caption · មុនពេលកែសម្រួលអក្សររត់' },
+  ] }));
+  await openProject(page);
+  const dialog = await openHistory(page);
+  const rows = dialog.locator('article');
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const copy = rows.first().locator('.history-copy');
+    const lockCounts = copy.getByText('2 text locks · 3 timing locks', { exact: true });
+    await expect(lockCounts).toBeHidden();
+    const disclosure = copy.locator('summary');
+    await disclosure.press('Enter');
+    await expect(lockCounts).toBeVisible();
+    await expect(rows.nth(1).locator('details')).not.toHaveAttribute('open');
+    const reason = (await copy.locator('strong').boundingBox())!;
+    const date = (await copy.locator('time').boundingBox())!;
+    if (width === 320) expect(date.y).toBeGreaterThanOrEqual(reason.y + reason.height);
+    else expect(date.x + date.width).toBeLessThanOrEqual(reason.x);
+    const actions = rows.getByRole('button', { name: /^Restore / });
+    await expect(actions).toHaveCount(2);
+    const [firstX, secondX] = await actions.evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().x));
+    expect(firstX).toBeCloseTo(secondX, 1);
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath('checkpoint-' + width + '.png') });
+    await disclosure.press('Space');
+    await expect(lockCounts).toBeHidden();
+  }
+});
+
 test('closing a pending History refresh permits a fresh visit and ignores the old result', async ({ page }) => {
   await installFixture(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });

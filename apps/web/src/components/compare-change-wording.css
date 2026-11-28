@@ -1,0 +1,28 @@
+.regen-change-wording {
+  display: grid;
+  gap: 5px;
+  margin: 0 12px 12px;
+  border-inline-start: 2px solid var(--line);
+  padding-inline-start: 10px;
+}
+
+.regen-change-wording > div {
+  display: grid;
+  grid-template-columns: minmax(4.5em, 26%) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+}
+
+.regen-change-wording dt { color: #a5aeb9; font-size: 12px; line-height: 1.55; }
+.regen-change-wording dd { margin: 0; font: 14px/1.65 'Noto Sans Khmer', 'Plus Jakarta Sans', sans-serif; white-space: pre-wrap; }
+.regen-change-wording :is(dt, dd) { min-width: 0; overflow-wrap: anywhere; }
+.regen-change-wording mark {
+  color: inherit;
+  background: transparent;
+  text-decoration: underline dotted;
+  text-underline-offset: .2em;
+}
+.regen-change-wording > .proposed-wording mark {
+  color: var(--accent);
+  text-decoration-style: solid;
+}

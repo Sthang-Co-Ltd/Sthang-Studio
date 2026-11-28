@@ -1,6 +1,17 @@
 import type { EnglishMessages, KhmerMessages } from '../../types';
 
 export const groupingMessages: KhmerMessages<EnglishMessages['grouping']> = {
+  preview: 'មើលការរៀបចំឃ្លាជាមុន',
+  retry: 'សាកល្បងម្ដងទៀត',
+  current: 'បច្ចុប្បន្ន',
+  proposed: 'សំណើថ្មី',
+  loadingPreview: 'កំពុងផ្ទុកការមើលជាមុន…',
+  emptyPreview: 'គ្មានអក្សររត់នៅក្នុងផ្នែកនេះទេ។',
+  previewUnavailable: 'មិនអាចមើលជាមុនបានទេ។',
+  saveFirst: 'រក្សាទុកការកែសម្រួលអក្សររត់បច្ចុប្បន្នសិន មុនពេលមើលការរៀបចំឃ្លាជាមុន។',
+  reopen: 'គម្រោងដែលបានរក្សាទុកបានផ្លាស់ប្ដូរនៅកន្លែងផ្សេងទៀត។ សូមបើកគម្រោងឡើងវិញ មុនពេលមើលការរៀបចំឃ្លាជាមុន។',
+  previewPreset: 'មើលការរៀបចំឃ្លាដែលបានរក្សាទុកជាមុន',
+  stalePreview: 'គម្រោងដែលបានរក្សាទុកបានផ្លាស់ប្ដូរបន្ទាប់ពីការមើលជាមុននេះ ដូច្នេះការរៀបចំឃ្លាមិនត្រូវបានអនុវត្តទេ។ សូមបើកគម្រោងឡើងវិញ មុនពេលអនុវត្តការរៀបចំឃ្លា។',
   dynamic: "បត់បែន",
   dynamicDescription: "ចង្វាក់ TikTok រហ័ស",
   word: "តាមពាក្យ",

@@ -1,7 +1,7 @@
 import { useI18n } from '../i18n';
 import { activityMessageKey, activityStageNameKey } from '../server-labels';
 import { formatInterfaceDate } from '../i18n/dates';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CaptionProject, ProcessingJob } from '@kcs/shared';
 import { ExportJobFreshness } from './ExportHistory';
 import type { AppearanceReconciliation } from '../caption-appearance-reconciliation';
@@ -56,10 +56,9 @@ function jobLabelKey(job: ProcessingJob) {
   return 'activity.improve';
 }
 
-function icon(job: ProcessingJob) {
+function pendingOrStoppedIcon(job: ProcessingJob) {
   if (job.status === 'queued') return <Clock3 size={16}/>;
   if (job.status === 'running') return <LoaderCircle className="spin" size={16}/>;
-  if (job.status === 'completed') return <CheckCircle2 size={16}/>;
   if (job.status === 'cancelled') return <Ban size={16}/>;
   return <CircleAlert size={16}/>;
 }
@@ -102,6 +101,19 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
   const dialog = useRef<HTMLElement | null>(null);
   const presence = useSurfacePresence(open ? 'sheet' : null, dialog, 'sheet');
   const entryCard = useRef<HTMLElement | null>(null);
+  const filterButton = useRef<HTMLButtonElement>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const lastFocused = useRef<HTMLElement | null>(null);
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const attentionJobs = jobs.filter((job) => job.status === 'failed' || job.status === 'interrupted');
+  const canFilter = attentionJobs.length > 0 && attentionJobs.length < jobs.length;
+  useLayoutEffect(() => {
+    if (!open || !canFilter) setAttentionOnly(false);
+    if (!open) lastFocused.current = null;
+    else if (lastFocused.current && !lastFocused.current.isConnected && document.activeElement === document.body) {
+      (filterButton.current || refreshButton.current)?.focus({ preventScroll: true });
+    }
+  }, [open, canFilter, jobs]);
   useModalFocus(open, dialog, onClose, entryCard, getResultFocusTarget);
   const [actionErrors, setActionErrors] = useState<Record<string, { observation: string; action: 'resume' | 'cancel' }>>({});
   async function act(job: ProcessingJob, action: 'resume' | 'cancel', button: HTMLButtonElement) {
@@ -180,7 +192,8 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
       : t('activity.recentHelp');
 
   return <div className="modal-backdrop studio-sheet" data-motion-state={open ? 'open' : 'closed'} inert={!open} aria-hidden={!open || undefined} onMouseDown={onClose}>
-    <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="activity-title" tabIndex={-1} className="modal job-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialog} role="dialog" aria-modal={open || undefined} aria-labelledby="activity-title" tabIndex={-1} className="modal job-modal"
+      onFocusCapture={(event) => { lastFocused.current = event.target; }} onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head job-modal-head">
         <div className="job-modal-heading-copy"><strong id="activity-title">{t('activity.title')}</strong><span>{queueSummary}</span></div>
         <button className="job-modal-close" aria-label={t('activity.close')} title={t('activity.close')} onClick={onClose}><X size={18}/></button>
@@ -190,7 +203,9 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
           ? loadState.loaded ? t('activity.refreshing') : t('activity.loading')
           : loadState.error && !loadState.loaded ? t('activity.unavailable')
           : t(loadState.error ? 'activity.lastLoadedCount' : 'activity.count', { active: activeJobs.length, recent: jobs.length })}</span>
-        <button aria-disabled={loadState.loading || undefined} aria-busy={loadState.loading || undefined} onClick={() => { if (!loadState.loading) onRefresh(true); }}><RefreshCw size={13}/>{loadState.error ? t('activity.retry') : t('activity.refresh')}</button>
+        {canFilter && <button type="button" ref={filterButton} className="job-attention-filter" aria-pressed={attentionOnly}
+          onClick={() => setAttentionOnly(!attentionOnly)}>{t('activity.attentionFilter', { count: attentionJobs.length })}</button>}
+        <button ref={refreshButton} aria-disabled={loadState.loading || undefined} aria-busy={loadState.loading || undefined} onClick={() => { if (!loadState.loading) onRefresh(true); }}><RefreshCw size={13}/>{loadState.error ? t('activity.retry') : t('activity.refresh')}</button>
       </div>
       {uncertainProject && <p className="job-outcome-message" role="status">{tr('activity.uncertain', { project: uncertainProject }, { b: (text) => <strong>{text}</strong> })}</p>}
       {loadState.error && <p className="job-load-error" role="alert">{loadState.error}{loadState.loaded ? t('activity.lastLoadedWarning') : ''}</p>}
@@ -200,7 +215,7 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
         <code title={exportDirectory || undefined}>{exportDirectory || exportLocationError || t('activity.loadingLocation')}</code>
       </div>}
       <div className="job-list" aria-busy={loadState.loading}>
-        {jobs.map((job) => {
+        {(canFilter && attentionOnly ? attentionJobs : jobs).map((job) => {
           const pending = pendingActions[job.id];
           const stopping = isStopping(job);
           const duration = jobDurationMs(job, now);
@@ -215,7 +230,10 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
           const messageKey = activityMessageKey(locale, job.stage, job.canResume);
           const stageNameKey = activityStageNameKey(job.stage);
           return <article ref={entryJobId === job.id ? entryCard : undefined} tabIndex={-1} key={job.id} className={`job-${job.status}`} aria-label={t('activity.jobForProject', { job: label, project: job.projectTitle })}>
-            <div className="job-status-icon" aria-hidden="true">{icon(job)}</div>
+            <div className="job-status-icon" aria-hidden="true">
+              {job.status !== 'completed' && pendingOrStoppedIcon(job)}
+              <CheckCircle2 className="job-completion-mark" size={16}/>
+            </div>
             <div className="job-copy">
               <div className="job-title-line"><strong>{label}</strong><span title={job.projectTitle}>{job.projectTitle}</span></div>
               <div className="job-meta">
@@ -227,7 +245,6 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
                 <div className="job-progress" role="progressbar" aria-label={t('activity.progress', { job: label })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress} aria-valuetext={t('activity.progressStatus', { progress: job.progress, status })}><i style={{ width: `${job.progress}%` }}/></div>
                 <span className="job-percent" aria-hidden="true">{job.progress}%</span>
               </div>
-              {job.error && <em data-server-text>{job.error}</em>}
               {job.status === 'completed' && job.resultExport && <ExportJobFreshness job={job} project={project} appearance={appearanceReconciliation.value}/>}
               <details className="job-details">
                 <summary>{t('activity.details')}</summary>
@@ -237,15 +254,20 @@ export function JobManager({ open, entryJobId, uncertainProject, jobs, loadState
                   {job.resultExport && <div><dt>{t('activity.video')}</dt><dd>{t('activity.videoMetadata', { width: job.resultExport.width, height: job.resultExport.height, frameRate: job.resultExport.frameRate.toFixed(job.resultExport.frameRate % 1 ? 2 : 0), size: (job.resultExport.sizeBytes / 1024 / 1024).toFixed(1) })}</dd></div>}
                 </dl>
               </details>
-              {failedAction?.observation === job.status && <p role="alert" className="job-action-error">{failedAction.action === 'resume' ? t('activity.resumeUnconfirmed') : t('activity.stopUnconfirmed')}</p>}
-              {blockedSave?.id === job.id && <p role="alert" className="job-action-error">{blockedSave.message}</p>}
-              <div className="job-actions">
-                {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}><Play size={13}/>{openingJobId === job.id ? t('activity.openingResult') : t('activity.openResult')}</button>}
-                {blockedSave?.id === job.id && <button className="job-action-primary" onClick={onReturnToEdits}>{t('activity.returnToEdits')}</button>}
-                {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>{t('activity.downloadVideo')}</button>}
-                {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}>{openingJobId === job.id ? t('activity.openingProject') : t('activity.openProject')}</button>}
-                {job.canResume && <button aria-disabled={Boolean(pending) || undefined} aria-busy={pending === 'resume' || undefined} onClick={(event) => { if (!pending) void act(job, 'resume', event.currentTarget); }}><Play size={13}/>{pending === 'resume' ? t('activity.resuming') : t('activity.resume')}</button>}
-                {['queued', 'running'].includes(job.status) && <button aria-disabled={Boolean(pending) || stopping || undefined} aria-busy={pending === 'cancel' || undefined} onClick={(event) => { if (!pending && !stopping) void act(job, 'cancel', event.currentTarget); }}><Ban size={13}/>{stopping ? t('activity.stoppingAction') : pending === 'cancel' ? t('activity.requestingStop') : t('activity.cancel')}</button>}
+              <div className="job-outcome-row">
+                <div className="job-problem">
+                  {job.error && <em data-server-text>{job.error}</em>}
+                  {failedAction?.observation === job.status && <p role="alert" className="job-action-error">{failedAction.action === 'resume' ? t('activity.resumeUnconfirmed') : t('activity.stopUnconfirmed')}</p>}
+                  {blockedSave?.id === job.id && <p role="alert" className="job-action-error">{blockedSave.message}</p>}
+                </div>
+                <div className="job-actions">
+                  {job.status === 'completed' && (job.proposalId || job.resultProjectId) && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}><Play size={13}/>{openingJobId === job.id ? t('activity.openingResult') : t('activity.openResult')}</button>}
+                  {blockedSave?.id === job.id && <button className="job-action-primary" onClick={onReturnToEdits}>{t('activity.returnToEdits')}</button>}
+                  {job.status === 'completed' && job.resultExport && <button className="job-action-primary" onClick={() => downloadExport(job)}><Download size={13}/>{t('activity.downloadVideo')}</button>}
+                  {job.status === 'completed' && job.resultExport && project?.id !== job.projectId && <button aria-disabled={openingJobId === job.id || undefined} aria-busy={openingJobId === job.id || undefined} onClick={() => { if (openingJobId !== job.id) onOpen(job); }}>{openingJobId === job.id ? t('activity.openingProject') : t('activity.openProject')}</button>}
+                  {job.canResume && <button aria-disabled={Boolean(pending) || undefined} aria-busy={pending === 'resume' || undefined} onClick={(event) => { if (!pending) void act(job, 'resume', event.currentTarget); }}><Play size={13}/>{pending === 'resume' ? t('activity.resuming') : t('activity.resume')}</button>}
+                  {['queued', 'running'].includes(job.status) && <button aria-disabled={Boolean(pending) || stopping || undefined} aria-busy={pending === 'cancel' || undefined} onClick={(event) => { if (!pending && !stopping) void act(job, 'cancel', event.currentTarget); }}><Ban size={13}/>{stopping ? t('activity.stoppingAction') : pending === 'cancel' ? t('activity.requestingStop') : t('activity.cancel')}</button>}
+                </div>
               </div>
             </div>
           </article>;

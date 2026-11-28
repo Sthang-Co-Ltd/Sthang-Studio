@@ -233,14 +233,15 @@ export function createSyntheticWav(durationSeconds: number, frequency = 440, sam
   return buffer;
 }
 
-export async function installFixture(page: Page): Promise<FixtureState> {
+export async function installFixture(page: Page, options: { showFirstRun?: boolean } = {}): Promise<FixtureState> {
   await installBrowserNetworkGuard(page.context(), harness);
   if (!mockServer) throw new Error('The owned native export fixture is not ready.');
   await installNativeExportGuard(page.context(), mockServer, scratch, harness);
   const nativeExportUrl = fixtureExportUrl();
   const state: FixtureState = { projects: [project(), project('second', { ...appearance, textColor: '#FF8000', fontSize1080: 88 })], profile: { version: 1, defaultVocabulary: [], styles: [], topicPacks: [], correctionRules: [], correctionEvents: [], captionAppearances: [], preferences: { interfaceLanguage: 'en', reviewPreRollMs: 100, reviewPostRollMs: 100, autoLoopReview: false, autoPlayNextReview: false, reviewFocusMode: 'brackets-label', analyticsConsent: 'declined', khmerContributionConsent: 'declined', privacyUpgradeNoticeVersion: '0.8', autosaveDelayMs: 250 }, updatedAt: now }, fonts: structuredClone(capabilities.fonts), jobs: [], requests: [], previewDelay: () => 0, appearanceFailure: false, native: false, previewError: '', previewGatewayFailures: 0 };
-  await page.addInitScript(() => {
+  await page.addInitScript((showFirstRun) => {
     for (const key of ['sthang:first-run-dismissed:v1', 'sthang:project-guide-seen:v1', 'kcs:profile-migrated:v1']) localStorage.setItem(key, '1');
+    if (showFirstRun) localStorage.removeItem('sthang:first-run-dismissed:v1');
     // A deterministic polling fallback: no unbounded SSE reconnect loop in a test fixture.
     (window as any).EventSource = undefined;
     (window as any).__STHANG_TEST_HOOKS__ = {
@@ -279,7 +280,7 @@ export async function installFixture(page: Page): Promise<FixtureState> {
         this.findReplaceScanCount++;
       },
     };
-  });
+  }, Boolean(options.showFirstRun));
   await page.route('https://**/*', (route) => route.abort());
   const wavA = createSyntheticWav(4.0, 440);
   const wavB = createSyntheticWav(4.0, 880);

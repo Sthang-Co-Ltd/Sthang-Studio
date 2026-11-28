@@ -365,6 +365,12 @@ export const exportMessages = {
     lastLoadedRecord: 'Last loaded record: {status}',
   },
   restore: {
+    chooseSection: 'Choose a backup section',
+    beginning: 'Beginning',
+    middle: 'Middle',
+    end: 'End',
+    range: 'Captions {first}–{last} of {total}',
+    singleRange: 'Caption {first} of {total}',
     title: 'Review caption import',
     mediaReminder: 'Use this file with the same source footage and playback speed. Caption times start at zero; the file does not contain or identify the source video.',
     previewLabel: 'Caption import preview',
@@ -374,6 +380,5 @@ export const exportMessages = {
     replacing: 'Replacing…',
     apply: 'Replace captions',
     replaceSummary: { one: 'Replace {count} current caption with {incoming} from this file. Your video, audio, and appearance stay unchanged.', other: 'Replace {count} current captions with {incoming} from this file. Your video, audio, and appearance stay unchanged.' },
-    moreCaptions: '{count} more captions not shown.',
   },
 } as const;

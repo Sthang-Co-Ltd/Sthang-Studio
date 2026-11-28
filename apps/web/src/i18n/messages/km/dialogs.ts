@@ -87,7 +87,10 @@ export const dialogsMessages: KhmerMessages<EnglishMessages['dialogs']> = {
     restoreDescription: "ស្ដារវីដេអូ ឬសំឡេងដែលបានរក្សាទុក រួមទាំងអក្សររត់ ការយល់ព្រម ពេលវេលា និងរូបរាងរបស់វា។ គម្រោងដែលបានរក្សាទុកបច្ចុប្បន្នរបស់អ្នកនឹងក្លាយជាឯកសារបម្រុងទុកមួយផ្សេងទៀត។",
     loadingBackups: "កំពុងផ្ទុកឯកសារបម្រុងទុក…",
     previousSource: "ឯកសារដើមមុន <b>{filename}</b>",
-    replaceDescription: "ជំនួសវីដេអូ ឬសំឡេងបច្ចុប្បន្នដោយ <b>{filename}</b>។ ជ្រើសរើសអ្វីដែលត្រូវរក្សាទុក។",
+    replaceDescription: 'ជ្រើសអ្វីដែលត្រូវរក្សាទុក។',
+    currentFootage: 'មេឌៀបច្ចុប្បន្ន',
+    replacementFootage: 'មេឌៀជំនួស',
+    sizeUnavailable: 'គ្មានព័ត៌មានទំហំ',
     resetCount: {
       other: "លុបសម្អាតអក្សររត់ {count} ឃ្លា ការយល់ព្រម ការចាក់សោ និងអត្ថបទបំប្លែងពីសំឡេង។ បង្កើតអក្សររត់ថ្មីនៅពេលអ្នករួចរាល់។",
     },
@@ -114,6 +117,10 @@ export const dialogsMessages: KhmerMessages<EnglishMessages['dialogs']> = {
     selector: "សេចក្ដីព្រាងសង្គ្រោះ",
     datedOption: "{date} · {label}",
     captionsInDraft: "អក្សររត់ {count} ឃ្លាក្នុងសេចក្ដីព្រាង",
+    savedCaption: "បានរក្សាទុក",
+    draftCaption: "សេចក្ដីព្រាង",
+    addedCaption: "បានបន្ថែមក្នុងសេចក្ដីព្រាង",
+    removedCaption: "បានដកចេញក្នុងសេចក្ដីព្រាង",
     appearanceSummary: "{font} · {weight} · ទំហំ {size} · ពណ៌អក្សរ {color}",
   },
   copyReport: {

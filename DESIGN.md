@@ -192,8 +192,8 @@ Fine timing's 184px waveform occupies a dock under the two non-preview panes
 when adjacent; with Preview in the middle it uses the caption column only and
 the inspector retains full height. Timing controls stay in the inspector. Layout
 geometry changes cancel any pending timing drag before moving its canvas.
-The local development prototype opens with `?timingOverview=1`. In Fine timing,
-the pan slider shows the whole clip with its current viewport outlined in lime.
+In Fine timing, the pan slider shows the whole clip with its current viewport
+outlined in lime once audio loads.
 Moving the window pauses follow and pans the detail. Seeking and caption edits
 remain on the detailed waveform. Full clip and Focus caption keep their usual roles.
 A narrower window keeps the canonical preview-first order and uses a vertically

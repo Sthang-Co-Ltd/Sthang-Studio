@@ -1,5 +1,6 @@
 export const timingMessages = {
   waveform: {
+    trimReadout: "{edgeLabel} {edgeTime} ({signedDeltaMs} ms)",
     overview: "View within clip",
     noPreviousCaption: "There is no previous caption. Turn off “Move adjoining edge too” to edit this edge.",
     noNextCaption: "There is no next caption. Turn off “Move adjoining edge too” to edit this edge.",
@@ -109,6 +110,10 @@ export const timingMessages = {
   start: "Start",
   setPlayhead: "Set to playhead",
   words: {
+    repairCurrent: 'Current timing',
+    repairProposed: 'Proposed edge',
+    repairSelectedCaption: 'Selected caption',
+    repairEdgeChange: '{edge} {before} → {after} ({delta} ms)',
     confirmEnd: "Set End to {end} or earlier. That manual timing edit will confirm this word.",
     confirmStart: "Set Start to {start} or later. That manual timing edit will confirm this word.",
     confirmRange: "Keep this word between {start} and {end}. A manual timing edit will confirm it.",

@@ -27,6 +27,48 @@ async function capture(page: Page, filename: string) {
   await page.screenshot({ path: path.resolve('.codex-tmp/wave2b3', filename) });
 }
 
+for (const locale of ['en', 'km'] as const) test(`Review shortcut hints yield to labels as the inspector narrows in ${locale}`, async ({ page }, info) => {
+  const state = await installFixture(page);
+  state.profile.preferences.interfaceLanguage = locale;
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await openProject(page);
+  await page.locator('[data-stage="review"]').click();
+  const card = page.locator('.review-card');
+  const caps = card.locator('.review-keycap');
+  await expect(caps).toHaveText(['R', 'S', 'A']);
+  // Exercise the pane breakpoint independently of the viewport and saved arrangement.
+  await card.evaluate(el => { el.style.width = '560px'; });
+  await expect(caps.first()).toBeVisible();
+  for (const cap of await caps.all()) {
+    await expect(cap.locator('..')).toHaveAttribute('aria-keyshortcuts', (await cap.textContent())!);
+    await expect(cap).toHaveAttribute('aria-hidden', 'true');
+  }
+  await card.evaluate(el => { el.style.removeProperty('width'); });
+  if (locale === 'en') await card.screenshot({ path: info.outputPath('review-shortcuts-desktop.png') });
+  await page.setViewportSize({ width: 320, height: 844 });
+  for (const cap of await caps.all()) await expect(cap).toBeHidden();
+  const decisionBar = card.locator('.review-decision-actions');
+  expect(await decisionBar.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+});
+
+test('a focused Review button accepts its own letter shortcut and leaves other actions alone', async ({ page }) => {
+  const state = await installFixture(page);
+  const captions = state.projects[0].captions;
+  captions[2].timingQuality = 'low';
+  await openProject(page);
+  await enterReview(page);
+  const edit = editText(page);
+  await edit.press('e');
+  await expect(edit).toBeFocused();
+  const skip = decision(page, 'Skip');
+  await skip.press('a');
+  await expect(cardText(page)).toHaveText(captions[0].text);
+  await skip.press('s');
+  await expect(cardText(page)).toHaveText(captions[1].text);
+  await decision(page, 'Approve & next').press('a');
+  await expect(cardText(page)).toHaveText(captions[2].text);
+});
+
 test('the card presents exact Khmer text, position, reasons and decisions in order', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const state = await installFixture(page);
